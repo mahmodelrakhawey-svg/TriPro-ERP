@@ -11,6 +11,7 @@
 
 import { supabase } from '../supabaseClient';
 import { WarehouseBin, BinStockAllocation, BinType } from '../types';
+import { secureStorage } from '../utils/securityMiddleware';
 
 const STORAGE_KEYS = {
   BINS: 'tripro_wms_bins_v1',
@@ -41,9 +42,7 @@ export class WmsLocationService {
   // ---------------------------------------------------------------------------
   private static getLocalBins(orgId?: string, warehouseId?: string): WarehouseBin[] {
     try {
-      const raw = localStorage.getItem(STORAGE_KEYS.BINS);
-      if (!raw) return [];
-      let all: WarehouseBin[] = JSON.parse(raw);
+      let all: WarehouseBin[] = secureStorage.getItem<WarehouseBin[]>(STORAGE_KEYS.BINS) || [];
       if (orgId) all = all.filter(b => b.organization_id === orgId);
       if (warehouseId) all = all.filter(b => b.warehouse_id === warehouseId);
       return all;
@@ -54,7 +53,7 @@ export class WmsLocationService {
 
   private static saveLocalBins(bins: WarehouseBin[]): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.BINS, JSON.stringify(bins));
+      secureStorage.setItem(STORAGE_KEYS.BINS, bins);
     } catch (e) {
       console.warn('Local save error:', e);
     }
@@ -62,9 +61,7 @@ export class WmsLocationService {
 
   private static getLocalAllocations(binId?: string, productId?: string): BinStockAllocation[] {
     try {
-      const raw = localStorage.getItem(STORAGE_KEYS.ALLOCATIONS);
-      if (!raw) return [];
-      let all: BinStockAllocation[] = JSON.parse(raw);
+      let all: BinStockAllocation[] = secureStorage.getItem<BinStockAllocation[]>(STORAGE_KEYS.ALLOCATIONS) || [];
       if (binId) all = all.filter(a => a.bin_id === binId);
       if (productId) all = all.filter(a => a.product_id === productId);
       return all;
@@ -75,7 +72,7 @@ export class WmsLocationService {
 
   private static saveLocalAllocations(allocs: BinStockAllocation[]): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.ALLOCATIONS, JSON.stringify(allocs));
+      secureStorage.setItem(STORAGE_KEYS.ALLOCATIONS, allocs);
     } catch (e) {
       console.warn('Local save error:', e);
     }

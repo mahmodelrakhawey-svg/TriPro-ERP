@@ -15,6 +15,11 @@ import { scaleService, ScaleReading } from '../../services/scaleService';
 import { evaluatePromotions, type PromotionRule } from '../../services/promotionEngine';
 import { couponService, RetailCoupon } from '../../services/couponService';
 import { generateCode128Svg } from '../../utils/barcodeSvg';
+import { getLiveShiftFinancials, calculateClosingShiftSummary } from '../../services/posShiftService';
+import { resolveScannedBarcode } from '../../services/posProductResolver';
+import { usePosCart, PosCartItem, isItemOfferActive, getItemEffectivePrice } from '../../hooks/usePosCart';
+import { processPosCheckout } from '../../services/posCheckoutService';
+import HeldOrdersModal, { HeldOrder } from './HeldOrdersModal';
 import { 
   Barcode, 
   Trash2, 
@@ -49,14 +54,7 @@ import {
   Gift
 } from 'lucide-react';
 
-interface CartItem {
-  product: CachedProduct;
-  quantity: number;
-  weight?: number; // In case of weight scale product
-  uomName?: string;
-  customPrice?: number;
-  uomId?: string;
-}
+type CartItem = PosCartItem;
 
 export default function RetailPosScreen() {
   const { currentUser, organization, settings, warehouses, refreshData, currentSelectedOrgId } = useAccounting() as any;
@@ -95,12 +93,19 @@ export default function RetailPosScreen() {
     drawerCash: 0
   });
 
-  // Cart State
-  const [cart, setCart] = useState<CartItem[]>([]);
+  // Cart State (managed by usePosCart hook)
+  const {
+    cart,
+    setCart,
+    pricingTier,
+    setPricingTier,
+    addToCart,
+    updateQuantity,
+    getItemEffectivePrice: getEffectivePriceHook
+  } = usePosCart();
   const [barcodeInput, setBarcodeInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CachedProduct[]>([]);
-  const [pricingTier, setPricingTier] = useState<'retail' | 'wholesale' | 'half'>('retail');
   
   // Payment & Loyalty State
   const [amountPaid, setAmountPaid] = useState<number>(0);
@@ -242,17 +247,6 @@ export default function RetailPosScreen() {
   };
 
   // ⏸️ Held / Parked Invoices State (تعليق واسترجاع الفواتير - F6)
-  interface HeldOrder {
-    id: string;
-    heldAt: string;
-    customer: any;
-    cart: CartItem[];
-    subtotal: number;
-    tax: number;
-    total: number;
-    notes?: string;
-  }
-
   const [heldOrders, setHeldOrders] = useState<HeldOrder[]>(() => {
     try {
       return secureStorage.getItem('tripro_retail_held_orders') || [];
@@ -338,44 +332,9 @@ export default function RetailPosScreen() {
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const printAreaRef = useRef<HTMLDivElement>(null);
 
-  // 🏷️ دالة التحقق من سريان عرض كارت الصنف (Item Card Offer)
-  const isItemOfferActive = (product: CachedProduct): boolean => {
-    const today = new Date().toISOString().split('T')[0];
-    const offerPrice = Number(product.offer_price || 0);
-    if (offerPrice > 0) {
-      if (product.offer_start_date && product.offer_end_date) {
-        return today >= product.offer_start_date && today <= product.offer_end_date;
-      }
-      if (product.offer_end_date) {
-        return today <= product.offer_end_date;
-      }
-      return true;
-    }
-    return false;
-  };
-
-  // 🏷️ دالة تحديد السعر الفعلي للصنف مع الأخذ في الحسبان فئة التسعير وسعر العرض والحد الأدنى
+  // 🏷️ دالة تحديد السعر الفعلي للصنف من خلال hook السلة الموحد
   const getItemEffectivePrice = (product: CachedProduct, customPrice?: number): number => {
-    let finalPrice = 0;
-    if (customPrice !== undefined && customPrice > 0) {
-      finalPrice = customPrice;
-    } else if (isItemOfferActive(product)) {
-      finalPrice = Number(product.offer_price);
-    } else if (pricingTier === 'wholesale' && Number(product.wholesale_price || 0) > 0) {
-      finalPrice = Number(product.wholesale_price);
-    } else if (pricingTier === 'half' && Number(product.half_wholesale_price || 0) > 0) {
-      finalPrice = Number(product.half_wholesale_price);
-    } else {
-      finalPrice = Number(product.sales_price || 0);
-    }
-
-    // 🛑 تطبيق الحد الأدنى لسعر البيع المسموح به كحماية (Price Floor)
-    const minPrice = Number(product.min_sales_price || 0);
-    if (minPrice > 0 && finalPrice < minPrice) {
-      finalPrice = minPrice;
-    }
-
-    return finalPrice;
+    return getEffectivePriceHook(product, customPrice);
   };
 
   // Calculations & Promotions Evaluation
@@ -761,75 +720,9 @@ export default function RetailPosScreen() {
       return;
     }
 
-    try {
-      const openingBal = Number(shift.opening_balance) || 0;
-      let cashSales = 0;
-      let cashReturns = 0;
-
-      // 1. Try get_shift_summary RPC
-      const { data: summary, error: summaryErr } = await supabase.rpc('get_shift_summary', {
-        p_shift_id: shift.id
-      });
-
-      if (!summaryErr && summary) {
-        cashSales = Number(summary.cash_sales) || 0;
-        cashReturns = Number(summary.cash_returns) || 0;
-      } else {
-        // Fallback: Query orders for cash sales
-        let ordQuery: any = supabase
-          .from('orders')
-          .select('grand_total, payment_method, status')
-          .eq('shift_id', shift.id);
-        if (typeof ordQuery?.in === 'function') {
-          ordQuery = ordQuery.in('status', ['PAID', 'COMPLETED', 'posted', 'CONFIRMED']);
-        }
-        const { data: ords } = await ordQuery;
-
-        const safeOrds = Array.isArray(ords) ? ords : [];
-        cashSales = safeOrds.filter((o: any) => !o.payment_method || o.payment_method === 'CASH')
-          .reduce((sum: number, o: any) => sum + Number(o.grand_total || 0), 0);
-      }
-
-      // 2. Fetch cash returns explicitly if not provided by RPC or if RPC is legacy
-      if (cashReturns === 0) {
-        try {
-          let retQuery: any = supabase
-            .from('sales_returns')
-            .select('total_amount, notes, user_id, created_at')
-            .eq('user_id', currentUser.id);
-
-          if (shift.start_time) {
-            retQuery = retQuery.gte('created_at', shift.start_time);
-          }
-
-          const { data: retRows } = await retQuery;
-          const safeRetRows = Array.isArray(retRows) ? retRows : [];
-
-          if (safeRetRows.length > 0) {
-            cashReturns = safeRetRows
-              .filter((r: any) => {
-                const isCash = !r.notes || r.notes.includes('نقدي') || r.notes.includes('CASH');
-                return isCash;
-              })
-              .reduce((sum: number, r: any) => sum + Number(r.total_amount || 0), 0);
-          }
-        } catch (e) {
-          console.warn('Could not query sales_returns for shift balance:', e);
-        }
-      }
-
-      const totalDrops = cashDrops.reduce((sum, d) => sum + Number(d.amount || 0), 0);
-      const drawerCash = Math.max(0, openingBal + cashSales - cashReturns - totalDrops);
-
-      setShiftFinancials({
-        cashSales,
-        cashReturns,
-        cashDrops: totalDrops,
-        drawerCash
-      });
-    } catch (err) {
-      console.error('Error refreshing shift financials:', err);
-    }
+    const totalDrops = cashDrops.reduce((sum, d) => sum + Number(d.amount || 0), 0);
+    const financials = await getLiveShiftFinancials(supabase, shift, currentUser?.id, totalDrops);
+    setShiftFinancials(financials);
   }, [activeShift, currentUser?.id, cashDrops]);
 
   useEffect(() => {
@@ -842,88 +735,19 @@ export default function RetailPosScreen() {
   const handleOpenCloseShiftModal = async () => {
     if (!activeShift) return;
     try {
-      const openingBal = Number(activeShift.opening_balance) || 0;
       const totalCashDrops = cashDrops.reduce((sum, d) => sum + Number(d.amount || 0), 0);
-
-      // 1. Fetch expected sales and balance from shifts RPC
-      const { data, error } = await supabase.rpc('get_shift_summary', {
-        p_shift_id: activeShift.id
-      });
-
-      // 2. Fetch cash returns explicitly to ensure returns are deducted even if RPC cache is old
-      let detectedCashReturns = Number(data?.cash_returns) || 0;
-      try {
-        let retQuery: any = supabase
-          .from('sales_returns')
-          .select('total_amount, notes, user_id, created_at')
-          .eq('user_id', currentUser.id);
-
-        if (activeShift.start_time) {
-          retQuery = retQuery.gte('created_at', activeShift.start_time);
-        }
-
-        const { data: retRows } = await retQuery;
-        const safeRetRows = Array.isArray(retRows) ? retRows : [];
-
-        if (safeRetRows.length > 0) {
-          detectedCashReturns = safeRetRows
-            .filter((r: any) => {
-              const isCash = !r.notes || r.notes.includes('نقدي') || r.notes.includes('CASH');
-              return isCash;
-            })
-            .reduce((sum: number, r: any) => sum + Number(r.total_amount || 0), 0);
-        }
-      } catch (reErr) {
-        console.warn('Could not query sales_returns for shift close:', reErr);
-      }
-
-      let calculatedExpectedCash = 0;
-
-      if (error) {
-        const { data: orders } = await supabase
-          .from('orders')
-          .select('grand_total, payment_method')
-          .eq('shift_id', activeShift.id);
-        const safeOrders = Array.isArray(orders) ? orders : [];
-        const totalSales = safeOrders.reduce((sum, o) => sum + Number(o.grand_total || 0), 0);
-        const cashSales = safeOrders.filter(o => !o.payment_method || o.payment_method === 'CASH').reduce((sum, o) => sum + Number(o.grand_total || 0), 0);
-        const cardSales = totalSales - cashSales;
-        calculatedExpectedCash = Math.max(0, openingBal + cashSales - detectedCashReturns - totalCashDrops);
-
-        setShiftSummary({
-          opening_balance: openingBal,
-          total_sales: totalSales,
-          cash_sales: cashSales,
-          card_sales: cardSales,
-          cash_returns: detectedCashReturns,
-          cash_drops: totalCashDrops,
-          expected_cash: calculatedExpectedCash
-        });
-      } else {
-        const cashSales = Number(data?.cash_sales) || 0;
-        const totalSales = Number(data?.total_sales) || 0;
-        const cardSales = Number(data?.card_sales) || 0;
-        const pettyCash = Number(data?.petty_cash) || 0;
-        calculatedExpectedCash = (data?.expected_cash !== undefined && data?.cash_returns !== undefined)
-          // get_shift_summary already deducts petty_cash from expected_cash — do NOT subtract totalCashDrops again
-          ? Math.max(0, Number(data.expected_cash))
-          : Math.max(0, openingBal + cashSales - detectedCashReturns - totalCashDrops - pettyCash);
-
-        setShiftSummary({
-          ...data,
-          opening_balance: openingBal,
-          total_sales: totalSales,
-          cash_sales: cashSales,
-          card_sales: cardSales,
-          cash_returns: detectedCashReturns,
-          cash_drops: totalCashDrops,
-          expected_cash: calculatedExpectedCash
-        });
-      }
+      const { summary, calculatedExpectedCash } = await calculateClosingShiftSummary(
+        supabase,
+        activeShift,
+        currentUser?.id,
+        totalCashDrops
+      );
+      setShiftSummary(summary);
       setActualCash(calculatedExpectedCash);
       setIsCloseModalOpen(true);
     } catch (e) {
       console.error(e);
+      showToast('خطأ في جلب بيانات الإغلاق', 'error');
     }
   };
 
@@ -959,241 +783,36 @@ export default function RetailPosScreen() {
     }
   };
 
-  // Weight Barcode Parser (GS1 Standard: 20-29 & 99)
-  const parseWeightBarcode = (barcode: string) => {
-    // Structure: PP CCCCC WWWWW X (Prefix 2 digits, Product Code 5 digits, Weight/Price 5 digits, Checksum 1 digit)
-    if (barcode.length === 13) {
-      const prefix = barcode.substring(0, 2);
-      const validPrefixes = ['20', '21', '22', '23', '24', '25', '26', '27', '28', '29', '99'];
-      if (validPrefixes.includes(prefix)) {
-        const productCode = barcode.substring(2, 7);
-        const weightString = barcode.substring(7, 12);
-        const weight = Number(weightString) / 1000; // e.g. 01250 -> 1.250 kg
-        return { productCode, weight };
-      }
-    }
-    return null;
-  };
-
-  // Handle barcode submission
+  // Handle barcode submission using isolated resolver service
   const handleBarcodeSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    let code = barcodeInput.trim();
-    if (!code) return;
+    const rawCode = barcodeInput.trim();
+    if (!rawCode) return;
 
     setBarcodeInput('');
     playBeep();
 
-    let multiplier = 1;
-    // 🛡️ Parse quantity multiplier (e.g. 5*barcode or 5xbarcode)
-    if (code.includes('*')) {
-      const parts = code.split('*');
-      if (parts.length === 2 && !isNaN(Number(parts[0])) && Number(parts[0]) > 0) {
-        multiplier = Math.round(Number(parts[0]));
-        code = parts[1].trim();
-      }
-    } else if (code.toLowerCase().includes('x')) {
-      const parts = code.toLowerCase().split('x');
-      if (parts.length === 2 && !isNaN(Number(parts[0])) && Number(parts[0]) > 0) {
-        multiplier = Math.round(Number(parts[0]));
-        code = parts[1].trim();
-      }
-    }
-
     try {
-      let matchedProduct: CachedProduct | undefined;
-      let matchedUomInfo: { uom_name?: string; customPrice?: number; uom_id?: string } | undefined;
-      let weight: number | undefined;
-
-      // 1. Check if it's a weight scale barcode
-      const weightParse = parseWeightBarcode(code);
-      if (weightParse) {
-        const { productCode, weight: parsedWeight } = weightParse;
-        const numericPlu = parseInt(productCode, 10);
-
-        // Search local Dexie cache by PLU number, SKU, barcode, or barcode2
-        const allCached = await db.products.toArray();
-        matchedProduct = allCached.find(p => 
-          (p.plu_number && p.plu_number === numericPlu) ||
-          p.barcode === productCode || 
-          p.sku === productCode || 
-          p.sku === String(numericPlu) ||
-          p.barcode2 === productCode
-        );
-
-        // Fallback to online Supabase if product was newly added and not yet synced
-        if (!matchedProduct && currentUser?.organization_id) {
-          const { data: onlineList } = await supabase
-            .from('products')
-            .select('*')
-            .eq('organization_id', currentUser.organization_id)
-            .eq('is_active', true)
-            .or(`plu_number.eq.${numericPlu},barcode.eq.${productCode},sku.eq.${productCode},sku.eq.${numericPlu},barcode2.eq.${productCode}`);
-          if (onlineList && onlineList.length > 0) {
-            matchedProduct = onlineList[0] as any;
-            try { await db.products.put(matchedProduct as any); } catch (e) {}
-          }
-        }
-        weight = parsedWeight;
-      } else {
-        // 2. Search by normal barcode, SKU, or barcode2
-        const cleanCode = code.trim().toLowerCase();
-        const allCached = await db.products.toArray();
-
-        // 2a. Direct match in local cache
-        matchedProduct = allCached.find(p => 
-          (p.barcode && p.barcode.trim().toLowerCase() === cleanCode) ||
-          (p.sku && p.sku.trim().toLowerCase() === cleanCode) ||
-          (p.barcode2 && p.barcode2.trim().toLowerCase() === cleanCode)
-        );
-
-        // 2b. Search multi-unit barcodes (unit_barcodes) in local cache
-        if (!matchedProduct) {
-          for (const p of allCached) {
-            if (Array.isArray((p as any).unit_barcodes)) {
-              const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
-              if (foundUom) {
-                matchedProduct = p;
-                matchedUomInfo = {
-                  uom_name: foundUom.uom_name,
-                  customPrice: foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : p.sales_price,
-                  uom_id: foundUom.uom_id
-                };
-                break;
-              }
-            }
-          }
-        } else if (Array.isArray((matchedProduct as any).unit_barcodes)) {
-          // If matched directly, check if it was specifically a unit barcode
-          const foundUom = (matchedProduct as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
-          if (foundUom) {
-            matchedUomInfo = {
-              uom_name: foundUom.uom_name,
-              customPrice: foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : matchedProduct.sales_price,
-              uom_id: foundUom.uom_id
-            };
-          }
-        }
-
-        // Fallback online search
-        if (!matchedProduct && currentUser?.organization_id) {
-          const { data: onlineList } = await supabase
-            .from('products')
-            .select('*')
-            .eq('organization_id', currentUser.organization_id)
-            .eq('is_active', true)
-            .or(`barcode.ilike.${cleanCode},sku.ilike.${cleanCode},barcode2.ilike.${cleanCode}`);
-
-          if (onlineList && onlineList.length > 0) {
-            matchedProduct = onlineList[0] as any;
-            try { await db.products.put(matchedProduct as any); } catch (e) {}
-          } else {
-            // Search products with unit_barcodes online
-            const { data: allOnline } = await supabase
-              .from('products')
-              .select('*')
-              .eq('organization_id', currentUser.organization_id)
-              .eq('is_active', true)
-              .not('unit_barcodes', 'is', null);
-
-            if (allOnline && allOnline.length > 0) {
-              for (const p of allOnline) {
-                if (Array.isArray(p.unit_barcodes)) {
-                  const foundUom = p.unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
-                  if (foundUom) {
-                    matchedProduct = p as any;
-                    matchedUomInfo = {
-                      uom_name: foundUom.uom_name,
-                      customPrice: foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : p.sales_price,
-                      uom_id: foundUom.uom_id
-                    };
-                    try { await db.products.put(matchedProduct as any); } catch (e) {}
-                    break;
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
+      const { matchedProduct, matchedUomInfo, weight, multiplier, cleanCode } = await resolveScannedBarcode(
+        rawCode,
+        currentUser?.organization_id
+      );
 
       if (matchedProduct) {
         addToCart(
-          matchedProduct, 
-          weight, 
-          multiplier, 
-          matchedUomInfo?.uom_name, 
-          matchedUomInfo?.customPrice, 
+          matchedProduct,
+          weight,
+          multiplier,
+          matchedUomInfo?.uom_name,
+          matchedUomInfo?.customPrice,
           matchedUomInfo?.uom_id
         );
       } else {
-        showToast(`لم يتم العثور على صنف بالرمز: ${code}`, 'error');
+        showToast(`لم يتم العثور على صنف بالرمز: ${cleanCode || rawCode}`, 'error');
       }
     } catch (err) {
-      console.error(err);
+      console.error('Barcode resolution error:', err);
     }
-  };
-
-  // Add Product to Cart
-  const addToCart = (
-    product: CachedProduct, 
-    weight?: number, 
-    multiplier: number = 1,
-    uomName?: string,
-    customPrice?: number,
-    uomId?: string
-  ) => {
-    // 🔞 تحقق من تقييد العمر قبل إضافة الصنف للسلة
-    if ((product as any).age_restricted) {
-      const confirmed = window.confirm(
-        `⚠️ تنبيه: هذا الصنف مقيد بالعمر (+18)\n\n` +
-        `الصنف: ${product.name}\n\n` +
-        `هل تأكدت من أن عمر العميل 18 سنة فأكبر؟\n` +
-        `اضغط "موافق" للمتابعة أو "إلغاء" لإلغاء العملية.`
-      );
-      if (!confirmed) return;
-    }
-
-    setCart(prev => {
-      const existing = prev.find(item => item.product.id === product.id && item.uomId === uomId);
-      if (existing) {
-        if (weight !== undefined) {
-          return prev.map(item => 
-            (item.product.id === product.id && item.uomId === uomId)
-              ? { ...item, quantity: item.quantity + multiplier, weight: (item.weight || 0) + (weight * multiplier) }
-              : item
-          );
-        } else {
-          return prev.map(item => 
-            (item.product.id === product.id && item.uomId === uomId)
-              ? { ...item, quantity: item.quantity + multiplier }
-              : item
-          );
-        }
-      }
-      return [
-        ...prev, 
-        { 
-          product, 
-          quantity: multiplier, 
-          weight: weight !== undefined ? weight * multiplier : undefined,
-          uomName,
-          customPrice,
-          uomId
-        }
-      ];
-    });
-  };
-
-  // Update Cart Quantity
-  const updateQuantity = (productId: string, delta: number) => {
-    setCart(prev => prev.map(item => {
-      if (item.product.id === productId) {
-        const newQty = item.quantity + delta;
-        return newQty > 0 ? { ...item, quantity: newQty } : item;
-      }
-      return item;
-    }).filter(item => item.quantity > 0));
   };
 
   // Search Products locally
@@ -1246,157 +865,33 @@ export default function RetailPosScreen() {
     setIsPrinting(true);
 
     try {
-      // Map cart items to order items schema
-      const itemsPayload = cart.map(item => ({
-        product_id: item.product.id,
-        quantity: item.weight !== undefined ? item.weight : item.quantity,
-        unit_price: getItemEffectivePrice(item.product, item.customPrice),
-        uom_id: item.uomId || null
-      }));
-
-      const effectiveWarehouseId = selectedTerminal?.warehouse_id || settings?.defaultWarehouseId || settings?.default_warehouse_id || (warehouses && warehouses[0]?.id) || '00000000-0000-0000-0000-000000000000';
-
-      const orderData = {
-        sessionId: null,
-        userId: currentUser.id,
-        orderType: 'TAKEAWAY',
-        notes: splitData 
-          ? `مبيعات كاشير تجزئة سريعة [دفع متعدد: كاش ${splitData.cash}, فيزا ${splitData.card}, آجل ${splitData.credit}, ولاء ${splitData.loyalty}]`
-          : 'مبيعات كاشير تجزئة سريعة',
-        items: itemsPayload,
-        warehouseId: effectiveWarehouseId,
-        orgId: currentUser.organization_id,
-        customerId: selectedCustomer?.id || null,
-        paymentMethod: effectiveMethod,
-        paymentAmount: total
-      };
-
-      let orderId: string | null = null;
-
-      if (isOnline) {
-        // 1. Create order on Supabase
-        const { data, error } = await supabase.rpc('create_restaurant_order', {
-          p_session_id: null,
-          p_user_id: currentUser.id,
-          p_order_type: 'TAKEAWAY',
-          p_notes: orderData.notes,
-          p_items: itemsPayload,
-          p_customer_id: selectedCustomer?.id || null,
-          p_warehouse_id: effectiveWarehouseId !== '00000000-0000-0000-0000-000000000000' ? effectiveWarehouseId : null,
-          p_delivery_info: null,
-          p_org_id: currentUser.organization_id
-        });
-
-        if (error) throw error;
-        orderId = data;
-
-        if (orderId) {
-          // Update order with shift_id, terminal_id and total_discount
-          const updatePayload: any = { 
-            shift_id: activeShift?.id || null,
-            total_discount: totalDiscount || 0
-          };
-          if (selectedTerminal?.id) {
-            updatePayload.terminal_id = selectedTerminal.id;
-          }
-
-          await supabase
-            .from('orders')
-            .update(updatePayload)
-            .eq('id', orderId);
-
-          // 2. Complete order (process payment & stock)
-          let treasuryId = selectedTerminal?.cash_account_id;
-          if (!treasuryId) {
-            treasuryId = settings?.accountMappings?.CASH || settings?.account_mappings?.CASH || null;
-            if (!treasuryId) {
-              const { data: mappings } = await supabase
-                .from('company_settings')
-                .select('account_mappings')
-                .eq('organization_id', currentUser.organization_id)
-                .maybeSingle();
-              treasuryId = mappings?.account_mappings?.CASH || null;
-            }
-          }
-
-          const { error: payErr } = await supabase.rpc('complete_restaurant_order', {
-            p_order_id: orderId,
-            p_payment_method: effectiveMethod,
-            p_amount: total,
-            p_cash_account_id: treasuryId,
-            p_org_id: currentUser.organization_id,
-            p_warehouse_id: effectiveWarehouseId !== '00000000-0000-0000-0000-000000000000' ? effectiveWarehouseId : null
-          });
-
-          if (payErr) throw payErr;
-
-          // 3. Record coupon usage if applied
-          if (appliedCoupon) {
-            await couponService.recordUsage(appliedCoupon.id, currentUser.organization_id);
-          }
-        }
-      } else {
-        // Queue order for offline sync
-        const offlinePayload = {
-          ...orderData,
-          shift_id: activeShift?.id || null,
-          terminal_id: selectedTerminal?.id || null,
-          is_offline: true
-        };
-        await offlineService.queueOrder(offlinePayload);
-      }
-
-      const finalPromoDiscount = totalPromoDiscount || 0;
-      const effectiveCouponDiscount = splitData?.couponDiscount !== undefined ? splitData.couponDiscount : (couponDiscount || 0);
-      const totalSavings = finalPromoDiscount + effectiveCouponDiscount;
-
-      // Fetch actual order number from database so receipt and database match 100%
-      let actualOrderNumber = '';
-      if (orderId) {
-        try {
-          const { data: ordRow } = await supabase
-            .from('orders')
-            .select('order_number')
-            .eq('id', orderId)
-            .maybeSingle();
-          if (ordRow?.order_number) {
-            actualOrderNumber = ordRow.order_number;
-          }
-        } catch (e) {
-          console.warn('Could not fetch real order_number:', e);
-        }
-      }
-      if (!actualOrderNumber) {
-        actualOrderNumber = `ORD-${Date.now().toString().slice(-6)}`;
-      }
-
-      // Receipt printing structure
-      setReceiptOrder({
-        orderNumber: actualOrderNumber,
-        date: new Date().toLocaleDateString('ar-EG'),
-        time: new Date().toLocaleTimeString('ar-EG'),
-        items: cart.map(i => ({
-          name: i.product.name,
-          quantity: i.weight !== undefined ? i.weight : i.quantity,
-          price: getItemEffectivePrice(i.product, i.customPrice),
-          originalPrice: isItemOfferActive(i.product) && i.customPrice === undefined ? Number(i.product.sales_price || 0) : undefined,
-          isOffer: isItemOfferActive(i.product) && i.customPrice === undefined,
-          unit: i.weight !== undefined ? 'كجم' : (i.uomName || 'حبة')
-        })),
-        subtotal,
-        promoDiscount: finalPromoDiscount,
-        appliedPromotions: appliedPromotions || [],
-        appliedCoupon: appliedCoupon ? appliedCoupon.name : undefined,
-        couponDiscount: effectiveCouponDiscount > 0 ? effectiveCouponDiscount : undefined,
-        totalSavings,
-        tax,
+      const checkoutResult = await processPosCheckout({
+        cart,
+        currentUser,
+        organization,
+        selectedTerminal,
+        activeShift,
+        selectedCustomer,
+        paymentMethod,
+        splitData,
+        amountPaid,
         total,
-        amountPaid: effectivePaid,
-        change,
-        splitDetails: splitData
+        subtotal,
+        tax,
+        totalDiscount,
+        totalPromoDiscount,
+        appliedPromotions,
+        appliedCoupon,
+        couponDiscount,
+        settings,
+        warehouses,
+        isOnline,
+        getItemEffectivePrice,
+        isItemOfferActive
       });
 
-      showToast(`تم إتمام العملية بنجاح. المتبقي للعميل: ${change.toFixed(2)} ${currencySymbol}`, 'success');
+      setReceiptOrder(checkoutResult.receiptOrder);
+      showToast(`تم إتمام العملية بنجاح. المتبقي للعميل: ${checkoutResult.change.toFixed(2)} ${currencySymbol}`, 'success');
       
       // Refresh shift financials immediately after sale
       if (activeShift) {
@@ -2117,75 +1612,14 @@ export default function RetailPosScreen() {
       )}
 
       {/* ⏸️ Held / Parked Orders Modal */}
-      {isHeldModalOpen && (
-        <div className="fixed inset-0 bg-slate-950/90 z-50 flex items-center justify-center p-4 backdrop-blur-sm" dir="rtl">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
-            <div className="p-5 border-b border-slate-800 flex justify-between items-center bg-slate-950/50">
-              <h3 className="font-black text-lg text-white flex items-center gap-2">
-                <Pause size={20} className="text-amber-400" /> الفواتير المعلقة في الوردية ({heldOrders.length})
-              </h3>
-              <button 
-                onClick={() => setIsHeldModalOpen(false)}
-                className="text-slate-400 hover:text-white text-sm px-3 py-1 rounded-lg bg-slate-800"
-              >
-                إغلاق
-              </button>
-            </div>
-
-            <div className="p-6 max-h-[60vh] overflow-y-auto space-y-3">
-              {heldOrders.length === 0 ? (
-                <div className="text-center py-12 text-slate-500 space-y-2">
-                  <Clock size={40} className="mx-auto text-slate-600" />
-                  <p className="font-bold">لا توجد فواتير معلقة حالياً</p>
-                  <p className="text-xs">يمكنك تعليق أي فاتورة جارية بالضغط على F6 لخدمة العميل التالي فوراً.</p>
-                </div>
-              ) : (
-                heldOrders.map((held) => (
-                  <div key={held.id} className="bg-slate-950 border border-slate-800 hover:border-indigo-500/50 p-4 rounded-xl flex justify-between items-center transition-all">
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-black text-amber-400 bg-amber-950/50 px-2 py-0.5 rounded text-xs border border-amber-900/50">
-                          {held.id}
-                        </span>
-                        <span className="text-xs text-slate-400 flex items-center gap-1 font-mono">
-                          <Clock size={12} /> {held.heldAt}
-                        </span>
-                        {held.customer && (
-                          <span className="text-xs bg-indigo-950 text-indigo-300 px-2 py-0.5 rounded-full font-bold">
-                            👤 {held.customer.name}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-slate-400">
-                        {held.cart.length} أصناف: {held.cart.map(c => c.product.name).slice(0, 3).join('، ')} {held.cart.length > 3 ? '...' : ''}
-                      </div>
-                      <div className="text-sm font-black font-mono text-white">
-                        الإجمالي: <span className="text-emerald-400">{held.total.toFixed(2)} {currencySymbol}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <button 
-                        onClick={() => handleResumeOrder(held)}
-                        className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-lg shadow-indigo-600/20 transition-all"
-                      >
-                        <Play size={14} /> استرجاع للسلة
-                      </button>
-                      <button 
-                        onClick={() => handleDeleteHeld(held.id)}
-                        className="bg-slate-900 hover:bg-red-950/80 text-slate-500 hover:text-red-400 p-2 rounded-xl border border-slate-800 transition-all"
-                        title="حذف الفاتورة"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      )}
+      <HeldOrdersModal
+        isOpen={isHeldModalOpen}
+        onClose={() => setIsHeldModalOpen(false)}
+        heldOrders={heldOrders}
+        onResumeOrder={handleResumeOrder}
+        onDeleteHeld={handleDeleteHeld}
+        currencySymbol={currencySymbol}
+      />
 
       {/* 🏁 Close Shift Modal */}
       {isCloseModalOpen && shiftSummary && (

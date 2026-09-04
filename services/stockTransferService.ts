@@ -11,6 +11,7 @@ import { supabase } from '../supabaseClient';
 import { InTransitTransfer, InTransitTransferItem, TransferType, InTransitStatus } from '../types';
 import WmsLocationService from './wmsLocationService';
 import NotificationService from './notificationService';
+import { secureStorage } from '../utils/securityMiddleware';
 
 const STORAGE_KEYS = {
   TRANSFERS: 'tripro_in_transit_transfers_v1',
@@ -40,9 +41,7 @@ export class StockTransferService {
   // ---------------------------------------------------------------------------
   private static getLocalTransfers(orgId?: string): InTransitTransfer[] {
     try {
-      const raw = localStorage.getItem(STORAGE_KEYS.TRANSFERS);
-      if (!raw) return [];
-      let all: InTransitTransfer[] = JSON.parse(raw);
+      let all: InTransitTransfer[] = secureStorage.getItem<InTransitTransfer[]>(STORAGE_KEYS.TRANSFERS) || [];
       if (orgId) all = all.filter(t => t.organization_id === orgId);
       return all;
     } catch {
@@ -52,7 +51,7 @@ export class StockTransferService {
 
   private static saveLocalTransfers(transfers: InTransitTransfer[]): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.TRANSFERS, JSON.stringify(transfers));
+      secureStorage.setItem(STORAGE_KEYS.TRANSFERS, transfers);
     } catch (e) {
       console.warn('Local save error:', e);
     }

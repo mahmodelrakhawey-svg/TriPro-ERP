@@ -10,6 +10,7 @@
 import { supabase } from '../supabaseClient';
 import { PurchaseRfq, PurchaseRfqItem, VendorQuotationBid, VendorQuotationBidItem, PurchaseRfqStatus } from '../types';
 import NotificationService from './notificationService';
+import { secureStorage } from '../utils/securityMiddleware';
 
 const STORAGE_KEYS = {
   RFQS: 'tripro_purchase_rfqs_v1',
@@ -40,9 +41,7 @@ export class RfqService {
   // ---------------------------------------------------------------------------
   private static getLocalRfqs(orgId?: string): PurchaseRfq[] {
     try {
-      const raw = localStorage.getItem(STORAGE_KEYS.RFQS);
-      if (!raw) return [];
-      let all: PurchaseRfq[] = JSON.parse(raw);
+      let all: PurchaseRfq[] = secureStorage.getItem<PurchaseRfq[]>(STORAGE_KEYS.RFQS) || [];
       if (orgId) all = all.filter(r => r.organization_id === orgId);
       return all;
     } catch {
@@ -52,7 +51,7 @@ export class RfqService {
 
   private static saveLocalRfqs(rfqs: PurchaseRfq[]): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.RFQS, JSON.stringify(rfqs));
+      secureStorage.setItem(STORAGE_KEYS.RFQS, rfqs);
     } catch (e) {
       console.warn('Local storage save error:', e);
     }
@@ -60,9 +59,7 @@ export class RfqService {
 
   private static getLocalBids(rfqId?: string): VendorQuotationBid[] {
     try {
-      const raw = localStorage.getItem(STORAGE_KEYS.BIDS);
-      if (!raw) return [];
-      let all: VendorQuotationBid[] = JSON.parse(raw);
+      let all: VendorQuotationBid[] = secureStorage.getItem<VendorQuotationBid[]>(STORAGE_KEYS.BIDS) || [];
       if (rfqId) all = all.filter(b => b.rfq_id === rfqId);
       return all;
     } catch {
@@ -72,7 +69,7 @@ export class RfqService {
 
   private static saveLocalBids(bids: VendorQuotationBid[]): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.BIDS, JSON.stringify(bids));
+      secureStorage.setItem(STORAGE_KEYS.BIDS, bids);
     } catch (e) {
       console.warn('Local storage save error:', e);
     }

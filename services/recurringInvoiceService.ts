@@ -10,6 +10,7 @@
 import { supabase } from '../supabaseClient';
 import { RecurringInvoice, RecurringInvoiceItem, RecurringInvoiceLog, RecurringFrequency, RecurringStatus } from '../types';
 import NotificationService from './notificationService';
+import { secureStorage } from '../utils/securityMiddleware';
 
 const STORAGE_KEYS = {
   SUBSCRIPTIONS: 'tripro_recurring_invoices_v1',
@@ -73,9 +74,7 @@ export class RecurringInvoiceService {
   // ---------------------------------------------------------------------------
   private static getLocalSubs(orgId: string): RecurringInvoice[] {
     try {
-      const raw = localStorage.getItem(STORAGE_KEYS.SUBSCRIPTIONS);
-      if (!raw) return [];
-      const all: RecurringInvoice[] = JSON.parse(raw);
+      const all: RecurringInvoice[] = secureStorage.getItem<RecurringInvoice[]>(STORAGE_KEYS.SUBSCRIPTIONS) || [];
       return all.filter(s => !orgId || s.organization_id === orgId);
     } catch {
       return [];
@@ -84,7 +83,7 @@ export class RecurringInvoiceService {
 
   private static saveLocalSubs(subs: RecurringInvoice[]): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.SUBSCRIPTIONS, JSON.stringify(subs));
+      secureStorage.setItem(STORAGE_KEYS.SUBSCRIPTIONS, subs);
     } catch (e) {
       console.warn('LocalStorage save error:', e);
     }
@@ -92,9 +91,7 @@ export class RecurringInvoiceService {
 
   private static getLocalItems(subId?: string): RecurringInvoiceItem[] {
     try {
-      const raw = localStorage.getItem(STORAGE_KEYS.ITEMS);
-      if (!raw) return [];
-      const all: (RecurringInvoiceItem & { recurring_invoice_id?: string })[] = JSON.parse(raw);
+      const all: (RecurringInvoiceItem & { recurring_invoice_id?: string })[] = secureStorage.getItem<(RecurringInvoiceItem & { recurring_invoice_id?: string })[]>(STORAGE_KEYS.ITEMS) || [];
       if (subId) {
         return all.filter(it => it.recurring_invoice_id === subId);
       }
@@ -106,7 +103,7 @@ export class RecurringInvoiceService {
 
   private static saveLocalItems(items: RecurringInvoiceItem[]): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.ITEMS, JSON.stringify(items));
+      secureStorage.setItem(STORAGE_KEYS.ITEMS, items);
     } catch (e) {
       console.warn('LocalStorage save error:', e);
     }
@@ -114,9 +111,7 @@ export class RecurringInvoiceService {
 
   private static getLocalLogs(subId?: string): RecurringInvoiceLog[] {
     try {
-      const raw = localStorage.getItem(STORAGE_KEYS.LOGS);
-      if (!raw) return [];
-      const all: RecurringInvoiceLog[] = JSON.parse(raw);
+      const all: RecurringInvoiceLog[] = secureStorage.getItem<RecurringInvoiceLog[]>(STORAGE_KEYS.LOGS) || [];
       if (subId) {
         return all.filter(l => l.recurring_invoice_id === subId);
       }
@@ -128,7 +123,7 @@ export class RecurringInvoiceService {
 
   private static saveLocalLogs(logs: RecurringInvoiceLog[]): void {
     try {
-      localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs));
+      secureStorage.setItem(STORAGE_KEYS.LOGS, logs);
     } catch (e) {
       console.warn('LocalStorage save error:', e);
     }

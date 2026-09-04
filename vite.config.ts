@@ -27,15 +27,22 @@ export default defineConfig(({ mode }) => {
         }
       },
       build: {
-        chunkSizeWarningLimit: 1600,
+        chunkSizeWarningLimit: 2500,
         rollupOptions: {
           output: {
-            manualChunks: {
-              'vendor-react': ['react', 'react-dom', 'react-router-dom'],
-              'vendor-ui': ['lucide-react', 'recharts', 'react-hot-toast'],
-              'vendor-antd': ['antd', '@ant-design/icons', '@ant-design/cssinjs'],
-              'vendor-utils': ['xlsx', 'jspdf', 'html2canvas'],
-              'vendor-supabase': ['@supabase/supabase-js'],
+            manualChunks(id) {
+              if (id.includes('node_modules')) {
+                if (id.includes('xlsx')) {
+                  return 'vendor-xlsx';
+                }
+                if (id.includes('lucide-react') || id.includes('recharts')) {
+                  return 'vendor-ui';
+                }
+                return 'vendor-core';
+              }
+              if (id.includes('/modules/retail/')) {
+                return 'mod-retail';
+              }
             },
           },
         },
