@@ -1291,8 +1291,11 @@ export default function RetailPosScreen() {
         orderId = data;
 
         if (orderId) {
-          // Update order with shift_id and terminal_id
-          const updatePayload: any = { shift_id: activeShift?.id || null };
+          // Update order with shift_id, terminal_id and total_discount
+          const updatePayload: any = { 
+            shift_id: activeShift?.id || null,
+            total_discount: totalDiscount || 0
+          };
           if (selectedTerminal?.id) {
             updatePayload.terminal_id = selectedTerminal.id;
           }
