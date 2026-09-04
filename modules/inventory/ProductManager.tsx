@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Scale, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers, PackageOpen } from 'lucide-react';
+import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Scale, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers, PackageOpen, Sparkles } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -58,6 +58,11 @@ type Item = {
   age_restricted?: boolean;
   tax_rate_override?: number | null;
   unit_barcodes?: Array<{ uom_id?: string; barcode: string; price?: number; uom_name?: string }>;
+  // ========== حدود التسعير والمخزون المتقدمة ==========
+  min_sales_price?: number | null;
+  max_stock_level?: number | null;
+  wholesale_price?: number | null;
+  half_wholesale_price?: number | null;
 };
 
 // Define a type for the formData state to ensure consistency
@@ -102,6 +107,11 @@ type ProductFormData = {
   age_restricted: boolean;
   tax_rate_override: number;
   unit_barcodes: Array<{ uom_id?: string; barcode: string; price?: number; uom_name?: string }>;
+  // ========== حدود التسعير والمخزون المتقدمة ==========
+  min_sales_price: number;
+  max_stock_level: number;
+  wholesale_price: number;
+  half_wholesale_price: number;
 };
 
 const ProductManager = () => {
@@ -325,6 +335,11 @@ const ProductManager = () => {
     age_restricted: false,
     tax_rate_override: 0,
     unit_barcodes: [],
+    // حدود التسعير والمخزون المتقدمة
+    min_sales_price: 0,
+    max_stock_level: 0,
+    wholesale_price: 0,
+    half_wholesale_price: 0,
   });
 
   // 🚀 تحديث تلقائي لسعر التكلفة التقديري بناءً على العمالة والمصاريف (للوجبات)
@@ -370,6 +385,84 @@ const ProductManager = () => {
     }
   }, [editingId, isModalOpen]);
 
+  // 🏷️ توليد كود فريد تلقائياً لصنف (SKU)
+  const generateUniqueSku = useCallback((prefix = 'SKU'): string => {
+    const existingSkus = new Set(
+      (items || []).map(p => (p.sku || '').trim().toUpperCase()).filter(Boolean)
+    );
+    let seq = (items || []).length + 1;
+    let candidate = `${prefix}-${String(seq).padStart(5, '0')}`;
+    while (existingSkus.has(candidate.toUpperCase())) {
+      seq++;
+      candidate = `${prefix}-${String(seq).padStart(5, '0')}`;
+    }
+    return candidate;
+  }, [items]);
+
+  // 🏷️ توليد باركود فريد تلقائياً
+  const generateUniqueBarcode = useCallback((): string => {
+    const existingBarcodes = new Set(
+      (items || []).map(p => (p.barcode || '').trim()).filter(Boolean)
+    );
+    let candidate = '';
+    do {
+      const rand = Math.floor(100000000 + Math.random() * 900000000);
+      candidate = `200${rand}`;
+    } while (existingBarcodes.has(candidate));
+    return candidate;
+  }, [items]);
+
+  const [isAssigningSkus, setIsAssigningSkus] = useState(false);
+
+  // ⚡ تعيين وتوليد أكواد SKU تلقائية لجميع الأصناف التي تفتقر لكود
+  const handleAutoAssignMissingSkus = async () => {
+    const missing = (items || []).filter(p => !p.sku || !p.sku.trim());
+    if (missing.length === 0) {
+      showToast('جميع الأصناف المعروضة تحتوي بالفعل على كود (SKU)', 'info');
+      return;
+    }
+
+    if (!window.confirm(`هل تريد توليد وتعيين أكواد SKU تلقائية لـ (${missing.length}) صنف لا يمتلك كود حالياً؟`)) {
+      return;
+    }
+
+    setIsAssigningSkus(true);
+    try {
+      const existingSkus = new Set(
+        (items || []).map(p => (p.sku || '').trim().toUpperCase()).filter(Boolean)
+      );
+      let seq = (items || []).length + 1;
+      let updatedCount = 0;
+
+      for (const prod of missing) {
+        let candidate = `SKU-${String(seq).padStart(5, '0')}`;
+        while (existingSkus.has(candidate.toUpperCase())) {
+          seq++;
+          candidate = `SKU-${String(seq).padStart(5, '0')}`;
+        }
+        existingSkus.add(candidate.toUpperCase());
+        seq++;
+
+        const { error } = await supabase
+          .from('products')
+          .update({ sku: candidate })
+          .eq('id', prod.id);
+
+        if (!error) {
+          updatedCount++;
+        }
+      }
+
+      await refresh();
+      await refreshData();
+      showToast(`تم تعيين وتوليد أكواد SKU بنجاح لـ ${updatedCount} صنف ✅`, 'success');
+    } catch (err: any) {
+      showToast('خطأ أثناء تعيين الأكواد: ' + err.message, 'error');
+    } finally {
+      setIsAssigningSkus(false);
+    }
+  };
+
   const handleOpenModal = async (item?: Item) => {
     const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
     const defaultCogs = getSystemAccount('COGS')?.id || '';
@@ -410,7 +503,7 @@ const ProductManager = () => {
       setEditingId(item.id);
       const productDataToSet: ProductFormData = { // Explicitly type the object literal
         name: item.name,
-        sku: item.sku || '',
+        sku: item.sku || generateUniqueSku(),
         barcode: item.barcode || '',
         sales_price: item.sales_price || 0,
         description: item.description || '',
@@ -449,6 +542,11 @@ const ProductManager = () => {
         age_restricted: (item as any).age_restricted || false,
         tax_rate_override: (item as any).tax_rate_override || 0,
         unit_barcodes: Array.isArray((item as any).unit_barcodes) ? (item as any).unit_barcodes : [],
+        // حدود التسعير والمخزون المتقدمة
+        min_sales_price: Number((item as any).min_sales_price || 0),
+        max_stock_level: Number((item as any).max_stock_level || 0),
+        wholesale_price: Number((item as any).wholesale_price || 0),
+        half_wholesale_price: Number((item as any).half_wholesale_price || 0),
       };
       setFormData(productDataToSet);
     } else {
@@ -460,7 +558,7 @@ const ProductManager = () => {
 
       setFormData({ // This is the initial state, which is already correctly typed
         name: '', 
-        sku: '', 
+        sku: generateUniqueSku(), 
         barcode: '',
         description: '',
         sales_price: 0, 
@@ -499,6 +597,11 @@ const ProductManager = () => {
         age_restricted: false,
         tax_rate_override: 0,
         unit_barcodes: [],
+        // حدود التسعير والمخزون المتقدمة
+        min_sales_price: 0,
+        max_stock_level: 0,
+        wholesale_price: 0,
+        half_wholesale_price: 0,
       });
     }
     setIsModalOpen(true);
@@ -1357,7 +1460,7 @@ const ProductManager = () => {
         } // Use handleError for consistency
         const itemData = {
             name: formData.name,
-            sku: formData.sku || null,
+            sku: (formData.sku?.trim()) || generateUniqueSku(),
             barcode: formData.barcode || null,
             description: formData.description || null,
             unit: formData.unit,
@@ -1399,6 +1502,11 @@ const ProductManager = () => {
             age_restricted: formData.age_restricted || false,
             tax_rate_override: formData.tax_rate_override || null,
             unit_barcodes: formData.unit_barcodes || [],
+            // حدود التسعير والمخزون المتقدمة
+            min_sales_price: Number(formData.min_sales_price) || 0,
+            max_stock_level: Number(formData.max_stock_level) || 0,
+            wholesale_price: Number(formData.wholesale_price) || 0,
+            half_wholesale_price: Number(formData.half_wholesale_price) || 0,
         };
         await updateProduct(editingId, itemData);
 
@@ -1487,7 +1595,7 @@ const ProductManager = () => {
         const isPhysicalStock = formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL' || formData.product_type === 'MANUFACTURED';
         const productPayload = {
           name: formData.name,
-          sku: formData.sku || null,
+          sku: (formData.sku?.trim()) || generateUniqueSku(),
           barcode: formData.barcode || null,
           description: formData.description || null,
           unit: formData.unit,
@@ -1531,6 +1639,11 @@ const ProductManager = () => {
           age_restricted: formData.age_restricted || false,
           tax_rate_override: formData.tax_rate_override || null,
           unit_barcodes: formData.unit_barcodes || [],
+          // حدود التسعير والمخزون المتقدمة
+          min_sales_price: Number(formData.min_sales_price) || 0,
+          max_stock_level: Number(formData.max_stock_level) || 0,
+          wholesale_price: Number(formData.wholesale_price) || 0,
+          half_wholesale_price: Number(formData.half_wholesale_price) || 0,
         };
 
         const newProduct = await addProduct(productPayload as any); // Use handleError for consistency
@@ -1745,6 +1858,11 @@ const ProductManager = () => {
         age_restricted: (item as any).age_restricted || false,
         tax_rate_override: (item as any).tax_rate_override || 0,
         unit_barcodes: Array.isArray((item as any).unit_barcodes) ? (item as any).unit_barcodes : [],
+        // حدود التسعير والمخزون المتقدمة
+        min_sales_price: Number((item as any).min_sales_price || 0),
+        max_stock_level: Number((item as any).max_stock_level || 0),
+        wholesale_price: Number((item as any).wholesale_price || 0),
+        half_wholesale_price: Number((item as any).half_wholesale_price || 0),
       });
       setIsModalOpen(true);
   };
@@ -2161,6 +2279,17 @@ const ProductManager = () => {
             <button onClick={handleDownloadRecipeTemplate} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold" title="تحميل نموذج الوصفات">
                 <Download size={16} /> نموذج الوصفات
             </button>
+            {(items || []).some(p => !p.sku || !p.sku.trim()) && (
+                <button 
+                  onClick={handleAutoAssignMissingSkus}
+                  disabled={isAssigningSkus}
+                  className="bg-indigo-50 border border-indigo-200 text-indigo-700 px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-indigo-100 text-sm font-bold animate-in fade-in"
+                  title="توليد وتعيين أكواد SKU تلقائية لجميع الأصناف التي تفتقر لكود"
+                >
+                  {isAssigningSkus ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} className="text-indigo-600" />}
+                  <span>توليد أكواد للأصناف الشاغرة ({(items || []).filter(p => !p.sku || !p.sku.trim()).length})</span>
+                </button>
+            )}
             <button onClick={() => handleOpenModal()} className="bg-emerald-600 text-white px-6 py-2.5 rounded-lg hover:bg-emerald-700 flex items-center gap-2 font-bold shadow-lg">
               <Plus size={20} /> صنف جديد
             </button>
@@ -2281,13 +2410,30 @@ const ProductManager = () => {
                   )}
                 </td>
                 <td className="p-4 font-bold text-slate-800">
-                  {item.name}
-                  <div className="text-xs text-slate-400 font-mono">{item.sku}</div>
-                  {isOfferActive(item) && (
-                      <span className="inline-flex items-center gap-1 bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded-full mt-1 animate-pulse">
-                          <Percent size={10} /> عرض خاص
+                  <div className="flex items-center gap-2">
+                    <span>{item.name}</span>
+                    {isOfferActive(item) && (
+                        <span className="inline-flex items-center gap-1 bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded-full animate-pulse">
+                            <Percent size={10} /> عرض خاص
+                        </span>
+                    )}
+                  </div>
+                  <div className="flex items-center flex-wrap gap-1.5 mt-1">
+                    {item.sku ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-mono bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-100">
+                        <span className="text-indigo-400 font-sans text-[10px]">كود:</span> {item.sku}
                       </span>
-                  )}
+                    ) : (
+                      <span className="inline-flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-medium">
+                        بدون كود SKU
+                      </span>
+                    )}
+                    {item.barcode && (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-mono text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
+                        <Barcode size={12} className="text-slate-400" /> {item.barcode}
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td className="p-4 text-sm text-slate-500">
                   {item.category_id && (
@@ -2594,29 +2740,60 @@ const ProductManager = () => {
                         </div>
                     </div>
                     <div className="col-span-2 md:col-span-1">
-                        <label className="block text-sm font-bold mb-1 text-slate-700">الكود (SKU)</label>
+                        <div className="flex items-center justify-between mb-1">
+                            <label className="block text-sm font-bold text-slate-700">الكود (SKU) *</label>
+                            <button
+                              type="button"
+                              onClick={() => setFormData({ ...formData, sku: generateUniqueSku() })}
+                              className="text-xs text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 bg-indigo-50 hover:bg-indigo-100 px-2 py-0.5 rounded transition-colors"
+                              title="توليد كود تلقائي فريد"
+                            >
+                              <Sparkles size={13} className="text-indigo-600" />
+                              توليد كود تلقائي
+                            </button>
+                        </div>
                         <input 
                           type="text" 
                           value={formData.sku} 
                           onChange={e => setFormData({...formData, sku: e.target.value})} 
                           onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }}
-                          className="w-full border rounded-lg p-2 font-mono" 
+                          className="w-full border border-slate-300 rounded-lg p-2 font-mono text-sm focus:ring-2 focus:ring-indigo-500 outline-none" 
+                          placeholder="مثال: SKU-00001"
                         />
+                        <span className="text-[10px] text-slate-400 block mt-0.5">معرف الصنف الفريد (يتم توليده تلقائياً إذا تُرك فارغاً)</span>
                     </div>
                     <div className="col-span-2 md:col-span-1">
-                        <label className="block text-sm font-bold mb-1 text-slate-700">الباركود</label>
+                        <div className="flex items-center justify-between mb-1">
+                            <label className="block text-sm font-bold text-slate-700">الباركود</label>
+                            <button
+                              type="button"
+                              onClick={() => setFormData({ ...formData, barcode: generateUniqueBarcode() })}
+                              className="text-xs text-purple-600 hover:text-purple-800 font-bold flex items-center gap-1 bg-purple-50 hover:bg-purple-100 px-2 py-0.5 rounded transition-colors"
+                              title="توليد باركود تلقائي"
+                            >
+                              <Barcode size={13} className="text-purple-600" />
+                              توليد باركود
+                            </button>
+                        </div>
                         <input 
                           type="text" 
                           value={formData.barcode} 
                           onChange={e => setFormData({...formData, barcode: e.target.value})} 
                           onKeyDown={e => { if (e.key === 'Enter') e.preventDefault(); }}
-                          className="w-full border rounded-lg p-2 font-mono" 
-                          placeholder="Scan..." 
+                          className="w-full border border-slate-300 rounded-lg p-2 font-mono text-sm focus:ring-2 focus:ring-purple-500 outline-none" 
+                          placeholder="امسح الباركود بمسدس الليزر أو اضغط توليد..." 
                         />
+                        <span className="text-[10px] text-slate-400 block mt-0.5">باركود المنتج للبيع عبر الكاشير بالليزر</span>
                     </div>
-                    <div>
-                        <label className="block text-sm font-bold mb-1 text-slate-700">حد الطلب (للتنبيهات)</label>
-                        <input type="number" min="0" value={formData.min_stock_level} onChange={e => setFormData({...formData, min_stock_level: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2" placeholder="0" />
+                    <div className="grid grid-cols-2 gap-2">
+                        <div>
+                            <label className="block text-xs font-bold mb-1 text-slate-700">حد الطلب (الأدنى)</label>
+                            <input type="number" min="0" value={formData.min_stock_level} onChange={e => setFormData({...formData, min_stock_level: parseFloat(e.target.value) || 0})} className="w-full border rounded-lg p-2 text-sm" placeholder="0" />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold mb-1 text-slate-700">الحد الأقصى للمخزون</label>
+                            <input type="number" min="0" value={formData.max_stock_level} onChange={e => setFormData({...formData, max_stock_level: parseFloat(e.target.value) || 0})} className="w-full border rounded-lg p-2 text-sm" placeholder="طاقة الرف القصوى" />
+                        </div>
                     </div>
                     <div>
                         <label className="block text-sm font-bold mb-1 text-slate-700">تاريخ الصلاحية</label>
@@ -3018,8 +3195,54 @@ const ProductManager = () => {
                     <input type="number" step="0.0001" value={formData.purchase_price ?? 0} onChange={e => setFormData({...formData, purchase_price: parseFloat(e.target.value) || 0})} className="w-full border rounded-lg p-2" />
                 </div>
                 <div>
-                    <label className="block text-sm font-bold mb-1 text-slate-700">سعر البيع</label>
+                    <label className="block text-sm font-bold mb-1 text-slate-700">سعر البيع (القطاعي)</label>
                     <input type="number" step="0.0001" value={formData.sales_price ?? 0} onChange={e => setFormData({...formData, sales_price: parseFloat(e.target.value) || 0})} className="w-full border rounded-lg p-2" />
+                </div>
+              </div>
+
+              {/* أسعار الفئات والحد الأدنى للبيع */}
+              <div className="bg-slate-50 border border-slate-200 p-3 rounded-xl space-y-3">
+                <span className="text-xs font-bold text-slate-700 block mb-1">فئات الأسعار والحدود المسموحة (Tiers & Limits):</span>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 mb-1">الحد الأدنى لسعر البيع</label>
+                    <input 
+                      type="number" 
+                      step="0.0001" 
+                      min="0"
+                      value={formData.min_sales_price ?? 0} 
+                      onChange={e => setFormData({...formData, min_sales_price: parseFloat(e.target.value) || 0})} 
+                      className="w-full border border-rose-200 bg-white rounded-lg p-2 text-sm focus:ring-2 focus:ring-rose-400 outline-none" 
+                      placeholder="0 (بلا حد)"
+                    />
+                    <span className="text-[10px] text-slate-400 block mt-0.5">يمنع الكاشير والفاتورة من البيع بأقل منه</span>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-blue-700 mb-1">سعر الجملة</label>
+                    <input 
+                      type="number" 
+                      step="0.0001" 
+                      min="0"
+                      value={formData.wholesale_price ?? 0} 
+                      onChange={e => setFormData({...formData, wholesale_price: parseFloat(e.target.value) || 0})} 
+                      className="w-full border border-blue-200 bg-white rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-400 outline-none" 
+                      placeholder="0.00"
+                    />
+                    <span className="text-[10px] text-slate-400 block mt-0.5">لفواتير وكاشير تجار الجملة</span>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-sky-700 mb-1">سعر نصف الجملة</label>
+                    <input 
+                      type="number" 
+                      step="0.0001" 
+                      min="0"
+                      value={formData.half_wholesale_price ?? 0} 
+                      onChange={e => setFormData({...formData, half_wholesale_price: parseFloat(e.target.value) || 0})} 
+                      className="w-full border border-sky-200 bg-white rounded-lg p-2 text-sm focus:ring-2 focus:ring-sky-400 outline-none" 
+                      placeholder="0.00"
+                    />
+                    <span className="text-[10px] text-slate-400 block mt-0.5">للكميات المتوسطة والعملاء المميزين</span>
+                  </div>
                 </div>
               </div>
 
@@ -3028,6 +3251,21 @@ const ProductManager = () => {
                       <AlertTriangle size={16} />
                       تنبيه: سعر البيع أقل من سعر التكلفة!
                   </div>
+              )}
+
+              {formData.min_sales_price > 0 && formData.sales_price < formData.min_sales_price && (
+                  <div className="bg-amber-50 text-amber-700 border border-amber-200 p-3 rounded-lg text-sm font-bold flex items-center gap-2 mt-2">
+                      <AlertTriangle size={16} />
+                      تنبيه: سعر البيع المحدد أقل من الحد الأدنى للبيع ({formData.min_sales_price})!
+                  </div>
+              )}
+
+              {formData.sales_price > 0 && formData.purchase_price > 0 && formData.sales_price >= formData.purchase_price && (
+                <div className="flex items-center justify-between bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs px-3 py-2 rounded-lg mt-2 font-medium flex-wrap gap-2">
+                  <span>هامش الربح (Margin): <strong className="font-mono text-emerald-700 font-bold">{(((formData.sales_price - formData.purchase_price) / formData.sales_price) * 100).toFixed(1)}%</strong></span>
+                  <span>نسبة الزيادة (Markup): <strong className="font-mono text-emerald-700 font-bold">{(((formData.sales_price - formData.purchase_price) / formData.purchase_price) * 100).toFixed(1)}%</strong></span>
+                  <span>ربح القطعة: <strong className="font-mono text-emerald-700 font-bold">{(formData.sales_price - formData.purchase_price).toFixed(2)} {getCurrencySymbol(settings?.currency)}</strong></span>
+                </div>
               )}
 
               {/* التوجيه المحاسبي */}

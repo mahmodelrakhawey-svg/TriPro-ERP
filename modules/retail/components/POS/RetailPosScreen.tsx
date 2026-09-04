@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useToast } from '../../../../context/ToastContext';
 import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
@@ -12,9 +12,9 @@ import SupervisorBadgePrintModal from './SupervisorBadgePrintModal';
 import SplitPaymentModal, { SplitPaymentDetails } from './SplitPaymentModal';
 import ScaleConnectModal from './ScaleConnectModal';
 import { scaleService, ScaleReading } from '../../services/scaleService';
-import { evaluatePromotions } from '../../services/promotionEngine';
-import type { PromotionRule } from '../../services/promotionEngine';
+import { evaluatePromotions, type PromotionRule } from '../../services/promotionEngine';
 import { couponService, RetailCoupon } from '../../services/couponService';
+import { generateCode128Svg } from '../../utils/barcodeSvg';
 import { 
   Barcode, 
   Trash2, 
@@ -59,7 +59,7 @@ interface CartItem {
 }
 
 export default function RetailPosScreen() {
-  const { currentUser, organization, settings, warehouses, refreshData } = useAccounting();
+  const { currentUser, organization, settings, warehouses, refreshData, currentSelectedOrgId } = useAccounting() as any;
   const { showToast } = useToast();
 
   const currencySymbol = settings?.currency || 'ج.م';
@@ -83,12 +83,24 @@ export default function RetailPosScreen() {
   const [closingNotes, setClosingNotes] = useState<string>('');
   const [isClosingShift, setIsClosingShift] = useState(false);
   const [shiftSummary, setShiftSummary] = useState<any>(null);
+  const [shiftFinancials, setShiftFinancials] = useState<{
+    cashSales: number;
+    cashReturns: number;
+    cashDrops: number;
+    drawerCash: number;
+  }>({
+    cashSales: 0,
+    cashReturns: 0,
+    cashDrops: 0,
+    drawerCash: 0
+  });
 
   // Cart State
   const [cart, setCart] = useState<CartItem[]>([]);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CachedProduct[]>([]);
+  const [pricingTier, setPricingTier] = useState<'retail' | 'wholesale' | 'half'>('retail');
   
   // Payment & Loyalty State
   const [amountPaid, setAmountPaid] = useState<number>(0);
@@ -162,15 +174,31 @@ export default function RetailPosScreen() {
 
   useEffect(() => {
     const loadPromos = async () => {
-      const orgId = currentUser?.organization_id;
-      if (!orgId) return;
+      const orgId = currentSelectedOrgId || currentUser?.organization_id || organization?.id || 'default_org';
       try {
-        const { data } = await supabase.from('retail_promotions').select('*').eq('organization_id', orgId).eq('is_active', true);
-        if (data && data.length > 0) {
-          setPromotions(data);
-        } else {
-          const local = secureStorage.getItem(`tripro_promos_${orgId}`) as PromotionRule[];
-          if (local && Array.isArray(local)) setPromotions(local);
+        let dbActivePromos: PromotionRule[] = [];
+        try {
+          const { data } = await supabase
+            .from('retail_promotions')
+            .select('*')
+            .eq('organization_id', orgId)
+            .eq('is_active', true);
+          if (data && Array.isArray(data) && data.length > 0) {
+            dbActivePromos = data;
+          }
+        } catch (e) {}
+
+        const local = (
+          secureStorage.getItem(`tripro_promos_${orgId}`) || 
+          secureStorage.getItem('tripro_promos_active')
+        ) as PromotionRule[];
+
+        if (dbActivePromos.length > 0) {
+          const dbIds = new Set(dbActivePromos.map(p => p.id));
+          const localOnly = Array.isArray(local) ? local.filter(p => p.is_active !== false && !dbIds.has(p.id)) : [];
+          setPromotions([...dbActivePromos, ...localOnly]);
+        } else if (Array.isArray(local) && local.length > 0) {
+          setPromotions(local.filter(p => p.is_active !== false));
         }
       } catch (e) {}
 
@@ -180,8 +208,15 @@ export default function RetailPosScreen() {
         setCouponsList(couponData);
       } catch (e) {}
     };
+
     loadPromos();
-  }, [currentUser]);
+
+    // Re-check when window regains focus (e.g. user created a promotion in another tab or screen)
+    window.addEventListener('focus', loadPromos);
+    return () => {
+      window.removeEventListener('focus', loadPromos);
+    };
+  }, [currentUser, organization, currentSelectedOrgId]);
 
   // Handle apply / remove coupon
   const handleApplyCoupon = () => {
@@ -303,27 +338,70 @@ export default function RetailPosScreen() {
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const printAreaRef = useRef<HTMLDivElement>(null);
 
+  // 🏷️ دالة التحقق من سريان عرض كارت الصنف (Item Card Offer)
+  const isItemOfferActive = (product: CachedProduct): boolean => {
+    const today = new Date().toISOString().split('T')[0];
+    const offerPrice = Number(product.offer_price || 0);
+    if (offerPrice > 0) {
+      if (product.offer_start_date && product.offer_end_date) {
+        return today >= product.offer_start_date && today <= product.offer_end_date;
+      }
+      if (product.offer_end_date) {
+        return today <= product.offer_end_date;
+      }
+      return true;
+    }
+    return false;
+  };
+
+  // 🏷️ دالة تحديد السعر الفعلي للصنف مع الأخذ في الحسبان فئة التسعير وسعر العرض والحد الأدنى
+  const getItemEffectivePrice = (product: CachedProduct, customPrice?: number): number => {
+    let finalPrice = 0;
+    if (customPrice !== undefined && customPrice > 0) {
+      finalPrice = customPrice;
+    } else if (isItemOfferActive(product)) {
+      finalPrice = Number(product.offer_price);
+    } else if (pricingTier === 'wholesale' && Number(product.wholesale_price || 0) > 0) {
+      finalPrice = Number(product.wholesale_price);
+    } else if (pricingTier === 'half' && Number(product.half_wholesale_price || 0) > 0) {
+      finalPrice = Number(product.half_wholesale_price);
+    } else {
+      finalPrice = Number(product.sales_price || 0);
+    }
+
+    // 🛑 تطبيق الحد الأدنى لسعر البيع المسموح به كحماية (Price Floor)
+    const minPrice = Number(product.min_sales_price || 0);
+    if (minPrice > 0 && finalPrice < minPrice) {
+      finalPrice = minPrice;
+    }
+
+    return finalPrice;
+  };
+
   // Calculations & Promotions Evaluation
   const isTaxEnabled = settings?.enable_tax !== false;
   const vatRate = isTaxEnabled ? (settings?.vat_rate !== undefined ? Number(settings.vat_rate) : 0.14) : 0;
 
   const subtotal = cart.reduce((sum, item) => {
-    const price = item.customPrice !== undefined ? item.customPrice : item.product.sales_price;
+    const price = getItemEffectivePrice(item.product, item.customPrice);
     const qty = item.weight !== undefined ? item.weight : item.quantity;
     return sum + (price * qty);
   }, 0);
 
   const { totalPromoDiscount, appliedPromotions } = evaluatePromotions(
-    cart.map(it => ({
-      product: {
-        id: it.product.id,
-        name: it.product.name,
-        sales_price: it.customPrice !== undefined ? it.customPrice : it.product.sales_price,
-        category_id: it.product.category_id
-      },
-      quantity: it.weight !== undefined ? it.weight : it.quantity,
-      price: it.customPrice !== undefined ? it.customPrice : it.product.sales_price
-    })),
+    cart.map(it => {
+      const price = getItemEffectivePrice(it.product, it.customPrice);
+      return {
+        product: {
+          id: it.product.id,
+          name: it.product.name,
+          sales_price: price,
+          category_id: it.product.category_id
+        },
+        quantity: it.weight !== undefined ? it.weight : it.quantity,
+        price
+      };
+    }),
     promotions
   );
 
@@ -336,7 +414,7 @@ export default function RetailPosScreen() {
   useEffect(() => {
     const payload = {
       cart: cart.map(it => {
-        const itemPrice = it.customPrice !== undefined ? it.customPrice : it.product.sales_price;
+        const itemPrice = getItemEffectivePrice(it.product, it.customPrice);
         return {
           id: it.product.id,
           name: it.product.name,
@@ -345,7 +423,9 @@ export default function RetailPosScreen() {
           weight: it.weight,
           total: itemPrice * (it.weight !== undefined ? it.weight : it.quantity),
           image_url: it.product.image_url,
-          uomName: it.uomName
+          uomName: it.uomName,
+          isOffer: isItemOfferActive(it.product) && it.customPrice === undefined,
+          originalPrice: Number(it.product.sales_price || 0)
         };
       }),
       subtotal,
@@ -424,28 +504,47 @@ export default function RetailPosScreen() {
     }
   };
 
-  // Keep barcode input focused at all times for continuous scanning
+  // Check if any modal or dialog is currently open
+  const isAnyModalActive = isReturnModalOpen || 
+    isCloseModalOpen || 
+    isSplitPaymentOpen || 
+    isScaleModalOpen || 
+    supervisorModalState.isOpen || 
+    isBadgePrintOpen || 
+    isHeldModalOpen || 
+    isCashDropOpen;
+
+  // Keep barcode input focused at all times for continuous scanning (only when NO modal is open)
   useEffect(() => {
-    if (activeShift) {
+    if (activeShift && !isAnyModalActive) {
       // Focus on mount/shift activation
       barcodeInputRef.current?.focus();
 
       const interval = setInterval(() => {
-        if (document.activeElement !== barcodeInputRef.current && 
-            document.activeElement?.tagName !== 'INPUT' && 
-            document.activeElement?.tagName !== 'TEXTAREA') {
+        const activeTag = document.activeElement?.tagName;
+        if (
+          document.activeElement !== barcodeInputRef.current && 
+          activeTag !== 'INPUT' && 
+          activeTag !== 'TEXTAREA' && 
+          activeTag !== 'SELECT' && 
+          activeTag !== 'BUTTON'
+        ) {
           barcodeInputRef.current?.focus();
         }
       }, 1000);
 
-      // Redirect global key presses to barcode input immediately
+      // Redirect global key presses to barcode input immediately (only when not interacting with an input/select)
       const handleGlobalKeyDown = (e: KeyboardEvent) => {
         if (e.ctrlKey || e.altKey || e.metaKey) return;
         if (e.key && e.key.startsWith('F') && e.key.length > 1) return;
 
-        if (document.activeElement !== barcodeInputRef.current && 
-            document.activeElement?.tagName !== 'INPUT' && 
-            document.activeElement?.tagName !== 'TEXTAREA') {
+        const activeTag = document.activeElement?.tagName;
+        if (
+          document.activeElement !== barcodeInputRef.current && 
+          activeTag !== 'INPUT' && 
+          activeTag !== 'TEXTAREA' && 
+          activeTag !== 'SELECT'
+        ) {
           barcodeInputRef.current?.focus();
         }
       };
@@ -457,7 +556,7 @@ export default function RetailPosScreen() {
         window.removeEventListener('keydown', handleGlobalKeyDown);
       };
     }
-  }, [activeShift]);
+  }, [activeShift, isAnyModalActive]);
 
   // Keyboard Shortcuts Handler (F-keys control)
   useEffect(() => {
@@ -654,38 +753,174 @@ export default function RetailPosScreen() {
     }
   };
 
+  // 💵 Calculate and refresh real-time drawer balance and shift financials
+  const refreshShiftFinancials = useCallback(async (currentShift?: any) => {
+    const shift = currentShift || activeShift;
+    if (!shift || !shift.id) {
+      setShiftFinancials({ cashSales: 0, cashReturns: 0, cashDrops: 0, drawerCash: 0 });
+      return;
+    }
+
+    try {
+      const openingBal = Number(shift.opening_balance) || 0;
+      let cashSales = 0;
+      let cashReturns = 0;
+
+      // 1. Try get_shift_summary RPC
+      const { data: summary, error: summaryErr } = await supabase.rpc('get_shift_summary', {
+        p_shift_id: shift.id
+      });
+
+      if (!summaryErr && summary) {
+        cashSales = Number(summary.cash_sales) || 0;
+        cashReturns = Number(summary.cash_returns) || 0;
+      } else {
+        // Fallback: Query orders for cash sales
+        let ordQuery: any = supabase
+          .from('orders')
+          .select('grand_total, payment_method, status')
+          .eq('shift_id', shift.id);
+        if (typeof ordQuery?.in === 'function') {
+          ordQuery = ordQuery.in('status', ['PAID', 'COMPLETED', 'posted', 'CONFIRMED']);
+        }
+        const { data: ords } = await ordQuery;
+
+        const safeOrds = Array.isArray(ords) ? ords : [];
+        cashSales = safeOrds.filter((o: any) => !o.payment_method || o.payment_method === 'CASH')
+          .reduce((sum: number, o: any) => sum + Number(o.grand_total || 0), 0);
+      }
+
+      // 2. Fetch cash returns explicitly if not provided by RPC or if RPC is legacy
+      if (cashReturns === 0) {
+        try {
+          let retQuery: any = supabase
+            .from('sales_returns')
+            .select('total_amount, notes, user_id, created_at')
+            .eq('user_id', currentUser.id);
+
+          if (shift.start_time) {
+            retQuery = retQuery.gte('created_at', shift.start_time);
+          }
+
+          const { data: retRows } = await retQuery;
+          const safeRetRows = Array.isArray(retRows) ? retRows : [];
+
+          if (safeRetRows.length > 0) {
+            cashReturns = safeRetRows
+              .filter((r: any) => {
+                const isCash = !r.notes || r.notes.includes('نقدي') || r.notes.includes('CASH');
+                return isCash;
+              })
+              .reduce((sum: number, r: any) => sum + Number(r.total_amount || 0), 0);
+          }
+        } catch (e) {
+          console.warn('Could not query sales_returns for shift balance:', e);
+        }
+      }
+
+      const totalDrops = cashDrops.reduce((sum, d) => sum + Number(d.amount || 0), 0);
+      const drawerCash = Math.max(0, openingBal + cashSales - cashReturns - totalDrops);
+
+      setShiftFinancials({
+        cashSales,
+        cashReturns,
+        cashDrops: totalDrops,
+        drawerCash
+      });
+    } catch (err) {
+      console.error('Error refreshing shift financials:', err);
+    }
+  }, [activeShift, currentUser?.id, cashDrops]);
+
+  useEffect(() => {
+    if (activeShift) {
+      refreshShiftFinancials(activeShift);
+    }
+  }, [activeShift, cashDrops]);
+
   // Close Shift Setup
   const handleOpenCloseShiftModal = async () => {
     if (!activeShift) return;
     try {
-      // Fetch expected sales and balance from shifts
+      const openingBal = Number(activeShift.opening_balance) || 0;
+      const totalCashDrops = cashDrops.reduce((sum, d) => sum + Number(d.amount || 0), 0);
+
+      // 1. Fetch expected sales and balance from shifts RPC
       const { data, error } = await supabase.rpc('get_shift_summary', {
         p_shift_id: activeShift.id
       });
-      // Fallback query if RPC isn't built or fails
+
+      // 2. Fetch cash returns explicitly to ensure returns are deducted even if RPC cache is old
+      let detectedCashReturns = Number(data?.cash_returns) || 0;
+      try {
+        let retQuery: any = supabase
+          .from('sales_returns')
+          .select('total_amount, notes, user_id, created_at')
+          .eq('user_id', currentUser.id);
+
+        if (activeShift.start_time) {
+          retQuery = retQuery.gte('created_at', activeShift.start_time);
+        }
+
+        const { data: retRows } = await retQuery;
+        const safeRetRows = Array.isArray(retRows) ? retRows : [];
+
+        if (safeRetRows.length > 0) {
+          detectedCashReturns = safeRetRows
+            .filter((r: any) => {
+              const isCash = !r.notes || r.notes.includes('نقدي') || r.notes.includes('CASH');
+              return isCash;
+            })
+            .reduce((sum: number, r: any) => sum + Number(r.total_amount || 0), 0);
+        }
+      } catch (reErr) {
+        console.warn('Could not query sales_returns for shift close:', reErr);
+      }
+
+      let calculatedExpectedCash = 0;
+
       if (error) {
         const { data: orders } = await supabase
           .from('orders')
-          .select('grand_total')
+          .select('grand_total, payment_method')
           .eq('shift_id', activeShift.id);
-        const totalSales = orders?.reduce((sum, o) => sum + Number(o.grand_total), 0) || 0;
+        const safeOrders = Array.isArray(orders) ? orders : [];
+        const totalSales = safeOrders.reduce((sum, o) => sum + Number(o.grand_total || 0), 0);
+        const cashSales = safeOrders.filter(o => !o.payment_method || o.payment_method === 'CASH').reduce((sum, o) => sum + Number(o.grand_total || 0), 0);
+        const cardSales = totalSales - cashSales;
+        calculatedExpectedCash = Math.max(0, openingBal + cashSales - detectedCashReturns - totalCashDrops);
+
         setShiftSummary({
-          opening_balance: activeShift.opening_balance,
+          opening_balance: openingBal,
           total_sales: totalSales,
-          cash_sales: totalSales,
-          card_sales: 0,
-          expected_cash: Number(activeShift.opening_balance) + totalSales
+          cash_sales: cashSales,
+          card_sales: cardSales,
+          cash_returns: detectedCashReturns,
+          cash_drops: totalCashDrops,
+          expected_cash: calculatedExpectedCash
         });
       } else {
-        setShiftSummary(data || {
-          opening_balance: activeShift.opening_balance,
-          total_sales: 0,
-          cash_sales: 0,
-          card_sales: 0,
-          expected_cash: activeShift.opening_balance
+        const cashSales = Number(data?.cash_sales) || 0;
+        const totalSales = Number(data?.total_sales) || 0;
+        const cardSales = Number(data?.card_sales) || 0;
+        const pettyCash = Number(data?.petty_cash) || 0;
+        calculatedExpectedCash = (data?.expected_cash !== undefined && data?.cash_returns !== undefined)
+          // get_shift_summary already deducts petty_cash from expected_cash — do NOT subtract totalCashDrops again
+          ? Math.max(0, Number(data.expected_cash))
+          : Math.max(0, openingBal + cashSales - detectedCashReturns - totalCashDrops - pettyCash);
+
+        setShiftSummary({
+          ...data,
+          opening_balance: openingBal,
+          total_sales: totalSales,
+          cash_sales: cashSales,
+          card_sales: cardSales,
+          cash_returns: detectedCashReturns,
+          cash_drops: totalCashDrops,
+          expected_cash: calculatedExpectedCash
         });
       }
-      setActualCash(0);
+      setActualCash(calculatedExpectedCash);
       setIsCloseModalOpen(true);
     } catch (e) {
       console.error(e);
@@ -694,6 +929,13 @@ export default function RetailPosScreen() {
 
   // Close Shift Final
   const handleConfirmCloseShift = async () => {
+    if (actualCash === 0 && Number(shiftSummary?.expected_cash || 0) > 0) {
+      const confirmZero = window.confirm(
+        `تنبيه هـام: لقد تم إدخال المبلغ الفعلي بالدرج 0.00 ${currencySymbol}، بينما المتوقع هو ${Number(shiftSummary.expected_cash).toFixed(2)} ${currencySymbol}.\n\nسيتم تسجيل هذا النقص كعجز صندوق بالكامل.\n\nهل أنت متأكد من المتابعة والإغلاق؟`
+      );
+      if (!confirmZero) return;
+    }
+
     setIsClosingShift(true);
     try {
       const { error } = await supabase.rpc('close_shift', {
@@ -795,26 +1037,41 @@ export default function RetailPosScreen() {
         weight = parsedWeight;
       } else {
         // 2. Search by normal barcode, SKU, or barcode2
-        matchedProduct = await db.products.where('barcode').equals(code).first();
-        if (!matchedProduct) matchedProduct = await db.products.where('sku').equals(code).first();
-        if (!matchedProduct) matchedProduct = await db.products.where('barcode2').equals(code).first();
+        const cleanCode = code.trim().toLowerCase();
+        const allCached = await db.products.toArray();
 
-        // 3. Search multi-unit barcodes (unit_barcodes)
+        // 2a. Direct match in local cache
+        matchedProduct = allCached.find(p => 
+          (p.barcode && p.barcode.trim().toLowerCase() === cleanCode) ||
+          (p.sku && p.sku.trim().toLowerCase() === cleanCode) ||
+          (p.barcode2 && p.barcode2.trim().toLowerCase() === cleanCode)
+        );
+
+        // 2b. Search multi-unit barcodes (unit_barcodes) in local cache
         if (!matchedProduct) {
-          const allCached = await db.products.toArray();
           for (const p of allCached) {
             if (Array.isArray((p as any).unit_barcodes)) {
-              const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode === code);
+              const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
               if (foundUom) {
                 matchedProduct = p;
                 matchedUomInfo = {
                   uom_name: foundUom.uom_name,
-                  customPrice: foundUom.price && foundUom.price > 0 ? foundUom.price : p.sales_price,
+                  customPrice: foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : p.sales_price,
                   uom_id: foundUom.uom_id
                 };
                 break;
               }
             }
+          }
+        } else if (Array.isArray((matchedProduct as any).unit_barcodes)) {
+          // If matched directly, check if it was specifically a unit barcode
+          const foundUom = (matchedProduct as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
+          if (foundUom) {
+            matchedUomInfo = {
+              uom_name: foundUom.uom_name,
+              customPrice: foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : matchedProduct.sales_price,
+              uom_id: foundUom.uom_id
+            };
           }
         }
 
@@ -825,10 +1082,37 @@ export default function RetailPosScreen() {
             .select('*')
             .eq('organization_id', currentUser.organization_id)
             .eq('is_active', true)
-            .or(`barcode.eq.${code},sku.eq.${code},barcode2.eq.${code}`);
+            .or(`barcode.ilike.${cleanCode},sku.ilike.${cleanCode},barcode2.ilike.${cleanCode}`);
+
           if (onlineList && onlineList.length > 0) {
             matchedProduct = onlineList[0] as any;
             try { await db.products.put(matchedProduct as any); } catch (e) {}
+          } else {
+            // Search products with unit_barcodes online
+            const { data: allOnline } = await supabase
+              .from('products')
+              .select('*')
+              .eq('organization_id', currentUser.organization_id)
+              .eq('is_active', true)
+              .not('unit_barcodes', 'is', null);
+
+            if (allOnline && allOnline.length > 0) {
+              for (const p of allOnline) {
+                if (Array.isArray(p.unit_barcodes)) {
+                  const foundUom = p.unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
+                  if (foundUom) {
+                    matchedProduct = p as any;
+                    matchedUomInfo = {
+                      uom_name: foundUom.uom_name,
+                      customPrice: foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : p.sales_price,
+                      uom_id: foundUom.uom_id
+                    };
+                    try { await db.products.put(matchedProduct as any); } catch (e) {}
+                    break;
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -921,7 +1205,13 @@ export default function RetailPosScreen() {
       }
       const q = searchQuery.toLowerCase();
       const results = await db.products
-        .filter(p => p.name.toLowerCase().includes(q) || (p.sku && p.sku.toLowerCase().includes(q)))
+        .filter(p => 
+          p.name.toLowerCase().includes(q) || 
+          (p.sku && p.sku.toLowerCase().includes(q)) ||
+          (p.barcode && p.barcode.toLowerCase().includes(q)) ||
+          (p.barcode2 && p.barcode2.toLowerCase().includes(q)) ||
+          (Array.isArray((p as any).unit_barcodes) && (p as any).unit_barcodes.some((ub: any) => ub.barcode && ub.barcode.toLowerCase().includes(q)))
+        )
         .limit(10)
         .toArray();
       setSearchResults(results);
@@ -960,7 +1250,7 @@ export default function RetailPosScreen() {
       const itemsPayload = cart.map(item => ({
         product_id: item.product.id,
         quantity: item.weight !== undefined ? item.weight : item.quantity,
-        unit_price: item.customPrice !== undefined ? item.customPrice : item.product.sales_price,
+        unit_price: getItemEffectivePrice(item.product, item.customPrice),
         uom_id: item.uomId || null
       }));
 
@@ -1053,30 +1343,62 @@ export default function RetailPosScreen() {
         await offlineService.queueOrder(offlinePayload);
       }
 
+      const finalPromoDiscount = totalPromoDiscount || 0;
+      const effectiveCouponDiscount = splitData?.couponDiscount !== undefined ? splitData.couponDiscount : (couponDiscount || 0);
+      const totalSavings = finalPromoDiscount + effectiveCouponDiscount;
+
+      // Fetch actual order number from database so receipt and database match 100%
+      let actualOrderNumber = '';
+      if (orderId) {
+        try {
+          const { data: ordRow } = await supabase
+            .from('orders')
+            .select('order_number')
+            .eq('id', orderId)
+            .maybeSingle();
+          if (ordRow?.order_number) {
+            actualOrderNumber = ordRow.order_number;
+          }
+        } catch (e) {
+          console.warn('Could not fetch real order_number:', e);
+        }
+      }
+      if (!actualOrderNumber) {
+        actualOrderNumber = `ORD-${Date.now().toString().slice(-6)}`;
+      }
+
       // Receipt printing structure
       setReceiptOrder({
-        orderNumber: `RET-${Math.floor(1000 + Math.random() * 9000)}`,
+        orderNumber: actualOrderNumber,
         date: new Date().toLocaleDateString('ar-EG'),
         time: new Date().toLocaleTimeString('ar-EG'),
         items: cart.map(i => ({
           name: i.product.name,
           quantity: i.weight !== undefined ? i.weight : i.quantity,
-          price: i.customPrice !== undefined ? i.customPrice : i.product.sales_price,
+          price: getItemEffectivePrice(i.product, i.customPrice),
+          originalPrice: isItemOfferActive(i.product) && i.customPrice === undefined ? Number(i.product.sales_price || 0) : undefined,
+          isOffer: isItemOfferActive(i.product) && i.customPrice === undefined,
           unit: i.weight !== undefined ? 'كجم' : (i.uomName || 'حبة')
         })),
         subtotal,
+        promoDiscount: finalPromoDiscount,
+        appliedPromotions: appliedPromotions || [],
+        appliedCoupon: appliedCoupon ? appliedCoupon.name : undefined,
+        couponDiscount: effectiveCouponDiscount > 0 ? effectiveCouponDiscount : undefined,
+        totalSavings,
         tax,
         total,
         amountPaid: effectivePaid,
         change,
-        appliedCoupon: appliedCoupon ? appliedCoupon.name : undefined,
-        couponDiscount: couponDiscount > 0 ? couponDiscount : undefined,
         splitDetails: splitData
       });
 
       showToast(`تم إتمام العملية بنجاح. المتبقي للعميل: ${change.toFixed(2)} ${currencySymbol}`, 'success');
       
-      // Clear cart and state
+      // Refresh shift financials immediately after sale
+      if (activeShift) {
+        refreshShiftFinancials(activeShift);
+      }
       setCart([]);
       setAmountPaid(0);
       setSearchQuery('');
@@ -1153,8 +1475,17 @@ export default function RetailPosScreen() {
                 <User size={14} className="text-slate-400" />
                 {currentUser?.full_name || 'الكاشير'}
               </span>
-              <span className="h-4 w-px bg-slate-800" />
               <span className="text-indigo-400 font-black">{selectedTerminal?.name}</span>
+              <span className="h-4 w-px bg-slate-800" />
+
+              {/* 💵 Live Cash Drawer Balance Badge */}
+              <div 
+                className="flex items-center gap-1.5 bg-emerald-950/90 border border-emerald-800/80 px-2.5 py-1 rounded-lg text-xs font-bold text-emerald-400 shadow-sm"
+                title={`الرصيد التقديري في الدرج: ${shiftFinancials.drawerCash.toFixed(2)} ${currencySymbol}`}
+              >
+                <Banknote size={14} className="text-emerald-400" />
+                <span>الدرج: <span className="font-mono">{shiftFinancials.drawerCash.toFixed(2)}</span> {currencySymbol}</span>
+              </div>
 
               {/* 🔄 POS Returns (يتطلب تصريح المشرف بالليزر أو PIN) */}
               <button 
@@ -1328,24 +1659,70 @@ export default function RetailPosScreen() {
                 {/* Autocomplete Search Dropdown */}
                 {searchResults.length > 0 && (
                   <div className="absolute left-0 right-0 mt-2 bg-slate-950 border border-slate-800 rounded-xl shadow-2xl max-h-60 overflow-y-auto z-50">
-                    {searchResults.map(p => (
-                      <div 
-                        key={p.id} 
-                        onClick={() => {
-                          addToCart(p);
-                          setSearchQuery('');
-                        }}
-                        className="p-3 border-b border-slate-800/50 hover:bg-slate-900 cursor-pointer flex justify-between items-center transition-all"
-                      >
-                        <div>
-                          <div className="font-bold text-sm">{p.name}</div>
-                          <div className="text-xs text-slate-500 font-mono">{p.barcode || p.sku}</div>
+                    {searchResults.map(p => {
+                      const isOffer = isItemOfferActive(p);
+                      const effectivePrice = getItemEffectivePrice(p);
+                      return (
+                        <div 
+                          key={p.id} 
+                          onClick={() => {
+                            addToCart(p);
+                            setSearchQuery('');
+                          }}
+                          className="p-3 border-b border-slate-800/50 hover:bg-slate-900 cursor-pointer flex justify-between items-center transition-all"
+                        >
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-bold text-sm text-white">{p.name}</span>
+                              {isOffer && (
+                                <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] px-1.5 py-0.5 rounded font-black flex items-center gap-1">
+                                  🔥 عرض خاص
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-slate-500 font-mono">{p.barcode || p.sku}</div>
+                          </div>
+                          <div className="text-left">
+                            <div className="text-sm font-black text-indigo-400">{effectivePrice.toFixed(2)} {currencySymbol}</div>
+                            {isOffer && (
+                              <div className="text-xs text-slate-500 line-through font-mono">{Number(p.sales_price || 0).toFixed(2)} {currencySymbol}</div>
+                            )}
+                          </div>
                         </div>
-                        <div className="text-sm font-black text-indigo-400">{p.sales_price.toFixed(2)} {currencySymbol}</div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Pricing Tier Selector Bar */}
+            <div className="px-4 py-2 bg-slate-950/70 border-b border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-slate-400">فئة السعر:</span>
+                <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-800">
+                  {[
+                    { id: 'retail', label: 'قطاعي', activeBg: 'bg-indigo-600 text-white' },
+                    { id: 'wholesale', label: 'جملة', activeBg: 'bg-blue-600 text-white' },
+                    { id: 'half', label: 'نصف جملة', activeBg: 'bg-sky-600 text-white' },
+                  ].map(t => (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setPricingTier(t.id as any)}
+                      className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${
+                        pricingTier === t.id 
+                          ? `${t.activeBg} shadow` 
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                      }`}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="text-[11px] text-slate-500 font-medium">
+                {pricingTier === 'wholesale' ? '⚡ أسعار بيع الجملة مفعلة' : pricingTier === 'half' ? '⚡ أسعار نصف الجملة مفعلة' : '🏷️ أسعار البيع بالتجزئة'}
               </div>
             </div>
 
@@ -1371,14 +1748,22 @@ export default function RetailPosScreen() {
                     </thead>
                     <tbody>
                       {cart.map((item, idx) => {
-                        const price = item.customPrice !== undefined ? item.customPrice : item.product.sales_price;
+                        const isOffer = isItemOfferActive(item.product) && item.customPrice === undefined;
+                        const price = getItemEffectivePrice(item.product, item.customPrice);
                         const isWeight = item.weight !== undefined;
                         const qty = isWeight ? item.weight! : item.quantity;
                         const rowTotal = price * qty;
                         return (
                           <tr key={idx} className="border-b border-slate-800/40 hover:bg-slate-900/30 text-sm transition-all">
                             <td className="p-3">
-                              <div className="font-black text-white">{item.product.name}</div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-black text-white">{item.product.name}</span>
+                                {isOffer && (
+                                  <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] px-1.5 py-0.5 rounded font-black flex items-center gap-1">
+                                    🔥 عرض خاص
+                                  </span>
+                                )}
+                              </div>
                               <div className="text-xs text-slate-500 font-mono">{item.product.barcode || item.product.sku}</div>
                             </td>
                             <td className="p-3 text-center">
@@ -1403,7 +1788,16 @@ export default function RetailPosScreen() {
                                 <span className="font-black font-mono text-white">{item.weight} كجم</span>
                               )}
                             </td>
-                            <td className="p-3 text-left font-bold font-mono text-slate-300">{price.toFixed(2)}</td>
+                            <td className="p-3 text-left font-bold font-mono">
+                              {isOffer ? (
+                                <div>
+                                  <span className="text-amber-400 font-black">{price.toFixed(2)}</span>
+                                  <span className="text-slate-500 line-through text-xs mr-1">{Number(item.product.sales_price || 0).toFixed(2)}</span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-300">{price.toFixed(2)}</span>
+                              )}
+                            </td>
                             <td className="p-3 text-left font-black font-mono text-indigo-400">{rowTotal.toFixed(2)}</td>
                             <td className="p-3 text-center">
                               <button 
@@ -1801,28 +2195,56 @@ export default function RetailPosScreen() {
             </div>
             <div className="p-6 space-y-6">
               
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/50">
-                  <span className="block text-slate-500 mb-1">الرصيد الافتتاحي</span>
-                  <span className="font-mono font-bold text-base text-slate-200">{Number(shiftSummary.opening_balance).toFixed(2)}</span>
+              <div className="grid grid-cols-2 gap-2.5 text-xs">
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800/60">
+                  <span className="block text-slate-500 mb-0.5">الرصيد الافتتاحي</span>
+                  <span className="font-mono font-bold text-base text-slate-200">
+                    {Number(shiftSummary.opening_balance).toFixed(2)} {currencySymbol}
+                  </span>
                 </div>
-                <div className="bg-slate-950 p-3 rounded-xl border border-slate-800/50">
-                  <span className="block text-slate-500 mb-1">إجمالي المبيعات</span>
-                  <span className="font-mono font-bold text-base text-slate-200">{Number(shiftSummary.total_sales).toFixed(2)}</span>
+                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800/60">
+                  <span className="block text-slate-500 mb-0.5">مبيعات نقدية (كاش)</span>
+                  <span className="font-mono font-bold text-base text-emerald-400">
+                    +{Number(shiftSummary.cash_sales || shiftSummary.total_sales).toFixed(2)} {currencySymbol}
+                  </span>
+                </div>
+                <div className="bg-rose-950/30 p-2.5 rounded-xl border border-rose-900/40">
+                  <span className="block text-rose-400 font-bold mb-0.5">مرتجعات نقدية من الدرج</span>
+                  <span className="font-mono font-bold text-base text-rose-300">
+                    -{Number(shiftSummary.cash_returns || 0).toFixed(2)} {currencySymbol}
+                  </span>
+                </div>
+                <div className="bg-amber-950/30 p-2.5 rounded-xl border border-amber-900/40">
+                  <span className="block text-amber-400 font-bold mb-0.5">سحوبات نقدية (تفريغ)</span>
+                  <span className="font-mono font-bold text-base text-amber-300">
+                    -{Number(shiftSummary.cash_drops || 0).toFixed(2)} {currencySymbol}
+                  </span>
                 </div>
               </div>
 
               <div className="border-t border-slate-800/60 pt-4 space-y-4">
-                <div className="flex justify-between items-center bg-slate-950/40 p-3 rounded-xl border border-slate-850">
-                  <span className="font-bold text-sm text-slate-400">المبلغ المتوقع بالدرج:</span>
-                  <span className="font-mono font-black text-xl text-indigo-400">{(Number(shiftSummary.expected_cash)).toFixed(2)} {currencySymbol}</span>
+                <div className="flex justify-between items-center bg-slate-950/60 p-3.5 rounded-xl border border-indigo-900/40 shadow-inner">
+                  <div>
+                    <span className="font-black text-sm text-slate-200 block">صافي النقدية المتوقع بالدرج:</span>
+                    <span className="text-[10px] text-slate-400">(افتتاحي + كاش مبيعات - مرتجعات - سحوبات)</span>
+                  </div>
+                  <span className="font-mono font-black text-2xl text-indigo-400">{(Number(shiftSummary.expected_cash)).toFixed(2)} {currencySymbol}</span>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-black text-slate-400 mb-2">المبلغ الفعلي المقبوض في الدرج</label>
+                  <div className="flex justify-between items-center mb-2">
+                    <label className="text-xs font-black text-slate-400">المبلغ الفعلي المقبوض في الدرج</label>
+                    <button
+                      type="button"
+                      onClick={() => setActualCash(Number(shiftSummary.expected_cash))}
+                      className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 px-2 py-0.5 rounded-lg transition-all"
+                    >
+                      مطابق للمتوقع ({Number(shiftSummary.expected_cash).toFixed(2)})
+                    </button>
+                  </div>
                   <input 
                     type="number" 
-                    value={actualCash || ''} 
+                    value={actualCash !== undefined && actualCash !== null ? actualCash : ''} 
                     onChange={e => setActualCash(Number(e.target.value))}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-3 text-center text-2xl font-mono font-black text-white focus:border-indigo-500 outline-none"
                     placeholder="0.00"
@@ -1883,11 +2305,17 @@ export default function RetailPosScreen() {
               </div>
               <hr style={{ borderTop: '1px dashed black' }} />
               <div>
-                <p>رقم الفاتورة: {receiptOrder.orderNumber}</p>
+                <p className="font-bold text-sm">رقم الفاتورة: {receiptOrder.orderNumber}</p>
                 <p>التاريخ: {receiptOrder.date} | الوقت: {receiptOrder.time}</p>
                 <p>الكاشير: {currentUser?.full_name}</p>
                 <p>الجهاز: {selectedTerminal?.name}</p>
               </div>
+              <div 
+                className="my-1.5 flex justify-center overflow-hidden" 
+                dangerouslySetInnerHTML={{ 
+                  __html: generateCode128Svg(receiptOrder.orderNumber, { height: 36, barWidth: 1.5, showText: false }) 
+                }} 
+              />
               <hr style={{ borderTop: '1px dashed black' }} />
               <table className="w-full text-right" style={{ fontSize: '11px' }}>
                 <thead>
@@ -1911,21 +2339,53 @@ export default function RetailPosScreen() {
               </table>
               <hr style={{ borderTop: '1px dashed black' }} />
               <div className="space-y-1 text-left" style={{ fontSize: '12px', fontWeight: 'bold' }}>
-                <div className="flex justify-between"><span>المجموع الفرعي:</span><span>{receiptOrder.subtotal.toFixed(2)} {currencySymbol}</span></div>
+                <div className="flex justify-between">
+                  <span>المجموع الفرعي:</span>
+                  <span>{receiptOrder.subtotal.toFixed(2)} {currencySymbol}</span>
+                </div>
+
+                {receiptOrder.promoDiscount > 0 && (
+                  <div className="flex justify-between text-xs" style={{ color: '#000' }}>
+                    <span>خصم العروض الترويجية:</span>
+                    <span>-{receiptOrder.promoDiscount.toFixed(2)} {currencySymbol}</span>
+                  </div>
+                )}
+
+                {receiptOrder.appliedPromotions && receiptOrder.appliedPromotions.length > 0 && (
+                  <div className="space-y-0.5 pr-2 my-0.5">
+                    {receiptOrder.appliedPromotions.map((p: any, idx: number) => (
+                      <div key={idx} className="flex justify-between text-[10px]" style={{ color: '#333' }}>
+                        <span>• {p.promoName || 'عرض خاص'}:</span>
+                        <span>-{Number(p.discountAmount).toFixed(2)} {currencySymbol}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
                 {receiptOrder.couponDiscount > 0 && (
                   <div className="flex justify-between text-xs" style={{ color: '#000' }}>
-                    <span>خصم الكوبون ({receiptOrder.appliedCoupon}):</span>
+                    <span>خصم الكوبون ({receiptOrder.appliedCoupon || 'كوبون'}):</span>
                     <span>-{receiptOrder.couponDiscount.toFixed(2)} {currencySymbol}</span>
                   </div>
                 )}
+
+                {receiptOrder.totalSavings > 0 && (
+                  <div className="flex justify-between text-xs font-black py-1 border-y border-dashed border-black my-1" style={{ backgroundColor: '#f5f5f5' }}>
+                    <span>🎉 إجمالي ما وفرته:</span>
+                    <span>{receiptOrder.totalSavings.toFixed(2)} {currencySymbol}</span>
+                  </div>
+                )}
+
                 {receiptOrder.tax > 0 && (
                   <div className="flex justify-between">
                     <span>الضريبة ({(vatRate * 100).toFixed(0)}%):</span>
                     <span>{receiptOrder.tax.toFixed(2)} {currencySymbol}</span>
                   </div>
                 )}
+
                 <div className="flex justify-between" style={{ fontSize: '14px', borderTop: '1px solid black', paddingTop: '4px' }}>
-                  <span>الإجمالي الكلي:</span><span>{receiptOrder.total.toFixed(2)} {currencySymbol}</span>
+                  <span>الإجمالي الكلي:</span>
+                  <span>{receiptOrder.total.toFixed(2)} {currencySymbol}</span>
                 </div>
                 <hr style={{ borderTop: '1px dashed black' }} />
                 
@@ -1951,6 +2411,16 @@ export default function RetailPosScreen() {
 
                 <div className="flex justify-between text-xs"><span>الفكة (المتبقي):</span><span>{receiptOrder.change.toFixed(2)} {currencySymbol}</span></div>
               </div>
+
+              {receiptOrder.totalSavings > 0 && (
+                <div className="text-center my-2 p-1.5 border border-dashed border-black rounded" style={{ fontSize: '11px', backgroundColor: '#fafafa' }}>
+                  <p className="font-black text-xs">
+                    🎉 لقد وفرت في هذه الفاتورة: {receiptOrder.totalSavings.toFixed(2)} {currencySymbol} 🎉
+                  </p>
+                  <p className="text-[10px] text-gray-700">شكراً لتسوقكم معنا واستفادتكم من عروضنا!</p>
+                </div>
+              )}
+
               <hr style={{ borderTop: '1px dashed black' }} />
               <div className="text-center text-xs space-y-1 pt-4">
                 <p>شكراً لزيارتكم</p>
@@ -2013,7 +2483,8 @@ export default function RetailPosScreen() {
       <CashDropModal
         isOpen={isCashDropOpen}
         onClose={() => setIsCashDropOpen(false)}
-        onConfirm={(amt, reason, receiver) => {
+        organizationId={currentSelectedOrgId || currentUser?.organization_id}
+        onConfirm={async (amt, reason, receiver, payoutType, expenseAccountId, targetAccountId) => {
           const newDrop = {
             amount: amt,
             reason,
@@ -2021,19 +2492,49 @@ export default function RetailPosScreen() {
             time: new Date().toLocaleTimeString('ar-EG')
           };
           setCashDrops(prev => [newDrop, ...prev]);
+
+          // Save cash drop to database with type, accounts, and public_shift_id
+          try {
+            const { error: dropErr } = await supabase.from('pos_petty_cash_payouts').insert({
+              organization_id: currentSelectedOrgId || currentUser?.organization_id,
+              public_shift_id: activeShift?.id,   // UUID من public.shifts
+              cashier_id: currentUser?.id,
+              amount: amt,
+              payout_type: payoutType,
+              reason: reason || payoutType,
+              expense_account_id: expenseAccountId || null,
+              target_account_id: targetAccountId || null,
+              custodian_name: payoutType === 'CUSTODIAN' ? receiver : null,
+            });
+            if (dropErr) {
+              console.warn('Could not persist cash drop to pos_petty_cash_payouts:', dropErr);
+            }
+          } catch (dropErr) {
+            console.warn('Could not persist cash drop to pos_petty_cash_payouts:', dropErr);
+          }
+
+          if (activeShift) {
+            refreshShiftFinancials(activeShift);
+          }
         }}
-        currentDrawerTotal={activeShift ? Number(openingBalance) + subtotal : 0}
+        currentDrawerTotal={shiftFinancials.drawerCash}
         cashierName={currentUser?.full_name || 'الكاشير'}
       />
+
 
       {/* 🔄 POS Returns Modal */}
       <PosReturnModal
         isOpen={isReturnModalOpen}
         onClose={() => setIsReturnModalOpen(false)}
+        shiftId={activeShift?.id}
+        warehouseId={selectedTerminal?.warehouse_id || warehouses?.[0]?.id}
         onSuccess={(returnSummary) => {
-          showToast(`تم تسجيل المرتجع (${returnSummary.returnNumber}) بنجاح`, 'success');
+          showToast(`تم تسجيل المرتجع (${returnSummary.returnNumber}) بمبلغ ${returnSummary.totalRefund.toFixed(2)} ${currencySymbol} بنجاح`, 'success');
+          if (activeShift) {
+            refreshShiftFinancials(activeShift);
+          }
         }}
-        orgId={currentUser?.organization_id || ''}
+        orgId={currentSelectedOrgId || currentUser?.organization_id || organization?.id || ''}
         cashierId={currentUser?.id || ''}
         cashierName={currentUser?.full_name || 'الكاشير'}
       />

@@ -290,6 +290,8 @@ export interface Product {
   cost: number;
   sku?: string;
   barcode?: string | null;
+  barcode2?: string | null;
+  unit_barcodes?: Array<{ uom_id?: string; barcode: string; price?: number; uom_name?: string }>;
   weight?: number;
   stock?: number;
   warehouse_stock?: { [warehouseId: string]: number };

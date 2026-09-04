@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -177,11 +177,25 @@ const InventoryCountForm = () => {
       e.preventDefault();
       if (!barcodeInput.trim()) return;
       
-      const scannedCode = barcodeInput.trim();
+      const scannedCode = barcodeInput.trim().toLowerCase();
       // البحث في المنتجات الموجودة في السياق للحصول على المعرف
-      const product = products.find((p: any) => 
-        (p.barcode && p.barcode.trim() === scannedCode) || (p.sku && p.sku.trim() === scannedCode)
+      let product = products.find((p: any) => 
+        (p.barcode && p.barcode.trim().toLowerCase() === scannedCode) || 
+        (p.sku && p.sku.trim().toLowerCase() === scannedCode) ||
+        (p.barcode2 && p.barcode2.trim().toLowerCase() === scannedCode)
       );
+
+      if (!product) {
+        for (const p of products) {
+          if (Array.isArray((p as any).unit_barcodes)) {
+            const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === scannedCode);
+            if (foundUom) {
+              product = p;
+              break;
+            }
+          }
+        }
+      }
 
       if (product) {
         setItems(prev => {

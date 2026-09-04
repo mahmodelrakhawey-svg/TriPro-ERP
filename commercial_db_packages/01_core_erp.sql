@@ -563,22 +563,27 @@ CREATE TABLE public.notifications (
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.security_logs (
+CREATE TABLE IF NOT EXISTS public.security_logs (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     event_type text NOT NULL,
     description text,
     performed_by uuid REFERENCES auth.users(id),
     target_user_id uuid REFERENCES public.profiles(id),
     metadata jsonb,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
     created_at timestamptz DEFAULT now() NOT NULL
 );
 
-CREATE TABLE public.budgets (
+CREATE TABLE IF NOT EXISTS public.budgets (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     name text,
+    year integer,
+    month integer,
+    items jsonb DEFAULT '[]'::jsonb,
     start_date date,
     end_date date,
-    total_amount numeric,
+    total_amount numeric DEFAULT 0,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
     created_at timestamptz DEFAULT now()
 );
 
@@ -654,22 +659,28 @@ CREATE TABLE public.stock_transfer_items (
     quantity numeric
 );
 
-CREATE TABLE public.stock_adjustments (
+CREATE TABLE IF NOT EXISTS public.stock_adjustments (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     adjustment_number text,
     warehouse_id uuid REFERENCES public.warehouses(id),
     adjustment_date date,
-    status text,
+    status text DEFAULT 'posted',
+    reason text,
     notes text,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
     created_at timestamptz DEFAULT now()
 );
 
-CREATE TABLE public.stock_adjustment_items (
+CREATE TABLE IF NOT EXISTS public.stock_adjustment_items (
     id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
     stock_adjustment_id uuid REFERENCES public.stock_adjustments(id) ON DELETE CASCADE,
     product_id uuid REFERENCES public.products(id),
-    quantity numeric,
-    type text -- increase / decrease
+    quantity numeric DEFAULT 0,
+    uom_id uuid,
+    unit_cost numeric DEFAULT 0,
+    total_cost numeric DEFAULT 0,
+    type text DEFAULT 'adjustment', -- increase / decrease / adjustment
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE
 );
 
 CREATE TABLE public.inventory_counts (
@@ -2194,6 +2205,22 @@ min_stock numeric DEFAULT 5,
     offer_start_date date,
     offer_end_date date,
     offer_max_qty numeric,
+
+    -- حقول الهايبر ماركت ونقاط البيع المتقدمة
+    barcode2 text,
+    is_scale_item boolean DEFAULT false,
+    plu_number integer,
+    scale_prefix text DEFAULT '22',
+    shelf_location text,
+    brand text,
+    country_of_origin text,
+    age_restricted boolean DEFAULT false,
+    tax_rate_override numeric,
+    unit_barcodes jsonb DEFAULT '[]'::jsonb,
+    min_sales_price numeric DEFAULT 0,
+    max_stock_level numeric DEFAULT 0,
+    wholesale_price numeric DEFAULT 0,
+    half_wholesale_price numeric DEFAULT 0,
     
     organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     deleted_at timestamptz,
@@ -9241,19 +9268,20 @@ BEGIN
     ('41', 'إيرادات النشاط (المبيعات)', 'revenue', true, '4'), ('42', 'إيرادات أخرى', 'revenue', true, '4'), ('51', 'تكلفة المبيعات (COGS)', 'expense', true, '5'), ('52', 'مصروفات البيع والتسويق', 'expense', true, '5'), ('53', 'المصروفات الإدارية والعمومية', 'expense', true, '5'),
     ('111', 'الأصول الثابتة (بالصافي)', 'asset', true, '11'), ('1111', 'الأراضي', 'asset', false, '111'), ('1112', 'المباني والإنشاءات', 'asset', false, '111'), ('1113', 'الآلات والمعدات', 'asset', false, '111'), ('1114', 'وسائل النقل والانتقال', 'asset', false, '111'), ('1115', 'الأثاث والتجهيزات المكتبية', 'asset', false, '111'), ('1116', 'أجهزة حاسب آلي وبرمجيات', 'asset', false, '111'), ('1119', 'مجمع إهلاك الأصول الثابتة', 'asset', false, '111'),
     ('103', 'المخزون', 'asset', true, '12'), ('10301', 'مخزون المواد الخام', 'asset', false, '103'), ('10302', 'مخزون المنتج التام', 'asset', false, '103'), ('10303', 'مخزون إنتاج تحت التشغيل (WIP)', 'asset', false, '103'),
-    ('122', 'العملاء والمدينون', 'asset', true, '12'), ('1221', 'العملاء', 'asset', false, '122'), ('1222', 'أوراق القبض (شيكات تحت التحصيل)', 'asset', false, '122'), ('1223', 'سلف الموظفين', 'asset', false, '122'), ('1224', 'عهد موظفين', 'asset', false, '122'),
+    ('122', 'العملاء والمدينون', 'asset', true, '12'), ('1221', 'العملاء', 'asset', false, '122'), ('122101', 'ذمم شركات التأمين الطبي', 'asset', false, '122'), ('1222', 'أوراق القبض (شيكات تحت التحصيل)', 'asset', false, '122'), ('1223', 'سلف الموظفين', 'asset', false, '122'), ('1224', 'عهد موظفين', 'asset', false, '122'),
     ('123', 'النقدية وما في حكمها', 'asset', true, '12'), ('1231', 'النقدية بالصندوق (الخزينة الرئيسية)', 'asset', false, '123'), ('1232', 'البنوك (حسابات جارية)', 'asset', true, '123'),
     ('123201', 'البنك الأهلي المصري', 'asset', false, '1232'), ('123202', 'بنك مصر', 'asset', false, '1232'), ('123203', 'البنك التجاري الدولي (CIB)', 'asset', false, '1232'), ('123204', 'بنك QNB الأهلي', 'asset', false, '1232'), ('123205', 'بنك القاهرة', 'asset', false, '1232'), ('123206', 'بنك فيصل الإسلامي', 'asset', false, '1232'), ('123207', 'بنك الإسكندرية', 'asset', false, '1232'),
     ('1233', 'المحافظ الإلكترونية (Digital Wallets)', 'asset', true, '123'), ('123301', 'فودافون كاش (Vodafone Cash)', 'asset', false, '1233'), ('123302', 'اتصالات كاش (Etisalat Cash)', 'asset', false, '1233'), ('123303', 'أورنج كاش (Orange Cash)', 'asset', false, '1233'), ('123304', 'وي باي (WE Pay)', 'asset', false, '1233'), ('123305', 'انستا باي (InstaPay - تسوية)', 'asset', false, '1233'),
     ('124', 'أرصدة مدينة أخرى', 'asset', true, '12'), ('1241', 'ضريبة القيمة المضافة (مدخلات)', 'asset', false, '124'), ('1242', 'ضريبة الخصم والتحصيل (لنا)', 'asset', false, '124'),
+    ('1245', 'دفعات مقدمة للمقاولين والموردين', 'asset', false, '124'), ('1246', 'اعتمادات مستندية لشراء بضائع', 'asset', false, '124'), ('1248', 'غطاء خطابات ضمان لدى البنوك', 'asset', false, '124'), ('1249', 'محتجز ضمان لدى الغير (عملاء)', 'asset', false, '124'),
     ('1243', 'مصروفات مدفوعة مقدماً', 'asset', true, '124'), ('124301', 'إيجار مقدم', 'asset', false, '1243'), ('124302', 'تأمين طبي مقدم', 'asset', false, '1243'), ('124303', 'اشتراكات برامج وسيرفرات مقدمة', 'asset', false, '1243'), ('124304', 'حملات إعلانية مقدمة', 'asset', false, '1243'), ('124305', 'عقود صيانة مقدمة', 'asset', false, '1243'),
     ('1244', 'إيرادات مستحقة', 'asset', true, '124'), ('124401', 'إيرادات خدمات مستحقة (غير مفوترة)', 'asset', false, '1244'), ('124402', 'فوائد بنكية مستحقة القبض', 'asset', false, '1244'), ('124403', 'إيجارات دائنة مستحقة', 'asset', false, '1244'), ('124404', 'إيرادات أوراق مالية مستحقة', 'asset', false, '1244'),
-    ('211', 'قروض طويلة الأجل', 'liability', false, '21'), ('201', 'الموردين', 'liability', false, '22'), ('222', 'أوراق الدفع (شيكات صادرة)', 'liability', false, '22'),
+    ('211', 'قروض طويلة الأجل', 'liability', false, '21'), ('201', 'الموردين', 'liability', false, '22'), ('222', 'أوراق الدفع (شيكات صادرة)', 'liability', false, '22'), ('2229', 'محتجز ضمان لمقاولي الباطن', 'liability', false, '22'),
     ('223', 'مصلحة الضرائب (التزامات)', 'liability', true, '22'), ('2231', 'ضريبة القيمة المضافة (مخرجات)', 'liability', false, '223'), ('2232', 'ضريبة الخصم والتحصيل (علينا)', 'liability', false, '223'), ('2233', 'ضريبة كسب العمل', 'liability', false, '223'), ('224', 'هيئة التأمينات الاجتماعية', 'liability', false, '22'), -- Ensure 224 is not NULL
     ('225', 'مصروفات مستحقة', 'liability', true, '22'), ('2251', 'رواتب وأجور مستحقة', 'liability', false, '225'), ('2252', 'إيجارات مستحقة', 'liability', false, '225'), ('2253', 'كهرباء ومياه وغاز مستحقة', 'liability', false, '225'), ('2254', 'أتعاب مهنية ومراجعة مستحقة', 'liability', false, '225'), ('2255', 'عمولات بيع مستحقة', 'liability', false, '225'), ('2256', 'فوائد بنكية مستحقة', 'liability', false, '225'), ('2257', 'اشتراكات وتراخيص مستحقة', 'liability', false, '225'), ('226', 'تأمينات ودفعات مقدمة من العملاء', 'liability', false, '22'),
     ('3999', 'الأرصدة الافتتاحية (حساب وسيط)', 'equity', false, '3'),
-    ('411', 'إيراد المبيعات', 'revenue', false, '41'), ('412', 'مردودات المبيعات', 'revenue', false, '41'), ('413', 'خصم مسموح به', 'revenue', false, '41'),
-    ('421', 'إيرادات متنوعة', 'revenue', false, '42'), ('422', 'إيراد خصومات وجزاءات الموظفين', 'revenue', false, '42'), ('423', 'فوائد بنكية دائنة', 'revenue', false, '42'),
+    ('411', 'إيراد المبيعات', 'revenue', false, '41'), ('41101', 'إيرادات تشغيل وخدمات متنوعة', 'revenue', false, '41'), ('41103', 'إيراد عقود ومشاريع (مستخلصات)', 'revenue', false, '41'), ('41104', 'إيرادات رسوم الخدمة (المطاعم)', 'revenue', false, '41'), ('412', 'مردودات المبيعات', 'revenue', false, '41'), ('413', 'خصم مسموح به', 'revenue', false, '41'),
+    ('421', 'إيرادات متنوعة', 'revenue', false, '42'), ('422', 'إيراد خصومات وجزاءات الموظفين', 'revenue', false, '42'), ('423', 'فوائد بنكية دائنة', 'revenue', false, '42'), ('425', 'إيراد تشغيل معدات داخلي', 'revenue', false, '42'), ('441', 'زيادة الصندوق (إيرادات متنوعة)', 'revenue', false, '42'),
     ('511', 'تكلفة البضاعة المباعة', 'expense', false, '51'), ('512', 'تسويات الجرد (عجز المخزون)', 'expense', false, '51'),
     ('5121', 'تكلفة الهالك والفاقد', 'expense', false, '51'),
     ('513', 'أجور عمال الإنتاج المباشرة', 'expense', false, '51'),
@@ -16420,6 +16448,9 @@ CREATE TABLE IF NOT EXISTS public.retail_promotions (
     discount_percentage NUMERIC(5,2) DEFAULT 0,
     min_spend_amount NUMERIC(12,2) DEFAULT 0,
     discount_amount NUMERIC(12,2) DEFAULT 0,
+    secondary_product_id UUID REFERENCES public.products(id) ON DELETE SET NULL,
+    secondary_product_name TEXT,
+    bundle_fixed_price NUMERIC(12,2) DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

@@ -82,13 +82,26 @@ export default function MobilePdaStocktaking() {
 
     setBarcodeInput('');
 
-    // Find product by barcode, barcode2, or SKU
-    const matched = allProducts.find(p =>
-      p.barcode === code ||
-      p.barcode2 === code ||
-      p.sku === code ||
-      (p.plu_number && String(p.plu_number) === code)
+    // Find product by barcode, barcode2, SKU, or unit_barcodes
+    const cleanCode = code.toLowerCase();
+    let matched = allProducts.find(p =>
+      (p.barcode && p.barcode.toLowerCase() === cleanCode) ||
+      (p.barcode2 && p.barcode2.toLowerCase() === cleanCode) ||
+      (p.sku && p.sku.toLowerCase() === cleanCode) ||
+      (p.plu_number && String(p.plu_number) === cleanCode)
     );
+
+    if (!matched) {
+      for (const p of allProducts) {
+        if (Array.isArray((p as any).unit_barcodes)) {
+          const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
+          if (foundUom) {
+            matched = p;
+            break;
+          }
+        }
+      }
+    }
 
     if (!matched) {
       playBeep('warn');

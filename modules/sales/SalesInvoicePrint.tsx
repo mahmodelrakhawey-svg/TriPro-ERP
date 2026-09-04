@@ -31,8 +31,9 @@ export const SalesInvoicePrint = ({ invoice, companySettings }: SalesInvoicePrin
   const isThermal = Boolean(invoice.isThermal);
   const currency = invoice.currency || 'EGP';
   const totalAmount = Number(invoice.totalAmount || invoice.total_amount || 0);
-  const subtotal = Number(invoice.subtotal || (totalAmount - Number(invoice.taxAmount || invoice.tax_amount || 0)));
+  const discountAmount = Number(invoice.discountAmount || invoice.discount_amount || invoice.discountValue || invoice.discount_value || invoice.discount || 0);
   const taxAmount = Number(invoice.taxAmount || invoice.tax_amount || 0);
+  const subtotal = Number(invoice.subtotal || (totalAmount + discountAmount - taxAmount));
 
   return (
     <div 
@@ -131,6 +132,12 @@ export const SalesInvoicePrint = ({ invoice, companySettings }: SalesInvoicePrin
                 <span className="font-bold">الإجمالي قبل الضريبة:</span>
                 <span className="font-bold font-mono">{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency}</span>
             </div>
+            {discountAmount > 0 && (
+              <div className="flex justify-between text-amber-700 font-bold">
+                  <span>إجمالي الخصومات والعروض:</span>
+                  <span className="font-mono">-{discountAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {currency}</span>
+              </div>
+            )}
             {taxAmount > 0 && (
               <div className="flex justify-between text-slate-600">
                   <span className="font-bold">ضريبة القيمة المضافة ({((companySettings?.vat_rate || 0.14) * 100).toFixed(0)}%):</span>

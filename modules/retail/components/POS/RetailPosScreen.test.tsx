@@ -22,6 +22,7 @@ vi.mock('../../../../services/offlineService', () => {
   const mockProducts = [
     { id: 'prod-1', name: 'جنية جبنة كيري', barcode: '12345', sales_price: 100, stock: 10, cost: 60 },
     { id: 'prod-2', name: 'لبن جهينة كامل الدسم', barcode: '67890', sales_price: 200, stock: 5, cost: 120 },
+    { id: 'prod-3', name: 'شاي العروسة 250جم', barcode: '112233', sales_price: 50, offer_price: 40, offer_start_date: '2020-01-01', offer_end_date: '2099-12-31', stock: 20, cost: 30 },
   ];
 
   const dbMock = {
@@ -319,4 +320,51 @@ describe('🛒 RetailPosScreen Integration Tests', () => {
       expect(screen.getAllByText('0.00 ج.م').length).toBeGreaterThan(0);
     });
   });
+
+  it('يجب تطبيق سعر العرض من كارت الصنف تلقائياً على الكاشير مع إظهار شارة العرض', async () => {
+    render(<RetailPosScreen />);
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('امسح باركود المنتج هنا مباشرة...')).toBeDefined();
+    });
+
+    // مسح باركود المنتج الذي عليه عرض (112233)
+    // السعر الأساسي: 50 ج.م، سعر العرض: 40 ج.م
+    // المجموع الفرعي: 40 ج.م، الضريبة 14%: 5.60 ج.م، الإجمالي: 45.60 ج.م
+    const barcodeInput = screen.getByPlaceholderText('امسح باركود المنتج هنا مباشرة...');
+    fireEvent.change(barcodeInput, { target: { value: '112233' } });
+    fireEvent.submit(barcodeInput);
+
+    await waitFor(() => {
+      expect(screen.getByText('شاي العروسة 250جم')).toBeDefined();
+      expect(screen.getByText('🔥 عرض خاص')).toBeDefined();
+      expect(screen.getByText('40.00 ج.م')).toBeDefined(); // المجموع الفرعي المحسوب بسعر العرض
+      expect(screen.getByText('5.60 ج.م')).toBeDefined();  // الضريبة
+      expect(screen.getByText('45.60 ج.م')).toBeDefined(); // الإجمالي
+    });
+  });
+
+  it('يجب إظهار شارة رصيد الدرج وفتح نافذة إغلاق الوردية مع تفاصيل النقدية والمرتجعات', async () => {
+    render(<RetailPosScreen />);
+
+    await waitFor(() => {
+      // شارة رصيد الدرج تظهر في شريط الهيدر مع الرصيد الافتتاحي (1000)
+      expect(screen.getByText(/الدرج:/)).toBeDefined();
+    });
+
+    // النقر على زر إغلاق الوردية
+    const closeShiftButton = screen.getByText('إغلاق');
+    fireEvent.click(closeShiftButton);
+
+    await waitFor(() => {
+      // التحقق من ظهور نافذة إغلاق الوردية
+      expect(screen.getByText('إغلاق الوردية وجرد النقدية')).toBeDefined();
+      expect(screen.getByText('الرصيد الافتتاحي')).toBeDefined();
+      expect(screen.getByText('مبيعات نقدية (كاش)')).toBeDefined();
+      expect(screen.getByText('مرتجعات نقدية من الدرج')).toBeDefined();
+      expect(screen.getByText('سحوبات نقدية (تفريغ)')).toBeDefined();
+      expect(screen.getByText('صافي النقدية المتوقع بالدرج:')).toBeDefined();
+    });
+  });
 });
+

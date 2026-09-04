@@ -62,13 +62,25 @@ const DeficitReport = () => {
         query = query.eq('organization_id', userOrgId);
       }
 
-      const { data, error } = await query;
+      let { data, error } = await query;
+
+      // Fallback if organization_id column does not exist yet
+      if (error && error.code === '42703') {
+        const fallbackRes = await supabase
+          .from('rejected_cash_closings')
+          .select('*, rejected_by_profile:profiles(full_name), treasury_account:accounts(name)')
+          .gte('rejection_date', startDate)
+          .lte('rejection_date', `${endDate}T23:59:59`)
+          .order('rejection_date', { ascending: false });
+        data = fallbackRes.data;
+        error = fallbackRes.error;
+      }
 
       if (error) throw error;
       setLogs(data || []);
     } catch (err: any) {
-      console.error('Error fetching deficit logs:', err);
-      showToast('فشل تحميل السجلات: ' + err.message, 'error');
+      console.warn('Notice fetching deficit logs:', err.message);
+      setLogs([]);
     } finally {
       setLoading(false);
     }

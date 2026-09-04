@@ -106,18 +106,49 @@ export default function PriceCheckerKiosk() {
     // 1. Try local offline cache first for instant response
     try {
       let matched: any = null;
+      let matchedUomName: string | undefined;
+      let matchedUomPrice: number | undefined;
       let calculatedWeight: number | undefined;
+      const cleanCode = code.trim().toLowerCase();
 
       const scaleInfo = parseWeightBarcode(code);
       if (scaleInfo) {
         const { productCode, weight } = scaleInfo;
         calculatedWeight = weight;
         const allCached = await db.products.toArray();
-        matched = allCached.find(p => p.sku === productCode || p.barcode === productCode || p.sku === code || p.barcode === code);
+        matched = allCached.find(p => 
+          (p.sku && p.sku.toLowerCase() === productCode.toLowerCase()) || 
+          (p.barcode && p.barcode.toLowerCase() === productCode.toLowerCase()) || 
+          (p.sku && p.sku.toLowerCase() === cleanCode) || 
+          (p.barcode && p.barcode.toLowerCase() === cleanCode) ||
+          (p.barcode2 && p.barcode2.toLowerCase() === cleanCode)
+        );
       } else {
-        matched = await db.products.where('barcode').equals(code).first();
+        const allCached = await db.products.toArray();
+        matched = allCached.find(p => 
+          (p.barcode && p.barcode.trim().toLowerCase() === cleanCode) ||
+          (p.sku && p.sku.trim().toLowerCase() === cleanCode) ||
+          (p.barcode2 && p.barcode2.trim().toLowerCase() === cleanCode)
+        );
+
         if (!matched) {
-          matched = await db.products.where('sku').equals(code).first();
+          for (const p of allCached) {
+            if (Array.isArray((p as any).unit_barcodes)) {
+              const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
+              if (foundUom) {
+                matched = p;
+                matchedUomName = foundUom.uom_name;
+                matchedUomPrice = foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : undefined;
+                break;
+              }
+            }
+          }
+        } else if (Array.isArray((matched as any).unit_barcodes)) {
+          const foundUom = (matched as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
+          if (foundUom) {
+            matchedUomName = foundUom.uom_name;
+            matchedUomPrice = foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : undefined;
+          }
         }
       }
 
@@ -130,13 +161,33 @@ export default function PriceCheckerKiosk() {
         if (userOrgId) query = query.eq('organization_id', userOrgId);
 
         if (scaleInfo) {
-          query = query.or(`sku.eq.${scaleInfo.productCode},barcode.eq.${scaleInfo.productCode},sku.eq.${code},barcode.eq.${code}`);
+          query = query.or(`sku.ilike.${scaleInfo.productCode},barcode.ilike.${scaleInfo.productCode},sku.ilike.${cleanCode},barcode.ilike.${cleanCode}`);
         } else {
-          query = query.or(`barcode.eq.${code},sku.eq.${code}`);
+          query = query.or(`barcode.ilike.${cleanCode},sku.ilike.${cleanCode},barcode2.ilike.${cleanCode}`);
         }
 
         const { data: remoteData } = await query.maybeSingle();
-        matched = remoteData;
+        if (remoteData) {
+          matched = remoteData;
+        } else {
+          // Search unit_barcodes online
+          let uomQuery = supabase.from('products').select('*').not('unit_barcodes', 'is', null);
+          if (userOrgId) uomQuery = uomQuery.eq('organization_id', userOrgId);
+          const { data: uomProds } = await uomQuery;
+          if (uomProds && uomProds.length > 0) {
+            for (const p of uomProds) {
+              if (Array.isArray(p.unit_barcodes)) {
+                const foundUom = p.unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
+                if (foundUom) {
+                  matched = p;
+                  matchedUomName = foundUom.uom_name;
+                  matchedUomPrice = foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : undefined;
+                  break;
+                }
+              }
+            }
+          }
+        }
       }
 
       if (matched) {
@@ -146,12 +197,14 @@ export default function PriceCheckerKiosk() {
           (!matched.offer_start_date || matched.offer_start_date <= now) &&
           (!matched.offer_end_date || matched.offer_end_date >= now);
 
-        const currentPrice = isOfferActive ? Number(matched.offer_price) : Number(matched.sales_price || 0);
-        const originalPrice = Number(matched.sales_price || 0);
+        const baseSalesPrice = matchedUomPrice !== undefined ? matchedUomPrice : Number(matched.sales_price || 0);
+        const currentPrice = isOfferActive ? Number(matched.offer_price) : baseSalesPrice;
+        const originalPrice = baseSalesPrice;
         const totalPrice = calculatedWeight ? currentPrice * calculatedWeight : currentPrice;
 
         const productResult = {
           ...matched,
+          name: matchedUomName ? `${matched.name} (${matchedUomName})` : matched.name,
           isOfferActive,
           currentPrice,
           originalPrice,

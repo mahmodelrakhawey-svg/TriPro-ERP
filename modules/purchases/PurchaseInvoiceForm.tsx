@@ -300,7 +300,9 @@ const PurchaseInvoiceForm = () => {
           .filter(p =>
               p.name.toLowerCase().includes(term) ||
               (p.sku && p.sku.toLowerCase().includes(term)) ||
-              (p.barcode && p.barcode.toLowerCase().includes(term))
+              (p.barcode && p.barcode.toLowerCase().includes(term)) ||
+              ((p as any).barcode2 && (p as any).barcode2.toLowerCase().includes(term)) ||
+              (Array.isArray((p as any).unit_barcodes) && (p as any).unit_barcodes.some((ub: any) => ub.barcode && ub.barcode.toLowerCase().includes(term)))
           )
           .sort((a, b) => {
               const aName = a.name.toLowerCase();
@@ -314,9 +316,15 @@ const PurchaseInvoiceForm = () => {
           .slice(0, 10);
   }, [productSearchTerm, products]);
 
-  const addProductToInvoice = (product: Product) => {
-      const existingItemIndex = items.findIndex(i => i.productId === product.id);
+  const addProductToInvoice = (product: Product, matchedUomInfo?: { uom_name?: string; customPrice?: number; uom_id?: string }) => {
+      const defaultUomId = matchedUomInfo?.uom_id || product.purchase_uom_id || product.base_uom_id || '';
+      const selectedUom = uoms.find(u => u.id === defaultUomId);
       const basePrice = product.purchase_price || product.cost || 0;
+      const initialPrice = (matchedUomInfo?.customPrice !== undefined && matchedUomInfo.customPrice > 0)
+          ? matchedUomInfo.customPrice
+          : (selectedUom ? Number((basePrice * (selectedUom.ratio || 1)).toFixed(4)) : basePrice);
+
+      const existingItemIndex = items.findIndex(i => i.productId === product.id && (!defaultUomId || i.uomId === defaultUomId));
 
       if (existingItemIndex > -1) {
           const newItems = [...items];
@@ -324,10 +332,6 @@ const PurchaseInvoiceForm = () => {
           newItems[existingItemIndex].total = newItems[existingItemIndex].quantity * (newItems[existingItemIndex].unitPrice || 0);
           setItems(newItems);
       } else {
-          const defaultUomId = product.purchase_uom_id || product.base_uom_id || '';
-          const selectedUom = uoms.find(u => u.id === defaultUomId);
-          const initialPrice = selectedUom ? Number((basePrice * selectedUom.ratio).toFixed(4)) : basePrice;
-
           setItems([...items, {
               id: Date.now().toString(),
               productId: product.id,
@@ -351,13 +355,41 @@ const PurchaseInvoiceForm = () => {
           const term = productSearchTerm.trim().toLowerCase();
           if (!term) return;
 
-          const exactMatch = products.find(p => 
-              (p.barcode && p.barcode.toLowerCase() === term) ||
-              (p.sku && p.sku.toLowerCase() === term)
+          let matchedUomInfo: { uom_name?: string; customPrice?: number; uom_id?: string } | undefined;
+          let exactMatch = products.find(p => 
+              (p.barcode && p.barcode.trim().toLowerCase() === term) ||
+              (p.sku && p.sku.trim().toLowerCase() === term) ||
+              ((p as any).barcode2 && (p as any).barcode2.trim().toLowerCase() === term)
           );
 
+          if (!exactMatch) {
+            for (const p of products) {
+              if (Array.isArray((p as any).unit_barcodes)) {
+                const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === term);
+                if (foundUom) {
+                  exactMatch = p;
+                  matchedUomInfo = {
+                    uom_name: foundUom.uom_name,
+                    customPrice: foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : undefined,
+                    uom_id: foundUom.uom_id
+                  };
+                  break;
+                }
+              }
+            }
+          } else if (Array.isArray((exactMatch as any).unit_barcodes)) {
+            const foundUom = (exactMatch as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === term);
+            if (foundUom) {
+              matchedUomInfo = {
+                uom_name: foundUom.uom_name,
+                customPrice: foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : undefined,
+                uom_id: foundUom.uom_id
+              };
+            }
+          }
+
           if (exactMatch) {
-              addProductToInvoice(exactMatch);
+              addProductToInvoice(exactMatch, matchedUomInfo);
           } else if (filteredProducts.length === 1) {
               addProductToInvoice(filteredProducts[0]);
           }

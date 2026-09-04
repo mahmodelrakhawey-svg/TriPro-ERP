@@ -6,7 +6,8 @@ import {
     CircleDollarSign, Package, Box, Info,
     ArrowDown, Calculator, UserCheck, Printer, Loader2, CheckCircle,
     Edit, RefreshCw, FileText, Landmark, Unlock, Undo2,
-    ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, List
+    ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, List,
+    Sparkles, Gift, Tag
 } from 'lucide-react';
 import { InvoiceItem, Product } from '../../types';
 import { supabase } from '../../supabaseClient';
@@ -23,9 +24,10 @@ import { etaService } from '../../services/etaService';
 import { secureStorage } from '../../utils/securityMiddleware';
 import DocumentAuditTimeline from '../../components/DocumentAuditTimeline';
 import { logDocumentAction } from '../../services/auditService';
+import { evaluatePromotions, PromotionRule } from '../retail/services/promotionEngine';
 
 const SalesInvoiceForm = () => { // Removed unused useParams import
-  const { products, warehouses, salespeople, accounts, approveInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice } = useAccounting();
+  const { products, warehouses, salespeople, accounts, approveInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice, currentSelectedOrgId, organization } = useAccounting() as any;
   const currentUserRole = (currentUser as any)?.role || '';
   const navigate = useNavigate();
   const location = useLocation();
@@ -106,11 +108,61 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   useEffect(() => {
     const fetchUoms = async () => {
       const orgId = (currentUser as any)?.organization_id;
+      if (!orgId) return;
       const { data } = await supabase.from('uoms').select('*').eq('organization_id', orgId);
       if (data) setUoms(data);
     };
     if (currentUser) fetchUoms();
   }, [currentUser]);
+
+  // 🎁 حالة عروض الهايبر ماركت الترويجية
+  const [retailPromotions, setRetailPromotions] = useState<PromotionRule[]>([]);
+
+  // تحميل العروض الترويجية النشطة لمديول الهايبر ماركت
+  useEffect(() => {
+    const loadRetailPromos = async () => {
+      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (organization as any)?.id || 'default_org';
+      try {
+        let dbActivePromos: PromotionRule[] = [];
+        try {
+          const { data } = await supabase
+            .from('retail_promotions')
+            .select('*')
+            .eq('organization_id', orgId)
+            .eq('is_active', true);
+          if (data && Array.isArray(data) && data.length > 0) {
+            dbActivePromos = data;
+          }
+        } catch (e) {}
+
+        const local = (
+          secureStorage.getItem(`tripro_promos_${orgId}`) || 
+          secureStorage.getItem('tripro_promos_active')
+        ) as PromotionRule[];
+
+        if (dbActivePromos.length > 0) {
+          const dbIds = new Set(dbActivePromos.map(p => p.id));
+          const localOnly = Array.isArray(local) ? local.filter(p => p.is_active !== false && !dbIds.has(p.id)) : [];
+          setRetailPromotions([...dbActivePromos, ...localOnly]);
+        } else if (Array.isArray(local) && local.length > 0) {
+          setRetailPromotions(local.filter(p => p.is_active !== false));
+        }
+      } catch (e) {
+        const local = (
+          secureStorage.getItem(`tripro_promos_${orgId}`) || 
+          secureStorage.getItem('tripro_promos_active')
+        ) as PromotionRule[];
+        if (local && Array.isArray(local)) setRetailPromotions(local.filter(p => p.is_active !== false));
+      }
+    };
+
+    loadRetailPromos();
+
+    window.addEventListener('focus', loadRetailPromos);
+    return () => {
+      window.removeEventListener('focus', loadRetailPromos);
+    };
+  }, [currentUser, organization, currentSelectedOrgId]);
 
   useEffect(() => {
     if (invoiceToPrint) {
@@ -728,23 +780,61 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     }
   };
 
+  // 🎁 تقييم عروض الهايبر ماركت التلقائي (BOGO, Tiered Qty, Category Discounts, Min Spend)
+  const { totalPromoDiscount, appliedPromotions } = useMemo(() => {
+    if (!retailPromotions || retailPromotions.length === 0 || items.length === 0) {
+      return { totalPromoDiscount: 0, appliedPromotions: [] };
+    }
+    const cartForPromo = items.map(item => {
+      const prod = products.find(p => p.id === (item.productId || item.product_id));
+      return {
+        product: {
+          id: item.productId || item.product_id,
+          name: item.productName || item.product_name || prod?.name || '',
+          sales_price: Number(item.unitPrice ?? item.unit_price ?? 0),
+          category_id: prod?.category_id || null
+        },
+        quantity: Number(item.quantity || 0),
+        price: Number(item.unitPrice ?? item.unit_price ?? 0)
+      };
+    });
+    return evaluatePromotions(cartForPromo, retailPromotions);
+  }, [items, products, retailPromotions]);
+
   // Note: subtotal calculation kept for backward compatibility with existing form logic
   // The new InvoiceItemsList component handles its own calculations internally
   const subtotal = items.reduce((sum, item) => sum + item.total, 0);
 
-  let discountAmount = 0;
+  let manualDiscount = 0;
   if (formData.discountType === 'percentage') {
-      discountAmount = subtotal * (formData.discountValue / 100);
+      manualDiscount = subtotal * (formData.discountValue / 100);
   } else {
-      discountAmount = formData.discountValue;
+      manualDiscount = formData.discountValue;
   }
-  discountAmount = Math.min(discountAmount, subtotal);
+  manualDiscount = Math.min(manualDiscount, subtotal);
 
-  const netSales = subtotal - discountAmount;
+  // إجمالي الخصومات يشمل الخصم اليدوي + عروض الهايبر ماركت
+  const discountAmount = Math.min(subtotal, manualDiscount + totalPromoDiscount);
+
+  const netSales = Math.max(0, subtotal - discountAmount);
   const taxRate = settings.enableTax ? ((settings.vatRate || 14) / 100) : 0;
   const taxAmount = netSales * taxRate;
   const totalAmount = netSales + taxAmount;
   const remainingBalance = Math.max(0, totalAmount - formData.paidAmount);
+
+  // 🎁 التحقق مما إذا كان هناك عرض هايبر ماركت سارٍ على صنف معين
+  const getProductHypermarketOffer = (product: any): PromotionRule | undefined => {
+    if (!retailPromotions || retailPromotions.length === 0) return undefined;
+    const now = formData.date || new Date().toISOString().split('T')[0];
+    return retailPromotions.find(p => {
+      if (!p.is_active) return false;
+      if (p.start_date && p.start_date > now) return false;
+      if (p.end_date && p.end_date < now) return false;
+      if (p.product_id && p.product_id === product.id) return true;
+      if (p.category_id && product.category_id && p.category_id === product.category_id) return true;
+      return false;
+    });
+  };
 
   // التحقق من حد الائتمان
   const selectedCustomer = customers.find(c => c.id === formData.customerId);
@@ -754,11 +844,13 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
   const filteredProducts = useMemo(() => {
       if (!productSearchTerm.trim()) return [];
-      const term = productSearchTerm.toLowerCase();
+      const term = productSearchTerm.trim().toLowerCase();
       return products.filter(p =>
           p.name.toLowerCase().includes(term) ||
           (p.sku && p.sku.toLowerCase().includes(term)) ||
-          (p.barcode && p.barcode.toLowerCase().includes(term))
+          (p.barcode && p.barcode.toLowerCase().includes(term)) ||
+          ((p as any).barcode2 && (p as any).barcode2.toLowerCase().includes(term)) ||
+          (Array.isArray((p as any).unit_barcodes) && (p as any).unit_barcodes.some((ub: any) => ub.barcode && ub.barcode.toLowerCase().includes(term)))
       ).slice(0, 8);
   }, [productSearchTerm, products]);
 
@@ -786,14 +878,26 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           return Number(product.offer_price || product.offerPrice);
       }
       const price = Number(product.sales_price || product.price || 0);
-      if (pricingTier === 'wholesale') return Number(product.wholesalePrice || price);
-      if (pricingTier === 'half') return Number(product.halfWholesalePrice || price);
+      if (pricingTier === 'wholesale') {
+          const wsPrice = Number(product.wholesale_price ?? product.wholesalePrice);
+          return wsPrice > 0 ? wsPrice : price;
+      }
+      if (pricingTier === 'half') {
+          const halfWsPrice = Number(product.half_wholesale_price ?? product.halfWholesalePrice);
+          return halfWsPrice > 0 ? halfWsPrice : price;
+      }
       return price;
   };
 
-  const addProductToInvoice = (product: Product) => {
-      const existingItemIndex = items.findIndex(i => i.productId === product.id);
+  const addProductToInvoice = (product: Product, matchedUomInfo?: { uom_name?: string; customPrice?: number; uom_id?: string }) => {
+      const selectedUomId = matchedUomInfo?.uom_id || product.sale_uom_id || product.base_uom_id;
+      const selectedUom = uoms.find(u => u.id === selectedUomId);
       const basePrice = getProductPrice(product);
+      const calculatedPrice = (matchedUomInfo?.customPrice !== undefined && matchedUomInfo.customPrice > 0)
+          ? matchedUomInfo.customPrice
+          : (selectedUom ? Number((basePrice * (selectedUom.ratio || 1)).toFixed(4)) : basePrice);
+
+      const existingItemIndex = items.findIndex(i => i.productId === product.id && (!selectedUomId || i.uomId === selectedUomId));
 
       if (existingItemIndex > -1) {
           const newItems = [...items];
@@ -801,10 +905,6 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           newItems[existingItemIndex].total = newItems[existingItemIndex].quantity * newItems[existingItemIndex].unitPrice;
           setItems(newItems);
       } else {
-          const defaultUomId = product.sale_uom_id || product.base_uom_id;
-          const selectedUom = uoms.find(u => u.id === defaultUomId);
-          const initialPrice = selectedUom ? Number((basePrice * selectedUom.ratio).toFixed(4)) : basePrice;
-
           setItems([...items, {
               id: Date.now().toString(),
               productId: product.id,
@@ -814,10 +914,10 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               productSku: product.sku,
               product_sku: product.sku,
               quantity: 1,
-              unitPrice: initialPrice,
-              unit_price: initialPrice,
-              uomId: defaultUomId || '',
-              total: initialPrice
+              unitPrice: calculatedPrice,
+              unit_price: calculatedPrice,
+              uomId: selectedUomId || '',
+              total: calculatedPrice
           }]);
       }
       setProductSearchTerm('');
@@ -830,13 +930,45 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       const code = e.currentTarget.value.trim().toLowerCase();
       if (!code) return;
 
-      const product = products.find(p => 
-        (p.barcode && p.barcode.toLowerCase() === code) ||
-        (p.sku && p.sku.toLowerCase() === code)
+      let matchedUomInfo: { uom_name?: string; customPrice?: number; uom_id?: string } | undefined;
+
+      // 1. Direct match on barcode, sku, barcode2
+      let product = products.find(p => 
+        (p.barcode && p.barcode.trim().toLowerCase() === code) ||
+        (p.sku && p.sku.trim().toLowerCase() === code) ||
+        ((p as any).barcode2 && (p as any).barcode2.trim().toLowerCase() === code)
       );
 
+      // 2. Unit barcodes match (e.g. bottle vs box vs carton)
+      if (!product) {
+        for (const p of products) {
+          if (Array.isArray((p as any).unit_barcodes)) {
+            const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === code);
+            if (foundUom) {
+              product = p;
+              matchedUomInfo = {
+                uom_name: foundUom.uom_name,
+                customPrice: foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : undefined,
+                uom_id: foundUom.uom_id
+              };
+              break;
+            }
+          }
+        }
+      } else if (Array.isArray((product as any).unit_barcodes)) {
+        // If product matched directly, check if it was specifically a unit barcode
+        const foundUom = (product as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === code);
+        if (foundUom) {
+          matchedUomInfo = {
+            uom_name: foundUom.uom_name,
+            customPrice: foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : undefined,
+            uom_id: foundUom.uom_id
+          };
+        }
+      }
+
       if (product) {
-        addProductToInvoice(product); 
+        addProductToInvoice(product, matchedUomInfo); 
         e.currentTarget.value = ''; 
         setProductSearchTerm('');
       } else {
@@ -1061,6 +1193,22 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         }
     }
 
+    // 🛑 التحقق من الحد الأدنى لسعر البيع المسموح به
+    for (const item of items) {
+        const product = products.find(p => p.id === item.productId);
+        const minPrice = Number((product as any)?.min_sales_price || (product as any)?.minSalesPrice || 0);
+        if (minPrice > 0) {
+            const selectedUom = uoms.find(u => u.id === item.uomId);
+            const ratio = selectedUom?.ratio || 1;
+            const effectiveMinPrice = minPrice * ratio;
+            if (item.unitPrice < effectiveMinPrice) {
+                showToast(`❌ [حظر بيع]: سعر بيع الصنف "${item.productName}" (${item.unitPrice}) أقل من الحد الأدنى المسموح به (${effectiveMinPrice})`, 'error');
+                setSaving(false);
+                return;
+            }
+        }
+    }
+
     setSaving(true);
     // ... (تم حذف الفحص المكرر والتنبيهات المزعجة لتبسيط الواجهة)
 
@@ -1076,6 +1224,11 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         await new Promise(resolve => setTimeout(resolve, 600));
         
         const demoInvoiceNumber = formData.invoiceNumber || `INV-DEMO-${Math.floor(Math.random() * 10000)}`;
+        const promoNotes = appliedPromotions.length > 0 
+            ? ` [عروض مطبقة: ${appliedPromotions.map(p => p.promoName).join(' | ')}]`
+            : '';
+        const finalNotes = (formData.notes || '') + (formData.notes?.includes('[عروض مطبقة:') ? '' : promoNotes);
+
         const demoInvoice = {
             id: `demo-inv-${Date.now()}`,
             invoiceNumber: demoInvoiceNumber,
@@ -1085,6 +1238,8 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
             totalAmount: totalAmount,
             taxAmount: taxAmount,
             subtotal: subtotal,
+            discount_amount: discountAmount,
+            notes: finalNotes,
             status: 'draft',
             items: items,
             paid_amount: formData.paidAmount,
@@ -1101,6 +1256,10 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
     // توليد رقم فاتورة فريد مرة واحدة لاستخدامه في القيد والفاتورة
     const invoiceNumber = formData.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`;
+    const promoNotes = appliedPromotions.length > 0 
+        ? ` [عروض مطبقة: ${appliedPromotions.map(p => p.promoName).join(' | ')}]`
+        : '';
+    const finalNotes = (formData.notes || '') + (formData.notes?.includes('[عروض مطبقة:') ? '' : promoNotes);
 
         // Prepare invoice data
         const invoiceData = {
@@ -1112,7 +1271,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
             invoice_date: formData.date ? formData.date : new Date().toISOString().split('T')[0],
             total_amount: Number(totalAmount),
             tax_amount: Number(taxAmount),
-            notes: formData.notes,
+            notes: finalNotes,
             status: editingId ? formData.status : 'draft', // الحفاظ على الحالة الأصلية عند التعديل
             subtotal: subtotal,
             discount_amount: discountAmount,
@@ -1295,6 +1454,21 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         }
     }
 
+    // 🛑 التحقق من الحد الأدنى لسعر البيع المسموح به
+    for (const item of items) {
+        const product = products.find(p => p.id === item.productId);
+        const minPrice = Number((product as any)?.min_sales_price || (product as any)?.minSalesPrice || 0);
+        if (minPrice > 0) {
+            const selectedUom = uoms.find(u => u.id === item.uomId);
+            const ratio = selectedUom?.ratio || 1;
+            const effectiveMinPrice = minPrice * ratio;
+            if (item.unitPrice < effectiveMinPrice) {
+                showToast(`❌ [حظر بيع]: سعر بيع الصنف "${item.productName}" (${item.unitPrice}) أقل من الحد الأدنى المسموح به (${effectiveMinPrice})`, 'error');
+                return;
+            }
+        }
+    }
+
     setSaving(true);
 
     const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).single();
@@ -1461,6 +1635,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           customerName: customers.find(c => c.id === formData.customerId)?.name || 'عميل نقدي',
           status: formData.status,
           subtotal: subtotal,
+          discountAmount: discountAmount,
           taxAmount: taxAmount,
           totalAmount: totalAmount,
           currency: formData.currency || 'EGP',
@@ -1483,6 +1658,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           customerName: customers.find(c => c.id === formData.customerId)?.name || 'عميل نقدي',
           status: formData.status,
           subtotal: subtotal,
+          discountAmount: discountAmount,
           taxAmount: taxAmount,
           totalAmount: totalAmount,
           currency: formData.currency || 'EGP',
@@ -1989,6 +2165,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                                         {filteredProducts.map(p => {
                                             const stock = getProductStock(p.id);
                                             const isOffer = isOfferActive(p);
+                                            const hyperOffer = getProductHypermarketOffer(p);
                                             const price = getProductPrice(p);
                                             const regularPrice = Number(p.sales_price || p.price || 0);
 
@@ -2004,11 +2181,16 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                                                             <Box size={20} />
                                                         </div>
                                                         <div>
-                                                            <div className="flex items-center gap-2">
+                                                            <div className="flex items-center gap-2 flex-wrap">
                                                                 <p className="font-bold text-slate-800">{p.name}</p>
                                                                 {isOffer && (
-                                                                    <span className="bg-red-100 text-red-700 text-[10px] font-black px-2 py-0.5 rounded-full border border-red-200">
+                                                                    <span className="bg-red-100 text-red-700 text-[10px] font-black px-2 py-0.5 rounded-full border border-red-200 flex items-center gap-1">
                                                                         🔥 عرض خاص
+                                                                    </span>
+                                                                )}
+                                                                {hyperOffer && (
+                                                                    <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-2 py-0.5 rounded-full border border-amber-300 flex items-center gap-1">
+                                                                        <Gift size={10} className="text-amber-600" /> عرض هايبر: {hyperOffer.name}
                                                                     </span>
                                                                 )}
                                                             </div>
@@ -2072,6 +2254,9 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                                     </thead>
                                     <tbody className="divide-y divide-slate-50">
                                         {items.map((item, index) => {
+                                            const product = products.find(p => p.id === (item.productId || item.product_id));
+                                            const isOffer = product ? isOfferActive(product) : false;
+                                            const appliedItemPromo = appliedPromotions.find(ap => ap.affectedProductId === (item.productId || item.product_id));
                                             const stock = getProductStock(item.productId);
                                             const isLowStock = stock < item.quantity;
                                             return (
@@ -2087,7 +2272,19 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                                                                 <Box size={16} />
                                                             </button>
                                                             <div className="relative">
-                                                                <p className="font-bold text-slate-800 text-sm">{item.productName}</p>
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <p className="font-bold text-slate-800 text-sm">{item.productName}</p>
+                                                                    {isOffer && (
+                                                                        <span className="bg-red-100 text-red-700 text-[10px] font-black px-1.5 py-0.5 rounded border border-red-200 flex items-center gap-1">
+                                                                            🔥 عرض خاص
+                                                                        </span>
+                                                                    )}
+                                                                    {appliedItemPromo && (
+                                                                        <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-1.5 py-0.5 rounded border border-amber-300 flex items-center gap-1" title={appliedItemPromo.promoName}>
+                                                                            <Sparkles size={10} className="text-amber-600" /> عرض هايبر: -{appliedItemPromo.discountAmount.toFixed(2)}
+                                                                        </span>
+                                                                    )}
+                                                                </div>
                                                                 <div className="flex items-center gap-2 mt-0.5">
                                                                     <span className="text-[10px] font-mono text-slate-400">{item.productSku || 'بدون كود'}</span>
                                                                     <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isLowStock ? 'bg-red-100 text-red-600' : 'bg-slate-100 text-slate-500'}`}>
@@ -2215,11 +2412,32 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                         <span className="text-2xl font-mono">{subtotal.toLocaleString()}</span>
                     </div>
 
+                    {/* Hypermarket Promotions Applied */}
+                    {totalPromoDiscount > 0 && (
+                        <div className="bg-amber-500/10 p-4 rounded-3xl border border-amber-500/20 space-y-2">
+                            <div className="flex justify-between items-center">
+                                <span className="text-xs font-black text-amber-300 flex items-center gap-1.5">
+                                    <Sparkles size={14} className="text-amber-400" />
+                                    عروض الهايبر ماركت المطبقة
+                                </span>
+                                <span className="text-amber-400 font-mono font-bold">- {totalPromoDiscount.toLocaleString()} EGP</span>
+                            </div>
+                            <div className="space-y-1.5 pt-2 border-t border-amber-500/10">
+                                {appliedPromotions.map((promo, pIdx) => (
+                                    <div key={pIdx} className="flex justify-between items-center text-[11px] text-amber-200/90">
+                                        <span className="truncate pr-1">{promo.promoName}</span>
+                                        <span className="font-mono font-bold text-amber-300 whitespace-nowrap">-{promo.discountAmount.toFixed(2)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {/* Discount Controls */}
                     <div className="bg-white/5 p-4 rounded-3xl border border-white/5 space-y-3">
                         <div className="flex justify-between items-center">
                             <div className="flex items-center gap-2">
-                                <span className="text-xs font-bold text-slate-400">الخصم الممنوح</span>
+                                <span className="text-xs font-bold text-slate-400">الخصم الإضافي (يدوي)</span>
                                 <div className="flex bg-slate-800 rounded-xl p-0.5 border border-white/10 shadow-inner">
                                     <button 
                                         type="button"
@@ -2247,8 +2465,8 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                             />
                         </div>
                         <div className="flex justify-between items-center pt-2 border-t border-white/5">
-                            <span className="text-[10px] text-slate-500 font-bold uppercase">قيمة الخصم الفعلية</span>
-                            <span className="text-red-400 font-mono font-bold">- {discountAmount.toLocaleString()}</span>
+                            <span className="text-[10px] text-slate-500 font-bold uppercase">إجمالي الخصومات والعروض</span>
+                            <span className="text-red-400 font-mono font-bold">- {discountAmount.toLocaleString()} EGP</span>
                         </div>
                     </div>
 

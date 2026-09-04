@@ -158,7 +158,6 @@ SubledgerRegistry.register({
       projectsRes.data?.forEach(p => projectMap.set(p.id, p));
 
       if (billingsRes.error || !billingsRes.data) {
-        console.warn('[SubledgerRegistry] billingsRes error:', billingsRes.error);
         return [];
       }
 

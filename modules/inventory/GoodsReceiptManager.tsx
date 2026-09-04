@@ -217,11 +217,25 @@ export default function GoodsReceiptManager() {
       showToast(`+1 ${updated[itemIndex].product_name} (المستلم: ${updated[itemIndex].received_quantity})`, 'success');
     } else {
       // Find product in catalog
-      const matchedProd = products.find(p => 
+      let matchedUomName: string | undefined;
+      let matchedProd = products.find(p => 
         p.barcode?.toLowerCase() === scannedCode || 
         p.sku?.toLowerCase() === scannedCode ||
         (p as any).barcode2?.toLowerCase() === scannedCode
       );
+
+      if (!matchedProd) {
+        for (const p of products) {
+          if (Array.isArray((p as any).unit_barcodes)) {
+            const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === scannedCode);
+            if (foundUom) {
+              matchedProd = p;
+              matchedUomName = foundUom.uom_name;
+              break;
+            }
+          }
+        }
+      }
 
       if (matchedProd) {
         setItems(prev => [
@@ -230,7 +244,7 @@ export default function GoodsReceiptManager() {
             product_id: matchedProd.id,
             product_name: matchedProd.name,
             barcode: matchedProd.barcode || matchedProd.sku || '',
-            uom_name: matchedProd.unit || 'قطعة',
+            uom_name: matchedUomName || matchedProd.unit || 'قطعة',
             ordered_quantity: 0, // Unlisted in PO
             received_quantity: 1,
             rejected_quantity: 0,

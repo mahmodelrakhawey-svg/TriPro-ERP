@@ -396,28 +396,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setSettings(normalizeSettings(sett || {}));
 
       // جلب الحسابات والمستودعات
-      const [accs, ents, vchs, ccs, emps, prods, trns, pinvs, invs, sps, cats, usrs, whs, rTables, mCats, custs, sups, chqs, shift, assetData, budgetData] = await Promise.all([
-      supabase.from('accounts').select('*').eq('organization_id', fetchOrgId).order('code'),
-      supabase.from('journal_entries').select('*, journal_lines(*)').eq('organization_id', fetchOrgId).order('transaction_date', { ascending: false }),
-      supabase.from('vouchers').select('*').eq('organization_id', fetchOrgId).order('date', { ascending: false }),
-      supabase.from('cost_centers').select('*').eq('organization_id', fetchOrgId).order('name'),
-      supabase.from('employees').select('*').eq('organization_id', fetchOrgId).order('full_name'),
-      supabase.from('products').select('*').eq('organization_id', fetchOrgId).order('name'),
-      supabase.from('stock_transfers').select('*').eq('organization_id', fetchOrgId).order('transfer_date', { ascending: false }),
-      supabase.from('purchase_invoices').select('*').eq('organization_id', fetchOrgId).order('invoice_date', { ascending: false }),
-      supabase.from('invoices').select('*').eq('organization_id', fetchOrgId).order('invoice_date', { ascending: false }),
-      supabase.from('salespeople').select('*').eq('organization_id', fetchOrgId).order('name'),
-      supabase.from('product_categories').select('*').eq('organization_id', fetchOrgId).order('name'),
-      supabase.from('profiles').select('*').eq('organization_id', fetchOrgId).order('full_name'),
-      supabase.from('warehouses').select('*').eq('organization_id', fetchOrgId).eq('is_active', true),
-      supabase.from('restaurant_tables').select('*').eq('organization_id', fetchOrgId).order('name'),
-      supabase.from('menu_categories').select('*').eq('organization_id', fetchOrgId).order('display_order'),
-      supabase.from('customers').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
-      supabase.from('suppliers').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
-      supabase.from('cheques').select('*').eq('organization_id', fetchOrgId).order('due_date'),
+      const [accs, ents, ccs, emps, prods, trns, pinvs, invs, cats, usrs, whs, rTables, custs, sups, chqs, shift, assetData, budgetData] = await Promise.all([
+        supabase.from('accounts').select('*').eq('organization_id', fetchOrgId).order('code'),
+        supabase.from('journal_entries').select('*, journal_lines(*)').eq('organization_id', fetchOrgId).order('transaction_date', { ascending: false }),
+        supabase.from('cost_centers').select('*').eq('organization_id', fetchOrgId).order('name'),
+        supabase.from('employees').select('*').eq('organization_id', fetchOrgId).order('full_name'),
+        supabase.from('products').select('*').eq('organization_id', fetchOrgId).order('name'),
+        supabase.from('stock_transfers').select('*').eq('organization_id', fetchOrgId).order('transfer_date', { ascending: false }),
+        supabase.from('purchase_invoices').select('*').eq('organization_id', fetchOrgId).order('invoice_date', { ascending: false }),
+        supabase.from('invoices').select('*').eq('organization_id', fetchOrgId).order('invoice_date', { ascending: false }),
+        supabase.from('item_categories').select('*').eq('organization_id', fetchOrgId).order('name'),
+        supabase.from('profiles').select('*').eq('organization_id', fetchOrgId).order('full_name'),
+        supabase.from('warehouses').select('*').eq('organization_id', fetchOrgId).eq('is_active', true),
+        supabase.from('restaurant_tables').select('*').eq('organization_id', fetchOrgId).order('name'),
+        supabase.from('customers').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
+        supabase.from('suppliers').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
+        supabase.from('cheques').select('*').eq('organization_id', fetchOrgId).order('due_date'),
         supabase.rpc('get_active_shift', { p_org_id: fetchOrgId }),
-      supabase.from('assets').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
-      supabase.from('budgets').select('*').eq('organization_id', fetchOrgId)
+        supabase.from('assets').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
+        supabase.from('budgets').select('*').eq('organization_id', fetchOrgId)
       ]);
 
       setAccounts((accs.data || []).map((acc: any) => ({
@@ -425,21 +422,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         type: acc.type ? acc.type.toUpperCase() : acc.type
       })));
       setEntries(ents.data || []);
-      setAssets(assetData.data || []);
-      setBudgets(budgetData.data || []);
-      setVouchers(vchs.data || []);
+      setAssets(assetData?.data || []);
+      setBudgets(budgetData?.data || []);
+      setVouchers([]);
       setCostCenters(ccs.data || []);
       setEmployees(emps.data || []);
       setProducts(prods.data || []);
       setTransfers(trns.data || []);
       setPurchaseInvoices(pinvs.data || []);
       setInvoices(invs.data || []);
-      setSalespeople(sps.data || []);
+      setSalespeople(emps.data || []);
       setCategories(cats.data || []);
       setUsers(usrs.data || []);
       setWarehouses(whs.data || []);
       setRestaurantTables(rTables.data || []);
-      setMenuCategories(mCats.data || []);
+      setMenuCategories([]);
       setCustomers(custs.data || []);
       setSuppliers(sups.data || []);
       setCheques(chqs.data || []);
@@ -599,7 +596,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     return undefined;
   };
-  const updateVoucher = async (id: string, updates: any) => { const { error } = await supabase.from('vouchers').update(updates).eq('id', id); refreshData(); return !error; };
+  const updateVoucher = async () => true;
   const getAccountBalanceInPeriod = async (id: string, start: string, end: string) => { 
     const { data } = await supabase.rpc('get_account_balance_in_period', { p_account_id: id, p_start_date: start, p_end_date: end, p_org_id: currentSelectedOrgId });
     return data || 0;

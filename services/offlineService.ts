@@ -27,6 +27,14 @@ export interface CachedProduct {
   barcode2?: string | null;
   age_restricted?: boolean;
   tax_rate_override?: number | null;
+  unit_barcodes?: Array<{ uom_id?: string; barcode: string; price?: number; uom_name?: string }>;
+  offer_price?: number | null;
+  offer_start_date?: string | null;
+  offer_end_date?: string | null;
+  min_sales_price?: number;
+  max_stock_level?: number;
+  wholesale_price?: number;
+  half_wholesale_price?: number;
 }
 
 export interface QueuedMedicalItem {
@@ -93,12 +101,25 @@ export const offlineService = {
   async syncProductsLocally(orgId: string): Promise<void> {
     if (!navigator.onLine) return;
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('id, name, barcode, sku, sales_price, cost, category_id, stock, image_url, is_scale_item, plu_number, scale_prefix, barcode2, age_restricted, tax_rate_override')
-        .eq('organization_id', orgId);
+      let data: any[] | null = null;
       
-      if (error) throw error;
+      // 1. Fetch with select('*') so it dynamically adapts to available columns without throwing error 42703
+      const { data: allData, error: allErr } = await supabase
+        .from('products')
+        .select('*')
+        .eq('organization_id', orgId);
+
+      if (!allErr && allData) {
+        data = allData;
+      } else {
+        // Fallback: fetch with safe core columns only
+        const { data: fallbackData, error: fallbackErr } = await supabase
+          .from('products')
+          .select('id, name, barcode, sku, sales_price, cost, category_id, stock, image_url')
+          .eq('organization_id', orgId);
+        if (fallbackErr) throw fallbackErr;
+        data = fallbackData;
+      }
       
       if (data) {
         await db.products.clear();
@@ -118,6 +139,14 @@ export const offlineService = {
           barcode2: p.barcode2 || null,
           age_restricted: p.age_restricted || false,
           tax_rate_override: p.tax_rate_override ? Number(p.tax_rate_override) : null,
+          unit_barcodes: Array.isArray(p.unit_barcodes) ? p.unit_barcodes : [],
+          offer_price: p.offer_price !== null && p.offer_price !== undefined ? Number(p.offer_price) : null,
+          offer_start_date: p.offer_start_date || null,
+          offer_end_date: p.offer_end_date || null,
+          min_sales_price: Number(p.min_sales_price || 0),
+          max_stock_level: Number(p.max_stock_level || 0),
+          wholesale_price: Number(p.wholesale_price || 0),
+          half_wholesale_price: Number(p.half_wholesale_price || 0),
         }));
         await db.products.bulkAdd(productsToCache);
         console.log(`Synced ${productsToCache.length} products locally.`);

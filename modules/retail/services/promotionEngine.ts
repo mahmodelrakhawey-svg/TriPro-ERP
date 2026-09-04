@@ -5,14 +5,17 @@ export interface PromotionRule {
   is_active: boolean;
   start_date?: string | null;
   end_date?: string | null;
-  product_id?: string | null; // For single product offer
+  product_id?: string | null; // For single product offer or main product in bundle
   product_name?: string;
+  secondary_product_id?: string | null; // For bundle: second product (صنف ب)
+  secondary_product_name?: string;
   category_id?: string | null; // For category offers
   // Specific parameters:
   buy_qty?: number; // e.g. Buy 2
   get_free_qty?: number; // e.g. Get 1 Free
   tiered_qty?: number; // e.g. 3 pieces
   tiered_fixed_price?: number; // for 100 EGP total
+  bundle_fixed_price?: number; // Special fixed price for (Product A + Product B)
   discount_percentage?: number; // 10%
   min_spend_amount?: number; // Min spend 500 EGP
   discount_amount?: number; // Flat discount 50 EGP
@@ -103,6 +106,59 @@ export const evaluatePromotions = (
           promoName: `خصم ${promo.discount_percentage}% على قسم ${promo.name}`,
           discountAmount: catDiscount
         });
+      }
+    }
+
+    // 4. MIN_SPEND: Flat or percentage discount when subtotal exceeds min_spend_amount
+    if (promo.type === 'MIN_SPEND' && promo.min_spend_amount) {
+      const currentCartSubtotal = cartItems.reduce((sum, it) => sum + (it.price * it.quantity), 0);
+      if (currentCartSubtotal >= promo.min_spend_amount) {
+        let spendDiscount = 0;
+        if (promo.discount_amount && promo.discount_amount > 0) {
+          spendDiscount = promo.discount_amount;
+        } else if (promo.discount_percentage && promo.discount_percentage > 0) {
+          spendDiscount = (currentCartSubtotal * promo.discount_percentage) / 100;
+        }
+        if (spendDiscount > 0) {
+          totalPromoDiscount += spendDiscount;
+          appliedPromotions.push({
+            promoId: promo.id,
+            promoName: `عرض ${promo.name}: خصم ${spendDiscount.toFixed(2)} ج.م عند الشراء بأكثر من ${promo.min_spend_amount} ج.م`,
+            discountAmount: spendDiscount
+          });
+        }
+      }
+    }
+
+    // 5. BUNDLE: Buy Product A + Product B together at a discount or special fixed price
+    if (promo.type === 'BUNDLE' && promo.product_id && promo.secondary_product_id) {
+      const matchA = cartItems.find(item => item.product.id === promo.product_id);
+      const matchB = cartItems.find(item => item.product.id === promo.secondary_product_id);
+
+      if (matchA && matchB && matchA.quantity > 0 && matchB.quantity > 0) {
+        const bundleCount = Math.min(Math.floor(matchA.quantity), Math.floor(matchB.quantity));
+        if (bundleCount > 0) {
+          let discountPerBundle = 0;
+          if (promo.bundle_fixed_price && promo.bundle_fixed_price > 0) {
+            const regularPairPrice = matchA.price + matchB.price;
+            discountPerBundle = Math.max(0, regularPairPrice - promo.bundle_fixed_price);
+          } else if (promo.discount_percentage && promo.discount_percentage > 0) {
+            discountPerBundle = (matchB.price * promo.discount_percentage) / 100;
+          } else if (promo.discount_amount && promo.discount_amount > 0) {
+            discountPerBundle = promo.discount_amount;
+          }
+
+          const bundleDiscount = discountPerBundle * bundleCount;
+          if (bundleDiscount > 0) {
+            totalPromoDiscount += bundleDiscount;
+            appliedPromotions.push({
+              promoId: promo.id,
+              promoName: `عرض الحزمة (${promo.name}): وفرت ${bundleDiscount.toFixed(2)} ج.م عند شراء (${matchA.product.name} + ${matchB.product.name})`,
+              discountAmount: bundleDiscount,
+              affectedProductId: promo.secondary_product_id
+            });
+          }
+        }
       }
     }
   }

@@ -2201,6 +2201,22 @@ min_stock numeric DEFAULT 5,
     offer_end_date date,
     offer_max_qty numeric,
     
+    -- حقول الهايبر ماركت ونقاط البيع المتقدمة
+    barcode2 text,
+    is_scale_item boolean DEFAULT false,
+    plu_number integer,
+    scale_prefix text DEFAULT '22',
+    shelf_location text,
+    brand text,
+    country_of_origin text,
+    age_restricted boolean DEFAULT false,
+    tax_rate_override numeric,
+    unit_barcodes jsonb DEFAULT '[]'::jsonb,
+    min_sales_price numeric DEFAULT 0,
+    max_stock_level numeric DEFAULT 0,
+    wholesale_price numeric DEFAULT 0,
+    half_wholesale_price numeric DEFAULT 0,
+    
     organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     deleted_at timestamptz,
     deletion_reason text,
@@ -16426,6 +16442,9 @@ CREATE TABLE IF NOT EXISTS public.retail_promotions (
     discount_percentage NUMERIC(5,2) DEFAULT 0,
     min_spend_amount NUMERIC(12,2) DEFAULT 0,
     discount_amount NUMERIC(12,2) DEFAULT 0,
+    secondary_product_id UUID REFERENCES public.products(id) ON DELETE SET NULL,
+    secondary_product_name TEXT,
+    bundle_fixed_price NUMERIC(12,2) DEFAULT 0,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

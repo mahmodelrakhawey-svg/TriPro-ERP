@@ -356,7 +356,9 @@ class NotificationService {
       const { data: customers, error } = await supabase.rpc('get_over_limit_customers', { p_org_id: orgId });
 
       if (error || !customers) {
-          if (error) console.error('Error in checkHighDebt:', error);
+          if (error && error.code !== '42703' && error.code !== 'PGRST202') {
+            console.warn('Notice in checkHighDebt:', error.message);
+          }
           return;
       }
       // جلب المسؤولين كاحتياطي
@@ -594,7 +596,10 @@ class NotificationService {
       });
 
       if (error) {
-        console.error('Error checking project performance thresholds:', error);
+        // إذا لم تكن الدالة مثبتة في قاعدة البيانات (مثل القواعد الأساسية بدون مديول المقاولات) يتم التجاوز بهدوء
+        if (error.code !== 'PGRST202' && error.code !== '404') {
+          console.warn('Notice checking project performance thresholds:', error.message);
+        }
         return;
       }
 
