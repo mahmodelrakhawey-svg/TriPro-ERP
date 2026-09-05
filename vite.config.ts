@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => {
         }
       },
       build: {
-        chunkSizeWarningLimit: 2500,
+        chunkSizeWarningLimit: 1600,
         rollupOptions: {
           output: {
             manualChunks(id) {
@@ -35,13 +35,25 @@ export default defineConfig(({ mode }) => {
                 if (id.includes('xlsx')) {
                   return 'vendor-xlsx';
                 }
-                if (id.includes('lucide-react') || id.includes('recharts')) {
-                  return 'vendor-ui';
+                if (id.includes('jspdf') || id.includes('html2canvas')) {
+                  return 'vendor-pdf';
+                }
+                if (id.includes('recharts') || id.includes('d3')) {
+                  return 'vendor-charts';
+                }
+                if (id.includes('lucide-react')) {
+                  return 'vendor-icons';
+                }
+                if (id.includes('@supabase')) {
+                  return 'vendor-supabase';
+                }
+                if (id.includes('dexie')) {
+                  return 'vendor-offline';
+                }
+                if (id.includes('antd') || id.includes('@ant-design') || id.includes('@rc-component') || id.includes('rc-')) {
+                  return 'vendor-antd';
                 }
                 return 'vendor-core';
-              }
-              if (id.includes('/modules/retail/')) {
-                return 'mod-retail';
               }
             },
           },

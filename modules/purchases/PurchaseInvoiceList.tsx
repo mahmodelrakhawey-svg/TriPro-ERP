@@ -16,19 +16,37 @@ import { FileSpreadsheet } from 'lucide-react';
 export const PurchaseInvoiceList = () => {
   const navigate = useNavigate();
   const { 
-    approvePurchaseInvoice, addPaymentVoucher, settings, currentUser, 
-    accounts, suppliers, warehouses, selectedFiscalYear, fiscalYearRange 
+    approvePurchaseInvoice, unpostPurchaseInvoice, deletePurchaseInvoice, addPaymentVoucher, settings, currentUser, 
+    accounts, suppliers, warehouses, selectedFiscalYear, fiscalYearRange,
+    currentSelectedOrgId
   } = useAccounting();
   const { showToast } = useToast();
 
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
   const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'posted' | 'draft'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'posted' | 'paid' | 'draft'>('all');
+  
+  // Pagination & Count
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const itemsPerPage = 15;
+
+  // KPI Summary State
+  const [summaryData, setSummaryData] = useState({
+    totalAmount: 0,
+    totalTax: 0,
+    totalPaid: 0,
+    totalRemaining: 0,
+    postedCount: 0,
+    draftCount: 0,
+    count: 0
+  });
   
   // Printing & Action States
   const [invoiceToPrint, setInvoiceToPrint] = useState<any | null>(null);
@@ -46,9 +64,13 @@ export const PurchaseInvoiceList = () => {
     notes: ''
   });
 
-  // Pagination
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 15;
+  // Debounce search input (350ms)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
   useEffect(() => {
     if (selectedFiscalYear) {
@@ -71,20 +93,31 @@ export const PurchaseInvoiceList = () => {
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
       if (!userOrgId) {
         setLoading(false);
         return;
       }
 
+      // 1. استعلام خفيف للصفحة الحالية فقط دون جلب عناصر الفواتير الثقيلة
       let query = supabase
         .from('purchase_invoices')
         .select(`
-          *,
+          id,
+          invoice_number,
+          invoice_date,
+          total_amount,
+          tax_amount,
+          paid_amount,
+          status,
+          notes,
+          supplier_id,
+          warehouse_id,
+          created_at,
+          related_journal_entry_id,
           suppliers(id, name, phone),
-          warehouses(id, name),
-          purchase_invoice_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku))
-        `)
+          warehouses(id, name)
+        `, { count: 'exact' })
         .eq('organization_id', userOrgId)
         .order('invoice_date', { ascending: false })
         .order('created_at', { ascending: false });
@@ -94,11 +127,64 @@ export const PurchaseInvoiceList = () => {
       if (selectedSupplierId) query = query.eq('supplier_id', selectedSupplierId);
       if (selectedWarehouseId) query = query.eq('warehouse_id', selectedWarehouseId);
       if (filterStatus !== 'all') query = query.eq('status', filterStatus);
+      if (debouncedSearch.trim()) {
+        const term = debouncedSearch.trim();
+        query = query.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
+      }
 
-      const { data, error } = await query;
+      const from = (currentPage - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+      query = query.range(from, to);
+
+      const { data, count, error } = await query;
       if (error) throw error;
 
       setInvoices(data || []);
+      setTotalCount(count || 0);
+
+      // 2. استعلام إحصائي فائق السرعة لحساب إجماليات KPIs للفترة المحددة
+      let summaryQuery = supabase
+        .from('purchase_invoices')
+        .select('total_amount, tax_amount, paid_amount, status')
+        .eq('organization_id', userOrgId);
+
+      if (startDate) summaryQuery = summaryQuery.gte('invoice_date', startDate);
+      if (endDate) summaryQuery = summaryQuery.lte('invoice_date', endDate);
+      if (selectedSupplierId) summaryQuery = summaryQuery.eq('supplier_id', selectedSupplierId);
+      if (selectedWarehouseId) summaryQuery = summaryQuery.eq('warehouse_id', selectedWarehouseId);
+      if (filterStatus !== 'all') summaryQuery = summaryQuery.eq('status', filterStatus);
+      if (debouncedSearch.trim()) {
+        const term = debouncedSearch.trim();
+        summaryQuery = summaryQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
+      }
+
+      const { data: sumRows } = await summaryQuery;
+      if (sumRows) {
+        let tAmount = 0;
+        let tTax = 0;
+        let tPaid = 0;
+        let postedC = 0;
+        let draftC = 0;
+
+        for (const row of sumRows) {
+          tAmount += Number(row.total_amount || 0);
+          tTax += Number(row.tax_amount || 0);
+          tPaid += Number(row.paid_amount || 0);
+          if (row.status === 'posted' || row.status === 'paid') postedC++;
+          else if (row.status === 'draft') draftC++;
+        }
+
+        setSummaryData({
+          totalAmount: tAmount,
+          totalTax: tTax,
+          totalPaid: tPaid,
+          totalRemaining: tAmount - tPaid,
+          postedCount: postedC,
+          draftCount: draftC,
+          count: sumRows.length
+        });
+      }
+
     } catch (err: any) {
       console.error('Error fetching purchase invoices:', err);
       showToast('فشل تحميل سجل فواتير المشتريات: ' + err.message, 'error');
@@ -109,47 +195,85 @@ export const PurchaseInvoiceList = () => {
 
   useEffect(() => {
     fetchInvoices();
-  }, [startDate, endDate, selectedSupplierId, selectedWarehouseId, filterStatus]);
+  }, [startDate, endDate, selectedSupplierId, selectedWarehouseId, filterStatus, debouncedSearch, currentPage, currentSelectedOrgId]);
 
-  // Client-side search
-  const filteredInvoices = useMemo(() => {
-    if (!searchTerm.trim()) return invoices;
-    const term = searchTerm.toLowerCase().trim();
-    return invoices.filter(inv => 
-      (inv.invoice_number && inv.invoice_number.toLowerCase().includes(term)) ||
-      (inv.suppliers?.name && inv.suppliers.name.toLowerCase().includes(term)) ||
-      (inv.notes && inv.notes.toLowerCase().includes(term))
-    );
-  }, [invoices, searchTerm]);
-
-  // Pagination calculation
-  const totalPages = Math.ceil(filteredInvoices.length / itemsPerPage) || 1;
-  const paginatedInvoices = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredInvoices.slice(start, start + itemsPerPage);
-  }, [filteredInvoices, currentPage]);
-
-  // Summary KPIs
-  const summary = useMemo(() => {
-    const totalAmount = filteredInvoices.reduce((sum, i) => sum + Number(i.total_amount || 0), 0);
-    const totalTax = filteredInvoices.reduce((sum, i) => sum + Number(i.tax_amount || 0), 0);
-    const totalPaid = filteredInvoices.reduce((sum, i) => sum + Number(i.paid_amount || 0), 0);
-    const totalRemaining = totalAmount - totalPaid;
-    const postedCount = filteredInvoices.filter(i => i.status === 'posted' || i.status === 'paid').length;
-    const draftCount = filteredInvoices.filter(i => i.status === 'draft').length;
-
-    return { totalAmount, totalTax, totalPaid, totalRemaining, postedCount, draftCount, count: filteredInvoices.length };
-  }, [filteredInvoices]);
+  const totalPages = Math.ceil(totalCount / itemsPerPage) || 1;
+  const filteredInvoices = invoices;
+  const paginatedInvoices = invoices;
+  const summary = summaryData;
 
   const handleApprove = async (id: string) => {
     if (!window.confirm('هل أنت متأكد من ترحيل فاتورة المشتريات؟ سيتم إنشاء القيد المحاسبي وتحديث أرصدة المخزون.')) return;
     try {
       await approvePurchaseInvoice(id);
-      showToast('تم ترحيل الفاتورة بنجاح ✅', 'success');
       fetchInvoices();
     } catch (err: any) {
       console.error(err);
-      showToast('فشل الترحيل: ' + err.message, 'error');
+    }
+  };
+
+  const handleUnpost = async (invoice: any) => {
+    if (!window.confirm(`هل أنت متأكد من إلغاء ترحيل فاتورة المشتريات رقم (${invoice.invoice_number})؟\n\nسيتم:\n1- عكس حركة المخزون وخصم الكميات المضافة.\n2- حذف القيد المحاسبي بالكامل.\n3- تحويل الفاتورة إلى مسودة (Draft) لتتمكن من تعديلها.`)) {
+      return;
+    }
+
+    setDeletingId(invoice.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
+
+      // 🛡️ 1. محاولة التنفيذ الذري أولاً عبر دالة السيرفر
+      try {
+        await unpostPurchaseInvoice(invoice.id, userOrgId);
+        showToast('تم إلغاء ترحيل فاتورة المشتريات بنجاح وتحويلها لمسودة ✅', 'success');
+        fetchInvoices();
+        return;
+      } catch (rpcErr: any) {
+        console.warn('Atomic unpost RPC unavailable, attempting client fallback:', rpcErr);
+      }
+
+      // جلب عناصر الفاتورة عند الطلب فقط لعكس حركة المخزون (Fallback)
+      let itemsToReverse = invoice.purchase_invoice_items;
+      if (!itemsToReverse || itemsToReverse.length === 0) {
+        const { data: itemRows } = await supabase
+          .from('purchase_invoice_items')
+          .select('product_id, quantity')
+          .eq('purchase_invoice_id', invoice.id);
+        itemsToReverse = itemRows || [];
+      }
+
+      // عكس حركة المخزون
+      for (const item of itemsToReverse) {
+        if (item.product_id && item.quantity) {
+          const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
+          if (prod) {
+            const newStock = Math.max(0, (Number(prod.stock) || 0) - Number(item.quantity));
+            let newWStock = prod.warehouse_stock || {};
+            if (invoice.warehouse_id && newWStock[invoice.warehouse_id] !== undefined) {
+              newWStock[invoice.warehouse_id] = Math.max(0, (Number(newWStock[invoice.warehouse_id]) || 0) - Number(item.quantity));
+            }
+            await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', item.product_id);
+          }
+        }
+      }
+
+      // حذف القيد المحاسبي
+      if (invoice.related_journal_entry_id) {
+        await supabase.from('journal_entries').delete().eq('id', invoice.related_journal_entry_id);
+      } else {
+        await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', invoice.invoice_number);
+      }
+
+      // تحويل لمسودة
+      await supabase.from('purchase_invoices').update({ status: 'draft', related_journal_entry_id: null }).eq('id', invoice.id);
+      showToast('تم إلغاء ترحيل فاتورة المشتريات بنجاح وتحويلها لمسودة ✅', 'success');
+      fetchInvoices();
+
+    } catch (err: any) {
+      console.error('Error unposting purchase invoice:', err);
+      showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -161,11 +285,31 @@ export const PurchaseInvoiceList = () => {
     setDeletingId(invoice.id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
+
+      // 🛡️ 1. محاولة الحذف الذري الشامل أولاً عبر دالة السيرفر
+      try {
+        await deletePurchaseInvoice(invoice.id, userOrgId);
+        showToast('تم حذف فاتورة المشتريات وعكس الحركات بنجاح ✅', 'success');
+        fetchInvoices();
+        return;
+      } catch (rpcErr: any) {
+        console.warn('Atomic delete RPC unavailable, attempting client fallback:', rpcErr);
+      }
 
       if (invoice.status === 'posted') {
+        // جلب عناصر الفاتورة عند الطلب فقط لعكس حركة المخزون
+        let itemsToReverse = invoice.purchase_invoice_items;
+        if (!itemsToReverse || itemsToReverse.length === 0) {
+          const { data: itemRows } = await supabase
+            .from('purchase_invoice_items')
+            .select('product_id, quantity')
+            .eq('purchase_invoice_id', invoice.id);
+          itemsToReverse = itemRows || [];
+        }
+
         // عكس حركة المخزون
-        for (const item of (invoice.purchase_invoice_items || [])) {
+        for (const item of itemsToReverse) {
           if (item.product_id && item.quantity) {
             const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
             if (prod) {
@@ -241,12 +385,30 @@ export const PurchaseInvoiceList = () => {
     }
   };
 
-  const handlePrint = (invoice: any) => {
-    setInvoiceToPrint(invoice);
-    setTimeout(() => {
-      window.print();
-      setInvoiceToPrint(null);
-    }, 200);
+  const handlePrint = async (invoice: any) => {
+    try {
+      showToast('جاري تجهيز الفاتورة للطباعة...', 'info');
+      const { data, error } = await supabase
+        .from('purchase_invoices')
+        .select(`
+          *,
+          suppliers(id, name, phone, address, tax_number),
+          warehouses(id, name),
+          purchase_invoice_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku))
+        `)
+        .eq('id', invoice.id)
+        .single();
+
+      if (error) throw error;
+      setInvoiceToPrint(data || invoice);
+      setTimeout(() => {
+        window.print();
+        setInvoiceToPrint(null);
+      }, 250);
+    } catch (err: any) {
+      console.error('Error preparing print data:', err);
+      showToast('فشل تجهيز بيانات الطباعة: ' + err.message, 'error');
+    }
   };
 
   const handleShareWhatsApp = (invoice: any) => {
@@ -260,31 +422,69 @@ export const PurchaseInvoiceList = () => {
     window.open(url, '_blank');
   };
 
-  const exportToExcel = () => {
-    if (filteredInvoices.length === 0) {
-      showToast('لا توجد بيانات للتصدير', 'warning');
-      return;
+  const exportToExcel = async () => {
+    try {
+      showToast('جاري تجهيز ملف الإكسيل لكافة الفواتير المطابقة...', 'info');
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
+
+      let expQuery = supabase
+        .from('purchase_invoices')
+        .select(`
+          invoice_number,
+          invoice_date,
+          total_amount,
+          tax_amount,
+          paid_amount,
+          status,
+          notes,
+          suppliers(name),
+          warehouses(name)
+        `)
+        .eq('organization_id', userOrgId)
+        .order('invoice_date', { ascending: false });
+
+      if (startDate) expQuery = expQuery.gte('invoice_date', startDate);
+      if (endDate) expQuery = expQuery.lte('invoice_date', endDate);
+      if (selectedSupplierId) expQuery = expQuery.eq('supplier_id', selectedSupplierId);
+      if (selectedWarehouseId) expQuery = expQuery.eq('warehouse_id', selectedWarehouseId);
+      if (filterStatus !== 'all') expQuery = expQuery.eq('status', filterStatus);
+      if (debouncedSearch.trim()) {
+        const term = debouncedSearch.trim();
+        expQuery = expQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
+      }
+
+      const { data: exportRows, error } = await expQuery;
+      if (error) throw error;
+
+      if (!exportRows || exportRows.length === 0) {
+        showToast('لا توجد بيانات للتصدير', 'warning');
+        return;
+      }
+
+      const dataToExport = exportRows.map((inv: any, idx: number) => ({
+        '#': idx + 1,
+        'رقم الفاتورة': inv.invoice_number || '-',
+        'التاريخ': inv.invoice_date,
+        'المورد': (inv.suppliers as any)?.name || 'مورد عام',
+        'المستودع': (inv.warehouses as any)?.name || '-',
+        'الإجمالي': inv.total_amount,
+        'الضريبة': inv.tax_amount,
+        'المسدد': inv.paid_amount || 0,
+        'المتبقي': (inv.total_amount || 0) - (inv.paid_amount || 0),
+        'الحالة': inv.status === 'posted' ? 'مرحلة' : inv.status === 'paid' ? 'مسددة' : 'مسودة',
+        'ملاحظات': inv.notes || ''
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(dataToExport);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'فواتير المشتريات');
+      XLSX.writeFile(wb, `سجل_فواتير_المشتريات_${new Date().toISOString().split('T')[0]}.xlsx`);
+      showToast('تم تصدير سجل المشتريات إلى إكسيل بنجاح ✅', 'success');
+    } catch (err: any) {
+      console.error(err);
+      showToast('فشل تصدير البيانات إلى إكسيل', 'error');
     }
-
-    const dataToExport = filteredInvoices.map((inv, idx) => ({
-      '#': idx + 1,
-      'رقم الفاتورة': inv.invoice_number || '-',
-      'التاريخ': inv.invoice_date,
-      'المورد': inv.suppliers?.name || 'مورد عام',
-      'المستودع': inv.warehouses?.name || '-',
-      'الإجمالي': inv.total_amount,
-      'الضريبة': inv.tax_amount,
-      'المسدد': inv.paid_amount || 0,
-      'المتبقي': (inv.total_amount || 0) - (inv.paid_amount || 0),
-      'الحالة': inv.status === 'posted' ? 'مرحلة' : 'مسودة',
-      'ملاحظات': inv.notes || ''
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'فواتير المشتريات');
-    XLSX.writeFile(wb, `سجل_فواتير_المشتريات_${new Date().toISOString().split('T')[0]}.xlsx`);
-    showToast('تم تصدير سجل المشتريات إلى إكسيل بنجاح ✅', 'success');
   };
 
   return (
@@ -300,7 +500,7 @@ export const PurchaseInvoiceList = () => {
             <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
               سجل فواتير المشتريات
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold font-mono">
-                {filteredInvoices.length} فاتورة
+                {totalCount} فاتورة
               </span>
             </h2>
             <p className="text-xs text-slate-400 font-bold">متابعة وإدارة فواتير الشراء وسداد الموردين وترحيل المخزون</p>
@@ -578,6 +778,17 @@ export const PurchaseInvoiceList = () => {
                             <Edit size={16} />
                           </button>
 
+                          {(inv.status === 'posted' || inv.status === 'paid') && (
+                            <button 
+                              onClick={() => handleUnpost(inv)}
+                              disabled={deletingId === inv.id}
+                              className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-50"
+                              title="إلغاء الترحيل والتحويل لمسودة"
+                            >
+                              <RotateCcw size={16} />
+                            </button>
+                          )}
+
                           {(inv.status === 'posted' || inv.status === 'paid') && remaining > 0 && (
                             <button 
                               onClick={() => openPaymentModal(inv)}
@@ -631,10 +842,10 @@ export const PurchaseInvoiceList = () => {
         )}
 
         {/* Pagination Bar */}
-        {filteredInvoices.length > itemsPerPage && (
+        {totalCount > itemsPerPage && (
           <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
             <span className="text-xs text-slate-500 font-bold">
-              عرض {paginatedInvoices.length} من أصل {filteredInvoices.length} فاتورة
+              عرض {paginatedInvoices.length} من أصل {totalCount} فاتورة
             </span>
             <div className="flex items-center gap-2">
               <button 

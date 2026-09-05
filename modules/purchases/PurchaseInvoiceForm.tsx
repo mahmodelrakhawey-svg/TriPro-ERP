@@ -16,6 +16,7 @@ import { secureStorage } from '../../utils/securityMiddleware';
 import InvoiceOCRScannerModal from '../../components/InvoiceOCRScannerModal';
 import DocumentAuditTimeline from '../../components/DocumentAuditTimeline';
 import { logDocumentAction } from '../../services/auditService';
+import { getNextDocumentNumber } from '../../services/sequenceService';
 
 const PurchaseInvoiceForm = () => {
   const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can, currentUser, addDemoPurchaseInvoice, accounts } = useAccounting();
@@ -469,9 +470,9 @@ const PurchaseInvoiceForm = () => {
     }
 
     try {
-      const invoiceNumber = formData.invoiceNumber || `PUR-${Date.now().toString().slice(-6)}`;
       const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
       if (!userOrgId) throw new Error("تعذر تحديد هوية الشركة.");
+      const invoiceNumber = formData.invoiceNumber || await getNextDocumentNumber(userOrgId, 'purchase_invoice');
 
       const invoiceData = {
         organization_id: userOrgId,

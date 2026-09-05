@@ -177,7 +177,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             // صمام أمان ذهبي: نمنح الأدمن *.* دائماً لضمان ظهور الأزرار (إضافة عميل/مورد)
             setUserPermissions(new Set(['*.*']));
         } else if (roleName === 'demo') {
-            setUserPermissions(new Set(['*.view', '*.read', '*.create', '*.update', '*.list', '*.*']));
+            setUserPermissions(new Set(['*.view', '*.read', '*.create', '*.update', '*.list']));
         } else if (roleName === 'viewer') {
             setUserPermissions(new Set(['*.view', '*.read', '*.list']));
         } else {
@@ -185,7 +185,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 const { data: rolePerms } = await supabase.from('role_permissions').select('permissions(module, action)').eq('role_id', profile.role_id) as { data: RolePermissionJoin[] | null };
                 setUserPermissions(new Set(rolePerms?.map((p) => p.permissions && `${p.permissions.module}.${p.permissions.action}`).filter(Boolean) as string[] || []));
             } else {
-                setUserPermissions(new Set(['*.*']));
+                // 🛡️ الأمان الافتراضي: منع الصلاحيات الشاملة لمن ليس له دور محدد (Deny by default)
+                if (process.env.NODE_ENV === 'development') {
+                    console.warn(`[Security] User ${user.id} has no role_id assigned. Restricting to read-only permissions.`);
+                }
+                setUserPermissions(new Set(['*.view', '*.read', '*.list']));
             }
         }
 

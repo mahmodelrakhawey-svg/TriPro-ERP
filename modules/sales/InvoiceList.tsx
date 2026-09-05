@@ -15,15 +15,16 @@ import * as XLSX from 'xlsx';
 
 export const InvoiceList = () => {
   const { 
-    settings, approveInvoice, currentUser, customers, warehouses, 
-    selectedFiscalYear, fiscalYearRange 
-  } = useAccounting();
+    settings, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, currentUser, customers, warehouses, 
+    selectedFiscalYear, fiscalYearRange, currentSelectedOrgId 
+  } = useAccounting() as any;
   const navigate = useNavigate();
   const { showToast } = useToast();
 
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
   const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
@@ -36,9 +37,20 @@ export const InvoiceList = () => {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
 
-  // Pagination
+  // Pagination & Server Count
   const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
   const itemsPerPage = 15;
+
+  const [summaryData, setSummaryData] = useState({
+    totalAmount: 0,
+    totalTax: 0,
+    totalPaid: 0,
+    totalRemaining: 0,
+    postedCount: 0,
+    draftCount: 0,
+    count: 0
+  });
 
   useEffect(() => {
     if (selectedFiscalYear) {
@@ -53,24 +65,50 @@ export const InvoiceList = () => {
     });
   }, []);
 
+  // تأخير إدخال البحث لتقليل استدعاءات السيرفر
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      setCurrentPage(1);
+    }, 350);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
+
+  // إعادة التعيين للصفحة الأولى عند تغيير الفلاتر
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [startDate, endDate, selectedCustomerId, selectedWarehouseId, statusFilter]);
+
   const fetchInvoices = async () => {
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
       if (!userOrgId) {
         setLoading(false);
         return;
       }
 
+      // 1. استعلام الصفحة الحالية الخفيف (فقط بيانات الفاتورة مع العميل والمستودع دون تحميل آلاف السطور)
       let query = supabase
         .from('invoices')
         .select(`
-          *,
+          id,
+          invoice_number,
+          invoice_date,
+          total_amount,
+          tax_amount,
+          paid_amount,
+          discount_amount,
+          status,
+          notes,
+          warehouse_id,
+          customer_id,
+          related_journal_entry_id,
+          created_at,
           customers(id, name, phone),
-          warehouses(id, name),
-          invoice_items(id, product_id, quantity, unit_price, total, products(name, sku))
-        `)
+          warehouses(id, name)
+        `, { count: 'exact' })
         .eq('organization_id', userOrgId)
         .order('invoice_date', { ascending: false })
         .order('created_at', { ascending: false });
@@ -80,11 +118,64 @@ export const InvoiceList = () => {
       if (selectedCustomerId) query = query.eq('customer_id', selectedCustomerId);
       if (selectedWarehouseId) query = query.eq('warehouse_id', selectedWarehouseId);
       if (statusFilter !== 'all') query = query.eq('status', statusFilter);
+      if (debouncedSearch.trim()) {
+        const term = debouncedSearch.trim();
+        query = query.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
+      }
 
-      const { data, error } = await query;
+      const from = (currentPage - 1) * itemsPerPage;
+      const to = from + itemsPerPage - 1;
+      query = query.range(from, to);
+
+      const { data, count, error } = await query;
       if (error) throw error;
 
       setInvoices(data || []);
+      setTotalCount(count || 0);
+
+      // 2. استعلام إحصائي فائق السرعة لحساب إجماليات KPIs للفترة المحددة
+      let summaryQuery = supabase
+        .from('invoices')
+        .select('total_amount, tax_amount, paid_amount, status')
+        .eq('organization_id', userOrgId);
+
+      if (startDate) summaryQuery = summaryQuery.gte('invoice_date', startDate);
+      if (endDate) summaryQuery = summaryQuery.lte('invoice_date', endDate);
+      if (selectedCustomerId) summaryQuery = summaryQuery.eq('customer_id', selectedCustomerId);
+      if (selectedWarehouseId) summaryQuery = summaryQuery.eq('warehouse_id', selectedWarehouseId);
+      if (statusFilter !== 'all') summaryQuery = summaryQuery.eq('status', statusFilter);
+      if (debouncedSearch.trim()) {
+        const term = debouncedSearch.trim();
+        summaryQuery = summaryQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
+      }
+
+      const { data: sumRows } = await summaryQuery;
+      if (sumRows) {
+        let tAmount = 0;
+        let tTax = 0;
+        let tPaid = 0;
+        let postedC = 0;
+        let draftC = 0;
+
+        for (const row of sumRows) {
+          tAmount += Number(row.total_amount || 0);
+          tTax += Number(row.tax_amount || 0);
+          tPaid += Number(row.paid_amount || 0);
+          if (row.status === 'posted') postedC++;
+          else if (row.status === 'draft') draftC++;
+        }
+
+        setSummaryData({
+          totalAmount: tAmount,
+          totalTax: tTax,
+          totalPaid: tPaid,
+          totalRemaining: tAmount - tPaid,
+          postedCount: postedC,
+          draftCount: draftC,
+          count: sumRows.length
+        });
+      }
+
     } catch (err: any) {
       console.error('Error fetching sales invoices:', err);
       showToast('فشل تحميل سجل فواتير المبيعات: ' + err.message, 'error');
@@ -95,37 +186,12 @@ export const InvoiceList = () => {
 
   useEffect(() => {
     fetchInvoices();
-  }, [startDate, endDate, selectedCustomerId, selectedWarehouseId, statusFilter]);
+  }, [startDate, endDate, selectedCustomerId, selectedWarehouseId, statusFilter, debouncedSearch, currentPage, currentSelectedOrgId]);
 
-  // Client-side search
-  const filteredInvoices = useMemo(() => {
-    if (!searchTerm.trim()) return invoices;
-    const term = searchTerm.toLowerCase().trim();
-    return invoices.filter(inv => 
-      (inv.invoice_number && inv.invoice_number.toLowerCase().includes(term)) ||
-      (inv.customers?.name && inv.customers.name.toLowerCase().includes(term)) ||
-      (inv.notes && inv.notes.toLowerCase().includes(term))
-    );
-  }, [invoices, searchTerm]);
-
-  // Pagination calculation
-  const totalPages = Math.ceil(filteredInvoices.length / itemsPerPage) || 1;
-  const paginatedInvoices = useMemo(() => {
-    const start = (currentPage - 1) * itemsPerPage;
-    return filteredInvoices.slice(start, start + itemsPerPage);
-  }, [filteredInvoices, currentPage]);
-
-  // Summary KPIs
-  const summary = useMemo(() => {
-    const totalAmount = filteredInvoices.reduce((sum, i) => sum + Number(i.total_amount || 0), 0);
-    const totalTax = filteredInvoices.reduce((sum, i) => sum + Number(i.tax_amount || 0), 0);
-    const totalPaid = filteredInvoices.reduce((sum, i) => sum + Number(i.paid_amount || 0), 0);
-    const totalRemaining = totalAmount - totalPaid;
-    const postedCount = filteredInvoices.filter(i => i.status === 'posted').length;
-    const draftCount = filteredInvoices.filter(i => i.status === 'draft').length;
-
-    return { totalAmount, totalTax, totalPaid, totalRemaining, postedCount, draftCount, count: filteredInvoices.length };
-  }, [filteredInvoices]);
+  const totalPages = Math.ceil(totalCount / itemsPerPage) || 1;
+  const filteredInvoices = invoices;
+  const paginatedInvoices = invoices;
+  const summary = summaryData;
 
   const handleApprove = async (invoice: any) => {
     if (!window.confirm(`هل أنت متأكد من اعتماد وترحيل الفاتورة رقم (${invoice.invoice_number})؟\nسيتم إنشاء القيود المحاسبية وخصم الكميات من المخزن فوراً.`)) {
@@ -152,10 +218,30 @@ export const InvoiceList = () => {
     setDeletingId(invoice.id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+
+      // 🛡️ 1. محاولة التنفيذ الذري أولاً عبر دالة السيرفر (Single Atomic Transaction)
+      try {
+        await unpostSalesInvoice(invoice.id, userOrgId);
+        showToast('تم إلغاء ترحيل الفاتورة بنجاح وتحويلها لمسودة ✅', 'success');
+        fetchInvoices();
+        return;
+      } catch (rpcErr: any) {
+        console.warn('Atomic unpost RPC unavailable or failed, attempting client fallback:', rpcErr);
+      }
+
+      // جلب سطور الفاتورة إذا لم تكن محملة في الذاكرة (Fallback)
+      let itemsToReverse = invoice.invoice_items;
+      if (!itemsToReverse || itemsToReverse.length === 0) {
+        const { data: itemRows } = await supabase
+          .from('invoice_items')
+          .select('product_id, quantity')
+          .eq('invoice_id', invoice.id);
+        itemsToReverse = itemRows || [];
+      }
 
       // 1. عكس حركة المخزون
-      for (const item of (invoice.invoice_items || [])) {
+      for (const item of itemsToReverse) {
         if (item.product_id && item.quantity) {
           const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
           if (prod) {
@@ -203,11 +289,30 @@ export const InvoiceList = () => {
     setDeletingId(invoice.id);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+
+      // 🛡️ 1. محاولة الحذف الذري الشامل عبر السيرفر
+      try {
+        await deleteSalesInvoice(invoice.id, userOrgId);
+        showToast('تم حذف فاتورة المبيعات وعكس الحركات بنجاح ✅', 'success');
+        fetchInvoices();
+        return;
+      } catch (rpcErr: any) {
+        console.warn('Atomic delete RPC unavailable or failed, attempting client fallback:', rpcErr);
+      }
 
       if (invoice.status === 'posted') {
+        let itemsToReverse = invoice.invoice_items;
+        if (!itemsToReverse || itemsToReverse.length === 0) {
+          const { data: itemRows } = await supabase
+            .from('invoice_items')
+            .select('product_id, quantity')
+            .eq('invoice_id', invoice.id);
+          itemsToReverse = itemRows || [];
+        }
+
         // إعادة إضافة الكميات للمخزون
-        for (const item of (invoice.invoice_items || [])) {
+        for (const item of itemsToReverse) {
           if (item.product_id && item.quantity) {
             const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
             if (prod) {
@@ -244,12 +349,38 @@ export const InvoiceList = () => {
     }
   };
 
-  const handlePrint = (invoice: any) => {
-    setInvoiceToPrint(invoice);
-    setTimeout(() => {
-      window.print();
-      setInvoiceToPrint(null);
-    }, 200);
+  const handlePrint = async (invoice: any) => {
+    if (invoice.invoice_items && invoice.invoice_items.length > 0) {
+      setInvoiceToPrint(invoice);
+      setTimeout(() => {
+        window.print();
+        setInvoiceToPrint(null);
+      }, 250);
+      return;
+    }
+
+    try {
+      showToast('جاري تجهيز الفاتورة للطباعة...', 'info');
+      const { data, error } = await supabase
+        .from('invoices')
+        .select(`
+          *,
+          customers(id, name, phone, address, tax_number),
+          warehouses(id, name),
+          invoice_items(id, product_id, quantity, unit_price, total, cost, products(name, sku, uom:uoms(name)))
+        `)
+        .eq('id', invoice.id)
+        .single();
+
+      if (error) throw error;
+      setInvoiceToPrint(data || invoice);
+      setTimeout(() => {
+        window.print();
+        setInvoiceToPrint(null);
+      }, 250);
+    } catch (err: any) {
+      showToast('فشل تحميل تفاصيل الفاتورة للطباعة: ' + err.message, 'error');
+    }
   };
 
   const handleWhatsApp = (invoice: any) => {
@@ -282,31 +413,68 @@ export const InvoiceList = () => {
     }
   };
 
-  const exportToExcel = () => {
-    if (filteredInvoices.length === 0) {
-      showToast('لا توجد بيانات للتصدير', 'warning');
-      return;
+  const exportToExcel = async () => {
+    try {
+      showToast('جاري تجهيز ملف الإكسيل لكافة الفواتير المطابقة...', 'info');
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+
+      let expQuery = supabase
+        .from('invoices')
+        .select(`
+          invoice_number,
+          invoice_date,
+          total_amount,
+          tax_amount,
+          paid_amount,
+          status,
+          notes,
+          customers(name),
+          warehouses(name)
+        `)
+        .eq('organization_id', userOrgId)
+        .order('invoice_date', { ascending: false });
+
+      if (startDate) expQuery = expQuery.gte('invoice_date', startDate);
+      if (endDate) expQuery = expQuery.lte('invoice_date', endDate);
+      if (selectedCustomerId) expQuery = expQuery.eq('customer_id', selectedCustomerId);
+      if (selectedWarehouseId) expQuery = expQuery.eq('warehouse_id', selectedWarehouseId);
+      if (statusFilter !== 'all') expQuery = expQuery.eq('status', statusFilter);
+      if (debouncedSearch.trim()) {
+        const term = debouncedSearch.trim();
+        expQuery = expQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
+      }
+
+      const { data: exportRows, error } = await expQuery;
+      if (error) throw error;
+
+      if (!exportRows || exportRows.length === 0) {
+        showToast('لا توجد بيانات للتصدير', 'warning');
+        return;
+      }
+
+      const dataToExport = exportRows.map((inv: any, idx: number) => ({
+        '#': idx + 1,
+        'رقم الفاتورة': inv.invoice_number || '-',
+        'التاريخ': inv.invoice_date,
+        'العميل': (inv.customers as any)?.name || 'عميل عام',
+        'المستودع': (inv.warehouses as any)?.name || '-',
+        'الإجمالي': inv.total_amount,
+        'الضريبة': inv.tax_amount || 0,
+        'المسدد': inv.paid_amount || 0,
+        'المتبقي': (inv.total_amount || 0) - (inv.paid_amount || 0),
+        'الحالة': inv.status === 'posted' ? 'مرحلة' : 'مسودة',
+        'ملاحظات': inv.notes || ''
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(dataToExport);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'فواتير المبيعات');
+      XLSX.writeFile(wb, `سجل_فواتير_المبيعات_${new Date().toISOString().split('T')[0]}.xlsx`);
+      showToast('تم تصدير سجل المبيعات إلى إكسيل بنجاح ✅', 'success');
+    } catch (e: any) {
+      showToast('فشل تصدير الإكسيل: ' + e.message, 'error');
     }
-
-    const dataToExport = filteredInvoices.map((inv, idx) => ({
-      '#': idx + 1,
-      'رقم الفاتورة': inv.invoice_number || '-',
-      'التاريخ': inv.invoice_date,
-      'العميل': inv.customers?.name || 'عميل عام',
-      'المستودع': inv.warehouses?.name || '-',
-      'الإجمالي': inv.total_amount,
-      'الضريبة': inv.tax_amount || 0,
-      'المسدد': inv.paid_amount || 0,
-      'المتبقي': (inv.total_amount || 0) - (inv.paid_amount || 0),
-      'الحالة': inv.status === 'posted' ? 'مرحلة' : 'مسودة',
-      'ملاحظات': inv.notes || ''
-    }));
-
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'فواتير المبيعات');
-    XLSX.writeFile(wb, `سجل_فواتير_المبيعات_${new Date().toISOString().split('T')[0]}.xlsx`);
-    showToast('تم تصدير سجل المبيعات إلى إكسيل بنجاح ✅', 'success');
   };
 
   return (
@@ -322,7 +490,7 @@ export const InvoiceList = () => {
             <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
               سجل فواتير المبيعات
               <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 font-bold font-mono">
-                {filteredInvoices.length} فاتورة
+                {totalCount} فاتورة
               </span>
             </h2>
             <p className="text-xs text-slate-400 font-bold">متابعة فواتير البيع وتحصيل المستحقات والربط مع منظومة الضرائب</p>
@@ -609,10 +777,10 @@ export const InvoiceList = () => {
         )}
 
         {/* Pagination Bar */}
-        {filteredInvoices.length > itemsPerPage && (
+        {totalCount > itemsPerPage && (
           <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
             <span className="text-xs text-slate-500 font-bold">
-              عرض {paginatedInvoices.length} من أصل {filteredInvoices.length} فاتورة
+              عرض {invoices.length} من أصل {totalCount} فاتورة
             </span>
             <div className="flex items-center gap-2">
               <button 

@@ -105,68 +105,105 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
   };
 
   let orderId: string | null = null;
+  let actualOrderNumber = '';
 
   if (isOnline) {
-    // 1. Create order on Supabase
-    const { data, error } = await supabase.rpc('create_restaurant_order', {
-      p_session_id: null,
-      p_user_id: currentUser.id,
-      p_order_type: 'TAKEAWAY',
-      p_notes: orderData.notes,
-      p_items: itemsPayload,
-      p_customer_id: selectedCustomer?.id || null,
-      p_warehouse_id: effectiveWarehouseId !== '00000000-0000-0000-0000-000000000000' ? effectiveWarehouseId : null,
-      p_delivery_info: null,
-      p_org_id: currentUser.organization_id
-    });
+    let atomicSuccess = false;
 
-    if (error) throw error;
-    orderId = data;
-
-    if (orderId) {
-      // Update order with shift_id, terminal_id and total_discount
-      const updatePayload: any = {
-        shift_id: activeShift?.id || null,
-        total_discount: totalDiscount || 0
-      };
-      if (selectedTerminal?.id) {
-        updatePayload.terminal_id = selectedTerminal.id;
-      }
-
-      await supabase
-        .from('orders')
-        .update(updatePayload)
-        .eq('id', orderId);
-
-      // 2. Complete order (process payment & stock)
+    // 🚀 Attempt high-speed atomic POS sale RPC (single database roundtrip)
+    try {
       let treasuryId = selectedTerminal?.cash_account_id;
       if (!treasuryId) {
         treasuryId = settings?.accountMappings?.CASH || settings?.account_mappings?.CASH || null;
-        if (!treasuryId) {
-          const { data: mappings } = await supabase
-            .from('company_settings')
-            .select('account_mappings')
-            .eq('organization_id', currentUser.organization_id)
-            .maybeSingle();
-          treasuryId = mappings?.account_mappings?.CASH || null;
-        }
       }
 
-      const { error: payErr } = await supabase.rpc('complete_restaurant_order', {
-        p_order_id: orderId,
-        p_payment_method: effectiveMethod,
-        p_amount: total,
-        p_cash_account_id: treasuryId,
+      const { data: atomicData, error: atomicErr } = await supabase.rpc('complete_pos_sale_atomic', {
+        p_items: itemsPayload,
         p_org_id: currentUser.organization_id,
-        p_warehouse_id: effectiveWarehouseId !== '00000000-0000-0000-0000-000000000000' ? effectiveWarehouseId : null
+        p_user_id: currentUser.id,
+        p_warehouse_id: effectiveWarehouseId !== '00000000-0000-0000-0000-000000000000' ? effectiveWarehouseId : null,
+        p_customer_id: selectedCustomer?.id || null,
+        p_payment_method: effectiveMethod,
+        p_payment_amount: total,
+        p_shift_id: activeShift?.id || null,
+        p_terminal_id: selectedTerminal?.id || null,
+        p_total_discount: totalDiscount || 0,
+        p_notes: orderData.notes,
+        p_cash_account_id: treasuryId
       });
 
-      if (payErr) throw payErr;
-
-      // 3. Record coupon usage if applied
-      if (appliedCoupon) {
-        await couponService.recordUsage(appliedCoupon.id, currentUser.organization_id);
+      if (!atomicErr && atomicData?.success) {
+        orderId = atomicData.order_id;
+        actualOrderNumber = atomicData.order_number;
+        atomicSuccess = true;
       }
+    } catch (atomicException) {
+      console.warn('Atomic POS checkout RPC fallback to standard flow:', atomicException);
+    }
+
+    // Graceful fallback to legacy multi-roundtrip if atomic RPC is not yet executed in database
+    if (!atomicSuccess) {
+      // 1. Create order on Supabase
+      const { data, error } = await supabase.rpc('create_restaurant_order', {
+        p_session_id: null,
+        p_user_id: currentUser.id,
+        p_order_type: 'TAKEAWAY',
+        p_notes: orderData.notes,
+        p_items: itemsPayload,
+        p_customer_id: selectedCustomer?.id || null,
+        p_warehouse_id: effectiveWarehouseId !== '00000000-0000-0000-0000-000000000000' ? effectiveWarehouseId : null,
+        p_delivery_info: null,
+        p_org_id: currentUser.organization_id
+      });
+
+      if (error) throw error;
+      orderId = data;
+
+      if (orderId) {
+        // Update order with shift_id, terminal_id and total_discount
+        const updatePayload: any = {
+          shift_id: activeShift?.id || null,
+          total_discount: totalDiscount || 0
+        };
+        if (selectedTerminal?.id) {
+          updatePayload.terminal_id = selectedTerminal.id;
+        }
+
+        await supabase
+          .from('orders')
+          .update(updatePayload)
+          .eq('id', orderId);
+
+        // 2. Complete order (process payment & stock)
+        let treasuryId = selectedTerminal?.cash_account_id;
+        if (!treasuryId) {
+          treasuryId = settings?.accountMappings?.CASH || settings?.account_mappings?.CASH || null;
+          if (!treasuryId) {
+            const { data: mappings } = await supabase
+              .from('company_settings')
+              .select('account_mappings')
+              .eq('organization_id', currentUser.organization_id)
+              .maybeSingle();
+            treasuryId = mappings?.account_mappings?.CASH || null;
+          }
+        }
+
+        const { error: payErr } = await supabase.rpc('complete_restaurant_order', {
+          p_order_id: orderId,
+          p_payment_method: effectiveMethod,
+          p_amount: total,
+          p_cash_account_id: treasuryId,
+          p_org_id: currentUser.organization_id,
+          p_warehouse_id: effectiveWarehouseId !== '00000000-0000-0000-0000-000000000000' ? effectiveWarehouseId : null
+        });
+
+        if (payErr) throw payErr;
+      }
+    }
+
+    // 3. Record coupon usage if applied
+    if (appliedCoupon) {
+      await couponService.recordUsage(appliedCoupon.id, currentUser.organization_id);
     }
   } else {
     // Queue order for offline sync
@@ -183,9 +220,8 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
   const effectiveCouponDiscount = splitData?.couponDiscount !== undefined ? splitData.couponDiscount : (couponDiscount || 0);
   const totalSavings = finalPromoDiscount + effectiveCouponDiscount;
 
-  // Fetch actual order number from database so receipt and database match 100%
-  let actualOrderNumber = '';
-  if (orderId) {
+  // Fetch actual order number from database if not already returned by atomic RPC
+  if (orderId && !actualOrderNumber) {
     try {
       const { data: ordRow } = await supabase
         .from('orders')

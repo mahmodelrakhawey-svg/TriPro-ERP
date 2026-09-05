@@ -132,7 +132,11 @@ interface AccountingContextType {
   updateSupplier: (id: string, updates: any) => Promise<void>;
   deleteSupplier: (id: string, reason?: string) => Promise<void>;
   approveInvoice: (id: string, orgId?: string, warehouseId?: string) => Promise<boolean>;
+  unpostSalesInvoice: (id: string, orgId?: string) => Promise<boolean>;
+  deleteSalesInvoice: (id: string, orgId?: string) => Promise<boolean>;
   approvePurchaseInvoice: (id: string, orgId?: string, warehouseId?: string) => Promise<void>;
+  unpostPurchaseInvoice: (id: string, orgId?: string) => Promise<boolean>;
+  deletePurchaseInvoice: (id: string, orgId?: string) => Promise<boolean>;
   convertPoToInvoice: (poId: string, warehouseId?: string, orgId?: string) => Promise<void>;
   addOpeningBalanceTransaction: (id: string, type: string, amount: number, date: string, name: string) => Promise<void>;
   addPaymentVoucher: (voucher: any) => Promise<void>;
@@ -734,10 +738,43 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_org_id: orgId || currentSelectedOrgId || currentUser?.organization_id || null,
       p_warehouse_id: warehouseId
     }); 
+    if (error) {
+      console.error('approveInvoice RPC error:', error);
+      throw error;
+    }
     refreshData(); 
-    return !error; 
+    return true; 
   };
-   const approvePurchaseInvoice = async (id: string, orgId?: string, warehouseId?: string) => { 
+
+  const unpostSalesInvoice = async (id: string, orgId?: string): Promise<boolean> => {
+    const targetOrgId = orgId || currentSelectedOrgId || currentUser?.organization_id || null;
+    const { error } = await supabase.rpc('unpost_sales_invoice', {
+      p_invoice_id: id,
+      p_org_id: targetOrgId
+    });
+    if (error) {
+      console.warn('RPC unpost_sales_invoice error:', error);
+      throw error;
+    }
+    refreshData();
+    return true;
+  };
+
+  const deleteSalesInvoice = async (id: string, orgId?: string): Promise<boolean> => {
+    const targetOrgId = orgId || currentSelectedOrgId || currentUser?.organization_id || null;
+    const { error } = await supabase.rpc('delete_sales_invoice', {
+      p_invoice_id: id,
+      p_org_id: targetOrgId
+    });
+    if (error) {
+      console.warn('RPC delete_sales_invoice error:', error);
+      throw error;
+    }
+    refreshData();
+    return true;
+  };
+
+  const approvePurchaseInvoice = async (id: string, orgId?: string, warehouseId?: string) => { 
     const { error } = await supabase.rpc('post_purchase_invoice', { 
       p_invoice_id: id,
       p_org_id: orgId || currentSelectedOrgId || currentUser?.organization_id,
@@ -745,10 +782,39 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }); 
     if (error) {
       showToast('فشل اعتماد الفاتورة: ' + error.message, 'error');
+      throw error;
     } else {
       showToast('تم اعتماد فاتورة المشتريات وتحديث المخزون بنجاح ✅', 'success');
       refreshData();
     }
+  };
+
+  const unpostPurchaseInvoice = async (id: string, orgId?: string): Promise<boolean> => {
+    const targetOrgId = orgId || currentSelectedOrgId || currentUser?.organization_id || null;
+    const { error } = await supabase.rpc('unpost_purchase_invoice', {
+      p_invoice_id: id,
+      p_org_id: targetOrgId
+    });
+    if (error) {
+      console.warn('RPC unpost_purchase_invoice error:', error);
+      throw error;
+    }
+    refreshData();
+    return true;
+  };
+
+  const deletePurchaseInvoice = async (id: string, orgId?: string): Promise<boolean> => {
+    const targetOrgId = orgId || currentSelectedOrgId || currentUser?.organization_id || null;
+    const { error } = await supabase.rpc('delete_purchase_invoice', {
+      p_invoice_id: id,
+      p_org_id: targetOrgId
+    });
+    if (error) {
+      console.warn('RPC delete_purchase_invoice error:', error);
+      throw error;
+    }
+    refreshData();
+    return true;
   };
   const convertPoToInvoice = async (id: string, warehouseId?: string, orgId?: string) => { 
     const { error } = await supabase.rpc('convert_po_to_invoice', { 
@@ -1765,7 +1831,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     deleteWarehouse, addWastage, produceItem,
     // Sales & Purchases
     addCustomer, updateCustomer, deleteCustomer, addSupplier, updateSupplier,
-    deleteSupplier, approveInvoice, approvePurchaseInvoice, convertPoToInvoice,
+    deleteSupplier, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, approvePurchaseInvoice, unpostPurchaseInvoice, deletePurchaseInvoice, convertPoToInvoice,
     addOpeningBalanceTransaction, addPaymentVoucher,
     // Assets & Cheques
     addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, addCheque, updateCheque, deleteCheque, updateChequeStatus, addTransfer, updateTransfer, deleteTransfer,

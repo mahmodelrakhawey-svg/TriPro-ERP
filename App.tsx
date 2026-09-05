@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { supabase } from './supabaseClient';
@@ -106,60 +106,68 @@ import { FiscalPeriodManager } from './modules/accounting/FiscalPeriodManager';
 import TrialBalanceAdvanced from './modules/accounting/TrialBalanceAdvanced';
 import ItemSalesAnalysis from './modules/reports/ItemSalesAnalysis';
 import PurchaseAnalysisReport from './modules/purchases/PurchaseAnalysisReport';
-import WorkOrderManager from './modules/manufacturing/components/WorkOrderManager';
-import ProductionCostAnalysis from './modules/manufacturing/reports/ProductionCostAnalysis';
-import UnitCostDrillDown from './modules/manufacturing/reports/UnitCostDrillDown';
-import ManufacturingAlertsLog from './modules/manufacturing/reports/ManufacturingAlertsLog';
-import CostClosingDashboard from './modules/manufacturing/components/CostClosingDashboard';
-import MachineOeeTracker from './modules/manufacturing/components/MachineOeeTracker';
-import MachineryMaintenanceManager from './modules/manufacturing/components/MachineryMaintenanceManager';
-import CapacityPlanningDashboard from './modules/manufacturing/components/CapacityPlanningDashboard';
-import ProductionGanttScheduler from './modules/manufacturing/components/ProductionGanttScheduler';
+// 🏭 مديول التصنيع (Manufacturing - Lazy Loaded)
+const WorkOrderManager = lazy(() => import('./modules/manufacturing/components/WorkOrderManager'));
+const ProductionCostAnalysis = lazy(() => import('./modules/manufacturing/reports/ProductionCostAnalysis'));
+const UnitCostDrillDown = lazy(() => import('./modules/manufacturing/reports/UnitCostDrillDown'));
+const ManufacturingAlertsLog = lazy(() => import('./modules/manufacturing/reports/ManufacturingAlertsLog'));
+const CostClosingDashboard = lazy(() => import('./modules/manufacturing/components/CostClosingDashboard'));
+const MachineOeeTracker = lazy(() => import('./modules/manufacturing/components/MachineOeeTracker'));
+const MachineryMaintenanceManager = lazy(() => import('./modules/manufacturing/components/MachineryMaintenanceManager'));
+const CapacityPlanningDashboard = lazy(() => import('./modules/manufacturing/components/CapacityPlanningDashboard'));
+const ProductionGanttScheduler = lazy(() => import('./modules/manufacturing/components/ProductionGanttScheduler'));
 import SecurityLogs from './components/SecurityLogs';
-import ProjectManager from './modules/construction/components/ProjectManager';
-import ConstructionDashboard from './modules/construction/components/ConstructionDashboard';
-import LaborCostReport from './modules/construction/reports/LaborCostReport';
-import SubcontractorManager from './modules/construction/components/SubcontractorManager';
-import SubcontractorContractsManager from './modules/construction/components/SubcontractorContractsManager';
-import SubcontractorBillingManager from './modules/construction/components/SubcontractorBillingManager';
-import SubcontractorAnalytics from './modules/construction/reports/SubcontractorAnalytics';
-import SubcontractorStatement from './modules/construction/components/SubcontractorStatement';
-import SiteDailyLogsManager from './modules/construction/components/SiteDailyLogsManager';
-import RfiSubmittalManager from './modules/construction/components/RfiSubmittalManager';
-import WorkInspectionManager from './modules/construction/components/WorkInspectionManager';
-import MaterialWasteAnalytics from './modules/construction/components/MaterialWasteAnalytics';
-import PriceEscalationCalculator from './modules/construction/components/PriceEscalationCalculator';
-import LeaveManager from './modules/hr/components/LeaveManager';
-import EndOfServiceCalculator from './modules/hr/components/EndOfServiceCalculator';
-import AttendanceManager from './modules/hr/components/AttendanceManager';
-import HrDashboard from './modules/hr/components/HrDashboard';
-import BiometricDeviceManager from './modules/hr/components/BiometricDeviceManager';
-import ShiftManager from './modules/hr/components/ShiftManager';
-import PenaltiesAndRewards from './modules/hr/components/PenaltiesAndRewards';
-import PermissionsManager from './modules/admin/PermissionsManager';
+
+// 🏗️ مديول المقاولات (Construction - Lazy Loaded)
+const ProjectManager = lazy(() => import('./modules/construction/components/ProjectManager'));
+const ConstructionDashboard = lazy(() => import('./modules/construction/components/ConstructionDashboard'));
+const LaborCostReport = lazy(() => import('./modules/construction/reports/LaborCostReport'));
+const SubcontractorManager = lazy(() => import('./modules/construction/components/SubcontractorManager'));
+const SubcontractorContractsManager = lazy(() => import('./modules/construction/components/SubcontractorContractsManager'));
+const SubcontractorBillingManager = lazy(() => import('./modules/construction/components/SubcontractorBillingManager'));
+const SubcontractorAnalytics = lazy(() => import('./modules/construction/reports/SubcontractorAnalytics'));
+const SubcontractorStatement = lazy(() => import('./modules/construction/components/SubcontractorStatement'));
+const SiteDailyLogsManager = lazy(() => import('./modules/construction/components/SiteDailyLogsManager'));
+const RfiSubmittalManager = lazy(() => import('./modules/construction/components/RfiSubmittalManager'));
+const WorkInspectionManager = lazy(() => import('./modules/construction/components/WorkInspectionManager'));
+const MaterialWasteAnalytics = lazy(() => import('./modules/construction/components/MaterialWasteAnalytics'));
+const PriceEscalationCalculator = lazy(() => import('./modules/construction/components/PriceEscalationCalculator'));
+
+// 👥 مديول الموارد البشرية (HR - Lazy Loaded)
+const LeaveManager = lazy(() => import('./modules/hr/components/LeaveManager'));
+const EndOfServiceCalculator = lazy(() => import('./modules/hr/components/EndOfServiceCalculator'));
+const AttendanceManager = lazy(() => import('./modules/hr/components/AttendanceManager'));
+const HrDashboard = lazy(() => import('./modules/hr/components/HrDashboard'));
+const BiometricDeviceManager = lazy(() => import('./modules/hr/components/BiometricDeviceManager'));
+const ShiftManager = lazy(() => import('./modules/hr/components/ShiftManager'));
+const PenaltiesAndRewards = lazy(() => import('./modules/hr/components/PenaltiesAndRewards'));
+const PermissionsManager = lazy(() => import('./modules/admin/PermissionsManager'));
 import Maintenance from './components/Maintenance';
 import TaxReturnReport from './modules/reports/TaxReturnReport';
 import PerformanceComparisonReport from './modules/reports/PerformanceComparisonReport';
-import RecycleBin from './modules/admin/RecycleBin';
-import SaasAdmin from './modules/admin/SaaSAdmin';
-import DataMigrationCenter from './modules/admin/DataMigrationCenter';
-import SystemStressTest from './modules/admin/SystemStressTest';
+// 🛠️ مديول الإدارة وأدوات النظام (Admin Tools - Lazy Loaded)
+const RecycleBin = lazy(() => import('./modules/admin/RecycleBin'));
+const SaasAdmin = lazy(() => import('./modules/admin/SaaSAdmin'));
+const DataMigrationCenter = lazy(() => import('./modules/admin/DataMigrationCenter'));
+const SystemStressTest = lazy(() => import('./modules/admin/SystemStressTest'));
 import MultiCurrencyStatement from './modules/reports/MultiCurrencyStatement'; // Re-add this import
 import PaymentMethodReport from './modules/reports/PaymentMethodReport';
 import UserGuide from './components/UserGuide';
 import AttachmentsReport from './modules/reports/AttachmentsReport';
 import DetailedStockMovementReport from './modules/inventory/DetailedStockMovementReport';
-import ManufacturingDashboard from './modules/manufacturing/components/ManufacturingDashboard';
-import BatchOrderManager from './modules/manufacturing/components/BatchOrderManager';
-import ShopFloorManager from './modules/manufacturing/components/ShopFloorManager';
-import QualityControlManager from './modules/manufacturing/components/QualityControlManager';
-import BOMVarianceReport from './modules/manufacturing/reports/BOMVarianceReport';
-import GenealogyViewer from './modules/manufacturing/reports/GenealogyViewer';
-import ProductionProfitabilityReport from './modules/manufacturing/reports/ProductionProfitabilityReport';
-import RoutingBOMManager from './modules/manufacturing/components/RoutingBOMManager';
-import MaterialRequestsList from './modules/manufacturing/components/MaterialRequestsList';
-import { RawMaterialsTurnover } from './modules/manufacturing/reports/RawMaterialsTurnover';
-import WIPMonthlySummaryReport from './modules/manufacturing/reports/WIPMonthlySummaryReport';
+
+// 🏭 مديول التصنيع المتقدم (Advanced Manufacturing - Lazy Loaded)
+const ManufacturingDashboard = lazy(() => import('./modules/manufacturing/components/ManufacturingDashboard'));
+const BatchOrderManager = lazy(() => import('./modules/manufacturing/components/BatchOrderManager'));
+const ShopFloorManager = lazy(() => import('./modules/manufacturing/components/ShopFloorManager'));
+const QualityControlManager = lazy(() => import('./modules/manufacturing/components/QualityControlManager'));
+const BOMVarianceReport = lazy(() => import('./modules/manufacturing/reports/BOMVarianceReport'));
+const GenealogyViewer = lazy(() => import('./modules/manufacturing/reports/GenealogyViewer'));
+const ProductionProfitabilityReport = lazy(() => import('./modules/manufacturing/reports/ProductionProfitabilityReport'));
+const RoutingBOMManager = lazy(() => import('./modules/manufacturing/components/RoutingBOMManager'));
+const MaterialRequestsList = lazy(() => import('./modules/manufacturing/components/MaterialRequestsList'));
+const RawMaterialsTurnover = lazy(() => import('./modules/manufacturing/reports/RawMaterialsTurnover').then(m => ({ default: m.RawMaterialsTurnover })));
+const WIPMonthlySummaryReport = lazy(() => import('./modules/manufacturing/reports/WIPMonthlySummaryReport'));
 import UserProfile from './components/UserProfile';
 import { DemoTour } from './components/DemoTour';
 import LandingPage from './components/LandingPage';
@@ -168,16 +176,18 @@ import RecurringInvoicesManager from './modules/sales/RecurringInvoicesManager';
 import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
 import FreeReturnsReport from './modules/sales/FreeReturnsReport';
 import WastageReport from './modules/inventory/WastageReport';
-import GuestMenuLayout from './modules/restaurant/components/GuestMenuLayout';
+const GuestMenuLayout = lazy(() => import('./modules/restaurant/components/GuestMenuLayout'));
 import ChequeMovementReport from './modules/banking/ChequeMovementReport';
 import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
 import About from './components/About';
 import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
-import PosScreen from './modules/restaurant/components/POS/PosScreen';
-import RetailPosScreen from './modules/retail/components/POS/RetailPosScreen';
-import PriceCheckerKiosk from './modules/retail/components/PriceCheckerKiosk';
-import CustomerFacingScreen from './modules/retail/components/CustomerDisplay/CustomerFacingScreen';
-import PromotionsManager from './modules/retail/components/Promotions/PromotionsManager';
+
+// 🛒 مديول التجزئة ونقاط البيع (Retail & POS - Lazy Loaded)
+const PosScreen = lazy(() => import('./modules/restaurant/components/POS/PosScreen'));
+const RetailPosScreen = lazy(() => import('./modules/retail/components/POS/RetailPosScreen'));
+const PriceCheckerKiosk = lazy(() => import('./modules/retail/components/PriceCheckerKiosk'));
+const CustomerFacingScreen = lazy(() => import('./modules/retail/components/CustomerDisplay/CustomerFacingScreen'));
+const PromotionsManager = lazy(() => import('./modules/retail/components/Promotions/PromotionsManager'));
 import VendorContractsManager from './modules/purchases/VendorContractsManager';
 import RfqBiddingManager from './modules/purchases/RfqBiddingManager';
 import GoodsReceiptManager from './modules/inventory/GoodsReceiptManager';
@@ -187,76 +197,78 @@ import ShelfRestockReport from './modules/inventory/ShelfRestockReport';
 import HypermarketReplenishment from './modules/inventory/HypermarketReplenishment';
 import BinLocationManager from './modules/inventory/BinLocationManager';
 import InTransitTransfersManager from './modules/inventory/InTransitTransfersManager';
-import KdsScreen from './modules/restaurant/components/KDS/KdsScreen';
-import KitchenEndDayCount from './modules/restaurant/components/Management/KitchenEndDayCount';
-import ButcheringYieldManager from './modules/restaurant/components/Management/ButcheringYieldManager';
-import ExpoScreen from './modules/restaurant/components/KDS/ExpoScreen';
-import KitchenStationManager from './modules/restaurant/components/Management/KitchenStationManager';
-import DriverDispatchManager from './modules/restaurant/components/Management/DriverDispatchManager';
-import HappyHourManager from './modules/restaurant/components/Management/HappyHourManager';
-import DeliveryAggregatorManager from './modules/restaurant/components/Management/DeliveryAggregatorManager';
-import TipsPoolManager from './modules/restaurant/components/Management/TipsPoolManager';
-import MultiChannelPricingManager from './modules/restaurant/components/Management/MultiChannelPricingManager';
-import CustomerWinBackManager from './modules/restaurant/components/Management/CustomerWinBackManager';
-import AutoReorderManager from './modules/restaurant/components/Management/AutoReorderManager';
-import RestaurantSalesReport from './modules/restaurant/reports/RestaurantSalesReport';
-import SalesByUserReport from './modules/restaurant/reports/SalesByUserReport';
-import WastageAnalysisReport from './modules/restaurant/reports/WastageAnalysisReport';
-import RestaurantProfitReport from './modules/restaurant/reports/RestaurantProfitReport';
+
+// 🍽️ مديول المطاعم والمطبخ (Restaurant & KDS - Lazy Loaded)
+const KdsScreen = lazy(() => import('./modules/restaurant/components/KDS/KdsScreen'));
+const KitchenEndDayCount = lazy(() => import('./modules/restaurant/components/Management/KitchenEndDayCount'));
+const ButcheringYieldManager = lazy(() => import('./modules/restaurant/components/Management/ButcheringYieldManager'));
+const ExpoScreen = lazy(() => import('./modules/restaurant/components/KDS/ExpoScreen'));
+const KitchenStationManager = lazy(() => import('./modules/restaurant/components/Management/KitchenStationManager'));
+const DriverDispatchManager = lazy(() => import('./modules/restaurant/components/Management/DriverDispatchManager'));
+const HappyHourManager = lazy(() => import('./modules/restaurant/components/Management/HappyHourManager'));
+const DeliveryAggregatorManager = lazy(() => import('./modules/restaurant/components/Management/DeliveryAggregatorManager'));
+const TipsPoolManager = lazy(() => import('./modules/restaurant/components/Management/TipsPoolManager'));
+const MultiChannelPricingManager = lazy(() => import('./modules/restaurant/components/Management/MultiChannelPricingManager'));
+const CustomerWinBackManager = lazy(() => import('./modules/restaurant/components/Management/CustomerWinBackManager'));
+const AutoReorderManager = lazy(() => import('./modules/restaurant/components/Management/AutoReorderManager'));
+const RestaurantSalesReport = lazy(() => import('./modules/restaurant/reports/RestaurantSalesReport'));
+const SalesByUserReport = lazy(() => import('./modules/restaurant/reports/SalesByUserReport'));
+const WastageAnalysisReport = lazy(() => import('./modules/restaurant/reports/WastageAnalysisReport'));
+const RestaurantProfitReport = lazy(() => import('./modules/restaurant/reports/RestaurantProfitReport'));
+const RestaurantAnalytics = lazy(() => import('./services/RestaurantAnalytics'));
 import { OfflineSyncProvider } from './components/OfflineSyncProvider';
-import CustomerDisplay from './modules/restaurant/components/POS/CustomerDisplay';
-import RestaurantAnalytics from './services/RestaurantAnalytics';
-import MobileWaiterScreen from './modules/restaurant/components/POS/MobileWaiterScreen';
-import ThermalPrintersManager from './modules/restaurant/components/Management/ThermalPrintersManager';
-import LoyaltyProgramManager from './modules/restaurant/components/Management/LoyaltyProgramManager';
-import SelfOrderingKiosk from './modules/restaurant/components/Kiosk/SelfOrderingKiosk';
+const CustomerDisplay = lazy(() => import('./modules/restaurant/components/POS/CustomerDisplay'));
+const MobileWaiterScreen = lazy(() => import('./modules/restaurant/components/POS/MobileWaiterScreen'));
+const ThermalPrintersManager = lazy(() => import('./modules/restaurant/components/Management/ThermalPrintersManager'));
+const LoyaltyProgramManager = lazy(() => import('./modules/restaurant/components/Management/LoyaltyProgramManager'));
+const SelfOrderingKiosk = lazy(() => import('./modules/restaurant/components/Kiosk/SelfOrderingKiosk'));
 
-// 🏥 HIMS Module Imports - Pages
-import PatientManager from './modules/hims/pages/PatientManager';
-import { DoctorDesktop } from './modules/hims/pages/DoctorDesktop';
-import MedicalBilling from './modules/hims/pages/MedicalBilling';
-import { LabDashboard } from './modules/hims/pages/LabDashboard';
-import { BloodBankDashboard as BloodBankManager } from './modules/hims/pages/BloodBankDashboard';
-import { NurseStation } from './modules/hims/pages/NurseStation';
-import { RadiologyDashboard } from './modules/hims/pages/RadiologyDashboard';
-import { LabSpecimenTracking } from './modules/hims/pages/LabSpecimenTracking';
-import { ERTriageBoard } from './modules/hims/pages/ERTriageBoard';
-import { PharmacyDashboard } from './modules/hims/pages/PharmacyDashboard';
-import { AdmissionManager } from './modules/hims/pages/AdmissionManager';
-import { WardBedManager } from './modules/hims/components/WardBedManager'; // ✅ تم تصحيح المسار من pages إلى components
-import { SurgeryScheduler } from './modules/hims/pages/SurgeryScheduler';
-import OperatingTheaterManager from './modules/hims/pages/OperatingTheaterManager';
-import StaffRosterManager from './modules/hims/pages/StaffRosterManager';
-import DoctorManager from './modules/hims/pages/DoctorManager';
-import { DoctorKPIs } from './modules/hims/pages/DoctorKPIs';
-import { HIMSExecutiveDashboard } from './modules/hims/pages/HIMSExecutiveDashboard';
-import { HIMSProfitabilityReports } from './modules/hims/pages/HIMSProfitabilityReports';
-import { HIMSServicesManager } from './modules/hims/pages/HIMSServicesManager';
-import { AppointmentManager } from './modules/hims/pages/AppointmentManager';
-import PatientPortal from './modules/hims/pages/PatientPortal';
-import { InsuranceClaimsManager } from './modules/hims/pages/InsuranceClaimsManager';
-import { InpatientDashboard } from './modules/hims/pages/InpatientDashboard';
+// 🏥 مديول المستشفيات والخدمات الطبية (HIMS - Lazy Loaded)
+const PatientManager = lazy(() => import('./modules/hims/pages/PatientManager'));
+const DoctorDesktop = lazy(() => import('./modules/hims/pages/DoctorDesktop').then(m => ({ default: m.DoctorDesktop })));
+const MedicalBilling = lazy(() => import('./modules/hims/pages/MedicalBilling'));
+const LabDashboard = lazy(() => import('./modules/hims/pages/LabDashboard').then(m => ({ default: m.LabDashboard })));
+const BloodBankManager = lazy(() => import('./modules/hims/pages/BloodBankDashboard').then(m => ({ default: m.BloodBankDashboard })));
+const NurseStation = lazy(() => import('./modules/hims/pages/NurseStation').then(m => ({ default: m.NurseStation })));
+const RadiologyDashboard = lazy(() => import('./modules/hims/pages/RadiologyDashboard').then(m => ({ default: m.RadiologyDashboard })));
+const LabSpecimenTracking = lazy(() => import('./modules/hims/pages/LabSpecimenTracking').then(m => ({ default: m.LabSpecimenTracking })));
+const ERTriageBoard = lazy(() => import('./modules/hims/pages/ERTriageBoard').then(m => ({ default: m.ERTriageBoard })));
+const PharmacyDashboard = lazy(() => import('./modules/hims/pages/PharmacyDashboard').then(m => ({ default: m.PharmacyDashboard })));
+const AdmissionManager = lazy(() => import('./modules/hims/pages/AdmissionManager').then(m => ({ default: m.AdmissionManager })));
+const WardBedManager = lazy(() => import('./modules/hims/components/WardBedManager').then(m => ({ default: m.WardBedManager })));
+const SurgeryScheduler = lazy(() => import('./modules/hims/pages/SurgeryScheduler').then(m => ({ default: m.SurgeryScheduler })));
+const OperatingTheaterManager = lazy(() => import('./modules/hims/pages/OperatingTheaterManager'));
+const StaffRosterManager = lazy(() => import('./modules/hims/pages/StaffRosterManager'));
+const DoctorManager = lazy(() => import('./modules/hims/pages/DoctorManager'));
+const DoctorKPIs = lazy(() => import('./modules/hims/pages/DoctorKPIs').then(m => ({ default: m.DoctorKPIs })));
+const HIMSExecutiveDashboard = lazy(() => import('./modules/hims/pages/HIMSExecutiveDashboard').then(m => ({ default: m.HIMSExecutiveDashboard })));
+const HIMSProfitabilityReports = lazy(() => import('./modules/hims/pages/HIMSProfitabilityReports').then(m => ({ default: m.HIMSProfitabilityReports })));
+const HIMSServicesManager = lazy(() => import('./modules/hims/pages/HIMSServicesManager').then(m => ({ default: m.HIMSServicesManager })));
+const AppointmentManager = lazy(() => import('./modules/hims/pages/AppointmentManager').then(m => ({ default: m.AppointmentManager })));
+const PatientPortal = lazy(() => import('./modules/hims/pages/PatientPortal'));
+const InsuranceClaimsManager = lazy(() => import('./modules/hims/pages/InsuranceClaimsManager').then(m => ({ default: m.InsuranceClaimsManager })));
+const InpatientDashboard = lazy(() => import('./modules/hims/pages/InpatientDashboard').then(m => ({ default: m.InpatientDashboard })));
 
-// 🏟️ Stadium Module Imports — استاد المنصورة ومركز التنمية الشبابية
-import StadiumDashboard from './modules/stadium/components/StadiumDashboard';
-import MemberManager from './modules/stadium/components/MemberManager';
-import FacilityManager from './modules/stadium/components/FacilityManager';
-import BookingManager from './modules/stadium/components/BookingManager';
-import RentalManager from './modules/stadium/components/RentalManager';
-import TrainingProgramManager from './modules/stadium/components/TrainingProgramManager';
-import CoachManager from './modules/stadium/components/CoachManager';
-import DisbursementManager from './modules/stadium/components/DisbursementManager';
-import StadiumCustodyManager from './modules/stadium/components/StadiumCustodyManager';
-import GateScanner from './modules/stadium/components/GateScanner';
-import FacilityMaintenanceManager from './modules/stadium/components/FacilityMaintenanceManager';
-import StadiumBudgetManager from './modules/stadium/components/StadiumBudgetManager';
-import TournamentManager from './modules/stadium/components/TournamentManager';
-import StadiumRevenueReport from './modules/stadium/reports/StadiumRevenueReport';
-import StadiumExpenseReport from './modules/stadium/reports/StadiumExpenseReport';
-import StadiumPnLReport from './modules/stadium/reports/StadiumPnLReport';
-import OccupancyReport from './modules/stadium/reports/OccupancyReport';
-import MemberAgingReport from './modules/stadium/reports/MemberAgingReport';
-import ProgramProfitReport from './modules/stadium/reports/ProgramProfitReport';
+// 🏟️ مديول الاستاد والمنشآت الرياضية (Stadium - Lazy Loaded)
+const StadiumDashboard = lazy(() => import('./modules/stadium/components/StadiumDashboard'));
+const MemberManager = lazy(() => import('./modules/stadium/components/MemberManager'));
+const FacilityManager = lazy(() => import('./modules/stadium/components/FacilityManager'));
+const BookingManager = lazy(() => import('./modules/stadium/components/BookingManager'));
+const RentalManager = lazy(() => import('./modules/stadium/components/RentalManager'));
+const TrainingProgramManager = lazy(() => import('./modules/stadium/components/TrainingProgramManager'));
+const CoachManager = lazy(() => import('./modules/stadium/components/CoachManager'));
+const DisbursementManager = lazy(() => import('./modules/stadium/components/DisbursementManager'));
+const StadiumCustodyManager = lazy(() => import('./modules/stadium/components/StadiumCustodyManager'));
+const GateScanner = lazy(() => import('./modules/stadium/components/GateScanner'));
+const FacilityMaintenanceManager = lazy(() => import('./modules/stadium/components/FacilityMaintenanceManager'));
+const StadiumBudgetManager = lazy(() => import('./modules/stadium/components/StadiumBudgetManager'));
+const TournamentManager = lazy(() => import('./modules/stadium/components/TournamentManager'));
+const StadiumRevenueReport = lazy(() => import('./modules/stadium/reports/StadiumRevenueReport'));
+const StadiumExpenseReport = lazy(() => import('./modules/stadium/reports/StadiumExpenseReport'));
+const StadiumPnLReport = lazy(() => import('./modules/stadium/reports/StadiumPnLReport'));
+const OccupancyReport = lazy(() => import('./modules/stadium/reports/OccupancyReport'));
+const MemberAgingReport = lazy(() => import('./modules/stadium/reports/MemberAgingReport'));
+const ProgramProfitReport = lazy(() => import('./modules/stadium/reports/ProgramProfitReport'));
 
 
 
@@ -496,6 +508,15 @@ const SubcontractorStandalone = () => {
   />;
 };
 
+const LazyLoadingFallback = () => (
+    <div className="flex items-center justify-center min-h-[50vh]">
+        <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <span className="text-sm font-bold text-slate-500">جاري تحميل الشاشة...</span>
+        </div>
+    </div>
+);
+
 const MainLayout = () => {
     const { currentUser } = useAccounting();
 
@@ -529,6 +550,7 @@ const MainLayout = () => {
                 {/* إضافة هوامش للطباعة لتجنب تداخل المحتوى مع الترويسة والتذييل */}
                 <main className="flex-1 p-8 overflow-y-scroll bg-slate-50 print:bg-white print:p-0 print:overflow-visible print:h-auto print:mt-24 print:mb-12">
                     <div className="max-w-7xl mx-auto print:max-w-none print:w-full print:px-4">
+                        <Suspense fallback={<LazyLoadingFallback />}>
                         <Routes>
                 {/* المسارات الأساسية */}
                 <Route
@@ -845,8 +867,9 @@ const MainLayout = () => {
                 
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
-                    </div>
-                </main>
+            </Suspense>
+          </div>
+        </main>
                 <PrintFooter />
             </div>
         </div>
@@ -895,18 +918,20 @@ const AppContent = () => {
   return (
     <HashRouter>
       {/* The single source of truth for authentication is now `currentUser` from the context */}
-      <Routes>
-        {/* 1. المسارات العامة (متاحة للجميع دون تسجيل دخول) */}
-        <Route path="/customer-display" element={<CustomerDisplay />} />
-        <Route path="/menu/:qrKey" element={<GuestMenuLayout />} />
-        <Route path="/menu" element={<GuestMenuLayout />} />
-        <Route path="/restaurant/kiosk" element={<SelfOrderingKiosk />} />
-        <Route path="/kiosk" element={<SelfOrderingKiosk />} />
-        <Route path="/public/hims/visit/:visitId" element={<PatientPortal />} />
+      <Suspense fallback={<LazyLoadingFallback />}>
+        <Routes>
+          {/* 1. المسارات العامة (متاحة للجميع دون تسجيل دخول) */}
+          <Route path="/customer-display" element={<CustomerDisplay />} />
+          <Route path="/menu/:qrKey" element={<GuestMenuLayout />} />
+          <Route path="/menu" element={<GuestMenuLayout />} />
+          <Route path="/restaurant/kiosk" element={<SelfOrderingKiosk />} />
+          <Route path="/kiosk" element={<SelfOrderingKiosk />} />
+          <Route path="/public/hims/visit/:visitId" element={<PatientPortal />} />
 
-        {/* 2. المسارات المحمية (تتطلب حساب موظف) */}
-        <Route path="/*" element={<ProtectedRoute><MainLayout /></ProtectedRoute>} />
-      </Routes>
+          {/* 2. المسارات المحمية (تتطلب حساب موظف) */}
+          <Route path="/*" element={<ProtectedRoute><MainLayout /></ProtectedRoute>} />
+        </Routes>
+      </Suspense>
     </HashRouter>
   );
 };

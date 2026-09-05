@@ -286,3 +286,5 @@ class UnifiedAccountingEngine {
 }
 
 export const AccountingEngine = new UnifiedAccountingEngine();
+export const accountingEngine = AccountingEngine;
+export default AccountingEngine;

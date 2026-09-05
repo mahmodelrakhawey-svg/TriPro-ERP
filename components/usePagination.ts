@@ -6,6 +6,7 @@ export interface PaginationOptions {
   pageSize?: number;
   orderBy?: string;
   ascending?: boolean;
+  organizationId?: string | null;
 }
 
 export interface PaginationResult<T> {
@@ -38,7 +39,8 @@ export function usePagination<T>(
     select = '*',
     pageSize = 10,
     orderBy = 'created_at',
-    ascending = false
+    ascending = false,
+    organizationId
   } = options;
 
   // تحديث المرجع عند تغيير الدالة وإعادة جلب البيانات مع ضبط الصفحة على الأولى
@@ -46,7 +48,7 @@ export function usePagination<T>(
     queryModifierRef.current = queryModifier;
     setPage(1);
     setRefreshTrigger(prev => prev + 1);
-  }, [queryModifier]);
+  }, [queryModifier, organizationId]);
 
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -61,7 +63,7 @@ export function usePagination<T>(
         return;
       }
 
-      const userOrgId = session.user.user_metadata?.org_id;
+      const userOrgId = organizationId || session.user.user_metadata?.org_id;
       const userRole = session.user.user_metadata?.role;
 
       let query = supabase

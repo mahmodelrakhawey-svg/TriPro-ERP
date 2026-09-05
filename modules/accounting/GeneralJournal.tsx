@@ -87,7 +87,7 @@ const getEntrySource = (reference: string = '', description: string = '') => {
 };
 
 const GeneralJournal = () => {
-  const { refreshData, can, clearCache, exportJournalToCSV, users, currentUser, accounts, selectedFiscalYear, fiscalYearRange, settings } = useAccounting();
+  const { refreshData, can, clearCache, exportJournalToCSV, users, currentUser, accounts, selectedFiscalYear, fiscalYearRange, settings, currentSelectedOrgId } = useAccounting();
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedUser, setSelectedUser] = useState('');
@@ -145,7 +145,7 @@ const GeneralJournal = () => {
 
       setIsSearching(true);
       try {
-        const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+        const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
         
         let matchingLinesQuery = supabase
           .from('journal_lines')
@@ -230,7 +230,7 @@ const GeneralJournal = () => {
     };
 
     performSearch();
-  }, [debouncedSearch, filterAccountId, filterAmount, accounts, currentUser]);
+  }, [debouncedSearch, filterAccountId, filterAmount, accounts, currentUser, currentSelectedOrgId]);
 
   // إعداد استعلام البيانات مع الفلترة
   const queryModifier = useCallback((query: any) => {
@@ -353,7 +353,8 @@ const GeneralJournal = () => {
     select: '*, journal_lines (*, accounts:account_id(id, code, name)), journal_attachments (*)',
     pageSize: 20,
     orderBy: 'transaction_date',
-    ascending: false
+    ascending: false,
+    organizationId: currentSelectedOrgId || (currentUser as any)?.organization_id
   }, queryModifier);
 
   // إعادة تحميل الصفحة الأولى عند تغير الفلاتر

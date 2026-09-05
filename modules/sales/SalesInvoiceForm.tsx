@@ -25,6 +25,7 @@ import { secureStorage } from '../../utils/securityMiddleware';
 import DocumentAuditTimeline from '../../components/DocumentAuditTimeline';
 import { logDocumentAction } from '../../services/auditService';
 import { evaluatePromotions, PromotionRule } from '../retail/services/promotionEngine';
+import { getNextDocumentNumber } from '../../services/sequenceService';
 
 const SalesInvoiceForm = () => { // Removed unused useParams import
   const { products, warehouses, salespeople, accounts, approveInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice, currentSelectedOrgId, organization } = useAccounting() as any;
@@ -1255,7 +1256,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     }
 
     // توليد رقم فاتورة فريد مرة واحدة لاستخدامه في القيد والفاتورة
-    const invoiceNumber = formData.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`;
+    const invoiceNumber = formData.invoiceNumber || await getNextDocumentNumber(userOrgId, 'invoice');
     const promoNotes = appliedPromotions.length > 0 
         ? ` [عروض مطبقة: ${appliedPromotions.map(p => p.promoName).join(' | ')}]`
         : '';
@@ -1338,8 +1339,13 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
         // 🚀 الخطوة الذهبية: إذا كانت الفاتورة مرحلة، نطلب من السيرفر إعادة تحديث القيود والمخزون فوراً
         if (invoiceData.status === 'posted' || invoiceData.status === 'paid') {
-            await approveInvoice(invoiceId, userOrgId, formData.warehouseId);
-            showToast('تم تحديث الفاتورة والقيود المحاسبية بنجاح ✅', 'success');
+            try {
+                await approveInvoice(invoiceId, userOrgId, formData.warehouseId);
+                showToast('تم تحديث الفاتورة والقيود المحاسبية بنجاح ✅', 'success');
+            } catch (postErr: any) {
+                console.error("Error approving sales invoice:", postErr);
+                showToast('تم حفظ الفاتورة ولكن تعذر ترحيل القيود تلقائياً: ' + (postErr.message || ''), 'warning');
+            }
         } else {
             setSuccessMessage('تم حفظ الفاتورة كمسودة بنجاح!');
         }
@@ -1509,7 +1515,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     
     try {
         // --- 1. Save Invoice Data (similar to handleSubmit) ---
-        const invoiceNumber = formData.invoiceNumber || `INV-${Date.now().toString().slice(-6)}`;
+        const invoiceNumber = formData.invoiceNumber || await getNextDocumentNumber(userOrgId, 'invoice');
         const invoiceData = {
             organization_id: userOrgId,
             invoice_number: invoiceNumber,

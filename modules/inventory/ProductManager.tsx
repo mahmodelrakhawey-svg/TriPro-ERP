@@ -139,7 +139,7 @@ const ProductManager = () => {
   // إعداد استعلام البيانات
   const queryModifier = useCallback((query: any) => {
     if (debouncedSearch) {
-      query = query.or(`name.ilike.%${debouncedSearch}%,sku.ilike.%${debouncedSearch}%,description.ilike.%${debouncedSearch}%`);
+      query = query.or(`name.ilike.%${debouncedSearch}%,sku.ilike.%${debouncedSearch}%,description.ilike.%${debouncedSearch}%,barcode.ilike.%${debouncedSearch}%,barcode2.ilike.%${debouncedSearch}%`);
     }
     if (showOffersOnly) {
        const today = new Date().toISOString().split('T')[0];
@@ -163,7 +163,8 @@ const ProductManager = () => {
   }, [debouncedSearch, showOffersOnly, categoryFilter, typeFilter]);
 
   // استخدام Hook التصفح
-  const { data: serverItems, loading: serverLoading, page, setPage, totalPages, totalCount, refresh } = usePagination<Item>('products', { select: '*', pageSize: 20, orderBy: 'name', ascending: true }, queryModifier);
+  const targetOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+  const { data: serverItems, loading: serverLoading, page, setPage, totalPages, totalCount, refresh } = usePagination<Item>('products', { select: '*', pageSize: 20, orderBy: 'name', ascending: true, organizationId: targetOrgId }, queryModifier);
 
   useEffect(() => {
     const fetchUoms = async () => {
