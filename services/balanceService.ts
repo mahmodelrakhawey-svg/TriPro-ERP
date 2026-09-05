@@ -211,7 +211,7 @@ export async function fetchAllCustomerBalances(orgId: string): Promise<Map<strin
     projectBillings
   ] = await Promise.all([
     fetchCompleteDataset(async (from, to) => supabase.from('customers').select('id, opening_balance').match(filter).is('deleted_at', null).range(from, to)),
-    fetchCompleteDataset(async (from, to) => supabase.from('sales_invoices').select('customer_id, total_amount, paid_amount').match(filter).neq('status', 'draft').neq('status', 'cancelled').range(from, to)),
+    fetchCompleteDataset(async (from, to) => supabase.from('invoices').select('customer_id, total_amount, paid_amount').match(filter).neq('status', 'draft').neq('status', 'cancelled').range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('receipt_vouchers').select('customer_id, amount').match(filter).not('customer_id', 'is', null).range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('credit_notes').select('customer_id, total_amount').match(filter).eq('status', 'posted').range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'incoming').neq('status', 'rejected').range(from, to)),

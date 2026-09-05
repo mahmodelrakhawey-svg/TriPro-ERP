@@ -7,8 +7,8 @@
 
 -- 1. الفهارس المركبة لرفع سرعة الاستعلامات الحسابية (Performance Composite Indexes)
 -- ==============================================================================
-CREATE INDEX IF NOT EXISTS idx_sales_invoices_perf_agg 
-  ON public.sales_invoices (organization_id, customer_id, status, invoice_date)
+CREATE INDEX IF NOT EXISTS idx_invoices_perf_agg 
+  ON public.invoices (organization_id, customer_id, status, invoice_date)
   WHERE status NOT IN ('draft', 'cancelled');
 
 CREATE INDEX IF NOT EXISTS idx_purchase_invoices_perf_agg 
@@ -90,7 +90,7 @@ BEGIN
             COALESCE(SUM(si.total_amount), 0) AS gross_sales,
             COALESCE(SUM(si.total_amount - COALESCE(si.paid_amount, 0)), 0) AS unpaid_invoiced,
             MAX(si.invoice_date::text) AS max_inv_date
-        FROM public.sales_invoices si
+        FROM public.invoices si
         WHERE si.organization_id = p_org_id
           AND si.customer_id IS NOT NULL
           AND si.status NOT IN ('draft', 'cancelled')
@@ -380,7 +380,7 @@ BEGIN
             COALESCE(SUM(CASE WHEN (CURRENT_DATE - si.invoice_date::date) BETWEEN 61 AND 90 THEN (si.total_amount - COALESCE(si.paid_amount, 0)) ELSE 0 END), 0) AS b_61_90,
             COALESCE(SUM(CASE WHEN (CURRENT_DATE - si.invoice_date::date) > 90 THEN (si.total_amount - COALESCE(si.paid_amount, 0)) ELSE 0 END), 0) AS b_90_plus,
             COALESCE(SUM(si.total_amount - COALESCE(si.paid_amount, 0)), 0) AS total_unpaid_invoices
-        FROM public.sales_invoices si
+        FROM public.invoices si
         WHERE si.organization_id = p_org_id
           AND si.customer_id IS NOT NULL
           AND si.status NOT IN ('draft', 'cancelled')
