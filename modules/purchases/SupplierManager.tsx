@@ -101,24 +101,20 @@ const SupplierManager = () => {
 
         if (!userOrgId) throw new Error('Org ID missing');
 
-        // 🚀 جلب الأرصدة المعتمدة الموحدة المتطابقة 100% مع كشف الحساب وتقرير الأرصدة ومطابقة الأستاذ العام
-        const canonicalBalancesPromise = fetchAllSupplierBalances(userOrgId).catch(() => new Map<string, number>());
-
-        // 🚀 محاولة جلب إحصائيات وأرصدة الموردين مجمعة من السيرفر فورياً بأعلى أداء (RPC v2)
+        // 🚀 محاولة جلب إحصائيات وأرصدة الموردين مجمعة من السيرفر فورياً بأعلى أداء (Database RPC)
         try {
-          const [rpcResult, canonicalBalances] = await Promise.all([
-            (supabase.rpc as any)('get_suppliers_summary_v2', { p_org_id: userOrgId }),
-            canonicalBalancesPromise
-          ]);
-          const serverStats = rpcResult.data;
-          const rpcError = rpcResult.error;
+          const { data: serverStats, error: rpcError } = await (supabase.rpc as any)('get_all_supplier_balances_fast', {
+            p_org_id: userOrgId,
+            p_search: null,
+            p_limit: 10000,
+            p_offset: 0
+          });
+
           if (!rpcError && serverStats && Array.isArray(serverStats)) {
             const statsMap: Record<string, any> = {};
             serverStats.forEach((row: any) => {
               statsMap[row.supplier_id] = {
-                balance: canonicalBalances.has(row.supplier_id)
-                  ? canonicalBalances.get(row.supplier_id)!
-                  : Number(row.balance || 0),
+                balance: Number(row.balance || 0),
                 totalPurchases: Number(row.total_purchases || 0),
                 lastInvoice: row.last_invoice || null
               };
@@ -126,12 +122,10 @@ const SupplierManager = () => {
             suppliers.forEach(s => {
               if (!statsMap[s.id]) {
                 statsMap[s.id] = {
-                  balance: canonicalBalances.has(s.id) ? canonicalBalances.get(s.id)! : Number(s.opening_balance || 0),
+                  balance: Number(s.opening_balance || 0),
                   totalPurchases: 0,
                   lastInvoice: null
                 };
-              } else if (canonicalBalances.has(s.id)) {
-                statsMap[s.id].balance = canonicalBalances.get(s.id)!;
               }
             });
             setStats(statsMap);
@@ -139,8 +133,11 @@ const SupplierManager = () => {
             return;
           }
         } catch (rpcErr) {
-          if (process.env.NODE_ENV === 'development') console.warn('Fast RPC get_suppliers_summary_v2 not active, falling back to client aggregation:', rpcErr);
+          if (import.meta.env.DEV) console.warn('Fast RPC get_all_supplier_balances_fast not active, falling back:', rpcErr);
         }
+
+        // احتياطي في حال عدم توفر الدالة: استخدام fetchAllSupplierBalances
+        const canonicalBalances = await fetchAllSupplierBalances(userOrgId).catch(() => new Map<string, number>());
 
         // ⚖️ جلب حساب الموردين لهذه المنظمة (كود 201 في دليل الحسابات القياسي لـ TriPro-ERP)
         let supplierAccId = getSystemAccount('SUPPLIERS')?.id;
@@ -368,7 +365,6 @@ const SupplierManager = () => {
         });
 
         // تطبيق الأرصدة المعتمدة الموحدة بدقة 100%
-        const canonicalBalances = await canonicalBalancesPromise;
         suppliers.forEach(s => {
           if (canonicalBalances.has(s.id) && newStats[s.id]) {
             newStats[s.id].balance = canonicalBalances.get(s.id)!;

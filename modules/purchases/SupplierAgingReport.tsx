@@ -30,9 +30,27 @@ const SupplierAgingReport = () => {
 
       if (!userOrgId) return;
 
+      // 🚀 جلب أعمار ديون الموردين المباشرة من محرك قاعدة البيانات
+      const { fetchSupplierAgingLedger } = await import('../../services/balanceService');
+      const dbRows = await fetchSupplierAgingLedger(userOrgId);
+      if (dbRows && dbRows.length > 0) {
+        const agingData = dbRows.map(r => ({
+          id: r.party_id,
+          name: r.party_name,
+          balance: r.total_balance,
+          range0_30: r.range_0_30,
+          range31_60: r.range_31_60,
+          range61_90: r.range_61_90,
+          range90_plus: r.range_90_plus
+        })).filter(s => s.balance > 1).sort((a, b) => b.balance - a.balance);
+        setReportData(agingData);
+        setLoading(false);
+        return;
+      }
+
       const filter = { organization_id: userOrgId };
 
-      // 1. جلب الموردين
+      // 1. جلب الموردين (احتياطي Fallback)
       const { data: suppliers } = await supabase.from('suppliers').select('id, name, opening_balance').match(filter).is('deleted_at', null);
       
       // 2. جلب الفواتير المرحلة والمدفوعة (مرتبة من الأحدث للأقدم لتطبيق FIFO)

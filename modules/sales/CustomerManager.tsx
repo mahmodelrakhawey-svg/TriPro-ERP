@@ -76,10 +76,26 @@ const CustomerManager = () => {
 
         if (!userOrgId) throw new Error('Org ID missing');
 
-        // 🚀 محاولة جلب الإحصائيات والأرصدة مجمعة من السيرفر فورياً بأعلى أداء ومطابقة تامة للأستاذ العام (RPC v2)
+        // 🚀 محاولة جلب إحصائيات وأرصدة العملاء مجمعة من السيرفر فورياً بأعلى أداء (Database RPC)
         try {
-          const { data: serverStats, error: rpcError } = await (supabase.rpc as any)('get_customers_summary_v2', { p_org_id: userOrgId });
-          if (!rpcError && serverStats && Array.isArray(serverStats)) {
+          let serverStats: any = null;
+          const { data: fastStats, error: fastError } = await (supabase.rpc as any)('get_all_customer_balances_fast', {
+            p_org_id: userOrgId,
+            p_search: null,
+            p_limit: 10000,
+            p_offset: 0
+          });
+
+          if (!fastError && fastStats && Array.isArray(fastStats)) {
+            serverStats = fastStats;
+          } else {
+            const { data: v2Stats, error: v2Error } = await (supabase.rpc as any)('get_customers_summary_v2', { p_org_id: userOrgId });
+            if (!v2Error && v2Stats && Array.isArray(v2Stats)) {
+              serverStats = v2Stats;
+            }
+          }
+
+          if (serverStats && Array.isArray(serverStats)) {
             const statsMap: Record<string, any> = {};
             serverStats.forEach((row: any) => {
               statsMap[row.customer_id] = {
@@ -103,7 +119,7 @@ const CustomerManager = () => {
             return;
           }
         } catch (rpcErr) {
-          if (import.meta.env.DEV) console.warn('Fast RPC get_customers_summary_v2 not active, falling back to client aggregation:', rpcErr);
+          if (import.meta.env.DEV) console.warn('Fast customer RPCs not active, falling back to client aggregation:', rpcErr);
         }
 
         // ⚖️ جلب حساب العملاء لهذه المنظمة (كود 1221) بمطابقة تامة لكشف الحساب

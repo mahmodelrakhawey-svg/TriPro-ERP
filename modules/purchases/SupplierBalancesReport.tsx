@@ -35,74 +35,36 @@ const SupplierBalancesReport = () => {
 
       const filter = { organization_id: userOrgId };
 
-      // 1. جلب الموردين
-      const { data: suppliers } = await supabase.from('suppliers').select('id, name, phone, opening_balance').match(filter).is('deleted_at', null);
-      
-      // 2. جلب الحركات المالية
-      const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount, invoice_number').match(filter).neq('status', 'draft');
-      const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount, notes').match(filter).not('supplier_id', 'is', null);
-      const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).neq('status', 'draft');
-      const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
-      const { data: cheques } = await supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'outgoing').neq('status', 'rejected');
-      const { data: rebates } = await supabase.from('vendor_rebate_settlements').select('vendor_id, total_claim_amount').match(filter).in('status', ['APPROVED', 'SETTLED']);
-      
-      // 3. جلب مقاولي الباطن ومستخلصاتهم المعتمدة
-      const { data: subs } = await supabase.from('subcontractors').select('id, name').match(filter);
-      const { data: contracts } = await supabase.from('subcontractor_contracts').select('id, subcontractor_id').match(filter);
-      const { data: subBillings } = await supabase.from('subcontractor_billings').select('contract_id, net_amount').match(filter).neq('status', 'draft');
-
-      if (!suppliers) return;
-
-      // تجهيز خريطة مستخلصات مقاولي الباطن بالاسم والمعرف
-      const subContractMap = new Map<string, string>(); // contract_id -> sub_id
-      contracts?.forEach(c => subContractMap.set(c.id, c.subcontractor_id));
-
-      const subBillingsTotalBySubId = new Map<string, number>();
-      subBillings?.forEach(sb => {
-          const subId = subContractMap.get(sb.contract_id);
-          if (subId) {
-              subBillingsTotalBySubId.set(subId, (subBillingsTotalBySubId.get(subId) || 0) + Number(sb.net_amount || 0));
-          }
+      // 🚀 جلب أرصدة الموردين مباشرة من محرك قاعدة البيانات فائق السرعة
+      const { data: rpcData, error: rpcError } = await (supabase.rpc as any)('get_all_supplier_balances_fast', {
+        p_org_id: userOrgId,
+        p_search: null,
+        p_limit: 10000,
+        p_offset: 0
       });
 
-      const subIdByName = new Map<string, string>();
-      subs?.forEach(s => {
-          if (s.name) subIdByName.set(s.name.trim().toLowerCase(), s.id);
-      });
+      if (!rpcError && Array.isArray(rpcData)) {
+        const balances = rpcData.map((row: any) => ({
+          id: row.supplier_id,
+          name: row.supplier_name,
+          phone: row.phone,
+          balance: Number(row.balance || 0)
+        })).sort((a: any, b: any) => b.balance - a.balance);
+        setReportData(balances);
+        return;
+      }
 
-      const balances = suppliers.map(supplier => {
-        const opening = Number(supplier.opening_balance || 0);
-        const totalInvoiced = invoices?.filter(i => i.supplier_id === supplier.id).reduce((sum, inv) => {
-          const pvPaidForThisInvoice = payments?.filter(p => p.supplier_id === supplier.id && p.notes && inv.invoice_number && p.notes.includes(inv.invoice_number)).reduce((s, p) => s + Number(p.amount || 0), 0) || 0;
-          const immediatePaidAtCheckout = Math.max(0, Number(inv.paid_amount || 0) - pvPaidForThisInvoice);
-          return sum + (Number(inv.total_amount || 0) - immediatePaidAtCheckout);
-        }, 0) || 0;
-        
-        // جلب مستخلصات مقاولي الباطن إن كان المورد مقاول باطن
-        const sName = (supplier.name || '').trim().toLowerCase();
-        let contractorBillings = 0;
-        subs?.forEach(sub => {
-            const subName = (sub.name || '').trim().toLowerCase();
-            if (subName && (sName === subName || sName.includes(subName) || subName.includes(sName))) {
-                contractorBillings += (subBillingsTotalBySubId.get(sub.id) || 0);
-            }
-        });
+      // احتياطي أمان (Fallback) عبر خدمة الأرصدة الموحدة
+      const { fetchAllSupplierBalances } = await import('../../services/balanceService');
+      const { data: suppliers } = await supabase.from('suppliers').select('id, name, phone').match(filter).is('deleted_at', null);
+      const balancesMap = await fetchAllSupplierBalances(userOrgId);
 
-        const totalRebates = rebates?.filter(reb => reb.vendor_id === supplier.id).reduce((sum, reb) => sum + Number(reb.total_claim_amount), 0) || 0;
-
-        const totalPaid = (payments?.filter(p => p.supplier_id === supplier.id).reduce((sum, p) => sum + Number(p.amount), 0) || 0) +
-                          (returns?.filter(r => r.supplier_id === supplier.id).reduce((sum, r) => sum + Number(r.total_amount), 0) || 0) +
-                          (debitNotes?.filter(d => d.supplier_id === supplier.id).reduce((sum, d) => sum + Number(d.total_amount), 0) || 0) +
-                          (cheques?.filter(c => c.party_id === supplier.id).reduce((sum, c) => sum + Number(c.amount), 0) || 0) +
-                          totalRebates;
-
-        return {
-          id: supplier.id,
-          name: supplier.name,
-          phone: supplier.phone,
-          balance: opening + totalInvoiced + contractorBillings - totalPaid
-        };
-      }).sort((a, b) => b.balance - a.balance);
+      const balances = (suppliers || []).map(s => ({
+        id: s.id,
+        name: s.name,
+        phone: s.phone,
+        balance: balancesMap.get(s.id) || 0
+      })).sort((a, b) => b.balance - a.balance);
 
       setReportData(balances);
     } catch (error) {
