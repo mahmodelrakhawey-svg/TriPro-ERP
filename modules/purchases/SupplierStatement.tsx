@@ -82,7 +82,8 @@ const SupplierStatement = () => {
         // 4. جلب الإشعارات المدينة (مدين - تنقص الرصيد)
         const { data: debitNotes } = await supabase.from('debit_notes')
             .select('id, debit_note_number, note_date, total_amount, notes')
-            .match(filter);
+            .match(filter)
+            .eq('status', 'posted');
 
         // 5. جلب الشيكات الصادرة (مدين - تنقص الرصيد)
         const { data: cheques } = await supabase.from('cheques')

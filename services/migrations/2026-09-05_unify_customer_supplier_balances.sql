@@ -273,13 +273,20 @@ BEGIN
           AND ch.related_journal_entry_id IS NOT NULL 
           AND ch.party_id IS NOT NULL
         UNION
-        -- مستخلصات مقاولي الباطن
-        SELECT sb.related_journal_entry_id, sc.subcontractor_id AS supplier_id
+        -- مستخلصات مقاولي الباطن (ربط مقاول الباطن بالمورد بالاسم أو المعرف)
+        SELECT sb.related_journal_entry_id, COALESCE(s.id, sc.subcontractor_id) AS supplier_id
         FROM public.subcontractor_billings sb
         JOIN public.subcontractor_contracts sc ON sc.id = sb.contract_id
+        JOIN public.subcontractors sub ON sub.id = sc.subcontractor_id
+        LEFT JOIN public.suppliers s ON s.organization_id = p_org_id 
+          AND (
+            LOWER(TRIM(s.name)) = LOWER(TRIM(sub.name))
+            OR s.name ILIKE '%' || sub.name || '%'
+            OR sub.name ILIKE '%' || s.name || '%'
+          )
+          AND s.deleted_at IS NULL
         WHERE sb.organization_id = p_org_id 
-          AND sb.related_journal_entry_id IS NOT NULL 
-          AND sc.subcontractor_id IS NOT NULL
+          AND sb.related_journal_entry_id IS NOT NULL
         UNION
         -- القيود اليدوية المرتبطة بالمورد (بالمعرف أو بالاسم في البيان أو بالمرجع)
         SELECT je.id AS journal_entry_id, s.id AS supplier_id
@@ -319,16 +326,33 @@ BEGIN
         AND jl.organization_id = p_org_id
         GROUP BY m.supplier_id
     ),
-    -- 3. إجمالي مشتريات الفواتير وآخر تاريخ فاتورة
+    -- 3. إجمالي مشتريات الفواتير ومستخلصات مقاولي الباطن وآخر تاريخ
     pinv_summary AS (
         SELECT 
-            pi.supplier_id,
-            COALESCE(SUM(pi.total_amount), 0) AS total_purchases,
-            MAX(pi.invoice_date::text) AS max_invoice_date
-        FROM public.purchase_invoices pi
-        WHERE pi.organization_id = p_org_id 
-          AND (pi.status IS NULL OR pi.status NOT IN ('draft', 'cancelled'))
-        GROUP BY pi.supplier_id
+            all_purchases.supplier_id,
+            COALESCE(SUM(all_purchases.amount), 0) AS total_purchases,
+            MAX(all_purchases.doc_date) AS max_invoice_date
+        FROM (
+            SELECT pi.supplier_id, pi.total_amount AS amount, pi.invoice_date::text AS doc_date
+            FROM public.purchase_invoices pi
+            WHERE pi.organization_id = p_org_id 
+              AND (pi.status IS NULL OR pi.status NOT IN ('draft', 'cancelled'))
+            UNION ALL
+            SELECT COALESCE(s.id, sc.subcontractor_id) AS supplier_id, sb.net_amount AS amount, sb.billing_date::text AS doc_date
+            FROM public.subcontractor_billings sb
+            JOIN public.subcontractor_contracts sc ON sc.id = sb.contract_id
+            JOIN public.subcontractors sub ON sub.id = sc.subcontractor_id
+            LEFT JOIN public.suppliers s ON s.organization_id = p_org_id 
+              AND (
+                LOWER(TRIM(s.name)) = LOWER(TRIM(sub.name))
+                OR s.name ILIKE '%' || sub.name || '%'
+                OR sub.name ILIKE '%' || s.name || '%'
+              )
+              AND s.deleted_at IS NULL
+            WHERE sb.organization_id = p_org_id 
+              AND (sb.status IS NULL OR sb.status != 'draft')
+        ) all_purchases
+        GROUP BY all_purchases.supplier_id
     )
     SELECT 
         s.id AS supplier_id,

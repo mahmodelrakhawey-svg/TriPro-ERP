@@ -97,7 +97,7 @@ class UnifiedAccountingEngine {
 
     try {
       // 3. إنشاء رأس القيد في جدول journal_entries كمسودة أولاً
-      const entryRef = reference || `JE-${Date.now().toString().slice(-6)}`;
+      const entryRef = reference || `JE-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
       const entryPayload: any = {
         organization_id: organizationId || null,
         transaction_date: transactionDate,
@@ -283,6 +283,23 @@ class UnifiedAccountingEngine {
       ]
     });
   }
+}
+
+/**
+ * دالة التحقق من توازن القيد المحاسبي (Double Entry Validation)
+ */
+export function validateJournalEntry(entry: { lines?: Array<{ debit?: number; credit?: number }> }): { isValid: boolean; error?: string } {
+  if (!entry.lines || entry.lines.length < 2) {
+    return { isValid: false, error: "يجب أن يحتوي القيد على طرفين على الأقل." };
+  }
+  const totalDebit = entry.lines.reduce((sum, line) => sum + Number(line.debit || 0), 0);
+  const totalCredit = entry.lines.reduce((sum, line) => sum + Number(line.credit || 0), 0);
+
+  const EPSILON = 0.0001;
+  if (Math.abs(totalDebit - totalCredit) > EPSILON) {
+    return { isValid: false, error: `القيد غير متوازن. المدين: ${totalDebit}, الدائن: ${totalCredit}` };
+  }
+  return { isValid: true };
 }
 
 export const AccountingEngine = new UnifiedAccountingEngine();

@@ -131,10 +131,21 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
           .limit(1);
 
         if (customerAccError) throw customerAccError;
-        const customerAcc = customerAccounts?.[0] || null;
+        let customerAcc = customerAccounts?.[0] || null;
+
+        // احتياطي: البحث بالاسم إذا لم يُوجد الكود 1221
+        if (!customerAcc?.id) {
+          const { data: fallbackAcc } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('organization_id', userOrgId)
+            .or('name.ilike.%العملاء%,name.ilike.%عملاء%,code.ilike.122%')
+            .limit(1);
+          customerAcc = fallbackAcc?.[0] || null;
+        }
 
         if (!customerAcc?.id) {
-          showToast('تعذر تحديد حساب العملاء (CUSTOMERS) بكود 1221 لهذه المنظمة.', 'error');
+          showToast('تعذر تحديد حساب العملاء لهذه المنظمة. تأكد من وجود حساب بكود 1221 أو اسم يحتوي على "العملاء".', 'error');
           setLoading(false);
           return;
         }

@@ -30,6 +30,7 @@ const DetailedStockMovementReport = () => {
   const [selectedWarehouse, setSelectedWarehouse] = useState('');
   const [movements, setMovements] = useState<StockMovement[]>([]);
   const [loading, setLoading] = useState(false);
+  const [openingBalance, setOpeningBalance] = useState(0);
   const [uoms, setUoms] = useState<any[]>([]);
   const [displayUnit, setDisplayUnit] = useState<'base' | 'original'>('base');
 
@@ -67,12 +68,24 @@ const DetailedStockMovementReport = () => {
       const userOrgId = session?.user?.user_metadata?.org_id;
       if (!userOrgId) return;
 
+      // جلب الرصيد الافتتاحي من جدول opening_inventories
+      let openingBalanceQuery = supabase
+        .from('opening_inventories')
+        .select('quantity, warehouse_id')
+        .eq('organization_id', userOrgId);
+      if (selectedProduct) openingBalanceQuery = openingBalanceQuery.eq('product_id', selectedProduct);
+      if (selectedWarehouse) openingBalanceQuery = openingBalanceQuery.eq('warehouse_id', selectedWarehouse);
+      const { data: openingBalanceItems } = await openingBalanceQuery;
+      const totalOpening = openingBalanceItems?.reduce((sum, item) => sum + Number(item.quantity || 0), 0) || 0;
+      setOpeningBalance(totalOpening);
+
       // 1. المبيعات (Sales) - إخراج (OUT)
       let salesQuery = supabase
         .from('invoice_items')
         .select('quantity, uom_id, product_id, products(name, base_uom_id, unit), invoices!inner(id, invoice_number, invoice_date, status, warehouse_id, warehouses(name), notes)')
         .eq('organization_id', userOrgId)
         .neq('invoices.status', 'draft')
+        .neq('invoices.status', 'cancelled')
         .gte('invoices.invoice_date', startDate)
         .lte('invoices.invoice_date', endDate);
       
@@ -102,7 +115,7 @@ const DetailedStockMovementReport = () => {
         .from('purchase_invoice_items')
         .select('quantity, uom_id, product_id, products(name, base_uom_id, unit), purchase_invoices!inner(id, invoice_number, invoice_date, status, warehouse_id, warehouses(name), notes)')
         .eq('organization_id', userOrgId)
-        .neq('purchase_invoices.status', 'draft')
+        .in('purchase_invoices.status', ['posted', 'paid'])
         .gte('purchase_invoices.invoice_date', startDate)
         .lte('purchase_invoices.invoice_date', endDate);
 
@@ -741,6 +754,14 @@ const DetailedStockMovementReport = () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
+                        {openingBalance > 0 && (
+                            <tr className="bg-blue-50 font-semibold">
+                                <td colSpan={5} className="p-3 text-blue-800 text-right">رصيد افتتاحي</td>
+                                <td className="p-3 text-center text-blue-800 bg-blue-50/50">{openingBalance.toLocaleString()} {displayUnit === 'base' ? 'وحدة أساسية' : ''}</td>
+                                <td className="p-3 text-center text-blue-800 bg-blue-50/50">-</td>
+                                <td className="p-3"></td>
+                            </tr>
+                        )}
                         {processedMovements.map((move, idx) => (
                             <tr key={idx} className="hover:bg-slate-50">
                                 <td className="p-3 whitespace-nowrap">{move.date}</td>

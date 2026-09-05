@@ -17,51 +17,31 @@ export interface RetailCoupon {
   organization_id?: string;
 }
 
-const LOCAL_COUPONS_KEY = 'tripro_retail_coupons';
+const getLocalCouponsKey = (orgId?: string) => `tripro_retail_coupons_${orgId || 'default'}`;
 
 export const couponService = {
   // جلب الكوبونات النشطة
   getCoupons: async (orgId?: string): Promise<RetailCoupon[]> => {
+    // تنظيف المفتاح القديم المشترك لمنع تسرب البيانات بين الشركات
+    secureStorage.removeItem('tripro_retail_coupons');
+    const storageKey = getLocalCouponsKey(orgId);
+
     try {
       if (orgId) {
         const { data, error } = await supabase
           .from('retail_coupons')
           .select('*')
           .eq('organization_id', orgId);
-        if (!error && data) {
-          secureStorage.setItem(LOCAL_COUPONS_KEY, data);
+        if (!error && Array.isArray(data)) {
+          secureStorage.setItem(storageKey, data);
           return data as RetailCoupon[];
         }
       }
     } catch (e) {
       console.warn('Fallback to local coupons:', e);
     }
-    const local = secureStorage.getItem(LOCAL_COUPONS_KEY) as RetailCoupon[];
-    return local && Array.isArray(local) ? local : [
-      {
-        id: 'coupon-1',
-        code: 'WELCOME10',
-        name: 'خصم ترحيبي 10%',
-        discount_type: 'PERCENT',
-        discount_value: 10,
-        min_order_amount: 100,
-        max_discount_amount: 50,
-        usage_limit: 500,
-        used_count: 12,
-        is_active: true
-      },
-      {
-        id: 'coupon-2',
-        code: 'SUPER50',
-        name: 'خصم 50 ج.م للمشتريات فوق 500 ج.م',
-        discount_type: 'FIXED',
-        discount_value: 50,
-        min_order_amount: 500,
-        usage_limit: 100,
-        used_count: 24,
-        is_active: true
-      }
-    ];
+    const local = secureStorage.getItem(storageKey) as RetailCoupon[];
+    return local && Array.isArray(local) ? local : [];
   },
 
   // التحقق من صحة الكوبون وتطبيقه على إجمالي الفاتورة
@@ -164,7 +144,7 @@ export const couponService = {
     const updated = current.some(c => c.id === newCoupon.id)
       ? current.map(c => c.id === newCoupon.id ? newCoupon : c)
       : [newCoupon, ...current];
-    secureStorage.setItem(LOCAL_COUPONS_KEY, updated);
+    secureStorage.setItem(getLocalCouponsKey(orgId), updated);
     return newCoupon;
   },
 
@@ -172,7 +152,7 @@ export const couponService = {
   recordUsage: async (couponId: string, orgId?: string) => {
     const list = await couponService.getCoupons(orgId);
     const updated = list.map(c => c.id === couponId ? { ...c, used_count: c.used_count + 1 } : c);
-    secureStorage.setItem(LOCAL_COUPONS_KEY, updated);
+    secureStorage.setItem(getLocalCouponsKey(orgId), updated);
     try {
       if (orgId) {
         await supabase.rpc('increment_coupon_usage', { p_coupon_id: couponId });

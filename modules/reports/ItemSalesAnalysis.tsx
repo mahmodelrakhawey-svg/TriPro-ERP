@@ -60,7 +60,8 @@ const ItemSalesAnalysis = () => {
         .eq('invoices.organization_id', userOrgId) // 🔒 فلترة المبيعات حسب المنظمة
         .gte('invoices.invoice_date', startDate)
         .lte('invoices.invoice_date', endDate)
-        .neq('invoices.status', 'draft');
+        .neq('invoices.status', 'draft')
+        .neq('invoices.status', 'cancelled');
 
       if (invError) console.error('Error fetching invoice items:', invError);
 

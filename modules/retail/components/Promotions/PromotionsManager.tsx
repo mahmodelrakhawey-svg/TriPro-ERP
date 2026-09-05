@@ -65,39 +65,22 @@ export default function PromotionsManager() {
         // Supabase table or offline error
       }
 
-      // Load from local storage
-      const localPromos = (
-        secureStorage.getItem(`tripro_promos_${orgId}`) || 
-        secureStorage.getItem('tripro_promos_active')
-      ) as PromotionRule[];
+      // تنظيف المفتاح العام القديم لمنع تسرب العروض بين الشركات
+      secureStorage.removeItem('tripro_promos_active');
 
       let finalPromos: PromotionRule[] = [];
 
-      if (dbPromos.length > 0) {
-        // If DB has promos, keep them, but also keep local promos that haven't synced to DB yet
-        const dbIds = new Set(dbPromos.map(p => p.id));
-        const localOnly = Array.isArray(localPromos) ? localPromos.filter(p => !dbIds.has(p.id)) : [];
-        finalPromos = [...dbPromos, ...localOnly];
-      } else if (Array.isArray(localPromos) && localPromos.length > 0) {
-        finalPromos = localPromos;
+      // إذا توافرت بيانات من قاعدة البيانات، فهي المصدر المعتمد للمنظمة الحالية حصراً
+      if (dbPromos && Array.isArray(dbPromos)) {
+        finalPromos = dbPromos;
       } else {
-        // Default initial demo promo if none exist anywhere
-        finalPromos = [
-          {
-            id: 'promo-1',
-            name: 'اشترِ 2 واحصل على 1 مجاناً',
-            type: 'BOGO',
-            is_active: true,
-            buy_qty: 2,
-            get_free_qty: 1,
-            start_date: new Date().toISOString().split('T')[0]
-          }
-        ];
+        // في حال العمل دون اتصال، نستخدم الكاش المحلي المخصص لهذه المنظمة فقط
+        const localPromos = (secureStorage.getItem(`tripro_promos_${orgId}`) || []) as PromotionRule[];
+        finalPromos = Array.isArray(localPromos) ? localPromos : [];
       }
 
       setPromotions(finalPromos);
       secureStorage.setItem(`tripro_promos_${orgId}`, finalPromos);
-      secureStorage.setItem('tripro_promos_active', finalPromos);
     } catch (err: any) {
       showToast('خطأ أثناء تحميل العروض: ' + err.message, 'error');
     } finally {
@@ -150,7 +133,6 @@ export default function PromotionsManager() {
       }
       setPromotions(updated);
       secureStorage.setItem(`tripro_promos_${orgId}`, updated);
-      secureStorage.setItem('tripro_promos_active', updated);
 
       // 2. Try save to Supabase with fallback for missing columns
       try {
@@ -205,7 +187,6 @@ export default function PromotionsManager() {
       const updated = promotions.filter(p => p.id !== id);
       setPromotions(updated);
       secureStorage.setItem(`tripro_promos_${orgId}`, updated);
-      secureStorage.setItem('tripro_promos_active', updated);
       showToast('تم حذف العرض الترويجي بنجاح', 'success');
     } catch (err: any) {
       showToast('خطأ أثناء الحذف: ' + err.message, 'error');
@@ -216,7 +197,6 @@ export default function PromotionsManager() {
     const updated = promotions.map(p => p.id === promo.id ? { ...p, is_active: !p.is_active } : p);
     setPromotions(updated);
     secureStorage.setItem(`tripro_promos_${orgId}`, updated);
-    secureStorage.setItem('tripro_promos_active', updated);
     try {
       await supabase.from('retail_promotions').update({ is_active: !promo.is_active }).eq('id', promo.id);
     } catch (e) {}
@@ -416,6 +396,33 @@ export default function PromotionsManager() {
             </div>
           );
         })}
+        {promotions.length === 0 && (
+          <div className="col-span-full py-16 text-center bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl">
+            <Sparkles className="mx-auto text-slate-300 mb-3" size={48} />
+            <h4 className="text-base font-bold text-slate-700">لا توجد عروض ترويجية مسجلة لهذه الشركة</h4>
+            <p className="text-xs text-slate-500 mt-1">يمكنك إنشاء عروض BOGO أو خصومات الكميات أو الباقات الخاصة بهذه الشركة حصراً.</p>
+            <button
+              onClick={() => {
+                setEditingId(null);
+                setFormData({
+                  name: '',
+                  type: 'BOGO',
+                  is_active: true,
+                  start_date: new Date().toISOString().split('T')[0],
+                  buy_qty: 2,
+                  get_free_qty: 1,
+                  tiered_qty: 3,
+                  tiered_fixed_price: 100,
+                  discount_percentage: 10
+                });
+                setIsModalOpen(true);
+              }}
+              className="mt-4 inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95"
+            >
+              <Plus size={16} /> إضافة أول عرض ترويجي
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Modal */}

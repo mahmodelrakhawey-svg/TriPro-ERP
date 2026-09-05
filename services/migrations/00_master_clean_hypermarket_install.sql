@@ -1,4 +1,4 @@
-﻿-- ==============================================================================
+-- ==============================================================================
 -- TriPro ERP — السكريبت الذهبي الموحد لتهيئة نظام الهايبر ماركت ونقاط البيع
 -- الإصدار: 2026-09-04 Final Master Edition
 -- يشمل كافة التحديثات والإصلاحات المحاسبية والمخزنية وعروض الأسعار في ملف واحد
@@ -202,11 +202,14 @@ DECLARE
     v_item_cost_record    RECORD;
     v_payout_record       RECORD;
     v_service_total       numeric := 0;
+    v_vat_total           numeric := 0;
     v_food_sales_subtotal numeric := 0;
+    v_gross_sales         numeric := 0;
     v_total_discount      numeric := 0;
     v_actual_cash         numeric := 0;
     v_target_acc          uuid;
     v_line_desc           text;
+    v_entry_desc          text;
 BEGIN
     SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
     IF NOT FOUND THEN
@@ -301,20 +304,41 @@ BEGIN
     INTO v_summary
     FROM temp_shift_orders;
 
-    IF v_summary.service_charge_sum > 0 THEN
-        v_service_total := v_summary.service_charge_sum;
+    -- 🛡️ [إصلاح الضريبة ورسوم الخدمة]:
+    -- 1. رسوم الخدمة (41104) تخص صالة المطاعم فقط إذا سُجلت صراحة
+    v_service_total := COALESCE(v_summary.service_charge_sum, 0);
+
+    -- 2. ضريبة القيمة المضافة (2231):
+    -- إذا كانت مسجلة في orders.total_tax نأخذها،
+    -- وإذا كانت مسجلة كـ 0 ولكن المحصل النقدي يزيد عن صافي المبيعات، فالفرق هو ضريبة المبيعات 14% (وليس رسوم خدمة!)
+    IF v_summary.tax > 0 THEN
+        v_vat_total := v_summary.tax;
+    ELSIF (v_summary.cash_total - (v_summary.subtotal + v_service_total)) > 0 THEN
+        v_vat_total := (v_summary.cash_total - (v_summary.subtotal + v_service_total));
     ELSE
-        v_service_total := GREATEST(0, (v_summary.cash_total - (v_summary.subtotal + v_summary.tax)));
+        v_vat_total := 0;
     END IF;
 
     v_food_sales_subtotal := v_summary.subtotal;
 
-    -- احتساب خصم العروض الممنوحة
+    -- 🛡️ [إصلاح خصم العروض والمبيعات وتوازن القيد GAAP]:
+    -- إجمالي الخصم الممنوح
     v_total_discount := GREATEST(
         COALESCE(v_summary.discount_sum, 0),
-        GREATEST(0, (v_summary.subtotal + v_service_total + v_summary.tax) - v_summary.cash_total)
+        GREATEST(0, (v_summary.subtotal + v_service_total + v_vat_total) - v_summary.cash_total)
     );
 
+    -- التحقق هل subtotal مسجل بالصافي (Net) أم بالإجمالي (Gross)
+    -- إذا كان (subtotal + vat + service) مساوياً للنقدية المحصلة (± 0.01)، فهو مسجل بالصافي بعد الخصم
+    -- لكي يتوازن القيد محاسبياً عند إدراج الخصم في الطرف المدين (413):
+    -- يجب إثبات الإيراد بالطرف الدائن بالإجمالي (Gross): Sales (Credit) = Subtotal + Discount
+    IF (v_summary.subtotal + v_vat_total + v_service_total) <= (v_summary.cash_total + 0.01) THEN
+        v_gross_sales := v_food_sales_subtotal + v_total_discount;
+    ELSE
+        v_gross_sales := v_food_sales_subtotal;
+    END IF;
+
+    -- الفارق الفعلي = النقدية الفعلية بالدرج - المتوقع
     v_diff := v_actual_cash
               - (COALESCE(v_shift.opening_balance, 0) + v_summary.cash_total - v_petty_cash - v_cash_returns);
 
@@ -372,7 +396,11 @@ BEGIN
 
     v_inventory_acc_id := public.resolve_leaf_account(COALESCE(
         public.safe_cast_uuid(v_mappings->>'INVENTORY_FINISHED_GOODS'),
-        (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code IN ('10302','1213') LIMIT 1)
+        (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '10302' LIMIT 1),
+        (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1213' LIMIT 1),
+        (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '103' AND is_group = false LIMIT 1),
+        (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND (name LIKE '%بضائع%' OR name LIKE '%منتج تام%' OR name LIKE '%بضاعة%') AND is_group = false LIMIT 1),
+        (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '10301' LIMIT 1)
     ));
 
     v_cash_deficit_acc_id := public.resolve_leaf_account(COALESCE(
@@ -389,6 +417,19 @@ BEGIN
         (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1224' LIMIT 1)
     );
 
+    -- تحديد وصف القيد بذكاء بناءً على نوع الوردية / المنفذ
+    IF EXISTS (
+        SELECT 1 FROM public.shifts s
+        JOIN public.pos_terminals t ON s.terminal_id = t.id
+        WHERE s.id = p_shift_id
+    ) OR EXISTS (
+        SELECT 1 FROM temp_shift_orders WHERE order_type = 'TAKEAWAY'
+    ) THEN
+        v_entry_desc := 'إغلاق وردية مبيعات التجزئة / الهايبر ماركت (المبيعات النقدية)';
+    ELSE
+        v_entry_desc := 'إغلاق وردية مبيعات نقدية مجمعة';
+    END IF;
+
     -- إنشاء قيد اليومية
     INSERT INTO public.journal_entries (
         transaction_date, description, reference, status,
@@ -396,33 +437,33 @@ BEGIN
     )
     VALUES (
         now()::date,
-        'إغلاق وردية مطعم مجمع (المبيعات النقدية)',
+        v_entry_desc,
         'SHIFT-' || to_char(now(), 'YYMMDD') || '-' || substring(p_shift_id::text, 1, 4),
         'posted', v_org_id, true, p_shift_id, 'shift', v_shift.user_id
     ) RETURNING id INTO v_je_id;
 
     -- 1. إيراد المبيعات (دائن)
-    IF v_food_sales_subtotal > 0 THEN
+    IF v_gross_sales > 0 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_sales_acc_id, 0, v_food_sales_subtotal, 'إيرادات مبيعات الوردية (الإجمالي)', v_org_id);
+        VALUES (v_je_id, v_sales_acc_id, 0, v_gross_sales, 'إيرادات مبيعات الوردية (الإجمالي قبل الخصم)', v_org_id);
     END IF;
 
-    -- 2. إيراد رسوم الخدمة (دائن)
+    -- 2. إيراد رسوم الخدمة (دائن - صالة المطاعم فقط)
     IF v_service_total > 0 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
         VALUES (v_je_id, v_service_acc_id, 0, v_service_total, 'إيرادات رسوم الخدمة (الوردية)', v_org_id);
     END IF;
 
     -- 3. ضريبة القيمة المضافة (دائن)
-    IF v_summary.tax > 0 THEN
+    IF v_vat_total > 0 THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_vat_acc_id, 0, v_summary.tax, 'ضريبة القيمة المضافة للوردية', v_org_id);
+        VALUES (v_je_id, v_vat_acc_id, 0, v_vat_total, 'ضريبة القيمة المضافة للوردية (14% VAT)', v_org_id);
     END IF;
 
     -- 4. خصومات المبيعات والعروض (مدين)
     IF v_total_discount > 0 AND v_discount_acc_id IS NOT NULL THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_je_id, v_discount_acc_id, v_total_discount, 0, 'خصومات مبيعات وعروض ترويجية للوردية', v_org_id);
+        VALUES (v_je_id, v_discount_acc_id, v_total_discount, 0, 'خصومات مبيعات وعروض ترويجية للوردية (خصم مسموح به)', v_org_id);
     END IF;
 
     -- 5. مردودات ومسموحات المبيعات (مدين)
@@ -484,7 +525,15 @@ BEGIN
     IF COALESCE(v_summary.cost_total, 0) > 0 THEN
         FOR v_item_cost_record IN (
             SELECT inv_acc, SUM(line_cost) AS total_cost FROM (
-                SELECT COALESCE(pr.inventory_account_id, v_inventory_acc_id) AS inv_acc,
+                SELECT COALESCE(
+                           CASE 
+                               WHEN pr.inventory_account_id IS NOT NULL 
+                                    AND (SELECT code FROM public.accounts WHERE id = pr.inventory_account_id) != '10301'
+                               THEN pr.inventory_account_id
+                               ELSE v_inventory_acc_id
+                           END,
+                           v_inventory_acc_id
+                       ) AS inv_acc,
                        public.uom_convert(oi.quantity, oi.uom_id, pr.base_uom_id)
                        * COALESCE(NULLIF(oi.unit_cost,0), NULLIF(pr.weighted_average_cost,0), pr.cost, 0) AS line_cost
                 FROM   public.order_items oi
@@ -493,7 +542,8 @@ BEGIN
                   AND  NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = oi.product_id)
                 UNION ALL
                 SELECT COALESCE(rm.inventory_account_id,
-                    (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1)) AS inv_acc,
+                    (SELECT id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id LIMIT 1),
+                    v_inventory_acc_id) AS inv_acc,
                        (public.uom_convert(oi.quantity, oi.uom_id, pr.base_uom_id)
                        * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id))
                        * COALESCE(NULLIF(rm.weighted_average_cost,0), rm.cost, 0) AS line_cost
@@ -508,7 +558,7 @@ BEGIN
                 INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
                 VALUES (v_je_id, v_cogs_acc_id, v_item_cost_record.total_cost, 0, 'تكلفة مبيعات الوردية النقدية', v_org_id);
                 INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-                VALUES (v_je_id, public.resolve_leaf_account(v_item_cost_record.inv_acc), 0, v_item_cost_record.total_cost, 'صرف مخزون الوردية النقدية', v_org_id);
+                VALUES (v_je_id, public.resolve_leaf_account(v_item_cost_record.inv_acc), 0, v_item_cost_record.total_cost, 'صرف مخزون بضاعة مبيعات الوردية', v_org_id);
             END IF;
         END LOOP;
     END IF;

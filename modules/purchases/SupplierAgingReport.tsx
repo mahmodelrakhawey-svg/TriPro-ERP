@@ -33,14 +33,14 @@ const SupplierAgingReport = () => {
       const filter = { organization_id: userOrgId };
 
       // 1. جلب الموردين
-      const { data: suppliers } = await supabase.from('suppliers').select('id, name').match(filter).is('deleted_at', null);
+      const { data: suppliers } = await supabase.from('suppliers').select('id, name, opening_balance').match(filter).is('deleted_at', null);
       
       // 2. جلب الفواتير المرحلة والمدفوعة (مرتبة من الأحدث للأقدم لتطبيق FIFO)
       const { data: invoices } = await supabase
         .from('purchase_invoices')
         .select('id, supplier_id, invoice_number, invoice_date, total_amount')
         .eq('organization_id', userOrgId)
-        .in('status', ['posted', 'paid'])
+        .neq('status', 'draft')
         .order('invoice_date', { ascending: false });
 
       // 3. جلب كافة المدفوعات والخصومات لحساب الرصيد الفعلي
@@ -79,6 +79,7 @@ const SupplierAgingReport = () => {
       const today = new Date();
       
       const agingData = suppliers.map(supplier => {
+        const opening = Number(supplier.opening_balance || 0);
         // حساب إجمالي الفواتير
         const supplierInvoices = invoices.filter(inv => inv.supplier_id === supplier.id);
         const totalInvoiced = supplierInvoices.reduce((sum, inv) => sum + Number(inv.total_amount), 0);
@@ -103,7 +104,7 @@ const SupplierAgingReport = () => {
         const totalCredits = suppPayments + suppReturns + suppDebitNotes + suppCheques + suppRebates;
         
         // الرصيد المستحق الحالي
-        let netBalance = (totalInvoiced + contractorBillings) - totalCredits;
+        let netBalance = opening + (totalInvoiced + contractorBillings) - totalCredits;
 
         let range0_30 = 0;
         let range31_60 = 0;

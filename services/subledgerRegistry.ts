@@ -80,6 +80,7 @@ class SubledgerRegistryService {
     const providersToQuery = this.getProviders();
     const results = await Promise.all(
       providersToQuery.map(async p => {
+        if (allowedModules && !allowedModules.includes(p.moduleKey)) return [];
         if (!p.getCustomerDocs) return [];
         try {
           return await p.getCustomerDocs(orgId);
@@ -99,6 +100,7 @@ class SubledgerRegistryService {
     const providersToQuery = this.getProviders();
     const results = await Promise.all(
       providersToQuery.map(async p => {
+        if (allowedModules && !allowedModules.includes(p.moduleKey)) return [];
         if (!p.getSupplierDocs) return [];
         try {
           return await p.getSupplierDocs(orgId);
@@ -124,6 +126,7 @@ class SubledgerRegistryService {
     const providersToQuery = this.getProviders();
     const results = await Promise.all(
       providersToQuery.map(async p => {
+        if (allowedModules && !allowedModules.includes(p.moduleKey)) return [];
         if (!p.getStatementCustomerEntryIds) return [];
         try {
           return await p.getStatementCustomerEntryIds(orgId, customerId, customerName);

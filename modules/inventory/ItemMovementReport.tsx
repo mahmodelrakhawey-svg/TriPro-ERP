@@ -102,6 +102,7 @@ const ItemMovementReport = () => {
         .select('quantity, invoice_id, invoices!inner(id, invoice_date, invoice_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
         .neq('invoices.status', 'draft')
+        .neq('invoices.status', 'cancelled')
         .eq('organization_id', userOrgId); 
       
       if (selectedWarehouseId) salesQuery = salesQuery.eq('invoices.warehouse_id', selectedWarehouseId);
@@ -112,7 +113,7 @@ const ItemMovementReport = () => {
         .from('purchase_invoice_items')
         .select('quantity, purchase_invoice_id, purchase_invoices!inner(id, invoice_date, invoice_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
-        .neq('purchase_invoices.status', 'draft')
+        .in('purchase_invoices.status', ['posted', 'paid'])
         .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) purchaseQuery = purchaseQuery.eq('purchase_invoices.warehouse_id', selectedWarehouseId);

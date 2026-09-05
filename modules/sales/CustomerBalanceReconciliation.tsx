@@ -172,7 +172,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         supabase.from('receipt_vouchers').select('id, customer_id, voucher_number, amount, related_journal_entry_id'),
         supabase.from('sales_returns').select('id, customer_id, return_number, total_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")'),
         supabase.from('credit_notes').select('id, customer_id, credit_note_number, total_amount, related_journal_entry_id').eq('status', 'posted'),
-        supabase.from('cheques').select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id').eq('type', 'incoming'),
+        supabase.from('cheques').select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id').eq('type', 'incoming').neq('status', 'rejected'),
         supabase.from('orders').select('id, customer_id, order_number, related_journal_entry_id').not('status', 'eq', 'CANCELLED'),
         SubledgerRegistry.fetchCustomerDocs(userOrgId, allowedModules)
       ]);

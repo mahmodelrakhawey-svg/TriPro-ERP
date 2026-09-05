@@ -26,6 +26,9 @@ import DocumentAuditTimeline from '../../components/DocumentAuditTimeline';
 import { logDocumentAction } from '../../services/auditService';
 import { evaluatePromotions, PromotionRule } from '../retail/services/promotionEngine';
 import { getNextDocumentNumber } from '../../services/sequenceService';
+import { QuickCustomerModals } from './components/QuickCustomerModals';
+import { ThermalInvoicePrintTemplate } from './components/ThermalInvoicePrintTemplate';
+
 
 const SalesInvoiceForm = () => { // Removed unused useParams import
   const { products, warehouses, salespeople, accounts, approveInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice, currentSelectedOrgId, organization } = useAccounting() as any;
@@ -136,23 +139,19 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           }
         } catch (e) {}
 
-        const local = (
-          secureStorage.getItem(`tripro_promos_${orgId}`) || 
-          secureStorage.getItem('tripro_promos_active')
-        ) as PromotionRule[];
-
-        if (dbActivePromos.length > 0) {
-          const dbIds = new Set(dbActivePromos.map(p => p.id));
-          const localOnly = Array.isArray(local) ? local.filter(p => p.is_active !== false && !dbIds.has(p.id)) : [];
-          setRetailPromotions([...dbActivePromos, ...localOnly]);
-        } else if (Array.isArray(local) && local.length > 0) {
-          setRetailPromotions(local.filter(p => p.is_active !== false));
+        secureStorage.removeItem('tripro_promos_active');
+        if (dbActivePromos && Array.isArray(dbActivePromos)) {
+          setRetailPromotions(dbActivePromos);
+        } else {
+          const local = (secureStorage.getItem(`tripro_promos_${orgId}`) || []) as PromotionRule[];
+          if (Array.isArray(local) && local.length > 0) {
+            setRetailPromotions(local.filter(p => p.is_active !== false));
+          } else {
+            setRetailPromotions([]);
+          }
         }
       } catch (e) {
-        const local = (
-          secureStorage.getItem(`tripro_promos_${orgId}`) || 
-          secureStorage.getItem('tripro_promos_active')
-        ) as PromotionRule[];
+        const local = (secureStorage.getItem(`tripro_promos_${orgId}`) || []) as PromotionRule[];
         if (local && Array.isArray(local)) setRetailPromotions(local.filter(p => p.is_active !== false));
       }
     };
@@ -2696,59 +2695,24 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         />
       )}
 
-      {/* Quick Add Customer Modal */}
-      {isCustomerModalOpen && (
-          <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4 backdrop-blur-md">
-              <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in duration-300">
-                  <div className="bg-slate-50 px-8 py-6 border-b border-slate-100 flex justify-between items-center">
-                      <h3 className="font-black text-xl text-slate-800">إضافة عميل سريع</h3>
-                      <button onClick={() => setIsCustomerModalOpen(false)} className="p-2 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors">
-                        <X size={20} />
-                      </button>
-                  </div>
-                  <form onSubmit={handleQuickAddCustomer} className="p-8 space-y-6">
-                      <div className="space-y-2">
-                        <label className="text-xs font-black text-slate-400 pr-2 uppercase">اسم العميل بالكامل</label>
-                        <input type="text" placeholder="الاسم الثلاثي أو اسم المنشأة" required value={newCustomerName} onChange={e => setNewCustomerName(e.target.value)} className="w-full border-2 border-slate-50 rounded-2xl px-5 py-4 focus:outline-none focus:border-blue-500 bg-slate-50 font-bold" />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-black text-slate-400 pr-2 uppercase">رقم الجوال</label>
-                        <input type="text" placeholder="05xxxxxxxx" value={newCustomerPhone} onChange={e => setNewCustomerPhone(e.target.value)} className="w-full border-2 border-slate-50 rounded-2xl px-5 py-4 focus:outline-none focus:border-blue-500 bg-slate-50 font-bold" />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-black text-slate-400 pr-2 uppercase">الرصيد الافتتاحي (عليه)</label>
-                        <input type="number" min="0" placeholder="0.00" value={newCustomerOpeningBalance} onChange={e => setNewCustomerOpeningBalance(e.target.value)} className="w-full border-2 border-slate-50 rounded-2xl px-5 py-4 focus:outline-none focus:border-blue-500 bg-slate-50 font-bold" />
-                      </div>
-                      <button type="submit" className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black shadow-xl shadow-blue-200 hover:bg-blue-700 transition-all transform active:scale-95">إضافة العميل</button>
-                  </form>
-              </div>
-          </div>
-      )}
+      {/* Quick Customer Modals (Add / Edit) */}
+      <QuickCustomerModals
+        isCustomerModalOpen={isCustomerModalOpen}
+        setIsCustomerModalOpen={setIsCustomerModalOpen}
+        newCustomerName={newCustomerName}
+        setNewCustomerName={setNewCustomerName}
+        newCustomerPhone={newCustomerPhone}
+        setNewCustomerPhone={setNewCustomerPhone}
+        newCustomerOpeningBalance={newCustomerOpeningBalance}
+        setNewCustomerOpeningBalance={setNewCustomerOpeningBalance}
+        handleQuickAddCustomer={handleQuickAddCustomer}
+        isEditCustomerModalOpen={isEditCustomerModalOpen}
+        setIsEditCustomerModalOpen={setIsEditCustomerModalOpen}
+        editCustomerData={editCustomerData}
+        setEditCustomerData={setEditCustomerData}
+        handleUpdateCustomerSubmit={handleUpdateCustomerSubmit}
+      />
 
-      {/* Edit Customer Modal */}
-      {isEditCustomerModalOpen && (
-          <div className="fixed inset-0 bg-black/70 z-[60] flex items-center justify-center p-4 backdrop-blur-md">
-              <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in duration-300">
-                  <div className="bg-slate-50 px-8 py-6 border-b border-slate-100 flex justify-between items-center">
-                      <h3 className="font-black text-xl text-slate-800">تعديل بيانات العميل</h3>
-                      <button onClick={() => setIsEditCustomerModalOpen(false)} className="p-2 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors">
-                        <X size={20} />
-                      </button>
-                  </div>
-                  <form onSubmit={handleUpdateCustomerSubmit} className="p-8 space-y-6">
-                      <div className="space-y-2">
-                        <label className="text-xs font-black text-slate-400 pr-2 uppercase">اسم العميل بالكامل</label>
-                        <input type="text" required value={editCustomerData.name} onChange={e => setEditCustomerData({...editCustomerData, name: e.target.value})} className="w-full border-2 border-slate-50 rounded-2xl px-5 py-4 focus:outline-none focus:border-amber-500 bg-slate-50 font-bold" />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-xs font-black text-slate-400 pr-2 uppercase">رقم الجوال</label>
-                        <input type="text" value={editCustomerData.phone} onChange={e => setEditCustomerData({...editCustomerData, phone: e.target.value})} className="w-full border-2 border-slate-50 rounded-2xl px-5 py-4 focus:outline-none focus:border-amber-500 bg-slate-50 font-bold" />
-                      </div>
-                      <button type="submit" className="w-full bg-amber-500 text-white py-4 rounded-2xl font-black shadow-xl shadow-amber-200 hover:bg-amber-600 transition-all transform active:scale-95">حفظ التعديلات</button>
-                  </form>
-              </div>
-          </div>
-      )}
 
       {/* Customer Statement Modal */}
       {isStatementModalOpen && (
@@ -2767,103 +2731,21 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           </div>
       )}
 
-      {/* Thermal Invoice Template (Hidden by default, shown only when printing with .thermal-print class) */}
-      <div className="hidden thermal-only print:block">
-          <div className="text-center mb-4 border-b border-black pb-2 border-dashed">
-              {(settings as any).logoUrl && (
-                  <img src={(settings as any).logoUrl} alt="Logo" className="w-16 h-16 mx-auto mb-2 object-contain grayscale" />
-              )}
-              <h2 className="text-xl font-bold">{settings.companyName}</h2>
-              <p className="text-xs">{settings.address}</p>
-              <p className="text-xs">هاتف: {settings.phone}</p>
-              <p className="text-xs">رقم ضريبي: {settings.taxNumber}</p>
-              <h3 className="text-lg font-bold mt-2 border-t border-black border-dashed pt-2">فاتورة مبيعات</h3>
-              <p className="text-sm font-mono">#{formData.invoiceNumber || 'NEW'}</p>
-              <p className="text-xs">{new Date().toLocaleString('ar-EG')}</p>
-          </div>
-          
-          <div className="mb-2 text-xs">
-              <p><strong>العميل:</strong> {customers.find(c => c.id === formData.customerId)?.name || 'عميل نقدي'}</p>
-              <p><strong>البائع:</strong> {salespeople.find(s => s.id === formData.salespersonId)?.name}</p>
-          </div>
-
-          <table className="w-full text-right text-xs mb-4 border-collapse">
-              <thead>
-                  <tr className="border-b border-black border-dashed">
-                      <th className="py-1">الصنف</th>
-                      <th className="py-1 text-center">الوحدة</th>
-                      <th className="py-1 w-8 text-center">ك</th>
-                      <th className="py-1 w-12 text-center">سعر</th>
-                      <th className="py-1 w-12 text-center">إجمالي</th>
-                  </tr>
-              </thead>
-              <tbody>
-                  {items.map((item, idx) => (
-                      <tr key={idx} className="border-b border-slate-200 border-dashed">
-                          <td className="py-1">{item.productName}</td>
-                          <td className="py-1 text-center">{uoms.find(u => u.id === item.uomId)?.name || '-'}</td>
-                          <td className="py-1 text-center">{item.quantity}</td>
-                          <td className="py-1 text-center">{item.unitPrice}</td>
-                          <td className="py-1 text-center font-bold">{item.total}</td>
-                      </tr>
-                  ))}
-              </tbody>
-          </table>
-
-          <div className="border-t border-black border-dashed pt-2 text-xs space-y-1">
-              <div className="flex justify-between">
-                  <span>المجموع:</span>
-                  <span>{subtotal.toLocaleString()}</span>
-              </div>
-              {discountAmount > 0 && (
-                  <div className="flex justify-between">
-                      <span>الخصم:</span>
-                      <span>{discountAmount.toLocaleString()}</span>
-                  </div>
-              )}
-              {settings.enableTax && (
-                  <div className="flex justify-between">
-                      <span>الضريبة ({(taxRate * 100).toFixed(0)}%):</span>
-                      <span>{taxAmount.toLocaleString()}</span>
-                  </div>
-              )}
-              <div className="flex justify-between text-sm font-bold border-t border-black border-dashed pt-1 mt-1">
-                  <span>الإجمالي:</span>
-                  <span>{totalAmount.toLocaleString()}</span>
-              </div>
-          </div>
-          
-          <div className="text-center mt-4 pt-2 border-t border-black border-dashed text-xs">
-              <p>{settings.footerText}</p>
-              <p className="mt-1">شكراً لزيارتكم</p>
-          </div>
-      </div>
+      <ThermalInvoicePrintTemplate
+        settings={settings}
+        invoiceNumber={formData.invoiceNumber}
+        customerName={customers.find(c => c.id === formData.customerId)?.name}
+        salespersonName={salespeople.find(s => s.id === formData.salespersonId)?.name}
+        items={items}
+        uoms={uoms}
+        subtotal={subtotal}
+        discountAmount={discountAmount}
+        taxRate={taxRate}
+        taxAmount={taxAmount}
+        totalAmount={totalAmount}
+      />
       </div>
 
-      <style>{`
-        @media print {
-            body.thermal-print * {
-                visibility: hidden;
-            }
-            body.thermal-print .thermal-only, body.thermal-print .thermal-only * {
-                visibility: visible;
-            }
-            body.thermal-print .thermal-only {
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 80mm; /* عرض الورق الحراري القياسي */
-                padding: 5px;
-                font-family: 'Courier New', Courier, monospace; /* خط مناسب للفواتير */
-                color: black;
-                background: white;
-            }
-            /* إخفاء القالب الحراري عند الطباعة العادية */
-            body:not(.thermal-print) .thermal-only {
-                display: none !important;
-            }
-        }
-      `}</style>
       <SalesInvoicePrint invoice={invoiceToPrint} companySettings={companySettings} />
     </div>
   );

@@ -568,7 +568,8 @@ CREATE OR REPLACE FUNCTION public.complete_pos_sale_atomic(
     p_terminal_id uuid DEFAULT NULL,
     p_total_discount numeric DEFAULT 0,
     p_notes text DEFAULT NULL,
-    p_cash_account_id uuid DEFAULT NULL
+    p_cash_account_id uuid DEFAULT NULL,
+    p_tax numeric DEFAULT 0
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -696,7 +697,7 @@ BEGIN
 
     -- احتساب الإجماليات بدقة
     v_subtotal := GREATEST(0, v_subtotal - COALESCE(p_total_discount, 0));
-    v_tax := 0; -- يمكن ضبطها حسب ضريبة الشركة
+    v_tax := COALESCE(p_tax, 0);
     v_grand_total := v_subtotal + v_tax;
 
     UPDATE public.orders
@@ -740,9 +741,9 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.complete_pos_sale_atomic(
-    jsonb, uuid, uuid, uuid, uuid, text, numeric, uuid, uuid, numeric, text, uuid
+    jsonb, uuid, uuid, uuid, uuid, text, numeric, uuid, uuid, numeric, text, uuid, numeric
 ) TO authenticated;
 
 GRANT EXECUTE ON FUNCTION public.complete_pos_sale_atomic(
-    jsonb, uuid, uuid, uuid, uuid, text, numeric, uuid, uuid, numeric, text, uuid
+    jsonb, uuid, uuid, uuid, uuid, text, numeric, uuid, uuid, numeric, text, uuid, numeric
 ) TO anon;

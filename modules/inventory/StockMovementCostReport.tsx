@@ -76,6 +76,7 @@ const StockMovementCostReport = () => {
         .select('quantity, cost, invoice_id, invoices!inner(id, invoice_date, invoice_number, status)') // Removed organization_id from inner select
         .eq('product_id', selectedProductId)
         .neq('invoices.status', 'draft')
+        .neq('invoices.status', 'cancelled')
         .eq('organization_id', userOrgId);
 
       // 2. جلب حركات المشتريات (Purchase Invoices) - وارد

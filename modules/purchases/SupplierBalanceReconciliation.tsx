@@ -185,7 +185,8 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         supabase
           .from('cheques')
           .select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id')
-          .eq('type', 'outgoing'),
+          .eq('type', 'outgoing')
+          .neq('status', 'rejected'),
 
         // مستخلصات مقاولي الباطن للتبويب المنفصل
         supabase

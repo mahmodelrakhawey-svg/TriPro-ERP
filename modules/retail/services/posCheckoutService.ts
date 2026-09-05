@@ -129,7 +129,8 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
         p_terminal_id: selectedTerminal?.id || null,
         p_total_discount: totalDiscount || 0,
         p_notes: orderData.notes,
-        p_cash_account_id: treasuryId
+        p_cash_account_id: treasuryId,
+        p_tax: tax || 0
       });
 
       if (!atomicErr && atomicData?.success) {
@@ -160,10 +161,13 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
       orderId = data;
 
       if (orderId) {
-        // Update order with shift_id, terminal_id and total_discount
+        // Update order with shift_id, terminal_id, total_discount, total_tax and grand_total
         const updatePayload: any = {
           shift_id: activeShift?.id || null,
-          total_discount: totalDiscount || 0
+          total_discount: totalDiscount || 0,
+          total_tax: tax || 0,
+          subtotal: Math.max(0, (subtotal || 0) - (totalDiscount || 0)),
+          grand_total: total
         };
         if (selectedTerminal?.id) {
           updatePayload.terminal_id = selectedTerminal.id;

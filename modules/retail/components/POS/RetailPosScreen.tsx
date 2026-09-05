@@ -193,17 +193,16 @@ export default function RetailPosScreen() {
           }
         } catch (e) {}
 
-        const local = (
-          secureStorage.getItem(`tripro_promos_${orgId}`) || 
-          secureStorage.getItem('tripro_promos_active')
-        ) as PromotionRule[];
-
-        if (dbActivePromos.length > 0) {
-          const dbIds = new Set(dbActivePromos.map(p => p.id));
-          const localOnly = Array.isArray(local) ? local.filter(p => p.is_active !== false && !dbIds.has(p.id)) : [];
-          setPromotions([...dbActivePromos, ...localOnly]);
-        } else if (Array.isArray(local) && local.length > 0) {
-          setPromotions(local.filter(p => p.is_active !== false));
+        secureStorage.removeItem('tripro_promos_active');
+        if (dbActivePromos && Array.isArray(dbActivePromos)) {
+          setPromotions(dbActivePromos);
+        } else {
+          const local = (secureStorage.getItem(`tripro_promos_${orgId}`) || []) as PromotionRule[];
+          if (Array.isArray(local) && local.length > 0) {
+            setPromotions(local.filter(p => p.is_active !== false));
+          } else {
+            setPromotions([]);
+          }
         }
       } catch (e) {}
 

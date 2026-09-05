@@ -207,6 +207,13 @@ export const useAccounting = () => {
   return context;
 };
 
+// --- Modular Domain Hooks (Facade Pattern) ---
+export { useProductDomain } from './domains/ProductContext';
+export { useCustomerDomain } from './domains/CustomerContext';
+export { useSupplierDomain } from './domains/SupplierContext';
+export { useSettingsDomain } from './domains/AccountingSettingsContext';
+
+
 export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser: authUser, can } = useAuth();
   const { showToast } = useToast();
@@ -235,6 +242,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     startDate: `${selectedFiscalYear}-01-01`,
     endDate: `${selectedFiscalYear}-12-31`
   }), [selectedFiscalYear]);
+
+  // 🛡️ عزل تام لبيانات المنظمات: تنظيف المفاتيح القديمة غير المعزولة لمنع تسريب العروض والكوبونات بين الشركات
+  useEffect(() => {
+    secureStorage.removeItem('tripro_promos_active');
+    secureStorage.removeItem('tripro_retail_coupons');
+  }, [currentSelectedOrgId]);
   const [accounts, setAccounts] = useState<any[]>([]);
   const [entries, setEntries] = useState<any[]>([]);
   const [assets, setAssets] = useState<any[]>([]);

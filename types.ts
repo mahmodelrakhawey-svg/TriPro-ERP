@@ -133,22 +133,11 @@ export interface Budget {
   month: number;
   items: BudgetItem[];
 }
-// دالة للتحقق من توازن القيد (Double Entry Validation)
-// هذه الدالة يجب أن تعمل في الـ Backend قبل الحفظ
-export function validateJournalEntry(entry: JournalEntry): { isValid: boolean; error?: string } {
-  if (!entry.lines || entry.lines.length < 2) {
-    return { isValid: false, error: "يجب أن يحتوي القيد على طرفين على الأقل." };
-  }
-  const totalDebit = entry.lines.reduce((sum, line) => sum + line.debit, 0);
-  const totalCredit = entry.lines.reduce((sum, line) => sum + line.credit, 0);
+/**
+ * @deprecated تم نقل منطق التحقق إلى services/accountingEngine.ts لضمان نظافة ملف الأنواع
+ */
+export { validateJournalEntry } from './services/accountingEngine';
 
-  // استخدام هامش خطأ صغير جداً لتفادي مشاكل الفواصل العائمة في JS
-  const EPSILON = 0.0001;
-  if (Math.abs(totalDebit - totalCredit) > EPSILON) {
-    return { isValid: false, error: `القيد غير متوازن. المدين: ${totalDebit}, الدائن: ${totalCredit}` };
-  }
-  return { isValid: true };
-}
 
 export interface BudgetItem {
   type: 'account' | 'salesperson' | 'customer' | 'product';

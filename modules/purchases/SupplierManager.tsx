@@ -8,6 +8,8 @@ import { Truck, Plus, Search, Edit2, Trash2, X, Phone, Mail, Loader2, Upload, Do
 import { createSupplierSchema, updateSupplierSchema } from '../../utils/validationSchemas';
 import { useNavigate } from 'react-router-dom';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
+import { fetchAllSupplierBalances } from '../../services/balanceService';
+
 
 type Supplier = {
   id: string;
@@ -99,14 +101,24 @@ const SupplierManager = () => {
 
         if (!userOrgId) throw new Error('Org ID missing');
 
+        // 🚀 جلب الأرصدة المعتمدة الموحدة المتطابقة 100% مع كشف الحساب وتقرير الأرصدة ومطابقة الأستاذ العام
+        const canonicalBalancesPromise = fetchAllSupplierBalances(userOrgId).catch(() => new Map<string, number>());
+
         // 🚀 محاولة جلب إحصائيات وأرصدة الموردين مجمعة من السيرفر فورياً بأعلى أداء (RPC v2)
         try {
-          const { data: serverStats, error: rpcError } = await (supabase.rpc as any)('get_suppliers_summary_v2', { p_org_id: userOrgId });
+          const [rpcResult, canonicalBalances] = await Promise.all([
+            (supabase.rpc as any)('get_suppliers_summary_v2', { p_org_id: userOrgId }),
+            canonicalBalancesPromise
+          ]);
+          const serverStats = rpcResult.data;
+          const rpcError = rpcResult.error;
           if (!rpcError && serverStats && Array.isArray(serverStats)) {
             const statsMap: Record<string, any> = {};
             serverStats.forEach((row: any) => {
               statsMap[row.supplier_id] = {
-                balance: Number(row.balance || 0),
+                balance: canonicalBalances.has(row.supplier_id)
+                  ? canonicalBalances.get(row.supplier_id)!
+                  : Number(row.balance || 0),
                 totalPurchases: Number(row.total_purchases || 0),
                 lastInvoice: row.last_invoice || null
               };
@@ -114,10 +126,12 @@ const SupplierManager = () => {
             suppliers.forEach(s => {
               if (!statsMap[s.id]) {
                 statsMap[s.id] = {
-                  balance: Number(s.opening_balance || 0),
+                  balance: canonicalBalances.has(s.id) ? canonicalBalances.get(s.id)! : Number(s.opening_balance || 0),
                   totalPurchases: 0,
                   lastInvoice: null
                 };
+              } else if (canonicalBalances.has(s.id)) {
+                statsMap[s.id].balance = canonicalBalances.get(s.id)!;
               }
             });
             setStats(statsMap);
@@ -351,6 +365,14 @@ const SupplierManager = () => {
                     }
                 }
             }
+        });
+
+        // تطبيق الأرصدة المعتمدة الموحدة بدقة 100%
+        const canonicalBalances = await canonicalBalancesPromise;
+        suppliers.forEach(s => {
+          if (canonicalBalances.has(s.id) && newStats[s.id]) {
+            newStats[s.id].balance = canonicalBalances.get(s.id)!;
+          }
         });
 
         setStats(newStats);

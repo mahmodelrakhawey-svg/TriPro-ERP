@@ -52,6 +52,20 @@ const CustomerAgingReport = () => {
       const { data: patients } = await supabase.from('hims_patients').select('id, customer_id').match(filter);
       const { data: himsBills } = await supabase.from('hims_billing').select('id, patient_id, insurance_provider_id, created_at, total_amount, patient_paid_amount').match(filter);
 
+      // جلب سندات القبض (تُخفض الرصيد)
+      const { data: receipts } = await supabase
+          .from('receipt_vouchers')
+          .select('customer_id, amount')
+          .match(filter)
+          .not('customer_id', 'is', null);
+
+      // جلب الإشعارات الدائنة المرحلة (تُخفض الرصيد)
+      const { data: creditNotes } = await supabase
+          .from('credit_notes')
+          .select('customer_id, total_amount')
+          .match(filter)
+          .eq('status', 'posted');
+
       if (!customers) return;
 
       const projectCustMap = new Map<string, string>();
@@ -116,6 +130,23 @@ const CustomerAgingReport = () => {
             else range90_plus += remaining;
           }
         });
+
+        // طرح سندات القبض
+        const totalReceipts = receipts?.filter(r => r.customer_id === customer.id)
+            .reduce((sum, r) => sum + Number(r.amount || 0), 0) || 0;
+
+        // طرح الإشعارات الدائنة
+        const totalCreditNotes = creditNotes?.filter(cn => cn.customer_id === customer.id)
+            .reduce((sum, cn) => sum + Number(cn.total_amount || 0), 0) || 0;
+
+        balance = Math.max(0, balance - totalReceipts - totalCreditNotes);
+
+        // تعديل التوزيع على فترات الأعمار بنسبة الخصم
+        const adjustmentRatio = balance > 0 ? balance / (balance + totalReceipts + totalCreditNotes) : 0;
+        range0_30 = Math.round(range0_30 * adjustmentRatio * 100) / 100;
+        range31_60 = Math.round(range31_60 * adjustmentRatio * 100) / 100;
+        range61_90 = Math.round(range61_90 * adjustmentRatio * 100) / 100;
+        range90_plus = Math.round(range90_plus * adjustmentRatio * 100) / 100;
 
         return {
           id: customer.id,
