@@ -399,16 +399,34 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       setSettings(normalizeSettings(sett || {}));
 
-      // جلب الحسابات والمستودعات
+      // جلب الحسابات والمستودعات مع ترشيد الاستعلامات المالية بالسنة المالية النشطة
       const [accs, ents, ccs, emps, prods, trns, pinvs, invs, cats, usrs, whs, rTables, custs, sups, chqs, shift, assetData, budgetData] = await Promise.all([
         supabase.from('accounts').select('*').eq('organization_id', fetchOrgId).order('code'),
-        supabase.from('journal_entries').select('*, journal_lines(*)').eq('organization_id', fetchOrgId).order('transaction_date', { ascending: false }),
+        supabase.from('journal_entries')
+          .select('*, journal_lines(*)')
+          .eq('organization_id', fetchOrgId)
+          .gte('transaction_date', fiscalYearRange.startDate)
+          .lte('transaction_date', fiscalYearRange.endDate)
+          .order('transaction_date', { ascending: false })
+          .limit(1000),
         supabase.from('cost_centers').select('*').eq('organization_id', fetchOrgId).order('name'),
         supabase.from('employees').select('*').eq('organization_id', fetchOrgId).order('full_name'),
         supabase.from('products').select('*').eq('organization_id', fetchOrgId).order('name'),
-        supabase.from('stock_transfers').select('*').eq('organization_id', fetchOrgId).order('transfer_date', { ascending: false }),
-        supabase.from('purchase_invoices').select('*').eq('organization_id', fetchOrgId).order('invoice_date', { ascending: false }),
-        supabase.from('invoices').select('*').eq('organization_id', fetchOrgId).order('invoice_date', { ascending: false }),
+        supabase.from('stock_transfers').select('*').eq('organization_id', fetchOrgId).order('transfer_date', { ascending: false }).limit(500),
+        supabase.from('purchase_invoices')
+          .select('*')
+          .eq('organization_id', fetchOrgId)
+          .gte('invoice_date', fiscalYearRange.startDate)
+          .lte('invoice_date', fiscalYearRange.endDate)
+          .order('invoice_date', { ascending: false })
+          .limit(1000),
+        supabase.from('invoices')
+          .select('*')
+          .eq('organization_id', fetchOrgId)
+          .gte('invoice_date', fiscalYearRange.startDate)
+          .lte('invoice_date', fiscalYearRange.endDate)
+          .order('invoice_date', { ascending: false })
+          .limit(1000),
         supabase.from('item_categories').select('*').eq('organization_id', fetchOrgId).order('name'),
         supabase.from('profiles').select('*').eq('organization_id', fetchOrgId).order('full_name'),
         supabase.from('warehouses').select('*').eq('organization_id', fetchOrgId).eq('is_active', true),
@@ -455,7 +473,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       showToast('فشل تحديث البيانات، يرجى التحقق من اتصال الإنترنت', 'error');    } finally {
       setIsLoading(false);
     }
-  }, [authUser, currentSelectedOrgId]); // Add currentSelectedOrgId to dependencies
+  }, [authUser, currentSelectedOrgId, fiscalYearRange]);
 
   useEffect(() => {
     refreshData();

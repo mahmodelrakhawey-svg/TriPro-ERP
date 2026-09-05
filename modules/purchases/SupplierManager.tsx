@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 import { Truck, Plus, Search, Edit2, Trash2, X, Phone, Mail, Loader2, Upload, Download, RefreshCw, Scale, FileSpreadsheet, ArrowUp, ArrowDown, Printer } from 'lucide-react'; // Removed z import
 import { createSupplierSchema, updateSupplierSchema } from '../../utils/validationSchemas';
 import { useNavigate } from 'react-router-dom';
+import { SubledgerRegistry } from '../../services/subledgerRegistry';
 
 type Supplier = {
   id: string;
@@ -98,62 +99,259 @@ const SupplierManager = () => {
 
         if (!userOrgId) throw new Error('Org ID missing');
 
-        const filter = { organization_id: userOrgId };
+        // 🚀 محاولة جلب إحصائيات وأرصدة الموردين مجمعة من السيرفر فورياً بأعلى أداء (RPC v2)
+        try {
+          const { data: serverStats, error: rpcError } = await (supabase.rpc as any)('get_suppliers_summary_v2', { p_org_id: userOrgId });
+          if (!rpcError && serverStats && Array.isArray(serverStats)) {
+            const statsMap: Record<string, any> = {};
+            serverStats.forEach((row: any) => {
+              statsMap[row.supplier_id] = {
+                balance: Number(row.balance || 0),
+                totalPurchases: Number(row.total_purchases || 0),
+                lastInvoice: row.last_invoice || null
+              };
+            });
+            suppliers.forEach(s => {
+              if (!statsMap[s.id]) {
+                statsMap[s.id] = {
+                  balance: Number(s.opening_balance || 0),
+                  totalPurchases: 0,
+                  lastInvoice: null
+                };
+              }
+            });
+            setStats(statsMap);
+            setStatsLoading(false);
+            return;
+          }
+        } catch (rpcErr) {
+          if (process.env.NODE_ENV === 'development') console.warn('Fast RPC get_suppliers_summary_v2 not active, falling back to client aggregation:', rpcErr);
+        }
 
-        const { data: invoices } = await supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount, invoice_date, invoice_number').match(filter).neq('status', 'draft');
-        const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount, notes').match(filter).not('supplier_id', 'is', null);
-        const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).neq('status', 'draft');
-        const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
-        const { data: cheques } = await supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'outgoing').neq('status', 'rejected');
-        const { data: rebates } = await supabase.from('vendor_rebate_settlements').select('vendor_id, total_claim_amount').match(filter).in('status', ['APPROVED', 'SETTLED']);
+        // ⚖️ جلب حساب الموردين لهذه المنظمة (كود 201 في دليل الحسابات القياسي لـ TriPro-ERP)
+        let supplierAccId = getSystemAccount('SUPPLIERS')?.id;
+        if (!supplierAccId) {
+          const { data: supplierAccounts } = await supabase
+            .from('accounts')
+            .select('id, code, name')
+            .eq('organization_id', userOrgId)
+            .or('code.ilike.201%,code.ilike.2101%,code.ilike.2201%,code.eq.2111,name.ilike.%الموردين%,name.ilike.%موردين%')
+            .not('code', 'in', '("211","2110","21101")')
+            .not('name', 'ilike', '%قروض%')
+            .limit(1);
+          supplierAccId = supplierAccounts?.[0]?.id || null;
+        }
 
-        // جلب مقاولي الباطن ومستخلصاتهم
-        const { data: subs } = await supabase.from('subcontractors').select('id, name').match(filter);
-        const { data: contracts } = await supabase.from('subcontractor_contracts').select('id, subcontractor_id').match(filter);
-        const { data: subBillings } = await supabase.from('subcontractor_billings').select('contract_id, net_amount').match(filter).neq('status', 'draft');
+        // جلب المديولات المسموحة للمنظمة من جدول organizations
+        const { data: orgData } = await supabase
+          .from('organizations')
+          .select('allowed_modules')
+          .eq('id', userOrgId)
+          .maybeSingle();
+        const allowedModules: string[] | undefined = orgData?.allowed_modules || undefined;
 
+        // 1) جلب مستندات الموردين ومقاولي الباطن من مجمع الأستاذ المساعد (Subledger Registry)
+        const modularSupplierDocs = await SubledgerRegistry.fetchSupplierDocs(userOrgId, allowedModules);
+
+        // 2) جلب كافة المستندات المرتبطة بالموردين
+        const [
+          invRes, payRes, retRes, dnRes, chqRes, subBillingsRes, contractsRes, subsRes, rebatesRes, manualEntriesRes
+        ] = await Promise.all([
+          supabase.from('purchase_invoices').select('id, supplier_id, total_amount, invoice_date, invoice_number, related_journal_entry_id').eq('organization_id', userOrgId).neq('status', 'draft'),
+          supabase.from('payment_vouchers').select('id, supplier_id, amount, notes, voucher_number, related_journal_entry_id').eq('organization_id', userOrgId).not('supplier_id', 'is', null),
+          supabase.from('purchase_returns').select('id, supplier_id, total_amount, related_journal_entry_id').eq('organization_id', userOrgId).neq('status', 'draft'),
+          supabase.from('debit_notes').select('id, supplier_id, total_amount, related_journal_entry_id').eq('organization_id', userOrgId).eq('status', 'posted'),
+          supabase.from('cheques').select('id, party_id, amount, related_journal_entry_id').eq('organization_id', userOrgId).eq('type', 'outgoing').neq('status', 'rejected'),
+          supabase.from('subcontractor_billings').select('id, contract_id, net_amount, billing_date, billing_number, related_journal_entry_id').eq('organization_id', userOrgId).neq('status', 'draft'),
+          supabase.from('subcontractor_contracts').select('id, subcontractor_id').eq('organization_id', userOrgId),
+          supabase.from('subcontractors').select('id, name').eq('organization_id', userOrgId),
+          supabase.from('vendor_rebate_settlements').select('vendor_id, total_claim_amount').eq('organization_id', userOrgId).in('status', ['APPROVED', 'SETTLED']),
+          supabase.from('journal_entries').select('id, transaction_date, description, reference, status, related_document_id, related_document_type').eq('organization_id', userOrgId).eq('status', 'posted')
+        ]);
+
+        const allEntryIds = new Set<string>();
+        const entryToSupplier: Record<string, string> = {};
+
+        invRes.data?.forEach(i => { if (i.related_journal_entry_id && i.supplier_id) { allEntryIds.add(i.related_journal_entry_id); entryToSupplier[i.related_journal_entry_id] = i.supplier_id; } });
+        payRes.data?.forEach(p => { if (p.related_journal_entry_id && p.supplier_id) { allEntryIds.add(p.related_journal_entry_id); entryToSupplier[p.related_journal_entry_id] = p.supplier_id; } });
+        retRes.data?.forEach(r => { if (r.related_journal_entry_id && r.supplier_id) { allEntryIds.add(r.related_journal_entry_id); entryToSupplier[r.related_journal_entry_id] = r.supplier_id; } });
+        dnRes.data?.forEach(d => { if (d.related_journal_entry_id && d.supplier_id) { allEntryIds.add(d.related_journal_entry_id); entryToSupplier[d.related_journal_entry_id] = d.supplier_id; } });
+        chqRes.data?.forEach(c => { if (c.related_journal_entry_id && c.party_id) { allEntryIds.add(c.related_journal_entry_id); entryToSupplier[c.related_journal_entry_id] = c.party_id; } });
+
+        // ربط مستخلصات مقاولي الباطن
         const subContractMap = new Map<string, string>();
-        contracts?.forEach(c => subContractMap.set(c.id, c.subcontractor_id));
+        contractsRes.data?.forEach(c => subContractMap.set(c.id, c.subcontractor_id));
 
-        const subBillingsTotalBySubId = new Map<string, number>();
-        subBillings?.forEach(sb => {
+        const subToSupplierMap = new Map<string, string>();
+        subsRes.data?.forEach(sub => {
+            const subName = (sub.name || '').trim().toLowerCase();
+            const matchedSupp = suppliers.find(s => {
+                const sName = (s.name || '').trim().toLowerCase();
+                return sName && (sName === subName || sName.includes(subName) || subName.includes(sName));
+            });
+            if (matchedSupp) subToSupplierMap.set(sub.id, matchedSupp.id);
+        });
+
+        subBillingsRes.data?.forEach(sb => {
             const subId = subContractMap.get(sb.contract_id);
-            if (subId) {
-                subBillingsTotalBySubId.set(subId, (subBillingsTotalBySubId.get(subId) || 0) + Number(sb.net_amount || 0));
+            if (subId && sb.related_journal_entry_id) {
+                const suppId = subToSupplierMap.get(subId);
+                if (suppId) {
+                    allEntryIds.add(sb.related_journal_entry_id);
+                    entryToSupplier[sb.related_journal_entry_id] = suppId;
+                }
+            }
+        });
+
+        // ربط مستندات مديولات الأستاذ المساعد
+        modularSupplierDocs?.forEach(doc => {
+            let sId = doc.supplierId;
+            if (!sId && doc.supplierName) {
+                const docName = doc.supplierName.trim().toLowerCase();
+                const matched = suppliers.find(s => (s.name || '').trim().toLowerCase() === docName);
+                if (matched) sId = matched.id;
+            }
+            if (doc.journalEntryId && sId) {
+                allEntryIds.add(doc.journalEntryId);
+                entryToSupplier[doc.journalEntryId] = sId;
+            }
+        });
+
+        // ربط القيود اليدوية بالموردين (بالمعرف أو بالاسم في البيان أو بالمرجع)
+        manualEntriesRes.data?.forEach((je: any) => {
+            const desc = (je.description || '').toLowerCase();
+            const ref = (je.reference || '').toLowerCase();
+            const docId = je.related_document_id;
+            suppliers.forEach(s => {
+                const sName = (s.name || '').trim().toLowerCase();
+                const isMatch = (docId && docId === s.id) ||
+                                (sName && desc.includes(sName)) ||
+                                (ref && ref.includes(s.id.toLowerCase()));
+                if (isMatch) {
+                    allEntryIds.add(je.id);
+                    entryToSupplier[je.id] = s.id;
+                }
+            });
+        });
+
+        // ربط احتياطي لفواتير وسندات بالمرجع (reference)
+        const invNumberToSupp: Record<string, string> = {};
+        invRes.data?.forEach(i => { if (i.invoice_number) invNumberToSupp[i.invoice_number] = i.supplier_id; });
+        const pvNumberToSupp: Record<string, string> = {};
+        payRes.data?.forEach(p => { if (p.voucher_number) pvNumberToSupp[p.voucher_number] = p.supplier_id; });
+
+        manualEntriesRes.data?.forEach((je: any) => {
+            if (je.reference) {
+                const matchedInvSupp = invNumberToSupp[je.reference];
+                if (matchedInvSupp) {
+                    allEntryIds.add(je.id);
+                    entryToSupplier[je.id] = matchedInvSupp;
+                }
+                const matchedPvSupp = pvNumberToSupp[je.reference];
+                if (matchedPvSupp) {
+                    allEntryIds.add(je.id);
+                    entryToSupplier[je.id] = matchedPvSupp;
+                }
+            }
+        });
+
+        const suppliersWithOpeningEntry = new Set<string>();
+        manualEntriesRes.data?.forEach((je: any) => {
+            const desc = (je.description || '').toLowerCase();
+            const ref = (je.reference || '').toLowerCase();
+            const isOpening = je.related_document_type === 'opening_balance' || ref.startsWith('op-supp-') || ref.startsWith('ob-') || desc.includes('رصيد افتتاحي');
+            if (isOpening) {
+                suppliers.forEach(s => {
+                    const sName = (s.name || '').trim().toLowerCase();
+                    if ((sName && desc.includes(sName)) || ref.includes(s.id.toLowerCase())) {
+                        suppliersWithOpeningEntry.add(s.id);
+                    }
+                });
             }
         });
 
         const newStats: Record<string, any> = {};
         suppliers.forEach(s => { 
-            const sName = (s.name || '').trim().toLowerCase();
-            let contractorBillings = 0;
-            subs?.forEach(sub => {
-                const subName = (sub.name || '').trim().toLowerCase();
-                if (subName && (sName === subName || sName.includes(subName) || subName.includes(sName))) {
-                    contractorBillings += (subBillingsTotalBySubId.get(sub.id) || 0);
-                }
-            });
-
-            newStats[s.id] = { balance: Number(s.opening_balance || 0) + contractorBillings, totalPurchases: 0, lastInvoice: null }; 
+          newStats[s.id] = { 
+            balance: suppliersWithOpeningEntry.has(s.id) ? 0 : Number(s.opening_balance || 0), 
+            totalPurchases: 0, 
+            lastInvoice: null 
+          }; 
         });
 
-        invoices?.forEach(inv => {
-            if (!newStats[inv.supplier_id]) return;
-            const pvPaidForThisInvoice = payments?.filter(p => p.supplier_id === inv.supplier_id && p.notes && inv.invoice_number && p.notes.includes(inv.invoice_number)).reduce((s, p) => s + Number(p.amount || 0), 0) || 0;
-            const immediatePaidAtCheckout = Math.max(0, Number(inv.paid_amount || 0) - pvPaidForThisInvoice);
+        // ⚖️ تجميع أرصدة الأستاذ العام من journal_lines (حساب المورد دائن بطبيعته: credit - debit)
+        if (supplierAccId && allEntryIds.size > 0) {
+            const { data: ledgerLines } = await supabase.from('journal_lines')
+              .select('journal_entry_id, debit, credit')
+              .in('journal_entry_id', Array.from(allEntryIds))
+              .eq('account_id', supplierAccId)
+              .eq('organization_id', userOrgId);
 
-            newStats[inv.supplier_id].balance += (Number(inv.total_amount || 0) - immediatePaidAtCheckout);
-            newStats[inv.supplier_id].totalPurchases += Number(inv.total_amount || 0);
-            if (!newStats[inv.supplier_id].lastInvoice || inv.invoice_date > newStats[inv.supplier_id].lastInvoice) {
-                newStats[inv.supplier_id].lastInvoice = inv.invoice_date;
+            ledgerLines?.forEach(line => {
+                const suppId = entryToSupplier[line.journal_entry_id];
+                if (suppId && newStats[suppId]) {
+                    newStats[suppId].balance += (Number(line.credit || 0) - Number(line.debit || 0));
+                }
+            });
+        } else {
+            // في حال عدم وجود قيود بالأستاذ العام بعد (أو فواتير مسودة/غير مرحلة)، نستخدم حركة الفواتير والسندات
+            invRes.data?.forEach(inv => {
+                if (newStats[inv.supplier_id]) {
+                    newStats[inv.supplier_id].balance += Number(inv.total_amount || 0);
+                }
+            });
+            payRes.data?.forEach(p => {
+                if (newStats[p.supplier_id]) {
+                    newStats[p.supplier_id].balance -= Number(p.amount || 0);
+                }
+            });
+            retRes.data?.forEach(r => {
+                if (newStats[r.supplier_id]) {
+                    newStats[r.supplier_id].balance -= Number(r.total_amount || 0);
+                }
+            });
+            dnRes.data?.forEach(d => {
+                if (newStats[d.supplier_id]) {
+                    newStats[d.supplier_id].balance -= Number(d.total_amount || 0);
+                }
+            });
+            chqRes.data?.forEach(c => {
+                if (newStats[c.party_id]) {
+                    newStats[c.party_id].balance -= Number(c.amount || 0);
+                }
+            });
+        }
+
+        // خصم التسويات للبوانص والريباط
+        rebatesRes.data?.forEach(reb => {
+            if (newStats[reb.vendor_id]) {
+                newStats[reb.vendor_id].balance -= Number(reb.total_claim_amount || 0);
             }
         });
 
-        payments?.forEach(p => { if (newStats[p.supplier_id]) newStats[p.supplier_id].balance -= Number(p.amount); });
-        returns?.forEach(r => { if (newStats[r.supplier_id]) newStats[r.supplier_id].balance -= Number(r.total_amount); });
-        debitNotes?.forEach(dn => { if (newStats[dn.supplier_id]) newStats[dn.supplier_id].balance -= Number(dn.total_amount); });
-        cheques?.forEach(c => { if (newStats[c.party_id]) newStats[c.party_id].balance -= Number(c.amount); });
-        rebates?.forEach(reb => { if (newStats[reb.vendor_id]) newStats[reb.vendor_id].balance -= Number(reb.total_claim_amount); });
+        // 📈 إحصائيات إجمالي المشتريات وتاريخ آخر فاتورة
+        invRes.data?.forEach(inv => {
+          if (newStats[inv.supplier_id]) {
+            newStats[inv.supplier_id].totalPurchases += Number(inv.total_amount || 0);
+            if (!newStats[inv.supplier_id].lastInvoice || inv.invoice_date > newStats[inv.supplier_id].lastInvoice) {
+              newStats[inv.supplier_id].lastInvoice = inv.invoice_date;
+            }
+          }
+        });
+
+        // إضافة مستخلصات مقاولي الباطن لإجمالي المشتريات
+        subBillingsRes.data?.forEach(sb => {
+            const subId = subContractMap.get(sb.contract_id);
+            if (subId) {
+                const suppId = subToSupplierMap.get(subId);
+                if (suppId && newStats[suppId]) {
+                    newStats[suppId].totalPurchases += Number(sb.net_amount || 0);
+                    if (sb.billing_date && (!newStats[suppId].lastInvoice || sb.billing_date > newStats[suppId].lastInvoice)) {
+                        newStats[suppId].lastInvoice = sb.billing_date;
+                    }
+                }
+            }
+        });
 
         setStats(newStats);
     } catch (error) { if (process.env.NODE_ENV === 'development') console.error("Error fetching supplier stats", error); } finally { setStatsLoading(false); }

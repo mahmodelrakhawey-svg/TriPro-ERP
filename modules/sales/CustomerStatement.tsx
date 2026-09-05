@@ -239,14 +239,15 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             let desc = jeAny.description || 'قيد يومية';
             let isPosted = jeAny.status === 'posted';
 
-            if (ref.startsWith('INV-') || ref.startsWith('HIMS-')) type = 'invoice';
-            else if (ref.startsWith('RV-') || ref.startsWith('CLAIM-')) type = 'receipt';
-            else if (ref.startsWith('SR-')) type = 'return';
-            else if (ref.startsWith('CN-')) type = 'credit_note';
-            else if (ref.startsWith('CHQ-')) type = 'receipt'; // For incoming cheques
+            if (ref.startsWith('INV-') || ref.startsWith('HIMS-') || jeAny.related_document_type === 'invoice') type = 'invoice';
+            else if (ref.startsWith('RV-') || ref.startsWith('CLAIM-') || jeAny.related_document_type === 'receipt_voucher' || jeAny.related_document_type === 'receipt') type = 'receipt';
+            else if (ref.startsWith('SR-') || jeAny.related_document_type === 'sales_return') type = 'return';
+            else if (ref.startsWith('CN-') || jeAny.related_document_type === 'credit_note') type = 'credit_note';
+            else if (ref.startsWith('CHQ-') || jeAny.related_document_type === 'cheque') type = 'receipt'; // For incoming cheques
             else if (ref.startsWith('REJ-')) type = 'receipt'; // For rejected cheques reversal
-            else if (ref.startsWith('OB-')) type = 'invoice'; // Opening Balance
+            else if (ref.startsWith('OB-') || jeAny.related_document_type === 'opening_balance') type = 'invoice'; // Opening Balance
             else if (jeAny.related_document_type === 'order') type = 'pos_order';
+            else if (Number(line.credit) > 0 && Number(line.debit) === 0 && !ref.startsWith('INV-')) type = 'receipt'; // أي حركة دائنة بدون مدين هي سداد/دفعة
 
             // إذا كان القيد يمثل دفعة مقدمة مع فاتورة، يتم التعامل معه كـ receipt
             if (desc.includes('دفعة مقدمة مع الفاتورة') && type === 'invoice') {

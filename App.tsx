@@ -10,102 +10,120 @@ import NotificationScheduler from './services/NotificationScheduler';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import WorkspaceTabsBar from './components/WorkspaceTabsBar';
-import AdminTestDashboard from './components/AdminTestDashboard';
-import Quotations from './components/Quotations';
-import Dashboard from './components/Dashboard';
-import DraftJournalsList from './components/DraftJournalsList';
-import GeneralJournal from './modules/accounting/GeneralJournal';
-import GeneralLedger from './modules/accounting/GeneralLedger';
-import JournalEntryForm from './modules/accounting/JournalEntryForm';
-import IncomeStatement from './modules/accounting/IncomeStatement';
-import BalanceSheet from './modules/accounting/BalanceSheet';
-import CashFlowStatement from './modules/accounting/CashFlowStatement';
-import CashFlowReport from './modules/accounting/CashFlowReport';
-import AccountingDashboard from './modules/accounting/AccountingDashboard';
-import JournalEntriesExport from './modules/accounting/JournalEntriesExport';
-import AccountList from './modules/accounting/AccountList';
-import ImportantReports from './modules/reports/ImportantReports';
-import SalesReports from './modules/sales/SalesReports';
-import Reports from './modules/reports/Reports';
-import PurchaseReports from './modules/purchases/PurchaseReports';
-import SalesInvoiceForm from './modules/sales/SalesInvoiceForm';
-import InvoiceList from './modules/sales/InvoiceList';
-import SalesReturnForm from './modules/sales/SalesReturnForm';
-import SalesReturnsList from './modules/sales/SalesReturnsList';
-import PurchaseInvoiceForm from './modules/purchases/PurchaseInvoiceForm';
-import PurchaseReturnForm from './modules/purchases/PurchaseReturnForm';
-import PurchaseReturnsList from './modules/purchases/PurchaseReturnsList';
-import StockAdjustmentForm from './modules/inventory/StockAdjustmentForm';
-import InventoryCountForm from './modules/inventory/InventoryCountForm';
-import InventoryCountList from './modules/inventory/InventoryCountList';
-import StockCard from './modules/inventory/StockCard';
-import CustomerManager from './modules/sales/CustomerManager';
-import BankReconciliationForm from './modules/finance/components/BankReconciliationForm';
-import OpeningInventory from './modules/inventory/OpeningInventory';
-import CustomerStatement from './modules/sales/CustomerStatement';
-import CustomerAgingReport from './modules/sales/CustomerAgingReport';
-import CustomerBalanceReconciliation from './modules/sales/CustomerBalanceReconciliation';
-import SupplierManager from './modules/purchases/SupplierManager';
-import SupplierStatement from './modules/purchases/SupplierStatement';
-import SupplierAgingReport from './modules/purchases/SupplierAgingReport';
-import SupplierBalanceReconciliation from './modules/purchases/SupplierBalanceReconciliation';
-import ItemMovementReport from './modules/inventory/ItemMovementReport';
-import TopSellingReport from './modules/inventory/TopSellingReport';
-import SlowMovingReport from './modules/inventory/SlowMovingReport';
-import ItemProfitReport from './modules/inventory/ItemProfitReport';
-import ProductManager from './modules/inventory/ProductManager';
-import MultiUomStockReport from './modules/sales/MultiUomStockReport';
-import ReceiptVoucherForm from './modules/finance/components/ReceiptVoucherForm';
-import InventoryRevaluation from './modules/inventory/InventoryRevaluation';
-import StockMovementCostReport from './modules/inventory/StockMovementCostReport';
-import ReceiptVoucherList from './modules/finance/reports/ReceiptVoucherList';
-import PaymentVoucherForm from './modules/finance/components/PaymentVoucherForm';
-import WastageManager from './modules/inventory/WastageManager';
-import InventoryDashboard from './modules/inventory/InventoryDashboard';
-import PaymentVoucherList from './modules/finance/reports/PaymentVoucherList';
-import ExpenseVoucherForm from './modules/finance/components/ExpenseVoucherForm';
-import CustomerDepositForm from './modules/finance/components/CustomerDepositForm';
-import TransferForm from './modules/finance/components/TransferForm';
-import StockTransfer from './modules/inventory/StockTransfer';
-import StockTransferList from './modules/inventory/StockTransferList';
-import WarehouseManager from './modules/inventory/WarehouseManager';
-import CashClosingForm from './modules/finance/components/CashClosingForm';
-import { PaymentGatewaySettings } from './modules/finance/components/PaymentGatewaySettings';
-import DeficitReport from './modules/reports/DeficitReport';
 import Login from './components/Login';
-import UserManager from './components/UserManager';
-import Settings from './components/Settings';
-import { ChequesPage } from './modules/banking/ChequesPage';
-import LettersOfGuaranteePage from './modules/banking/LettersOfGuaranteePage';
-import LettersOfCreditPage from './modules/banking/LettersOfCreditPage';
-import AssetManager from './modules/assets/AssetManager';
-import EmployeeManager from './modules/hr/components/EmployeeManager';
-import PayrollRun from './modules/hr/components/PayrollRun';
-import EmployeeAdvances from './modules/hr/components/EmployeeAdvances';
-import PayrollReport from './modules/hr/reports/PayrollReport';
-import EmployeeStatement from './modules/hr/reports/EmployeeStatement';
-import EmployeeReports from './modules/hr/reports/EmployeeReports';
-import SalesOrders from './modules/sales/SalesOrders';
-import SalesOrderForm from './modules/sales/SalesOrderForm';
-import QuotationForm from './modules/sales/QuotationForm';
-import QuotationList from './modules/sales/QuotationList';
-import CreditNoteForm from './modules/sales/CreditNoteForm';
-import CreditNoteList from './modules/sales/CreditNoteList';
-import DebitNoteForm from './modules/purchases/DebitNoteForm';
-import DebitNoteList from './modules/purchases/DebitNoteList';
-import PurchaseOrderForm from './modules/purchases/PurchaseOrderForm';
-import PurchaseOrderList from './modules/purchases/PurchaseOrderList';
-import PurchaseInvoiceList from './modules/purchases/PurchaseInvoiceList';
-import FinancialRatios from './modules/reports/FinancialRatios';
-import NetPurchasesReport from './modules/purchases/NetPurchasesReport';
-import ExpenseAnalysisReport from './modules/reports/ExpenseAnalysisReport';
-import BudgetManager from './modules/accounting/BudgetManager';
-import BudgetVarianceReport from './modules/accounting/BudgetVarianceReport';
-import FiscalYearClosing from './modules/accounting/FiscalYearClosing';
-import { FiscalPeriodManager } from './modules/accounting/FiscalPeriodManager';
-import TrialBalanceAdvanced from './modules/accounting/TrialBalanceAdvanced';
-import ItemSalesAnalysis from './modules/reports/ItemSalesAnalysis';
-import PurchaseAnalysisReport from './modules/purchases/PurchaseAnalysisReport';
+import Dashboard from './components/Dashboard';
+
+// 📊 لوحات التحكم والأدوات الإدارية (Lazy Loaded)
+const AdminTestDashboard = lazy(() => import('./components/AdminTestDashboard'));
+const Quotations = lazy(() => import('./components/Quotations'));
+const DraftJournalsList = lazy(() => import('./components/DraftJournalsList'));
+
+// 🏛️ المحاسبة والقيود والتقارير المالية (Accounting & Journal - Lazy Loaded)
+const GeneralJournal = lazy(() => import('./modules/accounting/GeneralJournal'));
+const GeneralLedger = lazy(() => import('./modules/accounting/GeneralLedger'));
+const JournalEntryForm = lazy(() => import('./modules/accounting/JournalEntryForm'));
+const IncomeStatement = lazy(() => import('./modules/accounting/IncomeStatement'));
+const BalanceSheet = lazy(() => import('./modules/accounting/BalanceSheet'));
+const CashFlowStatement = lazy(() => import('./modules/accounting/CashFlowStatement'));
+const CashFlowReport = lazy(() => import('./modules/accounting/CashFlowReport'));
+const AccountingDashboard = lazy(() => import('./modules/accounting/AccountingDashboard'));
+const JournalEntriesExport = lazy(() => import('./modules/accounting/JournalEntriesExport'));
+const AccountList = lazy(() => import('./modules/accounting/AccountList'));
+const TrialBalanceAdvanced = lazy(() => import('./modules/accounting/TrialBalanceAdvanced'));
+const BudgetManager = lazy(() => import('./modules/accounting/BudgetManager'));
+const BudgetVarianceReport = lazy(() => import('./modules/accounting/BudgetVarianceReport'));
+const FiscalYearClosing = lazy(() => import('./modules/accounting/FiscalYearClosing'));
+const FiscalPeriodManager = lazy(() => import('./modules/accounting/FiscalPeriodManager').then(m => ({ default: m.FiscalPeriodManager })));
+
+// 📈 المبيعات والعملاء (Sales & Customers - Lazy Loaded)
+const SalesInvoiceForm = lazy(() => import('./modules/sales/SalesInvoiceForm'));
+const InvoiceList = lazy(() => import('./modules/sales/InvoiceList'));
+const SalesReturnForm = lazy(() => import('./modules/sales/SalesReturnForm'));
+const SalesReturnsList = lazy(() => import('./modules/sales/SalesReturnsList'));
+const SalesOrders = lazy(() => import('./modules/sales/SalesOrders'));
+const SalesOrderForm = lazy(() => import('./modules/sales/SalesOrderForm'));
+const QuotationForm = lazy(() => import('./modules/sales/QuotationForm'));
+const QuotationList = lazy(() => import('./modules/sales/QuotationList'));
+const CreditNoteForm = lazy(() => import('./modules/sales/CreditNoteForm'));
+const CreditNoteList = lazy(() => import('./modules/sales/CreditNoteList'));
+const CustomerManager = lazy(() => import('./modules/sales/CustomerManager'));
+const CustomerStatement = lazy(() => import('./modules/sales/CustomerStatement'));
+const CustomerAgingReport = lazy(() => import('./modules/sales/CustomerAgingReport'));
+const CustomerBalanceReconciliation = lazy(() => import('./modules/sales/CustomerBalanceReconciliation'));
+const MultiUomStockReport = lazy(() => import('./modules/sales/MultiUomStockReport'));
+
+// 📦 المشتريات والموردين (Purchases & Suppliers - Lazy Loaded)
+const PurchaseInvoiceForm = lazy(() => import('./modules/purchases/PurchaseInvoiceForm'));
+const PurchaseInvoiceList = lazy(() => import('./modules/purchases/PurchaseInvoiceList'));
+const PurchaseReturnForm = lazy(() => import('./modules/purchases/PurchaseReturnForm'));
+const PurchaseReturnsList = lazy(() => import('./modules/purchases/PurchaseReturnsList'));
+const DebitNoteForm = lazy(() => import('./modules/purchases/DebitNoteForm'));
+const DebitNoteList = lazy(() => import('./modules/purchases/DebitNoteList'));
+const PurchaseOrderForm = lazy(() => import('./modules/purchases/PurchaseOrderForm'));
+const PurchaseOrderList = lazy(() => import('./modules/purchases/PurchaseOrderList'));
+const SupplierManager = lazy(() => import('./modules/purchases/SupplierManager'));
+const SupplierStatement = lazy(() => import('./modules/purchases/SupplierStatement'));
+const SupplierAgingReport = lazy(() => import('./modules/purchases/SupplierAgingReport'));
+const SupplierBalanceReconciliation = lazy(() => import('./modules/purchases/SupplierBalanceReconciliation'));
+
+// 🏢 المخزون والمستودعات (Inventory - Lazy Loaded)
+const StockAdjustmentForm = lazy(() => import('./modules/inventory/StockAdjustmentForm'));
+const InventoryCountForm = lazy(() => import('./modules/inventory/InventoryCountForm'));
+const InventoryCountList = lazy(() => import('./modules/inventory/InventoryCountList'));
+const StockCard = lazy(() => import('./modules/inventory/StockCard'));
+const OpeningInventory = lazy(() => import('./modules/inventory/OpeningInventory'));
+const ProductManager = lazy(() => import('./modules/inventory/ProductManager'));
+const WarehouseManager = lazy(() => import('./modules/inventory/WarehouseManager'));
+const InventoryRevaluation = lazy(() => import('./modules/inventory/InventoryRevaluation'));
+const StockMovementCostReport = lazy(() => import('./modules/inventory/StockMovementCostReport'));
+const WastageManager = lazy(() => import('./modules/inventory/WastageManager'));
+const InventoryDashboard = lazy(() => import('./modules/inventory/InventoryDashboard'));
+const StockTransfer = lazy(() => import('./modules/inventory/StockTransfer'));
+const StockTransferList = lazy(() => import('./modules/inventory/StockTransferList'));
+const ItemMovementReport = lazy(() => import('./modules/inventory/ItemMovementReport'));
+const TopSellingReport = lazy(() => import('./modules/inventory/TopSellingReport'));
+const SlowMovingReport = lazy(() => import('./modules/inventory/SlowMovingReport'));
+const ItemProfitReport = lazy(() => import('./modules/inventory/ItemProfitReport'));
+
+// 💳 المالية والبنوك والمقبوضات (Finance & Banking - Lazy Loaded)
+const ReceiptVoucherForm = lazy(() => import('./modules/finance/components/ReceiptVoucherForm'));
+const ReceiptVoucherList = lazy(() => import('./modules/finance/reports/ReceiptVoucherList'));
+const PaymentVoucherForm = lazy(() => import('./modules/finance/components/PaymentVoucherForm'));
+const PaymentVoucherList = lazy(() => import('./modules/finance/reports/PaymentVoucherList'));
+const ExpenseVoucherForm = lazy(() => import('./modules/finance/components/ExpenseVoucherForm'));
+const CustomerDepositForm = lazy(() => import('./modules/finance/components/CustomerDepositForm'));
+const TransferForm = lazy(() => import('./modules/finance/components/TransferForm'));
+const CashClosingForm = lazy(() => import('./modules/finance/components/CashClosingForm'));
+const PaymentGatewaySettings = lazy(() => import('./modules/finance/components/PaymentGatewaySettings').then(m => ({ default: m.PaymentGatewaySettings })));
+const BankReconciliationForm = lazy(() => import('./modules/finance/components/BankReconciliationForm'));
+const ChequesPage = lazy(() => import('./modules/banking/ChequesPage').then(m => ({ default: m.ChequesPage })));
+const LettersOfGuaranteePage = lazy(() => import('./modules/banking/LettersOfGuaranteePage'));
+const LettersOfCreditPage = lazy(() => import('./modules/banking/LettersOfCreditPage'));
+
+// 🛡️ الأصول والإدارة العامة (Assets & Admin - Lazy Loaded)
+const AssetManager = lazy(() => import('./modules/assets/AssetManager'));
+const UserManager = lazy(() => import('./components/UserManager'));
+const Settings = lazy(() => import('./components/Settings'));
+
+// 👥 الموارد البشرية الأساسية (HR Core - Lazy Loaded)
+const EmployeeManager = lazy(() => import('./modules/hr/components/EmployeeManager'));
+const PayrollRun = lazy(() => import('./modules/hr/components/PayrollRun'));
+const EmployeeAdvances = lazy(() => import('./modules/hr/components/EmployeeAdvances'));
+const PayrollReport = lazy(() => import('./modules/hr/reports/PayrollReport'));
+const EmployeeStatement = lazy(() => import('./modules/hr/reports/EmployeeStatement'));
+const EmployeeReports = lazy(() => import('./modules/hr/reports/EmployeeReports'));
+
+// 📑 التقارير الإحصائية والتحليلية (Reports - Lazy Loaded)
+const ImportantReports = lazy(() => import('./modules/reports/ImportantReports'));
+const SalesReports = lazy(() => import('./modules/sales/SalesReports'));
+const Reports = lazy(() => import('./modules/reports/Reports'));
+const PurchaseReports = lazy(() => import('./modules/purchases/PurchaseReports'));
+const DeficitReport = lazy(() => import('./modules/reports/DeficitReport'));
+const FinancialRatios = lazy(() => import('./modules/reports/FinancialRatios'));
+const NetPurchasesReport = lazy(() => import('./modules/purchases/NetPurchasesReport'));
+const ExpenseAnalysisReport = lazy(() => import('./modules/reports/ExpenseAnalysisReport'));
+const ItemSalesAnalysis = lazy(() => import('./modules/reports/ItemSalesAnalysis'));
+const PurchaseAnalysisReport = lazy(() => import('./modules/purchases/PurchaseAnalysisReport'));
 // 🏭 مديول التصنيع (Manufacturing - Lazy Loaded)
 const WorkOrderManager = lazy(() => import('./modules/manufacturing/components/WorkOrderManager'));
 const ProductionCostAnalysis = lazy(() => import('./modules/manufacturing/reports/ProductionCostAnalysis'));
@@ -116,7 +134,7 @@ const MachineOeeTracker = lazy(() => import('./modules/manufacturing/components/
 const MachineryMaintenanceManager = lazy(() => import('./modules/manufacturing/components/MachineryMaintenanceManager'));
 const CapacityPlanningDashboard = lazy(() => import('./modules/manufacturing/components/CapacityPlanningDashboard'));
 const ProductionGanttScheduler = lazy(() => import('./modules/manufacturing/components/ProductionGanttScheduler'));
-import SecurityLogs from './components/SecurityLogs';
+const SecurityLogs = lazy(() => import('./components/SecurityLogs'));
 
 // 🏗️ مديول المقاولات (Construction - Lazy Loaded)
 const ProjectManager = lazy(() => import('./modules/construction/components/ProjectManager'));
@@ -142,19 +160,19 @@ const BiometricDeviceManager = lazy(() => import('./modules/hr/components/Biomet
 const ShiftManager = lazy(() => import('./modules/hr/components/ShiftManager'));
 const PenaltiesAndRewards = lazy(() => import('./modules/hr/components/PenaltiesAndRewards'));
 const PermissionsManager = lazy(() => import('./modules/admin/PermissionsManager'));
-import Maintenance from './components/Maintenance';
-import TaxReturnReport from './modules/reports/TaxReturnReport';
-import PerformanceComparisonReport from './modules/reports/PerformanceComparisonReport';
+const Maintenance = lazy(() => import('./components/Maintenance'));
+const TaxReturnReport = lazy(() => import('./modules/reports/TaxReturnReport'));
+const PerformanceComparisonReport = lazy(() => import('./modules/reports/PerformanceComparisonReport'));
 // 🛠️ مديول الإدارة وأدوات النظام (Admin Tools - Lazy Loaded)
 const RecycleBin = lazy(() => import('./modules/admin/RecycleBin'));
 const SaasAdmin = lazy(() => import('./modules/admin/SaaSAdmin'));
 const DataMigrationCenter = lazy(() => import('./modules/admin/DataMigrationCenter'));
 const SystemStressTest = lazy(() => import('./modules/admin/SystemStressTest'));
-import MultiCurrencyStatement from './modules/reports/MultiCurrencyStatement'; // Re-add this import
-import PaymentMethodReport from './modules/reports/PaymentMethodReport';
-import UserGuide from './components/UserGuide';
-import AttachmentsReport from './modules/reports/AttachmentsReport';
-import DetailedStockMovementReport from './modules/inventory/DetailedStockMovementReport';
+const MultiCurrencyStatement = lazy(() => import('./modules/reports/MultiCurrencyStatement'));
+const PaymentMethodReport = lazy(() => import('./modules/reports/PaymentMethodReport'));
+const UserGuide = lazy(() => import('./components/UserGuide'));
+const AttachmentsReport = lazy(() => import('./modules/reports/AttachmentsReport'));
+const DetailedStockMovementReport = lazy(() => import('./modules/inventory/DetailedStockMovementReport'));
 
 // 🏭 مديول التصنيع المتقدم (Advanced Manufacturing - Lazy Loaded)
 const ManufacturingDashboard = lazy(() => import('./modules/manufacturing/components/ManufacturingDashboard'));
@@ -168,19 +186,19 @@ const RoutingBOMManager = lazy(() => import('./modules/manufacturing/components/
 const MaterialRequestsList = lazy(() => import('./modules/manufacturing/components/MaterialRequestsList'));
 const RawMaterialsTurnover = lazy(() => import('./modules/manufacturing/reports/RawMaterialsTurnover').then(m => ({ default: m.RawMaterialsTurnover })));
 const WIPMonthlySummaryReport = lazy(() => import('./modules/manufacturing/reports/WIPMonthlySummaryReport'));
-import UserProfile from './components/UserProfile';
+const UserProfile = lazy(() => import('./components/UserProfile'));
 import { DemoTour } from './components/DemoTour';
 import LandingPage from './components/LandingPage';
-import UnitsOfMeasureManager from './components/UnitsOfMeasureManager';
-import RecurringInvoicesManager from './modules/sales/RecurringInvoicesManager';
-import OfferBeneficiariesReport from './modules/sales/OfferBeneficiariesReport';
-import FreeReturnsReport from './modules/sales/FreeReturnsReport';
-import WastageReport from './modules/inventory/WastageReport';
+const UnitsOfMeasureManager = lazy(() => import('./components/UnitsOfMeasureManager'));
+const RecurringInvoicesManager = lazy(() => import('./modules/sales/RecurringInvoicesManager'));
+const OfferBeneficiariesReport = lazy(() => import('./modules/sales/OfferBeneficiariesReport'));
+const FreeReturnsReport = lazy(() => import('./modules/sales/FreeReturnsReport'));
+const WastageReport = lazy(() => import('./modules/inventory/WastageReport'));
 const GuestMenuLayout = lazy(() => import('./modules/restaurant/components/GuestMenuLayout'));
-import ChequeMovementReport from './modules/banking/ChequeMovementReport';
-import ReturnedChequesReport from './modules/banking/ReturnedChequesReport';
-import About from './components/About';
-import SupplierBalancesReport from './modules/purchases/SupplierBalancesReport';
+const ChequeMovementReport = lazy(() => import('./modules/banking/ChequeMovementReport'));
+const ReturnedChequesReport = lazy(() => import('./modules/banking/ReturnedChequesReport'));
+const About = lazy(() => import('./components/About'));
+const SupplierBalancesReport = lazy(() => import('./modules/purchases/SupplierBalancesReport'));
 
 // 🛒 مديول التجزئة ونقاط البيع (Retail & POS - Lazy Loaded)
 const PosScreen = lazy(() => import('./modules/restaurant/components/POS/PosScreen'));
@@ -188,15 +206,15 @@ const RetailPosScreen = lazy(() => import('./modules/retail/components/POS/Retai
 const PriceCheckerKiosk = lazy(() => import('./modules/retail/components/PriceCheckerKiosk'));
 const CustomerFacingScreen = lazy(() => import('./modules/retail/components/CustomerDisplay/CustomerFacingScreen'));
 const PromotionsManager = lazy(() => import('./modules/retail/components/Promotions/PromotionsManager'));
-import VendorContractsManager from './modules/purchases/VendorContractsManager';
-import RfqBiddingManager from './modules/purchases/RfqBiddingManager';
-import GoodsReceiptManager from './modules/inventory/GoodsReceiptManager';
-import MobilePdaStocktaking from './modules/inventory/MobilePdaStocktaking';
-import ExpiryClearanceRadar from './modules/inventory/ExpiryClearanceRadar';
-import ShelfRestockReport from './modules/inventory/ShelfRestockReport';
-import HypermarketReplenishment from './modules/inventory/HypermarketReplenishment';
-import BinLocationManager from './modules/inventory/BinLocationManager';
-import InTransitTransfersManager from './modules/inventory/InTransitTransfersManager';
+const VendorContractsManager = lazy(() => import('./modules/purchases/VendorContractsManager'));
+const RfqBiddingManager = lazy(() => import('./modules/purchases/RfqBiddingManager'));
+const GoodsReceiptManager = lazy(() => import('./modules/inventory/GoodsReceiptManager'));
+const MobilePdaStocktaking = lazy(() => import('./modules/inventory/MobilePdaStocktaking'));
+const ExpiryClearanceRadar = lazy(() => import('./modules/inventory/ExpiryClearanceRadar'));
+const ShelfRestockReport = lazy(() => import('./modules/inventory/ShelfRestockReport'));
+const HypermarketReplenishment = lazy(() => import('./modules/inventory/HypermarketReplenishment'));
+const BinLocationManager = lazy(() => import('./modules/inventory/BinLocationManager'));
+const InTransitTransfersManager = lazy(() => import('./modules/inventory/InTransitTransfersManager'));
 
 // 🍽️ مديول المطاعم والمطبخ (Restaurant & KDS - Lazy Loaded)
 const KdsScreen = lazy(() => import('./modules/restaurant/components/KDS/KdsScreen'));

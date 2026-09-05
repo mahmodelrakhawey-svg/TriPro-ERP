@@ -8,6 +8,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
 import { createCustomerSchema } from '../../utils/validationSchemas';
 import { useNavigate } from 'react-router-dom';
+import { SubledgerRegistry } from '../../services/subledgerRegistry';
 
 type Customer = {
   id: string;
@@ -75,14 +76,55 @@ const CustomerManager = () => {
 
         if (!userOrgId) throw new Error('Org ID missing');
 
-        // ⚖️ جلب حساب العملاء لهذه المنظمة
-        const customerAcc = getSystemAccount('CUSTOMERS') || accounts.find(a => a.name?.includes('العملاء') || a.name?.includes('عملاء') || a.code === '1221' || a.code === '1103' || a.code === '121');
+        // 🚀 محاولة جلب الإحصائيات والأرصدة مجمعة من السيرفر فورياً بأعلى أداء ومطابقة تامة للأستاذ العام (RPC v2)
+        try {
+          const { data: serverStats, error: rpcError } = await (supabase.rpc as any)('get_customers_summary_v2', { p_org_id: userOrgId });
+          if (!rpcError && serverStats && Array.isArray(serverStats)) {
+            const statsMap: Record<string, any> = {};
+            serverStats.forEach((row: any) => {
+              statsMap[row.customer_id] = {
+                balance: Number(row.balance || 0),
+                totalSales: Number(row.total_sales || 0),
+                lastInvoice: row.last_invoice || null
+              };
+            });
+            // ضمان وجود كافة العملاء في الـ Map حتى لو لم يكن لديهم حركات
+            customers.forEach(c => {
+              if (!statsMap[c.id]) {
+                statsMap[c.id] = {
+                  balance: Number(c.opening_balance || 0),
+                  totalSales: 0,
+                  lastInvoice: null
+                };
+              }
+            });
+            setStats(statsMap);
+            setStatsLoading(false);
+            return;
+          }
+        } catch (rpcErr) {
+          if (import.meta.env.DEV) console.warn('Fast RPC get_customers_summary_v2 not active, falling back to client aggregation:', rpcErr);
+        }
 
-        // 🛡️ الحل الشامل: جمع معرفات القيود من المستندات المرتبطة بالعميل + مستخلصات المشاريع + القيود اليدوية التي تذكر اسمه
+        // ⚖️ جلب حساب العملاء لهذه المنظمة (كود 1221) بمطابقة تامة لكشف الحساب
+        let customerAccId = getSystemAccount('CUSTOMERS')?.id;
+        if (!customerAccId) {
+          const { data: customerAccounts } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('organization_id', userOrgId)
+            .eq('code', '1221')
+            .limit(1);
+          customerAccId = customerAccounts?.[0]?.id || accounts.find(a => a.code === '1221' || a.name?.includes('العملاء') || a.name?.includes('عملاء') || a.code === '1103')?.id;
+        }
+
+        // 🛡️ جمع معرفات القيود من المستندات المرتبطة بالعميل + مستخلصات المشاريع + القيود اليدوية + طلبات المطاعم + المديولات المتقدمة (HIMS، الاستاد، المقاولات)
         const [
             invRes, recRes, retRes, cnRes, chqRes, ordRes,
             projectsRes, projectBillingsRes,
-            manualEntriesRes // Fetch manual entries that mention the customer
+            manualEntriesRes,
+            unpostedOrdersRes,
+            modularCustomerDocs
         ] = await Promise.all([
             supabase.from('invoices').select('related_journal_entry_id, customer_id, total_amount, invoice_date').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
             supabase.from('receipt_vouchers').select('related_journal_entry_id, customer_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
@@ -92,18 +134,20 @@ const CustomerManager = () => {
             supabase.from('orders').select('related_journal_entry_id, customer_id, grand_total').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
             supabase.from('projects').select('id, customer_id').eq('organization_id', userOrgId),
             supabase.from('project_progress_billings').select('id, project_id, related_journal_entry_id, net_amount, billing_date').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('journal_entries').select('id, description').eq('organization_id', userOrgId).eq('status', 'posted')
+            supabase.from('journal_entries').select('id, description, reference, related_document_type, related_document_id').eq('organization_id', userOrgId).eq('status', 'posted'),
+            supabase.from('orders').select('customer_id, grand_total').eq('organization_id', userOrgId).is('related_journal_entry_id', null).neq('status', 'CANCELLED'),
+            SubledgerRegistry.fetchCustomerDocs(userOrgId)
         ]);
 
         const allEntryIds = new Set<string>();
         const entryToCustomer: Record<string, string> = {}; // To map entry ID back to customer ID
 
-        invRes.data?.forEach(i => { if (i.related_journal_entry_id) { allEntryIds.add(i.related_journal_entry_id); entryToCustomer[i.related_journal_entry_id] = i.customer_id; } });
-        recRes.data?.forEach(r => { if (r.related_journal_entry_id) { allEntryIds.add(r.related_journal_entry_id); entryToCustomer[r.related_journal_entry_id] = r.customer_id; } });
-        retRes.data?.forEach(r => { if (r.related_journal_entry_id) { allEntryIds.add(r.related_journal_entry_id); entryToCustomer[r.related_journal_entry_id] = r.customer_id; } });
-        cnRes.data?.forEach(c => { if (c.related_journal_entry_id) { allEntryIds.add(c.related_journal_entry_id); entryToCustomer[c.related_journal_entry_id] = c.customer_id; } });
-        chqRes.data?.forEach(c => { if (c.related_journal_entry_id) { allEntryIds.add(c.related_journal_entry_id); entryToCustomer[c.related_journal_entry_id] = c.party_id; } });
-        ordRes.data?.forEach(o => { if (o.related_journal_entry_id) { allEntryIds.add(o.related_journal_entry_id); entryToCustomer[o.related_journal_entry_id] = o.customer_id; } });
+        invRes.data?.forEach(i => { if (i.related_journal_entry_id && i.customer_id) { allEntryIds.add(i.related_journal_entry_id); entryToCustomer[i.related_journal_entry_id] = i.customer_id; } });
+        recRes.data?.forEach(r => { if (r.related_journal_entry_id && r.customer_id) { allEntryIds.add(r.related_journal_entry_id); entryToCustomer[r.related_journal_entry_id] = r.customer_id; } });
+        retRes.data?.forEach(r => { if (r.related_journal_entry_id && r.customer_id) { allEntryIds.add(r.related_journal_entry_id); entryToCustomer[r.related_journal_entry_id] = r.customer_id; } });
+        cnRes.data?.forEach(c => { if (c.related_journal_entry_id && c.customer_id) { allEntryIds.add(c.related_journal_entry_id); entryToCustomer[c.related_journal_entry_id] = c.customer_id; } });
+        chqRes.data?.forEach(c => { if (c.related_journal_entry_id && c.party_id) { allEntryIds.add(c.related_journal_entry_id); entryToCustomer[c.related_journal_entry_id] = c.party_id; } });
+        ordRes.data?.forEach(o => { if (o.related_journal_entry_id && o.customer_id) { allEntryIds.add(o.related_journal_entry_id); entryToCustomer[o.related_journal_entry_id] = o.customer_id; } });
 
         const projectToCustomer: Record<string, string> = {};
         projectsRes.data?.forEach(p => { if (p.id && p.customer_id) projectToCustomer[p.id] = p.customer_id; });
@@ -118,27 +162,49 @@ const CustomerManager = () => {
             }
         });
 
-        // For manual entries, check if description contains customer name
-        manualEntriesRes.data?.forEach(je => {
-            const desc = (je.description || '').toLowerCase();
-            const matchingCustomer = customers.find(c => desc.includes(c.name.toLowerCase()));
-            if (matchingCustomer) {
-                allEntryIds.add(je.id);
-                entryToCustomer[je.id] = matchingCustomer.id;
+        // ربط مستندات وقيود المديولات المتقدمة (المستشفيات، الاستاد الرياضي، المقاولات)
+        modularCustomerDocs?.forEach(doc => {
+            let cId = doc.customerId;
+            if (!cId && doc.customerName) {
+                const docName = doc.customerName.trim().toLowerCase();
+                const matched = customers.find(c => (c.name || '').trim().toLowerCase() === docName);
+                if (matched) cId = matched.id;
+            }
+            if (doc.journalEntryId && cId) {
+                allEntryIds.add(doc.journalEntryId);
+                entryToCustomer[doc.journalEntryId] = cId;
             }
         });
 
+        // ربط القيود اليومية بالعملاء (بالمعرف أو بالاسم في البيان أو بالمرجع)
+        manualEntriesRes.data?.forEach((je: any) => {
+            const desc = (je.description || '').toLowerCase();
+            const ref = (je.reference || '').toLowerCase();
+            const docId = je.related_document_id;
+            customers.forEach(c => {
+                const cName = (c.name || '').trim().toLowerCase();
+                const isMatch = (docId && docId === c.id) ||
+                                (cName && desc.includes(cName)) ||
+                                (ref && ref.includes(c.id.toLowerCase()));
+                if (isMatch) {
+                    allEntryIds.add(je.id);
+                    entryToCustomer[je.id] = c.id;
+                }
+            });
+        });
 
         const customersWithOpeningEntry = new Set<string>();
         manualEntriesRes.data?.forEach((je: any) => {
             const desc = (je.description || '').toLowerCase();
-            const ref = (je.reference || '');
-            const isOpening = je.related_document_type === 'opening_balance' || ref.startsWith('OP-CUST-') || ref.startsWith('OB-') || desc.includes('رصيد افتتاحي');
+            const ref = (je.reference || '').toLowerCase();
+            const isOpening = je.related_document_type === 'opening_balance' || ref.startsWith('op-cust-') || ref.startsWith('ob-') || desc.includes('رصيد افتتاحي');
             if (isOpening) {
-                const matchingCustomer = customers.find(c => desc.includes(c.name.toLowerCase()) || ref.includes(c.id));
-                if (matchingCustomer) {
-                    customersWithOpeningEntry.add(matchingCustomer.id);
-                }
+                customers.forEach(c => {
+                    const cName = (c.name || '').trim().toLowerCase();
+                    if ((cName && desc.includes(cName)) || ref.includes(c.id.toLowerCase())) {
+                        customersWithOpeningEntry.add(c.id);
+                    }
+                });
             }
         });
 
@@ -151,42 +217,41 @@ const CustomerManager = () => {
           }; 
         });
 
-        if (customerAcc && allEntryIds.size > 0) {
+        if (customerAccId && allEntryIds.size > 0) {
             const { data: ledgerLines } = await supabase.from('journal_lines')
               .select('journal_entry_id, debit, credit')
               .in('journal_entry_id', Array.from(allEntryIds))
-              .eq('account_id', customerAcc.id);
+              .eq('account_id', customerAccId)
+              .eq('organization_id', userOrgId);
 
             ledgerLines?.forEach(line => {
                 const custId = entryToCustomer[line.journal_entry_id];
-                if (custId && newStats[custId]) newStats[custId].balance += (Number(line.debit) - Number(line.credit));
+                if (custId && newStats[custId]) {
+                    newStats[custId].balance += (Number(line.debit || 0) - Number(line.credit || 0));
+                }
             });
         }
 
-        // 📈 تحديث إحصائيات المبيعات الإضافية (معرض + مطعم) والتاريخ
-        invRes.data?.forEach(inv => {
-          if (newStats[inv.customer_id]) {
-            newStats[inv.customer_id].totalSales += Number(inv.total_amount);
-            if (!newStats[inv.customer_id].lastInvoice || inv.invoice_date > newStats[inv.customer_id].lastInvoice) {
-              newStats[inv.customer_id].lastInvoice = inv.invoice_date;
-            }
+        // إضافة مبيعات المطاعم ونقاط البيع غير المرحلة (التي لم ينشأ لها قيد بعد)
+        unpostedOrdersRes.data?.forEach(ord => {
+          if (ord.customer_id && newStats[ord.customer_id]) {
+            newStats[ord.customer_id].balance += Number(ord.grand_total || 0);
           }
-        });
-        ordRes.data?.forEach(ord => {
-          if (newStats[ord.customer_id]) newStats[ord.customer_id].totalSales += Number(ord.grand_total);
         });
 
-        // 📈 تحديث إحصائيات المبيعات الإضافية (معرض + مطعم) والتاريخ
+        // 📈 تحديث إحصائيات المبيعات الإضافية (معرض + مطعم) وتاريخ آخر فاتورة (بدون تكرار)
         invRes.data?.forEach(inv => {
           if (newStats[inv.customer_id]) {
-            newStats[inv.customer_id].totalSales += Number(inv.total_amount);
+            newStats[inv.customer_id].totalSales += Number(inv.total_amount || 0);
             if (!newStats[inv.customer_id].lastInvoice || inv.invoice_date > newStats[inv.customer_id].lastInvoice) {
               newStats[inv.customer_id].lastInvoice = inv.invoice_date;
             }
           }
         });
         ordRes.data?.forEach(ord => {
-          if (newStats[ord.customer_id]) newStats[ord.customer_id].totalSales += Number(ord.grand_total);
+          if (newStats[ord.customer_id]) {
+            newStats[ord.customer_id].totalSales += Number(ord.grand_total || 0);
+          }
         });
 
         setStats(newStats);

@@ -514,72 +514,75 @@ const PurchaseInvoiceForm = () => {
 
       let invoiceId = editingId;
 
-      if (editingId) {
-        // تحديث فاتورة موجودة: عكس القديم أولاً إذا كانت مرحلة
-        const { data: oldInv } = await supabase.from('purchase_invoices').select('*, purchase_invoice_items(*)').eq('id', editingId).single();
-        if (oldInv && oldInv.status === 'posted') {
-          for (const oldItem of (oldInv.purchase_invoice_items || [])) {
-            if (oldItem.product_id && oldItem.quantity) {
-              const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', oldItem.product_id).single();
-              if (prod) {
-                const newStock = Math.max(0, (Number(prod.stock) || 0) - Number(oldItem.quantity));
-                let newWStock = prod.warehouse_stock || {};
-                if (oldInv.warehouse_id && newWStock[oldInv.warehouse_id] !== undefined) {
-                  newWStock[oldInv.warehouse_id] = Math.max(0, (Number(newWStock[oldInv.warehouse_id]) || 0) - Number(oldItem.quantity));
+      const itemsToInsert = items.map(item => ({
+        organization_id: userOrgId,
+        product_id: item.productId,
+        quantity: item.quantity,
+        unit_price: item.unitPrice,
+        uom_id: item.uomId || null,
+        total: item.total,
+        batch_number: item.batchNumber || null,
+        expiry_date: item.expiryDate || null
+      }));
+
+      // 🛡️ محاولة الحفظ والتعديل الذري للبنود ورأس الفاتورة عبر دالة قاعدة البيانات المحمية
+      const payloadInvoice = { ...invoiceData, ...(editingId ? { id: editingId } : {}) };
+      const { data: rpcSaved, error: rpcError } = await supabase.rpc('save_purchase_invoice_draft', {
+        p_invoice: payloadInvoice,
+        p_items: itemsToInsert
+      });
+
+      if (!rpcError && rpcSaved && rpcSaved.id) {
+        invoiceId = rpcSaved.id;
+      } else {
+        // Fallback في حال عدم تشغيل دالة الهجرة بعد
+        if (editingId) {
+          // تحديث فاتورة موجودة: عكس القديم أولاً إذا كانت مرحلة
+          const { data: oldInv } = await supabase.from('purchase_invoices').select('*, purchase_invoice_items(*)').eq('id', editingId).single();
+          if (oldInv && oldInv.status === 'posted') {
+            for (const oldItem of (oldInv.purchase_invoice_items || [])) {
+              if (oldItem.product_id && oldItem.quantity) {
+                const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', oldItem.product_id).single();
+                if (prod) {
+                  const newStock = Math.max(0, (Number(prod.stock) || 0) - Number(oldItem.quantity));
+                  let newWStock = prod.warehouse_stock || {};
+                  if (oldInv.warehouse_id && newWStock[oldInv.warehouse_id] !== undefined) {
+                    newWStock[oldInv.warehouse_id] = Math.max(0, (Number(newWStock[oldInv.warehouse_id]) || 0) - Number(oldItem.quantity));
+                  }
+                  await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', oldItem.product_id);
                 }
-                await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', oldItem.product_id);
               }
+            }
+
+            if (oldInv.related_journal_entry_id) {
+              await supabase.from('journal_entries').delete().eq('id', oldInv.related_journal_entry_id);
+            } else {
+              await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', oldInv.invoice_number);
             }
           }
 
-          if (oldInv.related_journal_entry_id) {
-            await supabase.from('journal_entries').delete().eq('id', oldInv.related_journal_entry_id);
-          } else {
-            await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', oldInv.invoice_number);
-          }
+          const { error: updateError } = await supabase.from('purchase_invoices').update({
+            ...invoiceData,
+            related_journal_entry_id: null
+          }).eq('id', editingId);
+
+          if (updateError) throw updateError;
+          
+          await supabase.from('purchase_invoice_items').delete().eq('purchase_invoice_id', editingId);
+
+          const itemsWithInv = itemsToInsert.map(it => ({ ...it, purchase_invoice_id: editingId }));
+          const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsWithInv);
+          if (itemsError) throw itemsError;
+
+        } else {
+          const { data: invoice, error: insertError } = await supabase.from('purchase_invoices').insert(invoiceData).select().single();
+          if (insertError) throw insertError;
+          invoiceId = invoice.id;
+
+          const itemsWithInv = itemsToInsert.map(it => ({ ...it, purchase_invoice_id: invoiceId }));
+          const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsWithInv);
+          if (itemsError) throw itemsError;
         }
-
-        const { error: updateError } = await supabase.from('purchase_invoices').update({
-          ...invoiceData,
-          related_journal_entry_id: null
-        }).eq('id', editingId);
-
-        if (updateError) throw updateError;
-        
-        await supabase.from('purchase_invoice_items').delete().eq('purchase_invoice_id', editingId);
-
-        const itemsToInsert = items.map(item => ({
-          organization_id: userOrgId,
-          purchase_invoice_id: editingId,
-          product_id: item.productId,
-          quantity: item.quantity,
-          unit_price: item.unitPrice,
-          uom_id: item.uomId || null,
-          total: item.total,
-          batch_number: item.batchNumber || null,
-          expiry_date: item.expiryDate || null
-        }));
-        const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsToInsert);
-        if (itemsError) throw itemsError;
-
-      } else {
-        const { data: invoice, error: insertError } = await supabase.from('purchase_invoices').insert(invoiceData).select().single();
-        if (insertError) throw insertError;
-        invoiceId = invoice.id;
-
-        const itemsToInsert = items.map(item => ({
-          organization_id: userOrgId,
-          purchase_invoice_id: invoiceId,
-          product_id: item.productId,
-          quantity: item.quantity,
-          unit_price: item.unitPrice,
-          uom_id: item.uomId || null,
-          total: item.total,
-          batch_number: item.batchNumber || null,
-          expiry_date: item.expiryDate || null
-        }));
-        const { error: itemsError } = await supabase.from('purchase_invoice_items').insert(itemsToInsert);
-        if (itemsError) throw itemsError;
       }
 
       if (post && invoiceId) {

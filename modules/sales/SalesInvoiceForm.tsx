@@ -1286,55 +1286,67 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
         let invoiceId = editingId;
 
-        if (editingId) {
-            // Update existing invoice
-            const { error: updateError } = await supabase.from('invoices').update(invoiceData).eq('id', editingId);
+        const itemsToInsert = items.map(item => {
+            const product = products.find(p => p.id === item.productId);
+            const selectedUom = uoms.find(u => u.id === item.uomId);
+            const uomRatio = selectedUom?.ratio || 1;
             
-            if (updateError) { // Use handleError for consistency
-                if (updateError.code === '23505') {
-                    throw new AppError('رقم الفاتورة مكرر. يرجى استخدام رقم آخر أو تعديل الفاتورة الحالية.', 'DUPLICATE_INV_NO', 'high');
-                }
-                throw updateError;
-            }
-            
-            // Delete old items to replace with new ones
-            await supabase.from('invoice_items').delete().eq('invoice_id', editingId);
+            // 🛡️ ذكاء محاسبي: التكلفة المسجلة للفاتورة = (تكلفة القطعة الأساسية * معامل الوحدة المختارة)
+            const unitCostForSelectedUom = (product?.cost || product?.purchase_price || 0) * uomRatio;
+
+            return {
+                organization_id: userOrgId,
+                product_id: item.productId,
+                quantity: Number(item.quantity),
+                unit_price: Number(item.unitPrice),
+                uom_id: item.uomId || null,
+                total: Number(item.total),
+                cost: Number(unitCostForSelectedUom.toFixed(4))
+            };
+        });
+
+        // 🛡️ محاولة الحفظ الذري المباشر عبر RPC أولاً لضمان عدم فقدان البنود أو ترك سجلات يتيمة
+        const payloadInvoice = { ...invoiceData, ...(editingId ? { id: editingId } : {}) };
+        const { data: rpcSaved, error: rpcError } = await supabase.rpc('save_sales_invoice_draft', {
+            p_invoice: payloadInvoice,
+            p_items: itemsToInsert
+        });
+
+        if (!rpcError && rpcSaved && rpcSaved.id) {
+            invoiceId = rpcSaved.id;
         } else {
-            // Insert new invoice
-            const { data: invoice, error: insertError } = await supabase.from('invoices').insert(invoiceData).select().single();
-            if (insertError) { // Use handleError for consistency
-                if (insertError.code === '23505') {
-                    throw new AppError('رقم الفاتورة هذا مسجل مسبقاً. يرجى استخدام رقم آخر.', 'DUPLICATE_INV_NO', 'high');
-                }
-                throw insertError;
-            }
-            invoiceId = invoice.id;
-        }
-
-        // Insert items
-        if (invoiceId) {
-            const itemsToInsert = items.map(item => {
-                const product = products.find(p => p.id === item.productId);
-                const selectedUom = uoms.find(u => u.id === item.uomId);
-                const uomRatio = selectedUom?.ratio || 1;
+            // Fallback آمن في حال عدم تشغيل دالة الهجرة بعد
+            if (editingId) {
+                // Update existing invoice
+                const { error: updateError } = await supabase.from('invoices').update(invoiceData).eq('id', editingId);
                 
-                // 🛡️ ذكاء محاسبي: التكلفة المسجلة للفاتورة = (تكلفة القطعة الأساسية * معامل الوحدة المختارة)
-                const unitCostForSelectedUom = (product?.cost || product?.purchase_price || 0) * uomRatio;
+                if (updateError) {
+                    if (updateError.code === '23505') {
+                        throw new AppError('رقم الفاتورة مكرر. يرجى استخدام رقم آخر أو تعديل الفاتورة الحالية.', 'DUPLICATE_INV_NO', 'high');
+                    }
+                    throw updateError;
+                }
+                
+                // Delete old items to replace with new ones
+                await supabase.from('invoice_items').delete().eq('invoice_id', editingId);
+            } else {
+                // Insert new invoice
+                const { data: invoice, error: insertError } = await supabase.from('invoices').insert(invoiceData).select().single();
+                if (insertError) {
+                    if (insertError.code === '23505') {
+                        throw new AppError('رقم الفاتورة هذا مسجل مسبقاً. يرجى استخدام رقم آخر.', 'DUPLICATE_INV_NO', 'high');
+                    }
+                    throw insertError;
+                }
+                invoiceId = invoice.id;
+            }
 
-                return {
-                    organization_id: userOrgId,
-                    invoice_id: invoiceId,
-                    product_id: item.productId,
-                    quantity: Number(item.quantity),
-                    unit_price: Number(item.unitPrice),
-                    uom_id: item.uomId || null,
-                    total: Number(item.total),
-                    cost: Number(unitCostForSelectedUom.toFixed(4))
-                };
-            });
-
-            const { error: itemsError } = await supabase.from('invoice_items').insert(itemsToInsert);
-            if (itemsError) throw itemsError; // Use handleError for consistency
+            // Insert items
+            if (invoiceId) {
+                const itemsWithInv = itemsToInsert.map(it => ({ ...it, invoice_id: invoiceId }));
+                const { error: itemsError } = await supabase.from('invoice_items').insert(itemsWithInv);
+                if (itemsError) throw itemsError;
+            }
         }
 
         // 🚀 الخطوة الذهبية: إذا كانت الفاتورة مرحلة، نطلب من السيرفر إعادة تحديث القيود والمخزون فوراً

@@ -1223,7 +1223,12 @@ const ProductManager = () => {
             
             if (itemInvAcc) {
               // أ. تسجيل في opening_inventories إذا لم يكن مسجلاً
-              if (defaultWhId) {
+              let targetWh = defaultWhId;
+              if (!targetWh && orgId) {
+                const { data: whList } = await supabase.from('warehouses').select('id').eq('organization_id', orgId).limit(1);
+                targetWh = whList?.[0]?.id || null;
+              }
+              if (targetWh) {
                 const { data: existingOp } = await supabase
                   .from('opening_inventories')
                   .select('id')
@@ -1233,11 +1238,10 @@ const ProductManager = () => {
                 if (!existingOp) {
                   await supabase.from('opening_inventories').insert({
                     product_id: prod.id,
-                    warehouse_id: defaultWhId,
+                    warehouse_id: targetWh,
                     quantity: qty,
                     cost: cost,
-                    organization_id: orgId,
-                    created_by: currentUser?.id
+                    organization_id: orgId
                   });
                 }
               }
@@ -1296,6 +1300,7 @@ const ProductManager = () => {
     try {
       await recalculateStock();
       await refreshData();
+      queryClient.invalidateQueries();
       refresh();
       showToast('تمت إعادة احتساب وتحديث أرصدة وتكاليف جميع الأصناف بنجاح ✅', 'success');
     } catch (err: any) {
@@ -1521,15 +1526,18 @@ const ProductManager = () => {
             await supabase.from('journal_entries').delete().eq('organization_id', orgId).like('reference', `OP-PROD-%${editingId.slice(0, 8)}%`);
 
             if (Number(formData.opening_stock) > 0) {
-                const targetWarehouseId = formData.opening_warehouse_id || (warehouses.length > 0 ? warehouses[0].id : null);
+                let targetWarehouseId = formData.opening_warehouse_id || (warehouses.length > 0 ? warehouses[0].id : null);
+                if (!targetWarehouseId && orgId) {
+                    const { data: whList } = await supabase.from('warehouses').select('id').eq('organization_id', orgId).limit(1);
+                    targetWarehouseId = whList?.[0]?.id || null;
+                }
                 if (targetWarehouseId) {
                     const { error: opInvErr } = await supabase.from('opening_inventories').insert({
                         product_id: editingId,
                         warehouse_id: targetWarehouseId,
                         quantity: Number(formData.opening_stock),
                         cost: Number(formData.purchase_price) || 0,
-                        organization_id: orgId,
-                        created_by: currentUser?.id
+                        organization_id: orgId
                     });
                     if (opInvErr) console.error("Error creating opening inventory record:", opInvErr);
                 }
@@ -1651,15 +1659,18 @@ const ProductManager = () => {
 
         // إنشاء الرصيد الافتتاحي والقيد للمنتجات المخزنية والمواد الخام
         if (newProduct && isPhysicalStock && Number(formData.opening_stock) > 0) {
-            const targetWarehouseId = formData.opening_warehouse_id || (warehouses.length > 0 ? warehouses[0].id : null);
+            let targetWarehouseId = formData.opening_warehouse_id || (warehouses.length > 0 ? warehouses[0].id : null);
+            if (!targetWarehouseId && orgId) {
+                const { data: whList } = await supabase.from('warehouses').select('id').eq('organization_id', orgId).limit(1);
+                targetWarehouseId = whList?.[0]?.id || null;
+            }
             if (targetWarehouseId) {
                 const { error: opInvErr } = await supabase.from('opening_inventories').insert({
                     product_id: newProduct.id,
                     warehouse_id: targetWarehouseId,
                     quantity: Number(formData.opening_stock),
                     cost: Number(formData.purchase_price) || 0,
-                    organization_id: orgId,
-                    created_by: currentUser?.id
+                    organization_id: orgId
                 });
                 if (opInvErr) console.error("Error creating opening inventory record:", opInvErr);
             }
