@@ -35,15 +35,27 @@ const CustomerAgingReport = () => {
       const { fetchCustomerAgingLedger } = await import('../../services/balanceService');
       const dbRows = await fetchCustomerAgingLedger(userOrgId);
       if (dbRows && dbRows.length > 0) {
-        const agingData = dbRows.map(r => ({
-          id: r.party_id,
-          name: r.party_name,
-          balance: r.total_balance,
-          range0_30: r.range_0_30,
-          range31_60: r.range_31_60,
-          range61_90: r.range_61_90,
-          range90_plus: r.range_90_plus
-        })).filter(c => c.balance > 0).sort((a, b) => b.balance - a.balance);
+        const agingData = dbRows.map(r => {
+          let range0_30 = Number(r.range_0_30 || 0);
+          let range31_60 = Number(r.range_31_60 || 0);
+          let range61_90 = Number(r.range_61_90 || 0);
+          let range90_plus = Number(r.range_90_plus || 0);
+          const balance = Number(r.total_balance || 0);
+
+          if (balance > 0.01 && (range0_30 + range31_60 + range61_90 + range90_plus) === 0) {
+            range90_plus = balance;
+          }
+
+          return {
+            id: r.party_id,
+            name: r.party_name,
+            balance,
+            range0_30,
+            range31_60,
+            range61_90,
+            range90_plus
+          };
+        }).filter(c => c.balance > 0.01).sort((a, b) => b.balance - a.balance);
         setReportData(agingData);
         setLoading(false);
         return;
@@ -52,7 +64,7 @@ const CustomerAgingReport = () => {
       const filter = { organization_id: userOrgId };
 
       // 1. جلب العملاء (احتياطي Fallback)
-      const { data: customers } = await supabase.from('customers').select('id, name').match(filter).is('deleted_at', null);
+      const { data: customers } = await supabase.from('customers').select('id, name, opening_balance').match(filter).is('deleted_at', null);
       
       // 2. جلب الفواتير التجارية غير المدفوعة بالكامل
       const { data: invoices } = await supabase
@@ -83,6 +95,22 @@ const CustomerAgingReport = () => {
           .select('customer_id, total_amount')
           .match(filter)
           .eq('status', 'posted');
+
+      // جلب مرتجعات المبيعات (تُخفض الرصيد)
+      const { data: salesReturns } = await supabase
+          .from('sales_returns')
+          .select('customer_id, total_amount')
+          .match(filter)
+          .neq('status', 'draft')
+          .neq('status', 'cancelled');
+
+      // جلب الشيكات الواردة غير المرفوضة (تُخفض الرصيد)
+      const { data: cheques } = await supabase
+          .from('cheques')
+          .select('party_id, amount')
+          .match(filter)
+          .eq('type', 'incoming')
+          .neq('status', 'rejected');
 
       if (!customers) return;
 
@@ -157,14 +185,32 @@ const CustomerAgingReport = () => {
         const totalCreditNotes = creditNotes?.filter(cn => cn.customer_id === customer.id)
             .reduce((sum, cn) => sum + Number(cn.total_amount || 0), 0) || 0;
 
-        balance = Math.max(0, balance - totalReceipts - totalCreditNotes);
+        // طرح مرتجعات المبيعات
+        const totalReturns = salesReturns?.filter(sr => sr.customer_id === customer.id)
+            .reduce((sum, sr) => sum + Number(sr.total_amount || 0), 0) || 0;
+
+        // طرح الشيكات الواردة غير المرفوضة
+        const totalCheques = cheques?.filter(ch => ch.party_id === customer.id)
+            .reduce((sum, ch) => sum + Number(ch.amount || 0), 0) || 0;
+
+        // إضافة الرصيد الافتتاحي لأقدم فترة زمنية
+        const opening = Number((customer as any).opening_balance || 0);
+        range90_plus += opening;
+        balance += opening;
+
+        const totalCredits = totalReceipts + totalCreditNotes + totalReturns + totalCheques;
+        balance = Math.max(0, balance - totalCredits);
 
         // تعديل التوزيع على فترات الأعمار بنسبة الخصم
-        const adjustmentRatio = balance > 0 ? balance / (balance + totalReceipts + totalCreditNotes) : 0;
+        const adjustmentRatio = (balance + totalCredits) > 0 ? balance / (balance + totalCredits) : 0;
         range0_30 = Math.round(range0_30 * adjustmentRatio * 100) / 100;
         range31_60 = Math.round(range31_60 * adjustmentRatio * 100) / 100;
         range61_90 = Math.round(range61_90 * adjustmentRatio * 100) / 100;
         range90_plus = Math.round(range90_plus * adjustmentRatio * 100) / 100;
+
+        if (balance > 0.01 && (range0_30 + range31_60 + range61_90 + range90_plus) === 0) {
+          range90_plus = balance;
+        }
 
         return {
           id: customer.id,
@@ -175,7 +221,7 @@ const CustomerAgingReport = () => {
           range61_90,
           range90_plus
         };
-      }).filter(c => c.balance > 0).sort((a, b) => b.balance - a.balance);
+      }).filter(c => c.balance > 0.01).sort((a, b) => b.balance - a.balance);
 
       setReportData(agingData);
     } catch (error) {

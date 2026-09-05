@@ -221,12 +221,20 @@ BEGIN
 
     RETURN QUERY
     WITH 
-    -- 1. تجميع فواتير المشتريات
+    -- 1. تجميع فواتير المشتريات (مع خصم السداد الفوري غير المغطى بسند صرف لمنع الازدواج)
     agg_invoices AS (
         SELECT 
             pi.supplier_id,
             COALESCE(SUM(pi.total_amount), 0) AS gross_purchases,
-            COALESCE(SUM(pi.total_amount), 0) AS total_invoiced,
+            COALESCE(SUM(
+                pi.total_amount - GREATEST(0, COALESCE(pi.paid_amount, 0) - COALESCE((
+                    SELECT SUM(pv.amount) 
+                    FROM public.payment_vouchers pv 
+                    WHERE pv.supplier_id = pi.supplier_id 
+                      AND pi.invoice_number IS NOT NULL
+                      AND pv.notes ILIKE '%' || pi.invoice_number || '%'
+                ), 0))
+            ), 0) AS total_invoiced,
             MAX(pi.invoice_date::text) AS max_inv_date
         FROM public.purchase_invoices pi
         WHERE pi.organization_id = p_org_id
@@ -306,7 +314,7 @@ BEGIN
             COALESCE(SUM(asb.total_sub_billings), 0) AS contractor_billings
         FROM public.suppliers s
         JOIN public.subcontractors sub ON sub.organization_id = p_org_id 
-          AND (TRIM(LOWER(sub.name)) = TRIM(LOWER(s.name)) OR sub.id::text = s.id::text)
+          AND (sub.supplier_id = s.id OR TRIM(LOWER(sub.name)) = TRIM(LOWER(s.name)) OR sub.id::text = s.id::text)
         JOIN agg_sub_billings asb ON asb.subcontractor_id = sub.id
         WHERE s.organization_id = p_org_id
         GROUP BY s.id
@@ -353,7 +361,7 @@ $$;
 
 
 -- ==============================================================================
--- 4. دالة تقرير أعمار ديون العملاء المباشرة بقاعدة البيانات
+-- 4. دالة تقرير أعمار ديون العملاء المباشرة بقاعدة البيانات (شاملة الفواتير، المستخلصات، الأرصدة الافتتاحية، الشيكات، والمرتجعات)
 -- ==============================================================================
 CREATE OR REPLACE FUNCTION public.get_customer_aging_ledger(p_org_id uuid)
 RETURNS TABLE (
@@ -372,74 +380,144 @@ SET search_path = public
 AS $$
 BEGIN
     RETURN QUERY
-    WITH invoice_buckets AS (
+    WITH 
+    -- 1. فواتير المبيعات مجزأة حسب العمر الزمني
+    inv_items AS (
         SELECT 
-            si.customer_id,
-            COALESCE(SUM(CASE WHEN (CURRENT_DATE - si.invoice_date::date) <= 30 THEN (si.total_amount - COALESCE(si.paid_amount, 0)) ELSE 0 END), 0) AS b_0_30,
-            COALESCE(SUM(CASE WHEN (CURRENT_DATE - si.invoice_date::date) BETWEEN 31 AND 60 THEN (si.total_amount - COALESCE(si.paid_amount, 0)) ELSE 0 END), 0) AS b_31_60,
-            COALESCE(SUM(CASE WHEN (CURRENT_DATE - si.invoice_date::date) BETWEEN 61 AND 90 THEN (si.total_amount - COALESCE(si.paid_amount, 0)) ELSE 0 END), 0) AS b_61_90,
-            COALESCE(SUM(CASE WHEN (CURRENT_DATE - si.invoice_date::date) > 90 THEN (si.total_amount - COALESCE(si.paid_amount, 0)) ELSE 0 END), 0) AS b_90_plus,
-            COALESCE(SUM(si.total_amount - COALESCE(si.paid_amount, 0)), 0) AS total_unpaid_invoices
-        FROM public.invoices si
-        WHERE si.organization_id = p_org_id
-          AND si.customer_id IS NOT NULL
-          AND si.status NOT IN ('draft', 'cancelled')
-        GROUP BY si.customer_id
+            i.customer_id,
+            (CURRENT_DATE - i.invoice_date::date) AS age_days,
+            (i.total_amount - COALESCE(i.paid_amount, 0)) AS amount
+        FROM public.invoices i
+        WHERE i.organization_id = p_org_id
+          AND i.customer_id IS NOT NULL
+          AND i.status NOT IN ('draft', 'cancelled')
     ),
-    deductions AS (
+    -- 2. مستخلصات مشاريع المقاولات مجزأة حسب العمر الزمني
+    billing_items AS (
         SELECT 
-            rv.customer_id,
-            COALESCE(SUM(rv.amount), 0) AS total_receipts
-        FROM public.receipt_vouchers rv
-        WHERE rv.organization_id = p_org_id
-          AND rv.customer_id IS NOT NULL
-        GROUP BY rv.customer_id
+            ppb.customer_id,
+            (CURRENT_DATE - ppb.billing_date::date) AS age_days,
+            ppb.net_amount AS amount
+        FROM public.project_progress_billings ppb
+        WHERE ppb.organization_id = p_org_id
+          AND ppb.customer_id IS NOT NULL
+          AND ppb.status != 'draft'
     ),
-    credit_deductions AS (
+    -- 3. تجميع كافة بنود الاستحقاق (فواتير + مستخلصات)
+    all_debit_items AS (
+        SELECT inv_items.customer_id, inv_items.age_days, inv_items.amount FROM inv_items
+        UNION ALL
+        SELECT billing_items.customer_id, billing_items.age_days, billing_items.amount FROM billing_items
+    ),
+    debit_buckets AS (
         SELECT 
-            cn.customer_id,
-            COALESCE(SUM(cn.total_amount), 0) AS total_credit_notes
-        FROM public.credit_notes cn
-        WHERE cn.organization_id = p_org_id
-          AND cn.customer_id IS NOT NULL
-          AND cn.status = 'posted'
-        GROUP BY cn.customer_id
+            di.customer_id,
+            COALESCE(SUM(CASE WHEN di.age_days <= 30 THEN di.amount ELSE 0 END), 0) AS b_0_30,
+            COALESCE(SUM(CASE WHEN di.age_days BETWEEN 31 AND 60 THEN di.amount ELSE 0 END), 0) AS b_31_60,
+            COALESCE(SUM(CASE WHEN di.age_days BETWEEN 61 AND 90 THEN di.amount ELSE 0 END), 0) AS b_61_90,
+            COALESCE(SUM(CASE WHEN di.age_days > 90 THEN di.amount ELSE 0 END), 0) AS b_90_plus,
+            COALESCE(SUM(di.amount), 0) AS total_debits
+        FROM all_debit_items di
+        GROUP BY di.customer_id
+    ),
+    -- 4. تجميع كافة المسددات والتخفيضات (سندات قبض + إشعارات دائنة + مردودات + شيكات واردة)
+    total_deductions AS (
+        SELECT 
+            c.id AS customer_id,
+            COALESCE(rec.total_receipts, 0)
+            + COALESCE(crd.total_credits, 0)
+            + COALESCE(ret.total_returns, 0)
+            + COALESCE(chq.total_cheques, 0) AS total_paid
+        FROM public.customers c
+        LEFT JOIN (
+            SELECT customer_id, SUM(amount) AS total_receipts
+            FROM public.receipt_vouchers
+            WHERE organization_id = p_org_id AND customer_id IS NOT NULL
+            GROUP BY customer_id
+        ) rec ON rec.customer_id = c.id
+        LEFT JOIN (
+            SELECT customer_id, SUM(total_amount) AS total_credits
+            FROM public.credit_notes
+            WHERE organization_id = p_org_id AND customer_id IS NOT NULL AND status = 'posted'
+            GROUP BY customer_id
+        ) crd ON crd.customer_id = c.id
+        LEFT JOIN (
+            SELECT customer_id, SUM(total_amount) AS total_returns
+            FROM public.sales_returns
+            WHERE organization_id = p_org_id AND customer_id IS NOT NULL AND (status IS NULL OR status NOT IN ('draft', 'cancelled'))
+            GROUP BY customer_id
+        ) ret ON ret.customer_id = c.id
+        LEFT JOIN (
+            SELECT party_id AS customer_id, SUM(amount) AS total_cheques
+            FROM public.cheques
+            WHERE organization_id = p_org_id AND party_id IS NOT NULL AND type = 'incoming' AND status != 'rejected'
+            GROUP BY party_id
+        ) chq ON chq.customer_id = c.id
+        WHERE c.organization_id = p_org_id
+    ),
+    calculated AS (
+        SELECT 
+            c.id AS customer_id,
+            c.name::text AS customer_name,
+            COALESCE(c.phone, '')::text AS phone,
+            COALESCE(c.opening_balance, 0) AS op_balance,
+            COALESCE(db.b_0_30, 0) AS raw_0_30,
+            COALESCE(db.b_31_60, 0) AS raw_31_60,
+            COALESCE(db.b_61_90, 0) AS raw_61_90,
+            (COALESCE(db.b_90_plus, 0) + COALESCE(c.opening_balance, 0)) AS raw_90_plus,
+            (COALESCE(db.total_debits, 0) + COALESCE(c.opening_balance, 0)) AS gross_receivable,
+            COALESCE(td.total_paid, 0) AS total_paid
+        FROM public.customers c
+        LEFT JOIN debit_buckets db ON db.customer_id = c.id
+        LEFT JOIN total_deductions td ON td.customer_id = c.id
+        WHERE c.organization_id = p_org_id AND c.deleted_at IS NULL
+    )
+    scaled AS (
+        SELECT 
+            calc.customer_id,
+            calc.customer_name,
+            calc.phone,
+            ROUND(GREATEST(0::numeric, calc.raw_0_30 * 
+                CASE WHEN calc.gross_receivable > 0 
+                     THEN GREATEST(0::numeric, (calc.gross_receivable - calc.total_paid)) / calc.gross_receivable 
+                     ELSE 0::numeric END), 2) AS range_0_30,
+            ROUND(GREATEST(0::numeric, calc.raw_31_60 * 
+                CASE WHEN calc.gross_receivable > 0 
+                     THEN GREATEST(0::numeric, (calc.gross_receivable - calc.total_paid)) / calc.gross_receivable 
+                     ELSE 0::numeric END), 2) AS range_31_60,
+            ROUND(GREATEST(0::numeric, calc.raw_61_90 * 
+                CASE WHEN calc.gross_receivable > 0 
+                     THEN GREATEST(0::numeric, (calc.gross_receivable - calc.total_paid)) / calc.gross_receivable 
+                     ELSE 0::numeric END), 2) AS range_61_90,
+            ROUND(GREATEST(0::numeric, calc.raw_90_plus * 
+                CASE WHEN calc.gross_receivable > 0 
+                     THEN GREATEST(0::numeric, (calc.gross_receivable - calc.total_paid)) / calc.gross_receivable 
+                     ELSE 0::numeric END), 2) AS range_90_plus,
+            ROUND(GREATEST(0::numeric, (calc.gross_receivable - calc.total_paid)), 2) AS total_balance
+        FROM calculated calc
+        WHERE (calc.gross_receivable - calc.total_paid) > 0.01
     )
     SELECT 
-        c.id AS customer_id,
-        c.name::text AS customer_name,
-        COALESCE(c.phone, '')::text AS phone,
-        ROUND(GREATEST(0::numeric, ib.b_0_30 * 
-            CASE WHEN (COALESCE(ib.total_unpaid_invoices, 0) > 0) 
-                 THEN GREATEST(0::numeric, (ib.total_unpaid_invoices - COALESCE(d.total_receipts, 0) - COALESCE(cd.total_credit_notes, 0))) / ib.total_unpaid_invoices 
-                 ELSE 0::numeric END), 2) AS range_0_30,
-        ROUND(GREATEST(0::numeric, ib.b_31_60 * 
-            CASE WHEN (COALESCE(ib.total_unpaid_invoices, 0) > 0) 
-                 THEN GREATEST(0::numeric, (ib.total_unpaid_invoices - COALESCE(d.total_receipts, 0) - COALESCE(cd.total_credit_notes, 0))) / ib.total_unpaid_invoices 
-                 ELSE 0::numeric END), 2) AS range_31_60,
-        ROUND(GREATEST(0::numeric, ib.b_61_90 * 
-            CASE WHEN (COALESCE(ib.total_unpaid_invoices, 0) > 0) 
-                 THEN GREATEST(0::numeric, (ib.total_unpaid_invoices - COALESCE(d.total_receipts, 0) - COALESCE(cd.total_credit_notes, 0))) / ib.total_unpaid_invoices 
-                 ELSE 0::numeric END), 2) AS range_61_90,
-        ROUND(GREATEST(0::numeric, ib.b_90_plus * 
-            CASE WHEN (COALESCE(ib.total_unpaid_invoices, 0) > 0) 
-                 THEN GREATEST(0::numeric, (ib.total_unpaid_invoices - COALESCE(d.total_receipts, 0) - COALESCE(cd.total_credit_notes, 0))) / ib.total_unpaid_invoices 
-                 ELSE 0::numeric END), 2) AS range_90_plus,
-        ROUND(GREATEST(0::numeric, (COALESCE(ib.total_unpaid_invoices, 0) - COALESCE(d.total_receipts, 0) - COALESCE(cd.total_credit_notes, 0))), 2) AS total_balance
-    FROM public.customers c
-    JOIN invoice_buckets ib ON ib.customer_id = c.id
-    LEFT JOIN deductions d ON d.customer_id = c.id
-    LEFT JOIN credit_deductions cd ON cd.customer_id = c.id
-    WHERE c.organization_id = p_org_id
-      AND c.deleted_at IS NULL
-      AND (COALESCE(ib.total_unpaid_invoices, 0) - COALESCE(d.total_receipts, 0) - COALESCE(cd.total_credit_notes, 0)) > 0
-    ORDER BY total_balance DESC;
+        s.customer_id,
+        s.customer_name,
+        s.phone,
+        s.range_0_30,
+        s.range_31_60,
+        s.range_61_90,
+        CASE 
+            WHEN (s.range_0_30 + s.range_31_60 + s.range_61_90 + s.range_90_plus) = 0 AND s.total_balance > 0 
+            THEN s.total_balance 
+            ELSE s.range_90_plus 
+        END AS range_90_plus,
+        s.total_balance
+    FROM scaled s
+    ORDER BY s.total_balance DESC;
 END;
 $$;
 
 
 -- ==============================================================================
--- 5. دالة تقرير أعمار ديون الموردين المباشرة بقاعدة البيانات
+-- 5. دالة تقرير أعمار ديون الموردين المباشرة بقاعدة البيانات (شاملة الفواتير والمستخلصات والأرصدة الافتتاحية والشيكات والمرتجعات)
 -- ==============================================================================
 CREATE OR REPLACE FUNCTION public.get_supplier_aging_ledger(p_org_id uuid)
 RETURNS TABLE (
@@ -458,68 +536,161 @@ SET search_path = public
 AS $$
 BEGIN
     RETURN QUERY
-    WITH invoice_buckets AS (
+    WITH 
+    -- 1. فواتير المشتريات (مع خصم السداد الفوري غير المغطى بسند صرف)
+    inv_items AS (
         SELECT 
             pi.supplier_id,
-            COALESCE(SUM(CASE WHEN (CURRENT_DATE - pi.invoice_date::date) <= 30 THEN pi.total_amount ELSE 0 END), 0) AS b_0_30,
-            COALESCE(SUM(CASE WHEN (CURRENT_DATE - pi.invoice_date::date) BETWEEN 31 AND 60 THEN pi.total_amount ELSE 0 END), 0) AS b_31_60,
-            COALESCE(SUM(CASE WHEN (CURRENT_DATE - pi.invoice_date::date) BETWEEN 61 AND 90 THEN pi.total_amount ELSE 0 END), 0) AS b_61_90,
-            COALESCE(SUM(CASE WHEN (CURRENT_DATE - pi.invoice_date::date) > 90 THEN pi.total_amount ELSE 0 END), 0) AS b_90_plus,
-            COALESCE(SUM(pi.total_amount), 0) AS total_invoices
+            (CURRENT_DATE - pi.invoice_date::date) AS age_days,
+            GREATEST(0::numeric, pi.total_amount - GREATEST(0, COALESCE(pi.paid_amount, 0) - COALESCE((
+                SELECT SUM(pv.amount) 
+                FROM public.payment_vouchers pv 
+                WHERE pv.supplier_id = pi.supplier_id 
+                  AND pi.invoice_number IS NOT NULL
+                  AND pv.notes ILIKE '%' || pi.invoice_number || '%'
+            ), 0))) AS amount
         FROM public.purchase_invoices pi
         WHERE pi.organization_id = p_org_id
           AND pi.supplier_id IS NOT NULL
           AND pi.status != 'draft'
-        GROUP BY pi.supplier_id
     ),
-    payments AS (
+    -- 2. مستخلصات مقاولي الباطن المعتمدة (المرتبطين كموردين)
+    sub_billings AS (
         SELECT 
-            pv.supplier_id,
-            COALESCE(SUM(pv.amount), 0) AS total_payments
-        FROM public.payment_vouchers pv
-        WHERE pv.organization_id = p_org_id
-          AND pv.supplier_id IS NOT NULL
-        GROUP BY pv.supplier_id
+            sc.subcontractor_id,
+            (CURRENT_DATE - sb.billing_date::date) AS age_days,
+            sb.net_amount AS amount
+        FROM public.subcontractor_billings sb
+        JOIN public.subcontractor_contracts sc ON sc.id = sb.contract_id
+        WHERE sb.organization_id = p_org_id
+          AND sb.status != 'draft'
     ),
-    returns AS (
+    sub_map AS (
         SELECT 
-            pr.supplier_id,
-            COALESCE(SUM(pr.total_amount), 0) AS total_returns
-        FROM public.purchase_returns pr
-        WHERE pr.organization_id = p_org_id
-          AND pr.supplier_id IS NOT NULL
-          AND pr.status != 'draft'
-        GROUP BY pr.supplier_id
+            s.id AS supplier_id,
+            sb.age_days,
+            sb.amount
+        FROM public.suppliers s
+        JOIN public.subcontractors sub ON sub.organization_id = p_org_id 
+          AND (sub.supplier_id = s.id OR TRIM(LOWER(sub.name)) = TRIM(LOWER(s.name)) OR sub.id::text = s.id::text)
+        JOIN sub_billings sb ON sb.subcontractor_id = sub.id
+        WHERE s.organization_id = p_org_id
+    ),
+    all_debit_items AS (
+        SELECT inv_items.supplier_id, inv_items.age_days, inv_items.amount FROM inv_items
+        UNION ALL
+        SELECT sub_map.supplier_id, sub_map.age_days, sub_map.amount FROM sub_map
+    ),
+    debit_buckets AS (
+        SELECT 
+            di.supplier_id,
+            COALESCE(SUM(CASE WHEN di.age_days <= 30 THEN di.amount ELSE 0 END), 0) AS b_0_30,
+            COALESCE(SUM(CASE WHEN di.age_days BETWEEN 31 AND 60 THEN di.amount ELSE 0 END), 0) AS b_31_60,
+            COALESCE(SUM(CASE WHEN di.age_days BETWEEN 61 AND 90 THEN di.amount ELSE 0 END), 0) AS b_61_90,
+            COALESCE(SUM(CASE WHEN di.age_days > 90 THEN di.amount ELSE 0 END), 0) AS b_90_plus,
+            COALESCE(SUM(di.amount), 0) AS total_invoiced
+        FROM all_debit_items di
+        GROUP BY di.supplier_id
+    ),
+    -- 3. كافة المسددات والتخفيضات للمورد
+    total_deductions AS (
+        SELECT 
+            s.id AS supplier_id,
+            COALESCE(pmt.total_payments, 0)
+            + COALESCE(ret.total_returns, 0)
+            + COALESCE(deb.total_debits, 0)
+            + COALESCE(chq.total_cheques, 0)
+            + COALESCE(reb.total_rebates, 0) AS total_paid
+        FROM public.suppliers s
+        LEFT JOIN (
+            SELECT supplier_id, SUM(amount) AS total_payments
+            FROM public.payment_vouchers
+            WHERE organization_id = p_org_id AND supplier_id IS NOT NULL
+            GROUP BY supplier_id
+        ) pmt ON pmt.supplier_id = s.id
+        LEFT JOIN (
+            SELECT supplier_id, SUM(total_amount) AS total_returns
+            FROM public.purchase_returns
+            WHERE organization_id = p_org_id AND supplier_id IS NOT NULL AND status != 'draft'
+            GROUP BY supplier_id
+        ) ret ON ret.supplier_id = s.id
+        LEFT JOIN (
+            SELECT supplier_id, SUM(total_amount) AS total_debits
+            FROM public.debit_notes
+            WHERE organization_id = p_org_id AND supplier_id IS NOT NULL AND status = 'posted'
+            GROUP BY supplier_id
+        ) deb ON deb.supplier_id = s.id
+        LEFT JOIN (
+            SELECT party_id AS supplier_id, SUM(amount) AS total_cheques
+            FROM public.cheques
+            WHERE organization_id = p_org_id AND party_id IS NOT NULL AND type = 'outgoing' AND status != 'rejected'
+            GROUP BY party_id
+        ) chq ON chq.supplier_id = s.id
+        LEFT JOIN (
+            SELECT vendor_id AS supplier_id, SUM(total_claim_amount) AS total_rebates
+            FROM public.vendor_rebate_settlements
+            WHERE organization_id = p_org_id AND vendor_id IS NOT NULL AND status IN ('APPROVED', 'SETTLED')
+            GROUP BY vendor_id
+        ) reb ON reb.supplier_id = s.id
+        WHERE s.organization_id = p_org_id
+    ),
+    calculated AS (
+        SELECT 
+            s.id AS supplier_id,
+            s.name::text AS supplier_name,
+            COALESCE(s.phone, '')::text AS phone,
+            COALESCE(s.opening_balance, 0) AS op_balance,
+            COALESCE(db.b_0_30, 0) AS raw_0_30,
+            COALESCE(db.b_31_60, 0) AS raw_31_60,
+            COALESCE(db.b_61_90, 0) AS raw_61_90,
+            (COALESCE(db.b_90_plus, 0) + COALESCE(s.opening_balance, 0)) AS raw_90_plus,
+            (COALESCE(db.total_invoiced, 0) + COALESCE(s.opening_balance, 0)) AS gross_payable,
+            COALESCE(td.total_paid, 0) AS total_paid
+        FROM public.suppliers s
+        LEFT JOIN debit_buckets db ON db.supplier_id = s.id
+        LEFT JOIN total_deductions td ON td.supplier_id = s.id
+        WHERE s.organization_id = p_org_id AND s.deleted_at IS NULL
+    ),
+    scaled AS (
+        SELECT 
+            calc.supplier_id,
+            calc.supplier_name,
+            calc.phone,
+            ROUND(GREATEST(0::numeric, calc.raw_0_30 * 
+                CASE WHEN calc.gross_payable > 0 
+                     THEN GREATEST(0::numeric, (calc.gross_payable - calc.total_paid)) / calc.gross_payable 
+                     ELSE 0::numeric END), 2) AS range_0_30,
+            ROUND(GREATEST(0::numeric, calc.raw_31_60 * 
+                CASE WHEN calc.gross_payable > 0 
+                     THEN GREATEST(0::numeric, (calc.gross_payable - calc.total_paid)) / calc.gross_payable 
+                     ELSE 0::numeric END), 2) AS range_31_60,
+            ROUND(GREATEST(0::numeric, calc.raw_61_90 * 
+                CASE WHEN calc.gross_payable > 0 
+                     THEN GREATEST(0::numeric, (calc.gross_payable - calc.total_paid)) / calc.gross_payable 
+                     ELSE 0::numeric END), 2) AS range_61_90,
+            ROUND(GREATEST(0::numeric, calc.raw_90_plus * 
+                CASE WHEN calc.gross_payable > 0 
+                     THEN GREATEST(0::numeric, (calc.gross_payable - calc.total_paid)) / calc.gross_payable 
+                     ELSE 0::numeric END), 2) AS range_90_plus,
+            ROUND(GREATEST(0::numeric, (calc.gross_payable - calc.total_paid)), 2) AS total_balance
+        FROM calculated calc
+        WHERE (calc.gross_payable - calc.total_paid) > 0.01
     )
     SELECT 
-        s.id AS supplier_id,
-        s.name::text AS supplier_name,
-        COALESCE(s.phone, '')::text AS phone,
-        ROUND(GREATEST(0::numeric, ib.b_0_30 * 
-            CASE WHEN (COALESCE(ib.total_invoices, 0) > 0) 
-                 THEN GREATEST(0::numeric, (ib.total_invoices - COALESCE(pmt.total_payments, 0) - COALESCE(ret.total_returns, 0))) / ib.total_invoices 
-                 ELSE 0::numeric END), 2) AS range_0_30,
-        ROUND(GREATEST(0::numeric, ib.b_31_60 * 
-            CASE WHEN (COALESCE(ib.total_invoices, 0) > 0) 
-                 THEN GREATEST(0::numeric, (ib.total_invoices - COALESCE(pmt.total_payments, 0) - COALESCE(ret.total_returns, 0))) / ib.total_invoices 
-                 ELSE 0::numeric END), 2) AS range_31_60,
-        ROUND(GREATEST(0::numeric, ib.b_61_90 * 
-            CASE WHEN (COALESCE(ib.total_invoices, 0) > 0) 
-                 THEN GREATEST(0::numeric, (ib.total_invoices - COALESCE(pmt.total_payments, 0) - COALESCE(ret.total_returns, 0))) / ib.total_invoices 
-                 ELSE 0::numeric END), 2) AS range_61_90,
-        ROUND(GREATEST(0::numeric, ib.b_90_plus * 
-            CASE WHEN (COALESCE(ib.total_invoices, 0) > 0) 
-                 THEN GREATEST(0::numeric, (ib.total_invoices - COALESCE(pmt.total_payments, 0) - COALESCE(ret.total_returns, 0))) / ib.total_invoices 
-                 ELSE 0::numeric END), 2) AS range_90_plus,
-        ROUND(GREATEST(0::numeric, (COALESCE(ib.total_invoices, 0) - COALESCE(pmt.total_payments, 0) - COALESCE(ret.total_returns, 0))), 2) AS total_balance
-    FROM public.suppliers s
-    JOIN invoice_buckets ib ON ib.supplier_id = s.id
-    LEFT JOIN payments pmt ON pmt.supplier_id = s.id
-    LEFT JOIN returns ret ON ret.supplier_id = s.id
-    WHERE s.organization_id = p_org_id
-      AND s.deleted_at IS NULL
-      AND (COALESCE(ib.total_invoices, 0) - COALESCE(pmt.total_payments, 0) - COALESCE(ret.total_returns, 0)) > 0
-    ORDER BY total_balance DESC;
+        s.supplier_id,
+        s.supplier_name,
+        s.phone,
+        s.range_0_30,
+        s.range_31_60,
+        s.range_61_90,
+        CASE 
+            WHEN (s.range_0_30 + s.range_31_60 + s.range_61_90 + s.range_90_plus) = 0 AND s.total_balance > 0 
+            THEN s.total_balance 
+            ELSE s.range_90_plus 
+        END AS range_90_plus,
+        s.total_balance
+    FROM scaled s
+    ORDER BY s.total_balance DESC;
 END;
 $$;
 
