@@ -479,7 +479,18 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         warehouseId: fullInv.warehouse_id || '',
         paidAmount: fullInv.paid_amount || 0,
         treasuryId: fullInv.treasury_account_id || '',
-        discountValue: fullInv.discount_amount || 0,
+        discountValue: (() => {
+          const loadedTotalDisc = Number(fullInv.discount_amount || 0);
+          const loadedPromoDisc = Number(fullInv.promo_discount || 0);
+          if (loadedPromoDisc > 0) {
+            return Math.max(0, loadedTotalDisc - loadedPromoDisc);
+          }
+          // توافق تاريخي: إذا كانت الفاتورة تتضمن عروض في الملاحظات، فالخصم المسجل هو خصم العرض
+          if (loadedTotalDisc > 0 && (fullInv.notes?.includes('[عروض مطبقة:') || fullInv.notes?.includes('عرض الحزمة') || fullInv.notes?.includes('وفرت'))) {
+            return 0;
+          }
+          return loadedTotalDisc;
+        })(),
         discountType: 'fixed',
         costCenterId: fullInv.cost_center_id || ''
       }));
@@ -1275,6 +1286,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
             status: editingId ? formData.status : 'draft', // الحفاظ على الحالة الأصلية عند التعديل
             subtotal: subtotal,
             discount_amount: discountAmount,
+            promo_discount: totalPromoDiscount,
             paid_amount: formData.paidAmount,
             treasury_account_id: formData.paidAmount > 0 ? formData.treasuryId : null,
             currency: formData.currency,
@@ -1536,10 +1548,11 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
             invoice_date: formData.date ? formData.date : new Date().toISOString().split('T')[0],
             total_amount: Number(totalAmount),
             tax_amount: Number(taxAmount),
-            notes: formData.notes,
+            notes: (formData.notes || '') + (formData.notes?.includes('[عروض مطبقة:') ? '' : (appliedPromotions.length > 0 ? ` [عروض مطبقة: ${appliedPromotions.map(p => p.promoName).join(' | ')}]` : '')),
             status: 'draft', // Always save as draft first
             subtotal: subtotal,
             discount_amount: discountAmount,
+            promo_discount: totalPromoDiscount,
             paid_amount: formData.paidAmount,
             treasury_account_id: formData.paidAmount > 0 ? formData.treasuryId : null,
             currency: formData.currency,
