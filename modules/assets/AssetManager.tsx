@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Building, Plus, Activity, Save, Printer, PlayCircle, X, TrendingUp, Pencil, Trash2, QrCode, Tag, Truck, BookOpen } from 'lucide-react';
+import { Building, Plus, Activity, Save, Printer, PlayCircle, X, TrendingUp, Pencil, Trash2, QrCode, Tag, Truck, BookOpen, ShieldAlert, Loader2 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { z } from 'zod';
 import { AssetFieldScanner } from './components/AssetFieldScanner';
@@ -213,6 +213,124 @@ const AssetManager = () => {
       }
   };
 
+  const [isCleaningAssets, setIsCleaningAssets] = useState(false);
+
+  const handleCleanOrphanedAssetEntries = async () => {
+    const orgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    if (!orgId) {
+      showToast('تعذر تحديد المنظمة', 'error');
+      return;
+    }
+
+    setIsCleaningAssets(true);
+    try {
+      // 1. جلب جميع الأصول الفعالة
+      const { data: activeAssets } = await supabase
+        .from('assets')
+        .select('id, name, asset_tag')
+        .eq('organization_id', orgId)
+        .is('deleted_at', null);
+
+      const activeAssetIds = new Set((activeAssets || []).map(a => a.id));
+      const activeTags = new Set((activeAssets || []).map(a => (a.asset_tag || '').toUpperCase()));
+      const activeIdPrefixes = new Set((activeAssets || []).map(a => a.id.split('-')[0].toUpperCase()));
+
+      // 2. جلب جميع قيود الأصول الثابتة
+      const { data: entries, error } = await supabase
+        .from('journal_entries')
+        .select(`
+          id, reference, description, transaction_date, related_document_id, related_document_type,
+          journal_lines (debit, credit, account_id)
+        `)
+        .eq('organization_id', orgId)
+        .or('reference.ilike.ASSET-%,reference.ilike.DEP-%,related_document_type.eq.fixed_asset,related_document_type.eq.asset_depreciation,description.ilike.%أصل ثابت%');
+
+      if (error) throw error;
+
+      if (!entries || entries.length === 0) {
+        showToast('لا توجد أي قيود أصول في دفتر اليومية.', 'info');
+        setIsCleaningAssets(false);
+        return;
+      }
+
+      // 3. تحديد القيود المعلقة (التي تم حذف أصلها)
+      const orphanedEntries = entries.filter(e => {
+        if (e.related_document_id && activeAssetIds.has(e.related_document_id)) {
+          return false;
+        }
+
+        const ref = (e.reference || '').toUpperCase();
+        if (ref.startsWith('ASSET-')) {
+          const refPart = ref.replace('ASSET-', '').trim();
+          if (activeIdPrefixes.has(refPart) || activeTags.has(ref) || activeTags.has(`AST-${refPart}`)) {
+            return false;
+          }
+          return true;
+        }
+
+        if (ref.startsWith('DEP-')) {
+          const parts = ref.split('-');
+          if (parts.length >= 2) {
+            const shortId = parts[1].toUpperCase();
+            const matchesActive = Array.from(activeAssetIds).some(id => id.toUpperCase().startsWith(shortId));
+            if (matchesActive) return false;
+          }
+          return true;
+        }
+
+        if (e.description?.includes('إثبات شراء أصل ثابت:')) {
+          const assetName = e.description.replace('إثبات شراء أصل ثابت:', '').trim();
+          const matchesActive = (activeAssets || []).some(a => a.name === assetName);
+          if (matchesActive) return false;
+          return true;
+        }
+
+        return false;
+      });
+
+      if (orphanedEntries.length === 0) {
+        showToast('سجل قيود الأصول سليم تماماً ومطابق لكارت الأصول ✅', 'success');
+        setIsCleaningAssets(false);
+        return;
+      }
+
+      const totalAmount = orphanedEntries.reduce((sum, e) => {
+        const lineDebits = (e.journal_lines || []).reduce((ls: number, l: any) => ls + (Number(l.debit) || 0), 0);
+        return sum + lineDebits;
+      }, 0);
+
+      const confirmMsg = `⚠️ تم اكتشاف (${orphanedEntries.length}) قيد محاسبي لأصل تم حذفه بإجمالي مبلغ: ${totalAmount.toLocaleString()} ج.م.\n\n` +
+        orphanedEntries.map(e => `• قيد [${e.reference || e.id.slice(0, 8)}] بتاريخ ${e.transaction_date} - ${e.description}`).join('\n') +
+        `\n\nهل تود حذف هذه القيود المعلقة وتصحيح رصيد ميزان المراجعة فوراً؟`;
+
+      if (!window.confirm(confirmMsg)) {
+        setIsCleaningAssets(false);
+        return;
+      }
+
+      const orphanedIds = orphanedEntries.map(e => e.id);
+
+      // إلغاء الترحيل أولاً لتخطي مشغل حماية القيود المرحلة
+      await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).in('id', orphanedIds);
+      // حذف أسطر القيود
+      await supabase.from('journal_lines').delete().in('journal_entry_id', orphanedIds);
+      // حذف رؤوس القيود
+      await supabase.from('journal_entries').delete().in('id', orphanedIds);
+
+      try {
+        await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+      } catch (_) {}
+
+      showToast(`تم حذف (${orphanedEntries.length}) قيد وتصحيح ميزان المراجعة بنجاح ✅`, 'success');
+      window.location.reload();
+    } catch (err: any) {
+      console.error('Error cleaning orphaned asset entries:', err);
+      showToast('فشل تنظيف قيود الأصول: ' + err.message, 'error');
+    } finally {
+      setIsCleaningAssets(false);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in">
       {/* Header */}
@@ -229,6 +347,15 @@ const AssetManager = () => {
         <div className="flex gap-2">
           {activeTab === 'LIST' && (
             <>
+              <button 
+                onClick={handleCleanOrphanedAssetEntries} 
+                disabled={isCleaningAssets} 
+                className="bg-rose-50 border border-rose-300 text-rose-800 px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-rose-100 shadow-sm transition disabled:opacity-60"
+                title="فحص وتنظيف قيود اليومية للأصول المحذوفة لتصحيح ميزان المراجعة"
+              >
+                {isCleaningAssets ? <Loader2 size={16} className="animate-spin text-rose-600" /> : <ShieldAlert size={16} className="text-rose-600" />}
+                <span>فحص وتنظيف القيود المعلقة</span>
+              </button>
               <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-slate-700 shadow-sm transition">
                 <Printer size={16} /> طباعة التقرير
               </button>

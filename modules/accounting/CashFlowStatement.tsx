@@ -218,8 +218,8 @@ const CashFlowStatement = () => {
           name.includes('جاري الشركاء') ||
           name.includes('توزيعات')
         ) {
-          // استبعاد الأرباح المرحلة لتجنب التكرار مع صافي الدخل
-          if (!type.includes('retained') && !name.includes('مرحلة') && !name.includes('مرحل') && !code.startsWith('33')) {
+          // استبعاد الأرباح المرحلة وحسابات الدخل لتجنب التكرار مع صافي الدخل
+          if (!type.includes('retained') && !name.includes('مرحلة') && !name.includes('مرحل') && !name.includes('صافي الربح') && !name.includes('أرباح العام')) {
             financing.push({ label: `التغير في ${acc.name}`, amount: -movement });
           }
         }

@@ -1073,10 +1073,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // 4. إنشاء قيد اليومية آلياً إذا طلب المستخدم ذلك
     if (create_journal_entry && newAsset) {
       try {
+        const refCode = `ASSET-${newAsset.id.split('-')[0].toUpperCase()}`;
         await addEntry({
           date: newAsset.purchase_date || new Date().toISOString().split('T')[0],
           description: `إثبات شراء أصل ثابت: ${newAsset.name}`,
-          reference: `ASSET-${newAsset.id.split('-')[0].toUpperCase()}`,
+          reference: refCode,
           status: 'posted',
           p_org_id: targetOrgId,
           lines: [
@@ -1094,6 +1095,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }
           ]
         });
+
+        // ربط القيد بـ related_document_id لتسهيل التتبع
+        await supabase
+          .from('journal_entries')
+          .update({ related_document_id: newAsset.id, related_document_type: 'fixed_asset' })
+          .eq('reference', refCode)
+          .eq('organization_id', targetOrgId);
       } catch (jeError) {
         console.error("Failed to create asset journal entry:", jeError);
         showToast('تمت إضافة الأصل ولكن فشل إنشاء القيد آلياً، يرجى إنشاؤه يدوياً.', 'warning');
@@ -1108,8 +1116,27 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await refreshData();
   };
   const deleteAsset = async (id: string) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { error } = await supabase.from('assets').update({ deleted_at: new Date().toISOString() }).eq('id', id);
     if (error) throw error;
+
+    // إلغاء ترحيل قيود الأصل المرتبطة (الشراء والإهلاك) حتى لا تظهر في ميزان المراجعة أثناء وجود الأصل بالسلة
+    try {
+      const prefix = id.split('-')[0].toUpperCase();
+      const shortId = id.slice(0, 6);
+      await supabase
+        .from('journal_entries')
+        .update({ status: 'draft', is_posted: false })
+        .eq('organization_id', targetOrgId)
+        .or(`related_document_id.eq.${id},reference.ilike.ASSET-${prefix}%,reference.ilike.DEP-${shortId}%`);
+
+      if (targetOrgId) {
+        await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
+      }
+    } catch (e) {
+      console.warn('deleteAsset unpost fallback:', e);
+    }
+
     await refreshData();
   };
   const runDepreciation = async (id?: string, amount?: number, date?: string) => { await supabase.rpc('run_monthly_depreciation', { p_asset_id: id, p_amount: amount, p_date: date }); refreshData(); };
@@ -1422,8 +1449,70 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const restoreItem = async (table: string, id: string) => { const { error } = await supabase.from(table).update({ deleted_at: null }).eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
-  const permanentDeleteItem = async (table: string, id: string) => { const { error } = await supabase.from(table).delete().eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
+  const restoreItem = async (table: string, id: string) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { error } = await supabase.from(table).update({ deleted_at: null }).eq('id', id); 
+    if (!error && table === 'assets') {
+      try {
+        const prefix = id.split('-')[0].toUpperCase();
+        const shortId = id.slice(0, 6);
+        await supabase
+          .from('journal_entries')
+          .update({ status: 'posted', is_posted: true })
+          .eq('organization_id', targetOrgId)
+          .or(`related_document_id.eq.${id},reference.ilike.ASSET-${prefix}%,reference.ilike.DEP-${shortId}%`);
+
+        if (targetOrgId) {
+          await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
+        }
+      } catch (e) {
+        console.warn('restoreItem asset repost fallback:', e);
+      }
+    }
+    refreshData(); 
+    return { success: !error, message: error?.message }; 
+  };
+
+  const permanentDeleteItem = async (table: string, id: string) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    if (table === 'assets') {
+      try {
+        const prefix = id.split('-')[0].toUpperCase();
+        const shortId = id.slice(0, 6);
+
+        // 1. العثور على قيود اليومية المرتبطة بالأصل (شراء وإهلاك)
+        const { data: entries } = await supabase
+          .from('journal_entries')
+          .select('id')
+          .eq('organization_id', targetOrgId)
+          .or(`related_document_id.eq.${id},reference.ilike.ASSET-${prefix}%,reference.ilike.DEP-${shortId}%`);
+
+        if (entries && entries.length > 0) {
+          const entryIds = entries.map(e => e.id);
+          // أ. إلغاء الترحيل أولاً لتخطي مشغل حماية القيود المرحلة
+          await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).in('id', entryIds);
+          // ب. حذف أسطر القيود
+          await supabase.from('journal_lines').delete().in('journal_entry_id', entryIds);
+          // ج. حذف رؤوس القيود
+          await supabase.from('journal_entries').delete().in('id', entryIds);
+        }
+
+        // حذف السجلات التابعة
+        await supabase.from('asset_audits').delete().eq('asset_id', id);
+        await supabase.from('asset_transfers').delete().eq('asset_id', id);
+
+        if (targetOrgId) {
+          await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
+        }
+      } catch (e) {
+        console.warn('Error purging asset journal entries during permanent delete:', e);
+      }
+    }
+
+    const { error } = await supabase.from(table).delete().eq('id', id); 
+    refreshData(); 
+    return { success: !error, message: error?.message }; 
+  };
   const exportJournalToCSV = async () => {
     try {
       const orgId = currentSelectedOrgId || currentUser?.organization_id;

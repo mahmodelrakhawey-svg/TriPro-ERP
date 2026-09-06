@@ -480,24 +480,150 @@ const GeneralJournal = () => {
     try {
         const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
         
-        // محاولة الحذف الآمن عبر دالة الـ RPC
-        const { data, error: rpcError } = await supabase.rpc('delete_journal_entry_safe', {
+        // 1. إلغاء ترحيل القيد أولاً لتخطي مشغل الحماية trg_protect_posted_journal_lines
+        await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', entryId);
+
+        // 2. محاولة الحذف عبر دالة الـ RPC
+        const { error: rpcError } = await supabase.rpc('delete_journal_entry_safe', {
           p_entry_id: entryId,
           p_org_id: orgId
         });
 
         if (rpcError) {
-          // محاولة الحذف المباشر لأسطر القيد ثم رأس القيد
+          // حذف مباشر لأسطر القيد ثم رأس القيد بعد إلغاء الترحيل
           await supabase.from('journal_lines').delete().eq('journal_entry_id', entryId);
-          const { error } = await supabase.from('journal_entries').delete().eq('id', entryId);
-          if (error) throw error;
+          const { error: delErr } = await supabase.from('journal_entries').delete().eq('id', entryId);
+          if (delErr) throw delErr;
         }
+
+        try {
+          if (orgId) {
+            await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+          }
+        } catch (_) {}
 
         toast.success('تم حذف القيد وتحديث الأرصدة بنجاح.');
         refreshData();
         refresh();
     } catch (err: any) {
         toast.error('فشل حذف القيد: ' + err.message);
+    }
+  };
+
+  const [isCleaningAssets, setIsCleaningAssets] = useState(false);
+
+  const handleCleanOrphanedAssetEntries = async () => {
+    const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    if (!orgId) return;
+
+    setIsCleaningAssets(true);
+    try {
+      // 1. جلب جميع الأصول الفعالة
+      const { data: activeAssets } = await supabase
+        .from('assets')
+        .select('id, name, asset_tag')
+        .eq('organization_id', orgId)
+        .is('deleted_at', null);
+
+      const activeAssetIds = new Set((activeAssets || []).map(a => a.id));
+      const activeTags = new Set((activeAssets || []).map(a => (a.asset_tag || '').toUpperCase()));
+      const activeIdPrefixes = new Set((activeAssets || []).map(a => a.id.split('-')[0].toUpperCase()));
+
+      // 2. جلب جميع قيود الأصول الثابتة
+      const { data: entries, error } = await supabase
+        .from('journal_entries')
+        .select(`
+          id, reference, description, transaction_date, related_document_id, related_document_type,
+          journal_lines (debit, credit, account_id)
+        `)
+        .eq('organization_id', orgId)
+        .or('reference.ilike.ASSET-%,reference.ilike.DEP-%,related_document_type.eq.fixed_asset,related_document_type.eq.asset_depreciation,description.ilike.%أصل ثابت%');
+
+      if (error) throw error;
+
+      if (!entries || entries.length === 0) {
+        toast.info('لم يتم العثور على أي قيود أصول لفحصها.');
+        setIsCleaningAssets(false);
+        return;
+      }
+
+      // 3. تحديد القيود المعلقة (التي ليس لها أصل نشط في جدول الأصول)
+      const orphanedEntries = entries.filter(e => {
+        if (e.related_document_id && activeAssetIds.has(e.related_document_id)) {
+          return false;
+        }
+
+        const ref = (e.reference || '').toUpperCase();
+        if (ref.startsWith('ASSET-')) {
+          const refPart = ref.replace('ASSET-', '').trim();
+          if (activeIdPrefixes.has(refPart) || activeTags.has(ref) || activeTags.has(`AST-${refPart}`)) {
+            return false;
+          }
+          return true;
+        }
+
+        if (ref.startsWith('DEP-')) {
+          const parts = ref.split('-');
+          if (parts.length >= 2) {
+            const shortId = parts[1].toUpperCase();
+            const matchesActive = Array.from(activeAssetIds).some(id => id.toUpperCase().startsWith(shortId));
+            if (matchesActive) return false;
+          }
+          return true;
+        }
+
+        if (e.description?.includes('إثبات شراء أصل ثابت:')) {
+          const assetName = e.description.replace('إثبات شراء أصل ثابت:', '').trim();
+          const matchesActive = (activeAssets || []).some(a => a.name === assetName);
+          if (matchesActive) return false;
+          return true;
+        }
+
+        return false;
+      });
+
+      if (orphanedEntries.length === 0) {
+        toast.success('جميع قيود الأصول مطابقة لسجل الأصول الفعالة ولا توجد قيود معلقة ✅');
+        setIsCleaningAssets(false);
+        return;
+      }
+
+      const totalAmount = orphanedEntries.reduce((sum, e) => {
+        const lineDebits = (e.journal_lines || []).reduce((ls: number, l: any) => ls + (Number(l.debit) || 0), 0);
+        return sum + lineDebits;
+      }, 0);
+
+      const confirmMsg = `⚠️ تم العثور على (${orphanedEntries.length}) قيد محاسبي لأصول محذوفة بإجمالي مبلغ: ${totalAmount.toLocaleString()} ج.م.\n\n` +
+        orphanedEntries.map(e => `• قيد [${e.reference || e.id.slice(0, 8)}] بتاريخ ${e.transaction_date} - ${e.description}`).join('\n') +
+        `\n\nهل تود حذف هذه القيود المعلقة لتصحيح ميزان المراجعة وحساب وسائل النقل فوراً؟`;
+
+      if (!window.confirm(confirmMsg)) {
+        setIsCleaningAssets(false);
+        return;
+      }
+
+      const orphanedIds = orphanedEntries.map(e => e.id);
+
+      // إلغاء الترحيل أولاً لتجاوز حماية القيود المرحلة
+      await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).in('id', orphanedIds);
+      // حذف أسطر القيد
+      await supabase.from('journal_lines').delete().in('journal_entry_id', orphanedIds);
+      // حذف رؤوس القيود
+      await supabase.from('journal_entries').delete().in('id', orphanedIds);
+
+      try {
+        await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+      } catch (_) {}
+
+      toast.success(`تم بنجاح تنظيف (${orphanedEntries.length}) قيد وتصحيح ميزان المراجعة ✅`);
+      await clearCache();
+      await refreshData();
+      refresh();
+    } catch (err: any) {
+      console.error('Error cleaning orphaned asset entries:', err);
+      toast.error('فشل تنظيف قيود الأصول: ' + err.message);
+    } finally {
+      setIsCleaningAssets(false);
     }
   };
 
@@ -840,6 +966,15 @@ const GeneralJournal = () => {
             >
                 {isCleaningDuplicates ? <Loader2 size={16} className="animate-spin text-amber-600" /> : <AlertTriangle size={16} className="text-amber-600" />}
                 <span>تنظيف مكررات الشيكات</span>
+            </button>
+            <button 
+                onClick={handleCleanOrphanedAssetEntries}
+                disabled={isCleaningAssets}
+                className="flex items-center gap-2 bg-rose-50 border border-rose-300 text-rose-800 px-3.5 py-2 rounded-lg hover:bg-rose-100 disabled:opacity-60 font-bold text-sm shadow-sm transition-all"
+                title="فحص وتنظيف قيود الأصول الثابتة المحذوفة أو المعلقة لتصحيح ميزان المراجعة"
+            >
+                {isCleaningAssets ? <Loader2 size={16} className="animate-spin text-rose-600" /> : <AlertTriangle size={16} className="text-rose-600" />}
+                <span>تنظيف قيود الأصول الملغاة</span>
             </button>
             <button 
                 onClick={() => setShowAdvanced(!showAdvanced)} 

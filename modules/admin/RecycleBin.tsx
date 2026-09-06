@@ -191,7 +191,11 @@ const RecycleBin = () => {
       }
     }
 
-    if (window.confirm(`⚠️ تحذير شديد الأهمية:\n\nهل أنت متأكد من حذف "${name}" نهائياً من قاعدة البيانات؟\nلن يمكن استعادة هذا السجل بعد الآن.`)) {
+    const confirmText = currentTab.table === 'assets'
+      ? `⚠️ تحذير شديد الأهمية:\n\nهل أنت متأكد من حذف الأصل "${name}" نهائياً من قاعدة البيانات؟\nسيتم حذف بطاقة الأصل وجميع قيود الشراء والإهلاك التابعة له لتنظيف ميزان المراجعة تماماً.`
+      : `⚠️ تحذير شديد الأهمية:\n\nهل أنت متأكد من حذف "${name}" نهائياً من قاعدة البيانات؟\nلن يمكن استعادة هذا السجل بعد الآن.`;
+
+    if (window.confirm(confirmText)) {
       const result = await permanentDeleteItem(currentTab.table, id);
       if (result.success) {
         showToast('تم الحذف النهائي بنجاح 🗑️', 'success');
