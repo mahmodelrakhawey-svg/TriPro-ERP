@@ -172,7 +172,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         supabase.from('receipt_vouchers').select('id, customer_id, voucher_number, amount, related_journal_entry_id'),
         supabase.from('sales_returns').select('id, customer_id, return_number, total_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")'),
         supabase.from('credit_notes').select('id, customer_id, credit_note_number, total_amount, related_journal_entry_id').eq('status', 'posted'),
-        supabase.from('cheques').select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id').eq('type', 'incoming').neq('status', 'rejected'),
+        supabase.from('cheques').select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id').eq('type', 'incoming'),
         supabase.from('orders').select('id, customer_id, order_number, related_journal_entry_id').not('status', 'eq', 'CANCELLED'),
         SubledgerRegistry.fetchCustomerDocs(userOrgId, allowedModules)
       ]);
@@ -344,10 +344,28 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           if (!custId) {
             const rawNum = ref.replace(/^(INV-|RV-|SR-|CN-|CHQ-|REJ-CHQ-|REJ-OUT-|REJ-|BILL-|CLAIM-|HIMS-)/i, '');
             if (rawNum) {
-              custId = refToCustomerId.get(rawNum) || refToCustomerId.get(`CHQ-${rawNum}`) || refToCustomerId.get(`REJ-CHQ-${rawNum}`);
+              custId = refToCustomerId.get(rawNum) 
+                    || refToCustomerId.get(`CHQ-${rawNum}`) 
+                    || refToCustomerId.get(`REJ-CHQ-${rawNum}`)
+                    || refToCustomerId.get(`REJ-${rawNum}`)
+                    || refToCustomerId.get(`REJ-OUT-${rawNum}`);
             }
           }
         }
+
+        // 🛡️ استخراج رقم الشيك من المرجع أو البيان في حالة ارتداد أو رفض الشيك
+        if (!custId) {
+          const chqMatch = ref.match(/(?:REJ-CHQ-|REJ-OUT-|REJ-|CHQ-)?([0-9]+)/i) 
+                        || desc.match(/(?:شيك\s*(?:رقم)?|CHQ-?|REJ-CHQ-?)\s*([0-9]+)/i);
+          if (chqMatch && chqMatch[1]) {
+            const num = chqMatch[1].trim();
+            custId = refToCustomerId.get(num) 
+                  || refToCustomerId.get(`CHQ-${num}`) 
+                  || refToCustomerId.get(`REJ-CHQ-${num}`)
+                  || refToCustomerId.get(`REJ-${num}`);
+          }
+        }
+
         if (!custId) {
           const lowerDesc = desc.toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
           const matchedCust = customersList?.find(c => {

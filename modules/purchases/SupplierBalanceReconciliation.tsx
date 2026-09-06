@@ -185,8 +185,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         supabase
           .from('cheques')
           .select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id')
-          .eq('type', 'outgoing')
-          .neq('status', 'rejected'),
+          .eq('type', 'outgoing'),
 
         // مستخلصات مقاولي الباطن للتبويب المنفصل
         supabase
@@ -312,6 +311,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
               refToSupplierId.set(`CHQ-${rawNum}`, suppId);
               refToSupplierId.set(`REJ-OUT-${rawNum}`, suppId);
               refToSupplierId.set(`REJ-CHQ-${rawNum}`, suppId);
+              refToSupplierId.set(`REJ-${rawNum}`, suppId);
               refToSupplierId.set(`DISB-${rawNum}`, suppId);
             }
           }
@@ -440,8 +440,27 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           if (!suppId) {
             const rawRef = ref.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-|REJ-CHQ-|REJ-|DISB-|CUST-|SETTL-|MAINT-|STD-|REQ-)/i, '');
             if (rawRef) {
-              suppId = refToSupplierId.get(rawRef) || refToSupplierId.get(`PV-${rawRef}`) || refToSupplierId.get(`CHQ-${rawRef}`) || refToSupplierId.get(`DISB-${rawRef}`);
+              suppId = refToSupplierId.get(rawRef) 
+                    || refToSupplierId.get(`CHQ-${rawRef}`) 
+                    || refToSupplierId.get(`REJ-CHQ-${rawRef}`) 
+                    || refToSupplierId.get(`REJ-${rawRef}`) 
+                    || refToSupplierId.get(`REJ-OUT-${rawRef}`) 
+                    || refToSupplierId.get(`PV-${rawRef}`) 
+                    || refToSupplierId.get(`DISB-${rawRef}`);
             }
+          }
+        }
+
+        // 🛡️ استخراج رقم الشيك من المرجع أو البيان في حالة ارتداد أو رفض أو صرف الشيك
+        if (!suppId) {
+          const chqMatch = ref.match(/(?:REJ-CHQ-|REJ-OUT-|REJ-|CHQ-)?([0-9]+)/i) 
+                        || desc.match(/(?:شيك\s*(?:رقم)?|CHQ-?|REJ-CHQ-?)\s*([0-9]+)/i);
+          if (chqMatch && chqMatch[1]) {
+            const num = chqMatch[1].trim();
+            suppId = refToSupplierId.get(num) 
+                  || refToSupplierId.get(`CHQ-${num}`) 
+                  || refToSupplierId.get(`REJ-CHQ-${num}`)
+                  || refToSupplierId.get(`REJ-${num}`);
           }
         }
 
