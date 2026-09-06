@@ -337,6 +337,7 @@ CREATE TABLE public.purchase_invoices (
     total_amount numeric,
     tax_amount numeric,
     subtotal numeric,
+    discount_amount numeric DEFAULT 0,
     paid_amount numeric DEFAULT 0,
     currency text DEFAULT 'EGP',
     exchange_rate numeric DEFAULT 1,

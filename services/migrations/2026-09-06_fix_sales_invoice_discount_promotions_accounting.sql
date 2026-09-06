@@ -10,9 +10,12 @@
 -- 5. تصحيح وموازنة القيود السابقة غير المتوازنة لفواتير المبيعات (مثل INV-986080)
 -- ========================================================================================
 
--- 1. إضافة عمود خصم العروض الترويجية
+-- 1. إضافة عمود خصم العروض الترويجية للمبيعات وعمود الخصم للمشتريات
 ALTER TABLE public.invoices 
 ADD COLUMN IF NOT EXISTS promo_discount numeric DEFAULT 0;
+
+ALTER TABLE public.purchase_invoices 
+ADD COLUMN IF NOT EXISTS discount_amount numeric DEFAULT 0;
 
 -- 2. تحديث دالة الحفظ الذري للمسودات لدعم promo_discount
 CREATE OR REPLACE FUNCTION public.save_sales_invoice_draft(
@@ -440,7 +443,7 @@ BEGIN
 
     v_org_id := COALESCE(p_org_id, v_invoice.organization_id, public.get_my_org());
     v_wh_id := COALESCE(p_warehouse_id, v_invoice.warehouse_id, (SELECT id FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1));
-    v_discount_amount := COALESCE(v_invoice.discount_amount, 0);
+    v_discount_amount := COALESCE((to_jsonb(v_invoice)->>'discount_amount')::numeric, 0);
 
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE code IN ('10301', '1105') AND organization_id = v_org_id LIMIT 1));
@@ -651,3 +654,5 @@ GRANT EXECUTE ON FUNCTION public.post_sales_invoice(uuid, uuid, uuid) TO authent
 GRANT EXECUTE ON FUNCTION public.post_sales_invoice(uuid, uuid, uuid) TO anon;
 GRANT EXECUTE ON FUNCTION public.approve_purchase_invoice(uuid, uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.approve_purchase_invoice(uuid, uuid, uuid) TO anon;
+GRANT EXECUTE ON FUNCTION public.post_purchase_invoice(uuid, uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.post_purchase_invoice(uuid, uuid, uuid) TO anon;
