@@ -8,9 +8,11 @@ import ReportHeader from '../../components/ReportHeader';
 type StockMovement = {
   id: string;
   date: string;
+  createdAt?: string;
   type: 'IN' | 'OUT';
   docType: string;
   docNumber: string;
+  productId?: string;
   productName: string;
   quantity: number;
   uomId?: string | null;
@@ -18,6 +20,7 @@ type StockMovement = {
   baseUnitName?: string;
   displayQty?: number;
   displayUnitName?: string;
+  runningBalance?: number;
   warehouseName: string;
   notes?: string;
 };
@@ -50,6 +53,21 @@ const DetailedStockMovementReport = () => {
     fetchUoms();
   }, []);
 
+  const convertQty = (qty: number, fromUomId: string | null | undefined, toUomId: string | null | undefined) => {
+    if (!fromUomId || !toUomId || fromUomId === toUomId) return qty;
+    const fromUom = uoms.find(u => u.id === fromUomId);
+    const toUom = uoms.find(u => u.id === toUomId);
+    if (!fromUom || !toUom) return qty;
+    
+    let fromRatio = Number(fromUom.ratio) || 1;
+    let toRatio = Number(toUom.ratio) || 1;
+    
+    if (fromUom.uom_type === 'smaller') fromRatio = 1.0 / fromRatio;
+    if (toUom.uom_type === 'smaller') toRatio = 1.0 / toRatio;
+    
+    return (qty * fromRatio) / toRatio;
+  };
+
   const fetchData = async () => {
     setLoading(true);
     if (currentUser?.role === 'demo') {
@@ -68,16 +86,7 @@ const DetailedStockMovementReport = () => {
       const userOrgId = session?.user?.user_metadata?.org_id;
       if (!userOrgId) return;
 
-      // جلب الرصيد الافتتاحي من جدول opening_inventories
-      let openingBalanceQuery = supabase
-        .from('opening_inventories')
-        .select('quantity, warehouse_id')
-        .eq('organization_id', userOrgId);
-      if (selectedProduct) openingBalanceQuery = openingBalanceQuery.eq('product_id', selectedProduct);
-      if (selectedWarehouse) openingBalanceQuery = openingBalanceQuery.eq('warehouse_id', selectedWarehouse);
-      const { data: openingBalanceItems } = await openingBalanceQuery;
-      const totalOpening = openingBalanceItems?.reduce((sum, item) => sum + Number(item.quantity || 0), 0) || 0;
-      setOpeningBalance(totalOpening);
+      const isStartAfterYearStart = selectedProduct && startDate > `${selectedFiscalYear || new Date().getFullYear()}-01-01`;
 
       // 1. المبيعات (Sales) - إخراج (OUT)
       let salesQuery = supabase
@@ -511,8 +520,8 @@ const DetailedStockMovementReport = () => {
       });
 
       // 9. مبيعات واستهلاك المطاعم (Restaurant)
-      // أ. مباشر
-      const { data: restDirect } = await supabase
+      // أ. مبيعات مطعم مباشرة
+      let restDirectQuery = supabase
         .from('order_items')
         .select('quantity, uom_id, product_id, products(name, base_uom_id, unit), orders!inner(created_at, order_number, status, warehouse_id)')
         .eq('orders.organization_id', userOrgId)
@@ -520,14 +529,20 @@ const DetailedStockMovementReport = () => {
         .lte('orders.created_at', `${endDate}T23:59:59`)
         .in('orders.status', ['COMPLETED', 'PAID']);
 
+      if (selectedProduct) restDirectQuery = restDirectQuery.eq('product_id', selectedProduct);
+      if (selectedWarehouse) restDirectQuery = restDirectQuery.eq('orders.warehouse_id', selectedWarehouse);
+
+      const { data: restDirect } = await restDirectQuery;
+
       restDirect?.forEach((item: any) => {
-          if (selectedProduct && item.product_id !== selectedProduct) return;
           allMovements.push({
               id: `REST-SALE-${item.orders.order_number}-${item.product_id}`,
               date: item.orders.created_at.split('T')[0],
+              createdAt: item.orders.created_at,
               type: 'OUT',
               docType: 'مبيعات مطعم',
               docNumber: item.orders.order_number,
+              productId: item.product_id,
               productName: item.products?.name,
               quantity: item.quantity,
               uomId: item.uom_id,
@@ -537,6 +552,57 @@ const DetailedStockMovementReport = () => {
               notes: 'بيع مباشر'
           });
       });
+
+      // ب. استهلاك المواد الخام في وجبات المطعم (Restaurant BOM Consumptions)
+      let bomQuery = supabase
+        .from('bill_of_materials')
+        .select('product_id, raw_material_id, quantity_required, uom_id');
+      
+      if (selectedProduct) {
+        bomQuery = bomQuery.eq('raw_material_id', selectedProduct);
+      }
+      const { data: boms } = await bomQuery;
+
+      if (boms && boms.length > 0) {
+        const parentMealIds = Array.from(new Set(boms.map((b: any) => b.product_id)));
+        let restConsQuery = supabase
+          .from('order_items')
+          .select('id, product_id, quantity, uom_id, orders!inner(id, order_number, created_at, status, order_type, warehouse_id)')
+          .eq('orders.organization_id', userOrgId)
+          .in('product_id', parentMealIds)
+          .in('orders.status', ['COMPLETED', 'PAID'])
+          .gte('orders.created_at', `${startDate}T00:00:00`)
+          .lte('orders.created_at', `${endDate}T23:59:59`);
+
+        if (selectedWarehouse) {
+          restConsQuery = restConsQuery.eq('orders.warehouse_id', selectedWarehouse);
+        }
+
+        const { data: restConsData } = await restConsQuery;
+        restConsData?.forEach((item: any) => {
+          const matchingBoms = boms.filter((b: any) => b.product_id === item.product_id && (!selectedProduct || b.raw_material_id === selectedProduct));
+          matchingBoms.forEach((bom: any) => {
+            const consumedQty = Number(item.quantity) * Number(bom.quantity_required);
+            const rawProd = products.find(p => p.id === bom.raw_material_id);
+            allMovements.push({
+              id: `REST-CONS-${item.id}-${bom.raw_material_id}`,
+              date: item.orders.created_at.split('T')[0],
+              createdAt: item.orders.created_at,
+              type: 'OUT',
+              docType: 'استهلاك مطعم',
+              docNumber: item.orders.order_number,
+              productId: bom.raw_material_id,
+              productName: rawProd?.name || 'مادة خام',
+              quantity: consumedQty,
+              uomId: bom.uom_id || null,
+              baseUomId: rawProd?.base_uom_id,
+              baseUnitName: rawProd?.unit || 'قطعة',
+              warehouseName: getWName(item.orders.warehouse_id),
+              notes: 'استهلاك في وجبة (BOM)'
+            });
+          });
+        });
+      }
 
       // 8. رصيد أول المدة (Opening Inventory)
       let openingQuery = supabase
@@ -554,9 +620,11 @@ const DetailedStockMovementReport = () => {
           allMovements.push({
               id: `OPEN-${item.product_id}-${item.created_at}`,
               date: item.created_at.split('T')[0],
+              createdAt: item.created_at,
               type: 'IN',
               docType: 'رصيد افتتاحي',
               docNumber: '-',
+              productId: item.product_id,
               productName: item.products?.name,
               quantity: item.quantity,
               uomId: item.uom_id,
@@ -617,9 +685,44 @@ const DetailedStockMovementReport = () => {
         });
       });
 
-      // ترتيب الحركات حسب التاريخ
-      allMovements.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-      setMovements(allMovements);
+      // فرز الحركات زمنياً:
+      // 1. التاريخ تصاعدياً
+      // 2. إذا تساوى التاريخ: الرصيد الافتتاحي أولاً، ثم الوارد قبل الصادر
+      // 3. ثم بحسب وقت الإنشاء createdAt
+      allMovements.sort((a, b) => {
+        const dateA = new Date(a.date).getTime();
+        const dateB = new Date(b.date).getTime();
+        if (dateA !== dateB) return dateA - dateB;
+
+        // إعطاء الأولوية للرصيد الافتتاحي ليظهر أولاً في نفس اليوم
+        if (a.docType === 'رصيد افتتاحي') return -1;
+        if (b.docType === 'رصيد افتتاحي') return 1;
+
+        // الوارد قبل الصادر في نفس اليوم
+        if (a.type === 'IN' && b.type === 'OUT') return -1;
+        if (a.type === 'OUT' && b.type === 'IN') return 1;
+
+        const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return createdA - createdB;
+      });
+
+      let calculatedPriorBal = 0;
+      const periodMovements: StockMovement[] = [];
+
+      allMovements.forEach(m => {
+        const movDateOnly = m.date?.includes('T') ? m.date.split('T')[0] : (m.date || '');
+        if (movDateOnly < startDate) {
+          const qtyInBase = convertQty(m.quantity, m.uomId, m.baseUomId);
+          if (m.type === 'IN') calculatedPriorBal += qtyInBase;
+          else calculatedPriorBal -= qtyInBase;
+        } else if (movDateOnly <= endDate) {
+          periodMovements.push(m);
+        }
+      });
+
+      setOpeningBalance(calculatedPriorBal);
+      setMovements(periodMovements);
 
     } catch (error) {
       console.error("Error fetching stock movements:", error);
@@ -633,31 +736,50 @@ const DetailedStockMovementReport = () => {
   }, [startDate, endDate, selectedProduct, selectedWarehouse]);
 
   const processedMovements = useMemo(() => {
-    const convertQty = (qty: number, fromUomId: string | null | undefined, toUomId: string | null | undefined) => {
-      if (!fromUomId || !toUomId || fromUomId === toUomId) return qty;
-      const fromUom = uoms.find(u => u.id === fromUomId);
-      const toUom = uoms.find(u => u.id === toUomId);
-      if (!fromUom || !toUom) return qty;
-      
-      let fromRatio = Number(fromUom.ratio) || 1;
-      let toRatio = Number(toUom.ratio) || 1;
-      
-      if (fromUom.uom_type === 'smaller') fromRatio = 1.0 / fromRatio;
-      if (toUom.uom_type === 'smaller') toRatio = 1.0 / toRatio;
-      
-      return (qty * fromRatio) / toRatio;
-    };
+    let running = openingBalance || 0;
+    const prodBalances: Record<string, number> = {};
 
     return movements.map(m => {
       const displayQty = displayUnit === 'base' ? convertQty(m.quantity, m.uomId, m.baseUomId) : m.quantity;
       const displayUnitName = displayUnit === 'base' ? (m.baseUnitName || 'قطعة') : (uoms.find(u => u.id === m.uomId)?.name || m.baseUnitName || 'قطعة');
+      
+      if (selectedProduct) {
+        if (m.type === 'IN') running += displayQty;
+        else running -= displayQty;
+      } else {
+        const key = m.productId || m.productName;
+        if (prodBalances[key] === undefined) prodBalances[key] = 0;
+        if (m.type === 'IN') prodBalances[key] += displayQty;
+        else prodBalances[key] -= displayQty;
+        running = prodBalances[key];
+      }
+
       return {
         ...m,
         displayQty,
-        displayUnitName
+        displayUnitName,
+        runningBalance: running
       };
     });
-  }, [movements, displayUnit, uoms]);
+  }, [movements, displayUnit, uoms, openingBalance, selectedProduct]);
+
+  const totalIn = useMemo(() => {
+    return processedMovements.filter(m => m.type === 'IN').reduce((sum, m) => sum + (m.displayQty || 0), 0);
+  }, [processedMovements]);
+
+  const totalOut = useMemo(() => {
+    return processedMovements.filter(m => m.type === 'OUT').reduce((sum, m) => sum + (m.displayQty || 0), 0);
+  }, [processedMovements]);
+
+  const netBalance = useMemo(() => {
+    return (openingBalance || 0) + totalIn - totalOut;
+  }, [openingBalance, totalIn, totalOut]);
+
+  const selectedProductObj = useMemo(() => {
+    return products.find(p => p.id === selectedProduct);
+  }, [products, selectedProduct]);
+
+  const currentUnitName = selectedProductObj?.unit || (displayUnit === 'base' ? 'وحدة أساسية' : 'قطعة');
 
   const exportToExcel = () => {
     const data = processedMovements.map(m => ({
@@ -666,8 +788,10 @@ const DetailedStockMovementReport = () => {
       'رقم المستند': m.docNumber,
       'الصنف': m.productName,
       'المستودع': m.warehouseName,
-      'وارد': m.type === 'IN' ? `${m.displayQty} ${m.displayUnitName}` : 0,
-      'صادر': m.type === 'OUT' ? `${m.displayQty} ${m.displayUnitName}` : 0,
+      'وارد': m.type === 'IN' ? m.displayQty : 0,
+      'صادر': m.type === 'OUT' ? m.displayQty : 0,
+      'الرصيد': m.runningBalance ?? 0,
+      'الوحدة': m.displayUnitName || '',
       'ملاحظات': m.notes || ''
     }));
 
@@ -731,12 +855,36 @@ const DetailedStockMovementReport = () => {
         </button>
       </div>
 
+      {/* 📊 بطاقات مؤشرات حركة المخزون التلخيصية (KPI Summary Cards) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 print:grid-cols-3">
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 shadow-sm">
+          <div className="text-xs font-bold text-emerald-700 mb-1">إجمالي كمية الوارد (IN)</div>
+          <div className="text-2xl font-black text-emerald-800 font-mono">
+            +{totalIn.toLocaleString()} <span className="text-sm font-normal text-emerald-600">{currentUnitName}</span>
+          </div>
+        </div>
+
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4 shadow-sm">
+          <div className="text-xs font-bold text-red-700 mb-1">إجمالي كمية الصادر (OUT)</div>
+          <div className="text-2xl font-black text-red-800 font-mono">
+            -{totalOut.toLocaleString()} <span className="text-sm font-normal text-red-600">{currentUnitName}</span>
+          </div>
+        </div>
+
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 shadow-sm">
+          <div className="text-xs font-bold text-blue-700 mb-1">صافي الرصيد المتبقي (الرصيد الحالي)</div>
+          <div className="text-2xl font-black text-blue-900 font-mono">
+            {netBalance.toLocaleString()} <span className="text-sm font-normal text-blue-700">{currentUnitName}</span>
+          </div>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:shadow-none print:border-none">
         <ReportHeader title="تقرير حركة المخزون التفصيلي" subtitle={`الفترة من ${startDate} إلى ${endDate}`} />
         
         {loading ? (
             <div className="p-12 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" size={32} /></div>
-        ) : processedMovements.length === 0 ? (
+        ) : processedMovements.length === 0 && openingBalance === 0 ? (
             <div className="p-12 text-center text-slate-500">لا توجد حركات مخزنية في هذه الفترة</div>
         ) : (
             <div className="overflow-x-auto">
@@ -748,18 +896,29 @@ const DetailedStockMovementReport = () => {
                             <th className="p-3">رقم المستند</th>
                             <th className="p-3">الصنف</th>
                             <th className="p-3">المستودع</th>
-                            <th className="p-3 text-center bg-emerald-50 text-emerald-800">وارد</th>
-                            <th className="p-3 text-center bg-red-50 text-red-800">صادر</th>
+                            <th className="p-3 text-center bg-emerald-50 text-emerald-800">وارد (+)</th>
+                            <th className="p-3 text-center bg-red-50 text-red-800">صادر (-)</th>
+                            <th className="p-3 text-center bg-blue-50 text-blue-800">الرصيد</th>
                             <th className="p-3">ملاحظات</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {openingBalance > 0 && (
-                            <tr className="bg-blue-50 font-semibold">
-                                <td colSpan={5} className="p-3 text-blue-800 text-right">رصيد افتتاحي</td>
-                                <td className="p-3 text-center text-blue-800 bg-blue-50/50">{openingBalance.toLocaleString()} {displayUnit === 'base' ? 'وحدة أساسية' : ''}</td>
-                                <td className="p-3 text-center text-blue-800 bg-blue-50/50">-</td>
-                                <td className="p-3"></td>
+                        {openingBalance !== 0 && (
+                            <tr className="bg-blue-50/90 font-bold border-b-2 border-blue-200">
+                                <td className="p-3 text-blue-900">{startDate}</td>
+                                <td className="p-3 text-blue-900" colSpan={4}>
+                                  رصيد ما قبل الفترة (رصيد سابق منقول حتى {startDate})
+                                </td>
+                                <td className="p-3 text-center text-blue-900 bg-blue-100/50">
+                                  {openingBalance > 0 ? `${openingBalance.toLocaleString()} ${currentUnitName}` : '-'}
+                                </td>
+                                <td className="p-3 text-center text-blue-900 bg-blue-100/50">
+                                  {openingBalance < 0 ? `${Math.abs(openingBalance).toLocaleString()} ${currentUnitName}` : '-'}
+                                </td>
+                                <td className="p-3 text-center font-black text-blue-950 bg-blue-200/60 font-mono">
+                                  {openingBalance.toLocaleString()} {currentUnitName}
+                                </td>
+                                <td className="p-3 text-blue-800 text-xs">رصيد المخزون الدفتري قبل بداية الفترة المختارة</td>
                             </tr>
                         )}
                         {processedMovements.map((move, idx) => (
@@ -769,6 +928,8 @@ const DetailedStockMovementReport = () => {
                                     <span className={`px-2 py-1 rounded text-xs font-bold ${
                                         move.docType.includes('مبيعات') ? 'bg-blue-100 text-blue-700' :
                                         move.docType.includes('مشتريات') ? 'bg-purple-100 text-purple-700' :
+                                        move.docType.includes('استهلاك') ? 'bg-amber-100 text-amber-700' :
+                                        move.docType.includes('رصيد افتتاحي') ? 'bg-emerald-100 text-emerald-800' :
                                         'bg-slate-100 text-slate-700'
                                     }`}>
                                         {move.docType}
@@ -777,11 +938,14 @@ const DetailedStockMovementReport = () => {
                                 <td className="p-3 font-mono font-bold text-slate-700">{move.docNumber}</td>
                                 <td className="p-3 font-bold">{move.productName}</td>
                                 <td className="p-3 text-slate-500">{move.warehouseName}</td>
-                                <td className="p-3 text-center font-bold text-emerald-600 bg-emerald-50/30">
-                                    {move.type === 'IN' ? `${move.displayQty?.toLocaleString()} ${move.displayUnitName}` : '-'}
+                                <td className="p-3 text-center font-bold text-emerald-600 bg-emerald-50/30 font-mono">
+                                    {move.type === 'IN' ? `+${move.displayQty?.toLocaleString()} ${move.displayUnitName}` : '-'}
                                 </td>
-                                <td className="p-3 text-center font-bold text-red-600 bg-red-50/30">
-                                    {move.type === 'OUT' ? `${move.displayQty?.toLocaleString()} ${move.displayUnitName}` : '-'}
+                                <td className="p-3 text-center font-bold text-red-600 bg-red-50/30 font-mono">
+                                    {move.type === 'OUT' ? `-${move.displayQty?.toLocaleString()} ${move.displayUnitName}` : '-'}
+                                </td>
+                                <td className="p-3 text-center font-bold text-blue-700 bg-blue-50/30 font-mono">
+                                    {move.runningBalance !== undefined ? `${move.runningBalance.toLocaleString()} ${move.displayUnitName}` : '-'}
                                 </td>
                                 <td className="p-3 text-slate-500 text-xs max-w-xs truncate" title={move.notes}>{move.notes || '-'}</td>
                             </tr>
@@ -789,14 +953,19 @@ const DetailedStockMovementReport = () => {
                     </tbody>
                     <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300">
                         <tr>
-                            <td colSpan={5} className="p-3 text-left">الإجمالي:</td>
-                            <td className="p-3 text-center text-emerald-700">
-                                {processedMovements.filter(m => m.type === 'IN').reduce((sum, m) => sum + (m.displayQty || 0), 0)?.toLocaleString()}
+                            <td colSpan={5} className="p-3 text-left font-black text-slate-800">الإجمالي العام للفترة:</td>
+                            <td className="p-3 text-center font-black font-mono text-emerald-700 bg-emerald-50">
+                                +{totalIn.toLocaleString()} {currentUnitName}
                             </td>
-                            <td className="p-3 text-center text-red-700">
-                                {processedMovements.filter(m => m.type === 'OUT').reduce((sum, m) => sum + (m.displayQty || 0), 0)?.toLocaleString()}
+                            <td className="p-3 text-center font-black font-mono text-red-700 bg-red-50">
+                                -{totalOut.toLocaleString()} {currentUnitName}
                             </td>
-                            <td></td>
+                            <td className="p-3 text-center font-black font-mono text-blue-800 bg-blue-100 text-base">
+                                {netBalance.toLocaleString()} {currentUnitName}
+                            </td>
+                            <td className="p-3 text-slate-600 text-xs font-semibold">
+                                صافي رصيد المخزون (الوارد - الصادر)
+                            </td>
                         </tr>
                     </tfoot>
                 </table>
