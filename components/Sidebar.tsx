@@ -546,8 +546,22 @@ const Sidebar: React.FC = () => {
   };
 
   return (
-    <div className="w-64 bg-gray-900 text-white flex flex-col p-4 h-screen shadow-xl sticky top-0 overflow-y-auto custom-scrollbar shrink-0" dir="rtl">
-      <div className="text-2xl font-black mb-8 px-2 tracking-tight text-blue-500 shrink-0">TriPro ERP</div>
+    <div className="w-64 bg-[#0b132b] text-slate-200 flex flex-col p-4 h-screen shadow-2xl sticky top-0 overflow-y-auto custom-scrollbar shrink-0 border-l border-white/5" dir="rtl">
+      {/* 🌟 هوية وشعار TriPro ERP المحدثة */}
+      <div className="flex items-center gap-3 mb-6 px-2 shrink-0">
+        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 via-indigo-600 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/30 ring-1 ring-white/20 shrink-0">
+          <Layers className="text-white w-5 h-5" />
+        </div>
+        <div className="flex flex-col">
+          <div className="flex items-center gap-1.5">
+            <span className="text-lg font-black text-white tracking-tight">TriPro</span>
+            <span className="text-lg font-black bg-gradient-to-r from-blue-400 to-sky-300 bg-clip-text text-transparent">ERP</span>
+          </div>
+          <span className="text-[9px] font-black uppercase tracking-widest text-sky-400/80">
+            ENTERPRISE • v7.0
+          </span>
+        </div>
+      </div>
       
       <nav className="flex-1">
         <ul className="space-y-1">
@@ -560,16 +574,16 @@ const Sidebar: React.FC = () => {
                 <li key={`section-${index}`} className="pt-2">
                   <button 
                     onClick={() => toggleSection(item.label)}
-                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold hover:bg-gray-800 group ${isOpen || hasActiveChild ? 'bg-gray-800 text-blue-400' : 'text-gray-400'}`}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold hover:bg-white/5 group ${isOpen || hasActiveChild ? 'bg-white/5 text-sky-400' : 'text-slate-400'}`}
                   >
                     <span className="text-xs font-black uppercase tracking-widest leading-none">
                       {item.label}
                     </span>
-                    <ChevronLeft size={14} className={`transition-transform duration-300 ${isOpen ? '-rotate-90 text-blue-500' : 'opacity-50'}`} />
+                    <ChevronLeft size={14} className={`transition-transform duration-300 ${isOpen ? '-rotate-90 text-sky-400' : 'opacity-50'}`} />
                   </button>
                   
                   {(isOpen || hasActiveChild) && (
-                    <ul className="mt-1 mr-2 space-y-1 border-r border-gray-800 pr-3 animate-in slide-in-from-right-1 duration-200">
+                    <ul className="mt-1 mr-2 space-y-1 border-r border-white/10 pr-3 animate-in slide-in-from-right-1 duration-200">
                       {item.children.map((child: any) => {
                         const isActive = location.pathname === child.to;
                         return (
@@ -578,8 +592,8 @@ const Sidebar: React.FC = () => {
                               to={child.to} 
                               className={`flex items-center gap-3 p-2 rounded-lg transition-all font-bold text-xs ${
                                 isActive 
-                                  ? 'bg-blue-600 text-white shadow-md' 
-                                  : 'text-gray-400 hover:text-white hover:bg-gray-800'
+                                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-900/30' 
+                                  : 'text-slate-400 hover:text-white hover:bg-white/5'
                               }`}
                             >
                               <child.icon size={14} className={isActive ? 'text-white' : child.color} />
@@ -602,12 +616,12 @@ const Sidebar: React.FC = () => {
                   to={item.to} 
                   className={`flex items-center gap-3 p-2.5 rounded-xl transition-all font-bold group ${
                     isActive 
-                      ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/20' 
-                      : 'hover:bg-gray-800 text-gray-300 hover:text-white'
+                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-900/30 ring-1 ring-white/10' 
+                      : 'hover:bg-white/5 text-slate-300 hover:text-white'
                   }`}
                 >
                   <div className={`p-1.5 rounded-lg transition-colors ${
-                    isActive ? 'bg-white/20' : 'bg-gray-800 group-hover:bg-gray-700'
+                    isActive ? 'bg-white/20' : 'bg-white/5 group-hover:bg-white/10'
                   }`}>
                     <item.icon size={18} className={isActive ? 'text-white' : item.color} />
                   </div>
@@ -621,15 +635,15 @@ const Sidebar: React.FC = () => {
 
       {/* Super Admin Organization Selector */}
       {isSuperAdmin && (
-        <div className="mt-4 pt-4 border-t border-gray-800 shrink-0">
+        <div className="mt-4 pt-4 border-t border-white/10 shrink-0">
           <div className="px-2 mb-2">
-            <label className="block text-[10px] font-black text-gray-500 uppercase tracking-widest mb-1 text-blue-400">
+            <label className="block text-[10px] font-black uppercase tracking-widest mb-1 text-sky-400">
               الشركة النشطة (تحكم عالمي)
             </label>
             <select
               value={currentSelectedOrgId || ''}
               onChange={(e) => setCurrentSelectedOrgId(e.target.value || null)}
-              className="w-full bg-gray-800 border border-gray-700 text-white text-xs p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+              className="w-full bg-[#1c2541] border border-white/10 text-white text-xs p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
             >
               <option value="">-- اختر شركة لعرض بياناتها --</option>
               {organizations && organizations.length > 0 ? organizations.map((org: any) => (
@@ -645,16 +659,16 @@ const Sidebar: React.FC = () => {
       )}
 
       {/* معلومات المستخدم في الأسفل */}
-      <div className="mt-auto pt-4 border-t border-gray-800 shrink-0">
-        <div className="flex items-center gap-3 px-2">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center font-black text-white shadow-lg shrink-0">
+      <div className="mt-auto pt-4 border-t border-white/10 shrink-0">
+        <div className="flex items-center gap-3 p-2 rounded-2xl bg-white/5 border border-white/5">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 via-indigo-600 to-blue-700 flex items-center justify-center font-black text-white shadow-md shrink-0">
             {currentUser?.full_name?.charAt(0) || 'U'}
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="text-xs font-bold truncate text-gray-200">
+            <span className="text-xs font-bold truncate text-white">
               {currentUser?.full_name || 'مستخدم النظام'}
             </span>
-            <span className="text-[10px] text-gray-500 font-medium truncate uppercase tracking-tighter">
+            <span className="text-[10px] text-sky-400/80 font-bold truncate uppercase tracking-tight">
               {userRole === 'super_admin' ? 'مدير المنصة' : userRole}
             </span>
           </div>

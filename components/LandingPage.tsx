@@ -90,12 +90,12 @@ const LandingPage = () => {
   // إذا ضغط المستخدم على "دخول المشتركين"، نعرض له شاشة تسجيل الدخول العادية
   if (showLogin) {
     return (
-      <div className="relative min-h-screen bg-slate-100">
+      <div className="relative min-h-screen bg-[#0b132b]">
         <button 
           onClick={() => setShowLogin(false)}
-          className="absolute top-6 right-6 text-slate-500 hover:text-blue-600 flex items-center gap-2 z-50 font-bold bg-white px-4 py-2 rounded-xl shadow-sm transition-all"
+          className="absolute top-6 right-6 text-slate-200 hover:text-white flex items-center gap-2 z-50 font-bold bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl shadow-lg backdrop-blur-md transition-all border border-white/10"
         >
-          <ArrowLeft size={20} /> العودة
+          <ArrowLeft size={18} /> العودة للرئيسية
         </button>
         <Login />
       </div>

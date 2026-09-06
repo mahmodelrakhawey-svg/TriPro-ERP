@@ -2,7 +2,45 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  /* 🌟 الهوية البصرية الرسمية لـ TriPro ERP (Imperial Sapphire & Deep Navy) */
+  --brand-primary: #2563eb;
+  --brand-primary-hover: #1d4ed8;
+  --brand-primary-active: #1e40af;
+  --brand-primary-light: #eff6ff;
+  --brand-primary-border: #bfdbfe;
+
+  /* خلفيات الواجهات والمظهر المؤسسي */
+  --brand-navy-dark: #0b132b;
+  --brand-navy-surface: #1c2541;
+  --brand-navy-border: rgba(255, 255, 255, 0.08);
+  --brand-sky-accent: #38bdf8;
+
+  /* الألوان الدلالية المحاسبية المعيارية الثابتة */
+  --color-accounting-credit: #10b981;
+  --color-accounting-debit: #ef4444;
+  --color-accounting-warning: #f59e0b;
+}
+
 body {
   font-family: 'Tajawal', sans-serif;
   direction: rtl;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+/* شريط التمرير الاحترافي المتناسق مع الهوية */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(11, 19, 43, 0.5);
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(56, 189, 248, 0.4);
 }

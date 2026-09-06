@@ -195,15 +195,15 @@ const Header = () => {
     }, [currentUser]);
 
     return (
-        <header className="bg-white p-4 border-b border-slate-200 flex justify-between items-center sticky top-0 z-40 print:hidden shadow-sm">
+        <header className="bg-white/95 backdrop-blur-md px-6 py-3 border-b border-slate-200/80 flex justify-between items-center sticky top-0 z-40 print:hidden shadow-xs">
             {/* Page Title */}
             <div className="flex items-center gap-3">
                 {settings?.logoUrl ? (
-                    <img src={settings.logoUrl} alt="Logo" className="w-10 h-10 object-contain" />
+                    <img src={settings.logoUrl} alt="Logo" className="w-9 h-9 object-contain rounded-lg" />
                 ) : (
-                    <img src="/logo.jpg" alt="Logo" className="w-10 h-10 object-contain" />
+                    <img src="/logo.jpg" alt="Logo" className="w-9 h-9 object-contain rounded-lg" />
                 )}
-                <h1 className="text-xl font-bold text-slate-800">{pageTitle}</h1>
+                <h1 className="text-lg font-black text-slate-800 tracking-tight">{pageTitle}</h1>
             </div>
 
             {/* Actions */}

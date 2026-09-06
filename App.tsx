@@ -1,6 +1,8 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ConfigProvider } from 'antd';
+import arEG from 'antd/locale/ar_EG';
 import { supabase } from './supabaseClient';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
@@ -763,15 +765,32 @@ const AppContent = () => {
 
 const App = () => {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <ToastProvider>
-          <AccountingProvider>
-            <AppContent />
-          </AccountingProvider>
-        </ToastProvider>
-      </AuthProvider>
-    </QueryClientProvider>
+    <ConfigProvider
+      direction="rtl"
+      locale={arEG}
+      theme={{
+        token: {
+          colorPrimary: '#2563eb',
+          colorLink: '#2563eb',
+          colorSuccess: '#10b981',
+          colorWarning: '#f59e0b',
+          colorError: '#ef4444',
+          colorInfo: '#38bdf8',
+          borderRadius: 10,
+          fontFamily: "'Tajawal', sans-serif",
+        },
+      }}
+    >
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <ToastProvider>
+            <AccountingProvider>
+              <AppContent />
+            </AccountingProvider>
+          </ToastProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </ConfigProvider>
   );
 };
 
