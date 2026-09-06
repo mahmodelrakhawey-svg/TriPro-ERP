@@ -160,6 +160,7 @@ const Settings = () => {
       accountMappings: {} as Record<string, string>,
       defaultWarehouseId: '',
       defaultTreasuryId: '',
+      defaultBankId: '',
       productionWarehouseId: '',
       rawMaterialsWarehouseId: '',
       etaTaxpayerId: '',
@@ -279,6 +280,7 @@ const Settings = () => {
                 accountMappings: sData.account_mappings || {},
                 defaultWarehouseId: sData.default_warehouse_id || '',
                 defaultTreasuryId: sData.default_treasury_id || '',
+                defaultBankId: sData.default_bank_id || sData.account_mappings?.BANK || '',
                 productionWarehouseId: sData.production_warehouse_id || '',
                 rawMaterialsWarehouseId: sData.raw_material_warehouse_id || '',
                 etaTaxpayerId: sData.eta_taxpayer_id || '',
@@ -351,6 +353,7 @@ const Settings = () => {
       try {
         const accountMappingsWithService = {
             ...(formData.accountMappings || {}),
+            BANK: formData.defaultBankId || (formData.accountMappings as any)?.BANK || null,
             enable_service_charge: formData.enableServiceCharge,
             service_charge_rate: (Number(formData.serviceChargeRate) || 0) / 100
         };
@@ -417,6 +420,7 @@ const Settings = () => {
             decimalPlaces: 'الخانة العشرية',
             defaultWarehouseId: 'المخزن الافتراضي',
             defaultTreasuryId: 'الخزينة الافتراضية',
+            defaultBankId: 'البنك الافتراضي للنظام',
             productionWarehouseId: 'مخزن الإنتاج',
             rawMaterialsWarehouseId: 'مخزن المواد الخام'
         };
@@ -1404,6 +1408,36 @@ const Settings = () => {
                                 </div>
                               </div>
                               <p className="text-xs text-slate-500 mt-1">الحساب المالي الذي سيتم اختياره تلقائياً للتحصيل والدفع النقدي.</p>
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">البنك الافتراضي للنظام (مبيعات الفيزا والشبكة)</label>
+                              <div className="relative">
+                                <select 
+                                    value={formData.defaultBankId}
+                                    onChange={(e) => setFormData({...formData, defaultBankId: e.target.value})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-500 outline-none appearance-none bg-white font-bold"
+                                >
+                                    <option value="">-- اختر البنك الافتراضي / وسيط الفيزا --</option>
+                                    {accounts
+                                      .filter(a => !a.isGroup && (
+                                        a.code.startsWith('1232') || 
+                                        a.code.startsWith('1102') || 
+                                        a.name.includes('بنك') || 
+                                        a.name.includes('فيزا') || 
+                                        a.name.includes('شبكة') || 
+                                        a.name.toLowerCase().includes('bank') ||
+                                        (a.code.startsWith('123') && !a.name.includes('خزينة') && !a.name.includes('صندوق'))
+                                      ))
+                                      .map(acc => (
+                                        <option key={acc.id} value={acc.id}>{acc.name} ({acc.code})</option>
+                                      ))
+                                    }
+                                </select>
+                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
+                                    <ChevronDown size={16} />
+                                </div>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">الحساب البنكي الذي يتم توجيه مدفوعات البطاقات والفيزا والشبكة إليه تلقائياً في الكاشير.</p>
                           </div>
                       </div>
                       <div className="pt-4 text-left">

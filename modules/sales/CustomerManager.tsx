@@ -76,53 +76,7 @@ const CustomerManager = () => {
 
         if (!userOrgId) throw new Error('Org ID missing');
 
-        // 🚀 محاولة جلب إحصائيات وأرصدة العملاء مجمعة من السيرفر فورياً بأعلى أداء (Database RPC)
-        try {
-          let serverStats: any = null;
-          const { data: fastStats, error: fastError } = await (supabase.rpc as any)('get_all_customer_balances_fast', {
-            p_org_id: userOrgId,
-            p_search: null,
-            p_limit: 10000,
-            p_offset: 0
-          });
-
-          if (!fastError && fastStats && Array.isArray(fastStats)) {
-            serverStats = fastStats;
-          } else {
-            const { data: v2Stats, error: v2Error } = await (supabase.rpc as any)('get_customers_summary_v2', { p_org_id: userOrgId });
-            if (!v2Error && v2Stats && Array.isArray(v2Stats)) {
-              serverStats = v2Stats;
-            }
-          }
-
-          if (serverStats && Array.isArray(serverStats)) {
-            const statsMap: Record<string, any> = {};
-            serverStats.forEach((row: any) => {
-              statsMap[row.customer_id] = {
-                balance: Number(row.balance || 0),
-                totalSales: Number(row.total_sales || 0),
-                lastInvoice: row.last_invoice || null
-              };
-            });
-            // ضمان وجود كافة العملاء في الـ Map حتى لو لم يكن لديهم حركات
-            customers.forEach(c => {
-              if (!statsMap[c.id]) {
-                statsMap[c.id] = {
-                  balance: Number(c.opening_balance || 0),
-                  totalSales: 0,
-                  lastInvoice: null
-                };
-              }
-            });
-            setStats(statsMap);
-            setStatsLoading(false);
-            return;
-          }
-        } catch (rpcErr) {
-          if (import.meta.env.DEV) console.warn('Fast customer RPCs not active, falling back to client aggregation:', rpcErr);
-        }
-
-        // ⚖️ جلب حساب العملاء لهذه المنظمة (كود 1221) بمطابقة تامة لكشف الحساب
+        // ⚖️ المحرك المحاسبي الشامل المباشر لأرصدة العملاء (مطابق 100% لكشف الحساب والأستاذ العام حساب 1221)
         let customerAccId = getSystemAccount('CUSTOMERS')?.id;
         if (!customerAccId) {
           const { data: customerAccounts } = await supabase

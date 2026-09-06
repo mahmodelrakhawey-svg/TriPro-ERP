@@ -1635,13 +1635,25 @@ export default function RetailPosScreen() {
                 <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800/60">
                   <span className="block text-slate-500 mb-0.5">الرصيد الافتتاحي</span>
                   <span className="font-mono font-bold text-base text-slate-200">
-                    {Number(shiftSummary.opening_balance).toFixed(2)} {currencySymbol}
+                    {Number(shiftSummary.opening_balance || 0).toFixed(2)} {currencySymbol}
                   </span>
                 </div>
                 <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800/60">
-                  <span className="block text-slate-500 mb-0.5">مبيعات نقدية (كاش)</span>
-                  <span className="font-mono font-bold text-base text-emerald-400">
-                    +{Number(shiftSummary.cash_sales || shiftSummary.total_sales).toFixed(2)} {currencySymbol}
+                  <span className="block text-slate-500 mb-0.5">إجمالي المبيعات (الكلية)</span>
+                  <span className="font-mono font-bold text-base text-white">
+                    {Number(shiftSummary.total_sales || (Number(shiftSummary.cash_sales || 0) + Number(shiftSummary.card_sales || 0))).toFixed(2)} {currencySymbol}
+                  </span>
+                </div>
+                <div className="bg-emerald-950/30 p-2.5 rounded-xl border border-emerald-900/40">
+                  <span className="block text-emerald-400 font-bold mb-0.5">مبيعات نقدية (كاش الدرج)</span>
+                  <span className="font-mono font-bold text-base text-emerald-300">
+                    +{Number(shiftSummary.cash_sales !== undefined ? shiftSummary.cash_sales : (shiftSummary.total_sales - (shiftSummary.card_sales || 0))).toFixed(2)} {currencySymbol}
+                  </span>
+                </div>
+                <div className="bg-blue-950/30 p-2.5 rounded-xl border border-blue-900/40">
+                  <span className="block text-blue-400 font-bold mb-0.5">💳 مبيعات فيزا وشبكة (البنك)</span>
+                  <span className="font-mono font-bold text-base text-blue-300">
+                    +{Number(shiftSummary.card_sales || 0).toFixed(2)} {currencySymbol}
                   </span>
                 </div>
                 <div className="bg-rose-950/30 p-2.5 rounded-xl border border-rose-900/40">
