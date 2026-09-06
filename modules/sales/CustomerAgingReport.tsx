@@ -29,193 +29,304 @@ const CustomerAgingReport = () => {
       const { data: { user } } = await supabase.auth.getUser();
       const userOrgId = user?.user_metadata?.org_id;
 
-      if (!userOrgId) return;
-
-      // 🚀 جلب أعمار ديون العملاء المباشرة من محرك قاعدة البيانات
-      const { fetchCustomerAgingLedger } = await import('../../services/balanceService');
-      const dbRows = await fetchCustomerAgingLedger(userOrgId);
-      if (dbRows && dbRows.length > 0) {
-        const agingData = dbRows.map(r => {
-          let range0_30 = Number(r.range_0_30 || 0);
-          let range31_60 = Number(r.range_31_60 || 0);
-          let range61_90 = Number(r.range_61_90 || 0);
-          let range90_plus = Number(r.range_90_plus || 0);
-          const balance = Number(r.total_balance || 0);
-
-          if (balance > 0.01 && (range0_30 + range31_60 + range61_90 + range90_plus) === 0) {
-            range90_plus = balance;
-          }
-
-          return {
-            id: r.party_id,
-            name: r.party_name,
-            balance,
-            range0_30,
-            range31_60,
-            range61_90,
-            range90_plus
-          };
-        }).filter(c => c.balance > 0.01).sort((a, b) => b.balance - a.balance);
-        setReportData(agingData);
+      if (!userOrgId) {
         setLoading(false);
         return;
       }
 
+      // المحرك الشامل المباشر في المتصفح مطابقاً 100% لكشف الحساب والأستاذ العام
+      const { fetchCompleteDataset } = await import('../../services/balanceService');
+      const { SubledgerRegistry } = await import('../../services/subledgerRegistry');
       const filter = { organization_id: userOrgId };
 
-      // 1. جلب العملاء (احتياطي Fallback)
-      const { data: customers } = await supabase.from('customers').select('id, name, opening_balance').match(filter).is('deleted_at', null);
-      
-      // 2. جلب الفواتير التجارية غير المدفوعة بالكامل
-      const { data: invoices } = await supabase
-        .from('invoices')
-        .select('id, customer_id, invoice_number, invoice_date, total_amount, paid_amount')
+      // جلب العملاء
+      const { data: customers } = await supabase
+        .from('customers')
+        .select('id, name, phone, opening_balance')
         .match(filter)
-        .neq('status', 'paid')
-        .neq('status', 'draft');
+        .is('deleted_at', null);
 
-      // 3. جلب مستخلصات مشاريع المقاولات المعتمدة
-      const { data: projects } = await supabase.from('projects').select('id, customer_id').match(filter);
-      const { data: projectBillings } = await supabase.from('project_progress_billings').select('id, project_id, billing_number, billing_date, net_amount').match(filter).neq('status', 'draft');
+      if (!customers || customers.length === 0) {
+        setReportData([]);
+        setLoading(false);
+        return;
+      }
 
-      // 4. جلب فواتير المستشفيات (HIMS)
-      const { data: patients } = await supabase.from('hims_patients').select('id, customer_id').match(filter);
-      const { data: himsBills } = await supabase.from('hims_billing').select('id, patient_id, insurance_provider_id, created_at, total_amount, patient_paid_amount').match(filter);
+      // حساب مراقبة العملاء (Accounts Receivable): كود 1221 حصراً وما يتفرع منه (1221%) بدون حسابات أوراق القبض 1222
+      const { data: customerAccounts } = await supabase
+        .from('accounts')
+        .select('id, code, name')
+        .match(filter)
+        .or('code.eq.1221,code.ilike.1221%')
+        .limit(10);
 
-      // جلب سندات القبض (تُخفض الرصيد)
-      const { data: receipts } = await supabase
-          .from('receipt_vouchers')
-          .select('customer_id, amount')
+      let arAccountIds = (customerAccounts || []).map(a => a.id);
+
+      // احتياطي: إذا لم يوجد كود 1221، البحث بالاسم مع استبعاد أوراق القبض 1222
+      if (arAccountIds.length === 0) {
+        const { data: fallbackAccounts } = await supabase
+          .from('accounts')
+          .select('id, code, name')
           .match(filter)
-          .not('customer_id', 'is', null);
+          .or('name.ilike.%العملاء%,name.ilike.%عملاء%')
+          .not('name', 'ilike', '%أوراق%')
+          .not('name', 'ilike', '%اوراق%')
+          .not('code', 'ilike', '1222%')
+          .neq('code', '122')
+          .limit(10);
+        arAccountIds = (fallbackAccounts || []).map(a => a.id);
+      }
 
-      // جلب الإشعارات الدائنة المرحلة (تُخفض الرصيد)
-      const { data: creditNotes } = await supabase
-          .from('credit_notes')
-          .select('customer_id, total_amount')
-          .match(filter)
-          .eq('status', 'posted');
+      // جلب الفواتير والمستندات والقيود
+      const [
+        invoicesRes,
+        projectsRes,
+        billingsRes,
+        receiptsRes,
+        returnsRes,
+        creditNotesRes,
+        chequesRes,
+        ordersRes,
+        journalEntriesRes,
+        modularCustomerDocs
+      ] = await Promise.all([
+        fetchCompleteDataset(async (from, to) =>
+          supabase.from('invoices').select('id, customer_id, invoice_number, invoice_date, total_amount, paid_amount, related_journal_entry_id').match(filter).neq('status', 'draft').neq('status', 'cancelled').range(from, to)
+        ),
+        fetchCompleteDataset(async (from, to) =>
+          supabase.from('projects').select('id, customer_id, name').match(filter).range(from, to)
+        ),
+        fetchCompleteDataset(async (from, to) =>
+          supabase.from('project_progress_billings').select('id, project_id, billing_number, billing_date, net_amount, related_journal_entry_id').match(filter).neq('status', 'draft').neq('status', 'cancelled').range(from, to)
+        ),
+        fetchCompleteDataset(async (from, to) =>
+          supabase.from('receipt_vouchers').select('id, customer_id, related_journal_entry_id, amount').match(filter).not('related_journal_entry_id', 'is', null).range(from, to)
+        ),
+        fetchCompleteDataset(async (from, to) =>
+          supabase.from('sales_returns').select('id, customer_id, related_journal_entry_id, total_amount').match(filter).not('related_journal_entry_id', 'is', null).range(from, to)
+        ),
+        fetchCompleteDataset(async (from, to) =>
+          supabase.from('credit_notes').select('id, customer_id, related_journal_entry_id, total_amount').match(filter).not('related_journal_entry_id', 'is', null).range(from, to)
+        ),
+        fetchCompleteDataset(async (from, to) =>
+          supabase.from('cheques').select('id, party_id, party_name, related_journal_entry_id, amount').match(filter).not('related_journal_entry_id', 'is', null).range(from, to)
+        ),
+        fetchCompleteDataset(async (from, to) =>
+          supabase.from('orders').select('id, customer_id, grand_total, created_at, related_journal_entry_id, status').match(filter).range(from, to)
+        ),
+        fetchCompleteDataset(async (from, to) =>
+          supabase.from('journal_entries').select('id, description, reference, related_document_type, related_document_id').match(filter).neq('status', 'cancelled').range(from, to)
+        ),
+        SubledgerRegistry.fetchCustomerDocs(userOrgId).catch(() => [])
+      ]);
 
-      // جلب مرتجعات المبيعات (تُخفض الرصيد)
-      const { data: salesReturns } = await supabase
-          .from('sales_returns')
-          .select('customer_id, total_amount')
-          .match(filter)
-          .neq('status', 'draft')
-          .neq('status', 'cancelled');
+      // خريطة المشاريع -> العميل
+      const projectToCustomer = new Map<string, string>();
+      projectsRes?.forEach(p => { if (p.id && p.customer_id) projectToCustomer.set(p.id, p.customer_id); });
 
-      // جلب الشيكات الواردة غير المرفوضة (تُخفض الرصيد)
-      const { data: cheques } = await supabase
-          .from('cheques')
-          .select('party_id, amount')
-          .match(filter)
-          .eq('type', 'incoming')
-          .neq('status', 'rejected');
+      // خريطة قيد اليومية -> العميل (مطابق لكشف الحساب 100%)
+      const entryToCustomer = new Map<string, string>();
+      invoicesRes?.forEach(i => { if (i.related_journal_entry_id && i.customer_id) entryToCustomer.set(i.related_journal_entry_id, i.customer_id); });
+      billingsRes?.forEach(pb => {
+        const cId = projectToCustomer.get(pb.project_id);
+        if (pb.related_journal_entry_id && cId) entryToCustomer.set(pb.related_journal_entry_id, cId);
+      });
+      receiptsRes?.forEach(r => { if (r.related_journal_entry_id && r.customer_id) entryToCustomer.set(r.related_journal_entry_id, r.customer_id); });
+      returnsRes?.forEach(r => { if (r.related_journal_entry_id && r.customer_id) entryToCustomer.set(r.related_journal_entry_id, r.customer_id); });
+      creditNotesRes?.forEach(c => { if (c.related_journal_entry_id && c.customer_id) entryToCustomer.set(c.related_journal_entry_id, c.customer_id); });
+      ordersRes?.forEach(o => { if (o.related_journal_entry_id && o.customer_id) entryToCustomer.set(o.related_journal_entry_id, o.customer_id); });
 
-      if (!customers) return;
+      // الشيكات (ربط بمعرف الطرف أو اسمه)
+      chequesRes?.forEach(ch => {
+        if (ch.related_journal_entry_id) {
+          if (ch.party_id) {
+            entryToCustomer.set(ch.related_journal_entry_id, ch.party_id);
+          }
+          if (ch.party_name) {
+            const pName = ch.party_name.trim().toLowerCase();
+            const matched = customers.find(c => {
+              const cName = (c.name || '').trim().toLowerCase();
+              return cName && (pName.includes(cName) || cName.includes(pName));
+            });
+            if (matched) entryToCustomer.set(ch.related_journal_entry_id, matched.id);
+          }
+        }
+      });
 
-      const projectCustMap = new Map<string, string>();
-      projects?.forEach(p => { if (p.id && p.customer_id) projectCustMap.set(p.id, p.customer_id); });
+      // مستندات المديولات المتقدمة
+      modularCustomerDocs?.forEach(doc => {
+        let cId = doc.customerId;
+        if (!cId && doc.customerName) {
+          const docName = doc.customerName.trim().toLowerCase();
+          const matched = customers.find(c => (c.name || '').trim().toLowerCase() === docName);
+          if (matched) cId = matched.id;
+        }
+        if (doc.journalEntryId && cId) {
+          entryToCustomer.set(doc.journalEntryId, cId);
+        }
+      });
 
-      const patientCustMap = new Map<string, string>();
-      patients?.forEach(p => { if (p.id && p.customer_id) patientCustMap.set(p.id, p.customer_id); });
+      // جلب معرفات القيود الخاصة بكل عميل من المديولات (المقاولات والمستشفيات) بمطابقة كشف الحساب
+      await Promise.all(
+        customers.map(async (c) => {
+          try {
+            const entryIds = await SubledgerRegistry.fetchStatementCustomerEntryIds(userOrgId, c.id, c.name);
+            entryIds?.forEach(eid => {
+              if (eid) entryToCustomer.set(eid, c.id);
+            });
+          } catch {}
+        })
+      );
 
+      // القيود اليومية والتسويات اليدوية باسم أو معرف العميل
+      journalEntriesRes?.forEach((je: any) => {
+        const desc = (je.description || '').toLowerCase();
+        const ref = (je.reference || '').toLowerCase();
+        const docId = je.related_document_id;
+        customers.forEach(c => {
+          const cName = (c.name || '').trim().toLowerCase();
+          const isMatch = (docId && docId === c.id) ||
+                          (cName && cName.length > 1 && (desc.includes(cName) || ref.includes(cName))) ||
+                          (ref && ref.includes(c.id.toLowerCase())) ||
+                          (ref && ref.includes(`op-cust-${c.id.toLowerCase()}`)) ||
+                          (ref && ref.includes(`ob-${c.id.toLowerCase()}`));
+          if (isMatch && !entryToCustomer.has(je.id)) {
+            entryToCustomer.set(je.id, c.id);
+          }
+        });
+      });
+
+      // جلب سطور الأستاذ العام لحسابات العملاء بدون تجاوز سقف PostgREST (دفعات 300)
+      const allEntryIds = Array.from(entryToCustomer.keys());
+      const customerMovements = new Map<string, number>();
+
+      if (allEntryIds.length > 0 && arAccountIds.length > 0) {
+        for (let i = 0; i < allEntryIds.length; i += 300) {
+          const chunk = allEntryIds.slice(i, i + 300);
+          const { data: lines, error: linesErr } = await supabase
+            .from('journal_lines')
+            .select('journal_entry_id, debit, credit')
+            .in('journal_entry_id', chunk)
+            .in('account_id', arAccountIds);
+
+          if (!linesErr && lines) {
+            lines.forEach(line => {
+              const custId = entryToCustomer.get(line.journal_entry_id);
+              if (custId) {
+                const current = customerMovements.get(custId) || 0;
+                customerMovements.set(custId, current + (Number(line.debit || 0) - Number(line.credit || 0)));
+              }
+            });
+          }
+        }
+      }
+
+      // التحقق من وجود قيد افتتاحي
+      const customersWithOpeningEntry = new Set<string>();
+      journalEntriesRes?.forEach((je: any) => {
+        const desc = (je.description || '').toLowerCase();
+        const ref = (je.reference || '').toLowerCase();
+        const isOpening = je.related_document_type === 'opening_balance' || ref.startsWith('op-cust-') || ref.startsWith('ob-') || desc.includes('رصيد افتتاحي');
+        if (isOpening) {
+          customers.forEach(c => {
+            const cName = (c.name || '').trim().toLowerCase();
+            if ((cName && desc.includes(cName)) || ref.includes(c.id.toLowerCase())) {
+              customersWithOpeningEntry.add(c.id);
+            }
+          });
+        }
+      });
+
+      // طلبات المطاعم غير المرحلة
+      const unpostedOrders = new Map<string, number>();
+      ordersRes?.forEach(ord => {
+        if (!ord.related_journal_entry_id && ord.status !== 'CANCELLED' && ord.customer_id) {
+          const cur = unpostedOrders.get(ord.customer_id) || 0;
+          unpostedOrders.set(ord.customer_id, cur + Number(ord.grand_total || 0));
+        }
+      });
+
+      // توزيع المديونية وحساب الأعمار الزمنية
       const today = new Date();
       const agingData = customers.map(customer => {
-        const customerInvoices = invoices?.filter(inv => inv.customer_id === customer.id) || [];
-        let balance = 0;
+        const initialBal = customersWithOpeningEntry.has(customer.id) ? 0 : Number(customer.opening_balance || 0);
+        const hasLedgerRecord = customerMovements.has(customer.id) || customersWithOpeningEntry.has(customer.id);
+        const ledgerMovement = customerMovements.get(customer.id) || 0;
+        const unposted = unpostedOrders.get(customer.id) || 0;
+
+        let raw0_30 = 0;
+        let raw31_60 = 0;
+        let raw61_90 = 0;
+        let raw90_plus = 0;
+
+        // الفواتير التجارية
+        const custInvs = invoicesRes?.filter(i => i.customer_id === customer.id) || [];
+        custInvs.forEach(inv => {
+          const amt = Number(inv.total_amount || 0);
+          if (amt <= 0) return;
+          const invDate = new Date(inv.invoice_date || today);
+          const diffDays = Math.ceil(Math.abs(today.getTime() - invDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (diffDays <= 30) raw0_30 += amt;
+          else if (diffDays <= 60) raw31_60 += amt;
+          else if (diffDays <= 90) raw61_90 += amt;
+          else raw90_plus += amt;
+        });
+
+        // مستخلصات المقاولات
+        billingsRes?.forEach(pb => {
+          const custId = projectToCustomer.get(pb.project_id);
+          if (custId === customer.id) {
+            const amt = Number(pb.net_amount || 0);
+            if (amt <= 0) return;
+            const bDate = new Date(pb.billing_date || today);
+            const diffDays = Math.ceil(Math.abs(today.getTime() - bDate.getTime()) / (1000 * 60 * 60 * 24));
+            if (diffDays <= 30) raw0_30 += amt;
+            else if (diffDays <= 60) raw31_60 += amt;
+            else if (diffDays <= 90) raw61_90 += amt;
+            else raw90_plus += amt;
+          }
+        });
+
+        if (unposted > 0) raw0_30 += unposted;
+
+        // الرصيد الافتتاحي يوضع في أقدم فترة (+90 يوم)
+        const rawOpening = Number(customer.opening_balance || 0);
+        raw90_plus += rawOpening;
+
+        // حساب الرصيد الحقيقي المعتمد (المطابق لكشف الحساب والأستاذ العام 100%)
+        let trueBalance = 0;
+        if (hasLedgerRecord) {
+          trueBalance = Math.round((initialBal + ledgerMovement + unposted) * 100) / 100;
+        } else {
+          // حساب احتياطي في حال عدم وجود أي قيود مسجلة
+          const recs = receiptsRes?.filter(r => r.customer_id === customer.id).reduce((s, r) => s + Number(r.amount || 0), 0) || 0;
+          const rets = returnsRes?.filter(r => r.customer_id === customer.id).reduce((s, r) => s + Number(r.total_amount || 0), 0) || 0;
+          const cns = creditNotesRes?.filter(c => c.customer_id === customer.id).reduce((s, c) => s + Number(c.total_amount || 0), 0) || 0;
+          const chqs = chequesRes?.filter(c => c.party_id === customer.id).reduce((s, c) => s + Number(c.amount || 0), 0) || 0;
+          const totalGross = raw0_30 + raw31_60 + raw61_90 + raw90_plus;
+          trueBalance = Math.max(0, Math.round((totalGross - recs - rets - cns - chqs) * 100) / 100);
+        }
+
+        const totalGross = raw0_30 + raw31_60 + raw61_90 + raw90_plus;
         let range0_30 = 0;
         let range31_60 = 0;
         let range61_90 = 0;
         let range90_plus = 0;
 
-        // معالجة الفواتير التجارية
-        customerInvoices.forEach(inv => {
-          const remaining = Number(inv.total_amount || 0) - Number(inv.paid_amount || 0);
-          if (remaining <= 0) return;
-
-          balance += remaining;
-          const invoiceDate = new Date(inv.invoice_date || today);
-          const diffTime = Math.abs(today.getTime() - invoiceDate.getTime());
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-
-          if (diffDays <= 30) range0_30 += remaining;
-          else if (diffDays <= 60) range31_60 += remaining;
-          else if (diffDays <= 90) range61_90 += remaining;
-          else range90_plus += remaining;
-        });
-
-        // معالجة مستخلصات مشاريع المقاولات
-        projectBillings?.forEach(pb => {
-          const custId = projectCustMap.get(pb.project_id);
-          if (custId === customer.id) {
-            const amount = Number(pb.net_amount || 0);
-            if (amount <= 0) return;
-            balance += amount;
-            const bDate = new Date(pb.billing_date || today);
-            const diffDays = Math.ceil(Math.abs(today.getTime() - bDate.getTime()) / (1000 * 60 * 60 * 24));
-            if (diffDays <= 30) range0_30 += amount;
-            else if (diffDays <= 60) range31_60 += amount;
-            else if (diffDays <= 90) range61_90 += amount;
-            else range90_plus += amount;
-          }
-        });
-
-        // معالجة فواتير المستشفيات
-        himsBills?.forEach((hb: any) => {
-          const custId = hb.insurance_provider_id || patientCustMap.get(hb.patient_id);
-          if (custId === customer.id) {
-            const remaining = Number(hb.total_amount || 0) - Number(hb.patient_paid_amount || 0);
-            if (remaining <= 0) return;
-            balance += remaining;
-            const bDate = new Date(hb.created_at || today);
-            const diffDays = Math.ceil(Math.abs(today.getTime() - bDate.getTime()) / (1000 * 60 * 60 * 24));
-            if (diffDays <= 30) range0_30 += remaining;
-            else if (diffDays <= 60) range31_60 += remaining;
-            else if (diffDays <= 90) range61_90 += remaining;
-            else range90_plus += remaining;
-          }
-        });
-
-        // طرح سندات القبض
-        const totalReceipts = receipts?.filter(r => r.customer_id === customer.id)
-            .reduce((sum, r) => sum + Number(r.amount || 0), 0) || 0;
-
-        // طرح الإشعارات الدائنة
-        const totalCreditNotes = creditNotes?.filter(cn => cn.customer_id === customer.id)
-            .reduce((sum, cn) => sum + Number(cn.total_amount || 0), 0) || 0;
-
-        // طرح مرتجعات المبيعات
-        const totalReturns = salesReturns?.filter(sr => sr.customer_id === customer.id)
-            .reduce((sum, sr) => sum + Number(sr.total_amount || 0), 0) || 0;
-
-        // طرح الشيكات الواردة غير المرفوضة
-        const totalCheques = cheques?.filter(ch => ch.party_id === customer.id)
-            .reduce((sum, ch) => sum + Number(ch.amount || 0), 0) || 0;
-
-        // إضافة الرصيد الافتتاحي لأقدم فترة زمنية
-        const opening = Number((customer as any).opening_balance || 0);
-        range90_plus += opening;
-        balance += opening;
-
-        const totalCredits = totalReceipts + totalCreditNotes + totalReturns + totalCheques;
-        balance = Math.max(0, balance - totalCredits);
-
-        // تعديل التوزيع على فترات الأعمار بنسبة الخصم
-        const adjustmentRatio = (balance + totalCredits) > 0 ? balance / (balance + totalCredits) : 0;
-        range0_30 = Math.round(range0_30 * adjustmentRatio * 100) / 100;
-        range31_60 = Math.round(range31_60 * adjustmentRatio * 100) / 100;
-        range61_90 = Math.round(range61_90 * adjustmentRatio * 100) / 100;
-        range90_plus = Math.round(range90_plus * adjustmentRatio * 100) / 100;
-
-        if (balance > 0.01 && (range0_30 + range31_60 + range61_90 + range90_plus) === 0) {
-          range90_plus = balance;
+        if (totalGross > 0 && trueBalance > 0) {
+          const ratio = Math.min(1, Math.max(0, trueBalance / totalGross));
+          range0_30 = Math.round(raw0_30 * ratio * 100) / 100;
+          range31_60 = Math.round(raw31_60 * ratio * 100) / 100;
+          range61_90 = Math.round(raw61_90 * ratio * 100) / 100;
+          range90_plus = Math.max(0, Math.round((trueBalance - range0_30 - range31_60 - range61_90) * 100) / 100);
+        } else if (trueBalance > 0) {
+          range90_plus = trueBalance;
         }
 
         return {
           id: customer.id,
           name: customer.name,
-          balance,
+          balance: trueBalance,
           range0_30,
           range31_60,
           range61_90,

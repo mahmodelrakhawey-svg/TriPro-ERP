@@ -44,7 +44,7 @@ export interface AgingLedgerRow {
  * أداة استعلام تجلب جميع السجلات دفعة واحدة بأمان متجاوزة سقف الـ 1000 الافتراضي في Supabase
  * (تُستخدم كاحتياطي أمان Fallback في حال تعذر تشغيل RPC السيرفر)
  */
-async function fetchCompleteDataset<T = any>(
+export async function fetchCompleteDataset<T = any>(
   buildQuery: (from: number, to: number) => Promise<{ data: T[] | null; error: any }>
 ): Promise<T[]> {
   const CHUNK_SIZE = 1000;
