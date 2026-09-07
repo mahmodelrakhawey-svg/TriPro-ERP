@@ -9,6 +9,8 @@ import { secureStorage } from '../../../utils/securityMiddleware';
 
 export const PharmacyDashboard: React.FC = () => {
   const { currentUser } = useAuth();
+  const [modal, modalContextHolder] = Modal.useModal();
+  const [messageApi, messageContextHolder] = message.useMessage();
   const [prescriptions, setPrescriptions] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
@@ -176,7 +178,7 @@ export const PharmacyDashboard: React.FC = () => {
       if (error) throw error;
       setAllBatches(data || []);
     } catch (err: any) {
-      message.error('فشل جلب تقرير الصلاحيات: ' + err.message);
+      messageApi.error('فشل جلب تقرير الصلاحيات: ' + err.message);
     } finally {
       setReportLoading(false);
     }
@@ -193,14 +195,14 @@ export const PharmacyDashboard: React.FC = () => {
   }, [activeTab, currentUser]);
 
   const dispenseMedication = async (orderId: string) => {
-    if (!orderId || orderId === "") return message.error("عذراً، معرف الروشتة غير صالح");
+    if (!orderId || orderId === "") return messageApi.error("عذراً، معرف الروشتة غير صالح");
     
     setLoading(true);
 
     if (!navigator.onLine) {
       if (orderId.startsWith('queued-pres-')) {
         secureStorage.setItem(`dispensed_offline_${orderId}`, 'true');
-        message.warning('تم صرف الروشتة محلياً بنجاح! سيتم خصم الكميات من المخزن وتوثيقها سحابياً فور عودة الاتصال 📶');
+        messageApi.warning('تم صرف الروشتة محلياً بنجاح! سيتم خصم الكميات من المخزن وتوثيقها سحابياً فور عودة الاتصال 📶');
         setSelectedOrder(null);
         fetchPendingPrescriptions();
         setLoading(false);
@@ -214,14 +216,14 @@ export const PharmacyDashboard: React.FC = () => {
       });
 
       if (error) {
-        message.error('فشل عملية الصرف: ' + (error.message || 'تأكد من تسديد الفاتورة أولاً'));
+        messageApi.error('فشل عملية الصرف: ' + (error.message || 'تأكد من تسديد الفاتورة أولاً'));
       } else {
-        message.success('تم صرف العلاج وتحديث المخزون وقيود التكلفة بنجاح ✅');
+        messageApi.success('تم صرف العلاج وتحديث المخزون وقيود التكلفة بنجاح ✅');
         setSelectedOrder(null);
         fetchPendingPrescriptions();
       }
     } catch (err: any) {
-      message.error('خطأ أثناء تنفيذ الصرف: ' + (err?.message || 'تعذر الصرف الحقيقي'));
+      messageApi.error('خطأ أثناء تنفيذ الصرف: ' + (err?.message || 'تعذر الصرف الحقيقي'));
     } finally {
       setLoading(false);
     }
@@ -240,14 +242,14 @@ export const PharmacyDashboard: React.FC = () => {
         .single();
 
       if (productError || !product) {
-        message.error('لم يتم العثور على دواء بهذا الباركود.');
+        messageApi.error('لم يتم العثور على دواء بهذا الباركود.');
         return;
       }
 
       // 2. التحقق مما إذا كان الدواء ضمن الروشتة الحالية
       const existingMedIndex = checkedMeds.findIndex(med => med.product_id === product.id);
       if (existingMedIndex === -1) {
-        message.warning(`الدواء "${product.name}" ليس ضمن الروشتة الحالية.`);
+        messageApi.warning(`الدواء "${product.name}" ليس ضمن الروشتة الحالية.`);
         return;
       }
 
@@ -260,8 +262,8 @@ export const PharmacyDashboard: React.FC = () => {
         expiry_date: product.expiry_date
       };
       setCheckedMeds(updatedMeds);
-      message.success(`تم مسح الدواء "${product.name}" بنجاح.`);
-    } catch (error: any) { message.error('خطأ في مسح الباركود: ' + error.message); }
+      messageApi.success(`تم مسح الدواء "${product.name}" بنجاح.`);
+    } catch (error: any) { messageApi.error('خطأ في مسح الباركود: ' + error.message); }
     finally { setLoading(false); setBarcodeInput(''); }
   };
 
@@ -327,6 +329,8 @@ export const PharmacyDashboard: React.FC = () => {
 
   return (
     <div className="p-6 rtl text-right bg-slate-50 min-h-screen">
+      {modalContextHolder}
+      {messageContextHolder}
       <div className="flex justify-between items-center mb-6">
         <Typography.Title level={2} className="m-0">
           <MedicineBoxOutlined className="text-emerald-600" /> صيدلية المستشفى الداخلية
@@ -408,7 +412,7 @@ export const PharmacyDashboard: React.FC = () => {
         title={<b>تفاصيل صرف الروشتة الإلكترونية</b>}
         open={!!selectedOrder}
         onCancel={() => setSelectedOrder(null)}
-        onOk={() => Modal.confirm({ title: 'تأكيد الصرف', content: 'سيتم خصم الأدوية من المخزن وترحيل قيمتها لفاتورة المريض، هل أنت متأكد؟', onOk: () => dispenseMedication(selectedOrder.id) })}
+        onOk={() => modal.confirm({ title: 'تأكيد الصرف', content: 'سيتم خصم الأدوية من المخزن وترحيل قيمتها لفاتورة المريض، هل أنت متأكد؟', onOk: () => dispenseMedication(selectedOrder.id) })}
         okText="تأكيد الصرف النهائي"
         cancelText="إغلاق"
         confirmLoading={loading}

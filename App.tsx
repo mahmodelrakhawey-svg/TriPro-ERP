@@ -305,6 +305,7 @@ import {
   ModuleGuard,
   LazyLoadingFallback
 } from './components/AppGuardsAndLayout';
+import { DevEnvironmentBanner } from './components/DevEnvironmentBanner';
 
 
 /** 🏗️ مكون وسيط لإدارة تدفق شاشات المقاولين عند الدخول من القائمة الجانبية **/
@@ -389,6 +390,7 @@ const MainLayout = () => {
         <div className="flex min-h-screen bg-slate-50 font-sans text-right print:block print:h-auto" dir="rtl">
             <Sidebar />
             <div className="flex-1 flex flex-col h-screen print:h-auto print:block print:overflow-visible">
+                <DevEnvironmentBanner />
                 <DemoBanner />
                 <DemoWelcomeModal />
                 <DemoTour />

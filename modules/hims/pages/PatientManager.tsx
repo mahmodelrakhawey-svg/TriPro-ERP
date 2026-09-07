@@ -83,10 +83,13 @@ const PatientManager = () => {
     return query;
   }, [searchTerm]);
 
+  const currentOrgId = organization?.id || currentUser?.organization_id;
+
   const { data: patients, loading, refresh } = usePagination<Patient>('hims_patients', {
     select: '*',
     pageSize: 15,
-    orderBy: 'full_name'
+    orderBy: 'full_name',
+    organizationId: currentOrgId
   }, queryModifier);
 
   const [displayedPatients, setDisplayedPatients] = useState<Patient[]>([]);
