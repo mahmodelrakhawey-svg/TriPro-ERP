@@ -63,8 +63,22 @@ export function usePagination<T>(
         return;
       }
 
-      const userOrgId = organizationId || session.user.user_metadata?.org_id;
-      const userRole = session.user.user_metadata?.role;
+      let userOrgId = organizationId || session.user.user_metadata?.org_id;
+      let userRole = session.user.user_metadata?.role;
+
+      // إذا لم يكن متوفراً في الميتاداتا، يتم جلبه كإجراء احتياطي من جدول profiles
+      if (!userOrgId) {
+        const { data: profileData } = await supabase
+          .from('profiles')
+          .select('organization_id, role')
+          .eq('id', session.user.id)
+          .maybeSingle();
+
+        if (profileData) {
+          userOrgId = profileData.organization_id;
+          if (!userRole) userRole = profileData.role;
+        }
+      }
 
       let query = supabase
         .from(tableName)
