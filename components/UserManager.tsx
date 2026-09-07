@@ -1,0 +1,752 @@
+import React, { useEffect, useState } from 'react';
+import { supabase } from '../supabaseClient';
+import { useAccounting } from '../context/AccountingContext';
+import { useToast } from '../context/ToastContext'; // Removed z import
+import { Shield, User, CheckCircle, XCircle, AlertTriangle, PenTool, Plus, X, Save, Loader2, KeyRound, Trash2, Clock } from 'lucide-react';
+import { DEMO_USER_ID, DEMO_EMAIL } from '../utils/constants';
+import { createUserManagerUserSchema, resetPasswordSchema } from '../utils/validationSchemas';
+
+import { UserRole } from '../types';
+
+// تعريف أنواع البيانات
+type UserProfile = {
+  id: string;
+  email?: string; // إضافة البريد الإلكتروني للنوع
+  full_name: string | null;
+  role: UserRole;
+  is_active: boolean;
+  created_at: string;
+  organizations?: { name: string }; // إضافة اسم المنظمة للنوع
+  last_activity?: string;
+};
+
+
+const UserManager = () => {
+  const { currentUser, currentSelectedOrgId } = useAccounting();
+  const { showToast } = useToast();
+  const [users, setUsers] = useState<UserProfile[]>([]);
+  const [editingUserId, setEditingUserId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [editingName, setEditingName] = useState<string>('');
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [newUserData, setNewUserData] = useState({
+    email: '',
+    password: '',
+    fullName: '',
+    role: 'admin' // تغيير الافتراضي إلى admin لتقليل أخطاء التأسيس
+  });
+  const [error, setError] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [isResetPasswordModalOpen, setIsResetPasswordModalOpen] = useState(false);
+  const [resetPasswordData, setResetPasswordData] = useState({ userId: '', newPassword: '' });
+  const [resetting, setResetting] = useState(false);
+
+  // الأدوار المجلوبة ديناميكياً من قاعدة البيانات
+  const [dynamicRoles, setDynamicRoles] = useState<{ name: string; description: string }[]>([]);
+
+  const currentUserRole = currentUser?.role || '';
+
+  // جلب البيانات
+  const fetchUsers = async () => {
+    try {
+      if (currentUserRole === 'demo') {
+          setUsers([
+              { id: 'demo-u1', full_name: 'مستخدم تجريبي', email: 'admin@company.com', role: 'admin', is_active: true, created_at: new Date(Date.now() - 864000000).toISOString(), last_activity: new Date(Date.now() - 3600000).toISOString() },
+              { id: 'demo-u3', full_name: 'محاسب المبيعات', email: 'sales@company.com', role: 'accountant', is_active: true, created_at: new Date(Date.now() - 1728000000).toISOString(), last_activity: new Date(Date.now() - 7200000).toISOString() }
+          ]);
+          setLoading(false);
+          return;
+      }
+
+      setLoading(true);
+      let query = supabase
+        .from('profiles')
+        .select('*, organizations(name)');
+
+      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+
+      // 🛡️ عزل البيانات: الفلترة بالمؤسسة النشطة لضمان الـ SaaS Multi-tenancy
+      if (orgId && orgId !== 'null' && orgId !== '' && currentUserRole !== 'super_admin') {
+        query = query.eq('organization_id', orgId);
+      }
+
+      const { data: profiles, error: profilesError } = await query.order('created_at', { ascending: false });
+
+      if (profilesError) throw profilesError;
+
+      // 🛡️ حماية خصوصية السوبر أدمن: إخفاء حسابات Super Admin تماماً عن مدراء الشركات والعملاء
+      const filteredProfiles = (currentUserRole === 'super_admin')
+        ? (profiles || [])
+        : (profiles || []).filter((p: any) => p.role !== 'super_admin');
+
+      // دمج البيانات مع البريد الإلكتروني إذا كان متاحاً في profile
+      const profilesWithEmail = filteredProfiles.map((p: any) => ({
+          ...p,
+          email: p.email || (p.id === DEMO_USER_ID ? DEMO_EMAIL : null)
+      }));
+
+      // جلب آخر نشاط لكل مستخدم من سجلات الأمان
+      const usersWithActivity = await Promise.all(profilesWithEmail.map(async (p: any) => {
+          const { data: logs } = await supabase
+              .from('security_logs')
+              .select('created_at')
+              .eq('performed_by', p.id)
+              .order('created_at', { ascending: false })
+              .limit(1);
+          
+          return {
+              ...p,
+              last_activity: logs && logs.length > 0 ? logs[0].created_at : null
+          };
+      }));
+
+      setUsers(usersWithActivity as UserProfile[]);
+    } catch (err: any) {
+      setError('فشل تحميل بيانات المستخدمين: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchUsers();
+    fetchRoles();
+  }, []);
+
+  // جلب الأدوار ديناميكياً من قاعدة البيانات
+  const fetchRoles = async () => {
+    if (currentUserRole === 'demo') return; // وضع الديمو لا يحتاج جلب أدوار حقيقية
+
+    const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    if (!orgId) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('roles')
+        .select('name, description')
+        .eq('organization_id', orgId)
+        .neq('name', 'super_admin')
+        .order('name');
+
+      if (error) throw error;
+      if (data && data.length > 0) {
+        setDynamicRoles(data);
+      }
+    } catch (err: any) {
+      console.warn('تعذّر جلب الأدوار من قاعدة البيانات، سيتم استخدام القائمة الافتراضية:', err.message);
+    }
+  };
+
+  // تحديث دور المستخدم
+  const updateUserRole = async (userId: string, newRole: string) => {
+    if (currentUserRole === 'demo') {
+        showToast('تم تحديث صلاحيات المستخدم بنجاح (محاكاة)', 'success');
+        // تحديث الحالة محلياً فقط للعرض
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole as any } : u));
+        return;
+    }
+    if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
+      showToast('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط', 'error');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ role: newRole })
+      .eq('id', userId);
+
+    if (error) showToast('فشل التحديث: ' + error.message, 'error');
+    else fetchUsers();
+  };
+
+  // تفعيل/تعطيل المستخدم
+  const toggleUserStatus = async (userId: string, currentStatus: boolean) => {
+    if (currentUserRole === 'demo') {
+        showToast(`تم ${currentStatus ? 'تعطيل' : 'تفعيل'} المستخدم بنجاح (محاكاة)`, 'success');
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, is_active: !currentStatus } : u));
+        return;
+    }
+    if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
+      showToast('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط', 'error');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ is_active: !currentStatus })
+      .eq('id', userId);
+
+    if (error) showToast('فشل التحديث: ' + error.message, 'error');
+    else fetchUsers();
+  };
+
+  // تحديث اسم المستخدم
+  const handleNameUpdate = async (userId: string) => {
+    if (currentUserRole === 'demo') {
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, full_name: editingName } : u));
+        setEditingUserId(null);
+        return;
+    }
+    if (!editingName.trim()) {
+        setEditingUserId(null);
+        return;
+    }
+    if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
+        showToast('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط', 'error');
+        return;
+    }
+
+    const { error } = await supabase
+        .from('profiles')
+        .update({ full_name: editingName.trim() })
+        .eq('id', userId);
+
+    if (error) {
+        showToast('فشل تحديث الاسم: ' + error.message, 'error');
+    }
+    setEditingUserId(null);
+    fetchUsers(); // أعد تحميل البيانات لإظهار الاسم الجديد
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCreating(true);
+    
+    const validationResult = createUserManagerUserSchema.safeParse(newUserData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        setCreating(false);
+        return;
+    }
+
+    if (currentUserRole === 'demo') {
+        setTimeout(() => {
+            showToast('تم إنشاء المستخدم بنجاح! ✅ (محاكاة)', 'success');
+            const fakeUser: UserProfile = { id: `new-demo-${Date.now()}`, email: newUserData.email, full_name: newUserData.fullName, role: newUserData.role as any, is_active: true, created_at: new Date().toISOString() };
+            setUsers(prev => [fakeUser, ...prev]);
+            setIsAddModalOpen(false);
+            setNewUserData({ email: '', password: '', fullName: '', role: 'viewer' });
+            setCreating(false);
+        }, 1000);
+        return;
+    }
+
+    try {
+      // 1. استخدام دالة التسجيل العامة لإنشاء المستخدم
+      // ملاحظة: هذا يعتمد على إعدادات تأكيد البريد الإلكتروني في مشروع Supabase.
+      // تم تغيير هذا من supabase.auth.admin.createUser لأنه لا يمكن استدعاؤه من طرف العميل (المتصفح).
+      const targetOrgId = (currentSelectedOrgId && currentSelectedOrgId !== 'null' && currentSelectedOrgId.trim() !== '')
+        ? currentSelectedOrgId
+        : ((currentUser as any)?.organization_id && (currentUser as any)?.organization_id !== 'null')
+          ? (currentUser as any).organization_id
+          : null;
+
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: newUserData.email.trim(),
+        password: newUserData.password,
+        options: {
+          data: {
+            full_name: newUserData.fullName.trim(),
+            role: newUserData.role,
+            app_role: newUserData.role,
+            org_id: targetOrgId, 
+          }
+        }
+      });
+
+      if (authError) throw authError;
+      if (!authData.user) throw new Error("لم يتم إرجاع بيانات المستخدم بعد الإنشاء.");
+
+      // إذا كان الإيميل مسجلاً بالفعل، سوبابيز يرجع identities فارغة لمنع كشف المستخدمين
+      if (authData.user.identities && authData.user.identities.length === 0) {
+        throw new Error("هذا البريد الإلكتروني مسجل بالفعل في النظام! يرجى استخدام بريد إلكتروني آخر أو استعادة كلمة المرور.");
+      }
+
+      // 🛡️ صمام أمان: التحقق من وجود البروفايل بعد إنشاء المستخدم
+      // إذا فشل التريجر (handle_new_user) لأي سبب، نقوم بإنشاء البروفايل يدوياً
+      const { data: existingProfile, error: fetchProfileError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('id', authData.user.id)
+        .maybeSingle();
+
+      if (fetchProfileError) console.error("Error checking for existing profile:", fetchProfileError);
+
+      if (!existingProfile) {
+        console.warn("Profile not found after user signup, attempting manual profile creation.");
+        const { error: profileInsertError } = await supabase.from('profiles').insert({
+          id: authData.user.id,
+          full_name: newUserData.fullName.trim(),
+          role: newUserData.role,
+          organization_id: targetOrgId,
+        });
+        if (profileInsertError) {
+          if (profileInsertError.message?.includes('violates foreign key constraint') || profileInsertError.code === '23503') {
+            throw new Error("هذا البريد مسجل بالفعل في المصادقة، أو لم تكتمل عملية تسجيل المستخدم.");
+          }
+          throw profileInsertError;
+        }
+      }
+
+      // ملاحظة: لم نعد بحاجة لتحديث الملف الشخصي من هنا.
+      // التريجر (handle_new_user) في قاعدة البيانات سيقوم بذلك تلقائياً
+      // باستخدام الدور الذي تم تمريره أعلاه.
+
+      showToast('تم إنشاء المستخدم بنجاح! ✅ سيتمكن المستخدم من تسجيل الدخول فوراً.', 'success');
+      setIsAddModalOpen(false);
+      setNewUserData({ email: '', password: '', fullName: '', role: 'viewer' });
+      fetchUsers(); // تحديث القائمة
+    } catch (err: any) {
+      if (process.env.NODE_ENV === 'development') console.error('Error creating user:', err);
+      showToast('فشل إنشاء المستخدم: ' + err.message, 'error');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (currentUserRole === 'demo') {
+        if (window.confirm(`هل أنت متأكد من حذف المستخدم "${userName}"؟ (محاكاة)`)) {
+            setUsers(prev => prev.filter(u => u.id !== userId));
+            showToast('تم حذف المستخدم بنجاح (محاكاة).', 'success');
+        }
+        return;
+    }
+    if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
+      showToast('عذراً، هذه الصلاحية لمدير النظام المميز (Super Admin) فقط', 'error');
+      return;
+    }
+    if (window.confirm(`هل أنت متأكد من حذف المستخدم "${userName}" نهائياً؟ لا يمكن التراجع عن هذا الإجراء.`)) {
+      try {
+        const { error } = await supabase.functions.invoke('delete-user', {
+          body: { userId: userId },
+        });
+        if (error) throw error;
+        showToast('تم حذف المستخدم بنجاح.', 'success');
+        fetchUsers();
+      } catch (err: any) {
+        if (process.env.NODE_ENV === 'development') console.error('Error deleting user:', err);
+        showToast('فشل حذف المستخدم: ' + (err.data?.message || err.message), 'error');
+      }
+    }
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const validationResult = resetPasswordSchema.safeParse(resetPasswordData);
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
+
+    if (currentUserRole === 'demo') { // Use handleError for consistency
+        showToast('تم إعادة تعيين كلمة المرور بنجاح ✅ (محاكاة)', 'success');
+        setIsResetPasswordModalOpen(false);
+        setResetPasswordData({ userId: '', newPassword: '' });
+        return;
+    }
+    setResetting(true);
+    try {
+        let error;
+
+        // إذا كان المستخدم يقوم بتغيير كلمة المرور الخاصة به، نستخدم دالة التحديث المباشرة (لا تتطلب Edge Function)
+        if (currentUser?.id === resetPasswordData.userId) {
+            const { error: updateError } = await supabase.auth.updateUser({ password: resetPasswordData.newPassword });
+            error = updateError;
+        } else {
+            // للمستخدمين الآخرين، نستخدم Edge Function
+            const { error: funcError } = await supabase.functions.invoke('reset-password', {
+                body: { userId: resetPasswordData.userId, newPassword: resetPasswordData.newPassword }
+            });
+            error = funcError;
+        }
+
+        if (error) {
+            // إذا كان الخطأ متعلق بالسياسة الأمنية CORS
+            if (error.message?.includes('fetch')) {
+                throw new Error('فشل الاتصال بالخادم (CORS Error). يرجى التأكد من إعدادات الـ Edge Function.');
+            }
+            throw error;
+        }
+
+        // تسجيل الحدث في سجلات الأمان
+        await supabase.from('security_logs').insert({
+            event_type: 'password_reset',
+            description: `تم إعادة تعيين كلمة المرور للمستخدم ${resetPasswordData.userId}`,
+            target_user_id: resetPasswordData.userId,
+            performed_by: (await supabase.auth.getUser()).data.user?.id,
+            metadata: {
+                changes: {
+                    'إعادة تعيين كلمة المرور': {
+                        from: 'كلمة المرور القديمة',
+                        to: 'تم إنشاء كلمة مرور جديدة وإرسالها للمستخدم بنجاح'
+                    }
+                }
+            }
+        });
+
+        // إرسال تنبيه للمدراء (أو للمستخدم نفسه إذا كان النظام يدعم ذلك)
+        await supabase.from('notifications').insert({
+            title: 'تغيير كلمة مرور',
+            message: `تم تغيير كلمة مرور المستخدم ${resetPasswordData.userId} بواسطة المدير.`,
+            type: 'warning',
+            user_id: resetPasswordData.userId,
+            organization_id: (currentUser as any)?.organization_id
+        });
+
+        showToast('تم إعادة تعيين كلمة المرور بنجاح ✅', 'success');
+        setIsResetPasswordModalOpen(false);
+        setResetPasswordData({ userId: '', newPassword: '' });
+    } catch (err: any) {
+        showToast('فشل إعادة تعيين كلمة المرور: ' + (err.message || 'تأكد من إعداد Edge Function.'), 'error');
+    } finally {
+        setResetting(false);
+    }
+  };
+
+  if (loading) return <div className="p-8 text-center">جاري تحميل المستخدمين...</div>;
+  
+  // حماية الواجهة: إذا لم يكن مديراً، لا تعرض شيئاً أو اعرض رسالة
+  if (((currentUserRole as string) !== 'super_admin' && (currentUserRole as string) !== 'admin' && (currentUserRole as string) !== 'demo') && (currentUserRole as string) !== 'manager') {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 text-slate-500">
+        <Shield size={48} className="mb-4 text-red-500" />
+        <h2 className="text-xl font-bold">غير مصرح لك بالوصول</h2>
+        <p>هذه الصفحة مخصصة للمدراء فقط.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6 max-w-6xl mx-auto animate-in fade-in">
+      <div className="flex justify-between items-center mb-8">
+        <div>
+          <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+            <User className="text-indigo-600" /> إدارة المستخدمين والصلاحيات
+          </h1>
+          <p className="text-slate-500 mt-1">التحكم في أدوار الموظفين وحالة حساباتهم</p>
+        </div>
+        <div className="flex gap-3">
+            <button 
+                onClick={() => setIsAddModalOpen(true)}
+                className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 hover:bg-indigo-700 transition-colors shadow-lg shadow-indigo-200"
+            >
+                <Plus size={20} />
+                <span>إضافة مستخدم</span>
+            </button>
+            <div className="bg-indigo-50 text-indigo-700 px-4 py-2 rounded-lg font-bold text-sm flex items-center">
+              أنت الآن: {currentUserRole === 'super_admin' ? 'مدير نظام مميز ⚡' : 'مدير 🛡️'}
+            </div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-50 text-red-600 p-4 rounded-lg mb-6 flex items-center gap-2">
+          <AlertTriangle size={20} /> {error}
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+        <table className="w-full text-right">
+          <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-black">
+            <tr>
+              <th className="px-6 py-4">المستخدم</th>
+              {currentUserRole === 'super_admin' && <th className="px-6 py-4">المنظمة / الشركة</th>}
+              <th className="px-6 py-4">الدور الحالي</th>
+              <th className="px-6 py-4 text-center">الحالة</th>
+              <th className="px-6 py-4 text-center">آخر نشاط</th>
+              <th className="px-6 py-4 text-center">إجراءات</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-100">
+            {users.map((user) => (
+              <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
+                <td className="px-6 py-4 w-1/3">
+                  {editingUserId === user.id ? (
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="text"
+                            value={editingName}
+                            onChange={(e) => setEditingName(e.target.value)}
+                            onBlur={() => handleNameUpdate(user.id)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleNameUpdate(user.id) }}
+                            className="w-full border border-indigo-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                            autoFocus
+                        />
+                    </div>
+                  ) : (
+                    <div 
+                        className="group flex items-center gap-2 cursor-pointer"
+                        onClick={() => {
+                            if (currentUserRole === 'super_admin' || currentUserRole === 'admin') {
+                                setEditingUserId(user.id);
+                                setEditingName(user.full_name || '');
+                            }
+                        }}
+                    >
+                        <div className="font-bold text-slate-800">{user.full_name || user.email || (user.role === 'viewer' && user.id.startsWith('f95') ? 'مستخدم ديمو' : `مستخدم (${user.id.slice(0, 8)})`)}</div>
+                        {(currentUserRole === 'super_admin' || currentUserRole === 'admin') && <PenTool size={14} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />}
+                    </div>
+                  )}
+                  <div className="font-mono text-xs text-slate-400 mt-1">{user.id.slice(0, 8)}...</div>
+                </td>
+                {currentUserRole === 'super_admin' && (
+                  <td className="px-6 py-4">
+                    <div className="text-sm font-bold text-slate-600">
+                      {user.organizations?.name || <span className="text-indigo-600">نظام عالمي 🌐</span>}
+                    </div>
+                  </td>
+                )}
+                <td className="px-6 py-4">
+                  <select 
+                    value={user.role}
+                    onChange={(e) => updateUserRole(user.id, e.target.value)}
+                    disabled={currentUserRole !== 'super_admin' && currentUserRole !== 'admin'}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-bold border-2 outline-none cursor-pointer
+                      ${user.role === 'super_admin' ? 'border-purple-200 bg-purple-50 text-purple-700' : 
+                        user.role === 'admin' ? 'border-indigo-200 bg-indigo-50 text-indigo-700' :
+                        'border-slate-200 bg-white text-slate-700'}`}
+                  >
+                    {(currentUserRole === 'super_admin' || user.role === 'super_admin') && <option value="super_admin">⚡ Super Admin (مدير النظام)</option>}
+                    <optgroup label="── الأدوار الأساسية للنظام ──">
+                      <option value="admin">🛡️ Admin (مسؤول)</option>
+                      <option value="manager">👔 Manager (مدير)</option>
+                      <option value="accountant">📊 Accountant (محاسب)</option>
+                      <option value="viewer">👁️ Viewer (مشاهدة فقط)</option>
+                      <option value="owner">🏢 Owner (مالك منشأة)</option>
+                    </optgroup>
+                    {dynamicRoles.length > 0 && (() => {
+                      const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo'];
+                      const customRoles = dynamicRoles.filter(r => !builtinNames.includes(r.name));
+                      if (customRoles.length === 0) return null;
+                      return (
+                        <optgroup label="── الأدوار المخصصة (من صفحة الأدوار والصلاحيات) ──">
+                          {customRoles.map(role => (
+                            <option key={role.name} value={role.name}>
+                              🎯 {role.description || role.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      );
+                    })()}
+                  </select>
+
+                </td>
+                <td className="px-6 py-4 text-center">
+                  <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black
+                    ${user.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                    {user.is_active ? <CheckCircle size={14} /> : <XCircle size={14} />}
+                    {user.is_active ? 'نشط' : 'معطل'}
+                  </span>
+                </td>
+                <td className="px-6 py-4 text-center text-xs text-slate-500">
+                    {user.last_activity ? (
+                        <div className="flex items-center justify-center gap-1" title={new Date(user.last_activity).toLocaleString('ar-EG')}>
+                            <Clock size={14} className="text-slate-400" />
+                            <span dir="ltr">{new Date(user.last_activity).toLocaleDateString('ar-EG')}</span>
+                        </div>
+                    ) : (
+                        <span className="opacity-40">-</span>
+                    )}
+                </td>
+                <td className="px-6 py-4 text-center">
+                  {(currentUserRole === 'super_admin' || currentUserRole === 'admin') && (
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => toggleUserStatus(user.id, user.is_active)}
+                        className={`text-xs font-bold px-4 py-2 rounded-lg transition-colors
+                          ${user.is_active 
+                            ? 'bg-red-50 text-red-600 hover:bg-red-100' 
+                            : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}
+                      >
+                        {user.is_active ? 'تعطيل' : 'تفعيل'}
+                      </button>
+                      <button
+                          onClick={() => {
+                              setResetPasswordData({ userId: user.id, newPassword: '' });
+                              setIsResetPasswordModalOpen(true);
+                          }}
+                          className="text-xs font-bold px-3 py-2 bg-amber-50 text-amber-600 hover:bg-amber-100 rounded-lg transition-colors flex items-center gap-1"
+                          title="إعادة تعيين كلمة المرور"
+                      >
+                          <KeyRound size={14} />
+                      </button>
+                      <button
+                          onClick={() => handleDeleteUser(user.id, user.full_name || 'مستخدم')}
+                          className="text-xs font-bold px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg transition-colors flex items-center gap-1"
+                          title="حذف المستخدم نهائياً"
+                      >
+                          <Trash2 size={14} />
+                      </button>
+                    </div>
+                  )}
+                  {user.id === currentUser?.id && (
+                    <span className="text-xs text-slate-400 italic font-medium">حسابك الحالي (نشط)</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Add User Modal */}
+      {isAddModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex justify-between items-center">
+                    <h3 className="font-bold text-xl text-slate-800">إضافة مستخدم جديد</h3>
+                    <button onClick={() => setIsAddModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors">
+                        <X size={24} />
+                    </button>
+                </div>
+                
+                <form onSubmit={handleCreateUser} className="p-6 space-y-4">
+                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 text-xs text-blue-800 mb-4">
+                        ملاحظة: سيتم إنشاء حساب جديد وإرسال بريد إلكتروني للتأكيد (إذا كان مفعلاً).
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">الاسم الكامل</label>
+                        <input 
+                            required 
+                            type="text" 
+                            value={newUserData.fullName}
+                            onChange={(e) => setNewUserData({...newUserData, fullName: e.target.value})}
+                            className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:outline-none focus:border-indigo-500"
+                            placeholder="اسم الموظف"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">البريد الإلكتروني</label>
+                        <input 
+                            required 
+                            type="email" 
+                            value={newUserData.email}
+                            onChange={(e) => setNewUserData({...newUserData, email: e.target.value})}
+                            className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:outline-none focus:border-indigo-500"
+                            placeholder="email@company.com"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">كلمة المرور</label>
+                        <input 
+                            required 
+                            type="password" 
+                            value={newUserData.password}
+                            onChange={(e) => setNewUserData({...newUserData, password: e.target.value})}
+                            className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:outline-none focus:border-indigo-500"
+                            placeholder="••••••••"
+                            minLength={6}
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">الدور / الصلاحية</label>
+                        <select 
+                            value={newUserData.role}
+                            onChange={(e) => setNewUserData({...newUserData, role: e.target.value as any})}
+                            className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:outline-none focus:border-indigo-500 bg-white font-medium text-sm"
+                        >
+                            {(currentUserRole === 'super_admin') && <option value="super_admin">⚡ Super Admin (مدير النظام)</option>}
+
+                            {/* الأدوار الأساسية دائماً ظاهرة */}
+                            <optgroup label="── 🏢 الإدارة العامة والمحاسبة ──">
+                                <option value="admin">🛡️ Admin (مسؤول عام)</option>
+                                <option value="manager">👔 Manager (مدير فرع / تشغيل)</option>
+                                <option value="accountant">📊 Accountant (محاسب مالي عام)</option>
+                                <option value="viewer">👁️ Viewer (مشاهدة وتقارير فقط)</option>
+                                <option value="owner">🏢 Owner (مالك منشأة)</option>
+                            </optgroup>
+
+                            <optgroup label="── 🛒 التجزئة، السوبر ماركت والمخازن ──">
+                                <option value="pos_supervisor">🪪 رئيس الكاشيرية / مشرف نقطة البيع (Head Cashier & Supervisor)</option>
+                                <option value="cashier">💵 كاشير نقطة البيع (POS Cashier)</option>
+                                <option value="storekeeper">📦 أمين مخزن ومستودعات (Storekeeper)</option>
+                                <option value="sales">💼 مسؤول ومندوب مبيعات (Sales Rep)</option>
+                            </optgroup>
+
+                            <optgroup label="── 🍽️ المطاعم والضيافة (F&B) ──">
+                                <option value="restaurant_waiter">🍽️ كابتن صالة / ويتر (Waiter)</option>
+                                <option value="chef">🍳 شيف المطبخ التنفيذي (Executive Chef)</option>
+                                <option value="restaurant_cook">🔥 طاهي محطة مطبخ (Line Cook)</option>
+                                <option value="restaurant_driver">🛵 كابتن توصيل / ديلفري (Driver)</option>
+                            </optgroup>
+
+                            {/* الأدوار المخصصة المُنشأة من صفحة الأدوار والصلاحيات */}
+                            {dynamicRoles.length > 0 && (() => {
+                              // فلترة الأدوار المخصصة (غير الأساسية المعروضة سلفاً)
+                              const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo', 'pos_supervisor', 'cashier', 'storekeeper', 'sales', 'restaurant_waiter', 'chef', 'restaurant_chef', 'restaurant_cook', 'restaurant_driver'];
+                              const customRoles = dynamicRoles.filter(r => !builtinNames.includes(r.name));
+                              if (customRoles.length === 0) return null;
+                              return (
+                                <optgroup label="── الأدوار المخصصة (من صفحة الأدوار والصلاحيات) ──">
+                                  {customRoles.map(role => (
+                                    <option key={role.name} value={role.name}>
+                                      🎯 {role.description || role.name} ({role.name})
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              );
+                            })()}
+                        </select>
+
+                    </div>
+
+                    <div className="pt-4 flex gap-3 border-t border-slate-100 mt-4">
+                        <button type="submit" disabled={creating} className="flex-1 bg-indigo-600 text-white py-3 rounded-lg hover:bg-indigo-700 font-bold shadow-md flex justify-center items-center gap-2 disabled:opacity-50">
+                            {creating ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                            إنشاء المستخدم
+                        </button>
+                        <button type="button" onClick={() => setIsAddModalOpen(false)} className="px-6 py-3 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg font-medium transition-colors">إلغاء</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {isResetPasswordModalOpen && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="bg-amber-50 px-6 py-4 border-b border-amber-100 flex justify-between items-center">
+                    <h3 className="font-bold text-xl text-amber-800 flex items-center gap-2">
+                        <KeyRound size={20} /> إعادة تعيين كلمة المرور
+                    </h3>
+                    <button onClick={() => setIsResetPasswordModalOpen(false)} className="text-slate-400 hover:text-red-500 transition-colors">
+                        <X size={24} />
+                    </button>
+                </div>
+                
+                <form onSubmit={handleResetPassword} className="p-6 space-y-4">
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">كلمة المرور الجديدة</label>
+                        <input 
+                            required 
+                            type="password" 
+                            value={resetPasswordData.newPassword}
+                            onChange={(e) => setResetPasswordData({...resetPasswordData, newPassword: e.target.value})}
+                            className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:outline-none focus:border-amber-500"
+                            placeholder="••••••••"
+                            minLength={6}
+                        />
+                    </div>
+                    <div className="pt-4 flex gap-3 border-t border-slate-100 mt-4">
+                        <button type="submit" disabled={resetting} className="flex-1 bg-amber-600 text-white py-3 rounded-lg hover:bg-amber-700 font-bold shadow-md flex justify-center items-center gap-2 disabled:opacity-50">
+                            {resetting ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
+                            حفظ كلمة المرور
+                        </button>
+                        <button type="button" onClick={() => setIsResetPasswordModalOpen(false)} className="px-6 py-3 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg font-medium transition-colors">إلغاء</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default UserManager;

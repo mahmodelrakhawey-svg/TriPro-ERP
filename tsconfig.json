@@ -1,0 +1,38 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./*"]
+    },
+
+    /* Linting */
+    // 🔒 SECURITY NOTE: strict mode will be enabled after fixing existing type errors
+    // See SECURITY_REMEDIATION.md for details
+    "strict": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noFallthroughCasesInSwitch": true,
+    "alwaysStrict": true,
+    "noImplicitAny": false,
+    "noImplicitThis": false
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "**/*.d.ts"
+  ],
+  "exclude": ["node_modules", "supabase", "dist"]
+}

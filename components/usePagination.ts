@@ -1,0 +1,138 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { supabase } from '../supabaseClient';
+
+export interface PaginationOptions {
+  select?: string;
+  pageSize?: number;
+  orderBy?: string;
+  ascending?: boolean;
+  organizationId?: string | null;
+}
+
+export interface PaginationResult<T> {
+  data: T[];
+  loading: boolean;
+  error: string | null;
+  page: number;
+  setPage: React.Dispatch<React.SetStateAction<number>>;
+  totalPages: number;
+  totalCount: number;
+  refresh: () => void;
+}
+
+export function usePagination<T>(
+  tableName: string,
+  options: PaginationOptions = {},
+  queryModifier?: (query: any) => any
+): PaginationResult<T> {
+  const [data, setData] = useState<T[]>([]);
+  const [page, setPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  // تخزين الـ queryModifier في مرجع لمنع الحلقات اللانهائية إذا كانت الوظيفة غير مستقرة
+  const queryModifierRef = useRef(queryModifier);
+
+  const {
+    select = '*',
+    pageSize = 10,
+    orderBy = 'created_at',
+    ascending = false,
+    organizationId
+  } = options;
+
+  // تحديث المرجع عند تغيير الدالة وإعادة جلب البيانات مع ضبط الصفحة على الأولى
+  useEffect(() => {
+    queryModifierRef.current = queryModifier;
+    setPage(1);
+    setRefreshTrigger(prev => prev + 1);
+  }, [queryModifier, organizationId]);
+
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      // 🛡️ حماية فورية: إذا لم توجد جلسة نشطة، توقف تماماً ولا ترسل طلبات لقاعدة البيانات
+      if (!session || !session.user) {
+        setLoading(false);
+        return;
+      }
+
+      const userOrgId = organizationId || session.user.user_metadata?.org_id;
+      const userRole = session.user.user_metadata?.role;
+
+      let query = supabase
+        .from(tableName)
+        .select(select, { count: 'exact' });
+
+      // إذا لم يكن سوبر أدمن، يجب التأكد من وجود معرف شركة
+      if (!userOrgId && userRole !== 'super_admin') {
+        throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
+      }
+
+      // تطبيق التصفية فقط إذا كان المعرف موجوداً وصحيحاً (وليس نصاً فارغاً)
+      if (userOrgId && userOrgId !== "") {
+        query = query.eq('organization_id', userOrgId);
+      }
+
+      if (queryModifierRef.current) {
+        query = queryModifierRef.current(query);
+      }
+
+      if (orderBy) {
+        query = query.order(orderBy, { ascending });
+      }
+
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      query = query.range(from, to).abortSignal(signal);
+
+      const { data: resultData, error: resultError, count } = await query;
+
+      if (resultError) throw resultError;
+
+      setData((resultData as T[]) || []);
+      setTotalCount(count || 0);
+    } catch (err: any) {
+      // تجاهل الأخطاء الناتجة عن إلغاء الطلب يدوياً
+
+      if (err.name === 'AbortError' || err.message?.includes('AbortError')) return;
+      
+      if (import.meta.env.DEV) console.error(`Error fetching data from ${tableName}:`, err);
+      setError(err.message || 'An error occurred while fetching data');
+    } finally {
+      setLoading(false);
+    }
+  }, [tableName, select, pageSize, orderBy, ascending, page, refreshTrigger]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchData(controller.signal);
+    
+    // تنظيف الطلبات عند فك المكون أو تغيير التبعيات
+    return () => controller.abort();
+  }, [fetchData]);
+
+  const refresh = useCallback(() => {
+    setRefreshTrigger(prev => prev + 1);
+  }, []);
+
+  const totalPages = Math.ceil(totalCount / pageSize);
+
+  return {
+    data,
+    loading,
+    error,
+    page,
+    setPage,
+    totalPages,
+    totalCount,
+    refresh
+  };
+}

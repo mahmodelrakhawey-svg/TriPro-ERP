@@ -1,0 +1,180 @@
+----- /dev/null
+----@@ -0,0 +1,126 @@
+----### 2. تحديث ملف الإعداد الشامل `services/setup_complete_demo.sql`
+----- c:\Users\pc\Desktop\TriPro-ERP\services\setup_complete_demo.sql
+----@@ -148,6 +148,7 @@
+----@@ -162,6 +163,7 @@
+----@@ -603,6 +605,82 @@
+-- 🛠️ سكربت إصلاح وتوحيد أرصدة العملاء والموردين (نسخة مطابقة لكشف الحساب)
+-- يقوم هذا السكربت بإضافة عمود للرصيد وإعادة احتسابه بناءً على منطق كشف الحساب
+
+BEGIN;
+
+-- 0. تحسينات وقائية: التأكد من أن حقل المدفوع مقدماً ليس NULL
+UPDATE public.invoices SET paid_amount = 0 WHERE paid_amount IS NULL;
+ALTER TABLE public.invoices ALTER COLUMN paid_amount SET DEFAULT 0;
+
+-- 1. إضافة عمود الرصيد (Balance) إذا لم يكن موجوداً
+ALTER TABLE public.customers ADD COLUMN IF NOT EXISTS balance numeric DEFAULT 0;
+ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS balance numeric DEFAULT 0;
+
+-- 1.5 إصلاح جداول الإشعارات (إضافة عمود الحالة إذا كان مفقوداً)
+DO $$
+BEGIN
+    -- الإشعارات الدائنة
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'credit_notes') THEN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'credit_notes' AND column_name = 'status') THEN
+            ALTER TABLE public.credit_notes ADD COLUMN status text DEFAULT 'posted';
+        END IF;
+    END IF;
+
+    -- الإشعارات المدينة
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'debit_notes') THEN
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'debit_notes' AND column_name = 'status') THEN
+            ALTER TABLE public.debit_notes ADD COLUMN status text DEFAULT 'posted';
+        END IF;
+    END IF;
+END $$;
+
+-- 2. دالة إعادة احتساب أرصدة الشركاء (تم تعديلها لتطابق كشف الحساب تماماً)
+CREATE OR REPLACE FUNCTION public.recalculate_partner_balances()
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+DECLARE
+    partner RECORD;
+    v_balance numeric;
+BEGIN
+    -- أ) إعادة احتساب أرصدة العملاء
+    FOR partner IN SELECT id FROM public.customers LOOP
+        v_balance := 0;
+        
+        -- 1. الفواتير (مدين +) - (المبلغ المدفوع مقدماً فيها)
+        -- المنطق: الفواتير غير المسودة تحسب بالكامل، ويخصم منها المدفوع مقدماً
+        SELECT v_balance + COALESCE(SUM(total_amount - COALESCE(paid_amount, 0)), 0) INTO v_balance
+        FROM public.invoices 
+        WHERE customer_id = partner.id AND status != 'draft';
+
+        -- 2. سندات القبض (دائن -)
+        -- تعديل: استبعاد سندات التأمين (DEP) لتطابق كشف الحساب
+        SELECT v_balance - COALESCE(SUM(amount), 0) INTO v_balance
+        FROM public.receipt_vouchers 
+        WHERE customer_id = partner.id
+        AND (voucher_number NOT LIKE 'DEP-%' OR voucher_number IS NULL);
+
+        -- 3. مرتجعات المبيعات (دائن -)
+        SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance
+        FROM public.sales_returns 
+        WHERE customer_id = partner.id AND status = 'posted';
+
+        -- 4. الإشعارات الدائنة (دائن -)
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'credit_notes') THEN
+            SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance
+            FROM public.credit_notes 
+            WHERE customer_id = partner.id AND status = 'posted';
+        END IF;
+
+        -- 5. الشيكات (دائن -)
+        -- تعديل: كشف الحساب يخصم الشيكات الواردة ما دامت غير مرفوضة (حتى لو كانت تحت التحصيل)
+        SELECT v_balance - COALESCE(SUM(amount), 0) INTO v_balance
+        FROM public.cheques 
+        WHERE party_id = partner.id AND type = 'incoming' AND status != 'rejected';
+
+        -- تحديث رصيد العميل
+        UPDATE public.customers SET balance = v_balance WHERE id = partner.id;
+    END LOOP;
+
+    -- ب) إعادة احتساب أرصدة الموردين
+    FOR partner IN SELECT id FROM public.suppliers LOOP
+        v_balance := 0;
+
+        -- 1. فواتير المشتريات (دائن +)
+        SELECT v_balance + COALESCE(SUM(total_amount), 0) INTO v_balance
+        FROM public.purchase_invoices 
+        WHERE supplier_id = partner.id AND status != 'draft';
+
+        -- 2. سندات الصرف (مدين -)
+        SELECT v_balance - COALESCE(SUM(amount), 0) INTO v_balance
+        FROM public.payment_vouchers 
+        WHERE supplier_id = partner.id;
+
+        -- 3. مرتجعات المشتريات (مدين -)
+        SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance
+        FROM public.purchase_returns 
+        WHERE supplier_id = partner.id AND status = 'posted';
+
+        -- 4. الإشعارات المدينة (مدين -)
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'debit_notes') THEN
+            SELECT v_balance - COALESCE(SUM(total_amount), 0) INTO v_balance
+            FROM public.debit_notes 
+            WHERE supplier_id = partner.id AND status = 'posted';
+        END IF;
+
+        -- تحديث رصيد المورد
+        UPDATE public.suppliers SET balance = v_balance WHERE id = partner.id;
+    END LOOP;
+END;
+$$;
+
+-- 3. تنفيذ الدالة فوراً لتصحيح الأوضاع الحالية
+SELECT public.recalculate_partner_balances();
+
+-- 4. فحص وإصلاح المستندات المرحلة التي ليس لها قيود (Orphaned Documents)
+DO $$
+DECLARE
+    r RECORD;
+    v_journal_id uuid;
+BEGIN
+    -- فواتير المبيعات المرحلة بدون قيد
+    FOR r IN SELECT id, invoice_number FROM public.invoices WHERE status = 'posted' AND related_journal_entry_id IS NULL LOOP
+        -- التحقق من وجود قيد سابق بنفس المرجع لتجنب خطأ التكرار
+        SELECT id INTO v_journal_id FROM public.journal_entries WHERE reference = r.invoice_number LIMIT 1;
+        
+        IF v_journal_id IS NOT NULL THEN
+            -- ربط القيد الموجود بالفاتورة
+            UPDATE public.invoices SET related_journal_entry_id = v_journal_id WHERE id = r.id;
+        ELSE
+            -- نغير الحالة مؤقتاً إلى مسودة لتجاوز فحص "الفاتورة مرحلة بالفعل" ثم ننشئ القيد
+            UPDATE public.invoices SET status = 'draft' WHERE id = r.id;
+            PERFORM public.approve_invoice(r.id);
+        END IF;
+    END LOOP;
+
+    -- سندات القبض
+    FOR r IN SELECT id, voucher_number, treasury_account_id FROM public.receipt_vouchers WHERE related_journal_entry_id IS NULL LOOP
+        SELECT id INTO v_journal_id FROM public.journal_entries WHERE reference = r.voucher_number LIMIT 1;
+        
+        IF v_journal_id IS NOT NULL THEN
+            UPDATE public.receipt_vouchers SET related_journal_entry_id = v_journal_id WHERE id = r.id;
+        ELSE
+            PERFORM public.approve_receipt_voucher(r.id, (SELECT id FROM public.accounts WHERE code = '1102' LIMIT 1));
+        END IF;
+    END LOOP;
+
+    -- فواتير المشتريات المرحلة بدون قيد
+    FOR r IN SELECT id, invoice_number FROM public.purchase_invoices WHERE status = 'posted' AND related_journal_entry_id IS NULL LOOP
+        SELECT id INTO v_journal_id FROM public.journal_entries WHERE reference = r.invoice_number LIMIT 1;
+        
+        IF v_journal_id IS NOT NULL THEN
+            UPDATE public.purchase_invoices SET related_journal_entry_id = v_journal_id WHERE id = r.id;
+        ELSE
+            UPDATE public.purchase_invoices SET status = 'draft' WHERE id = r.id;
+            PERFORM public.approve_purchase_invoice(r.id);
+        END IF;
+    END LOOP;
+
+    -- سندات الصرف
+    FOR r IN SELECT id, voucher_number, treasury_account_id FROM public.payment_vouchers WHERE related_journal_entry_id IS NULL LOOP
+        SELECT id INTO v_journal_id FROM public.journal_entries WHERE reference = r.voucher_number LIMIT 1;
+        
+        IF v_journal_id IS NOT NULL THEN
+            UPDATE public.payment_vouchers SET related_journal_entry_id = v_journal_id WHERE id = r.id;
+        ELSE
+            PERFORM public.approve_payment_voucher(r.id, (SELECT id FROM public.accounts WHERE code = '2201' LIMIT 1));
+        END IF;
+    END LOOP;
+END $$;
+
+COMMIT;
+
+SELECT '✅ تم توحيد الأرصدة (مطابقة لكشف الحساب) وإصلاح القيود.' as result;

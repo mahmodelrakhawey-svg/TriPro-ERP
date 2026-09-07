@@ -1,0 +1,54 @@
+-- إعادة تهيئة جدول أوامر الشراء لضمان توافق الأنواع
+-- تحذير: سيتم حذف بيانات أوامر الشراء الحالية للبدء من جديد بشكل نظيف
+
+BEGIN;
+
+-- 1. حذف الجداول القديمة (لضمان عدم وجود تعارض في الأعمدة)
+DROP TABLE IF EXISTS public.purchase_order_items CASCADE;
+DROP TABLE IF EXISTS public.purchase_orders CASCADE;
+
+-- 2. إنشاء جدول أوامر الشراء (Purchase Orders) بالهيكل الصحيح
+CREATE TABLE public.purchase_orders (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_number TEXT,                 -- نص (مثل PO-123456)
+    supplier_id UUID REFERENCES public.suppliers(id), -- ربط بالمورد
+    order_date DATE DEFAULT CURRENT_DATE,
+    delivery_date DATE,                -- يقبل NULL
+    total_amount NUMERIC DEFAULT 0,    -- رقم
+    tax_amount NUMERIC DEFAULT 0,      -- رقم
+    status TEXT DEFAULT 'pending',     -- نص
+    notes TEXT,                        -- نص
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 3. إنشاء جدول بنود الأمر
+CREATE TABLE public.purchase_order_items (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    order_id UUID REFERENCES public.purchase_orders(id) ON DELETE CASCADE,
+    product_id UUID REFERENCES public.products(id),
+    quantity NUMERIC DEFAULT 1,
+    price NUMERIC DEFAULT 0,
+    total NUMERIC DEFAULT 0
+);
+
+-- 4. تعطيل الحماية (RLS) تماماً لضمان ظهور البيانات للجميع
+ALTER TABLE public.purchase_orders DISABLE ROW LEVEL SECURITY;
+ALTER TABLE public.purchase_order_items DISABLE ROW LEVEL SECURITY;
+
+-- 5. إضافة أمر تجريبي للتأكد
+DO $$
+DECLARE
+  v_supplier_id UUID;
+BEGIN
+  SELECT id INTO v_supplier_id FROM public.suppliers LIMIT 1;
+  IF v_supplier_id IS NOT NULL THEN
+    INSERT INTO public.purchase_orders (order_number, supplier_id, order_date, total_amount, status, notes)
+    VALUES ('PO-TEST-INIT', v_supplier_id, CURRENT_DATE, 5000, 'pending', 'أمر تجريبي بعد إعادة التهيئة');
+  END IF;
+END $$;
+
+COMMIT;
+
+NOTIFY pgrst, 'reload schema';
+
+SELECT 'تم إعادة إنشاء جداول أوامر الشراء بنجاح.' as status;

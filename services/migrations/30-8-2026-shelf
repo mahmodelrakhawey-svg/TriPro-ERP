@@ -1,0 +1,93 @@
+-- =====================================================================
+-- Migration: Add Hypermarket & Supermarket Fields to products table
+-- Date: 2026-08-30
+-- Description: Adds 9 new columns for hypermarket/supermarket operations
+-- Run this SQL in your Supabase SQL Editor (Dashboard -> SQL Editor)
+-- =====================================================================
+
+-- 1. باركود ثانٍ (EAN المصنع / Supplier Barcode)
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS barcode2 TEXT DEFAULT NULL;
+
+-- 2. مفتاح صنف الميزان
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS is_scale_item BOOLEAN DEFAULT FALSE;
+
+-- 3. رقم PLU للميزان
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS plu_number INTEGER DEFAULT NULL;
+
+-- 4. بادئة باركود الميزان (22, 23, 24, etc.)
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS scale_prefix TEXT DEFAULT '22';
+
+-- 5. موقع الرف (مثال: A-03-R2)
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS shelf_location TEXT DEFAULT NULL;
+
+-- 6. العلامة التجارية
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS brand TEXT DEFAULT NULL;
+
+-- 7. بلد المنشأ
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS country_of_origin TEXT DEFAULT NULL;
+
+-- 8. تقييد العمر (+18)
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS age_restricted BOOLEAN DEFAULT FALSE;
+
+-- 9. نسبة ضريبة خاصة بالصنف (تتجاوز الإعداد العام)
+ALTER TABLE products
+  ADD COLUMN IF NOT EXISTS tax_rate_override NUMERIC(5,2) DEFAULT NULL;
+
+-- =====================================================================
+-- فهارس (Indexes) لتسريع البحث في حقول الهايبر المستخدمة كثيراً
+-- =====================================================================
+
+-- فهرس على موقع الرف (لتقرير إعادة التخزين)
+CREATE INDEX IF NOT EXISTS idx_products_shelf_location
+  ON products (organization_id, shelf_location)
+  WHERE shelf_location IS NOT NULL;
+
+-- فهرس على رقم PLU (لتصدير ملف الموازين)
+CREATE INDEX IF NOT EXISTS idx_products_plu_number
+  ON products (organization_id, plu_number)
+  WHERE plu_number IS NOT NULL;
+
+-- فهرس على is_scale_item (لتصفية أصناف الميزان بسرعة)
+CREATE INDEX IF NOT EXISTS idx_products_scale_item
+  ON products (organization_id, is_scale_item)
+  WHERE is_scale_item = TRUE;
+
+-- فهرس على الباركود الثاني
+CREATE INDEX IF NOT EXISTS idx_products_barcode2
+  ON products (organization_id, barcode2)
+  WHERE barcode2 IS NOT NULL;
+
+-- فهرس على age_restricted (للكاشير)
+CREATE INDEX IF NOT EXISTS idx_products_age_restricted
+  ON products (organization_id, age_restricted)
+  WHERE age_restricted = TRUE;
+
+-- =====================================================================
+-- تحديث RLS (Row Level Security) - لا تغيير مطلوب
+-- الـ policies الحالية على جدول products تغطي الأعمدة الجديدة تلقائياً
+-- =====================================================================
+
+-- =====================================================================
+-- التحقق من نجاح العملية
+-- =====================================================================
+SELECT
+  column_name,
+  data_type,
+  column_default,
+  is_nullable
+FROM information_schema.columns
+WHERE table_name = 'products'
+  AND column_name IN (
+    'barcode2', 'is_scale_item', 'plu_number', 'scale_prefix',
+    'shelf_location', 'brand', 'country_of_origin',
+    'age_restricted', 'tax_rate_override'
+  )
+ORDER BY column_name;

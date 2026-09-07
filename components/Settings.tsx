@@ -1,0 +1,2013 @@
+
+import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '../supabaseClient';
+import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
+import { useToast } from '../context/ToastContext';
+import { secureStorage } from '../utils/securityMiddleware';
+import * as XLSX from 'xlsx';
+import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap, RefreshCw, Info, Calculator, Layers } from 'lucide-react';
+import SearchableSelect from './SearchableSelect';
+import { z } from 'zod';
+import { runRestaurantModuleTest } from '../modules/restaurant/utils/runRestaurantFlowTest';
+import ArchiveManager from '../services/ArchiveManager'; // استيراد مدير الأرشفة
+
+const ACCOUNT_LABELS: Record<string, string> = {
+  CASH: 'النقدية (الصندوق الرئيسي)',
+  CUSTOMERS: 'العملاء',
+  NOTES_RECEIVABLE: 'أوراق القبض (شيكات واردة)',
+  INVENTORY: 'المخزون العام',
+  INVENTORY_RAW_MATERIALS: 'مخزون المواد الخام',
+  INVENTORY_WIP: 'مخزون إنتاج تحت التشغيل (WIP)',
+  INVENTORY_FINISHED_GOODS: 'مخزون المنتج التام',
+  ACCUMULATED_DEPRECIATION: 'مجمع الإهلاك',
+  SUPPLIERS: 'الموردين',
+  VAT: 'ضريبة القيمة المضافة (مخرجات)',
+  VAT_INPUT: 'ضريبة القيمة المضافة (مدخلات)',
+  SECURITY_DEPOSIT_ACCOUNT: 'تأمينات ودفعات مقدمة من العملاء (226)',
+  NOTES_PAYABLE: 'أوراق الدفع (شيكات صادرة)',
+  SALES_REVENUE: 'إيراد المبيعات',
+  OTHER_REVENUE: 'إيرادات أخرى',
+  SALES_DISCOUNT: 'خصم مسموح به',
+  COGS: 'تكلفة البضاعة المباعة',
+  SALARIES_EXPENSE: 'مصروف الرواتب والأجور',
+  DEPRECIATION_EXPENSE: 'مصروف الإهلاك',
+  INVENTORY_ADJUSTMENTS: 'تسويات المخزون (عجز/زيادة)',
+  RETAINED_EARNINGS: 'الأرباح المبقاة',
+  EMPLOYEE_BONUSES: 'مكافآت الموظفين',
+  EMPLOYEE_DEDUCTIONS: 'جزاءات وخصومات الموظفين',
+  BANK_CHARGES: 'مصروفات بنكية',
+  BANK_INTEREST_INCOME: 'فوائد بنكية (دائنة)',
+  TAX_AUTHORITY: 'مصلحة الضرائب',
+  SOCIAL_INSURANCE: 'التأمينات الاجتماعية',
+  WITHHOLDING_TAX: 'ضريبة الخصم والتحصيل',
+  EMPLOYEE_ADVANCES: 'سلف الموظفين',
+  CASH_SHORTAGE: 'عجز الخزينة (فروقات جرد)',
+  CASH_SURPLUS_ACC: 'زيادة الصندوق (إيرادات متنوعة)',
+  LABOR_COST_ALLOCATED: 'تكاليف العمالة الصناعية المحملة',
+  RETENTION_CUSTOMER: 'محتجز ضمان لدى الغير (عملاء) (1249)',
+  RETENTION_SUBCONTRACTOR: 'محتجز ضمان لمقاولي الباطن (2229)',
+  EQUIPMENT_INTERNAL_REVENUE: 'إيراد تشغيل معدات داخلي (425)',
+  CONSTRUCTION_REVENUE: 'إيراد عقود ومشاريع / مستخلصات (41103)',
+  SERVICE_CHARGE_REVENUE: 'إيرادات رسوم الخدمة (المطاعم) (41104)',
+  LETTER_OF_GUARANTEE_MARGIN: 'غطاء خطابات ضمان لدى البنوك (1248)',
+  LETTER_OF_CREDIT_GOODS: 'اعتمادات مستندية لشراء بضائع (1246)',
+};
+
+interface CloudBackup {
+  id: string;
+  organization_id: string;
+  backup_date: string;
+  backup_data?: any;
+  file_size_kb: number;
+  notes: string;
+}
+
+const Settings = () => {
+  const { closeFinancialYear, exportData, currentUser, accounts, createMissingSystemAccounts, recalculateAllBalances, purgeDeletedRecords, refreshSaasSchema, warehouses, refreshData } = useAccounting();
+  const currentUserRole = currentUser?.role || '';
+  const [activeTab, setActiveTab] = useState<'general' | 'financial' | 'system' | 'mapping' | 'terminals' | 'demo' | 'eta'>('general');
+  const [terminalsList, setTerminalsList] = useState<any[]>([]);
+  const [isTerminalsLoading, setIsTerminalsLoading] = useState(false);
+  const [newTerminalData, setNewTerminalData] = useState({
+    name: '',
+    warehouseId: '',
+    cashAccountId: ''
+  });
+
+  const fetchTerminals = async () => {
+    if (!currentUser) return;
+    setIsTerminalsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('pos_terminals')
+        .select('*')
+        .eq('organization_id', currentUser.organization_id);
+      if (error) throw error;
+      setTerminalsList(data || []);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setIsTerminalsLoading(false);
+    }
+  };
+
+  const [recalculatingWac, setRecalculatingWac] = useState(false);
+
+  const handleRecalculateWac = async () => {
+    setRecalculatingWac(true);
+    showToast('جاري إعادة احتساب تكاليف المخزون (WAC) بأثر رجعي... ⏳', 'info');
+    try {
+      const { error } = await supabase.rpc('recalculate_all_products_wac');
+      if (error) throw error;
+      showToast('تم إعادة احتساب تكاليف المخزون بنجاح وتصحيح هوامش الربح! ✅', 'success');
+    } catch (err: any) {
+      showToast(`فشل الاحتساب: ${err.message}`, 'error');
+    } finally {
+      setRecalculatingWac(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'terminals') {
+      fetchTerminals();
+    }
+  }, [activeTab, currentUser]);
+
+  const handleAddTerminal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTerminalData.name.trim()) {
+      showToast('الرجاء إدخال اسم الكاشير', 'error');
+      return;
+    }
+    try {
+      const { error } = await supabase
+        .from('pos_terminals')
+        .insert({
+          name: newTerminalData.name,
+          warehouse_id: newTerminalData.warehouseId || null,
+          cash_account_id: newTerminalData.cashAccountId || null,
+          organization_id: currentUser?.organization_id
+        });
+      if (error) throw error;
+      showToast('تمت إضافة جهاز الكاشير بنجاح ✅', 'success');
+      setNewTerminalData({ name: '', warehouseId: '', cashAccountId: '' });
+      fetchTerminals();
+    } catch (err: any) {
+      showToast(err.message || 'فشل إضافة جهاز الكاشير', 'error');
+    }
+  };
+
+  const handleDeleteTerminal = async (id: string) => {
+    if (!window.confirm('هل أنت متأكد من حذف جهاز الكاشير هذا؟')) return;
+    try {
+      const { error } = await supabase
+        .from('pos_terminals')
+        .delete()
+        .eq('id', id);
+      if (error) throw error;
+      showToast('تم حذف جهاز الكاشير بنجاح 🗑️', 'success');
+      fetchTerminals();
+    } catch (err: any) {
+      showToast(err.message || 'فشل حذف جهاز الكاشير', 'error');
+    }
+  };
+
+  const [formData, setFormData] = useState({ 
+      companyName: '', taxNumber: '', phone: '', address: '', footerText: '', vatRate: 0.14, currency: '', logoUrl: '', 
+      enableTax: true, allowNegativeStock: false, preventPriceModification: false, maxCashDeficitLimit: 500, decimalPlaces: 2,
+      enableServiceCharge: false, serviceChargeRate: 12,
+      accountMappings: {} as Record<string, string>,
+      defaultWarehouseId: '',
+      defaultTreasuryId: '',
+      defaultBankId: '',
+      productionWarehouseId: '',
+      rawMaterialsWarehouseId: '',
+      etaTaxpayerId: '',
+      etaClientId: '',
+      etaClientSecret: '',
+      etaEnvironment: 'sandbox' as 'sandbox' | 'production',
+      etaIsActive: false
+  });
+  const [originalSettings, setOriginalSettings] = useState<any>(null);
+  const [cloudBackups, setCloudBackups] = useState<CloudBackup[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const { showToast } = useToast();
+  const [settingsId, setSettingsId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const currencies = [
+    { code: 'EGP', label: 'جنيه مصري (EGP)' },
+    { code: 'SAR', label: 'ريال سعودي (SAR)' },
+    { code: 'USD', label: 'دولار أمريكي (USD)' },
+    { code: 'AED', label: 'درهم إماراتي (AED)' },
+    { code: 'KWD', label: 'دينار كويتي (KWD)' },
+    { code: 'QAR', label: 'ريال قطري (QAR)' },
+    { code: 'OMR', label: 'ريال عماني (OMR)' },
+    { code: 'BHD', label: 'دينار بحريني (BHD)' },
+    { code: 'JOD', label: 'دينار أردني (JOD)' },
+    { code: 'EUR', label: 'يورو (EUR)' },
+    { code: 'GBP', label: 'جنيه إسترليني (GBP)' },
+  ];
+  const [enableWorkspaceTabs, setEnableWorkspaceTabs] = useState<boolean>(() => {
+    try {
+      const saved = secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled');
+      return saved !== false;
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    const handleTabsToggle = (e: any) => {
+      const val = e.detail !== undefined ? e.detail : (secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled') !== false);
+      setEnableWorkspaceTabs(val);
+    };
+    window.addEventListener('workspace-tabs-visibility-changed', handleTabsToggle);
+    window.addEventListener('storage', handleTabsToggle);
+    return () => {
+      window.removeEventListener('workspace-tabs-visibility-changed', handleTabsToggle);
+      window.removeEventListener('storage', handleTabsToggle);
+    };
+  }, []);
+
+  const handleToggleWorkspaceTabs = (enabled: boolean) => {
+    setEnableWorkspaceTabs(enabled);
+    try {
+      secureStorage.setItem('tripro_workspace_tabs_enabled', enabled);
+      window.dispatchEvent(new CustomEvent('workspace-tabs-visibility-changed', { detail: enabled }));
+    } catch (e) {}
+    showToast(enabled ? 'تم تفعيل شريط تبويبات مساحة العمل بنجاح 📑' : 'تم تعطيل شريط تبويبات مساحة العمل 🔕', 'info');
+  };
+
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // جلب إعدادات الشركة
+    const fetchSettings = async () => {
+        const orgId = (currentUser as any)?.organization_id;
+        let sData: any = null;
+
+        try {
+            // 🛡️ استخدام RPC لضمان جلب إعدادات الشركة الصحيحة وتجنب مشاكل التوكن القديم
+            const { data, error } = await supabase
+                .rpc('get_current_company_settings', { p_org_id: orgId || null })
+                .maybeSingle();
+            
+            if (!error && data) {
+                sData = data;
+            }
+        } catch (err) {
+            // صامت للمرور للمحاولة المباشرة
+        }
+
+        // في حالة عدم توفر RPC أو إرجاع خطأ يتم الجلب المباشر من الجدول
+        if (!sData && orgId) {
+            try {
+                const { data: directData } = await supabase
+                    .from('company_settings')
+                    .select('*')
+                    .eq('organization_id', orgId)
+                    .maybeSingle();
+                if (directData) sData = directData;
+            } catch (err) {
+                // صامت
+            }
+        }
+        
+        if (sData) {
+            setSettingsId(sData.id);
+            const loaded = {
+                companyName: sData.company_name || '',
+                taxNumber: sData.tax_number || '',
+                phone: sData.phone || '',
+                address: sData.address || '',
+                footerText: sData.footer_text || '',
+                vatRate: sData.vat_rate ? (sData.vat_rate <= 1 ? sData.vat_rate * 100 : sData.vat_rate) : 14,
+                currency: sData.currency || '',
+                logoUrl: sData.logo_url || '',
+                enableTax: sData.enable_tax !== undefined ? sData.enable_tax : true,
+                enableServiceCharge: sData.enable_service_charge !== undefined 
+                    ? sData.enable_service_charge 
+                    : (sData.account_mappings?.enable_service_charge !== undefined ? sData.account_mappings.enable_service_charge : false),
+                serviceChargeRate: sData.service_charge_rate !== undefined && sData.service_charge_rate !== null 
+                    ? (sData.service_charge_rate <= 1 && sData.service_charge_rate > 0 ? sData.service_charge_rate * 100 : sData.service_charge_rate) 
+                    : (sData.account_mappings?.service_charge_rate !== undefined ? (sData.account_mappings.service_charge_rate <= 1 && sData.account_mappings.service_charge_rate > 0 ? sData.account_mappings.service_charge_rate * 100 : sData.account_mappings.service_charge_rate) : 12),
+                allowNegativeStock: sData.allow_negative_stock !== undefined ? sData.allow_negative_stock : false,
+                preventPriceModification: sData.prevent_price_modification !== undefined ? sData.prevent_price_modification : false,
+                maxCashDeficitLimit: sData.max_cash_deficit_limit !== undefined ? sData.max_cash_deficit_limit : 500,
+                decimalPlaces: sData.decimal_places !== undefined ? sData.decimal_places : 2,
+                accountMappings: sData.account_mappings || {},
+                defaultWarehouseId: sData.default_warehouse_id || '',
+                defaultTreasuryId: sData.default_treasury_id || '',
+                defaultBankId: sData.default_bank_id || sData.account_mappings?.BANK || '',
+                productionWarehouseId: sData.production_warehouse_id || '',
+                rawMaterialsWarehouseId: sData.raw_material_warehouse_id || '',
+                etaTaxpayerId: sData.eta_taxpayer_id || '',
+                etaClientId: sData.eta_client_id || '',
+                etaClientSecret: sData.eta_client_secret || '',
+                etaEnvironment: sData.eta_environment || 'sandbox',
+                etaIsActive: sData.eta_is_active !== undefined ? sData.eta_is_active : false
+            };
+            setFormData(loaded);
+            setOriginalSettings(loaded);
+        }
+        setLoading(false);
+    };
+
+    fetchSettings();
+    fetchCloudBackups();
+  }, [currentUser]);
+
+  const fetchCloudBackups = async () => {
+    const orgId = (currentUser as any)?.organization_id;
+    if (!orgId) return;
+    const { data } = await supabase
+      .from('organization_backups')
+      .select('id, organization_id, file_size_kb, backup_date, notes, created_at')
+      .eq('organization_id', orgId)
+      .order('backup_date', { ascending: false })
+      .limit(5);
+    setCloudBackups(data || []);
+  };
+
+  // Security Check
+  if (!loading && ((currentUserRole as string) !== 'super_admin' && (currentUserRole as string) !== 'admin' || (currentUserRole as string) === 'demo')) {
+      return (
+          <div className="p-8 text-center bg-red-50 m-4 rounded-xl border border-red-200">
+              <h2 className="text-2xl font-bold text-red-600 mb-2 flex items-center justify-center gap-2">
+                  <ShieldCheck /> {currentUserRole === 'demo' ? 'الإعدادات غير متاحة في النسخة التجريبية' : 'غير مصرح لك بالوصول'}
+              </h2>
+              <p className="text-slate-600">
+                  {currentUserRole === 'demo' 
+                    ? 'للحفاظ على استقرار النسخة التجريبية، تم تعطيل تعديل إعدادات النظام.' 
+                    : 'صفحة الإعدادات متاحة فقط لمدير النظام (Admin) للحفاظ على أمان البيانات.'}
+              </p>
+          </div>
+      );
+  }
+
+  const handleSave = async (e: React.FormEvent) => {
+      e.preventDefault();
+      
+      const settingsSchema = z.object({
+          companyName: z.string().min(1, 'اسم المنشأة مطلوب'),
+          email: z.string().email('البريد الإلكتروني غير صحيح').optional().or(z.literal('')),
+          vatRate: z.coerce.number().min(0).max(100, 'نسبة الضريبة يجب أن تكون بين 0 و 100'),
+          serviceChargeRate: z.coerce.number().min(0).max(100, 'نسبة الخدمة يجب أن تكون بين 0 و 100').optional(),
+          maxCashDeficitLimit: z.coerce.number().min(0, 'الحد الأقصى للعجز يجب أن يكون 0 أو أكثر'),
+          decimalPlaces: z.coerce.number().min(0).max(4, 'عدد الكسور العشرية يجب أن يكون بين 0 و 4')
+      });
+
+      const validationResult = settingsSchema.safeParse(formData);
+      if (!validationResult.success) {
+          showToast(validationResult.error.issues[0].message, 'warning');
+          return;
+      }
+
+      if (currentUserRole === 'demo') {
+          showToast("تم تحديث إعدادات الجلسة الحالية بنجاح ✅", 'success');
+          return;
+      }
+
+      try {
+        const accountMappingsWithService = {
+            ...(formData.accountMappings || {}),
+            BANK: formData.defaultBankId || (formData.accountMappings as any)?.BANK || null,
+            enable_service_charge: formData.enableServiceCharge,
+            service_charge_rate: (Number(formData.serviceChargeRate) || 0) / 100
+        };
+
+        const payload: any = {
+            company_name: formData.companyName,
+            tax_number: formData.taxNumber,
+            phone: formData.phone,
+            address: formData.address,
+            footer_text: formData.footerText,
+            vat_rate: formData.vatRate / 100, // تخزين الضريبة ككسر عشري في قاعدة البيانات
+            currency: formData.currency,
+            logo_url: formData.logoUrl,
+            allow_negative_stock: formData.allowNegativeStock,
+            enable_tax: formData.enableTax,
+            enable_service_charge: formData.enableServiceCharge,
+            service_charge_rate: (Number(formData.serviceChargeRate) || 0) / 100,
+            prevent_price_modification: formData.preventPriceModification,
+            max_cash_deficit_limit: formData.maxCashDeficitLimit,
+            decimal_places: formData.decimalPlaces,
+            updated_at: new Date().toISOString(),
+            account_mappings: accountMappingsWithService,
+            default_warehouse_id: formData.defaultWarehouseId || null,
+            default_treasury_id: formData.defaultTreasuryId || null,
+            production_warehouse_id: formData.productionWarehouseId || null,
+            raw_material_warehouse_id: formData.rawMaterialsWarehouseId || null,
+            eta_taxpayer_id: formData.etaTaxpayerId || null,
+            eta_client_id: formData.etaClientId || null,
+            eta_client_secret: formData.etaClientSecret || null,
+            eta_environment: formData.etaEnvironment || 'sandbox',
+            eta_is_active: formData.etaIsActive
+        };
+
+        let { error } = settingsId 
+            ? await supabase.from('company_settings').update(payload).eq('id', settingsId)
+            : await supabase.from('company_settings').insert(payload);
+
+        // Fallback: If dedicated columns don't exist in company_settings table, omit them and save via account_mappings
+        if (error && (error.message?.includes('column') || error.code === 'PGRST204' || (error as any).details?.includes('column'))) {
+            delete payload.enable_service_charge;
+            delete payload.service_charge_rate;
+            const retry = settingsId 
+                ? await supabase.from('company_settings').update(payload).eq('id', settingsId)
+                : await supabase.from('company_settings').insert(payload);
+            error = retry.error;
+        }
+
+        if (error) throw error;
+
+        // حساب التغييرات المحددة لتسجيلها في تفاصيل سجل الأمان
+        const changes: Record<string, { from: any, to: any }> = {};
+        const fieldLabels: Record<string, string> = {
+            companyName: 'اسم الشركة',
+            taxNumber: 'الرقم الضريبي',
+            phone: 'الهاتف',
+            address: 'العنوان',
+            footerText: 'نص التذييل',
+            vatRate: 'نسبة الضريبة',
+            currency: 'العملة',
+            enableTax: 'تفعيل الضريبة',
+            allowNegativeStock: 'السماح بالبيع بالسالب',
+            preventPriceModification: 'منع تعديل الأسعار',
+            maxCashDeficitLimit: 'الحد الأقصى لعجز النقدية',
+            decimalPlaces: 'الخانة العشرية',
+            defaultWarehouseId: 'المخزن الافتراضي',
+            defaultTreasuryId: 'الخزينة الافتراضية',
+            defaultBankId: 'البنك الافتراضي للنظام',
+            productionWarehouseId: 'مخزن الإنتاج',
+            rawMaterialsWarehouseId: 'مخزن المواد الخام'
+        };
+
+        if (originalSettings) {
+            Object.keys(formData).forEach((key) => {
+                const oldValue = (originalSettings as any)[key];
+                const newValue = (formData as any)[key];
+                if (JSON.stringify(oldValue) !== JSON.stringify(newValue)) {
+                    const label = fieldLabels[key] || key;
+                    changes[label] = {
+                        from: oldValue === null || oldValue === undefined ? 'لا يوجد' : String(oldValue),
+                        to: newValue === null || newValue === undefined ? 'لا يوجد' : String(newValue)
+                    };
+                }
+            });
+        }
+
+        // تسجيل العملية في سجلات الأمان
+        try {
+            await supabase.from('security_logs').insert({
+                event_type: 'settings_update',
+                description: `تم تحديث إعدادات المنشأة بواسطة ${(currentUser as any)?.full_name}`,
+                organization_id: (currentUser as any)?.organization_id,
+                metadata: { changes, performed_by: currentUser?.id }
+            });
+        } catch (e) {
+            // صامت
+        }
+
+        // تحديث القيمة الأصلية المسجلة للتغييرات التالية
+        setOriginalSettings({ ...formData });
+
+        showToast("تم حفظ الإعدادات بنجاح ✅", 'success');
+      } catch (err: any) {
+        showToast("فشل الحفظ: " + err.message, 'error');
+      }
+  };
+
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+
+    if (currentUserRole === 'demo') {
+        showToast('تم رفع الشعار بنجاح! سيظهر في الفواتير المطبوعة خلال هذه الجلسة.', 'success');
+        return;
+    }
+    
+    const file = e.target.files[0];
+    const fileExt = file.name.split('.').pop();
+    const fileName = `company-logo-${Math.random()}.${fileExt}`;
+    const filePath = `${fileName}`;
+
+    try {
+      setLoading(true);
+      const { error: uploadError } = await supabase.storage
+        .from('logos')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data } = supabase.storage.from('logos').getPublicUrl(filePath);
+      
+      setFormData(prev => ({ ...prev, logoUrl: data.publicUrl }));
+      showToast('تم رفع الشعار بنجاح! لا تنس حفظ الإعدادات.', 'success');
+    } catch (error: any) {
+      showToast('فشل رفع الشعار: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const orgId = (currentUser as any)?.organization_id;
+    if (!orgId) {
+      showToast('فشل تحديد المنظمة. يرجى إعادة تسجيل الدخول.', 'error');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const content = evt.target?.result as string;
+        const isJson = file.name.toLowerCase().endsWith('.json');
+
+        if (isJson) {
+          let parsedData: any;
+          try {
+            parsedData = JSON.parse(content);
+          } catch (jsonErr) {
+            showToast('خطأ: الملف المرفوع ليس بصيغة JSON صالحة.', 'error');
+            return;
+          }
+
+          if (!parsedData || typeof parsedData !== 'object') {
+            showToast('خطأ: محتوى ملف النسخة الاحتياطية غير صالح.', 'error');
+            return;
+          }
+
+          if (!window.confirm('⚠️ تحذير شديد: استعادة هذه النسخة ستؤدي لاستبدال وتحديث بيانات المنشأة الحالية ببيانات النسخة المرفوعة. هل تريد الاستمرار؟')) {
+            return;
+          }
+
+          const confirmText = window.prompt('لتأكيد عملية الاستعادة، يرجى كتابة كلمة "استعادة" في المربع أدناه:');
+          if (!confirmText || (confirmText.trim() !== 'استعادة' && confirmText.trim() !== 'استعاده')) {
+            showToast('تم إلغاء عملية الاستعادة أو لم يتم إدخال كلمة التأكيد بشكل صحيح.', 'info');
+            return;
+          }
+
+          setLoading(true);
+          try {
+            const { data, error } = await supabase.rpc('restore_organization_backup', {
+              p_org_id: orgId,
+              p_backup_data: parsedData
+            });
+
+            if (error) throw error;
+            showToast(data || 'تمت استعادة البيانات بنجاح ✅', 'success');
+            setTimeout(() => window.location.reload(), 1500);
+          } catch (restoreErr: any) {
+            showToast('فشل عملية الاستعادة: ' + restoreErr.message, 'error');
+          } finally {
+            setLoading(false);
+          }
+        } else { // Excel file
+          showToast('لاستيراد البيانات من Excel، يرجى استخدام "مركز ترحيل البيانات" من القائمة الجانبية.', 'info');
+        }
+      } catch (err: any) {
+        showToast("فشل قراءة الملف: " + err.message, 'error');
+      } finally {
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
+    };
+
+    if (file.name.toLowerCase().endsWith('.json')) {
+      reader.readAsText(file);
+    } else {
+      reader.readAsBinaryString(file);
+    }
+  };
+
+  const handleCreateCloudBackup = async () => {
+    const orgId = (currentUser as any)?.organization_id;
+    if (!orgId) {
+      showToast('فشل تحديد المنظمة. يرجى إعادة تسجيل الدخول.', 'error');
+      return;
+    }
+
+    if (!window.confirm('هل تريد إنشاء نسخة احتياطية كاملة لبيانات المنشأة في السحابة الآن؟')) return;
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('create_organization_backup', { 
+        p_org_id: orgId 
+      });
+      if (error) throw error;
+      showToast(`تم إنشاء النسخة الاحتياطية بنجاح ✅ رقم النسخة: ${data}`, 'success');
+      fetchCloudBackups();
+    } catch (err: any) {
+      showToast('فشل إنشاء النسخة الاحتياطية: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRestoreCloudBackup = async (backup: CloudBackup) => {
+    if (!window.confirm('⚠️ تحذير شديد: استعادة هذه النسخة ستمسح كافة البيانات الحالية وتستبدلها ببيانات النسخة المختارة. هل تريد الاستمرار؟')) return;
+    
+    const confirmText = window.prompt('لتأكيد العملية، يرجى كتابة كلمة "استعادة" في المربع أدناه:');
+    if (!confirmText || (confirmText.trim() !== 'استعادة' && confirmText.trim() !== 'استعاده')) {
+      showToast('تم إلغاء عملية الاستعادة أو لم يتم إدخال كلمة التأكيد بشكل صحيح', 'info');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      let rawData = backup.backup_data;
+      if (!rawData) {
+        const { data: record, error: fetchErr } = await supabase
+          .from('organization_backups')
+          .select('backup_data')
+          .eq('id', backup.id)
+          .single();
+        if (fetchErr) throw fetchErr;
+        rawData = record?.backup_data;
+      }
+
+      const payload = typeof rawData === 'string' 
+        ? JSON.parse(rawData) 
+        : rawData;
+
+      const { data, error } = await supabase.rpc('restore_organization_backup', { 
+        p_org_id: backup.organization_id,
+        p_backup_data: payload
+      });
+      if (error) throw error;
+      showToast(data || 'تمت استعادة البيانات بنجاح ✅', 'success');
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (err: any) {
+      showToast('فشل عملية الاستعادة: ' + err.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleFactoryReset = () => {
+      const confirm1 = window.confirm("تحذير شديد: هل أنت متأكد تماماً من رغبتك في إعادة ضبط المصنع؟");
+      if(confirm1) {
+          const confirm2 = window.prompt("هذا الإجراء سيحذف جميع الفواتير، العملاء، المنتجات، والقيود. لا يمكن التراجع. \n\nللتأكيد، اكتب 'حذف الكل' في المربع أدناه:");
+          if(confirm2 === 'حذف الكل') {
+              showToast('تم تعطيل إعادة الضبط مؤقتاً', 'warning');
+          }
+      }
+  };
+
+  const handleResetDemoData = async () => {
+      if (currentUserRole === 'demo') {
+          if (window.confirm("هل أنت متأكد من إعادة ضبط البيانات الافتراضية؟")) {
+              setLoading(true);
+              setTimeout(() => {
+                  showToast("تم إعادة ضبط بيانات الديمو بنجاح", 'success');
+                  setLoading(false);
+                  window.location.reload();
+              }, 1000);
+          }
+          return;
+      }
+      if (window.confirm("هل أنت متأكد من إعادة ضبط بيانات الديمو؟\nسيتم مسح جميع الفواتير والقيود والعودة للوضع الافتراضي.")) {
+          try {
+              setLoading(true);
+              // محاولة استخدام RPC أولاً
+              const { error: rpcError } = await supabase.rpc('reset_demo_data');
+              
+              if (rpcError) {
+                  if (process.env.NODE_ENV === 'development') console.warn("RPC failed, trying manual delete...", rpcError);
+                  // الحذف اليدوي مع شرط لتجاوز "DELETE requires a WHERE clause"
+                  // نستخدم neq('id', '00000000-0000-0000-0000-000000000000') كشرط عام (أو أي شرط صحيح دائماً)
+                  await supabase.from('journal_lines').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+                  await supabase.from('journal_entries').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+                  await supabase.from('invoice_items').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+                  await supabase.from('invoices').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+                  await supabase.from('receipt_vouchers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+                  await supabase.from('payment_vouchers').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+              }
+
+              showToast("تم إعادة ضبط بيانات الديمو بنجاح ✅", 'success');
+              window.location.href = '/'; // إعادة التوجيه للرئيسية لتحديث البيانات
+          } catch (err: any) {
+              showToast("فشل إعادة الضبط: " + err.message, 'error');
+          } finally {
+              setLoading(false);
+          }
+      }
+  };
+
+  const handleCloseYear = async () => {
+      if (currentUserRole === 'demo') {
+          showToast("تم إغلاق السنة المالية وترحيل الأرصدة بنجاح ✅", 'success');
+          return;
+      }
+
+      const confirm1 = window.confirm("هل أنت متأكد من إقفال السنة المالية؟\n\nسيقوم النظام بـ:\n1. ترحيل صافي الربح/الخسارة إلى الأرباح المبقاة.\n2. إنشاء قيد إقفال للمصروفات والإيرادات.\n\nملاحظة: هذا الإجراء محاسبي ولا يقوم بمسح البيانات.");
+      if (confirm1) {
+          const confirm2 = window.prompt("للتأكيد، يرجى كتابة 'اقفال السنة' في المربع أدناه:");
+          if (confirm2 === 'اقفال السنة') {
+              const year = new Date().getFullYear() - 1; // افتراضياً نقفل السنة الماضية
+              const closingDate = `${year}-12-31`;
+              const success = await closeFinancialYear(year, closingDate);
+              if (success) {
+                  navigate('/general-journal', { state: { initialSearch: `CLOSE-${year}` } });
+                  // تحديث تاريخ الإقفال في الإعدادات
+                  await supabase
+                    .from('company_settings')
+                    .update({ last_closed_date: closingDate })
+                    .eq('id', settingsId);
+              }
+          }
+      }
+  };
+
+  const handleCreateMissingAccounts = async () => {
+      if (currentUserRole === 'demo') {
+          showToast("تم فحص الدليل المحاسبي وإنشاء الحسابات المفقودة بنجاح. ✅", 'success');
+          return;
+      }
+
+      if (!window.confirm('سيقوم النظام بفحص الحسابات المفقودة وإنشائها تلقائياً. هل تريد الاستمرار؟')) return;
+      
+      setLoading(true);
+      try {
+          const result = await createMissingSystemAccounts();
+          showToast(result.message, 'success');
+      } catch (e: any) {
+          showToast('حدث خطأ: ' + e.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleFixDatabaseSchema = async () => {
+      if (currentUserRole === 'demo') {
+          showToast("تم فحص وإصلاح جداول قاعدة البيانات بنجاح. ✅", 'success');
+          return;
+      }
+
+      if (!window.confirm('سيقوم النظام بفحص وإصلاح هيكل جداول قاعدة البيانات (خاصة المرتجعات). هل تريد الاستمرار؟')) return;
+      
+      setLoading(true);
+      try {
+          const { data, error } = await supabase.rpc('fix_returns_schema');
+          if (error) throw error;
+          showToast(data || 'تم الفحص بنجاح.', 'success');
+      } catch (e: any) {
+          showToast('حدث خطأ أثناء الصيانة: ' + e.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleCleanOrphanedOpeningEntries = async () => {
+      if (currentUserRole === 'demo') {
+          showToast("تم فحص وتنظيف القيود اليتيمة بنجاح ✅ (محاكاة)", 'success');
+          return;
+      }
+
+      if (!window.confirm('هل تريد البحث عن وحذف قيود الأرصدة الافتتاحية (Opening Balances) الخاصة بالأصناف التي تم حذفها نهائياً؟\n\nتحذير: يعتمد هذا الفحص على تطابق اسم الصنف في شرح القيد. إذا قمت بتغيير اسم صنف بعد إنشائه، قد يتم اعتبار قيده يتيماً.')) return;
+
+      setLoading(true);
+      try {
+          // 1. جلب أسماء جميع المنتجات الموجودة حالياً
+          const { data: products } = await supabase.from('products').select('name');
+          const productNames = new Set(products?.map(p => p.name) || []);
+          
+          // 2. جلب قيود الأرصدة الافتتاحية الفردية
+          const { data: entries } = await supabase
+              .from('journal_entries')
+              .select('id, description')
+              .or('reference.ilike.OPEN-IMP-%,reference.ilike.OPEN-MAN-%');
+
+          if (!entries || entries.length === 0) {
+              showToast('لا توجد قيود أرصدة افتتاحية للفحص.', 'info');
+              setLoading(false);
+              return;
+          }
+
+          const idsToDelete: string[] = [];
+
+          for (const entry of entries) {
+              // التنسيق المتوقع: "رصيد افتتاحي ... - اسم الصنف"
+              const description = entry.description || '';
+              const separatorIndex = description.lastIndexOf(' - ');
+              
+              if (separatorIndex !== -1) {
+                  const productName = description.substring(separatorIndex + 3).trim();
+                  // إذا كان اسم المنتج في القيد غير موجود في قائمة المنتجات الحالية
+                  if (!productNames.has(productName)) {
+                      idsToDelete.push(entry.id);
+                  }
+              }
+          }
+
+          if (idsToDelete.length > 0) {
+              // حذف القيود (الأسطر ستحذف تلقائياً بفضل Cascade في قاعدة البيانات)
+              await supabase.from('journal_lines').delete().in('journal_entry_id', idsToDelete);
+              const { error } = await supabase.from('journal_entries').delete().in('id', idsToDelete);
+              
+              if (error) throw error;
+              showToast(`تم تنظيف ${idsToDelete.length} قيد يتيم بنجاح ✅`, 'success');
+          } else {
+              showToast('سجل القيود نظيف. جميع قيود الأرصدة الافتتاحية مرتبطة بأصناف موجودة. ✅', 'success');
+          }
+      } catch (e: any) {
+          console.error(e);
+          showToast('حدث خطأ أثناء التنظيف: ' + e.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleClearDemoData = async () => {
+      if (currentUserRole === 'demo') {
+          if (!window.confirm('⚠️ تحذير هام جداً: سيتم حذف جميع البيانات التشغيلية (فواتير، منتجات، عملاء)!')) return;
+          const confirmation = window.prompt('للتأكيد النهائي، يرجى كتابة كلمة "حذف" في المربع أدناه:');
+          if (confirmation !== 'حذف') {
+              showToast('تم إلغاء العملية.', 'info');
+              return;
+          }
+          showToast('تم تنظيف البيانات التجريبية بنجاح. النظام جاهز للعمل الفعلي. ✅', 'success');
+          window.location.reload();
+          return;
+      }
+
+      if (!window.confirm('⚠️ تحذير هام جداً: سيتم حذف جميع البيانات التشغيلية (فواتير، منتجات، عملاء)!\n\nسيتم الاحتفاظ فقط بالإعدادات ودليل الحسابات.\n\nهل أنت متأكد من رغبتك في تنظيف النظام للبدء الفعلي؟')) return;
+      
+      const confirmation = window.prompt('للتأكيد النهائي، يرجى كتابة كلمة "حذف" في المربع أدناه:');
+      if (confirmation !== 'حذف') {
+          showToast('تم إلغاء العملية.', 'info');
+          return;
+      }
+
+      setLoading(true);
+      try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const orgId = session?.user?.user_metadata?.org_id;
+          if (!orgId) throw new Error("معرف المنظمة غير موجود.");
+          const { error } = await supabase.rpc('clear_demo_data', { p_org_id: orgId });
+          if (error) throw error;
+          
+          showToast('تم تنظيف البيانات التجريبية بنجاح. النظام جاهز للعمل الفعلي. ✅', 'success');
+          window.location.reload();
+      } catch (e: any) {
+          showToast('حدث خطأ أثناء التنظيف: ' + e.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleExportList = async (type: 'customers' | 'suppliers' | 'products') => {
+      if (currentUserRole === 'demo') {
+          showToast("تم تصدير الملف بنجاح ✅ (محاكاة)", 'success');
+          return;
+      }
+
+      setLoading(true);
+      try {
+          let data: any[] = [];
+          let fileName = '';
+          
+          if (type === 'customers') {
+              const { data: res, error } = await supabase.from('customers').select('*').is('deleted_at', null);
+              if (error) throw error;
+              data = res || [];
+              fileName = 'Customers_List.xlsx';
+          } else if (type === 'suppliers') {
+              const { data: res, error } = await supabase.from('suppliers').select('*').is('deleted_at', null);
+              if (error) throw error;
+              data = res || [];
+              fileName = 'Suppliers_List.xlsx';
+          } else if (type === 'products') {
+              const { data: res, error } = await supabase.from('products').select('*').is('deleted_at', null);
+              if (error) throw error;
+              data = res || [];
+              fileName = 'Products_List.xlsx';
+          }
+
+          if (data && data.length > 0) {
+              const ws = XLSX.utils.json_to_sheet(data);
+              const wb = XLSX.utils.book_new();
+              XLSX.utils.book_append_sheet(wb, ws, type);
+              XLSX.writeFile(wb, fileName);
+              showToast(`تم تصدير قائمة ${type === 'customers' ? 'العملاء' : type === 'suppliers' ? 'الموردين' : 'الأصناف'} بنجاح ✅`, 'success');
+          } else {
+              showToast('لا توجد بيانات للتصدير.', 'info');
+          }
+      } catch (err: any) {
+          showToast('فشل التصدير: ' + err.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleAutoMapping = async () => {
+      const orgId = (currentUser as any)?.organization_id;
+      const mappingSource = {
+          ...SYSTEM_ACCOUNTS, 
+          CASH_SHORTAGE: '541',
+          CASH_SURPLUS_ACC: '441',
+          INVENTORY_RAW_MATERIALS: '10301',
+          INVENTORY_WIP: '10303',
+          INVENTORY_FINISHED_GOODS: '10302',
+          LABOR_COST_ALLOCATED: '513',
+          WASTAGE_EXPENSE: '5121',
+          RETENTION_CUSTOMER: '1249',
+          RETENTION_SUBCONTRACTOR: '2229',
+          ADVANCE_PAYMENT_SUBCONTRACTOR: '1245',
+          EQUIPMENT_INTERNAL_REVENUE: '425'
+      };
+
+      const newMappings = { ...formData.accountMappings };
+      let currentAccs = [...accounts];
+      let linkedCount = 0;
+
+      // إنشاء حساب رسوم الخدمة 41104 تلقائياً إذا لم يكن مضافاً في شجرة الحسابات
+      if (orgId && !currentAccs.some(acc => acc.code === '41104')) {
+          try {
+              const parent41 = currentAccs.find(acc => acc.code === '41') || currentAccs.find(acc => acc.code === '4');
+              const { data: createdAcc, error: createErr } = await supabase.from('accounts').insert({
+                  organization_id: orgId,
+                  code: '41104',
+                  name: 'إيرادات رسوم الخدمة (المطاعم)',
+                  type: 'REVENUE',
+                  is_group: false,
+                  is_active: true,
+                  parent_id: parent41?.id || null
+              }).select().maybeSingle();
+
+              if (!createErr && createdAcc) {
+                  currentAccs.push(createdAcc);
+                  await refreshData();
+              }
+          } catch (e) {
+              console.error('Failed to auto-create 41104 account:', e);
+          }
+      }
+
+      // إنشاء حساب غطاء خطابات الضمان 1248 تلقائياً إذا لم يكن موجوداً
+      if (orgId && !currentAccs.some(acc => acc.code === '1248' || acc.code?.startsWith('1248'))) {
+          try {
+              const parent124 = currentAccs.find(acc => acc.code === '124') || currentAccs.find(acc => acc.code === '12') || currentAccs.find(acc => acc.code === '1');
+              const { data: createdAcc, error: createErr } = await supabase.from('accounts').insert({
+                  organization_id: orgId,
+                  code: '1248',
+                  name: 'غطاء خطابات الضمان لدى البنوك',
+                  type: 'ASSET',
+                  is_group: false,
+                  is_active: true,
+                  parent_id: parent124?.id || null
+              }).select().maybeSingle();
+              if (!createErr && createdAcc) {
+                  currentAccs.push(createdAcc);
+              }
+          } catch (e) {
+              console.error('Failed to auto-create 1248 account:', e);
+          }
+      }
+
+      // إنشاء حساب اعتمادات مستندية 1246 تلقائياً إذا لم يكن موجوداً
+      if (orgId && !currentAccs.some(acc => acc.code === '1246' || acc.code?.startsWith('1246'))) {
+          try {
+              const parent124 = currentAccs.find(acc => acc.code === '124') || currentAccs.find(acc => acc.code === '12') || currentAccs.find(acc => acc.code === '1');
+              const { data: createdAcc, error: createErr } = await supabase.from('accounts').insert({
+                  organization_id: orgId,
+                  code: '1246',
+                  name: 'اعتمادات مستندية لشراء بضائع',
+                  type: 'ASSET',
+                  is_group: false,
+                  is_active: true,
+                  parent_id: parent124?.id || null
+              }).select().maybeSingle();
+              if (!createErr && createdAcc) {
+                  currentAccs.push(createdAcc);
+              }
+          } catch (e) {
+              console.error('Failed to auto-create 1246 account:', e);
+          }
+      }
+
+      // بحث اسمي (fallback) لحسابات بنكية محددة
+      const nameFallbacks: Record<string, (acc: any) => boolean> = {
+          LETTER_OF_GUARANTEE_MARGIN: (acc) =>
+              acc.code === '1248' || acc.code?.startsWith('1248') ||
+              acc.name?.includes('غطاء خطابات ضمان') || acc.name?.includes('غطاء خطابات الضمان') || acc.name?.includes('غطاء الضمان'),
+          LETTER_OF_CREDIT_GOODS: (acc) =>
+              acc.code === '1246' || acc.code?.startsWith('1246') ||
+              acc.name?.includes('اعتمادات مستندية') || acc.name?.includes('اعتماد مستندي') || acc.name?.includes('خطابات اعتماد'),
+      };
+
+      Object.entries(mappingSource).forEach(([key, defaultCode]) => {
+          // البحث عن الحساب بالكود الافتراضي بشرط ألا يكون حساباً تجميعياً
+          let matchedAccount = currentAccs.find(acc => acc.code === defaultCode && !acc.isGroup);
+          // fallback بالاسم للحسابات التي لا تجد كوداً مطابقاً تماماً
+          if (!matchedAccount && nameFallbacks[key]) {
+              matchedAccount = currentAccs.find(acc => !acc.isGroup && nameFallbacks[key](acc));
+          }
+          if (matchedAccount) {
+              newMappings[key] = matchedAccount.id;
+              linkedCount++;
+          }
+      });
+
+      setFormData(prev => ({ ...prev, accountMappings: newMappings }));
+      
+      if (linkedCount > 0) {
+          showToast(`تم ربط ${linkedCount} حساب بنجاح بناءً على الأكواد الافتراضية ✅`, 'success');
+      } else {
+          showToast('لم يتم العثور على حسابات مطابقة للأكواد الافتراضية في الدليل الحالي.', 'warning');
+      }
+  };
+
+  const handleMappingChange = (key: string, accountId: string) => {
+      setFormData(prev => ({ ...prev, accountMappings: { ...prev.accountMappings, [key]: accountId } }));
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 mb-6">
+          <h2 className="text-2xl font-bold text-slate-800">إعدادات النظام والحماية</h2>
+          <span className="bg-indigo-100 text-indigo-700 text-xs px-2 py-1 rounded-full font-bold border border-indigo-200">Admin Only</span>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          
+          {/* Tabs */}
+          <div className="flex border-b border-slate-100">
+              <button 
+                onClick={() => setActiveTab('general')}
+                className={`flex-1 py-4 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'general' ? 'text-blue-900 border-b-2 border-blue-900 bg-blue-50' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                  <Building2 size={18} /> بيانات المنشأة
+              </button>
+              <button 
+                onClick={() => setActiveTab('financial')}
+                className={`flex-1 py-4 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'financial' ? 'text-emerald-600 border-b-2 border-emerald-600 bg-emerald-50' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                  <CreditCard size={18} /> الإعدادات المالية
+              </button>
+              <button 
+                onClick={() => setActiveTab('system')}
+                className={`flex-1 py-4 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'system' ? 'text-red-600 border-b-2 border-red-600 bg-red-50' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                  <ShieldCheck size={18} /> الحماية والإقفال
+              </button>
+              <button 
+                onClick={() => setActiveTab('mapping')}
+                className={`flex-1 py-4 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'mapping' ? 'text-purple-600 border-b-2 border-purple-600 bg-purple-50' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                  <LinkIcon size={18} /> ربط الحسابات
+              </button>
+              <button 
+                onClick={() => setActiveTab('terminals')}
+                className={`flex-1 py-4 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'terminals' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                  <MonitorSmartphone size={18} /> أجهزة الكاشير
+              </button>
+              <button 
+                onClick={() => setActiveTab('eta')}
+                className={`flex-1 py-4 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'eta' ? 'text-cyan-600 border-b-2 border-cyan-600 bg-cyan-50' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                  <Landmark size={18} /> الضرائب الإلكترونية (ETA)
+              </button>
+              <button 
+                onClick={() => setActiveTab('demo')}
+                className={`flex-1 py-4 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'demo' ? 'text-amber-600 border-b-2 border-amber-600 bg-amber-50' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                  <RotateCcw size={18} /> إدارة الديمو
+              </button>
+          </div>
+
+          <div className="p-8">
+              {activeTab === 'general' && (
+                  <form onSubmit={handleSave} className="space-y-6 max-w-2xl animate-in fade-in">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="md:col-span-2">
+                              <label className="block text-sm font-medium text-slate-700 mb-2">شعار المنشأة</label>
+                              <div className="flex items-center gap-6 bg-slate-50 p-4 rounded-lg border border-slate-200">
+                                  {formData.logoUrl ? (
+                                      <img src={formData.logoUrl} alt="Logo" className="w-20 h-20 object-contain bg-white rounded-lg border border-slate-200 p-1" />
+                                  ) : (
+                                      <div className="w-20 h-20 bg-slate-200 rounded-lg flex items-center justify-center text-slate-400">
+                                          <Landmark size={32} />
+                                      </div>
+                                  )}
+                                  <div className="flex-1">
+                                      <input 
+                                        type="file" 
+                                        accept="image/*"
+                                        onChange={handleLogoUpload}
+                                        className="block w-full text-sm text-slate-500
+                                          file:mr-4 file:py-2 file:px-4
+                                          file:rounded-full file:border-0
+                                          file:text-sm file:font-bold
+                                          file:bg-blue-50 file:text-blue-900
+                                          hover:file:bg-blue-200
+                                          cursor-pointer
+                                        "
+                                      />
+                                      <p className="text-xs text-slate-500 mt-2">يفضل استخدام صورة بخلفية شفافة (PNG) وحجم مربع.</p>
+                                  </div>
+                              </div>
+                          </div>
+                          <div className="md:col-span-2">
+                              <label className="block text-sm font-medium text-slate-700 mb-1">اسم المنشأة</label>
+                              <input 
+                                type="text" 
+                                required
+                                value={formData.companyName}
+                                onChange={(e) => setFormData({...formData, companyName: e.target.value})}
+                                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-900 outline-none"
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">الرقم الضريبي</label>
+                              <input 
+                                type="text" 
+                                value={formData.taxNumber}
+                                onChange={(e) => setFormData({...formData, taxNumber: e.target.value})}
+                                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-900 outline-none"
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">رقم الهاتف</label>
+                              <input 
+                                type="text" 
+                                value={formData.phone}
+                                onChange={(e) => setFormData({...formData, phone: e.target.value})}
+                                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-900 outline-none"
+                              />
+                          </div>
+                          <div className="md:col-span-2">
+                              <label className="block text-sm font-medium text-slate-700 mb-1">العنوان</label>
+                              <input 
+                                type="text" 
+                                value={formData.address}
+                                onChange={(e) => setFormData({...formData, address: e.target.value})}
+                                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-900 outline-none"
+                              />
+                          </div>
+                          <div className="md:col-span-2">
+                              <label className="block text-sm font-medium text-slate-700 mb-1">تذييل الفاتورة (Footer Text)</label>
+                              <textarea 
+                                rows={2}
+                                value={formData.footerText}
+                                onChange={(e) => setFormData({...formData, footerText: e.target.value})}
+                                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-900 outline-none"
+                                placeholder="نص يظهر أسفل الفواتير والسندات..."
+                              ></textarea>
+                          </div>
+
+                          {/* خيار تفعيل/تعطيل شريط تبويبات الشاشات المفتوحة */}
+                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 hover:bg-slate-100/80 p-4 rounded-xl border border-slate-200 transition-colors">
+                              <div className="flex items-center gap-3">
+                                  <div className={`p-2.5 rounded-xl ${enableWorkspaceTabs ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
+                                      <Layers size={20} />
+                                  </div>
+                                  <div>
+                                      <label className="block text-sm font-bold text-slate-800">
+                                          شريط تبويبات الشاشات المفتوحة (Workspace Tabs Bar)
+                                      </label>
+                                      <p className="text-xs text-slate-500 mt-0.5">
+                                          إظهار شريط علوي أعلى الصفحات لتجميع الشاشات التي تفتحها والتنقل والتبديل السريع بينها أو إغلاقها.
+                                      </p>
+                                  </div>
+                              </div>
+                              <button 
+                                  type="button" 
+                                  onClick={() => handleToggleWorkspaceTabs(!enableWorkspaceTabs)}
+                                  className={`text-3xl transition-colors focus:outline-none ${enableWorkspaceTabs ? 'text-emerald-600' : 'text-slate-300'}`}
+                                  title={enableWorkspaceTabs ? 'انقر لتعطيل الشريط' : 'انقر لتفعيل الشريط'}
+                              >
+                                  {enableWorkspaceTabs ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
+                              </button>
+                          </div>
+                      </div>
+                      <div className="pt-4 text-left">
+                          <button type="submit" className="bg-blue-900 text-white px-8 py-2.5 rounded-lg hover:bg-blue-800 font-bold shadow-md">
+                              حفظ التغييرات
+                          </button>
+                      </div>
+                  </form>
+              )}
+
+              {activeTab === 'financial' && (
+                  <form onSubmit={handleSave} className="space-y-6 max-w-2xl animate-in fade-in">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
+                              <div>
+                                  <label className="block text-sm font-bold text-slate-700">تفعيل ضريبة القيمة المضافة</label>
+                                  <p className="text-xs text-slate-500 mt-1">تفعيل أو تعطيل حساب الضريبة في الفواتير</p>
+                              </div>
+                              <button 
+                                  type="button" 
+                                  onClick={() => setFormData({...formData, enableTax: !formData.enableTax})}
+                                  className={`text-3xl transition-colors ${formData.enableTax ? 'text-emerald-600' : 'text-slate-300'}`}
+                              >
+                                  {formData.enableTax ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
+                              </button>
+                          </div>
+
+                          <div className={`transition-opacity duration-200 ${!formData.enableTax ? 'opacity-50 pointer-events-none' : ''}`}>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">نسبة ضريبة القيمة المضافة (VAT)</label>
+                              <div className="relative">
+                                  <input 
+                                    type="text" 
+                                    inputMode="decimal"
+                                    min="0"
+                                    max="100"
+                                    value={formData.vatRate || ''}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                            setFormData({...formData, vatRate: val as any});
+                                        }
+                                    }}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none text-left"
+                                    placeholder="15"
+                                    disabled={!formData.enableTax}
+                                  />
+                                  <span className="absolute left-3 top-2.5 text-slate-400 text-sm">%</span>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">أدخل 14 لنسبة 14% أو 15 لنسبة 15%</p>
+                          </div>
+
+                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
+                              <div>
+                                  <label className="block text-sm font-bold text-slate-700">تفعيل رسوم الخدمة (للمطاعم والكافيهات)</label>
+                                  <p className="text-xs text-slate-500 mt-1">تطبيق نسبة خدمة على طلبات المطاعم مع إمكانية إلغائها أو تفعيلها لكل طلب</p>
+                              </div>
+                              <button 
+                                  type="button" 
+                                  onClick={() => setFormData({...formData, enableServiceCharge: !formData.enableServiceCharge})}
+                                  className={`text-3xl transition-colors ${formData.enableServiceCharge ? 'text-emerald-600' : 'text-slate-300'}`}
+                              >
+                                  {formData.enableServiceCharge ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
+                              </button>
+                          </div>
+
+                          <div className={`transition-opacity duration-200 ${!formData.enableServiceCharge ? 'opacity-50 pointer-events-none' : ''}`}>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">نسبة رسوم الخدمة (%)</label>
+                              <div className="relative">
+                                  <input 
+                                    type="text" 
+                                    inputMode="decimal"
+                                    min="0"
+                                    max="100"
+                                    value={formData.serviceChargeRate || ''}
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
+                                            setFormData({...formData, serviceChargeRate: val as any});
+                                        }
+                                    }}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none text-left"
+                                    placeholder="12"
+                                    disabled={!formData.enableServiceCharge}
+                                  />
+                                  <span className="absolute left-3 top-2.5 text-slate-400 text-sm">%</span>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">أدخل 12 لنسبة خدمة 12%</p>
+                          </div>
+
+                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
+                              <div>
+                                  <label className="block text-sm font-bold text-slate-700">السماح بالبيع بدون رصيد</label>
+                                  <p className="text-xs text-slate-500 mt-1">يسمح بإنشاء فواتير حتى لو كانت الكمية غير متوفرة (غير مستحسن)</p>
+                              </div>
+                              <button 
+                                  type="button" 
+                                  onClick={() => setFormData({...formData, allowNegativeStock: !formData.allowNegativeStock})}
+                                  className={`text-3xl transition-colors ${formData.allowNegativeStock ? 'text-red-600' : 'text-slate-300'}`}
+                              >
+                                  {formData.allowNegativeStock ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
+                              </button>
+                          </div>
+
+                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
+                              <div>
+                                  <label className="block text-sm font-bold text-slate-700">منع تعديل الأسعار في الفاتورة</label>
+                                  <p className="text-xs text-slate-500 mt-1">عند التفعيل، لن يتمكن البائعون من تغيير سعر بيع الصنف المحدد مسبقاً</p>
+                              </div>
+                              <button 
+                                  type="button" 
+                                  onClick={() => setFormData({...formData, preventPriceModification: !formData.preventPriceModification})}
+                                  className={`text-3xl transition-colors ${formData.preventPriceModification ? 'text-emerald-600' : 'text-slate-300'}`}
+                              >
+                                  {formData.preventPriceModification ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
+                              </button>
+                          </div>
+
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">الحد الأقصى للعجز المسموح به (للموظفين)</label>
+                              <div className="relative">
+                                  <input 
+                                    type="number" 
+                                    min="0"
+                                    value={formData.maxCashDeficitLimit || ''}
+                                    onChange={(e) => setFormData({...formData, maxCashDeficitLimit: e.target.value as any})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none"
+                                  />
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">لن يتمكن الموظف من إقفال الصندوق إذا تجاوز العجز هذا المبلغ.</p>
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">العملة الافتراضية</label>
+                              <div className="relative">
+                                <select 
+                                    value={formData.currency}
+                                    onChange={(e) => setFormData({...formData, currency: e.target.value})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none appearance-none bg-white"
+                                >
+                                    <option value="">اختر العملة...</option>
+                                    {currencies.map(c => (
+                                        <option key={c.code} value={c.code}>{c.label}</option>
+                                    ))}
+                                    {!currencies.some(c => c.code === formData.currency) && formData.currency && (
+                                        <option value={formData.currency}>{formData.currency}</option>
+                                    )}
+                                </select>
+                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
+                                    <ChevronDown size={16} />
+                                </div>
+                              </div>
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">عدد الكسور العشرية</label>
+                              <div className="relative">
+                                  <input 
+                                    type="number" 
+                                    min="0"
+                                    max="4"
+                                    value={formData.decimalPlaces || ''}
+                                    onChange={(e) => setFormData({...formData, decimalPlaces: e.target.value as any})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none"
+                                  />
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">عدد الأرقام بعد العلامة العشرية (مثال: 2 لـ 10.50)</p>
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">المستودع الافتراضي للنظام</label>
+                              <div className="relative">
+                                <select 
+                                    value={formData.defaultWarehouseId}
+                                    onChange={(e) => setFormData({...formData, defaultWarehouseId: e.target.value})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none appearance-none bg-white font-bold"
+                                >
+                                    <option value="">-- اختر المستودع الافتراضي --</option>
+                                    {warehouses.map(w => (
+                                        <option key={w.id} value={w.id}>{w.name}</option>
+                                    ))}
+                                </select>
+                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
+                                    <ChevronDown size={16} />
+                                </div>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">المستودع الذي سيتم اختياره تلقائياً في فواتير البيع والشراء.</p>
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">مستودع الإنتاج الافتراضي (WIP)</label>
+                              <div className="relative">
+                                <select 
+                                    value={formData.productionWarehouseId}
+                                    onChange={(e) => setFormData({...formData, productionWarehouseId: e.target.value})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-purple-500 outline-none appearance-none bg-white font-bold"
+                                >
+                                    <option value="">-- اختر مستودع الإنتاج --</option>
+                                    {warehouses.map(w => (
+                                        <option key={w.id} value={w.id}>{w.name}</option>
+                                    ))}
+                                </select>
+                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
+                                    <ChevronDown size={16} />
+                                </div>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">المستودع الذي ستُحول إليه التكاليف أثناء عملية التصنيع.</p>
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">مستودع الخامات الافتراضي</label>
+                              <div className="relative">
+                                <select 
+                                    value={formData.rawMaterialsWarehouseId}
+                                    onChange={(e) => setFormData({...formData, rawMaterialsWarehouseId: e.target.value})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-orange-500 outline-none appearance-none bg-white font-bold"
+                                >
+                                    <option value="">-- اختر مستودع الخامات --</option>
+                                    {warehouses.map(w => (
+                                        <option key={w.id} value={w.id}>{w.name}</option>
+                                    ))}
+                                </select>
+                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
+                                    <ChevronDown size={16} />
+                                </div>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">المستودع الذي يتم سحب المواد الأولية منه تلقائياً.</p>
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">الخزينة الافتراضية للنظام</label>
+                              <div className="relative">
+                                <select 
+                                    value={formData.defaultTreasuryId}
+                                    onChange={(e) => setFormData({...formData, defaultTreasuryId: e.target.value})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none appearance-none bg-white font-bold"
+                                >
+                                    <option value="">-- اختر الخزينة الافتراضية --</option>
+                                    {accounts
+                                      .filter(a => !a.isGroup && (a.code.startsWith('123') || a.name.includes('خزينة') || a.name.includes('صندوق') || a.name.includes('بنك')))
+                                      .map(acc => (
+                                        <option key={acc.id} value={acc.id}>{acc.name} ({acc.code})</option>
+                                      ))
+                                    }
+                                </select>
+                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
+                                    <ChevronDown size={16} />
+                                </div>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">الحساب المالي الذي سيتم اختياره تلقائياً للتحصيل والدفع النقدي.</p>
+                          </div>
+                          <div>
+                              <label className="block text-sm font-medium text-slate-700 mb-1">البنك الافتراضي للنظام (مبيعات الفيزا والشبكة)</label>
+                              <div className="relative">
+                                <select 
+                                    value={formData.defaultBankId}
+                                    onChange={(e) => setFormData({...formData, defaultBankId: e.target.value})}
+                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-500 outline-none appearance-none bg-white font-bold"
+                                >
+                                    <option value="">-- اختر البنك الافتراضي / وسيط الفيزا --</option>
+                                    {accounts
+                                      .filter(a => !a.isGroup && (
+                                        a.code.startsWith('1232') || 
+                                        a.code.startsWith('1102') || 
+                                        a.name.includes('بنك') || 
+                                        a.name.includes('فيزا') || 
+                                        a.name.includes('شبكة') || 
+                                        a.name.toLowerCase().includes('bank') ||
+                                        (a.code.startsWith('123') && !a.name.includes('خزينة') && !a.name.includes('صندوق'))
+                                      ))
+                                      .map(acc => (
+                                        <option key={acc.id} value={acc.id}>{acc.name} ({acc.code})</option>
+                                      ))
+                                    }
+                                </select>
+                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
+                                    <ChevronDown size={16} />
+                                </div>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">الحساب البنكي الذي يتم توجيه مدفوعات البطاقات والفيزا والشبكة إليه تلقائياً في الكاشير.</p>
+                          </div>
+                      </div>
+                      <div className="pt-4 text-left">
+                          <button type="submit" className="bg-emerald-600 text-white px-8 py-2.5 rounded-lg hover:bg-emerald-700 font-bold shadow-md">
+                              حفظ الإعدادات المالية
+                          </button>
+                      </div>
+                  </form>
+              )}
+
+              {activeTab === 'system' && (
+                  <div className="space-y-8 animate-in fade-in">
+                      {/* Close Year Section */}
+                      <div className="bg-amber-50 border border-amber-100 rounded-xl p-6 relative overflow-hidden">
+                          <div className="absolute top-0 right-0 w-16 h-16 bg-amber-100 rounded-bl-full -mr-8 -mt-8"></div>
+                          <h3 className="text-lg font-bold text-amber-800 mb-4 flex items-center gap-2 relative z-10">
+                              <Archive size={20} /> إقفال السنة المالية
+                          </h3>
+                          <p className="text-sm text-amber-800 mb-6 max-w-2xl leading-relaxed">
+                              تستخدم هذه الميزة عند انتهاء السنة المالية. سيقوم النظام بحساب الأرباح والخسائر، ترحيلها لحقوق الملكية، وإنشاء قيد إقفال لتصفير حسابات النتيجة (الإيرادات والمصروفات).
+                          </p>
+                          <button 
+                            onClick={handleCloseYear}
+                            className="flex items-center gap-2 bg-amber-600 text-white px-6 py-3 rounded-lg hover:bg-amber-700 font-bold shadow-md transition-all"
+                          >
+                              <Archive size={18} /> إقفال السنة وفتح سنة جديدة
+                          </button>
+                      </div>
+
+                      {/* قسم أرشفة البيانات القانونية */}
+                      <div className="mt-8">
+                          <ArchiveManager supabase={supabase} showToast={showToast} currentUser={currentUser} />
+                      </div>
+
+                      {/* أدوات الصيانة والربط (SaaS Maintenance) - تم نقله هنا لسهولة الوصول */}
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 shadow-sm">
+                          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                              <Wrench size={20} className="text-orange-600" /> أدوات الصيانة والربط (SaaS)
+                          </h3>
+                          <p className="text-sm text-slate-600 mb-6 leading-relaxed">
+                              استخدم هذه الأدوات لإصلاح تضارب البيانات الناتج عن التحديثات، أو لإعادة مطابقة أرصدة العميل مع دفتر الأستاذ وتحديث كاش النظام.
+                          </p>
+                          <div className="flex flex-wrap gap-3">
+                              <button 
+                                onClick={recalculateAllBalances}
+                                className="flex items-center gap-2 bg-white text-blue-700 border border-blue-200 px-4 py-3 rounded-lg hover:bg-blue-100 font-bold shadow-sm transition-all"
+                              >
+                                  <RotateCcw size={18} /> إعادة مطابقة الأرصدة
+                              </button>
+                              <button 
+                                onClick={refreshSaasSchema}
+                                className="flex items-center gap-2 bg-white text-purple-700 border border-purple-200 px-4 py-3 rounded-lg hover:bg-purple-100 font-bold shadow-sm transition-all"
+                              >
+                                  <Zap size={18} /> تحديث كاش النظام
+                              </button>
+                              <button 
+                                onClick={purgeDeletedRecords}
+                                className="flex items-center gap-2 bg-white text-red-700 border border-red-200 px-4 py-3 rounded-lg hover:bg-red-100 font-bold shadow-sm transition-all"
+                              >
+                                  <Trash2 size={18} /> تنظيف قاعدة البيانات
+                              </button>
+                              <button 
+                                onClick={handleRecalculateWac}
+                                disabled={recalculatingWac}
+                                className="flex items-center gap-2 bg-white text-orange-700 border border-orange-200 px-4 py-3 rounded-lg hover:bg-orange-100 font-bold shadow-sm transition-all disabled:opacity-50"
+                              >
+                                  <Calculator size={18} /> {recalculatingWac ? 'جاري الحساب...' : 'إعادة احتساب تكاليف المخزون (WAC)'}
+                              </button>
+                          </div>
+                      </div>
+
+                      {/* System Health Section */}
+                      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-6">
+                          <h3 className="text-lg font-bold text-indigo-800 mb-4 flex items-center gap-2">
+                              <ShieldCheck size={20} /> فحص وإصلاح حسابات النظام
+                          </h3>
+                          <p className="text-sm text-indigo-700 mb-6">
+                              يقوم هذا الإجراء بفحص دليل الحسابات للتأكد من وجود جميع الحسابات الأساسية اللازمة لعمل النظام (مثل النقدية، المبيعات، الضريبة، إلخ) وإنشائها تلقائياً في حال فقدانها.
+                          </p>
+                          <div className="flex flex-wrap gap-3">
+                              <button 
+                                onClick={handleCreateMissingAccounts}
+                                className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 font-bold shadow-md transition-all"
+                              >
+                                  <RotateCcw size={18} /> فحص وإنشاء الحسابات المفقودة
+                              </button>
+                              <button 
+                                onClick={handleFixDatabaseSchema}
+                                className="flex items-center gap-2 bg-teal-600 text-white px-6 py-3 rounded-lg hover:bg-teal-700 font-bold shadow-md transition-all"
+                              >
+                                  <Database size={18} /> صيانة وإصلاح قاعدة البيانات
+                              </button>
+                              <button 
+                                onClick={handleCleanOrphanedOpeningEntries}
+                                className="flex items-center gap-2 bg-rose-600 text-white px-6 py-3 rounded-lg hover:bg-rose-700 font-bold shadow-md transition-all"
+                              >
+                                  <Trash2 size={18} /> تنظيف قيود الأصناف المحذوفة
+                              </button>
+                          </div>
+                      </div>
+
+
+
+                      {/* Clear Demo Data Section */}
+                      <div className="bg-orange-50 border border-orange-100 rounded-xl p-6">
+                          <h3 className="text-lg font-bold text-orange-800 mb-4 flex items-center gap-2">
+                              <RotateCcw size={20} /> تنظيف البيانات التجريبية (بدء التشغيل)
+                          </h3>
+                          <p className="text-sm text-orange-700 mb-6">
+                              استخدم هذا الخيار عند الانتهاء من تجربة النظام والرغبة في البدء الفعلي. سيتم حذف جميع الفواتير، المنتجات، والعملاء، مع الاحتفاظ بالإعدادات ودليل الحسابات.
+                          </p>
+                          <button 
+                            onClick={handleClearDemoData}
+                            className="flex items-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-lg hover:bg-orange-700 font-bold shadow-md transition-all"
+                          >
+                              <Trash2 size={18} /> حذف البيانات التجريبية
+                          </button>
+                      </div>
+
+                      {/* Export Lists Section */}
+                      <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-6">
+                          <h3 className="text-lg font-bold text-emerald-800 mb-4 flex items-center gap-2">
+                              <FileSpreadsheet size={20} /> تصدير القوائم (Excel)
+                          </h3>
+                          <p className="text-sm text-emerald-700 mb-6">
+                              تصدير بيانات العملاء، الموردين، والأصناف إلى ملفات Excel للاستخدام الخارجي.
+                          </p>
+                          <div className="flex flex-wrap gap-3">
+                              <button 
+                                onClick={() => handleExportList('customers')}
+                                className="flex items-center gap-2 bg-white text-emerald-700 border border-emerald-200 px-4 py-2 rounded-lg hover:bg-emerald-100 font-bold shadow-sm transition-all"
+                              >
+                                  <Users size={18} /> تصدير العملاء
+                              </button>
+                              <button 
+                                onClick={() => handleExportList('suppliers')}
+                                className="flex items-center gap-2 bg-white text-emerald-700 border border-emerald-200 px-4 py-2 rounded-lg hover:bg-emerald-100 font-bold shadow-sm transition-all"
+                              >
+                                  <Truck size={18} /> تصدير الموردين
+                              </button>
+                              <button 
+                                onClick={() => handleExportList('products')}
+                                className="flex items-center gap-2 bg-white text-emerald-700 border border-emerald-200 px-4 py-2 rounded-lg hover:bg-emerald-100 font-bold shadow-sm transition-all"
+                              >
+                                  <Package size={18} /> تصدير الأصناف
+                              </button>
+                          </div>
+                      </div>
+
+                      {/* Data Backup Section */}
+                      <div className="bg-blue-50 border border-blue-100 rounded-xl p-6">
+                          <h3 className="text-lg font-bold text-blue-800 mb-4 flex items-center gap-2">
+                              <Download size={20} /> النسخ الاحتياطي واستعادة البيانات
+                          </h3>
+                          <p className="text-sm text-blue-600 mb-6">
+                              حفاظاً على حقوقك وملكية البيانات، يمكنك تحميل نسخة كاملة من قاعدة البيانات بصيغة JSON والاحتفاظ بها على جهازك الشخصي، أو استعادتها عند الحاجة.
+                          </p>
+                          
+                          <div className="flex gap-4">
+                              <button 
+                                onClick={handleCreateCloudBackup}
+                                className="flex items-center gap-2 bg-emerald-600 text-white px-6 py-3 rounded-lg hover:bg-emerald-700 font-bold shadow-md transition-all"
+                              >
+                                  <Database size={18} /> إنشاء نسخة سحابية
+                              </button>
+
+                              <button 
+                                onClick={exportData}
+                                className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-bold shadow-md transition-all"
+                              >
+                                  <Download size={18} /> تصدير قاعدة البيانات
+                              </button>
+                              
+                              {cloudBackups.length > 0 && (
+                                  <div className="mt-4 w-full border-t border-blue-100 pt-4">
+                                      <h4 className="font-bold text-blue-800 mb-3 text-sm">آخر النسخ السحابية المتوفرة:</h4>
+                                      <div className="space-y-2">
+                                          {cloudBackups.map(b => (
+                                              <div key={b.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-blue-100 shadow-sm">
+                                                  <div>
+                                                      <div className="font-bold text-xs text-slate-700">{new Date(b.backup_date).toLocaleString('ar-EG')}</div>
+                                                      <div className="text-[10px] text-slate-400">الحجم: {b.file_size_kb.toFixed(2)} KB</div>
+                                                  </div>
+                                                  <div className="flex gap-2">
+                                                      <button 
+                                                          onClick={() => handleRestoreCloudBackup(b)}
+                                                          className="px-3 py-1 bg-orange-50 text-orange-600 border border-orange-200 rounded-md text-[10px] font-black hover:bg-orange-100 transition-colors"
+                                                      >
+                                                          استعادة النسخة
+                                                      </button>
+                                                      <button 
+                                                          onClick={() => {
+                                                              const blob = new Blob([JSON.stringify(b.backup_data)], { type: 'application/json' });
+                                                              const url = URL.createObjectURL(blob);
+                                                              const a = document.createElement('a');
+                                                              a.href = url;
+                                                              a.download = `backup_${new Date(b.backup_date).toISOString()}.json`;
+                                                              a.click();
+                                                          }}
+                                                          className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors"
+                                                          title="تحميل الملف"
+                                                      >
+                                                          <Download size={14} />
+                                                      </button>
+                                                  </div>
+                                              </div>
+                                          ))}
+                                      </div>
+                                  </div>
+                              )}
+
+                              <div className="relative">
+                                  <input 
+                                    type="file" 
+                                    ref={fileInputRef}
+                                    accept=".json"
+                                    onChange={handleImport}
+                                    className="hidden"
+                                  />
+                                  <button 
+                                    onClick={() => fileInputRef.current?.click()}
+                                    className="flex items-center gap-2 bg-white text-blue-700 border border-blue-300 px-6 py-3 rounded-lg hover:bg-blue-50 font-bold shadow-sm transition-all"
+                                >
+                                      <Upload size={18} /> استيراد نسخة احتياطية
+                                </button>
+                              </div>
+                          </div>
+                      </div>
+
+                      {/* Danger Zone */}
+                      <div className="bg-red-50 border border-red-100 rounded-xl p-6">
+                          <h3 className="text-lg font-bold text-red-800 mb-4 flex items-center gap-2">
+                              <AlertTriangle size={20} /> منطقة الخطر (إعادة ضبط المصنع)
+                          </h3>
+                          <p className="text-sm text-red-600 mb-6">
+                              هذا الإجراء سيقوم بمسح جميع البيانات (العملاء، الموردين، الفواتير، الحسابات) وإعادة النظام إلى حالته الأولية. لا يمكن التراجع عن هذا الإجراء.
+                          </p>
+                          
+                          <button 
+                            onClick={handleFactoryReset}
+                            className="flex items-center gap-2 bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 font-bold shadow-md transition-all"
+                          >
+                              <RotateCcw size={18} /> إعادة ضبط المصنع (مسح الكل)
+                          </button>
+                      </div>
+                  </div>
+              )}
+
+              {activeTab === 'mapping' && (
+                  <form onSubmit={handleSave} className="space-y-6 max-w-3xl animate-in fade-in">
+                      <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
+                          <div>
+                              <h3 className="font-bold text-purple-800 mb-2">توجيه الحسابات الآلي</h3>
+                              <p className="text-sm text-purple-700">
+                                  هنا يمكنك تحديد الحسابات التي سيستخدمها النظام تلقائياً عند إنشاء الفواتير والسندات. 
+                                  إذا لم يتم تحديد حساب، سيستخدم النظام الكود الافتراضي.
+                              </p>
+                          </div>
+                          <button 
+                            type="button"
+                            onClick={handleAutoMapping}
+                            className="bg-white text-purple-600 border-2 border-purple-200 px-4 py-2 rounded-xl font-black text-xs hover:bg-purple-50 transition-all flex items-center gap-2 shrink-0 shadow-sm"
+                            title="البحث عن الحسابات بالأكواد الافتراضية وربطها بضغطة واحدة"
+                          >
+                            <RefreshCw size={16} />
+                            ربط تلقائي
+                          </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                          {Object.entries({
+                              ...SYSTEM_ACCOUNTS, 
+                              CASH_SHORTAGE: '541',
+                              CASH_SURPLUS_ACC: '441',
+                              INVENTORY_RAW_MATERIALS: '10301',
+                              INVENTORY_WIP: '10303',
+                              INVENTORY_FINISHED_GOODS: '10302',
+                              LABOR_COST_ALLOCATED: '513',
+                              WASTAGE_EXPENSE: '5121',
+                              RETENTION_CUSTOMER: '1249',
+                              RETENTION_SUBCONTRACTOR: '2229',
+                              ADVANCE_PAYMENT_SUBCONTRACTOR: '1245',
+                              EQUIPMENT_INTERNAL_REVENUE: '425'
+                          }).map(([key, defaultCode]) => {
+                              const isUnmapped = !formData.accountMappings[key];
+                              return (
+                                <div key={key}>
+                                  <SearchableSelect
+                                      label={
+                                          <span className="flex items-center justify-between w-full">
+                                              <span>{ACCOUNT_LABELS[key] || key.replace(/_/g, ' ')} ({String(defaultCode)})</span>
+                                              {isUnmapped && (
+                                                  <span className="text-amber-600 flex items-center gap-1 text-[10px] animate-pulse" title="هذا الحساب غير مربوط يدوياً - سيتم استخدام الكود الافتراضي">
+                                                      <AlertTriangle size={12} />
+                                                      غير مربوط ⚠️
+                                                  </span>
+                                              )}
+                                          </span>
+                                      }
+                                      options={accounts
+                                          .filter(acc => !acc.isGroup)
+                                          .sort((a, b) => a.code.localeCompare(b.code))
+                                          .map(acc => ({ id: acc.id, name: acc.name, code: acc.code }))}
+                                      value={formData.accountMappings[key] || ''}
+                                      onChange={value => handleMappingChange(key, value)}
+                                      placeholder={`-- الافتراضي (${defaultCode}) --`}
+                                      className="w-full"
+                                  />
+                                </div>
+                              );
+                          })}
+                      </div>
+                      <div className="pt-4 text-left">
+                          <button type="submit" className="bg-purple-600 text-white px-8 py-2.5 rounded-lg hover:bg-purple-700 font-bold shadow-md">
+                              حفظ التعيينات
+                          </button>
+                      </div>
+                  </form>
+              )}
+
+              {activeTab === 'terminals' && (
+                  <div className="space-y-8 animate-in fade-in">
+                      {/* Form to add terminal */}
+                      <form onSubmit={handleAddTerminal} className="bg-slate-50 border border-slate-200 rounded-xl p-6 space-y-4">
+                          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+                              <MonitorSmartphone size={20} className="text-indigo-600" /> إضافة جهاز كاشير جديد
+                          </h3>
+                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                              <div>
+                                  <label className="block text-xs font-bold text-slate-700 mb-2">اسم الكاشير (الممر)</label>
+                                  <input 
+                                    type="text" 
+                                    value={newTerminalData.name}
+                                    onChange={e => setNewTerminalData(prev => ({ ...prev, name: e.target.value }))}
+                                    placeholder="مثال: كاشير 1"
+                                    className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-indigo-500 outline-none bg-white text-slate-800"
+                                    required
+                                  />
+                              </div>
+                              <div>
+                                  <label className="block text-xs font-bold text-slate-700 mb-2">المستودع المرتبط بخصم البضاعة</label>
+                                  <select 
+                                    value={newTerminalData.warehouseId}
+                                    onChange={e => setNewTerminalData(prev => ({ ...prev, warehouseId: e.target.value }))}
+                                    className="w-full border border-slate-300 bg-white rounded-lg p-2.5 text-sm focus:border-indigo-500 outline-none text-slate-800"
+                                  >
+                                      <option value="">-- اختر المستودع --</option>
+                                      {warehouses.map(w => (
+                                          <option key={w.id} value={w.id}>{w.name}</option>
+                                      ))}
+                                  </select>
+                              </div>
+                              <div>
+                                  <label className="block text-xs font-bold text-slate-700 mb-2">الخزينة المرتبطة بعهدة الكاشير</label>
+                                  <select 
+                                    value={newTerminalData.cashAccountId}
+                                    onChange={e => setNewTerminalData(prev => ({ ...prev, cashAccountId: e.target.value }))}
+                                    className="w-full border border-slate-300 bg-white rounded-lg p-2.5 text-sm focus:border-indigo-500 outline-none text-slate-800"
+                                  >
+                                      <option value="">-- اختر حساب الخزينة --</option>
+                                      {accounts
+                                        .filter(acc => !acc.isGroup && acc.code?.startsWith('123'))
+                                        .map(acc => (
+                                          <option key={acc.id} value={acc.id}>[{acc.code}] - {acc.name}</option>
+                                      ))}
+                                  </select>
+                              </div>
+                          </div>
+                          <div className="pt-2 text-left">
+                              <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-2.5 rounded-lg shadow-md transition-all">
+                                  إضافة الجهاز
+                              </button>
+                          </div>
+                      </form>
+
+                      {/* Terminals list table */}
+                      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
+                              <h3 className="font-bold text-slate-800">الأجهزة المسجلة حالياً</h3>
+                              <button type="button" onClick={fetchTerminals} className="text-xs text-indigo-600 hover:text-indigo-700 font-bold flex items-center gap-1">
+                                  <RefreshCw size={12} /> تحديث القائمة
+                              </button>
+                          </div>
+                          {isTerminalsLoading ? (
+                              <div className="flex justify-center p-8">
+                                  <RefreshCw className="animate-spin text-indigo-500" size={32} />
+                              </div>
+                          ) : terminalsList.length === 0 ? (
+                              <div className="p-8 text-center text-slate-500 text-sm">
+                                  لا توجد أجهزة كاشير مسجلة حالياً.
+                              </div>
+                          ) : (
+                              <table className="w-full text-right border-collapse text-sm">
+                                  <thead>
+                                      <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold">
+                                          <th className="p-4">اسم الكاشير</th>
+                                          <th className="p-4">المستودع الافتراضي</th>
+                                          <th className="p-4">حساب الخزينة</th>
+                                          <th className="p-4">الحالة</th>
+                                          <th className="p-4 text-center">إجراءات</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody>
+                                      {terminalsList.map(term => {
+                                          const wh = warehouses.find(w => w.id === term.warehouse_id);
+                                          const acc = accounts.find(a => a.id === term.cash_account_id);
+                                          return (
+                                              <tr key={term.id} className="border-b border-slate-150 hover:bg-slate-50/50">
+                                                  <td className="p-4 font-bold text-slate-850">{term.name}</td>
+                                                  <td className="p-4 text-slate-600">{wh?.name || 'غير محدد'}</td>
+                                                  <td className="p-4 text-slate-600">{acc ? `[${acc.code}] ${acc.name}` : 'غير محدد'}</td>
+                                                  <td className="p-4">
+                                                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                                                          term.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'
+                                                      }`}>
+                                                          {term.status === 'ACTIVE' ? 'نشط' : 'معطل'}
+                                                      </span>
+                                                  </td>
+                                                  <td className="p-4 text-center">
+                                                      <button 
+                                                        onClick={() => handleDeleteTerminal(term.id)}
+                                                        className="text-red-650 hover:text-red-750 hover:bg-red-50 p-1.5 rounded transition-all"
+                                                        title="حذف الجهاز"
+                                                      >
+                                                          <Trash2 size={16} />
+                                                      </button>
+                                                  </td>
+                                              </tr>
+                                          );
+                                      })}
+                                  </tbody>
+                              </table>
+                          )}
+                      </div>
+                  </div>
+              )}
+
+              {activeTab === 'eta' && (
+                  <form onSubmit={handleSave} className="space-y-6 max-w-2xl animate-in fade-in">
+                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 space-y-6">
+                          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 border-b pb-3">
+                              <Landmark size={20} className="text-cyan-600" /> إعدادات منظومة الفاتورة الإلكترونية (ETA)
+                          </h3>
+                          
+                          <div className="flex items-center justify-between bg-white p-4 rounded-lg border border-slate-150">
+                              <div>
+                                  <label className="block text-sm font-bold text-slate-800">تفعيل الربط الإلكتروني</label>
+                                  <span className="text-xs text-slate-500">تمكين إرسال الفواتير تلقائياً لمصلحة الضرائب المصرية</span>
+                              </div>
+                              <button
+                                  type="button"
+                                  onClick={() => setFormData(prev => ({ ...prev, etaIsActive: !prev.etaIsActive }))}
+                                  className="text-cyan-600 transition-colors bg-transparent border-0 cursor-pointer"
+                              >
+                                  {formData.etaIsActive ? <ToggleRight size={44} className="text-cyan-600" /> : <ToggleLeft size={44} className="text-slate-400" />}
+                              </button>
+                          </div>
+
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-2">رقم التسجيل الضريبي للمنشأة (Taxpayer ID)</label>
+                                  <input
+                                      type="text"
+                                      disabled={!formData.etaIsActive}
+                                      value={formData.etaTaxpayerId}
+                                      onChange={e => setFormData(prev => ({ ...prev, etaTaxpayerId: e.target.value }))}
+                                      placeholder="مثال: 123456789"
+                                      className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-100 disabled:text-slate-400"
+                                      maxLength={9}
+                                  />
+                              </div>
+
+                              <div>
+                                  <label className="block text-sm font-medium text-slate-700 mb-2">بيئة التشغيل (Environment)</label>
+                                  <select
+                                      disabled={!formData.etaIsActive}
+                                      value={formData.etaEnvironment}
+                                      onChange={e => setFormData(prev => ({ ...prev, etaEnvironment: e.target.value as 'sandbox' | 'production' }))}
+                                      className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-100"
+                                  >
+                                      <option value="sandbox">البيئة التجريبية (Sandbox)</option>
+                                      <option value="production">البيئة الفعلية (Production)</option>
+                                  </select>
+                              </div>
+
+                              <div className="md:col-span-2">
+                                  <label className="block text-sm font-medium text-slate-700 mb-2">معرف العميل للمنظومة (Client ID)</label>
+                                  <input
+                                      type="text"
+                                      disabled={!formData.etaIsActive}
+                                      value={formData.etaClientId}
+                                      onChange={e => setFormData(prev => ({ ...prev, etaClientId: e.target.value }))}
+                                      placeholder="أدخل الـ Client ID من حساب الممول بالمصلحة"
+                                      className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-100 disabled:text-slate-400"
+                                  />
+                              </div>
+
+                              <div className="md:col-span-2">
+                                  <label className="block text-sm font-medium text-slate-700 mb-2">المفتاح السري للعميل (Client Secret)</label>
+                                  <input
+                                      type="password"
+                                      disabled={!formData.etaIsActive}
+                                      value={formData.etaClientSecret}
+                                      onChange={e => setFormData(prev => ({ ...prev, etaClientSecret: e.target.value }))}
+                                      placeholder="أدخل الـ Client Secret"
+                                      className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-100 disabled:text-slate-400"
+                                  />
+                              </div>
+                          </div>
+
+                          <div className="bg-cyan-50 border border-cyan-150 rounded-lg p-4 text-xs text-cyan-800 space-y-2">
+                              <p className="font-bold flex items-center gap-1 mb-1">
+                                  <Info size={14} /> متطلبات التوقيع الإلكتروني:
+                              </p>
+                              <ul className="list-disc list-inside space-y-1 pr-2">
+                                  <li>يجب تثبيت برنامج المساعد المحلي للتوقيع (Local Signer Helper) على الجهاز المتصل به فلاشة التوقيع (USB Token).</li>
+                                  <li>يعمل البرنامج المساعد افتراضياً على المنفذ المحلي 8500 لتبادل تشفير الملفات.</li>
+                                  <li>في البيئة التجريبية (Sandbox)، سيقوم النظام بمحاكاة التوقيع والرد الضريبي تلقائياً لتسهيل فحص وتجربة دورة العمل.</li>
+                              </ul>
+                          </div>
+
+                          <div className="flex justify-end pt-4 border-t">
+                              <button
+                                  type="submit"
+                                  className="bg-cyan-600 text-white font-bold px-6 py-2.5 rounded-lg hover:bg-cyan-700 transition-colors flex items-center gap-2"
+                              >
+                                  <Save size={18} /> حفظ إعدادات الضرائب
+                              </button>
+                          </div>
+                      </div>
+                  </form>
+              )}
+
+              {activeTab === 'demo' && (
+                  <div className="space-y-6 animate-in fade-in">
+                      <div className="bg-amber-50 border border-amber-100 rounded-xl p-6">
+                          <h3 className="text-lg font-bold text-amber-800 mb-4 flex items-center gap-2">
+                              <RotateCcw size={20} /> إعادة ضبط بيانات الديمو
+                          </h3>
+                          <p className="text-sm text-amber-700 mb-6">
+                              استخدم هذا الزر لإعادة قاعدة البيانات إلى حالتها الافتراضية (حذف جميع الفواتير والقيود والعملاء الجدد) مع الاحتفاظ بالإعدادات الأساسية. مفيد لتنظيف النسخة التجريبية.
+                          </p>
+                          <button 
+                            onClick={handleResetDemoData}
+                            className="bg-amber-600 text-white px-6 py-3 rounded-lg hover:bg-amber-700 font-bold shadow-md transition-all flex items-center gap-2"
+                          >
+                              <RotateCcw size={18} /> تنفيذ إعادة الضبط الآن
+                          </button>
+                      </div>
+
+                      {/* Demo Test Section */}
+                      <div className="bg-teal-50 border border-teal-100 rounded-xl p-6">
+                          <h3 className="text-lg font-bold text-teal-800 mb-4 flex items-center gap-2">
+                              <PlayCircle size={20} /> اختبار آلي للموديولات
+                          </h3>
+                          <p className="text-sm text-teal-700 mb-6">
+                              قم بتشغيل اختبارات شاملة للتأكد من أن جميع أجزاء النظام تعمل بشكل صحيح. ستظهر النتائج في لوحة التحكم (Console).
+                          </p>
+                          <button 
+                            onClick={runRestaurantModuleTest}
+                            className="flex items-center gap-2 bg-teal-600 text-white px-6 py-3 rounded-lg hover:bg-teal-700 font-bold shadow-md transition-all">
+                              <PlayCircle size={18} /> تشغيل اختبار موديول المطاعم
+                          </button>
+                      </div>
+                  </div>
+              )}
+          </div>
+      </div>
+    </div>
+  );
+};
+
+export default Settings;

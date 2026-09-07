@@ -1,0 +1,276 @@
+import { useState, useMemo, useEffect } from 'react';
+import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
+import { Download, Printer, Calculator, ArrowRightLeft, Lock, Loader2 } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import ReportHeader from '../../components/ReportHeader';
+
+const TaxReturnReport = () => {
+    const { accounts, getAccountBalanceInPeriod, settings, addEntry, addAccount, selectedFiscalYear, fiscalYearRange } = useAccounting();
+    const { showToast } = useToast();
+    const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+    const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
+    const [closing, setClosing] = useState(false);
+    const [loading, setLoading] = useState(false);
+
+    // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
+    useEffect(() => {
+        if (selectedFiscalYear) {
+            setStartDate(`${selectedFiscalYear}-01-01`);
+            setEndDate(`${selectedFiscalYear}-12-31`);
+        }
+    }, [selectedFiscalYear]);
+    const [calculatedData, setCalculatedData] = useState<{
+        outputVatAmount: number;
+        inputVatAmount: number;
+        netVat: number;
+        outputVatAcc: any;
+        inputVatAcc: any;
+    } | null>(null);
+
+    useEffect(() => {
+        const calculate = async () => {
+            // البحث عن حسابات الضريبة (بالأكواد القياسية والأسماء)
+            const outputVatAcc = accounts.find(a => 
+                a.code === '2241' || a.code === '2231' || a.code === '2103' || 
+                (a.name && (a.name.includes('مخرجات') || a.name.includes('مبيعات') || a.name.includes('Output VAT')))
+            );
+            const inputVatAcc = accounts.find(a => 
+                a.code === '1241' || a.code === '1205' || 
+                (a.name && (a.name.includes('مدخلات') || a.name.includes('مشتريات') || a.name.includes('Input VAT')))
+            );
+
+            if (!outputVatAcc || !inputVatAcc) {
+                setCalculatedData(null);
+                return;
+            }
+
+            setLoading(true);
+            try {
+                // حساب الحركات خلال الفترة باستخدام await لضمان الحصول على أرقام
+                const outRes = await getAccountBalanceInPeriod(outputVatAcc.id, startDate, endDate);
+                const inRes = await getAccountBalanceInPeriod(inputVatAcc.id, startDate, endDate);
+
+                // 🛡️ دالة مساعدة لاستخراج القيمة العددية من ردود Supabase المتنوعة (رقم، مصفوفة، أو كائن)
+                const extractAmount = (res: any) => {
+                    if (Array.isArray(res)) res = res[0];
+                    if (res && typeof res === 'object') return Number(res.balance ?? res.amount ?? res.net ?? Object.values(res)[0] ?? 0);
+                    return Number(res || 0);
+                };
+
+                // 🛡️ ضريبة المخرجات التزام بطبيعتها (دائنة)، وبما أن النظام يحسب الرصيد كـ (مدين - دائن)،
+                // فإن الرصيد الدائن للضريبة المحصلة يظهر كقيمة سالبة. لذلك نقوم بعكس الإشارة لعرضها كقيمة موجبة.
+                const outAmount = -extractAmount(outRes);
+                const inAmount = extractAmount(inRes);
+
+                setCalculatedData({
+                    outputVatAmount: outAmount,
+                    inputVatAmount: inAmount,
+                    netVat: outAmount - inAmount,
+                    outputVatAcc,
+                    inputVatAcc
+                });
+            } catch (err) {
+                console.error(err);
+                showToast('خطأ في حساب المبالغ الضريبية', 'error');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        calculate();
+    }, [accounts, startDate, endDate, getAccountBalanceInPeriod, showToast]);
+
+    const reportData = calculatedData;
+
+    const handleExport = () => {
+        if (!reportData) return;
+        const data = [
+            ['الإقرار الضريبي (VAT Return)'],
+            [`الفترة من: ${startDate} إلى: ${endDate}`],
+            [''],
+            ['البند', 'القيمة'],
+            ['ضريبة المخرجات (المبيعات) - مستحق عليك', reportData.outputVatAmount],
+            ['ضريبة المدخلات (المشتريات) - مستحق لك', reportData.inputVatAmount],
+            ['صافي الضريبة المستحقة', reportData.netVat],
+            ['', ''],
+            ['الحالة', reportData.netVat >= 0 ? 'مستحق للدفع' : 'رصيد دائن (استرداد)']
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Tax Return");
+        XLSX.writeFile(wb, `Tax_Return_${startDate}_${endDate}.xlsx`);
+    };
+
+    const handleClosePeriod = async () => {
+        if (!reportData) return;
+        if (window.confirm('هل أنت متأكد من إغلاق الفترة الضريبية؟\nسيتم إنشاء قيد تسوية آلي يصفر حسابات الضريبة ويرحل الفرق لحساب تسوية الضرائب.')) {
+            setClosing(true);
+            try {
+                let settlementAcc = accounts.find(a => a.code === '2239' || a.code === '2105'); // 2239: تسوية ضرائب (مقترح)
+                if (!settlementAcc) {
+                    const targetCode = reportData.outputVatAcc.code.startsWith('223') ? '2239' : '2105';
+                    if (window.confirm(`لم يتم العثور على حساب تسوية الضرائب (${targetCode}). هل تريد إنشاء الحساب تلقائياً للمتابعة؟`)) {
+                        settlementAcc = await addAccount({
+                            code: targetCode,
+                            name: 'حساب تسوية ضريبة القيمة المضافة',
+                            type: 'LIABILITY',
+                            is_group: false,
+                            parent_id: (reportData.outputVatAcc as any).parent_id || null,
+                            is_active: true
+                        });
+                        showToast(`تم إنشاء حساب التسوية (${targetCode}) بنجاح ✅`, 'success');
+                    } else {
+                        setClosing(false);
+                        return;
+                    }
+                }
+
+                const description = `إغلاق الفترة الضريبية من ${startDate} إلى ${endDate}`;
+                const lines = [];
+
+                // 1. إقفال ضريبة المخرجات (تصفير رصيد الحساب)
+                if (reportData.outputVatAmount > 0) {
+                    lines.push({ 
+                        account_id: reportData.outputVatAcc.id, 
+                        debit: reportData.outputVatAmount, 
+                        credit: 0, 
+                        description: 'إقفال ضريبة المخرجات (مدين لإقفال الدائن)' 
+                    });
+                } else if (reportData.outputVatAmount < 0) {
+                    lines.push({ 
+                        account_id: reportData.outputVatAcc.id, 
+                        debit: 0, 
+                        credit: Math.abs(reportData.outputVatAmount), 
+                        description: 'إقفال ضريبة المخرجات (دائن لإقفال المدين)' 
+                    });
+                }
+
+                // 2. إقفال ضريبة المدخلات (تصفير رصيد الحساب)
+                if (reportData.inputVatAmount > 0) {
+                    lines.push({ 
+                        account_id: reportData.inputVatAcc.id, 
+                        debit: 0, 
+                        credit: reportData.inputVatAmount, 
+                        description: 'إقفال ضريبة المدخلات (دائن لإقفال المدين)' 
+                    });
+                } else if (reportData.inputVatAmount < 0) {
+                    lines.push({ 
+                        account_id: reportData.inputVatAcc.id, 
+                        debit: Math.abs(reportData.inputVatAmount), 
+                        credit: 0, 
+                        description: 'إقفال ضريبة المدخلات (مدين لإقفال الدائن)' 
+                    });
+                }
+
+                // 3. تسوية الفرق (المتمم)
+                // إذا كان صافي الضريبة موجب (مخرجات > مدخلات) -> التزام علينا -> دائن في حساب التسوية
+                if (reportData.netVat > 0) {
+                    lines.push({ 
+                        account_id: settlementAcc.id, 
+                        debit: 0, 
+                        credit: reportData.netVat, 
+                        description: 'مستحق لهيئة الزكاة والضريبة (صافي الإقرار)' 
+                    });
+                } 
+                // إذا كان صافي الضريبة سالب (مدخلات > مخرجات) -> رصيد لنا -> مدين في حساب التسوية
+                else if (reportData.netVat < 0) {
+                    lines.push({ 
+                        account_id: settlementAcc.id, 
+                        debit: Math.abs(reportData.netVat), 
+                        credit: 0, 
+                        description: 'رصيد دائن (استرداد) من الهيئة' 
+                    });
+                }
+
+                if (lines.length > 0) {
+                    // التحقق من التوازن قبل الإرسال (للاطمئنان فقط)
+                    const totalDebit = lines.reduce((sum, l) => sum + l.debit, 0);
+                    const totalCredit = lines.reduce((sum, l) => sum + l.credit, 0);
+                    
+                    if (Math.abs(totalDebit - totalCredit) > 0.01) {
+                        throw new Error(`خطأ في حساب القيد: القيد غير متوازن (مدين: ${totalDebit}, دائن: ${totalCredit})`);
+                    }
+
+                    await addEntry({ 
+                        date: endDate, 
+                        description: description, 
+                        reference: `VAT-CLOSE-${endDate.replace(/-/g, '')}`, 
+                        status: 'posted', 
+                        lines: lines 
+                    });
+                    showToast('تم إنشاء قيد الإغلاق بنجاح ✅', 'success');
+                } else {
+                    showToast('لا توجد مبالغ لإنشاء قيد إغلاق.', 'warning');
+                }
+            } catch (error: any) {
+                console.error(error);
+                showToast('حدث خطأ: ' + error.message, 'error');
+            } finally {
+                setClosing(false);
+            }
+        }
+    };
+
+    return (
+        <div className="max-w-4xl mx-auto p-6 animate-in fade-in space-y-6 print:p-0">
+            <ReportHeader title="الإقرار الضريبي (VAT Return)" subtitle={`عن الفترة من ${startDate} إلى ${endDate}`} />
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 no-print">
+                <div>
+                    <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2"><Calculator className="text-blue-600" /> الإقرار الضريبي</h1>
+                    <p className="text-slate-500">حساب ضريبة القيمة المضافة (VAT) للفترة المحددة</p>
+                </div>
+                <div className="flex gap-2">
+                    <button onClick={handleClosePeriod} disabled={closing || !reportData} className="flex items-center gap-2 bg-slate-900 text-white px-4 py-2 rounded-lg hover:bg-slate-800 font-bold text-sm shadow-sm disabled:opacity-50">
+                        {closing ? <Loader2 size={16} className="animate-spin" /> : <Lock size={16} />} إغلاق الفترة
+                    </button>
+                    <button onClick={handleExport} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 font-bold text-sm shadow-sm"><Download size={16} /> تصدير Excel</button>
+                    <button onClick={() => window.print()} className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-700 font-bold text-sm shadow-sm"><Printer size={16} /> طباعة</button>
+                </div>
+            </div>
+            <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 no-print">
+                <div className="flex flex-col md:flex-row gap-4 items-end">
+                    <div className="flex-1">
+                        <label className="block text-sm font-bold text-slate-700 mb-1">من تاريخ</label>
+                        <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+                    </div>
+                    <div className="flex-1">
+                        <label className="block text-sm font-bold text-slate-700 mb-1">إلى تاريخ</label>
+                        <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+                    </div>
+                </div>
+            </div>
+            {loading ? (
+                <div className="p-12 text-center bg-white rounded-xl border border-slate-200">
+                    <Loader2 className="animate-spin mx-auto text-blue-600" size={32} />
+                    <p className="mt-2 text-slate-500 font-bold">جاري حساب البيانات الضريبية...</p>
+                </div>
+            ) : reportData ? (
+                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                    <div className="p-6 border-b border-slate-100 bg-slate-50">
+                        <h3 className="font-bold text-lg text-slate-800 text-center">ملخص الإقرار الضريبي</h3>
+                        <p className="text-center text-slate-500 text-sm mt-1">عن الفترة من {startDate} إلى {endDate}</p>
+                    </div>
+                    <div className="p-6 space-y-6">
+                        <div className="flex justify-between items-center p-4 bg-red-50 rounded-xl border border-red-100">
+                            <div><h4 className="font-bold text-red-800">ضريبة المخرجات (المبيعات)</h4><p className="text-xs text-red-600 mt-1">المبلغ المحصل من العملاء (التزام عليك)</p></div>
+                            <div className="text-2xl font-black text-red-700">{reportData.outputVatAmount.toLocaleString()} <span className="text-sm font-medium">{settings.currency}</span></div>
+                        </div>
+                        <div className="flex justify-between items-center p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+                            <div><h4 className="font-bold text-emerald-800">ضريبة المدخلات (المشتريات)</h4><p className="text-xs text-emerald-600 mt-1">المبلغ المدفوع للموردين (قابل للاسترداد)</p></div>
+                            <div className="text-2xl font-black text-emerald-700">{reportData.inputVatAmount.toLocaleString()} <span className="text-sm font-medium">{settings.currency}</span></div>
+                        </div>
+                        <div className="relative py-4"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-slate-200 border-dashed"></div></div><div className="relative flex justify-center"><span className="bg-white px-4 text-slate-400"><ArrowRightLeft size={20} /></span></div></div>
+                        <div className={`flex justify-between items-center p-6 rounded-2xl border-2 ${reportData.netVat >= 0 ? 'bg-slate-800 border-slate-900 text-white' : 'bg-blue-50 border-blue-200 text-blue-900'}`}>
+                            <div><h4 className="font-bold text-lg">صافي الضريبة المستحقة</h4><p className={`text-sm mt-1 ${reportData.netVat >= 0 ? 'text-slate-400' : 'text-blue-600'}`}>{reportData.netVat >= 0 ? 'مبلغ واجب السداد للهيئة' : 'رصيد دائن (استرداد من الهيئة)'}</p></div>
+                            <div className="text-4xl font-black">{Math.abs(reportData.netVat).toLocaleString()} <span className="text-lg font-medium">{settings.currency}</span></div>
+                        </div>
+                    </div>
+                </div>
+            ) : (
+                <div className="p-12 text-center bg-white rounded-xl border border-slate-200 text-slate-500">لم يتم العثور على حسابات الضريبة (2231, 1241). يرجى التأكد من دليل الحسابات.</div>
+            )}
+        </div>
+    );
+};
+export default TaxReturnReport;

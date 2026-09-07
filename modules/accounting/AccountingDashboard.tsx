@@ -1,0 +1,804 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { supabase } from '../../supabaseClient';
+import { useNavigate } from 'react-router-dom';
+import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
+import { 
+  TrendingUp, 
+  TrendingDown, 
+  DollarSign, 
+  Wallet, 
+  Activity, 
+  ArrowUpRight, 
+  ArrowDownRight,
+  Loader2,
+  FileText,
+  PieChart as PieChartIcon,
+  Percent,
+  RefreshCw,
+  Trash2,
+  Calendar,
+  Lock
+} from 'lucide-react';
+import { 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  PieChart,
+  Pie,
+  Cell,
+  Legend
+} from 'recharts';
+
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
+
+// --- مكونات الرسوم البيانية المحسنة (Memoized Components) ---
+
+const MonthlyRevenueChart = React.memo(({ data }: { data: any[] }) => (
+  <ResponsiveContainer width="100%" height="100%" minHeight={320}>
+    <AreaChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+      <defs>
+        <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="5%" stopColor="#10b981" stopOpacity={0.1}/>
+          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+        </linearGradient>
+        <linearGradient id="colorExpense" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
+          <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+        </linearGradient>
+      </defs>
+      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
+      <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} tickFormatter={(val) => `${val/1000}k`} />
+      <CartesianGrid vertical={false} stroke="#f1f5f9" />
+      <Tooltip 
+        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+        formatter={(value: number) => value.toLocaleString()}
+      />
+      <Area type="monotone" dataKey="revenue" stroke="#10b981" fillOpacity={1} fill="url(#colorRevenue)" name="الإيرادات" strokeWidth={2} />
+      <Area type="monotone" dataKey="expense" stroke="#ef4444" fillOpacity={1} fill="url(#colorExpense)" name="المصروفات" strokeWidth={2} />
+    </AreaChart>
+  </ResponsiveContainer>
+));
+
+const ExpensesBreakdownChart = React.memo(({ data }: { data: any[] }) => (
+  <ResponsiveContainer width="100%" height="100%" minHeight={320}>
+    <PieChart>
+      <Pie
+        data={data}
+        cx="50%"
+        cy="50%"
+        innerRadius={60}
+        outerRadius={80}
+        paddingAngle={5}
+        dataKey="value"
+      >
+        {data.map((entry, index) => (
+          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+        ))}
+      </Pie>
+      <Tooltip formatter={(value: number) => value.toLocaleString()} />
+      <Legend layout="horizontal" verticalAlign="bottom" align="center" />
+    </PieChart>
+  </ResponsiveContainer>
+));
+
+const WeeklyCashFlowChart = React.memo(({ data }: { data: any[] }) => (
+  <ResponsiveContainer width="100%" height="100%" minHeight={320}>
+    <AreaChart data={data} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+      <defs>
+        <linearGradient id="colorCash" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="5%" stopColor="#8884d8" stopOpacity={0.1}/>
+          <stop offset="95%" stopColor="#8884d8" stopOpacity={0}/>
+        </linearGradient>
+      </defs>
+      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
+      <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} tickFormatter={(val) => `${(val/1000).toFixed(0)}k`} />
+      <CartesianGrid vertical={false} stroke="#f1f5f9" />
+      <Tooltip 
+        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+        formatter={(value: number) => value.toLocaleString('ar-EG', {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+      />
+      <Area type="monotone" dataKey="balance" stroke="#8884d8" fillOpacity={1} fill="url(#colorCash)" name="رصيد النقدية" strokeWidth={2} />
+    </AreaChart>
+  </ResponsiveContainer>
+));
+
+const ManufacturingVariances = React.memo(({ data }: { data: any[] }) => (
+  <div className="space-y-4">
+    {data.map((item, idx) => (
+      <div key={idx} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100">
+        <div>
+          <p className="text-xs font-bold text-slate-500">{item.order_number}</p>
+          <p className="text-sm font-black text-slate-800">{item.finished_product}</p>
+        </div>
+        <div className="text-right">
+          <p className={`text-sm font-bold ${item.variance_qty < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+            {item.variance_qty < 0 ? 'زيادة استهلاك' : 'توفير مواد'}
+          </p>
+          <p className="text-xs text-slate-400">بنسبة {Math.abs(item.variance_percentage)}%</p>
+        </div>
+      </div>
+    ))}
+    {data.length === 0 && <p className="text-center text-slate-400 text-sm">لا توجد انحرافات مسجلة</p>}
+  </div>
+));
+
+export default function AccountingDashboard() {
+  const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser, emptyRecycleBin, deleteOrganization, organizations, selectedFiscalYear } = useAccounting();
+  const { showToast } = useToast();
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(false);
+  const [selectedYear, setSelectedYear] = useState(selectedFiscalYear || new Date().getFullYear());
+  const [selectedOrgIdToDelete, setSelectedOrgIdToDelete] = useState('');
+  const [mfgVariances, setMfgVariances] = useState([]);
+
+  // مزامنة السنة المختارة مع السنة المالية للنظام
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setSelectedYear(selectedFiscalYear);
+    }
+  }, [selectedFiscalYear]);
+
+  useEffect(() => {
+    const load = async () => {
+        setLoading(true);
+        await refreshData();
+        setLoading(false);
+    };
+    load();
+  }, []);
+
+  useEffect(() => {
+    const orgId = currentUser?.organization_id;
+    if (!orgId) return;
+
+    // جلب بيانات انحرافات التصنيع للمنظمة الحالية فقط لمنع تسريب البيانات في الحساب العالمي
+    supabase.from('v_mfg_material_variances').select('*').eq('organization_id', orgId).limit(3).then(({data}) => {
+      if (data) setMfgVariances(data as any);
+    });
+  }, [selectedYear, currentUser?.organization_id]);
+
+  const { metrics, monthlyData, expenseData, revenueData, weeklyCashData, recentEntries } = useMemo(() => {
+      // Debugging: Check if data is loaded
+      console.log('useMemo running for selectedYear:', selectedYear);
+      console.log('Entries length:', entries.length);
+      console.log('Accounts length:', accounts.length);
+
+      // Return default empty data if accounts or entries are not yet loaded
+      if (!accounts || accounts.length === 0 || !entries) { // entries can be empty, but not null/undefined
+          return {
+              metrics: { totalRevenue: 0, totalExpenses: 0, netProfit: 0, cashBalance: 0, profitMargin: 0, totalTax: 0 },
+              monthlyData: [], expenseData: [], revenueData: [], weeklyCashData: [], recentEntries: []
+          };
+      }
+
+      const startDate = `${selectedYear}-01-01`;
+      const endDate = `${selectedYear}-12-31`;
+
+      let revenue = 0;
+      let expenses = 0;
+      let totalTax = 0;
+      const monthlyStats: Record<string, { revenue: number, expense: number }> = {};
+      const revenueMap: Record<string, number> = {};
+      const expenseMap: Record<string, number> = {};
+      
+      const monthsOrder = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      monthsOrder.forEach(m => monthlyStats[m] = { revenue: 0, expense: 0 });
+
+      const yearEntries = entries.filter(e => 
+          e.status === 'posted' &&
+          String(e.transaction_date || e.date || e.created_at || '').startsWith(String(selectedYear))
+      );
+      // Debugging: Check filtered entries
+      // console.log('Filtered yearEntries for', selectedYear, ':', yearEntries);
+
+      yearEntries.forEach(entry => {
+          const dateValue = entry.transaction_date || entry.date;
+          // Debugging: Check date value
+          // console.log(`Processing entry ${entry.id}: dateValue=${dateValue}`);
+          if (!dateValue) return;
+          const date = new Date(dateValue);
+          if (isNaN(date.getTime())) return;
+
+          const monthKey = date.toLocaleString('en-US', { month: 'short' });
+
+          (entry.journal_lines || []).forEach(line => {
+              const account = accounts.find(a => a.id === line.account_id);
+              if (!account) return;
+              // Debugging: Check account details
+              console.log(`  Processing line for account ${account.name} (ID: ${account.id}, Type: ${account.type}, Code: ${account.code})`);
+
+              const type = String(account.type || '').toLowerCase();
+              const code = String(account.code || ''); // Ensure code is always a string
+              const debit = Number(line.debit || 0);
+              const credit = Number(line.credit || 0);
+
+              if (type.includes('revenue') || type.includes('إيراد') || type.includes('income') || code.startsWith('4')) {
+                  const amount = credit - debit; 
+                  revenue += amount;
+                  if (monthlyStats[monthKey]) monthlyStats[monthKey].revenue += amount;
+                  
+                  if (amount !== 0) {
+                      revenueMap[account.name] = (revenueMap[account.name] || 0) + amount;
+                  }
+                  // console.log(`    -> Revenue detected: ${account.name}, Amount: ${amount}`);
+              } 
+              else if (type.includes('expense') || type.includes('مصروف') || type.includes('cost') || code.startsWith('5')) {
+                  const amount = debit - credit;
+                  expenses += amount;
+                  if (monthlyStats[monthKey]) monthlyStats[monthKey].expense += amount;
+
+                  const accName = account.name;
+                  if (amount > 0) {
+                      expenseMap[accName] = (expenseMap[accName] || 0) + amount;
+                  }
+                  // console.log(`    -> Expense detected: ${account.name}, Amount: ${amount}`);
+              }
+              // تتبع الضرائب (حسابات تبدأ بـ 223 أو تحتوي على كلمة ضريبة)
+              if (code.startsWith('223') || String(account.name || '').includes('ضريبة') || String(account.name || '').toLowerCase().includes('tax')) {
+                  totalTax += (credit - debit);
+              }
+          });
+      });
+
+      const cashBalance = accounts
+          .filter(a => !a.isGroup && (
+              // التأكد من أن الحساب أصل (يبدأ بـ 1) لاستبعاد حسابات المصروفات مثل "عجز الصندوق"
+              (String(a.type).toLowerCase().includes('asset') || a.code.startsWith('1')) &&
+              (String(a.code || '').startsWith('123') ||
+              String(a.code || '').startsWith('1101') ||
+              String(a.name || '').includes('صندوق') ||
+              String(a.name || '').includes('خزينة') ||
+              String(a.name || '').includes('بنك') ||
+              String(a.name || '').includes('نقد'))
+          ))
+          .reduce((sum, a) => sum + (a.balance || 0), 0);
+
+      const profitMargin = revenue > 0 ? ((revenue - expenses) / revenue) * 100 : 0;
+
+      const chartData = monthsOrder.map(m => ({
+        name: m,
+        revenue: monthlyStats[m]?.revenue || 0,
+        expense: monthlyStats[m]?.expense || 0,
+        profit: (monthlyStats[m]?.revenue || 0) - (monthlyStats[m]?.expense || 0)
+      }));
+
+      const expenseChartData = Object.entries(expenseMap)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 5);
+
+      const revenueChartData = Object.entries(revenueMap)
+        .map(([name, value]) => ({ name, value }))
+        .sort((a, b) => b.value - a.value);
+
+      // --- حساب تطور السيولة الأسبوعي ---
+      const cashAccountIds = accounts
+          .filter(a => !a.isGroup && (
+              (String(a.type).toLowerCase().includes('asset') || a.code.startsWith('1')) &&
+              (String(a.code || '').startsWith('123') ||
+              String(a.code || '').startsWith('1101') ||
+              String(a.name || '').includes('صندوق') ||
+              String(a.name || '').includes('خزينة') ||
+              String(a.name || '').includes('بنك') ||
+              String(a.name || '').includes('نقد'))
+          ))
+          .map(a => a.id);
+
+      const allCashTransactions = entries.flatMap(entry => 
+          (entry.journal_lines || [])
+              .filter(line => cashAccountIds.includes(line.account_id))
+              .map(line => ({
+                  date: new Date(entry.transaction_date || entry.date || ''),
+                  amount: (line.debit || 0) - (line.credit || 0)
+              }))
+      ).filter(t => !isNaN(t.date.getTime()));
+
+      const openingCashBalanceForYear = allCashTransactions
+          .filter(t => t.date < new Date(startDate))
+          .reduce((sum, t) => sum + t.amount, 0);
+
+      const getWeekOfYear = (date: Date) => {
+          const start = new Date(date.getUTCFullYear(), 0, 1);
+          const diff = (date.getTime() - start.getTime() + ((start.getTimezoneOffset() - date.getTimezoneOffset()) * 60 * 1000));
+          const oneDay = 1000 * 60 * 60 * 24;
+          const day = Math.floor(diff / oneDay);
+          return Math.ceil((day + start.getDay() + 1) / 7);
+      };
+
+      const weeklyMovements: Record<number, number> = {};
+      allCashTransactions
+          .filter(t => t.date >= new Date(startDate) && t.date <= new Date(endDate))
+          .forEach(t => {
+              const week = getWeekOfYear(t.date);
+              weeklyMovements[week] = (weeklyMovements[week] || 0) + t.amount;
+          });
+
+      let runningCashBalance = openingCashBalanceForYear;
+      const weeklyData = Array.from({ length: 52 }, (_, i) => {
+          const weekNum = i + 1;
+          runningCashBalance += weeklyMovements[weekNum] || 0;
+          return { name: `أ ${weekNum}`, balance: runningCashBalance };
+      });
+
+      const recent = entries.slice(0, 5).map(e => ({
+          id: e.id,
+          transaction_date: e.transaction_date || e.date || e.created_at,
+          reference: e.reference,
+          description: e.description,
+          status: e.status
+      }));
+
+      return {
+          metrics: {
+              totalRevenue: revenue,
+              totalExpenses: expenses,
+              netProfit: revenue - expenses,
+              cashBalance,
+              profitMargin,
+              totalTax
+          },
+          monthlyData: chartData,
+          expenseData: expenseChartData,
+          revenueData: revenueChartData,
+          weeklyCashData: weeklyData,
+          recentEntries: recent
+      };
+
+  }, [accounts, entries, selectedYear]);
+
+  if (loading && entries.length === 0) {
+    return <div className="flex justify-center items-center h-96"><Loader2 className="animate-spin text-blue-600" size={48} /></div>;
+  }
+
+  const handleClearTransactions = async () => {
+      if (currentUser?.role === 'demo') {
+          if (window.confirm('⚠️ تحذير هام جداً ⚠️\n\nسيتم حذف جميع العمليات المالية والمخزنية (فواتير، قيود، سندات، شيكات...) نهائياً.\nسيتم تصفير الأرصدة والمخزون.\n\nلن يتم حذف: الحسابات، العملاء، الموردين، الأصناف، الإعدادات.\n\nهل أنت متأكد تماماً من رغبتك في الاستمرار؟ (محاكاة)')) {
+             if (window.confirm('تأكيد نهائي: هل أنت متأكد؟ لا يمكن التراجع عن هذا الإجراء! (محاكاة)')) {
+                 setLoading(true);
+                 setTimeout(() => {
+                     showToast('تم تنظيف البيانات بنجاح. النظام جاهز للعمل من جديد. ✅ (محاكاة)', 'success');
+                     setLoading(false);
+                     window.location.reload();
+                 }, 1000);
+             }
+          }
+          return;
+      }
+      
+      if (!window.confirm('⚠️ تحذير هام جداً ⚠️\n\nسيتم حذف جميع العمليات المالية والمخزنية (فواتير، قيود، سندات، شيكات، سلف موظفين...) نهائياً.\nسيتم تصفير الأرصدة والمخزون.\n\nلن يتم حذف: الحسابات، العملاء، الموردين، الأصناف، الإعدادات، الموظفين.\n\nهل أنت متأكد تماماً من رغبتك في الاستمرار؟')) return;
+
+      const confirmation = window.prompt('للتأكيد النهائي، يرجى كتابة كلمة "حذف" في المربع أدناه:');
+      if (confirmation !== 'حذف') return;
+
+      const orgId = currentUser?.organization_id;
+      if (!orgId) return;
+
+      setLoading(true);
+      try {
+          // 1. حذف التفاصيل (Lines)
+          const tablesLines = [
+              'butchering_order_items', 'invoice_items', 'purchase_invoice_items',
+              'quotation_items', 'purchase_order_items', 'sales_return_items',
+              'purchase_return_items', 'stock_transfer_items', 'stock_adjustment_items',
+              'inventory_count_items', 'payroll_items', 'inventory_transactions',
+              'order_items', 'kitchen_orders', 'payments', 'order_item_modifiers', 'order_discounts',
+              'receipt_voucher_attachments', 'payment_voucher_attachments', 'cheque_attachments', 'journal_attachments',
+              'project_boq', 'project_material_issue_items',
+              'employee_allowances', 'payroll_variables',
+              'system_error_logs', 'security_logs', 'budgets', 'notification_audit_log',
+              'project_attachments', 'project_inspections', 'subcontractor_billings', 'project_milestones',
+              'project_custody_expenses', 'project_change_orders',
+              'equipment_usage_logs', 'project_site_attendance', 'project_tool_custody',
+              'hims_billing_items', 'hims_clinical_notes', 'hims_nursing_activities', 'hims_lab_orders', 'hims_clinical_measurements',
+              'hims_medication_log', 'hims_radiology_orders', 'hims_blood_donations', 'hims_blood_transfusions', 'hims_patient_vitals',
+              'hims_lab_specimens', 'hims_nurse_tasks', 'hims_staff_roster',
+              'mfg_step_attachments', 'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_production_variances', 'mfg_operation_logs',
+              'mfg_batch_serials', 'mfg_qc_inspections', 'mfg_material_request_items', 'mfg_byproducts_logs',
+              'mfg_beginning_wip_inventory', 'mfg_alerts_log', 'mfg_period_cost_snapshots',
+              'work_order_costs', 'work_order_material_usage', 'mfg_order_progress' // mfg_order_progress should be cleared before mfg_production_orders
+          ];
+          
+          for (const table of tablesLines) {
+          try {
+              await supabase.from(table).delete().eq('organization_id', orgId);
+          } catch (e: any) {
+              // Log specific error for debugging, but continue with other tables
+              console.warn(`Table ${table} could not be cleared or does not exist: ${e?.message || e}`);
+          }
+       }
+
+          // Clear modifier_groups and modifiers if they are considered transactional for orders
+          // However, they are more like master data for product configuration, so keeping them out of handleClearTransactions
+          // If they need to be cleared, they should be in handleClearMasterData
+
+          // 2. حذف المستندات (Documents)
+          const tablesDocs = [
+              'butchering_orders', 'invoices', 'purchase_invoices', 'quotations', 'purchase_orders',
+              'sales_returns', 'purchase_returns', 'credit_notes', 'debit_notes',
+              'receipt_vouchers', 'payment_vouchers', 'cheques',
+              'stock_transfers', 'stock_adjustments', 'inventory_counts',
+              'payrolls', 'employee_advances', 'bank_reconciliations', 'cash_closings',
+              'opening_inventories', 'project_daily_reports', 'pos_cash_drawer_logs',
+              'orders', 'table_sessions', 'shifts', 'rejected_cash_closings', 'restaurant_customer_points',
+              'sales_orders', 'delivery_orders', 'notifications',
+              'project_progress_billings', 'project_custodies', 'project_material_issues', 'project_change_orders', 'subcontractor_contracts', 'projects',
+              'hims_billing', 'hims_visits', 'hims_prescriptions', 'hims_appointments', 'hims_surgeries', 'hims_insurance_claims', 'hims_admissions', 'hims_triage_records',
+              'mfg_material_requests', 'mfg_production_orders', 'work_orders'
+          ];
+          
+          for (const table of tablesDocs) {
+          try {
+              await supabase.from(table).delete().eq('organization_id', orgId);
+          } catch (e) {
+              console.warn(`Table ${table} could not be cleared or does not exist`);
+          }
+       }
+
+          // 3. حذف القيود اليومية (Journal Entries)
+          await supabase.from('journal_entries').delete().eq('organization_id', orgId);
+          
+          // 4. تصفير أرصدة الحسابات في الدليل
+          await supabase.from('accounts').update({ balance: 0 }).eq('organization_id', orgId);
+
+          // 4.5. تصفير الأرصدة الافتتاحية والحالية للعملاء والموردين ومخزون الأصناف
+          await supabase.from('customers').update({ balance: 0, opening_balance: 0 }).eq('organization_id', orgId);
+          await supabase.from('suppliers').update({ balance: 0, opening_balance: 0 }).eq('organization_id', orgId);
+          await supabase.from('products').update({ stock: 0, current_stock: 0 }).eq('organization_id', orgId);
+          
+          // 5. تصفير حالة طاولات المطعم (جعلها متاحة)
+          await supabase.from('restaurant_tables').update({ status: 'AVAILABLE' }).neq('id', '00000000-0000-0000-0000-000000000000');
+
+          // 6. تحديث السياق
+          await clearTransactions();
+          
+          showToast('تم تصفير جميع العمليات والقيود والأرصدة بنجاح.', 'success');
+          window.location.reload();
+      } catch (e: any) {
+          console.error(e);
+          showToast('حدث خطأ أثناء تصفير العمليات: ' + e.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleClearMasterData = async () => {
+      if (currentUser?.role === 'demo') {
+          if (window.confirm('⚠️ تحذير هام ⚠️\n\nسيتم حذف جميع العملاء والموردين والموظفين والأصناف.\n\nهل أنت متأكد؟ (محاكاة)')) {
+             setLoading(true);
+             setTimeout(() => {
+                 showToast('تم حذف البيانات الأساسية بنجاح ✅ (محاكاة)', 'success');
+                 setLoading(false);
+                 window.location.reload();
+             }, 1000);
+          }
+          return;
+      }
+      
+      if (!window.confirm('⚠️ تحذير هام ⚠️\n\nسيتم حذف قوائم (العملاء، الموردين، الموظفين، الأصناف) نهائياً.\nيُفضل تصفير العمليات أولاً لتجنب الأخطاء المرتبطة.\n\nهل أنت متأكد؟')) return;
+      
+      const confirmation = window.prompt('للتأكيد، اكتب "حذف" في المربع أدناه:');
+      if (confirmation !== 'حذف') return;
+      
+      const orgId = currentUser?.organization_id;
+      if (!orgId) return;
+
+      setLoading(true);
+      try {
+          // محاولة حذف الجداول المرتبطة بالأصناف أولاً
+          try { await supabase.from('modifiers').delete().eq('organization_id', orgId); } catch (e) {}
+          try { await supabase.from('modifier_groups').delete().eq('organization_id', orgId); } catch (e) {}
+          try { await supabase.from('bill_of_materials').delete().eq('organization_id', orgId); } catch (e) {}
+          try { await supabase.from('opening_inventories').delete().eq('organization_id', orgId); } catch (e) {}
+
+          const tables = ['products', 'customers', 'suppliers', 'employees', 'item_categories', 'menu_categories'];
+          // Add HIMS and Construction master data that can be cleared if desired
+          const masterTablesToClear = [...tables, 'hims_patients', 'hims_doctors', 'hims_wards', 'hims_beds', 'hims_lab_tests', 'hims_radiology_types', 'hims_icd10_codes', 'hims_drug_interactions', 'hims_staff_roster', 'hims_settings', 'hims_blood_donors', 'subcontractors', 'projects', 'project_boq', 'subcontractor_contracts', 'equipment', 'project_tool_custody', 'mfg_work_centers', 'bill_of_materials', 'mfg_routings', 'mfg_routing_steps', 'mfg_step_materials'];
+
+          // Clear master data tables
+          for (const table of masterTablesToClear) {
+              const { error } = await supabase.from(table).delete().eq('organization_id', orgId);
+              if (error) throw error;
+          }
+          
+          await clearCache();
+          showToast('تم تصفير البيانات الأساسية بنجاح.', 'success');
+          window.location.reload();
+      } catch (e: any) {
+          console.error(e);
+          showToast('حدث خطأ (ربما توجد عمليات مرتبطة): ' + e.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  const handleEmptyRecycleBin = async () => {
+      if (currentUser?.role === 'demo') {
+          if (window.confirm('هل أنت متأكد من تفريغ سلة المحذوفات بالكامل؟ (محاكاة)')) {
+             setLoading(true);
+             setTimeout(() => {
+                 showToast('تم تفريغ سلة المحذوفات بنجاح ✅ (محاكاة)', 'success');
+                 setLoading(false);
+             }, 1000);
+          }
+          return;
+      }
+
+      if (!window.confirm('تحذير: سيتم حذف جميع العناصر الموجودة في سلة المحذوفات نهائياً لجميع الأقسام (العملاء، الموردين، الأصناف...). هل أنت متأكد؟')) return;
+
+      setLoading(true);
+      try {
+          const tables = ['accounts', 'customers', 'suppliers', 'products', 'warehouses', 'assets', 'employees'];
+          for (const table of tables) {
+              await emptyRecycleBin(table);
+          }
+          showToast('تم تفريغ سلة المحذوفات بنجاح.', 'success');
+      } catch (e: any) {
+          console.error(e);
+          showToast('حدث خطأ: ' + e.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto animate-in fade-in space-y-6">
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">لوحة التحكم المحاسبية</h1>
+          <p className="text-slate-500">نظرة عامة على الأداء المالي لسنة {selectedYear}</p>
+        </div>
+        <div className="flex gap-2">
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1 shadow-sm">
+                <Calendar size={16} className="text-slate-400" />
+                <select 
+                    value={selectedYear} 
+                    onChange={(e) => setSelectedYear(Number(e.target.value))}
+                    className="bg-transparent border-none text-sm font-bold focus:ring-0 outline-none cursor-pointer text-blue-600"
+                >
+                    {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+            </div>
+            {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || currentUser?.role === 'demo') && (
+                <>
+                    <button 
+                        onClick={handleClearTransactions}
+                        className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded-lg hover:bg-red-100 transition-colors shadow-sm font-bold text-sm"
+                        title="حذف جميع العمليات المالية والمخزنية (تصفير النظام)"
+                    >
+                        <Trash2 size={16} />
+                        تصفير العمليات
+                    </button>
+                    <button 
+                        onClick={handleClearMasterData}
+                        className="flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-600 px-4 py-2 rounded-lg hover:bg-rose-100 transition-colors shadow-sm font-bold text-sm"
+                        title="حذف العملاء والموردين والموظفين والأصناف فقط"
+                    >
+                        <Trash2 size={16} />
+                        تصفير البيانات الأساسية
+                    </button>
+                    <button 
+                        onClick={handleEmptyRecycleBin}
+                        className="flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-600 px-4 py-2 rounded-lg hover:bg-orange-100 transition-colors shadow-sm font-bold text-sm"
+                        title="حذف جميع العناصر في سلة المحذوفات نهائياً"
+                    >
+                        <Trash2 size={16} />
+                        تفريغ السلة
+                    </button>
+                    <button 
+                        onClick={() => navigate('/fiscal-year-closing')}
+                        className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-600 px-4 py-2 rounded-lg hover:bg-amber-100 transition-colors shadow-sm font-bold text-sm"
+                        title="إقفال السنة المالية وتصفير الأرصدة المؤقتة"
+                    >
+                        <Lock size={16} />
+                        إقفال السنة
+                    </button>
+                </>
+            )}
+            <button 
+                onClick={async () => {
+                  setLoading(true);
+                  await clearCache();
+                  setLoading(false);
+                }}
+                className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm font-bold text-sm"
+            >
+                <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+                تحديث البيانات
+            </button>
+        </div>
+        {currentUser?.role === 'super_admin' && organizations.length > 0 && (
+            <div className="flex items-center gap-2 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
+                <h3 className="text-lg font-bold text-slate-800">إدارة الشركات</h3>
+                <select 
+                    value={selectedOrgIdToDelete}
+                    onChange={(e) => setSelectedOrgIdToDelete(e.target.value)}
+                    className="bg-transparent border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-blue-500 outline-none cursor-pointer text-blue-600"
+                >
+                    <option value="">-- اختر شركة للحذف --</option>
+                    {organizations.map(org => (
+                        <option key={org.id} value={org.id}>{org.name}</option>
+                    ))}
+                </select>
+                <button 
+                    onClick={async () => {
+                        if (selectedOrgIdToDelete) {
+                            if (window.confirm('⚠️ تحذير نهائي: سيتم حذف الشركة وكامل بياناتها (حسابات، فواتير، عملاء...) نهائياً. هل أنت متأكد؟')) {
+                                setLoading(true);
+                                try {
+                                    const { error } = await supabase.rpc('fn_delete_organization_safe', { p_org_id: selectedOrgIdToDelete });
+                                    if (error) throw error;
+                                    showToast('تم حذف الشركة بنجاح ✅', 'success');
+                                    setSelectedOrgIdToDelete('');
+                                    window.location.reload();
+                                } catch (e: any) {
+                                    showToast('فشل الحذف: ' + (e.message || 'خطأ غير معروف'), 'error');
+                                } finally {
+                                    setLoading(false);
+                                }
+                            }
+                        } else {
+                            showToast('الرجاء اختيار شركة أولاً', 'warning');
+                        }
+                    }}
+                    className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 font-bold shadow-sm transition-colors text-sm"
+                >
+                    <Trash2 size={16} />
+                    حذف الشركة المحددة
+                </button>
+            </div>
+        )}
+      </div>
+
+      {/* Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <DashboardCard
+          title="إجمالي الإيرادات" 
+          value={metrics.totalRevenue} 
+          icon={<TrendingUp className="text-emerald-500" />} 
+          trend="up"
+          color="emerald"
+        />
+        <DashboardCard 
+          title="إجمالي المصروفات" 
+          value={metrics.totalExpenses} 
+          icon={<TrendingDown className="text-red-500" />} 
+          trend="down"
+          color="red"
+        />
+        <DashboardCard 
+          title="صافي الربح" 
+          value={metrics.netProfit} 
+          icon={<DollarSign className="text-blue-500" />} 
+          trend={metrics.netProfit >= 0 ? "up" : "down"}
+          color="blue"
+        />
+        <DashboardCard 
+          title="إجمالي الضرائب" 
+          value={metrics.totalTax} 
+          icon={<Percent className="text-amber-500" />} 
+          trend={metrics.totalTax > 0 ? "up" : "neutral"}
+          color="purple"
+        />
+        <DashboardCard 
+          title="نسبة هامش الربح" 
+          value={`${metrics.profitMargin.toFixed(1)}%`} 
+          icon={<Percent className="text-teal-500" />} 
+          trend={metrics.profitMargin >= 0 ? "up" : "down"}
+          color="teal"
+        />
+      </div>
+
+      {/* Charts & Recent */}
+      <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
+        {/* Main Chart */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-bold text-slate-800 mb-6">تحليل الإيرادات والمصروفات (شهري)</h3>
+          <div className="h-80 w-full" style={{ minHeight: '320px' }}>
+            <MonthlyRevenueChart data={monthlyData} />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Revenue Breakdown Pie Chart */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+            <TrendingUp size={18} className="text-slate-400" /> تحليل مصادر الإيرادات
+          </h3>
+          <div className="h-80 w-full" style={{ minHeight: '320px' }}>
+            <ExpensesBreakdownChart data={revenueData} />
+          </div>
+        </div>
+
+        {/* Expense Breakdown Pie Chart */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+            <PieChartIcon size={18} className="text-slate-400" /> توزيع المصروفات
+          </h3>
+          <div className="h-80 w-full" style={{ minHeight: '320px' }}>
+            <ExpensesBreakdownChart data={expenseData} />
+          </div>
+        </div>
+
+        {/* Manufacturing Intelligence Card */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+            <Activity size={18} className="text-indigo-500" /> ذكاء التصنيع (انحرافات المواد)
+          </h3>
+          <ManufacturingVariances data={mfgVariances} />
+        </div>
+
+        {/* Weekly Cash Flow Chart */}
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+          <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
+            <Wallet size={18} className="text-slate-400" /> تطور السيولة النقدية الأسبوعي
+          </h3>
+          <div className="h-80 w-full" style={{ minHeight: '320px' }}>
+            <WeeklyCashFlowChart data={weeklyCashData} />
+          </div>
+        </div>
+      </div>
+
+      {/* Recent Activity Row */}
+      <div className="grid grid-cols-1">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+            <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <Activity size={18} className="text-slate-400" /> آخر القيود
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {recentEntries.map((entry) => (
+                <div key={entry.id} className="flex items-start gap-3 p-3 border border-slate-50 rounded-lg hover:bg-slate-50 transition-colors">
+                  <div className="bg-slate-100 p-2 rounded-lg">
+                    <FileText size={16} className="text-slate-500" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-slate-800 truncate">{entry.description || 'قيد بدون وصف'}</p>
+                    <div className="flex justify-between items-center mt-1">
+                      <span className="text-xs text-slate-500 font-mono">{entry.reference}</span>
+                      <span className="text-xs text-slate-400">{entry.transaction_date && !isNaN(new Date(entry.transaction_date).getTime()) ? new Date(entry.transaction_date).toLocaleDateString('ar-EG') : '---'}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {recentEntries.length === 0 && (
+                <p className="text-center text-slate-400 text-sm py-4 col-span-full">لا توجد قيود حديثة</p>
+              )}
+            </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardCard({ title, value, icon, trend, color }: any) {
+  const colorClasses: any = {
+    emerald: 'bg-emerald-50',
+    red: 'bg-red-50',
+    blue: 'bg-blue-50',
+    purple: 'bg-purple-50',
+    teal: 'bg-teal-50'
+  };
+
+  return (
+    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 hover:shadow-md transition-shadow">
+      <div className="flex justify-between items-start mb-4">
+        <div className={`p-3 rounded-xl ${colorClasses[color]}`}>
+          {icon}
+        </div>
+        {trend !== 'neutral' && (
+          <div className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full ${trend === 'up' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+            {trend === 'up' ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+            {trend === 'up' ? 'إيجابي' : 'سلبي'}
+          </div>
+        )}
+      </div>
+      <p className="text-slate-500 text-sm font-medium mb-1">{title}</p>
+      <h3 className="text-2xl font-black text-slate-800">{value?.toLocaleString() ?? '0'}</h3>
+    </div>
+  );
+}

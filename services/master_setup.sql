@@ -1,0 +1,1453 @@
+-- 🌟 ملف التأسيس الشامل (Master Setup) - TriPro ERP
+-- 📅 تاريخ التحديث: 2026-06-16 (Safe Idempotent Version)
+-- ℹ️ الوصف: النسخة الهيكلية الآمنة - تحديث الهيكل دون مسح البيانات.
+-- ================================================================
+-- 0. إعداد المخطط (Schema Setup)
+-- ================================================================
+-- ⚠️ تم إيقاف المسح الكامل للمخطط لسلامة بيئة SaaS
+-- في حال الرغبة في مسح شامل، قم بتشغيل DROP SCHEMA public CASCADE يدوياً مرة واحدة فقط.
+CREATE SCHEMA IF NOT EXISTS public;
+GRANT ALL ON SCHEMA public TO postgres;
+GRANT ALL ON SCHEMA public TO public;
+GRANT USAGE ON SCHEMA public TO anon, authenticated;
+
+-- 🛡️ تفعيل وضع الاستعادة لتجاوز صمامات أمان المنظمة أثناء الترميم (Restore Mode)
+-- هذا يمنع خطأ "يجب تحديد المنظمة" عند وجود مشغلات قديمة نشطة
+SET app.restore_mode = 'on';
+
+-- 🛡️ Schema Healing: التأكد من وجود الأعمدة الحساسة قبل البدء لتجنب خطأ 42703 (organization_id)
+-- يحدث هذا إذا كانت الجداول منشأة مسبقاً بنسخة قديمة من النظام وتفتقر لهيكل الـ SaaS
+DO $$ 
+DECLARE 
+    t text;
+    tables_to_heal text[] := ARRAY['profiles', 'roles', 'role_permissions', 'accounts', 'journal_entries', 'invoices', 'products', 'item_categories', 'customers', 'suppliers', 'warehouses', 'orders', 'order_items', 'shifts', 'table_sessions', 'restaurant_tables', 'work_orders', 'mfg_production_orders', 'purchase_orders', 'purchase_invoices', 'receipt_vouchers', 'payment_vouchers', 'sales_orders', 'sales_order_items', 'employees', 'employee_advances'];
+    dup record;
+    tables_with_user_id text[] := ARRAY['orders', 'journal_entries', 'shifts', 'table_sessions', 'cash_closings', 'organization_backups', 'notifications', 'receipt_vouchers', 'payment_vouchers'];
+    user_id_table text;
+BEGIN
+    -- 0. ترميم جدول المنظمات (SaaS Organizations Repair)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'organizations' AND table_schema = 'public') THEN
+        ALTER TABLE public.organizations 
+            ADD COLUMN IF NOT EXISTS email text,
+            ADD COLUMN IF NOT EXISTS phone text,
+            ADD COLUMN IF NOT EXISTS address text,
+            ADD COLUMN IF NOT EXISTS vat_number text,
+            ADD COLUMN IF NOT EXISTS logo_url text,
+            ADD COLUMN IF NOT EXISTS footer_text text,
+            ADD COLUMN IF NOT EXISTS allowed_modules text[] DEFAULT '{"accounting", "inventory", "sales", "purchases", "hr", "manufacturing", "restaurant", "construction", "hims"}',
+            ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true,
+            ADD COLUMN IF NOT EXISTS subscription_expiry date,
+            ADD COLUMN IF NOT EXISTS max_users integer DEFAULT 5,
+            ADD COLUMN IF NOT EXISTS activity_type text;
+    END IF;
+
+    -- 🛡️ ترميم جدول المستودعات (Warehouses Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'warehouses' AND table_schema = 'public') THEN
+        ALTER TABLE public.warehouses ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true,
+                                      ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+    END IF;
+
+    -- 🛡️ ترميم جدول إعدادات الشركة (Company Settings Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'company_settings' AND table_schema = 'public') THEN
+        ALTER TABLE public.company_settings 
+            ADD COLUMN IF NOT EXISTS production_warehouse_id uuid,
+            ADD COLUMN IF NOT EXISTS raw_material_warehouse_id uuid;
+    END IF;
+
+    -- 🛡️ ترميم جداول أوامر البيع (Sales Orders Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'sales_orders' AND table_schema = 'public') THEN
+        ALTER TABLE public.sales_orders 
+            ADD COLUMN IF NOT EXISTS subtotal numeric DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS tax_amount numeric DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS expected_delivery_date date,
+            ADD COLUMN IF NOT EXISTS created_by uuid,
+            ADD COLUMN IF NOT EXISTS warehouse_id uuid REFERENCES public.warehouses(id),
+            ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+    END IF;
+
+    -- 🛡️ ترميم بنود أوامر البيع (Sales Order Items Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'sales_order_items' AND table_schema = 'public') THEN
+        ALTER TABLE public.sales_order_items 
+            ADD COLUMN IF NOT EXISTS sales_order_id uuid REFERENCES public.sales_orders(id) ON DELETE CASCADE,
+            ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id);
+
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'sales_order_items' AND column_name = 'order_id') THEN
+            UPDATE public.sales_order_items SET sales_order_id = order_id WHERE sales_order_id IS NULL AND order_id IS NOT NULL;
+            
+            FOR r IN (
+                SELECT tc.constraint_name 
+                FROM information_schema.table_constraints tc 
+                JOIN information_schema.key_column_usage kcu 
+                  ON tc.constraint_name = kcu.constraint_name 
+                 AND tc.table_schema = kcu.table_schema
+                WHERE tc.table_name = 'sales_order_items' 
+                  AND kcu.column_name = 'order_id' 
+                  AND tc.constraint_type = 'FOREIGN KEY'
+            ) LOOP
+                EXECUTE 'ALTER TABLE public.sales_order_items DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name);
+            END LOOP;
+        END IF;
+    END IF;
+
+    -- 🛡️ ترميم جداول أوامر الشراء (Purchase Orders Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_orders' AND table_schema = 'public') THEN
+        ALTER TABLE public.purchase_orders 
+            ADD COLUMN IF NOT EXISTS po_number text,
+            ADD COLUMN IF NOT EXISTS order_number text,
+            ADD COLUMN IF NOT EXISTS subtotal numeric DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS tax_amount numeric DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS expected_delivery_date date,
+            ADD COLUMN IF NOT EXISTS created_by uuid,
+            ADD COLUMN IF NOT EXISTS warehouse_id uuid REFERENCES public.warehouses(id),
+            ADD COLUMN IF NOT EXISTS notes text,
+            ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+
+        UPDATE public.purchase_orders SET po_number = order_number WHERE po_number IS NULL AND order_number IS NOT NULL;
+        UPDATE public.purchase_orders SET order_number = po_number WHERE order_number IS NULL AND po_number IS NOT NULL;
+    END IF;
+
+    -- 🛡️ ترميم بنود أوامر الشراء (Purchase Order Items Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'purchase_order_items' AND table_schema = 'public') THEN
+        ALTER TABLE public.purchase_order_items 
+            ADD COLUMN IF NOT EXISTS purchase_order_id uuid REFERENCES public.purchase_orders(id) ON DELETE CASCADE,
+            ADD COLUMN IF NOT EXISTS uom_id uuid REFERENCES public.uoms(id),
+            ADD COLUMN IF NOT EXISTS total numeric;
+
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'purchase_order_items' AND column_name = 'order_id') THEN
+            UPDATE public.purchase_order_items SET purchase_order_id = order_id WHERE purchase_order_id IS NULL AND order_id IS NOT NULL;
+            
+            FOR r IN (
+                SELECT tc.constraint_name 
+                FROM information_schema.table_constraints tc 
+                JOIN information_schema.key_column_usage kcu 
+                  ON tc.constraint_name = kcu.constraint_name 
+                 AND tc.table_schema = kcu.table_schema
+                WHERE tc.table_name = 'purchase_order_items' 
+                  AND kcu.column_name = 'order_id' 
+                  AND tc.constraint_type = 'FOREIGN KEY'
+            ) LOOP
+                EXECUTE 'ALTER TABLE public.purchase_order_items DROP CONSTRAINT IF EXISTS ' || quote_ident(r.constraint_name);
+            END LOOP;
+        END IF;
+    END IF;
+
+    -- 🛡️ ترميم جدول الموظفين (Employees Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'employees' AND table_schema = 'public') THEN
+        ALTER TABLE public.employees 
+            ADD COLUMN IF NOT EXISTS name text,
+            ADD COLUMN IF NOT EXISTS position text,
+            ADD COLUMN IF NOT EXISTS department text,
+            ADD COLUMN IF NOT EXISTS notes text,
+            ADD COLUMN IF NOT EXISTS status text DEFAULT 'active',
+            ADD COLUMN IF NOT EXISTS deleted_at timestamptz,
+            ALTER COLUMN name DROP NOT NULL,
+            ALTER COLUMN full_name DROP NOT NULL;
+
+        -- 🇪🇬 توحيد مسمى الراتب الأساسي ليتوافق مع كافة مديولات النظام
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name='employees' AND column_name='salary') THEN
+            ALTER TABLE public.employees RENAME COLUMN salary TO basic_salary;
+        END IF;
+    END IF;
+
+    -- 🛡️ ترميم جدول الفواتير (Invoices Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'invoices' AND table_schema = 'public') THEN
+        ALTER TABLE public.invoices ADD COLUMN IF NOT EXISTS exchange_rate numeric(19,4) DEFAULT 1;
+    END IF;
+
+    -- 1. إضافة عمود المنظمة المفقود (Multi-tenancy Enforcer)
+    FOREACH t IN ARRAY tables_to_heal LOOP
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = t AND table_schema = 'public') THEN
+            EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS organization_id uuid REFERENCES public.organizations(id)', t);
+            -- الربط بالمنظمة الحالية للسجلات اليتيمة
+            EXECUTE format('UPDATE public.%I SET organization_id = public.get_my_org() WHERE organization_id IS NULL AND public.get_my_org() IS NOT NULL', t);
+        END IF;
+    END LOOP;
+
+    -- 🛡️ ترميم أعمدة التكلفة لجدول المنتجات
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'products' AND table_schema = 'public') THEN
+        ALTER TABLE public.products 
+            ADD COLUMN IF NOT EXISTS weighted_average_cost numeric(19,4) DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS cost numeric(19,4) DEFAULT 0;
+    END IF;
+
+    -- 🛡️ ترميم جدول الحسابات (Accounts Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'accounts' AND table_schema = 'public') THEN
+        ALTER TABLE public.accounts 
+            ADD COLUMN IF NOT EXISTS is_active boolean DEFAULT true,
+            ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+        
+        ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_code_key;
+
+        FOR dup IN (
+            SELECT organization_id, code, 
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[1] as correct_id,
+                   (ARRAY_AGG(id ORDER BY created_at DESC))[2:] as wrong_ids
+            FROM public.accounts
+            GROUP BY organization_id, code
+            HAVING COUNT(*) > 1
+        ) LOOP
+            UPDATE public.journal_lines SET account_id = dup.correct_id WHERE account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET inventory_account_id = dup.correct_id WHERE inventory_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET sales_account_id = dup.correct_id WHERE sales_account_id = ANY(dup.wrong_ids);
+            UPDATE public.products SET cogs_account_id = dup.correct_id WHERE cogs_account_id = ANY(dup.wrong_ids);
+            UPDATE public.accounts SET parent_id = dup.correct_id WHERE parent_id = ANY(dup.wrong_ids);
+            DELETE FROM public.accounts WHERE id = ANY(dup.wrong_ids);
+        END LOOP;
+
+        ALTER TABLE public.accounts DROP CONSTRAINT IF EXISTS accounts_organization_id_code_key;
+        ALTER TABLE public.accounts ADD CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code);
+        
+        UPDATE public.accounts SET is_group = true WHERE length(code) <= 2;
+        UPDATE public.accounts SET is_group = true 
+        WHERE id IN (SELECT DISTINCT parent_id FROM public.accounts WHERE parent_id IS NOT NULL);
+    END IF;
+
+    -- 🛡️ ترميم جدول الأدوار (Roles Healing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'roles' AND table_schema = 'public') THEN
+        ALTER TABLE public.roles DROP CONSTRAINT IF EXISTS roles_name_key;
+        ALTER TABLE public.roles DROP CONSTRAINT IF EXISTS roles_name_organization_id_key;
+        ALTER TABLE public.roles ADD CONSTRAINT roles_name_organization_id_key UNIQUE (name, organization_id);
+    END IF;
+
+    -- 2. توحيد مسمى user_id (ترميم العمود المفقود)
+    FOREACH user_id_table IN ARRAY tables_with_user_id LOOP
+        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = user_id_table AND table_schema = 'public') THEN
+            IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = user_id_table AND column_name = 'created_by') 
+               AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = user_id_table AND column_name = 'user_id') THEN
+                EXECUTE format('ALTER TABLE public.%I RENAME COLUMN created_by TO user_id', user_id_table);
+            END IF;
+            
+            IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = user_id_table AND column_name = 'user_id') THEN
+                EXECUTE format('ALTER TABLE public.%I ADD COLUMN IF NOT EXISTS user_id uuid REFERENCES public.profiles(id)', user_id_table);
+            END IF;
+        END IF;
+    END LOOP;
+
+    -- 3. إضافة عمود الوصف المفقود في جدول الصلاحيات
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'permissions' AND table_schema = 'public') THEN
+        ALTER TABLE public.permissions ADD COLUMN IF NOT EXISTS description text;
+    END IF;
+END $$;
+
+-- ================================================================
+-- 1. الجداول الأساسية (Core Tables)
+-- ================================================================
+
+-- فئات وحدات القياس (UoM Categories)
+CREATE TABLE IF NOT EXISTS public.uom_categories (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL, -- مثل: الكتلة، الطول، وحدات العدد
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT now()
+);
+
+-- وحدات القياس (Units of Measure)
+CREATE TABLE IF NOT EXISTS public.uoms (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    category_id uuid REFERENCES public.uom_categories(id) ON DELETE CASCADE,
+    name text NOT NULL, -- مثل: كجم، جرام، كرتونة، حبة
+    uom_type text CHECK (uom_type IN ('reference', 'smaller', 'bigger')), -- وحدة المرجع، أصغر، أو أكبر
+    ratio numeric(19,4) DEFAULT 1, -- النسبة بالنسبة لوحدة المرجع
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT now(),
+    UNIQUE(organization_id, name)
+);
+
+-- إضافة أعمدة الوحدات لجدول المنتجات
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS base_uom_id uuid REFERENCES public.uoms(id);
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS purchase_uom_id uuid REFERENCES public.uoms(id);
+ALTER TABLE public.products ADD COLUMN IF NOT EXISTS sale_uom_id uuid REFERENCES public.uoms(id);
+
+-- المنظمات والإعدادات
+CREATE TABLE IF NOT EXISTS public.organizations (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    vat_number text,
+    address text,
+    phone text,
+    email text,
+    logo_url text,
+    footer_text text,
+    allowed_modules text[] DEFAULT '{"accounting", "inventory", "sales", "purchases", "hr", "manufacturing", "restaurant", "construction"}',
+    is_active boolean DEFAULT true,
+    subscription_expiry date,
+    max_users integer DEFAULT 5,
+    suspension_reason text,
+    total_collected numeric DEFAULT 0,
+    next_payment_date date,
+    activity_type text,
+    created_at timestamptz DEFAULT now() NOT NULL
+);
+
+-- 🛡️ نظام التنشيط التلقائي للسوبر أدمن والمنظمة (Super Admin Auto-Link)
+DO $$
+DECLARE
+    v_org_id UUID;
+    v_user_id UUID := auth.uid();
+BEGIN
+    -- 1. ضمان وجود منظمة واحدة على الأقل
+    IF NOT EXISTS (SELECT 1 FROM public.organizations) THEN
+        INSERT INTO public.organizations (name, activity_type, is_active)
+        VALUES ('شركة تراي برو العالمية', 'general', true)
+        RETURNING id INTO v_org_id;
+        RAISE NOTICE '✅ تم إنشاء المنظمة السيادية للنظام.';
+    ELSE
+        SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    END IF;
+
+    -- 2. ربط المستخدم الحالي (أنت) بالمنظمة ومنحه صلاحيات السوبر أدمن
+    IF v_user_id IS NOT NULL THEN
+        INSERT INTO public.profiles (id, full_name, role, organization_id, is_active)
+        VALUES (v_user_id, 'المدير العام للنظام', 'super_admin', v_org_id, true)
+        ON CONFLICT (id) DO UPDATE SET 
+            role = 'super_admin',
+            organization_id = v_org_id,
+            is_active = true;
+        
+        -- تحديث بيانات الهوية (Metadata) لضمان ظهور القوائم فوراً
+        UPDATE auth.users SET raw_user_meta_data = 
+            COALESCE(raw_user_meta_data, '{}'::jsonb) || jsonb_build_object('org_id', v_org_id, 'role', 'super_admin')
+        WHERE id = v_user_id;
+    END IF;
+
+    -- 3. تفعيل كافة الموديولات لهذه الشركة لضمان ظهورها في كافة القوائم
+    UPDATE public.organizations 
+    SET allowed_modules = ARRAY['accounting', 'inventory', 'sales', 'purchases', 'hr', 'manufacturing', 'restaurant', 'construction', 'hims']
+    WHERE id = v_org_id;
+
+    RAISE NOTICE '✅ تم ربط حسابك بالمنظمة وتفعيل كافة الصلاحيات.';
+END $$;
+
+-- 🛡️ ضمان وجود منتج مصنع ومسار إنتاجي لاختبارات التصنيع (MFG Load Test Healing)
+DO $$
+DECLARE
+    v_org_id UUID;
+    v_prod_id UUID;
+    v_wc_id UUID;
+    v_routing_id UUID;
+    v_raw_id UUID;
+    v_wh_id UUID;
+BEGIN
+    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    IF v_org_id IS NULL THEN RETURN; END IF; -- لا يوجد منظمة، لا حاجة لإنشاء منتجات
+
+    -- 1. ضمان وجود مستودع
+    SELECT id INTO v_wh_id FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1;
+    IF v_wh_id IS NULL THEN
+        INSERT INTO public.warehouses (name, organization_id) VALUES ('مستودع افتراضي', v_org_id) RETURNING id INTO v_wh_id;
+    END IF;
+
+    -- 2. إنشاء منتج خام افتراضي إذا لم يوجد
+    SELECT id INTO v_raw_id FROM public.products WHERE organization_id = v_org_id AND name = 'خامة افتراضية للتصنيع' LIMIT 1;
+    IF v_raw_id IS NULL THEN
+        INSERT INTO public.products (name, mfg_type, product_type, stock, weighted_average_cost, organization_id)
+        VALUES ('خامة افتراضية للتصنيع', 'raw', 'RAW_MATERIAL', 1000, 10, v_org_id) RETURNING id INTO v_raw_id;
+    END IF;
+
+    -- 3. إنشاء منتج مصنع افتراضي إذا لم يوجد
+    SELECT id INTO v_prod_id FROM public.products WHERE organization_id = v_org_id AND name = 'منتج مصنع افتراضي' AND mfg_type = 'standard' LIMIT 1;
+    IF v_prod_id IS NULL THEN
+        INSERT INTO public.products (name, mfg_type, product_type, sales_price, cost, weighted_average_cost, organization_id)
+        VALUES ('منتج مصنع افتراضي', 'standard', 'MANUFACTURED', 100, 50, 50, v_org_id) RETURNING id INTO v_prod_id;
+    END IF;
+
+    -- 4. إنشاء مركز عمل افتراضي إذا لم يوجد
+    SELECT id INTO v_wc_id FROM public.mfg_work_centers WHERE organization_id = v_org_id LIMIT 1;
+    IF v_wc_id IS NULL THEN
+        INSERT INTO public.mfg_work_centers (name, hourly_rate, organization_id) VALUES ('مركز عمل افتراضي', 20, v_org_id) RETURNING id INTO v_wc_id;
+    END IF;
+
+    -- 5. إنشاء مسار إنتاجي افتراضي للمنتج المصنع إذا لم يوجد
+    SELECT id INTO v_routing_id FROM public.mfg_routings WHERE product_id = v_prod_id AND organization_id = v_org_id LIMIT 1;
+    IF v_routing_id IS NULL THEN
+        INSERT INTO public.mfg_routings (product_id, name, organization_id, is_default) VALUES (v_prod_id, 'مسار افتراضي', v_org_id, true) RETURNING id INTO v_routing_id;
+        INSERT INTO public.mfg_routing_steps (routing_id, step_order, work_center_id, operation_name, standard_time_minutes, organization_id)
+        VALUES (v_routing_id, 1, v_wc_id, 'تجميع', 60, v_org_id);
+        INSERT INTO public.mfg_step_materials (step_id, raw_material_id, quantity_required, organization_id)
+        VALUES ((SELECT id FROM public.mfg_routing_steps WHERE routing_id = v_routing_id LIMIT 1), v_raw_id, 2, v_org_id);
+    END IF;
+
+    -- 6. إنشاء موظف افتراضي لاختبارات التصنيع إذا لم يوجد
+    IF NOT EXISTS (SELECT 1 FROM public.employees WHERE organization_id = v_org_id AND full_name = 'موظف تصنيع افتراضي') THEN
+        INSERT INTO public.employees (full_name, position, organization_id, hourly_rate)
+        VALUES ('موظف تصنيع افتراضي', 'عامل إنتاج', v_org_id, 25);
+    END IF;
+
+    RAISE NOTICE '✅ تم ضمان وجود منتج مصنع ومسار إنتاجي لاختبارات التصنيع.';
+END $$;
+
+-- جدول النسخ الاحتياطية للمنظمات (SaaS Backups) - تم نقل دالة الإنشاء لملف الدوال
+CREATE TABLE IF NOT EXISTS public.organization_backups (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    backup_date timestamptz DEFAULT now(),
+    backup_data jsonb NOT NULL,
+    file_size_kb numeric,
+    user_id uuid REFERENCES public.profiles(id),
+    notes text,
+    created_at timestamptz DEFAULT now() NOT NULL
+);
+
+-- ================================================================
+-- 1.5 دوال الهوية الموحدة (Standard Identity Helpers)
+-- ================================================================
+CREATE OR REPLACE FUNCTION public.get_my_role() RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE _role text;
+BEGIN
+    -- 1. فحص التوكن أولاً (JWT Claims) - البحث في user_metadata و app_metadata لضمان التوافق
+    _role := COALESCE(
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', ''),
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role', ''),
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'app_role', '')
+    );
+    IF _role IS NULL THEN
+        _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb ->> 'role', '');
+    END IF;
+    IF _role IS NOT NULL THEN RETURN _role; END IF;
+    -- 2. الرجوع للجدول (Fall-back)
+    SELECT role INTO _role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
+    RETURN COALESCE(_role, 'viewer');
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.get_my_org() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE _org_id uuid;
+DECLARE _role text;
+DECLARE _user_id uuid := auth.uid();
+BEGIN
+    -- 1. الأولوية لـ org_id في التوكن (JWT Claims) لسرعة الأداء ودعم التبديل بين الشركات
+    _org_id := COALESCE(
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid,
+        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'org_id', '')::uuid
+    );
+
+    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+
+   -- 2. Fallback: جلب المنظمة من البروفايل (المصدر الثابت)
+    SELECT organization_id, role INTO _org_id, _role FROM public.profiles WHERE id = _user_id LIMIT 1;
+    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+
+    -- 3. [جديد] إذا كان المستخدم موثقاً ودوره 'admin' (وليس 'super_admin') ولم يتم تحديد منظمة بعد，
+    -- ابحث عن أول منظمة يكون هذا المستخدم مديراً لها في جدول الأدوار.
+    -- هذا يعالج حالة "المدير العالمي" الذي يدخل لشركة معينة دون أن يكون organization_id في البروفايل أو الـ JWT.
+    IF _user_id IS NOT NULL AND _role = 'admin' AND _org_id IS NULL THEN
+        SELECT r.organization_id INTO _org_id
+        FROM public.roles r
+        JOIN public.role_permissions rp ON r.id = rp.role_id
+        JOIN public.permissions p ON rp.permission_id = p.id
+        WHERE r.organization_id IS NOT NULL AND r.name = 'admin' AND p.module = 'admin' AND p.action = 'manage'
+        LIMIT 1;
+        IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+    END IF;    RETURN NULL;
+END; $$;
+
+CREATE OR REPLACE FUNCTION public.is_admin() RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN RETURN (public.get_my_role() IN ('super_admin', 'admin', 'owner')); END; $$;
+
+CREATE OR REPLACE FUNCTION public.is_super_admin() RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    RETURN (public.get_my_role() = 'super_admin');
+END; $$;
+
+-- الصلاحيات والمستخدمين
+CREATE TABLE IF NOT EXISTS public.roles (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    description text,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    UNIQUE(name, organization_id) -- السماح بنفس الاسم لشركات مختلفة
+);
+
+CREATE TABLE IF NOT EXISTS public.permissions (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    module text NOT NULL,
+    action text NOT NULL,
+    description text,
+    UNIQUE(module, action)
+);
+
+-- تعبئة الصلاحيات الأساسية للنظام لضمان منحها للأدمن تلقائياً عند إنشاء شركة جديدة
+-- 🛡️ صمام أمان: التأكد من وجود عمود الوصف في حال كان الجدول منشأ مسبقاً بدون هذا العمود
+ALTER TABLE public.permissions ADD COLUMN IF NOT EXISTS description text;
+
+INSERT INTO public.permissions (module, action, description) VALUES
+('sales', 'view', 'عرض المبيعات'),
+('sales', 'create', 'إنشاء فاتورة مبيعات'),
+('sales', 'update', 'تعديل فاتورة مبيعات'),
+('sales', 'delete', 'حذف فاتورة مبيعات'),
+('sales', 'approve', 'اعتماد الفواتير'),
+('sales', 'return', 'إدارة مرتجعات المبيعات'),
+('sales', 'quotation', 'إدارة عروض الأسعار'),
+('purchases', 'view', 'عرض المشتريات'),
+('purchases', 'create', 'إنشاء فاتورة مشتريات'),
+('purchases', 'update', 'تعديل فاتورة مشتريات'),
+('purchases', 'delete', 'حذف فاتورة مشتريات'),
+('products', 'view', 'عرض المنتجات'),
+('products', 'create', 'إضافة منتجات'),
+('products', 'update', 'تعديل منتجات'),
+('products', 'delete', 'حذف منتجات'),
+('products', 'bom', 'إدارة وصفات التصنيع'),
+('inventory', 'view', 'عرض المخزون والتقارير'),
+('inventory', 'manage', 'إدارة تسويات المخازن'),
+('inventory', 'transfer', 'إدارة التحويلات المخزنية'),
+('inventory', 'wastage', 'إدارة الهالك والمفقودات'),
+('manufacturing', 'view', 'لوحة تحكم التصنيع'),
+('manufacturing', 'orders', 'أوامر الإنتاج التشغيلية'),
+('manufacturing', 'work_centers', 'إدارة مراكز العمل'),
+('manufacturing', 'routings', 'إدارة مسارات الإنتاج'),
+('manufacturing', 'qc', 'رقابة الجودة (QC)'),
+('manufacturing', 'material_requests', 'طلبات صرف المواد الخام'),
+('manufacturing', 'serials', 'تتبع الأرقام التسلسلية'),
+('hr', 'view', 'عرض الموظفين'),
+('hr', 'manage', 'إدارة الرواتب'),
+('hr', 'advances', 'إدارة سلف الموظفين'),
+('accounting', 'view', 'عرض القيود والتقارير'),
+('accounting', 'coa', 'إدارة دليل الحسابات'),
+('accounting', 'create', 'إنشاء قيود محاسبية'),
+('accounting', 'update', 'تعديل القيود المحاسبية'),
+('accounting', 'delete', 'حذف القيود المحاسبية'),
+('accounting', 'reconcile', 'التسويات البنكية'),
+('accounting', 'post', 'ترحيل القيود المحاسبية'),
+('treasury', 'view', 'عرض الخزينة'),
+('treasury', 'create', 'إنشاء سندات'),
+('treasury', 'update', 'تعديل سندات'),
+('treasury', 'manage', 'إدارة الخزينة'),
+('restaurant', 'manage', 'إدارة المطعم'),
+('restaurant', 'pos', 'الوصول لنقطة البيع'),
+('restaurant', 'kitchen', 'عرض شاشة المطبخ'),
+('treasury', 'cheques', 'إدارة الشيكات (قبض ودفع)'),
+('assets', 'manage', 'إدارة الأصول الثابتة'),
+('reports', 'view_financial', 'عرض التقارير المالية الحساسة'),
+('admin', 'backups', 'إدارة النسخ الاحتياطي والاستعادة'),
+('admin', 'logs', 'سجلات أمان النظام'),
+('admin', 'manage', 'إدارة الصلاحيات'),
+-- HIMS Granular Permissions
+('hims_core', 'view', 'عرض السجلات الطبية'),
+('hims_clinical', 'view', 'عرض مكتب الطبيب'),
+('hims_inpatient', 'view', 'عرض محطة التمريض'),
+('hims_ancillary', 'view', 'عرض المختبر والأشعة'),
+('hims_billing', 'view', 'عرض الفوترة الطبية')
+ON CONFLICT (module, action) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS public.role_permissions (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    role_id uuid REFERENCES public.roles(id) ON DELETE CASCADE,
+    permission_id uuid REFERENCES public.permissions(id) ON DELETE CASCADE,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    UNIQUE(role_id, permission_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.profiles (
+    id uuid REFERENCES auth.users ON DELETE CASCADE NOT NULL PRIMARY KEY,
+    full_name text,
+    role text DEFAULT 'viewer',
+    role_id uuid REFERENCES public.roles(id) ON DELETE SET NULL,
+    avatar_url text,
+    is_active boolean DEFAULT true NOT NULL,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT now() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_profiles_org_id ON public.profiles(organization_id);
+
+-- جدول الدعوات (Invitations) للتحكم في من يمكنه الانضمام للنظام
+CREATE TABLE IF NOT EXISTS public.invitations (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    email text NOT NULL UNIQUE,
+    role text DEFAULT 'viewer',
+    organization_id uuid REFERENCES public.organizations(id),
+    invited_by uuid REFERENCES auth.users(id),
+    created_at timestamptz DEFAULT now(),
+    accepted_at timestamptz
+);
+
+-- دالة معالجة المستخدمين الجدد عند التسجيل (Signup)
+-- [تم نقل دوال الـ Triggers والمنطق البرمجي إلى deploy_all_functionss.sql]
+
+CREATE TABLE IF NOT EXISTS public.company_settings (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    company_name text,
+    tax_number text,
+    activity_type text,
+    phone text,
+    address text,
+    footer_text text,
+    logo_url text,
+    vat_rate numeric DEFAULT 0.14,
+    currency text DEFAULT 'EGP',
+    enable_tax boolean DEFAULT true,
+    allow_negative_stock boolean DEFAULT false,
+    prevent_price_modification boolean DEFAULT false,
+    last_closed_date date,
+    decimal_places integer DEFAULT 2,
+    max_cash_deficit_limit numeric DEFAULT 500,
+    account_mappings jsonb DEFAULT '{}'::jsonb NOT NULL,
+    default_treasury_id uuid,  -- عمود لربط الخزينة الافتراضية
+    production_warehouse_id uuid, -- عمود لمستودع الإنتاج
+    raw_material_warehouse_id uuid, -- عمود لمستودع المواد الخام
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org() UNIQUE,
+    updated_at timestamptz DEFAULT now()
+);
+
+-- جداول تقنية مفقودة (تم استنتاجها من الدوال)
+CREATE TABLE IF NOT EXISTS public.system_error_logs (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    error_message text,
+    error_code text,
+    context jsonb,
+    function_name text,
+    user_id uuid,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+-- المحاسبة
+CREATE TABLE IF NOT EXISTS public.cost_centers (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    code text,
+    description text,
+    created_at timestamptz DEFAULT now(),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+);
+
+CREATE TABLE IF NOT EXISTS public.accounts (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    code text NOT NULL,
+    name text NOT NULL,
+    type text NOT NULL,
+    is_group boolean DEFAULT false NOT NULL,
+    parent_id uuid REFERENCES public.accounts(id) ON DELETE SET NULL,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    balance numeric DEFAULT 0,
+    sub_type text,
+    deleted_at timestamptz,
+    deletion_reason text,
+    is_active boolean DEFAULT true,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    CONSTRAINT accounts_organization_id_code_key UNIQUE (organization_id, code)
+);
+
+CREATE TABLE IF NOT EXISTS public.journal_entries (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    transaction_date date DEFAULT now(),
+    created_at timestamptz DEFAULT now() NOT NULL,
+    updated_at timestamptz DEFAULT now(),
+    description text,
+    reference text,
+    status text DEFAULT 'draft',
+    is_posted boolean DEFAULT false,
+    user_id uuid REFERENCES public.profiles(id),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    related_document_id uuid,
+    related_document_type text,
+    CONSTRAINT journal_entries_reference_org_unique UNIQUE (organization_id, reference)
+);
+
+CREATE TABLE IF NOT EXISTS public.journal_lines (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE CASCADE,
+    account_id uuid REFERENCES public.accounts(id),
+    debit numeric(19,4) DEFAULT 0 CHECK (debit >= 0),
+    credit numeric(19,4) DEFAULT 0 CHECK (credit >= 0),
+    description text,
+    cost_center_id uuid REFERENCES public.cost_centers(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    CONSTRAINT journal_lines_debit_credit_check CHECK (NOT (debit > 0 AND credit > 0))
+);
+
+CREATE TABLE IF NOT EXISTS public.journal_attachments (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE CASCADE,
+    file_path text NOT NULL,
+    file_name text,
+    file_type text, -- Changed to text for consistency
+    file_size numeric,
+    organization_id uuid REFERENCES public.organizations(id),
+    created_at timestamptz DEFAULT now()
+);
+
+-- العملاء والموردين
+CREATE TABLE IF NOT EXISTS public.customers (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    phone text,
+    email text,
+    tax_number text,
+    tax_id text,
+    address text,
+    credit_limit numeric DEFAULT 0,
+    opening_balance numeric DEFAULT 0,
+    customer_type text DEFAULT 'individual', -- individual, store, online
+    balance numeric DEFAULT 0, -- حقل محسوب (اختياري للأداء)
+    deleted_at timestamptz, -- Changed to timestamptz for consistency
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    deletion_reason text,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    responsible_user_id uuid REFERENCES auth.users(id) DEFAULT auth.uid()
+);
+
+CREATE TABLE IF NOT EXISTS public.suppliers (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    phone text,
+    email text,
+    tax_number text,
+    tax_id text,
+    address text,
+    contact_person text,
+    opening_balance numeric DEFAULT 0,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    balance numeric DEFAULT 0, -- Changed to numeric for consistency
+    deleted_at timestamptz,
+    deletion_reason text,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    credit_limit numeric DEFAULT 0
+);
+
+-- المخزون والمنتجات
+CREATE TABLE IF NOT EXISTS public.warehouses (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    location text,
+    manager text,
+    phone text,
+    is_active boolean DEFAULT true, -- 🛡️ تم إضافة هذا العمود لإصلاح خطأ 42703 في دالة تأسيس الشركات
+    type text DEFAULT 'warehouse',
+     organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    deleted_at timestamptz,
+     deletion_reason text,
+     UNIQUE (organization_id, name)
+);
+-- تصنيفات الأصناف (موجود في الهيكل الحالي)
+CREATE TABLE IF NOT EXISTS public.item_categories (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    description text,
+    image_url text,
+    display_order integer DEFAULT 0,
+    default_inventory_account_id uuid REFERENCES public.accounts(id),
+    default_cogs_account_id uuid REFERENCES public.accounts(id),
+    default_sales_account_id uuid REFERENCES public.accounts(id), -- Changed to uuid for consistency
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now() NOT NULL,
+    UNIQUE (organization_id, name)
+);
+
+-- فهرس البحث السريع للتصنيفات
+CREATE INDEX IF NOT EXISTS idx_item_categories_name_search ON public.item_categories (organization_id, name);
+
+CREATE TABLE IF NOT EXISTS public.products (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    sku text,
+    barcode text,
+    sales_price numeric DEFAULT 0,
+    purchase_price numeric DEFAULT 0,
+    description text,
+    cost numeric(19,4) DEFAULT 0,
+    manufacturing_cost numeric(19,4) DEFAULT 0,
+    labor_cost numeric(19,4) DEFAULT 0,
+    overhead_cost numeric(19,4) DEFAULT 0,
+    is_overhead_percentage boolean DEFAULT false,
+    opening_balance numeric(19,4) DEFAULT 0,
+    weighted_average_cost numeric(19,4) DEFAULT 0,
+    stock numeric DEFAULT 0,
+    unit text,
+min_stock numeric DEFAULT 5,
+    min_stock_level numeric DEFAULT 0,
+    item_type text DEFAULT 'STOCK',
+    product_type text DEFAULT 'STOCK', -- إضافة هذا العمود لتوافق الواجهة الأمامية
+    mfg_type text DEFAULT 'standard', -- raw, standard, intermediate
+    requires_serial boolean DEFAULT false,
+    price numeric DEFAULT 0,
+    inventory_account_id uuid REFERENCES public.accounts(id),
+    cogs_account_id uuid REFERENCES public.accounts(id),
+    sales_account_id uuid REFERENCES public.accounts(id),
+    image_url text,
+    warehouse_stock jsonb DEFAULT '{}',
+    category_id uuid REFERENCES public.item_categories(id),
+    expiry_date date,
+    available_modifiers jsonb DEFAULT '[]'::jsonb,
+    
+    -- حقول العروض
+    offer_price numeric,
+    offer_start_date date,
+    offer_end_date date,
+    offer_max_qty numeric,
+    
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    deleted_at timestamptz,
+    deletion_reason text,
+    is_active boolean DEFAULT true,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    updated_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.opening_inventories (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    warehouse_id uuid REFERENCES public.warehouses(id) ON DELETE CASCADE,
+    quantity numeric DEFAULT 0,
+    uom_id uuid REFERENCES public.uoms(id), -- 🛡️ دعم الوحدات في الرصيد الافتتاحي
+    cost numeric DEFAULT 0,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_by uuid REFERENCES auth.users(id),
+    created_at timestamptz DEFAULT now()
+);
+
+-- المبيعات والمشتريات
+CREATE TABLE IF NOT EXISTS public.invoices (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    invoice_number text,
+    customer_id uuid REFERENCES public.customers(id),
+    salesperson_id uuid, -- يمكن ربطه بجدول المستخدمين
+    invoice_date date,
+    due_date date,
+    total_amount numeric,
+    tax_amount numeric,
+    subtotal numeric,
+    paid_amount numeric(19,4) DEFAULT 0,
+    discount_amount numeric DEFAULT 0,
+    status text, -- draft, posted, paid, partial
+    notes text,
+    warehouse_id uuid NOT NULL REFERENCES public.warehouses(id),
+    treasury_account_id uuid REFERENCES public.accounts(id),
+    cost_center_id uuid REFERENCES public.cost_centers(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
+    currency text DEFAULT 'EGP',
+    exchange_rate numeric(19,4) DEFAULT 1,
+    approver_id uuid REFERENCES auth.users(id), -- عمود جديد
+    reference text, -- عمود جديد
+    deleted_at timestamptz,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_by uuid REFERENCES auth.users(id),
+    created_at timestamptz DEFAULT now() NOT NULL,
+    CONSTRAINT invoices_number_org_unique UNIQUE (organization_id, invoice_number)
+);
+
+-- أوامر البيع (Sales Orders) - المستند الوسيط للتصنيع
+CREATE TABLE IF NOT EXISTS public.sales_orders (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_number text NOT NULL,
+    customer_id uuid REFERENCES public.customers(id) ON DELETE CASCADE,
+    order_date date DEFAULT now(),
+    status text DEFAULT 'draft', -- draft, confirmed, manufacturing, ready, invoiced
+    total_amount numeric DEFAULT 0,
+    subtotal numeric DEFAULT 0,
+    tax_amount numeric DEFAULT 0,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    notes text,
+    created_at timestamptz DEFAULT now() NOT NULL,
+    UNIQUE(organization_id, order_number)
+);
+
+CREATE TABLE IF NOT EXISTS public.sales_order_items (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    sales_order_id uuid REFERENCES public.sales_orders(id) ON DELETE CASCADE,
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    quantity numeric NOT NULL DEFAULT 1,
+    unit_price numeric DEFAULT 0,
+    uom_id uuid REFERENCES public.uoms(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+);
+
+-- 2. جداول المبيعات والمشتريات (Detailed Version)
+-- تم استبدال الكتل المبسطة والمكررة بهذه النسخة السيادية الموحدة
+
+CREATE TABLE IF NOT EXISTS public.invoice_items (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    invoice_id uuid REFERENCES public.invoices(id) ON DELETE CASCADE,
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    quantity numeric NOT NULL DEFAULT 0,
+    unit_price numeric NOT NULL DEFAULT 0,
+    uom_id uuid REFERENCES public.uoms(id),
+    total numeric(19,4) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    discount numeric DEFAULT 0,
+    tax_rate numeric DEFAULT 0,
+    custom_fields jsonb,
+    cost numeric DEFAULT 0,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+);
+
+-- ================================================================
+-- 2. جداول العمليات الأساسية (Missing Core Tables)
+-- ================================================================
+
+-- المشتريات
+CREATE TABLE IF NOT EXISTS public.purchase_invoices (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    invoice_number text,
+    supplier_id uuid NOT NULL REFERENCES public.suppliers(id),
+    invoice_date date,
+    due_date date,
+    total_amount numeric,
+    tax_amount numeric(19,4),
+    subtotal numeric,
+    status text DEFAULT 'draft',
+    notes text,
+    warehouse_id uuid NOT NULL REFERENCES public.warehouses(id),
+    currency text DEFAULT 'EGP',
+    exchange_rate numeric(19,4) DEFAULT 1,
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now() NOT NULL,
+    paid_amount numeric DEFAULT 0,
+    delivery_fee numeric DEFAULT 0,
+    order_type text DEFAULT 'DINE_IN',
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id),
+    treasury_account_id uuid REFERENCES public.accounts(id),
+    CONSTRAINT purchase_invoices_number_org_unique UNIQUE (organization_id, invoice_number)
+);
+
+CREATE TABLE IF NOT EXISTS public.purchase_invoice_items (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    purchase_invoice_id uuid REFERENCES public.purchase_invoices(id) ON DELETE CASCADE,
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    quantity numeric NOT NULL DEFAULT 0,
+    uom_id uuid REFERENCES public.uoms(id),
+    unit_price numeric(19,4) NOT NULL DEFAULT 0,
+    total numeric GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org()
+);
+
+-- 🚚 جداول مرتجعات المشتريات (Purchase Returns) - لإكمال الدورة المستندية
+CREATE TABLE IF NOT EXISTS public.purchase_returns (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    return_number text,
+    supplier_id uuid REFERENCES public.suppliers(id),
+    warehouse_id uuid REFERENCES public.warehouses(id),
+    original_invoice_id uuid REFERENCES public.purchase_invoices(id),
+    return_date date DEFAULT now(),
+    total_amount numeric(19,4) DEFAULT 0,
+    tax_amount numeric(19,4) DEFAULT 0,
+    status text DEFAULT 'draft', -- draft, posted
+    notes text,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.purchase_return_items (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    purchase_return_id uuid REFERENCES public.purchase_returns(id) ON DELETE CASCADE,
+    product_id uuid REFERENCES public.products(id),
+    quantity numeric NOT NULL,
+    uom_id uuid REFERENCES public.uoms(id),
+    unit_price numeric(19,4) NOT NULL,
+    total numeric(19,4) GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org()
+);
+
+-- 🛠️ دالة تحويل أمر الشراء إلى فاتورة (PO to Invoice Converter)
+DROP FUNCTION IF EXISTS public.convert_po_to_invoice(uuid, uuid);
+DROP FUNCTION IF EXISTS public.convert_po_to_invoice(uuid, uuid, uuid);
+CREATE OR REPLACE FUNCTION public.convert_po_to_invoice(p_po_id uuid, p_warehouse_id uuid DEFAULT NULL, p_org_id uuid DEFAULT NULL)
+RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_po record; v_invoice_id uuid; v_inv_num text; v_target_org_id uuid; v_wh_id uuid;
+BEGIN
+    SELECT * INTO v_po FROM public.purchase_orders WHERE id = p_po_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'أمر الشراء غير موجود'; END IF;
+
+    v_target_org_id := COALESCE(p_org_id, v_po.organization_id, public.get_my_org());
+    v_inv_num := 'PI-FROM-' || COALESCE(v_po.po_number, v_po.order_number, substring(p_po_id::text, 1, 8));
+
+    v_wh_id := COALESCE(
+        p_warehouse_id, 
+        v_po.warehouse_id, 
+        (SELECT id FROM public.warehouses WHERE organization_id = v_target_org_id AND deleted_at IS NULL ORDER BY name ASC LIMIT 1)
+    );
+
+    -- إنشاء رأس فاتورة المشتريات
+    INSERT INTO public.purchase_invoices (
+        invoice_number, supplier_id, user_id, invoice_date, total_amount, tax_amount, subtotal,
+        status, warehouse_id, organization_id, notes, currency, exchange_rate
+    ) VALUES (
+        v_inv_num, 
+        v_po.supplier_id, 
+        auth.uid(),
+        now()::date,
+        COALESCE(v_po.total_amount, 0), 
+        COALESCE(v_po.tax_amount, 0),
+        COALESCE(v_po.subtotal, COALESCE(v_po.total_amount, 0) - COALESCE(v_po.tax_amount, 0)),
+        'draft',
+        v_wh_id,
+        v_target_org_id,
+        'محولة من أمر شراء رقم: ' || COALESCE(v_po.po_number, v_po.order_number, 'بدون رقم'),
+        'EGP', 
+        1
+    ) RETURNING id INTO v_invoice_id;
+
+    -- نقل البنود بدقة باستخدام purchase_order_id و order_id معاً
+    INSERT INTO public.purchase_invoice_items (
+        purchase_invoice_id, product_id, quantity, unit_price, uom_id, total, organization_id
+    )
+    SELECT 
+        v_invoice_id, 
+        product_id, 
+        quantity, 
+        unit_price, 
+        uom_id, 
+        COALESCE(total, quantity * unit_price), 
+        v_target_org_id
+    FROM public.purchase_order_items 
+    WHERE COALESCE(purchase_order_id, order_id) = p_po_id;
+
+    -- تحديث حالة أمر الشراء
+    UPDATE public.purchase_orders SET status = 'invoiced' WHERE id = p_po_id;
+
+    RETURN v_invoice_id;
+END; $$;
+
+-- الخزينة والسندات
+CREATE TABLE IF NOT EXISTS public.receipt_vouchers (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    voucher_number text,
+    customer_id uuid REFERENCES public.customers(id),
+    receipt_date date DEFAULT now(),
+    amount numeric NOT NULL DEFAULT 0,
+    recipient_name text,
+    notes text,
+    treasury_account_id uuid REFERENCES public.accounts(id),
+    payment_method text DEFAULT 'cash',
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
+    created_at timestamptz DEFAULT now(),
+    UNIQUE (organization_id, voucher_number)
+);
+
+CREATE TABLE IF NOT EXISTS public.payment_vouchers (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    voucher_number text,
+    supplier_id uuid REFERENCES public.suppliers(id),
+    payment_date date DEFAULT now(),
+    amount numeric NOT NULL DEFAULT 0,
+    notes text,
+    treasury_account_id uuid REFERENCES public.accounts(id),
+    cost_center_id uuid REFERENCES public.cost_centers(id),
+    payment_method text DEFAULT 'cash',
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
+    created_at timestamptz DEFAULT now(),
+    UNIQUE (organization_id, voucher_number)
+);
+
+-- المطاعم ونقاط البيع
+CREATE TABLE IF NOT EXISTS public.restaurant_tables (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    capacity integer DEFAULT 4,
+    status text DEFAULT 'AVAILABLE',
+    qr_access_key uuid DEFAULT gen_random_uuid(),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now(),
+    bill_requested boolean DEFAULT false
+);
+
+CREATE TABLE IF NOT EXISTS public.table_sessions (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    table_id uuid REFERENCES public.restaurant_tables(id) ON DELETE CASCADE,
+    user_id uuid REFERENCES public.profiles(id),
+    start_time timestamptz DEFAULT now(),
+    end_time timestamptz,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    status text DEFAULT 'OPEN'
+);
+
+CREATE TABLE IF NOT EXISTS public.orders (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_number text,
+    session_id uuid REFERENCES public.table_sessions(id) ON DELETE SET NULL,
+    customer_id uuid REFERENCES public.customers(id),
+    status text DEFAULT 'PENDING',
+    subtotal numeric DEFAULT 0,
+    total_tax numeric DEFAULT 0,
+    grand_total numeric DEFAULT 0,
+    delivery_fee numeric DEFAULT 0,
+    order_type text DEFAULT 'DINE_IN',
+    notes text,
+    warehouse_id uuid REFERENCES public.warehouses(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    user_id uuid REFERENCES public.profiles(id),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.order_items (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    quantity numeric NOT NULL DEFAULT 1,
+    unit_price numeric NOT NULL DEFAULT 0,
+    total_price numeric GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    unit_cost numeric DEFAULT 0,
+    notes text,
+    modifiers jsonb DEFAULT '[]'::jsonb,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+-- 🍕 خيارات الإضافات للمطعم (Modifiers Support)
+CREATE TABLE IF NOT EXISTS public.modifier_groups (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    name text NOT NULL,
+    description text,
+    product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+    min_selection integer DEFAULT 0,
+    max_selection integer DEFAULT 1,
+    is_required boolean DEFAULT false,
+    display_order integer DEFAULT 0,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.modifiers (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    modifier_group_id uuid REFERENCES public.modifier_groups(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    price numeric DEFAULT 0,
+    cost numeric DEFAULT 0,
+    is_available boolean DEFAULT true,
+    display_order integer DEFAULT 0,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.order_item_modifiers (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_item_id uuid REFERENCES public.order_items(id) ON DELETE CASCADE,
+    modifier_id uuid REFERENCES public.modifiers(id) ON DELETE SET NULL,
+    name text,
+    unit_price numeric DEFAULT 0,
+    cost numeric DEFAULT 0,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+-- الموارد البشرية
+CREATE TABLE IF NOT EXISTS public.employees (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    full_name text, -- المسمى المعتمد في الكود الجديد (تم إلغاء NOT NULL للاستقرار)
+    name text,              -- للتوافق مع قواعد البيانات القديمة
+    position text,
+    phone text,
+    email text,
+    basic_salary numeric DEFAULT 0,
+    hire_date date,
+    department text,
+    notes text,              -- 🛠️ الإصلاح المطلوب لخطأ السكيما
+    status text DEFAULT 'active',
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now(),
+    deleted_at timestamptz
+);
+
+CREATE TABLE IF NOT EXISTS public.kitchen_orders (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_item_id uuid REFERENCES public.order_items(id) ON DELETE CASCADE,
+    status text DEFAULT 'NEW',
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    status_updated_at timestamptz DEFAULT now(),
+    created_at timestamptz DEFAULT now()
+);
+
+-- 3. جداول المدفوعات (Payments Table)
+CREATE TABLE IF NOT EXISTS public.payments (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
+    amount numeric NOT NULL,
+    payment_method text NOT NULL, -- cash, card, credit, etc.
+    status text DEFAULT 'PENDING', -- PENDING, COMPLETED, FAILED, REFUNDED
+    transaction_id text, -- معرف العملية من بوابة الدفع
+    cash_account_id uuid REFERENCES public.accounts(id), -- الحساب النقدي أو البنكي الذي تم التحصيل فيه
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now() NOT NULL,
+    updated_at timestamptz DEFAULT now()
+);
+
+-- جداول الروابط والوردات (Missing in Master Setup)
+CREATE TABLE IF NOT EXISTS public.shifts (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    user_id uuid REFERENCES public.profiles(id),
+    start_time timestamptz DEFAULT now(),
+    end_time timestamptz,
+    opening_balance numeric DEFAULT 0,
+    actual_cash numeric DEFAULT 0,
+    treasury_account_id uuid REFERENCES public.accounts(id) ON DELETE SET NULL,
+    status text DEFAULT 'OPEN',
+    notes text,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS public.delivery_orders (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    order_id uuid REFERENCES public.orders(id) ON DELETE CASCADE,
+    customer_name text,
+    customer_phone text,
+    delivery_address text,
+    delivery_fee numeric DEFAULT 0,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.employee_allowances (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    employee_id uuid REFERENCES public.employees(id) ON DELETE CASCADE,
+    name text NOT NULL,
+    amount numeric NOT NULL,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS public.payroll_variables (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    employee_id uuid REFERENCES public.employees(id) ON DELETE CASCADE,
+    month integer NOT NULL,
+    year integer NOT NULL,
+    type text CHECK (type IN ('addition', 'deduction')),
+    amount numeric NOT NULL,
+    is_processed boolean DEFAULT false,
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    created_at timestamptz DEFAULT now()
+);
+
+-- سلف الموظفين (Employee Advances)
+CREATE TABLE IF NOT EXISTS public.employee_advances (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    employee_id uuid REFERENCES public.employees(id) ON DELETE CASCADE,
+    amount numeric NOT NULL DEFAULT 0,
+    request_date date DEFAULT now(),
+    advance_date date DEFAULT now(),
+    status text DEFAULT 'paid', -- paid, deducted, cancelled
+    payroll_item_id uuid,
+    treasury_account_id uuid REFERENCES public.accounts(id),
+    organization_id uuid REFERENCES public.organizations(id) ON DELETE CASCADE,
+    reference text,          -- 🛠️ إضافة عمود المرجع (Reference) المسبب للخطأ
+    notes text,
+    created_at timestamptz DEFAULT now()
+);
+
+-- ================================================================
+-- 3. جداول إضافية (مرفقات، إقفال، إشعارات)
+-- ================================================================
+CREATE TABLE IF NOT EXISTS public.receipt_voucher_attachments (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    voucher_id uuid REFERENCES public.receipt_vouchers(id) ON DELETE CASCADE,
+    file_path text NOT NULL,
+    file_name text,
+    file_type text, -- Changed to text for consistency
+    file_size numeric,
+    organization_id uuid REFERENCES public.organizations(id),
+    created_at timestamptz DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS public.payment_voucher_attachments (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    voucher_id uuid REFERENCES public.payment_vouchers(id) ON DELETE CASCADE,
+    file_path text NOT NULL,
+    file_name text,
+    file_type text,
+    file_size numeric, -- Changed to numeric for consistency
+    organization_id uuid REFERENCES public.organizations(id),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.cheque_attachments (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    cheque_id uuid REFERENCES public.cheques(id) ON DELETE CASCADE,
+    file_path text NOT NULL,
+    file_name text,
+    file_type text, -- Changed to text for consistency
+    file_size numeric,
+    organization_id uuid REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.cash_closings (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    closing_date timestamptz DEFAULT now(),
+    treasury_account_id uuid REFERENCES public.accounts(id),
+    system_balance numeric DEFAULT 0,
+    actual_balance numeric DEFAULT 0,
+    difference numeric DEFAULT 0,
+    notes text,
+    status text DEFAULT 'closed',
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_by uuid REFERENCES auth.users(id),
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.rejected_cash_closings (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    rejection_date timestamptz DEFAULT now(),
+    treasury_account_id uuid REFERENCES public.accounts(id),
+    system_balance numeric NOT NULL,
+    actual_balance numeric NOT NULL,
+    difference numeric NOT NULL,
+    notes text,
+    rejected_by uuid REFERENCES public.profiles(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    max_allowed_deficit numeric
+);
+
+CREATE TABLE IF NOT EXISTS public.credit_notes (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    credit_note_number text,
+    customer_id uuid REFERENCES public.customers(id) ON DELETE CASCADE,
+    note_date date,
+    amount_before_tax numeric,
+    tax_amount numeric,
+    total_amount numeric,
+    notes text,
+    status text DEFAULT 'draft',
+    original_invoice_number text, -- Changed to text for consistency
+    organization_id uuid REFERENCES public.organizations(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.debit_notes (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    debit_note_number text,
+    supplier_id uuid REFERENCES public.suppliers(id) ON DELETE CASCADE,
+    note_date date,
+    amount_before_tax numeric,
+    tax_amount numeric,
+    total_amount numeric,
+    notes text,
+    status text DEFAULT 'draft',
+    original_invoice_number text, -- Changed to text for consistency
+    organization_id uuid REFERENCES public.organizations(id),
+    related_journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE SET NULL,
+    created_at timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.security_logs (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    event_type text NOT NULL,
+    description text,
+    performed_by uuid REFERENCES auth.users(id),
+    target_user_id uuid REFERENCES public.profiles(id),
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    metadata jsonb,
+    created_at timestamptz DEFAULT now() NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS public.budgets (
+    id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    year integer,
+    month integer,
+    items jsonb,
+    name text,
+    total_amount numeric, -- Changed to numeric for consistency
+    organization_id uuid REFERENCES public.organizations(id),
+    created_at timestamptz DEFAULT now()
+);
+
+-- (تم تنظيف كافة التكرارات والكتل المبسطة لضمان "المرجعية الواحدة" للبيانات)
+-- (الملف الآن ينتهي بآخر تعريف سيادي للجداول قبل مرحلة الدوال والسياسات)
+
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_is_read ON public.notifications(user_id, is_read);
+
+CREATE TABLE IF NOT EXISTS public.notification_preferences (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
+  enable_overdue_payments BOOLEAN DEFAULT TRUE,
+  enable_low_inventory BOOLEAN DEFAULT TRUE,
+  enable_high_debt BOOLEAN DEFAULT TRUE,
+  enable_pending_approval BOOLEAN DEFAULT TRUE,
+  enable_due_date_alerts BOOLEAN DEFAULT TRUE,
+  email_notifications BOOLEAN DEFAULT FALSE,
+  sms_notifications BOOLEAN DEFAULT FALSE,
+  push_notifications BOOLEAN DEFAULT TRUE,
+  overdue_payment_threshold_days INTEGER DEFAULT 1,
+  low_inventory_threshold_percent INTEGER DEFAULT 20,
+  high_debt_threshold_percent INTEGER DEFAULT 90, -- Changed to INTEGER for consistency
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  organization_id UUID REFERENCES public.organizations(id),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS public.notification_audit_log (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  notification_id UUID REFERENCES notifications(id) ON DELETE CASCADE,
+  user_id UUID REFERENCES auth.users(id),
+  action VARCHAR(50),
+  organization_id UUID REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- ================================================================
+-- جدول وصفات الإنتاج (BOM - Bill of Materials)
+-- يُستخدم لتحديد مكونات كل منتج مصنّع أو وصفة مطعم
+-- ================================================================
+CREATE TABLE IF NOT EXISTS public.bill_of_materials (
+    id              uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+    product_id      uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+    raw_material_id uuid NOT NULL REFERENCES public.products(id) ON DELETE CASCADE,
+    quantity_required numeric(12, 4) NOT NULL DEFAULT 1,
+    shrinkage_pct   numeric(6, 2)   NOT NULL DEFAULT 0.00,
+    -- shrinkage_pct: نسبة الفاقد/الانكماش أثناء الطهي أو التحضير (0-99%)
+    -- مثال: 15 تعني أن 15% من الكمية تُهدر أثناء الطهي
+    uom_id          uuid REFERENCES public.uoms(id) ON DELETE SET NULL,
+    notes           text,
+    organization_id uuid NOT NULL REFERENCES public.organizations(id) DEFAULT public.get_my_org(),
+    created_at      timestamptz DEFAULT now(),
+    updated_at      timestamptz DEFAULT now(),
+    UNIQUE (product_id, raw_material_id)
+);
+
+COMMENT ON TABLE public.bill_of_materials IS 'وصفات الإنتاج والمكونات: تحدد المواد الخام لكل منتج مصنّع أو وجبة مطعم مع نسبة الفاقد';
+COMMENT ON COLUMN public.bill_of_materials.shrinkage_pct IS 'نسبة الفاقد/الانكماش أثناء الطهي أو التحضير (0-99%). مثال: 15 = 15% فاقد';
+COMMENT ON COLUMN public.bill_of_materials.quantity_required IS 'الكمية المطلوبة من المادة الخام لإنتاج وحدة واحدة من المنتج النهائي';
+
+-- ================================================================
+-- 2.5 التقارير واللوحات البرمجية (Views)
+-- ================================================================
+DROP VIEW IF EXISTS public.monthly_sales_dashboard CASCADE;
+CREATE OR REPLACE VIEW public.monthly_sales_dashboard WITH (security_invoker = true) AS
+ SELECT 
+    jl.id,
+    je.transaction_date,
+    (jl.credit - jl.debit) AS amount,
+    CASE 
+        WHEN a.code = '411' THEN 'Wholesale'
+        WHEN a.code LIKE '4111%' OR a.code LIKE '4112%' THEN 'Restaurant'
+        WHEN a.code LIKE '412%' THEN 'Returns'
+        ELSE 'Other Revenue'
+    END as sales_type,
+    je.organization_id
+ FROM public.journal_lines jl
+ JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+ JOIN public.accounts a ON jl.account_id = a.id
+ WHERE je.status = 'posted' AND (a.type ILIKE '%revenue%' OR a.code LIKE '4%');
+
+-- ملاحظة: استخدام security_invoker يضمن أن الـ View يحترم سياسات RLS الخاصة بالجداول الأصلية
+
+-- 🚀 ملف الماستر انتهى هيكلياً. الرصيد والدوال في deploy_all_functionss والسياسات في setup_rls.
+
+-- 📊 رؤية محاسبية لعرض رصيد المخزن بأكثر من وحدة (Multi-UoM Stock View)
+DROP VIEW IF EXISTS public.v_inventory_multi_uom CASCADE;
+CREATE OR REPLACE VIEW public.v_inventory_multi_uom AS
+SELECT 
+    p.id as product_id,
+    p.name as product_name,
+    p.stock as base_stock,
+    bu.name as base_uom_name,
+    u.name as alternative_uom_name,
+    CASE 
+        WHEN u.uom_type = 'bigger' THEN ROUND(p.stock / NULLIF(u.ratio, 0), 4)
+        WHEN u.uom_type = 'smaller' THEN ROUND(p.stock * u.ratio, 4)
+        ELSE p.stock
+    END as alternative_stock,
+    p.organization_id
+FROM public.products p
+JOIN public.uoms bu ON p.base_uom_id = bu.id
+JOIN public.uoms u ON u.category_id = bu.category_id
+WHERE p.deleted_at IS NULL;
+
+COMMENT ON VIEW public.v_inventory_multi_uom IS 'تعرض هذه الرؤية رصيد كل صنف بكافة الوحدات المعرفة في فئته آلياً';
+
+-- إيقاف وضع الاستعادة لعودة عمل نظام الحماية الطبيعي
+SET app.restore_mode = 'off';
+
+-- ================================================================
+-- 

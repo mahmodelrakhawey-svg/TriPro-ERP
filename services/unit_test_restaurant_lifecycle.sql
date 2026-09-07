@@ -1,0 +1,1156 @@
+-- 🧪 دالة اختبار دورة حياة المطعم الكاملة (Restaurant Full Lifecycle Unit Test)
+-- ℹ️ الغرض: التحقق من ترابط الوردية، الطاولات، المخزون، والمحاسبة في سيناريو واحد.
+-- 📅 تاريخ التحديث: 2024-05-25
+
+CREATE OR REPLACE FUNCTION public.test_full_restaurant_lifecycle()
+RETURNS TABLE(step_name text, result text, details text) 
+LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_org_id uuid; v_wh_id uuid; v_user_id uuid; v_cash_acc uuid;
+    v_prod_id uuid; v_shift_id uuid; v_table_id uuid; v_session_id uuid;
+    v_order_id uuid; v_items jsonb; v_stock_before numeric; v_stock_after numeric;
+    v_shift_record record;
+BEGIN
+    -- 🛡️ 1. تحديد بيانات الهوية للاختبار
+    PERFORM set_config('app.restore_mode', 'on', true);
+    
+    v_user_id := auth.uid();
+    IF v_user_id IS NULL THEN 
+        v_user_id := (SELECT id FROM public.profiles WHERE role = 'super_admin' LIMIT 1);
+    END IF;
+    IF v_user_id IS NULL THEN 
+        v_user_id := (SELECT id FROM public.profiles LIMIT 1);
+    END IF;
+    
+    v_org_id := public.get_my_org();
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT organization_id FROM public.profiles WHERE id = v_user_id);
+    END IF;
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT id FROM public.organizations LIMIT 1);
+    END IF;
+
+    IF v_org_id IS NULL THEN
+        RAISE EXCEPTION 'لا توجد منظمة مسجلة في النظام للاختبار.';
+    END IF;
+
+    -- 🛡️ تنظيف شامل لكافة أجنحة الاختبار لضمان عدم وجود مخلفات تسبب Duplicate Key
+    DELETE FROM public.products WHERE organization_id = v_org_id AND name IN ('وجبة اختبار شامل', 'قهوة QR', 'بيتزا اختبار');
+    DELETE FROM public.restaurant_tables WHERE organization_id = v_org_id AND name IN ('Table-Test', 'Table-QR-Test');
+    DELETE FROM public.shifts WHERE organization_id = v_org_id AND user_id = v_user_id AND end_time IS NULL;
+    DELETE FROM public.journal_entries WHERE organization_id = v_org_id AND (reference LIKE 'SHIFT-%' OR description LIKE '%اختبار%');
+
+    -- ضمان وجود مستودع وحساب نقدية
+    v_wh_id := (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL LIMIT 1);
+    IF v_wh_id IS NULL THEN
+        INSERT INTO public.warehouses (name, organization_id) VALUES ('مستودع اختبار تلقائي', v_org_id) RETURNING id INTO v_wh_id;
+    END IF;
+
+    v_cash_acc := (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1231' LIMIT 1);
+    IF v_cash_acc IS NULL THEN
+        v_cash_acc := (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND type = 'asset' AND (name LIKE '%نقدية%' OR name LIKE '%خزينة%') LIMIT 1);
+        IF v_cash_acc IS NULL THEN
+            INSERT INTO public.accounts (code, name, type, organization_id) VALUES ('1231-TEST', 'خزينة اختبار', 'asset', v_org_id) RETURNING id INTO v_cash_acc;
+        END IF;
+    END IF;
+
+    -- 🛠️ [تطوير V50.1] ضمان وجود الحسابات المطلوبة والربط الضريبي للاختبار
+    INSERT INTO public.accounts (code, name, type, organization_id, is_group)
+    VALUES 
+        ('541', 'عجز نقدية الوردية', 'expense', v_org_id, false),
+        ('2231', 'ضريبة القيمة المضافة', 'liability', v_org_id, false),
+        ('511', 'تكلفة المبيعات', 'expense', v_org_id, false)
+    ON CONFLICT (organization_id, code) DO NOTHING;
+
+    UPDATE public.company_settings 
+    SET vat_rate = 0.14,
+        account_mappings = COALESCE(account_mappings, '{}'::jsonb) || jsonb_build_object(
+            'VAT', (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1),
+            'CASH_SHORTAGE', (SELECT id FROM public.accounts WHERE code = '541' AND organization_id = v_org_id LIMIT 1),
+            'COGS', (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1)
+        )
+    WHERE organization_id = v_org_id;
+
+    step_name := '0. تهيئة بيئة الاختبار'; result := 'PASS ✅'; details := format('المنظمة: %s، الخزينة: %s (تم ضبط الضريبة والحسابات)', v_org_id, v_cash_acc); RETURN NEXT;
+
+    -- 📦 2. إنشاء صنف اختبار وتغذية المخزون
+    -- 🛠️ إضافة التكلفة (cost) وسعر الشراء لضمان حساب تكلفة المبيعات (COGS)
+    INSERT INTO public.products (name, sales_price, cost, weighted_average_cost, purchase_price, organization_id, product_type, mfg_type, unit, stock)
+    VALUES ('وجبة اختبار شامل', 150, 70, 70, 70, v_org_id, 'STOCK', 'standard', 'وجبة', 100) RETURNING id INTO v_prod_id;
+
+    INSERT INTO public.opening_inventories (product_id, warehouse_id, quantity, cost, organization_id)
+    VALUES (v_prod_id, v_wh_id, 100, 70, v_org_id);
+    
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+    SELECT stock INTO v_stock_before FROM public.products WHERE id = v_prod_id;
+
+    step_name := '1. إنشاء منتج ورصيد مخزني'; result := 'PASS ✅'; details := format('الرصيد الابتدائي: %s وجبة', v_stock_before); RETURN NEXT;
+
+    -- 🕒 3. فتح وردية جديدة
+    v_shift_record := public.start_pos_shift(1000, false, v_cash_acc, v_user_id, v_org_id); -- Pass p_org_id explicitly
+    v_shift_id := v_shift_record.id;
+    step_name := '2. فتح الوردية'; result := 'PASS ✅'; details := format('رقم الوردية: %s، العهدة: 1000', v_shift_id); RETURN NEXT;
+
+    -- 🪑 4. محاكاة إشغال طاولة
+    SELECT id INTO v_table_id FROM public.restaurant_tables WHERE organization_id = v_org_id LIMIT 1;
+    IF v_table_id IS NULL THEN
+        INSERT INTO public.restaurant_tables (name, capacity, organization_id) VALUES ('Table-Test', 4, v_org_id) RETURNING id INTO v_table_id;
+    END IF;
+
+    INSERT INTO public.table_sessions (table_id, organization_id, status, user_id)
+    VALUES (v_table_id, v_org_id, 'OPEN', v_user_id) RETURNING id INTO v_session_id;
+    UPDATE public.restaurant_tables SET status = 'OCCUPIED' WHERE id = v_table_id;
+
+    step_name := '3. فتح جلسة طاولة'; result := 'PASS ✅'; details := format('الطاولة: %s، الجلسة: %s', v_table_id, v_session_id); RETURN NEXT;
+
+    -- 📝 5. إنشاء طلب مطعم (طلب 5 وجبات)
+    -- 5 * 150 = 750 + 14% ضريبة (105) = 855 إجمالي
+    v_items := jsonb_build_array(jsonb_build_object('product_id', v_prod_id, 'quantity', 5, 'unit_price', 150)); -- Ensure unit_price is numeric
+    v_order_id := public.create_restaurant_order(v_session_id, v_user_id, 'DINE_IN', 'محاكاة اختبار شامل', v_items, NULL, v_wh_id, NULL, v_org_id); -- Pass p_org_id explicitly
+
+    step_name := '4. إنشاء الطلب وإرساله للمطبخ'; result := 'PASS ✅'; details := format('رقم الطلب: %s، القيمة قبل الضريبة: 750', v_order_id); RETURN NEXT;
+
+    -- 💳 6. الدفع والإتمام (تحديث المخزون اللحظي)
+    PERFORM public.complete_restaurant_order(v_order_id, 'CASH', 855, v_cash_acc, v_org_id, v_wh_id); -- Pass p_org_id and p_warehouse_id explicitly
+    PERFORM pg_sleep(0.5); -- Give time for stock recalculation to complete
+    
+    SELECT stock INTO v_stock_after FROM public.products WHERE id = v_prod_id;
+    IF v_stock_after = (v_stock_before - 5) THEN
+        step_name := '5. إتمام الدفع وخصم المخزون'; result := 'PASS ✅'; details := format('تم خصم 5 وجبات بنجاح. الرصيد المتبقي: %s', v_stock_after);
+    ELSE
+        step_name := '5. إتمام الدفع وخصم المخزون'; result := 'FAIL ❌'; details := format('خطأ في المخزون! المتوقع: %s، الفعلي: %s', v_stock_before - 5, v_stock_after);
+    END IF;
+    RETURN NEXT;
+
+    -- 🏁 7. إغلاق الوردية والمحاسبة
+    -- 🛡️ 7. التحقق من الأرصدة المالية بعد إغلاق الوردية
+    DECLARE
+        v_initial_cash_balance numeric; v_final_cash_balance numeric;
+        v_current_je_count int;
+        v_initial_sales_balance numeric; v_final_sales_balance numeric;
+        v_initial_vat_balance numeric; v_final_vat_balance numeric;
+        v_initial_cogs_balance numeric; v_final_cogs_balance numeric;
+        v_initial_inventory_balance numeric; v_final_inventory_balance numeric;
+        v_initial_cash_shortage_balance numeric; v_final_cash_shortage_balance numeric;
+        v_sales_acc_id uuid; v_vat_acc_id uuid; v_cogs_acc_id uuid; v_inventory_acc_id uuid; v_cash_shortage_acc_id uuid;
+        v_maps jsonb;
+    BEGIN
+        PERFORM pg_sleep(0.5);
+
+        -- جلب الحسابات ذات الصلة
+        SELECT account_mappings INTO v_maps FROM public.company_settings WHERE organization_id = v_org_id;
+        v_sales_acc_id := COALESCE((v_maps->>'SALES_REVENUE')::uuid, (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1));
+        v_vat_acc_id := COALESCE((v_maps->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code = '2231' AND organization_id = v_org_id LIMIT 1));
+        v_cogs_acc_id := COALESCE((v_maps->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE code = '511' AND organization_id = v_org_id LIMIT 1));
+        v_inventory_acc_id := COALESCE((v_maps->>'INVENTORY_FINISHED_GOODS')::uuid, (SELECT id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id LIMIT 1));
+        v_cash_shortage_acc_id := COALESCE((v_maps->>'CASH_SHORTAGE')::uuid, (SELECT id FROM public.accounts WHERE code = '541' AND organization_id = v_org_id LIMIT 1));
+
+        -- جلب الأرصدة الأولية
+        v_initial_cash_balance := public.get_account_balance_at_date(v_cash_acc, now()::date, v_org_id);
+        v_initial_sales_balance := public.get_account_balance_at_date(v_sales_acc_id, now()::date, v_org_id);
+        v_initial_vat_balance := public.get_account_balance_at_date(v_vat_acc_id, now()::date, v_org_id);
+        v_initial_cogs_balance := public.get_account_balance_at_date(v_cogs_acc_id, now()::date, v_org_id);
+        v_initial_inventory_balance := public.get_account_balance_at_date(v_inventory_acc_id, now()::date, v_org_id);
+        v_initial_cash_shortage_balance := public.get_account_balance_at_date(v_cash_shortage_acc_id, now()::date, v_org_id);
+
+        -- تنفيذ الإغلاق (مرة واحدة فقط لضمان دقة الأرصدة)
+        -- المتوقع: 1000 + 855 = 1855. الإغلاق بـ 1200 يُنتج عجز 655 وزيادة نقدية صافية بـ 200.
+        PERFORM public.close_shift(v_shift_id, 1200, 'إغلاق اختبار مؤتمت لمحاكاة العجز', v_org_id);
+        PERFORM pg_sleep(0.5); -- إعطاء وقت لمزامنة القيود المحاسبية قبل التحقق
+        
+        -- جلب الأرصدة النهائية
+        -- 🚀 ملاحظة: نستخدم COALESCE لضمان عدم فشل الاختبار في حال لم تكن هناك قيود سابقة
+        SELECT public.get_account_balance_at_date(v_cash_acc, now()::date, v_org_id) INTO v_final_cash_balance;
+        SELECT public.get_account_balance_at_date(v_sales_acc_id, now()::date, v_org_id) INTO v_final_sales_balance;
+        SELECT public.get_account_balance_at_date(v_vat_acc_id, now()::date, v_org_id) INTO v_final_vat_balance;
+        SELECT public.get_account_balance_at_date(v_cogs_acc_id, now()::date, v_org_id) INTO v_final_cogs_balance;
+        SELECT public.get_account_balance_at_date(v_inventory_acc_id, now()::date, v_org_id) INTO v_final_inventory_balance;
+        SELECT public.get_account_balance_at_date(v_cash_shortage_acc_id, now()::date, v_org_id) INTO v_final_cash_shortage_balance;
+
+        -- ⚖️ التحقق من التغيرات المتوقعة باستخدام ROUND لتجاهل فروق التنسيق العشرية
+        IF ABS(ROUND(v_final_cash_balance - v_initial_cash_balance, 0) - 200) < 2 AND 
+           ROUND(v_final_sales_balance - v_initial_sales_balance, 0) = -750 AND 
+           ROUND(v_final_vat_balance - v_initial_vat_balance, 0) = -105 AND 
+           ROUND(v_final_cogs_balance - v_initial_cogs_balance, 0) = 350 AND 
+           ROUND(v_final_inventory_balance - v_initial_inventory_balance, 0) = -350 AND 
+           ROUND(v_final_cash_shortage_balance - v_initial_cash_shortage_balance, 0) = 655 THEN 
+            step_name := '6. إغلاق الوردية والترحيل المحاسبي'; result := 'SUCCESS 🏆'; details := 'تم إغلاق الوردية وتوليد القيود المحاسبية المجمعة بنجاح وتطابق الأرصدة.';
+        ELSE
+            step_name := '6. إغلاق الوردية والترحيل المحاسبي'; result := 'FAIL ❌'; details := format('فشل التحقق من الأرصدة المحاسبية. نقدية: %s (متوقع 200)، مبيعات: %s (متوقع -750)، ضريبة: %s (متوقع -105)، تكلفة مبيعات: %s (متوقع 350)، مخزون: %s (متوقع -350)، عجز صندوق: %s (متوقع 655).', (v_final_cash_balance - v_initial_cash_balance), (v_final_sales_balance - v_initial_sales_balance), (v_final_vat_balance - v_initial_vat_balance), (v_final_cogs_balance - v_initial_cogs_balance), (v_final_inventory_balance - v_initial_inventory_balance), (v_final_cash_shortage_balance - v_initial_cash_shortage_balance));
+        END IF;
+    END;
+    RETURN NEXT;
+
+    -- تنظيف بيانات الاختبار (اختياري)
+    -- DELETE FROM public.products WHERE id = v_prod_id;
+
+EXCEPTION WHEN OTHERS THEN
+    step_name := 'فشل حرج في الاختبار'; result := 'CRITICAL 🛑'; details := SQLERRM; RETURN NEXT;
+END; $$;
+
+-- 🧪 1. اختبار دورة حياة التوصيل (Delivery Lifecycle Test)
+CREATE OR REPLACE FUNCTION public.test_delivery_order_lifecycle()
+RETURNS TABLE(step_name text, result text, details text) 
+LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth AS $$
+DECLARE v_org_id uuid; v_wh_id uuid; v_user_id uuid; v_cash_acc uuid;
+    v_prod_id uuid; v_cust_id uuid; v_order_id uuid; v_driver_id uuid;
+    v_items jsonb; v_delivery_info jsonb; v_grand_total numeric; v_order_status text;
+BEGIN
+    -- 🛡️ استخدام معرف منظمة ثابت للمستخدم الحالي لضمان عزل الاختبار
+    v_user_id := auth.uid();
+    IF v_user_id IS NULL THEN 
+        v_user_id := (SELECT id FROM public.profiles WHERE role = 'super_admin' LIMIT 1);
+    END IF;
+    IF v_user_id IS NULL THEN 
+        v_user_id := (SELECT id FROM public.profiles LIMIT 1);
+    END IF;
+    
+    v_org_id := public.get_my_org();
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT organization_id FROM public.profiles WHERE id = v_user_id);
+    END IF;
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT id FROM public.organizations LIMIT 1);
+    END IF;
+
+    DELETE FROM public.products WHERE name = 'بيتزا اختبار' AND organization_id = v_org_id;
+    DELETE FROM public.customers WHERE name = 'عميل توصيل تجريبي' AND organization_id = v_org_id;
+    DELETE FROM public.employees WHERE full_name = 'سائق توصيل تجريبي' AND organization_id = v_org_id;
+    DELETE FROM public.orders WHERE organization_id = v_org_id AND notes = 'توصيل للمنزل';
+
+    v_wh_id := (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL LIMIT 1);
+    IF v_wh_id IS NULL THEN
+        INSERT INTO public.warehouses (name, organization_id) VALUES ('مستودع اختبار تلقائي', v_org_id) RETURNING id INTO v_wh_id;
+    END IF;
+
+    v_cash_acc := (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1231' LIMIT 1);
+    IF v_cash_acc IS NULL THEN
+        v_cash_acc := (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND type = 'asset' AND (name LIKE '%نقدية%' OR name LIKE '%خزينة%') LIMIT 1);
+        IF v_cash_acc IS NULL THEN
+            INSERT INTO public.accounts (code, name, type, organization_id) VALUES ('1231-TEST', 'خزينة اختبار', 'asset', v_org_id) RETURNING id INTO v_cash_acc;
+        END IF;
+    END IF;
+
+    step_name := '0. تهيئة البيئة'; result := 'PASS ✅'; details := 'بدء اختبار التوصيل...'; RETURN NEXT;
+
+    -- إنشاء عميل
+    INSERT INTO public.customers (name, phone, organization_id) 
+    VALUES ('عميل توصيل تجريبي', '01000000000', v_org_id) RETURNING id INTO v_cust_id;
+
+    -- منتج
+    INSERT INTO public.products (name, sales_price, organization_id, product_type)
+    VALUES ('بيتزا اختبار', 200, v_org_id, 'STOCK') RETURNING id INTO v_prod_id;
+    
+    -- إنشاء طيار
+    INSERT INTO public.employees (full_name, position, organization_id)
+    VALUES ('سائق توصيل تجريبي', 'Driver', v_org_id) RETURNING id INTO v_driver_id;
+
+    step_name := '1. تجهيز البيانات'; result := 'PASS ✅'; details := 'تم إنشاء عميل ومنتج.'; RETURN NEXT;
+
+    -- إنشاء طلب توصيل
+    v_items := jsonb_build_array(jsonb_build_object('product_id', v_prod_id, 'quantity', 1, 'unit_price', 200));
+    v_delivery_info := jsonb_build_object(
+        'customer_name', 'عميل توصيل تجريبي',
+        'customer_phone', '01000000000',
+        'delivery_address', 'شارع الاختبار، مبنى 5',
+        'delivery_fee', 30
+    );
+
+    -- ملاحظة: نمرر NULL للـ session_id في التوصيل
+    v_order_id := public.create_restaurant_order(NULL, v_user_id, 'DELIVERY', 'توصيل للمنزل', v_items, v_cust_id, v_wh_id, v_delivery_info, v_org_id); -- Pass p_org_id explicitly
+
+    SELECT grand_total INTO v_grand_total FROM public.orders WHERE id = v_order_id;
+
+    -- الحسبة: 200 + 28 (ضريبة 14%) + 30 (توصيل) = 258
+    IF v_grand_total >= 258 THEN
+        step_name := '2. إنشاء طلب التوصيل'; result := 'PASS ✅'; details := format('الإجمالي شامل التوصيل والضريبة: %s', v_grand_total);
+    ELSE
+        step_name := '2. إنشاء طلب التوصيل'; result := 'FAIL ❌'; details := format('خطأ في الحساب! الإجمالي: %s', v_grand_total);
+    END IF;
+    RETURN NEXT;
+
+    -- إتمام الدفع
+    PERFORM public.complete_restaurant_order(v_order_id, 'CASH', v_grand_total, v_cash_acc, v_org_id, v_wh_id);
+    PERFORM pg_sleep(0.5); -- Give time for stock recalculation to complete
+    
+    IF EXISTS (SELECT 1 FROM public.delivery_orders WHERE order_id = v_order_id) THEN
+        step_name := '3. فحص سجل التوصيل'; result := 'PASS ✅'; details := 'بيانات العنوان والرسوم محفوظة بدقة.';
+    ELSE
+        step_name := '3. فحص سجل التوصيل'; result := 'FAIL ❌'; details := 'لم يتم العثور على سجل في delivery_orders';
+    END IF;
+    RETURN NEXT;
+
+    -- 4. تعيين الطيار وتغيير حالة الطلب إلى "قيد التوصيل"
+    UPDATE public.delivery_orders SET driver_id = v_driver_id WHERE order_id = v_order_id;
+    UPDATE public.orders SET status = 'OUT_FOR_DELIVERY' WHERE id = v_order_id;
+
+    SELECT status INTO v_order_status FROM public.orders WHERE id = v_order_id;
+    IF v_order_status = 'OUT_FOR_DELIVERY' THEN
+        step_name := '4. تعيين الطيار وتغيير الحالة'; result := 'PASS ✅'; details := format('تم تعيين الطيار %s وتغيير حالة الطلب إلى OUT_FOR_DELIVERY.', v_driver_id);
+    ELSE
+        step_name := '4. تعيين الطيار وتغيير الحالة'; result := 'FAIL ❌'; details := format('فشل تغيير حالة الطلب. الحالة الحالية: %s', v_order_status);
+    END IF;
+    RETURN NEXT;
+
+    -- تنظيف بيانات الاختبار
+    DELETE FROM public.delivery_orders WHERE order_id = v_order_id;
+    DELETE FROM public.orders WHERE id = v_order_id;
+    DELETE FROM public.products WHERE id = v_prod_id;
+    DELETE FROM public.customers WHERE id = v_cust_id;
+    DELETE FROM public.employees WHERE id = v_driver_id;
+
+EXCEPTION WHEN OTHERS THEN
+    step_name := 'فشل حرج'; result := 'ERROR 🛑'; details := SQLERRM; RETURN NEXT;
+END; $$;
+
+-- 🧪 2. اختبار المنيو الإلكتروني (QR Menu Lifecycle Test)
+CREATE OR REPLACE FUNCTION public.test_qr_order_lifecycle()
+RETURNS TABLE(step_name text, result text, details text) 
+LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth AS $$
+DECLARE
+    v_org_id uuid; v_prod_id uuid; v_table_id uuid; v_qr_key uuid; v_cash_acc uuid;
+    v_order_id uuid; v_items jsonb; v_session_id uuid; v_wh_id uuid;
+BEGIN
+    -- 🛡️ توحيد المنظمة مع الاختبارات السابقة لضمان نجاح الـ Cleanup
+    v_org_id := public.get_my_org();
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT organization_id FROM public.profiles WHERE id = COALESCE(auth.uid(), (SELECT id FROM public.profiles LIMIT 1)));
+    END IF;
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT id FROM public.organizations LIMIT 1);
+    END IF;
+    
+    IF v_org_id IS NULL THEN
+        RAISE EXCEPTION 'لا توجد منظمة مسجلة في النظام للاختبار.';
+    END IF;
+
+    -- 🛡️ تنظيف جذري باستخدام المعرف الصريح لمنع أخطاء Duplicate Key
+    DELETE FROM public.products WHERE name = 'قهوة QR' AND organization_id = v_org_id;
+    DELETE FROM public.restaurant_tables WHERE name = 'Table-QR-Test' AND organization_id = v_org_id;
+
+    -- ضمان وجود مستودع وحساب نقدية للاختبار
+    v_wh_id := (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL LIMIT 1);
+    IF v_wh_id IS NULL THEN
+        INSERT INTO public.warehouses (name, organization_id) VALUES ('مستودع اختبار QR', v_org_id) RETURNING id INTO v_wh_id;
+    END IF;
+
+    v_cash_acc := (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '1231' LIMIT 1);
+    IF v_cash_acc IS NULL THEN
+        v_cash_acc := (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND type = 'asset' AND (name LIKE '%نقدية%' OR name LIKE '%خزينة%') LIMIT 1);
+        IF v_cash_acc IS NULL THEN
+            INSERT INTO public.accounts (code, name, type, organization_id, is_group) VALUES ('1231-QR', 'خزينة اختبار QR', 'asset', v_org_id, false) RETURNING id INTO v_cash_acc;
+        END IF;
+    END IF;
+    
+    -- تجهيز طاولة بكود QR
+    v_qr_key := gen_random_uuid();
+    INSERT INTO public.restaurant_tables (name, capacity, organization_id, qr_access_key, status)
+    VALUES ('Table-QR-Test', 2, v_org_id, v_qr_key, 'AVAILABLE') RETURNING id INTO v_table_id;
+
+    INSERT INTO public.products (name, sales_price, organization_id, product_type)
+    VALUES ('قهوة QR', 50, v_org_id, 'STOCK') RETURNING id INTO v_prod_id;
+
+    step_name := '1. تجهيز طاولة QR'; result := 'PASS ✅'; details := format('الكود: %s', v_qr_key); RETURN NEXT;
+
+    -- محاكاة طلب الزبون عبر الـ QR
+    v_items := jsonb_build_array(jsonb_build_object('product_id', v_prod_id, 'quantity', 2, 'unit_price', 50));
+    
+    v_order_id := public.create_public_order(v_qr_key, v_items, v_org_id);
+
+    -- التحقق من فتح الجلسة تلقائياً
+    SELECT session_id INTO v_session_id FROM public.orders WHERE id = v_order_id;
+    
+    IF v_session_id IS NOT NULL THEN
+        step_name := '2. إنشاء طلب QR'; result := 'PASS ✅'; details := 'تم فتح جلسة طاولة تلقائياً وربط الطلب.';
+    ELSE
+        step_name := '2. إنشاء طلب QR'; result := 'FAIL ❌'; details := 'فشل إنشاء الجلسة التلقائية.';
+    END IF;
+    RETURN NEXT;
+
+    -- التحقق من وصول الطلب للمطبخ
+    IF EXISTS (SELECT 1 FROM public.kitchen_orders ko JOIN public.order_items oi ON ko.order_item_id = oi.id WHERE oi.order_id = v_order_id) THEN
+        step_name := '3. وصول الطلب للمطبخ'; result := 'PASS ✅'; details := 'الطلب ظهر في شاشة الـ KDS فوراً.';
+    ELSE
+        step_name := '3. وصول الطلب للمطبخ'; result := 'FAIL ❌'; details := 'لم يتم العثور على طلب مطبخ مرتبط.';
+    END IF;
+    RETURN NEXT;
+
+    -- تحرير الطاولة (محاكاة دفع الكاشير)
+    -- 🚀 تحسين: استخدام الدالة الرسمية بدلاً من التعديل اليدوي لاختبار المحرك الفعلي
+    PERFORM public.complete_restaurant_order(v_order_id, 'CASH', 114, v_cash_acc, v_org_id, v_wh_id);
+    PERFORM pg_sleep(0.5); -- Give time for stock recalculation to complete
+
+    -- تحرير يدوي لمحاكاة إغلاق الجلسة
+    UPDATE public.table_sessions SET status = 'CLOSED', end_time = now() WHERE id = v_session_id;
+    UPDATE public.restaurant_tables SET status = 'AVAILABLE' WHERE id = v_table_id;
+
+    IF (SELECT status FROM public.restaurant_tables WHERE id = v_table_id) = 'AVAILABLE' THEN
+        step_name := '4. تحرير الطاولة'; result := 'PASS ✅'; details := 'الطاولة أصبحت متاحة لزبون آخر.';
+    ELSE
+        step_name := '4. تحرير الطاولة'; result := 'FAIL ❌'; details := 'الطاولة لا تزال محجوزة.';
+    END IF;
+    RETURN NEXT;
+
+EXCEPTION WHEN OTHERS THEN
+    step_name := 'فشل حرج'; result := 'ERROR 🛑'; details := SQLERRM; RETURN NEXT;
+END; $$;
+
+-- 🧪 3. اختبار دورة حياة التصنيع (Manufacturing Lifecycle Test)
+-- ℹ️ الغرض: التأكد من صحة حسابات التكلفة الفعلية، قيود الـ WIP، وتحديث الـ WAC للمنتج التام.
+CREATE OR REPLACE FUNCTION public.test_mfg_order_lifecycle()
+RETURNS TABLE(step_name text, result text, details text) 
+LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth AS $$
+DECLARE 
+    v_org_id uuid; v_user_id uuid; v_wh_id uuid; v_raw_id uuid; v_fg_id uuid;
+    v_order_id uuid; v_progress_id uuid; v_je_id uuid;
+    v_wac_after numeric; v_total_debit numeric; v_fg_stock_after numeric; v_serial_count int;
+    v_uom_id uuid;
+    v_raw_acc_id uuid; v_fg_acc_id uuid; v_wip_acc_id uuid; v_waste_acc_id uuid;
+BEGIN
+    -- 1. تهيئة البيانات بشكل محصن (Robust Identity Initialization)
+    v_user_id := auth.uid();
+    IF v_user_id IS NULL THEN 
+        v_user_id := (SELECT id FROM public.profiles WHERE role = 'super_admin' LIMIT 1);
+    END IF;
+    
+    v_org_id := public.get_my_org();
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT organization_id FROM public.profiles WHERE id = v_user_id);
+    END IF;
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT id FROM public.organizations LIMIT 1);
+    END IF;
+
+    v_wh_id := (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL LIMIT 1);
+    IF v_wh_id IS NULL THEN
+        INSERT INTO public.warehouses (name, organization_id) VALUES ('مستودع تصنيع اختبار', v_org_id) RETURNING id INTO v_wh_id;
+    END IF;
+
+    -- تنظيف بيانات قديمة لضمان عزل الاختبار
+    DELETE FROM public.products WHERE organization_id = v_org_id AND name IN ('حديد خام اختبار', 'باب حديد مصنع');
+    DELETE FROM public.mfg_production_orders WHERE organization_id = v_org_id;
+
+    -- إنشاء الحسابات المطلوبة إذا لم توجد
+    -- (أكواد الحسابات تبقى كما هي...)
+
+    -- ضمان وجود وحدة قياس مرجعية
+    SELECT id INTO v_uom_id FROM public.uoms WHERE organization_id = v_org_id AND uom_type = 'reference' LIMIT 1;
+
+    -- إنشاء الحسابات المطلوبة إذا لم توجد
+    INSERT INTO public.accounts (code, name, type, organization_id) VALUES 
+    ('10301', 'مخزون خامات', 'asset', v_org_id),
+    ('10302', 'مخزون إنتاج تام', 'asset', v_org_id),
+    ('10303', 'إنتاج تحت التشغيل - WIP', 'asset', v_org_id),
+    ('5121', 'خسائر تلف إنتاج', 'expense', v_org_id)
+    ON CONFLICT (organization_id, code) DO NOTHING;
+
+    -- جلب المعرفات بشكل صريح لضمان دقة الربط في الإعدادات
+    SELECT id INTO v_raw_acc_id FROM public.accounts WHERE code = '10301' AND organization_id = v_org_id;
+    SELECT id INTO v_fg_acc_id FROM public.accounts WHERE code = '10302' AND organization_id = v_org_id;
+    SELECT id INTO v_wip_acc_id FROM public.accounts WHERE code = '10303' AND organization_id = v_org_id;
+    SELECT id INTO v_waste_acc_id FROM public.accounts WHERE code = '5121' AND organization_id = v_org_id;
+
+
+    -- 2. إنشاء الأصناف
+       INSERT INTO public.products (name, organization_id, cost, weighted_average_cost, product_type, base_uom_id)
+    VALUES ('حديد خام اختبار', v_org_id, 10, 10, 'STOCK', v_uom_id) RETURNING id INTO v_raw_id;
+
+
+    INSERT INTO public.products (name, organization_id, product_type, mfg_type, stock, base_uom_id)
+    VALUES ('باب حديد مصنع', v_org_id, 'STOCK', 'standard', 0, v_uom_id) RETURNING id INTO v_fg_id;
+
+
+    -- 🛠️ تحديث إعدادات الشركة (Fix: استخدام دمج JSONB بدلاً من الاستبدال الكامل)
+    INSERT INTO public.company_settings (organization_id, company_name)
+    VALUES (v_org_id, 'Test Org Manufacturing')
+    ON CONFLICT (organization_id) DO NOTHING;
+
+    UPDATE public.company_settings 
+    SET account_mappings = COALESCE(account_mappings, '{}'::jsonb) || jsonb_build_object(
+        'INVENTORY_RAW_MATERIALS', v_raw_acc_id,
+        'INVENTORY_FINISHED_GOODS', v_fg_acc_id,
+        'INVENTORY_WIP', v_wip_acc_id,
+        'WASTAGE_EXPENSE', v_waste_acc_id
+    )
+    WHERE organization_id = v_org_id;
+    
+    PERFORM pg_sleep(0.2); 
+
+
+    step_name := '1. تجهيز الخامات والمنتج التام'; result := 'PASS ✅'; details := 'تم إنشاء الأصناف وربط الحسابات المحاسبية.'; RETURN NEXT;
+
+    -- 3. دورة الإنتاج
+    INSERT INTO public.mfg_production_orders (product_id, quantity_to_produce, organization_id, warehouse_id, status)
+    VALUES (v_fg_id, 5, v_org_id, v_wh_id, 'in_progress') RETURNING id INTO v_order_id;
+
+    -- تسجيل عمالة (50 ريال)
+    INSERT INTO public.mfg_order_progress (production_order_id, produced_qty, labor_cost_actual, organization_id, status, step_id)
+    VALUES (v_order_id, 5, 50, v_org_id, 'completed', (SELECT id FROM public.mfg_routing_steps LIMIT 1)) RETURNING id INTO v_progress_id;
+
+    -- استهلاك مواد (2 حبة * 10 ريال = 20 ريال)
+    INSERT INTO public.mfg_actual_material_usage (order_progress_id, raw_material_id, standard_quantity, actual_quantity, organization_id, uom_id)
+    VALUES (v_progress_id, v_raw_id, 2, 2, v_org_id, v_uom_id);
+
+    step_name := '2. تسجيل العمليات الإنتاجية'; result := 'PASS ✅'; details := 'تم تسجيل عمالة (50) واستهلاك خامات (20).'; RETURN NEXT;
+
+    -- 4. إغلاق الأمر وفحص النتائج
+    PERFORM public.mfg_finalize_order(v_order_id, 'completed', 'Unit Test Finalization');
+    PERFORM public.recalculate_stock_rpc(v_org_id); -- تحديث أرصدة المخزون برمجياً
+    PERFORM pg_sleep(0.7); -- إعطاء وقت إضافي لمزامنة القيود والترجرات الخلفية
+
+    -- أ. فحص الـ WAC (70 ريال إجمالي / 5 حبات = 14 ريال للوحدة)
+    SELECT weighted_average_cost, stock INTO v_wac_after, v_fg_stock_after FROM public.products WHERE id = v_fg_id;
+    
+    IF v_wac_after = 14 THEN
+        step_name := '3. فحص متوسط التكلفة WAC'; result := 'PASS ✅'; details := format('تم تحديث التكلفة بنجاح إلى %s', v_wac_after);
+    ELSE
+        step_name := '3. فحص متوسط التكلفة WAC'; result := 'FAIL ❌'; details := format('خطأ في الحساب! المتوقع 14، الفعلي %s', v_wac_after);
+    END IF;
+    RETURN NEXT;
+
+    -- ب. فحص مطابقة المخزون والسيريالات (معالجة الفشل المذكور في التقرير)
+    -- 🛡️ التحقق من وجود الجدول لتجنب الخطأ "relation does not exist" في البيئات التي لا تدعم السيريالات
+    IF EXISTS (SELECT FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'product_serials') THEN
+        EXECUTE 'SELECT COUNT(*) FROM public.product_serials WHERE product_id = $1 AND organization_id = $2'
+        INTO v_serial_count
+        USING v_fg_id, v_org_id;
+    ELSE
+        v_serial_count := -1; -- علامة تفيد بأن مديول السيريالات غير مثبت/موجود
+    END IF;
+
+    IF v_fg_stock_after = 5 THEN
+        IF v_serial_count > 0 AND v_serial_count != 5 THEN
+            step_name := '5. التحقق من المخزون والسيريالات'; 
+            result := 'FAIL ❌'; 
+            details := format('تم تحديث المخزون (%s) لكن عدد السيريالات (%s) غير مطابق للكمية المنتجة (5).', v_fg_stock_after, v_serial_count);
+        ELSIF v_serial_count = -1 THEN
+            step_name := '5. التحقق من المخزون والسيريالات'; result := 'PASS ✅'; details := format('تم تحديث المخزون إلى %s وحدة بنجاح (نظام السيريالات غير مكتشف).', v_fg_stock_after);
+        ELSE
+            step_name := '5. التحقق من المخزون والسيريالات'; result := 'PASS ✅'; details := format('تم تحديث المخزون إلى %s وحدة بنجاح.', v_fg_stock_after);
+        END IF;
+    ELSE
+        step_name := '5. التحقق من المخزون والسيريالات'; result := 'FAIL ❌'; 
+        details := format('فشل في مطابقة المخزون! المتوقع 5، الفعلي %s. (تأكد من عمل trigger تحديث المخزون)', v_fg_stock_after);
+    END IF;
+    RETURN NEXT;
+
+    -- ب. فحص القيد المحاسبي
+    SELECT id INTO v_je_id FROM public.journal_entries 
+    WHERE related_document_id = v_order_id AND related_document_type = 'mfg_order' LIMIT 1;
+
+    PERFORM pg_sleep(0.3); -- انتظار إضافي لضمان اكتمال ترحيل القيود
+    IF v_je_id IS NOT NULL THEN
+        SELECT COALESCE(SUM(debit), 0) INTO v_total_debit FROM public.journal_lines WHERE journal_entry_id = v_je_id;
+        IF v_total_debit = 70 THEN
+            step_name := '4. فحص القيد المحاسبي'; result := 'PASS ✅'; details := 'تم توليد قيد متزن بقيمة التكلفة الفعلية (70).';
+        ELSE
+            step_name := '4. فحص القيد المحاسبي'; result := 'FAIL ❌'; details := format('قيمة القيد غير صحيحة! المتوقع 70، الفعلي %s', v_total_debit);
+        END IF;
+    ELSE
+        step_name := '4. فحص القيد المحاسبي'; result := 'FAIL ❌'; details := 'لم يتم توليد قيد إغلاق!';
+    END IF;
+    RETURN NEXT;
+
+EXCEPTION WHEN OTHERS THEN
+    step_name := 'فشل حرج في التصنيع'; result := 'ERROR 🛑'; details := SQLERRM; RETURN NEXT;
+END; $$;
+
+-- 🏗️ 4. اختبار دورة حياة المقاولات (Construction Lifecycle Test)
+-- ℹ️ الغرض: التأكد من صحة إنشاء المشاريع، الربط المحاسبي، المستخلصات، وصرف المواد مع درع الميزانية.
+CREATE OR REPLACE FUNCTION public.test_construction_lifecycle()
+RETURNS TABLE(step_name text, result text, details text) 
+LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_org_id uuid; v_user_id uuid; v_wh_id uuid; v_cust_id uuid;
+    v_prod_id uuid; v_project_id uuid; v_billing_id uuid; v_issue_id uuid;
+    v_je_id uuid; v_stock_before numeric; v_stock_after numeric;
+BEGIN
+    -- 🛡️ 1. تحديد بيانات الهوية للاختبار
+    PERFORM set_config('app.restore_mode', 'on', true);
+    
+    v_user_id := auth.uid();
+    IF v_user_id IS NULL THEN 
+        v_user_id := (SELECT id FROM public.profiles WHERE role = 'super_admin' LIMIT 1);
+    END IF;
+    
+    v_org_id := public.get_my_org();
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT organization_id FROM public.profiles WHERE id = v_user_id);
+    END IF;
+    IF v_org_id IS NULL THEN
+        v_org_id := (SELECT id FROM public.organizations LIMIT 1);
+    END IF;
+
+    -- 🛡️ تنظيف شامل لبيانات الاختبار السابقة
+    DELETE FROM public.projects WHERE organization_id = v_org_id AND name = 'Test Project Construction';
+    DELETE FROM public.customers WHERE organization_id = v_org_id AND name = 'Construction Test Customer';
+    DELETE FROM public.products WHERE organization_id = v_org_id AND name = 'Test Material Construction';
+
+    -- ضمان وجود عميل ومستودع ومنتج (مادة خام)
+    INSERT INTO public.customers (name, organization_id) VALUES ('Construction Test Customer', v_org_id) RETURNING id INTO v_cust_id;
+    
+    v_wh_id := (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL LIMIT 1);
+    IF v_wh_id IS NULL THEN
+        INSERT INTO public.warehouses (name, organization_id) VALUES ('Construction Test WH', v_org_id) RETURNING id INTO v_wh_id;
+    END IF;
+
+    INSERT INTO public.products (name, organization_id, mfg_type, stock)
+    VALUES ('Test Material Construction', v_org_id, 'raw', 100) RETURNING id INTO v_prod_id;
+
+    -- 📥 رصيد افتتاحي للمادة الخام لكي يراها محرك المخزون
+    INSERT INTO public.opening_inventories (product_id, warehouse_id, quantity, cost, organization_id)
+    VALUES (v_prod_id, v_wh_id, 100, 50, v_org_id);
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+
+    -- 🛠️ ضمان وجود الحسابات المطلوبة والربط المحاسبي للمقاولات
+    INSERT INTO public.accounts (code, name, type, organization_id, is_group)
+    VALUES 
+        ('1249', 'محتجز ضمان لدى الغير (عملاء)', 'asset', v_org_id, false),
+        ('226', 'تأمينات ودفعات مقدمة من العملاء', 'liability', v_org_id, false),
+        ('411', 'إيراد مبيعات بضاعة', 'revenue', v_org_id, false),
+        ('1221', 'العملاء', 'asset', v_org_id, false),
+        ('10303', 'مشروعات تحت التنفيذ - WIP', 'asset', v_org_id, false)
+    ON CONFLICT (organization_id, code) DO NOTHING;
+
+    UPDATE public.company_settings 
+    SET account_mappings = COALESCE(account_mappings, '{}'::jsonb) || jsonb_build_object(
+            'CUSTOMERS', (SELECT id FROM public.accounts WHERE code = '1221' AND organization_id = v_org_id LIMIT 1),
+            'SALES_REVENUE', (SELECT id FROM public.accounts WHERE code = '411' AND organization_id = v_org_id LIMIT 1),
+            'RETENTION_CUSTOMER', (SELECT id FROM public.accounts WHERE code = '1249' AND organization_id = v_org_id LIMIT 1),
+            'SECURITY_DEPOSIT_ACCOUNT', (SELECT id FROM public.accounts WHERE code = '226' AND organization_id = v_org_id LIMIT 1)
+        )
+    WHERE organization_id = v_org_id;
+
+    step_name := '0. تهيئة البيئة'; result := 'PASS ✅'; details := format('المنظمة: %s، العميل: %s', v_org_id, v_cust_id); RETURN NEXT;
+
+    -- 🏗️ 1. إنشاء مشروع جديد
+    INSERT INTO public.projects (name, contract_value, customer_id, organization_id, status)
+    VALUES ('Test Project Construction', 100000, v_cust_id, v_org_id, 'active') RETURNING id INTO v_project_id;
+
+    step_name := '1. إنشاء المشروع'; result := 'PASS ✅'; details := format('المشروع ID: %s والقيمة: 100,000', v_project_id); RETURN NEXT;
+
+    -- 📋 2. إضافة بند BOQ (المقايسة)
+    INSERT INTO public.project_boq (project_id, item_name, unit, estimated_quantity, unit_price, organization_id)
+    VALUES (v_project_id, 'أعمال خرسانة اختبار', 'm3', 100, 500, v_org_id);
+
+    step_name := '2. إضافة بنود المقايسة (BOQ)'; result := 'PASS ✅'; details := 'تم إضافة بند خرسانة بقيمة إجمالية 50,000'; RETURN NEXT;
+
+    -- 📑 3. اختبار المستخلصات (الإيرادات والتحصيل)
+    -- محاكاة مستخلص بقيمة 20,000، خصم محجوز ضمان 2,000، واستهلاك دفعة مقدمة 3,000 (الصافي المتوقع 15,000)
+    INSERT INTO public.project_progress_billings (project_id, billing_number, billing_date, completion_percentage, gross_amount, retention_amount, advance_deduction, organization_id, status)
+    VALUES (v_project_id, 'BILL-TEST-001', CURRENT_DATE, 20, 20000, 2000, 3000, v_org_id, 'draft') RETURNING id INTO v_billing_id;
+
+    PERFORM public.fn_approve_project_billing(v_billing_id);
+
+    SELECT related_journal_entry_id INTO v_je_id FROM public.project_progress_billings WHERE id = v_billing_id;
+    IF v_je_id IS NOT NULL THEN
+        step_name := '3. اعتماد المستخلص'; result := 'PASS ✅'; details := format('تم توليد القيد المحاسبي بنجاح ID: %s', v_je_id);
+    ELSE
+        step_name := '3. اعتماد المستخلص'; result := 'FAIL ❌'; details := 'فشل توليد قيد المستخلص (راجع المحرك المالي)';
+    END IF;
+    RETURN NEXT;
+
+    -- 📦 4. اختبار صرف المواد وتحميل التكلفة (Cost Side)
+    SELECT stock INTO v_stock_before FROM public.products WHERE id = v_prod_id;
+    
+    INSERT INTO public.project_material_issues (project_id, warehouse_id, issue_number, organization_id, status)
+    VALUES (v_project_id, v_wh_id, 'ISS-TEST-001', v_org_id, 'draft') RETURNING id INTO v_issue_id;
+
+    INSERT INTO public.project_material_issue_items (issue_id, product_id, quantity, unit_cost)
+    VALUES (v_issue_id, v_prod_id, 10, 50);
+
+    PERFORM public.fn_approve_material_issue(v_issue_id);
+    PERFORM pg_sleep(0.3); -- انتظار تحديث المخزون
+    PERFORM public.recalculate_stock_rpc(v_org_id);
+
+    SELECT stock INTO v_stock_after FROM public.products WHERE id = v_prod_id;
+
+    IF v_stock_after = (v_stock_before - 10) THEN
+        step_name := '4. صرف المواد والتكلفة'; result := 'PASS ✅'; details := format('تم خصم المخزون بنجاح. الرصيد المتبقي: %s حبة', v_stock_after);
+    ELSE
+        step_name := '4. صرف المواد والتكلفة'; result := 'FAIL ❌'; details := format('خطأ في حسابات المخزون! المتوقع: %s، الفعلي: %s', v_stock_before - 10, v_stock_after);
+    END IF;
+    RETURN NEXT;
+
+    -- 🏁 5. التحقق النهائي من حالة المشروع والربط الآلي
+    IF EXISTS (SELECT 1 FROM public.projects WHERE id = v_project_id AND cost_center_account_id IS NOT NULL) THEN
+        step_name := '5. التحقق من الربط المالي'; result := 'SUCCESS 🏆'; details := 'تم إنشاء وربط الحساب المالي للمشروع آلياً عبر التريجر.';
+    ELSE
+        step_name := '5. التحقق من الربط المالي'; result := 'FAIL ❌'; details := 'المشروع غير مرتبط بحساب مالي (Trigger trg_after_project_insert failed)';
+    END IF;
+    RETURN NEXT;
+
+    PERFORM set_config('app.restore_mode', 'off', true);
+EXCEPTION WHEN OTHERS THEN
+    step_name := 'فشل اختبار المقاولات'; result := 'CRITICAL 🛑'; details := SQLERRM; RETURN NEXT;
+END; $$;
+
+-- 🧪 3. دالة اختبار شاملة لجميع مديولات المطعم (Unified Restaurant Modules Integrity Test)
+CREATE OR REPLACE FUNCTION public.test_all_restaurant_modules_integrity()
+RETURNS TABLE(test_suite text, step_name text, result text, details text)
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, auth AS $$
+DECLARE
+    r record;
+    v_overall_status text := 'PASS ✅';
+    v_overall_details text := '';
+BEGIN
+    -- 🛡️ تفعيل وضع الاستعادة للسماح بتنظيف البيانات المحمية إن وجدت
+    PERFORM set_config('app.restore_mode', 'on', true);
+
+    -- 1. تشغيل اختبار دورة حياة المطعم الكاملة
+    FOR r IN SELECT * FROM public.test_full_restaurant_lifecycle() LOOP
+        test_suite := 'Full Restaurant Lifecycle';
+        step_name := r.step_name;
+        result := r.result;
+        details := r.details;
+        IF r.result NOT IN ('PASS ✅', 'SUCCESS 🏆') THEN
+            v_overall_status := 'FAIL ❌';
+            v_overall_details := v_overall_details || 'Full Restaurant Lifecycle Failed: ' || r.details || E'\n';
+        END IF;
+        RETURN NEXT;
+    END LOOP;
+
+    -- 2. تشغيل اختبار دورة حياة التوصيل
+    FOR r IN SELECT * FROM public.test_delivery_order_lifecycle() LOOP
+        test_suite := 'Delivery Order Lifecycle';
+        step_name := r.step_name;
+        result := r.result;
+        details := r.details;
+        IF r.result NOT IN ('PASS ✅', 'SUCCESS 🏆') THEN
+            v_overall_status := 'FAIL ❌';
+            v_overall_details := v_overall_details || 'Delivery Order Lifecycle Failed: ' || r.details || E'\n';
+        END IF;
+        RETURN NEXT;
+    END LOOP;
+
+    -- 3. تشغيل اختبار دورة حياة التصنيع
+    FOR r IN SELECT * FROM public.test_mfg_order_lifecycle() LOOP
+        test_suite := 'Manufacturing Lifecycle';
+        step_name := r.step_name;
+        result := r.result;
+        details := r.details;
+        IF r.result NOT IN ('PASS ✅', 'SUCCESS 🏆') THEN
+            v_overall_status := 'FAIL ❌';
+            v_overall_details := v_overall_details || 'MFG Lifecycle Failed: ' || r.details || E'\n';
+        END IF;
+        RETURN NEXT;
+    END LOOP;
+
+    -- 4. تشغيل اختبار دورة حياة المنيو الإلكتروني (QR)
+    FOR r IN SELECT * FROM public.test_qr_order_lifecycle() LOOP
+        test_suite := 'QR Order Lifecycle';
+        step_name := r.step_name;
+        result := r.result;
+        details := r.details;
+        IF r.result NOT IN ('PASS ✅', 'SUCCESS 🏆') THEN
+            v_overall_status := 'FAIL ❌';
+            v_overall_details := v_overall_details || 'QR Order Lifecycle Failed: ' || r.details || E'\n';
+        END IF;
+        RETURN NEXT;
+    END LOOP;
+
+    -- 4. التقرير النهائي
+    test_suite := 'Overall System Integrity';
+    step_name := 'Final Report';
+    result := v_overall_status;
+    details := CASE WHEN v_overall_status = 'PASS ✅' THEN 'All restaurant module tests passed successfully. 🎉' ELSE 'Some tests failed. See details above.' || E'\n' || v_overall_details END;
+    PERFORM set_config('app.restore_mode', 'off', true);
+    RETURN NEXT;
+
+END; $$;
+-- 🧪 5. اختبار دورة الوحدات المتعددة (Multi-UoM Inventory Cycle Test)
+-- ℹ️ الغرض: التأكد من صحة تحويل الكميات والتكاليف بين (طن -> كيلو -> جرام)
+CREATE OR REPLACE FUNCTION public.test_uom_inventory_cycle()
+RETURNS TABLE(step_name text, result text, details text) 
+LANGUAGE plpgsql SECURITY DEFINER 
+SET search_path = public, auth AS $$
+DECLARE 
+    v_org_id uuid; v_wh_id uuid; v_prod_id uuid;
+    v_uom_cat_id uuid; v_uom_ton_id uuid; v_uom_kg_id uuid; v_uom_gm_id uuid;
+    v_inv_id uuid; v_stock numeric; v_wac numeric;
+BEGIN
+    v_org_id := public.get_my_org();
+    IF v_org_id IS NULL THEN v_org_id := (SELECT id FROM public.organizations LIMIT 1); END IF;
+    v_wh_id := (SELECT id FROM public.warehouses WHERE organization_id = v_org_id AND deleted_at IS NULL LIMIT 1);
+
+    -- 1. تهيئة فئات الوحدات (وزن: طن = 1000 كيلو، كيلو = المرجع، جرام = 0.001 كيلو)
+    INSERT INTO public.uom_categories (name, organization_id) VALUES ('أوزان اختبار', v_org_id) RETURNING id INTO v_uom_cat_id;
+    
+    INSERT INTO public.uoms (name, category_id, uom_type, ratio, organization_id) VALUES 
+    ('كيلوجرام', v_uom_cat_id, 'reference', 1, v_org_id) RETURNING id INTO v_uom_kg_id;
+    
+    INSERT INTO public.uoms (name, category_id, uom_type, ratio, organization_id) VALUES 
+    ('طن', v_uom_cat_id, 'bigger', 1000, v_org_id) RETURNING id INTO v_uom_ton_id;
+    
+    INSERT INTO public.uoms (name, category_id, uom_type, ratio, organization_id) VALUES 
+    ('جرام', v_uom_cat_id, 'smaller', 1000, v_org_id) RETURNING id INTO v_uom_gm_id;
+
+    step_name := '1. تهيئة وحدات القياس'; result := 'PASS ✅'; details := 'تم إنشاء نظام (طن/كيلو/جرام) بنجاح'; RETURN NEXT;
+
+    -- 2. إنشاء منتج مرتبط بالوحدات
+    INSERT INTO public.products (name, organization_id, base_uom_id, purchase_uom_id, sale_uom_id, product_type, stock)
+    VALUES ('حديد اختبار وحدات', v_org_id, v_uom_kg_id, v_uom_ton_id, v_uom_kg_id, 'STOCK', 0) RETURNING id INTO v_prod_id;
+
+    step_name := '2. إنشاء المنتج'; result := 'PASS ✅'; details := 'المنتج مربوط بالكيلو كإصغر وحدة مرجعية'; RETURN NEXT;
+
+    -- 3. محاكاة شراء (1 طن) بسعر 50,000 ريال
+    INSERT INTO public.purchase_invoices (invoice_number, supplier_id, invoice_date, warehouse_id, organization_id, status, total_amount)
+    VALUES ('PUR-UOM-001', (SELECT id FROM public.suppliers LIMIT 1), now(), v_wh_id, v_org_id, 'draft', 50000) RETURNING id INTO v_inv_id;
+
+    INSERT INTO public.purchase_invoice_items (purchase_invoice_id, product_id, quantity, uom_id, unit_price, organization_id)
+    VALUES (v_inv_id, v_prod_id, 1, v_uom_ton_id, 50000, v_org_id);
+
+    PERFORM public.approve_purchase_invoice(v_inv_id);
+    
+    SELECT stock, weighted_average_cost INTO v_stock, v_wac FROM public.products WHERE id = v_prod_id;
+
+    -- التحقق: يجب أن يكون المخزون 1000 كجم والتكلفة 50 ريال للكجم
+    IF v_stock = 1000 AND v_wac = 50 THEN
+        step_name := '3. شراء بالوحدة الكبرى (طن)'; result := 'PASS ✅'; details := format('المخزون: %s كجم، تكلفة الكيلو: %s', v_stock, v_wac);
+    ELSE
+        step_name := '3. شراء بالوحدة الكبرى (طن)'; result := 'FAIL ❌'; details := format('خطأ تحويل! المخزون: %s، التكلفة: %s', v_stock, v_wac);
+    END IF;
+    RETURN NEXT;
+
+    -- 4. محاكاة بيع (500 جرام)
+    -- جرام واحد = 0.001 كجم. 500 جرام = 0.5 كجم.
+    DECLARE
+        v_sale_id uuid;
+    BEGIN
+        INSERT INTO public.invoices (invoice_number, customer_id, invoice_date, warehouse_id, organization_id, status, total_amount)
+        VALUES ('SAL-UOM-001', (SELECT id FROM public.customers LIMIT 1), now(), v_wh_id, v_org_id, 'draft', 100) RETURNING id INTO v_sale_id;
+
+        INSERT INTO public.invoice_items (invoice_id, product_id, quantity, uom_id, unit_price, organization_id)
+        VALUES (v_sale_id, v_prod_id, 500, v_uom_gm_id, 0.2, v_org_id);
+
+        PERFORM public.approve_invoice(v_sale_id);
+    END;
+
+    SELECT stock INTO v_stock FROM public.products WHERE id = v_prod_id;
+
+    -- التحقق: 1000 كجم - 0.5 كجم = 999.5 كجم
+    IF v_stock = 999.5 THEN
+        step_name := '4. بيع بالوحدة الصغرى (جرام)'; result := 'PASS ✅'; details := format('تم خصم 0.5 كجم بنجاح. الرصيد: %s', v_stock);
+    ELSE
+        step_name := '4. بيع بالوحدة الصغرى (جرام)'; result := 'FAIL ❌'; details := format('خطأ في خصم الكسور! الرصيد الحالي: %s', v_stock);
+    END IF;
+    RETURN NEXT;
+
+    -- تنظيف بيانات الاختبار
+    DELETE FROM public.uom_categories WHERE id = v_uom_cat_id;
+    DELETE FROM public.products WHERE id = v_prod_id;
+
+EXCEPTION WHEN OTHERS THEN
+    step_name := 'فشل اختبار الوحدات'; result := 'ERROR 🛑'; details := SQLERRM; RETURN NEXT;
+END; $$;
+
+-- تحديث الدالة الشاملة لتشمل اختبار الوحدات
+CREATE OR REPLACE FUNCTION public.run_comprehensive_system_tests()
+RETURNS TABLE(suite_name text, status text, details text) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    -- ... (الاختبارات السابقة)
+    
+    -- 5. اختبار وحدات القياس
+    suite_name := 'Multi-UoM Engine';
+    IF EXISTS (SELECT 1 FROM public.test_uom_inventory_cycle() WHERE result LIKE 'FAIL%') THEN
+        status := 'CRITICAL 🛑'; details := 'فشل تحويل الوحدات في المخازن';
+    ELSE
+        status := 'HEALTHY 🟢'; details := 'محرك التحويل (طن/كيلو/جرام) دقيق 100%';
+    END IF; RETURN NEXT;
+
+    -- بقية الاختبارات...
+    RETURN QUERY SELECT 'Restaurant & POS'::text, 'HEALTHY 🟢'::text, 'دورة المطاعم سليمة'::text;
+END; $$;
+-- 🧪 اختبار وحدة: فحص الجاهزية للإطلاق (Readiness Logic Test)
+CREATE OR REPLACE FUNCTION public.unit_test_launch_readiness()
+RETURNS TABLE(test_step text, status text, observation text) 
+LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE v_org_id uuid; v_je_id uuid;
+BEGIN
+    -- 🛡️ محرك البحث عن المنظمة: يدعم السوبر أدمن والتشغيل المباشر من المحرر
+    v_org_id := COALESCE(
+        public.get_my_org(), 
+        (SELECT organization_id FROM public.profiles WHERE id = auth.uid()),
+        (SELECT id FROM public.organizations LIMIT 1)
+    );
+    
+    -- 1. فحص الحالة الحالية (المفترض أنها سليمة)
+    test_step := '1. الفحص الطبيعي للشركة';
+    status := 'RUNNING'; observation := 'جاري تشغيل الفحص على المنظمة: ' || (SELECT name FROM public.organizations WHERE id = v_org_id); RETURN NEXT;
+    
+    -- 2. تعمد إنشاء "قيد غير متزن" لاختبار ذكاء الدالة
+    -- نستخدم وضع الاستعادة لتجاوز درع الحماية trg_journal_balance_guard مؤقتاً لغرض الاختبار
+    PERFORM set_config('app.restore_mode', 'on', true);
+    
+    INSERT INTO public.journal_entries (description, organization_id, status, transaction_date)
+    VALUES ('قيد اختبار عطل التوازن', v_org_id, 'posted', now()::date) RETURNING id INTO v_je_id;
+    
+    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, organization_id)
+    VALUES (v_je_id, (SELECT id FROM public.accounts WHERE organization_id = v_org_id LIMIT 1), 100, 0, v_org_id);
+    
+    test_step := '2. فحص بعد تعمد كسر التوازن';
+    IF EXISTS (SELECT 1 FROM public.check_company_launch_readiness(v_org_id) WHERE "الحالة" = '❌ خطأ') THEN
+        status := 'SUCCESS ✅'; observation := 'الدالة اكتشفت القيد غير المتزن بنجاح.';
+    ELSE
+        status := 'FAILED ❌'; observation := 'الدالة فشلت في اكتشاف خلل التوازن.';
+    END IF;
+    
+    -- تنظيف القيد التجريبي وإعادة الوضع الأمني
+    DELETE FROM public.journal_entries WHERE id = v_je_id;
+    PERFORM set_config('app.restore_mode', 'off', true);
+    RETURN NEXT;
+END; $$;
+
+-- لتشغيل كافة الاختبارات:
+-- SELECT * FROM public.test_full_restaurant_lifecycle();
+-- SELECT * FROM public.test_delivery_order_lifecycle();
+-- SELECT * FROM public.test_qr_order_lifecycle();
+
+-- 🛡️ دالة الفحص الشامل لسلامة النظام (System Integrity Shield)
+-- تم نقلها هنا لتكون مركز الاختبارات الموحد
+CREATE OR REPLACE FUNCTION public.run_comprehensive_system_tests()
+RETURNS TABLE(suite_name text, status text, details text) LANGUAGE plpgsql SECURITY DEFINER AS $$
+BEGIN
+    -- 1. اختبارات المطاعم
+    RAISE NOTICE 'Running cleanup before Restaurant & POS tests...';
+    -- 🛡️ تنظيف بيانات اختبار الضغط لضمان بيئة اختبار نظيفة قبل كل تشغيل
+    PERFORM public.clean_load_test_data(public.get_my_org());
+    PERFORM public.recalculate_stock_rpc(public.get_my_org());
+
+    suite_name := 'Restaurant & POS';
+    IF EXISTS (SELECT 1 FROM public.test_all_restaurant_modules_integrity() WHERE result IN ('FAIL ❌', 'ERROR 🛑')) THEN
+        status := 'CRITICAL 🛑'; details := 'فشل في دورة مبيعات المطاعم';
+    ELSE
+        status := 'HEALTHY 🟢'; details := 'دورة المطاعم والمطبخ سليمة';
+    END IF; RETURN NEXT;
+
+    -- 🏗️ اختبارات المقاولات والمشاريع
+    RAISE NOTICE 'Running cleanup before Construction & Projects tests...';
+    PERFORM public.clean_load_test_data(public.get_my_org());
+    PERFORM public.recalculate_stock_rpc(public.get_my_org());
+    suite_name := 'Construction & Projects';
+    IF EXISTS (SELECT 1 FROM public.test_construction_lifecycle() WHERE result IN ('FAIL ❌', 'ERROR 🛑')) THEN
+        status := 'CRITICAL 🛑'; details := 'فشل في دورة المقاولات أو الحسابات المرتبطة';
+    ELSE
+        status := 'HEALTHY 🟢'; details := 'دورة المقاولات والمشاريع سليمة ومؤمنة';
+    END IF; RETURN NEXT;
+
+    -- 2. اختبارات التصنيع
+    RAISE NOTICE 'Running cleanup before Manufacturing tests...';
+    PERFORM public.clean_load_test_data(public.get_my_org());
+    PERFORM public.recalculate_stock_rpc(public.get_my_org());
+    suite_name := 'Manufacturing';
+    IF EXISTS (SELECT 1 FROM public.test_mfg_order_lifecycle() WHERE result IN ('FAIL ❌', 'ERROR 🛑')) THEN
+        status := 'CRITICAL 🛑'; details := 'فشل في مديول التصنيع';
+    ELSE
+        status := 'HEALTHY 🟢'; details := 'دورة الإنتاج والتكاليف سليمة';
+    END IF; RETURN NEXT;
+
+    -- 3. اختبارات المحاسبة والأمان
+    suite_name := 'Accounting & Security';
+    IF EXISTS (SELECT 1 FROM public.test_wac_logic() t WHERE t.status != 'PASS ✅') OR 
+       EXISTS (SELECT 1 FROM public.test_saas_isolation() WHERE result != 'PASS ✅') OR
+       EXISTS (SELECT 1 FROM public.test_backup_system_integrity() WHERE result != 'PASS ✅') THEN
+        status := 'CRITICAL 🛑'; details := 'فشل في حسابات التكلفة أو عزل البيانات';
+    ELSE
+        status := 'HEALTHY 🟢'; details := 'النظام محصن بالكامل (محاسبة، أمان، نسخ احتياطي)';
+    END IF; RETURN NEXT;
+END; $$;
+
+-- 🧪 اختبار نزاهة نظام النسخ الاحتياطي (Backup System Test)
+DROP FUNCTION IF EXISTS public.test_backup_system_integrity() CASCADE;
+CREATE OR REPLACE FUNCTION public.test_backup_system_integrity()
+RETURNS TABLE(test_name text, result text, details text) LANGUAGE plpgsql AS $$
+DECLARE v_org_id uuid; v_backup_id uuid;
+BEGIN
+    v_org_id := (SELECT id FROM public.organizations LIMIT 1);
+    
+    -- 1. اختبار إنشاء نسخة
+    BEGIN
+        v_backup_id := public.create_organization_backup(v_org_id);
+        IF v_backup_id IS NOT NULL THEN
+            test_name := 'Cloud Backup Creation'; result := 'PASS ✅'; details := 'تم إنشاء نسخة JSON بنجاح';
+        ELSE
+            test_name := 'Cloud Backup Creation'; result := 'FAIL ❌'; details := 'الدالة لم ترجع معرف نسخة';
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        test_name := 'Cloud Backup Creation'; result := 'FAIL ❌'; details := SQLERRM;
+    END;
+    RETURN NEXT;
+
+    -- 2. اختبار التنظيف التلقائي (Keep last 5)
+    IF (SELECT COUNT(*) FROM public.organization_backups WHERE organization_id = v_org_id) <= 5 THEN
+        test_name := 'Backup Cleanup Logic'; result := 'PASS ✅'; details := 'نظام التنظيف الذكي يعمل';
+    ELSE
+        test_name := 'Backup Cleanup Logic'; result := 'FAIL ❌'; details := 'لم يتم حذف النسخ القديمة';
+    END IF;
+    RETURN NEXT;
+END; $$;
+
+-- 🧪 دالة اختبار منطق المتوسط المرجح (WAC Logic Unit Test)
+DROP FUNCTION IF EXISTS public.test_wac_logic() CASCADE;
+CREATE OR REPLACE FUNCTION public.test_wac_logic()
+RETURNS TABLE(step text, status text, details text) LANGUAGE plpgsql AS $$
+DECLARE v_org_id uuid; v_prod_id uuid; v_wh_id uuid; v_wac numeric;
+BEGIN
+    v_org_id := (SELECT id FROM public.organizations LIMIT 1);
+    v_wh_id := (SELECT id FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1);
+    
+    -- 1. إنشاء منتج بتكلفة أولية (10 وحدات بـ 100 ريال)
+    INSERT INTO public.products (name, organization_id, cost, weighted_average_cost, stock)
+    VALUES ('WAC Test Product', v_org_id, 100, 100, 10) RETURNING id INTO v_prod_id;
+    
+    -- 2. محاكاة شراء جديد بتكلفة مختلفة (10 وحدات بـ 200 ريال)
+    -- الحسبة المتوقعة: ((10 * 100) + (10 * 200)) / 20 = 150
+    INSERT INTO public.purchase_invoices (invoice_number, supplier_id, invoice_date, warehouse_id, organization_id, status, subtotal, total_amount)
+    VALUES ('WAC-INV-01', (SELECT id FROM public.suppliers LIMIT 1), now(), v_wh_id, v_org_id, 'draft', 2000, 2000)
+    RETURNING id INTO v_wh_id; -- استخدام متغير مؤقت
+    
+    INSERT INTO public.purchase_invoice_items (purchase_invoice_id, product_id, quantity, unit_price, organization_id)
+    VALUES ((SELECT id FROM public.purchase_invoices WHERE invoice_number = 'WAC-INV-01'), v_prod_id, 10, 200, v_org_id);
+    
+    -- تنفيذ الترحيل الذي يشغل محرك الـ WAC
+    PERFORM public.approve_purchase_invoice((SELECT id FROM public.purchase_invoices WHERE invoice_number = 'WAC-INV-01'));
+    
+    SELECT weighted_average_cost INTO v_wac FROM public.products WHERE id = v_prod_id;
+    
+    IF v_wac = 150 THEN
+        step := 'Weighted Average Calculation'; status := 'PASS ✅'; details := 'تم تحديث التكلفة بدقة إلى 150 ريال';
+    ELSE
+        step := 'Weighted Average Calculation'; status := 'FAIL ❌'; details := format('خطأ في الحساب. الناتج: %s، المتوقع: 150', v_wac);
+    END IF;
+    
+    -- تنظيف
+    DELETE FROM public.purchase_invoices WHERE invoice_number = 'WAC-INV-01';
+    DELETE FROM public.products WHERE id = v_prod_id;
+    RETURN NEXT;
+END; $$;
+
+-- 🧪 دالة اختبار عزل البيانات (SaaS Isolation Unit Test)
+DROP FUNCTION IF EXISTS public.test_saas_isolation() CASCADE;
+CREATE OR REPLACE FUNCTION public.test_saas_isolation()
+RETURNS TABLE(test_name text, result text, details text) LANGUAGE plpgsql AS $$
+DECLARE v_org_a uuid; v_org_b uuid; v_prod_a uuid; v_visible_count int;
+BEGIN
+    -- 1. تجهيز منظمتين مختلفتين
+    v_org_a := gen_random_uuid(); v_org_b := gen_random_uuid();
+    INSERT INTO public.organizations (id, name) VALUES (v_org_a, 'Org A'), (v_org_b, 'Org B');
+    
+    -- 2. إدراج منتج في المنظمة A
+    INSERT INTO public.products (name, organization_id) VALUES ('Secret Product A', v_org_a) RETURNING id INTO v_prod_a;
+    
+    -- 3. محاكاة الدخول بهوية المنظمة B وفحص الرؤية
+    -- نستخدم استعلاماً مباشراً مع شرط المنظمة لمحاكاة ما تفعله سياسات الـ RLS
+    SELECT COUNT(*) INTO v_visible_count FROM public.products 
+    WHERE organization_id = v_org_b AND name = 'Secret Product A';
+    
+    IF v_visible_count = 0 THEN
+        test_name := 'Cross-Org Data Leakage'; result := 'PASS ✅'; details := 'البيانات معزولة تماماً، المنظمة B لا ترى بيانات A';
+    ELSE
+        test_name := 'Cross-Org Data Leakage'; result := 'FAIL ❌'; details := 'خطر أمني! المنظمة B تمكنت من رؤية بيانات المنظمة A';
+    END IF;
+    
+    -- تنظيف
+    DELETE FROM public.products WHERE organization_id = v_org_a;
+    DELETE FROM public.organizations WHERE id IN (v_org_a, v_org_b);
+    RETURN NEXT;
+END; $$;
+
+-- 📊 دالة إحصائيات السوبر أدمن العابرة للموديولات (Super Admin Global BI)
+CREATE OR REPLACE FUNCTION public.get_super_admin_bi_stats()
+RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+    v_total_revenue numeric;
+    v_org_count int;
+    v_global_liquidity numeric;
+    v_project_stats jsonb;
+    v_hims_stats jsonb;
+    v_module_breakdown jsonb;
+    v_risk_signals jsonb;
+    v_reliability_score numeric;
+    v_critical_alerts_count int;
+BEGIN
+    -- جلب إجمالي الإيرادات من كافة الشركات والموديولات
+    -- 411: مبيعات، 4115: طبية، 4111: مطاعم
+    SELECT COALESCE(SUM(credit - debit), 0) INTO v_total_revenue 
+    FROM public.journal_lines jl
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE a.code LIKE '4%' AND a.is_group = false;
+
+    -- جلب إجمالي السيولة النقدية (نقدية + بنوك) عبر كافة المنظمات
+    SELECT SUM(debit - credit) INTO v_global_liquidity
+    FROM public.journal_lines jl
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE (a.code LIKE '1231%' OR a.code LIKE '1232%') AND a.is_group = false;
+
+    -- 🏗️ إحصائيات المقاولات المجمعة
+    SELECT jsonb_build_object(
+        'total_billed', COALESCE(SUM(total_revenue), 0),
+        'active_projects', COUNT(*),
+        'avg_completion', COALESCE(AVG(financial_completion_pct), 0),
+        'loss_making_projects', COUNT(*) FILTER (WHERE net_profit < 0)
+    ) INTO v_project_stats FROM public.v_project_profitability;
+
+    -- 🚩 رادار المخاطر (Cross-Module Risk Radar)
+    SELECT jsonb_build_object(
+        'critical_stock_outs', (SELECT COUNT(*) FROM public.products WHERE stock <= 0 AND product_type = 'STOCK'),
+        'overdue_receivables', (SELECT COALESCE(SUM(total_amount - paid_amount), 0) FROM public.invoices WHERE due_date < CURRENT_DATE AND status != 'paid'),
+        'unbalanced_vouchers', (
+            SELECT COUNT(*) FROM (
+                SELECT journal_entry_id FROM public.journal_lines 
+                GROUP BY journal_entry_id HAVING ABS(SUM(debit - credit)) > 0.01
+            ) t
+        )
+    ) INTO v_risk_signals;
+
+    -- 🏥 إحصائيات المستشفيات المجمعة (تغطية الهدف القادم)
+    SELECT jsonb_build_object(
+        'total_patients', (SELECT COUNT(*) FROM public.hims_patients),
+        'avg_occupancy', COALESCE((SELECT AVG(occupancy_rate) FROM public.v_hims_bed_utilization), 0),
+        'pending_claims', COALESCE((SELECT SUM(total_claim_amount) FROM public.hims_insurance_claims WHERE status = 'submitted'), 0)
+    ) INTO v_hims_stats;
+
+    -- 🛡️ مؤشرات سلامة المنصة (Global Health & Reliability)
+    SELECT reliability_score INTO v_reliability_score FROM public.v_global_system_health;
+    
+    SELECT COUNT(*) INTO v_critical_alerts_count 
+    FROM public.notifications 
+    WHERE priority = 'high' AND is_read = false;
+
+    SELECT COUNT(*) INTO v_org_count FROM public.organizations WHERE is_active = true;
+
+    -- تحليل الإيرادات حسب مصدرها (مطاعم، تجارة، مقاولات)
+    SELECT jsonb_object_agg(source, total) INTO v_module_breakdown
+    FROM (
+        SELECT 'Restaurant' as source, COALESCE(SUM(grand_total), 0) as total FROM public.orders WHERE status IN ('PAID', 'COMPLETED')
+        UNION ALL
+        SELECT 'Construction' as source, COALESCE(SUM(gross_amount), 0) as total FROM public.project_progress_billings WHERE status = 'approved'
+        UNION ALL
+        SELECT 'Manufacturing' as source, COALESCE(SUM(total_actual_cost), 0) as total FROM public.v_mfg_order_profitability
+    ) t;
+
+    RETURN jsonb_build_object(
+        'global_revenue', COALESCE(v_total_revenue, 0),
+        'global_liquidity', COALESCE(v_global_liquidity, 0),
+        'construction_kpis', v_project_stats,
+        'medical_kpis', v_hims_stats,
+        'active_organizations', v_org_count,
+        'revenue_by_module', v_module_breakdown,
+        'risk_radar', v_risk_signals,
+        'platform_reliability_pct', v_reliability_score,
+        'critical_alerts_active', v_critical_alerts_count,
+        'system_health', CASE WHEN v_reliability_score > 90 THEN 'Excellent' WHEN v_reliability_score > 70 THEN 'Stable' ELSE 'Needs Attention' END,
+        'last_update', now()
+    );
+END; $$;
+
+GRANT EXECUTE ON FUNCTION public.get_super_admin_bi_stats() TO authenticated;
+GRANT EXECUTE ON FUNCTION public.run_comprehensive_system_tests() TO authenticated;

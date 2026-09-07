@@ -1,0 +1,133 @@
+-- 🏥 ملف فحص سلامة النظام (System Health Check)
+-- يقوم هذا الملف بالتحقق من أن جميع الجداول، الدوال، والحسابات الأساسية موجودة وتعمل بشكل صحيح.
+
+DO $$
+DECLARE
+    v_count integer;
+    v_missing text := '';
+    t text;
+    tables text[] := ARRAY[
+        'accounts', 'products', 'customers', 'suppliers', 'warehouses', 
+        'orders', 'order_items', 'payments', 'shifts', 'journal_entries', 'invoices'
+    ];
+BEGIN
+    RAISE NOTICE '🚀 بدء فحص سلامة النظام...';
+    
+    -- 1. فحص الجداول الأساسية
+    RAISE NOTICE '--------------------------------------------------';
+    RAISE NOTICE '1️⃣ فحص الجداول الأساسية:';
+    
+    SELECT count(*) INTO v_count FROM information_schema.tables 
+    WHERE table_schema = 'public' 
+    AND table_name IN ('accounts', 'journal_entries', 'invoices', 'products', 'customers', 'suppliers', 'company_settings');
+    
+    IF v_count = 7 THEN
+        RAISE NOTICE '✅ جميع الجداول الرئيسية موجودة.';
+    ELSE
+        RAISE NOTICE '❌ تنبيه: بعض الجداول الرئيسية مفقودة! (تم العثور على % من 7)', v_count;
+    END IF;
+
+    -- 2. فحص الدوال البرمجية (Functions)
+    RAISE NOTICE '--------------------------------------------------';
+    RAISE NOTICE '2️⃣ فحص الدوال البرمجية (RPCs):';
+    
+    SELECT count(*) INTO v_count FROM pg_proc 
+    WHERE proname IN ('approve_invoice', 'approve_purchase_invoice', 'recalculate_stock_rpc', 'create_journal_entry');
+    
+    IF v_count >= 4 THEN
+        RAISE NOTICE '✅ دوال النظام الأساسية موجودة.';
+    ELSE
+        RAISE NOTICE '❌ تنبيه: بعض الدوال مفقودة! يرجى إعادة تشغيل ملف deploy_all_functions.sql';
+    END IF;
+
+    -- 3. فحص دليل الحسابات
+    RAISE NOTICE '--------------------------------------------------';
+    RAISE NOTICE '3️⃣ فحص دليل الحسابات:';
+    
+    SELECT count(*) INTO v_count FROM public.accounts;
+    RAISE NOTICE '📊 إجمالي عدد الحسابات: %', v_count;
+    
+    IF v_count > 50 THEN
+        RAISE NOTICE '✅ دليل الحسابات يبدو مكتملاً.';
+    ELSE
+        RAISE NOTICE '⚠️ تنبيه: عدد الحسابات قليل جداً. هل قمت بتشغيل ملف egyptian_coa_full.sql؟';
+    END IF;
+
+    -- 4. فحص الإعدادات
+    RAISE NOTICE '--------------------------------------------------';
+    RAISE NOTICE '4️⃣ فحص الإعدادات:';
+    
+    SELECT count(*) INTO v_count FROM public.company_settings;
+    IF v_count > 0 THEN
+        RAISE NOTICE '✅ إعدادات الشركة موجودة.';
+    ELSE
+        RAISE NOTICE '❌ خطأ: جدول إعدادات الشركة فارغ!';
+    END IF;
+
+    -- 5. فحص وحدة المطاعم (Restaurant Module)
+    RAISE NOTICE '--------------------------------------------------';
+    RAISE NOTICE '5️⃣ فحص وحدة المطاعم:';
+    
+    SELECT count(*) INTO v_count FROM information_schema.tables 
+    WHERE table_schema = 'public' 
+    AND table_name IN ('restaurant_tables', 'orders', 'order_items', 'kitchen_orders');
+    
+    IF v_count >= 4 THEN
+        RAISE NOTICE '✅ جداول المطعم الأساسية موجودة.';
+    ELSE
+        RAISE NOTICE '❌ تنبيه: جداول المطعم ناقصة!';
+    END IF;
+
+    -- التحقق من وجود عمود unit_cost
+    PERFORM 1 FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'order_items' AND column_name = 'unit_cost';
+    
+    IF FOUND THEN
+        RAISE NOTICE '✅ عمود unit_cost موجود في جدول order_items.';
+    ELSE
+        RAISE NOTICE '❌ خطأ حرج: عمود unit_cost غير موجود! يرجى تشغيل ملف create_restaurant_module.sql مرة أخرى.';
+    END IF;
+
+    -- 6. فحص درع الحماية (RLS & Organization Isolation)
+    RAISE NOTICE '--------------------------------------------------';
+    RAISE NOTICE '6️⃣ فحص درع الحماية وعزل البيانات (Multi-tenancy):';
+    
+    FOREACH t IN ARRAY tables LOOP
+        DECLARE
+            v_rls boolean;
+            v_col boolean;
+            v_nulls int;
+        BEGIN
+            SELECT rowsecurity INTO v_rls FROM pg_tables WHERE schemaname = 'public' AND tablename = t;
+            SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = t AND column_name = 'organization_id') INTO v_col;
+            
+            IF v_col THEN
+                EXECUTE format('SELECT count(*) FROM public.%I WHERE organization_id IS NULL', t) INTO v_nulls;
+                RAISE NOTICE '   • الجدول [%]: الحماية=% | العمود=% | بيانات يتيمة=%', 
+                    t, (CASE WHEN v_rls THEN '✅' ELSE '❌' END), (CASE WHEN v_col THEN '✅' ELSE '❌' END), v_nulls;
+            ELSE
+                RAISE NOTICE '   • الجدول [%]: ❌ عمود organization_id مفقود!', t;
+            END IF;
+        END;
+    END LOOP;
+
+    -- 7. فحص النسخ الاحتياطية اليتيمة
+    RAISE NOTICE '--------------------------------------------------';
+    RAISE NOTICE '7️⃣ فحص النسخ الاحتياطية والـ SaaS:';
+    
+    SELECT count(*) INTO v_count FROM public.organization_backups b
+    LEFT JOIN public.organizations o ON b.organization_id = o.id
+    WHERE o.id IS NULL;
+
+    IF v_count > 0 THEN
+        RAISE WARNING '⚠️ تنبيه: يوجد % نسخة احتياطية يتيمة لشركات محذوفة!', v_count;
+    ELSE
+        RAISE NOTICE '✅ لا توجد نسخ احتياطية يتيمة.';
+    END IF;
+
+    SELECT count(*) INTO v_count FROM public.organization_backups;
+    RAISE NOTICE '📊 إجمالي عدد النسخ الاحتياطية في النظام: %', v_count;
+
+    RAISE NOTICE '--------------------------------------------------';
+    RAISE NOTICE '🏁 انتهى الفحص.';
+END $$;

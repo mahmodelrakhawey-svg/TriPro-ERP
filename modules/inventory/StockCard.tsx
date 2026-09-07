@@ -1,0 +1,1577 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { supabase } from '../../supabaseClient';
+import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext'; // Removed z import
+import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle, RefreshCw, PlusCircle, Trash2, Tag, Percent, ImageIcon, UtensilsCrossed } from 'lucide-react';
+import SearchableSelect from '../../components/SearchableSelect';
+import * as XLSX from 'xlsx';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { stockCardProductUpdateSchema, stockCardOpeningBalanceUpdateSchema } from '../../utils/validationSchemas';
+
+interface Product {
+  id: string;
+  name: string;
+  sku: string | null;
+  sales_price: number;
+  purchase_price: number;
+  weighted_average_cost?: number;
+  stock: number;
+  description?: string | null;
+  image_url?: string | null;
+  unit?: string;
+  base_uom_id?: string | null;
+}
+
+type Transaction = {
+  id: string;
+  date: string;
+  type: 'IN' | 'OUT';
+  quantity: number;
+  uomId?: string | null;
+  qtyInBase?: number;
+  displayQty?: number;
+  displayUnitName?: string;
+  documentType: string;
+  documentNumber: string;
+  warehouseName?: string;
+  balance?: number;
+  createdAt?: string;
+  notes?: string;
+};
+
+const StockCard = () => {
+  const navigate = useNavigate();
+  const { currentUser, warehouses, products, refreshData, updateProduct, users, recalculateStock, categories, getSystemAccount, accounts: contextAccounts } = useAccounting();
+  const { showToast } = useToast();
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [notesSearch, setNotesSearch] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isImageModalOpen, setIsImageModalOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editFormData, setEditFormData] = useState({
+    name: '',
+    sku: '',
+    barcode: '',
+    sales_price: 0,
+    description: '',
+    purchase_price: 0,
+    unit: 'قطعة',
+    product_type: 'STOCK' as 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL',
+    inventory_account_id: '',
+    cogs_account_id: '',
+    sales_account_id: '',
+    image_url: '',
+    category_id: null as string | null,
+    min_stock_level: 0,
+    requires_serial: false,
+    labor_cost: 0,
+    overhead_cost: 0,
+    is_overhead_percentage: false,
+    expiry_date: '',
+    offer_price: 0,
+    offer_start_date: '',
+    offer_end_date: '',
+    offer_max_qty: 0,
+    available_modifiers: [] as any[]
+  });
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [priceHistory, setPriceHistory] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [uoms, setUoms] = useState<any[]>([]);
+  const [displayUnit, setDisplayUnit] = useState<'base' | 'original'>('base');
+
+  useEffect(() => {
+    const fetchUoms = async () => {
+      const { data } = await supabase.from('uoms').select('*');
+      if (data) setUoms(data);
+    };
+    fetchUoms();
+  }, []);
+  const [isRecalculating, setIsRecalculating] = useState(false);
+  const [isOpeningModalOpen, setIsOpeningModalOpen] = useState(false);
+  const [openingFormData, setOpeningFormData] = useState({ warehouseId: '', quantity: 0, cost: 0 });
+  const [existingOpeningId, setExistingOpeningId] = useState<string | null>(null);
+
+  // تصفية الحسابات من السياق العام لضمان التوافق
+  const accounts = {
+    assets: contextAccounts.filter(a => 
+      !a.isGroup && (String(a.type).toLowerCase() === 'asset')
+    ),
+    expenses: contextAccounts.filter(a => 
+      !a.isGroup && (String(a.type).toLowerCase() === 'expense')
+    ),
+    revenue: contextAccounts.filter(a => 
+      !a.isGroup && (String(a.type).toLowerCase() === 'revenue')
+    ),
+  };
+  
+  // جلب الحركات عند تغيير الصنف أو المستودع
+  useEffect(() => {
+    if (selectedProductId) {
+      fetchTransactions();
+    } else {
+      setTransactions([]);
+    }
+  }, [selectedProductId, selectedWarehouseId]);
+
+  const fetchTransactions = async () => {
+    if (!selectedProductId) return;
+    setLoading(true);
+
+    const { data: { session } } = await supabase.auth.getSession();
+    const userOrgId = session?.user?.user_metadata?.org_id;
+    if (!userOrgId) {
+      setLoading(false);
+      return;
+    }
+
+    if (currentUser?.role === 'demo') {
+        setTransactions([
+            { id: 'd1', date: new Date().toISOString().split('T')[0], type: 'IN', quantity: 10, documentType: 'فاتورة مشتريات', documentNumber: 'PINV-D-01', warehouseName: 'المستودع الرئيسي', balance: 10 },
+            { id: 'd2', date: new Date().toISOString().split('T')[0], type: 'OUT', quantity: 2, documentType: 'فاتورة مبيعات', documentNumber: 'INV-D-01', warehouseName: 'المستودع الرئيسي', balance: 8 },
+        ]);
+        setLoading(false);
+        return;
+    }
+
+    try {
+      // بناء الاستعلامات لجلب الحركات من جداول مختلفة
+      let querySales = supabase.from('invoice_items').select('quantity, uom_id, invoices!inner(id, invoice_date, invoice_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).neq('invoices.status', 'draft').neq('invoices.status', 'cancelled');
+      let queryPurchases = supabase.from('purchase_invoice_items').select('quantity, uom_id, purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner(id, invoice_date, invoice_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).in('purchase_invoices.status', ['posted', 'paid']);
+      let querySalesReturns = supabase.from('sales_return_items').select('quantity, uom_id, sales_returns!inner(id, return_date, return_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).eq('sales_returns.status', 'posted');
+      let queryPurchaseReturns = supabase.from('purchase_return_items').select('quantity, uom_id, purchase_returns!purchase_return_items_purchase_return_id_fkey!inner(id, return_date, return_number, warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).eq('purchase_returns.status', 'posted');
+      let queryAdjustments = supabase.from('stock_adjustment_items').select('quantity, uom_id, stock_adjustments!inner(id, adjustment_date, adjustment_number, warehouse_id, created_at, reason, status)').eq('product_id', selectedProductId).neq('stock_adjustments.status', 'draft').neq('stock_adjustments.status', 'cancelled');
+      let queryTransfers = supabase.from('stock_transfer_items').select('quantity, uom_id, stock_transfers!inner(id, transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, created_at, notes, status)').eq('product_id', selectedProductId).neq('stock_transfers.status', 'draft').neq('stock_transfers.status', 'cancelled');
+      // إضافة استعلام الرصيد الافتتاحي
+      let queryOpening = supabase.from('opening_inventories').select('id, quantity, uom_id, warehouse_id, created_at').eq('product_id', selectedProductId);
+      // إضافة استعلامات مديول التصنيع
+      let queryMfgFinished = supabase.from('mfg_production_orders').select('id, order_number, end_date, quantity_to_produce, warehouse_id, created_at, status').eq('product_id', selectedProductId).eq('status', 'completed');
+      let queryMfgRaw = supabase.from('mfg_material_request_items').select('quantity_issued, uom_id, mfg_material_requests!inner(request_number, issue_date, created_at, status, production_order_id, mfg_production_orders(warehouse_id))').eq('raw_material_id', selectedProductId).eq('mfg_material_requests.status', 'issued');
+      let queryMfgScrap = supabase.from('mfg_scrap_logs')
+        .select(`
+          id,
+          quantity,
+          reason,
+          created_at,
+          mfg_order_progress!inner(
+            id,
+            production_order_id,
+            mfg_production_orders!inner(
+              id,
+              order_number,
+              warehouse_id,
+              created_at
+            )
+          )
+        `)
+        .eq('product_id', selectedProductId);
+      let queryMfgActual = supabase.from('mfg_actual_material_usage')
+        .select(`
+          id,
+          actual_quantity,
+          uom_id,
+          created_at,
+          mfg_order_progress!inner(
+            id,
+            production_order_id,
+            mfg_production_orders!inner(
+              id,
+              order_number,
+              warehouse_id,
+              created_at
+            )
+          )
+        `)
+        .eq('raw_material_id', selectedProductId);
+
+      // --- حركات المطعم ---
+      // 1. مبيعات المطعم (بيع مباشر للصنف)
+      let queryRestDirect = supabase.from('order_items')
+        .select('id, quantity, unit_cost, uom_id, orders!inner(id, order_number, created_at, status, order_type, warehouse_id)')
+        .eq('product_id', selectedProductId)
+        .in('orders.status', ['COMPLETED', 'PAID']);
+
+      // 2. استهلاك المطعم (إذا كان الصنف مادة خام)
+      const { data: boms } = await supabase.from('bill_of_materials')
+        .select('product_id, quantity_required')
+        .eq('raw_material_id', selectedProductId);
+      
+      let queryRestConsumption: any = null;
+      if (boms && boms.length > 0) {
+          const parentIds = boms.map(b => b.product_id);
+          queryRestConsumption = supabase.from('order_items')
+            .select('id, product_id, quantity, uom_id, orders!inner(id, order_number, created_at, status, order_type, warehouse_id)')
+            .in('product_id', parentIds)
+            .in('orders.status', ['COMPLETED', 'PAID']);
+      }
+
+      // تطبيق فلتر المستودع إذا تم اختياره
+      if (selectedWarehouseId) {
+        querySales = querySales.eq('invoices.warehouse_id', selectedWarehouseId);
+        queryPurchases = queryPurchases.eq('purchase_invoices.warehouse_id', selectedWarehouseId);
+        querySalesReturns = querySalesReturns.eq('sales_returns.warehouse_id', selectedWarehouseId);
+        queryPurchaseReturns = queryPurchaseReturns.eq('purchase_returns.warehouse_id', selectedWarehouseId);
+        queryAdjustments = queryAdjustments.eq('stock_adjustments.warehouse_id', selectedWarehouseId);
+        queryOpening = queryOpening.eq('warehouse_id', selectedWarehouseId);
+        
+        // فلترة حركات المطعم حسب المستودع
+        queryRestDirect = queryRestDirect.eq('orders.warehouse_id', selectedWarehouseId);
+        if (queryRestConsumption) queryRestConsumption = queryRestConsumption.eq('orders.warehouse_id', selectedWarehouseId);
+      }
+
+      // جلب حركات المستشفيات (Pharmacy/Surgery)
+      let queryHims = supabase
+        .from('hims_billing_items')
+        .select(`
+          id, quantity, uom_id, warehouse_id, created_at,
+          hims_billing!inner(id, visit_id, created_at, patient_id, organization_id, hims_patients(full_name))
+        `)
+        .eq('product_id', selectedProductId)
+        .eq('hims_billing.organization_id', userOrgId);
+
+      if (selectedWarehouseId) queryHims = queryHims.eq('warehouse_id', selectedWarehouseId);
+
+      // جلب حركات صرف مواد المواقع والمشاريع (Construction Material Issues)
+      let queryConstruction = supabase
+        .from('project_material_issue_items')
+        .select(`
+          id, quantity, uom_id,
+          project_material_issues!inner(id, issue_date, issue_number, warehouse_id, created_at, status, projects(name))
+        `)
+        .eq('product_id', selectedProductId)
+        .eq('project_material_issues.status', 'approved')
+        .eq('organization_id', userOrgId);
+
+      if (selectedWarehouseId) queryConstruction = queryConstruction.eq('project_material_issues.warehouse_id', selectedWarehouseId);
+
+      // جلب حركات وارد الاستيراد من الاعتمادات المستندية (Letters of Credit Receipts)
+      let queryLc = supabase
+        .from('lc_receipt_items')
+        .select(`
+          id, quantity, unit_price, final_unit_cost, warehouse_id, receipt_date, notes, created_at,
+          letters_of_credit!inner(id, lc_number, status)
+        `)
+        .eq('product_id', selectedProductId)
+        .eq('organization_id', userOrgId);
+
+      if (selectedWarehouseId) queryLc = queryLc.eq('warehouse_id', selectedWarehouseId);
+
+      // تنفيذ الاستعلامات بالتوازي
+      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening, restDirect, restConsumption, mfgFin, mfgRaw, mfgScrap, mfgActual, hims, construction, lcReceipts] = await Promise.all([
+        querySales, queryPurchases, querySalesReturns, queryPurchaseReturns, queryAdjustments, queryTransfers, queryOpening,
+        queryRestDirect,
+        queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] }),
+        queryMfgFinished, queryMfgRaw, queryMfgScrap, queryMfgActual,
+        queryHims, queryConstruction, queryLc
+      ]);
+
+      const allTxns: Transaction[] = [];
+      const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';
+
+      // معالجة الرصيد الافتتاحي
+      opening.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `OPEN-${item.id}`,
+          date: item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
+          type: 'IN',
+          quantity: item.quantity,
+          uomId: item.uom_id,
+          documentType: 'رصيد افتتاحي',
+          documentNumber: '-',
+          warehouseName: getWName(item.warehouse_id),
+          createdAt: item.created_at,
+          notes: 'بضاعة أول المدة'
+        });
+      });
+
+      // معالجة المبيعات (صادر)
+      sales.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `SALE-${item.invoices.id}`,
+          date: item.invoices.invoice_date,
+          type: 'OUT',
+          quantity: item.quantity,
+          uomId: item.uom_id,
+          documentType: 'فاتورة مبيعات',
+          documentNumber: item.invoices.invoice_number,
+          warehouseName: getWName(item.invoices.warehouse_id),
+          createdAt: item.invoices.created_at,
+          notes: item.invoices.notes
+        });
+      });
+
+      // معالجة المشتريات (وارد)
+      purchases.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `PUR-${item.purchase_invoices.id}`,
+          date: item.purchase_invoices.invoice_date,
+          type: 'IN',
+          quantity: item.quantity,
+          uomId: item.uom_id,
+          documentType: 'فاتورة مشتريات',
+          documentNumber: item.purchase_invoices.invoice_number,
+          warehouseName: getWName(item.purchase_invoices.warehouse_id),
+          createdAt: item.purchase_invoices.created_at,
+          notes: item.purchase_invoices.notes
+        });
+      });
+
+      // معالجة استلام بضائع الاعتمادات المستندية (وارد)
+      lcReceipts.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `LC-${item.id}`,
+          date: item.receipt_date || (item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+          type: 'IN',
+          quantity: Number(item.quantity) || 0,
+          uomId: null,
+          documentType: 'توريد اعتماد مستندي',
+          documentNumber: item.letters_of_credit?.lc_number || '-',
+          warehouseName: getWName(item.warehouse_id),
+          createdAt: item.created_at,
+          notes: item.notes || `استلام بضاعة شحنة اعتماد مستندي رقم ${item.letters_of_credit?.lc_number || ''}`
+        });
+      });
+
+      // معالجة التصنيع - منتج تام وارد
+      mfgFin.data?.forEach((item: any) => {
+        if (selectedWarehouseId && item.warehouse_id !== selectedWarehouseId) {
+          return;
+        }
+        allTxns.push({
+          id: `MFG-IN-${item.id}`,
+          date: item.end_date || item.created_at.split('T')[0],
+          type: 'IN',
+          quantity: item.quantity_to_produce,
+          uomId: null,
+          documentType: 'إنتاج تام',
+          documentNumber: item.order_number,
+          warehouseName: getWName(item.warehouse_id),
+          notes: 'إغلاق أمر إنتاج'
+        });
+      });
+
+      // معالجة التصنيع - خامات مستهلكة فعلياً (الاستهلاك المباشر بالمرحلة)
+      const ordersWithActualUsage = new Set<string>();
+      mfgActual.data?.forEach((item: any) => {
+        const po = item.mfg_order_progress?.mfg_production_orders;
+        if (!po) return;
+
+        // فلترة المستودع برمجياً
+        if (selectedWarehouseId && po.warehouse_id !== selectedWarehouseId) {
+          return;
+        }
+
+        ordersWithActualUsage.add(po.id);
+
+        allTxns.push({
+          id: `MFG-ACTUAL-${item.id}`,
+          date: item.created_at ? item.created_at.split('T')[0] : po.created_at.split('T')[0],
+          type: 'OUT',
+          quantity: item.actual_quantity || 0,
+          uomId: item.uom_id,
+          documentType: 'استهلاك خامات (إنتاج)',
+          documentNumber: po.order_number,
+          warehouseName: getWName(po.warehouse_id),
+          createdAt: item.created_at,
+          notes: 'استهلاك فعلي للمواد بالمرحلة'
+        });
+      });
+
+      // معالجة التصنيع - خامات منصرفة بطلب صرف (فقط في حال عدم وجود استهلاك فعلي لنفس الأمر)
+      mfgRaw.data?.forEach((item: any) => {
+        const po = item.mfg_material_requests?.mfg_production_orders;
+        const warehouseId = po?.warehouse_id;
+
+        // فلترة المستودع برمجياً
+        if (selectedWarehouseId && warehouseId !== selectedWarehouseId) {
+          return;
+        }
+
+        const poId = item.mfg_material_requests?.production_order_id;
+        if (poId && ordersWithActualUsage.has(poId)) {
+          return; // تم تدوين الاستهلاك الفعلي بالفعل، نتخطى طلب الصرف منعاً للازدواجية
+        }
+
+        allTxns.push({
+          id: `MFG-OUT-${item.mfg_material_requests.request_number}`,
+          date: item.mfg_material_requests.issue_date || item.mfg_material_requests.created_at.split('T')[0],
+          type: 'OUT',
+          quantity: item.quantity_issued,
+          uomId: item.uom_id,
+          documentType: 'صرف خامات (إنتاج)',
+          documentNumber: item.mfg_material_requests.request_number,
+          warehouseName: getWName(warehouseId),
+          createdAt: item.mfg_material_requests.created_at,
+          notes: 'استهلاك مواد أولية (طلب صرف)'
+        });
+      });
+
+      // معالجة التصنيع - الهالك (صادر)
+      mfgScrap.data?.forEach((item: any) => {
+        const po = item.mfg_order_progress?.mfg_production_orders;
+        const warehouseId = po?.warehouse_id;
+
+        if (selectedWarehouseId && warehouseId !== selectedWarehouseId) {
+          return;
+        }
+
+        allTxns.push({
+          id: `MFG-SCRAP-${item.id}`,
+          date: item.created_at.split('T')[0],
+          type: 'OUT',
+          quantity: item.quantity,
+          uomId: null,
+          documentType: 'تصنيع (هالك)',
+          documentNumber: po?.order_number || '-',
+          warehouseName: getWName(warehouseId),
+          createdAt: item.created_at,
+          notes: `هالك صناعي: ${item.reason || ''}`
+        });
+      });
+
+      // معالجة مرتجعات المبيعات (وارد)
+      sReturns.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `SR-${item.sales_returns.id}`,
+          date: item.sales_returns.return_date,
+          type: 'IN',
+          quantity: item.quantity,
+          uomId: item.uom_id,
+          documentType: 'مرتجع مبيعات',
+          documentNumber: item.sales_returns.return_number,
+          warehouseName: getWName(item.sales_returns.warehouse_id),
+          createdAt: item.sales_returns.created_at,
+          notes: item.sales_returns.notes
+        });
+      });
+
+      // معالجة مرتجعات المشتريات (صادر)
+      pReturns.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `PR-${item.purchase_returns.id}`,
+          date: item.purchase_returns.return_date,
+          type: 'OUT',
+          quantity: item.quantity,
+          uomId: item.uom_id,
+          documentType: 'مرتجع مشتريات',
+          documentNumber: item.purchase_returns.return_number,
+          warehouseName: getWName(item.purchase_returns.warehouse_id),
+          createdAt: item.purchase_returns.created_at,
+          notes: item.purchase_returns.notes
+        });
+      });
+
+      // معالجة التسويات المخزنية (وارد أو صادر حسب الإشارة)
+      adjustments.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `ADJ-${item.stock_adjustments.id}`,
+          date: item.stock_adjustments.adjustment_date,
+          type: item.quantity >= 0 ? 'IN' : 'OUT',
+          quantity: Math.abs(item.quantity),
+          uomId: item.uom_id,
+          documentType: 'تسوية مخزنية',
+          documentNumber: item.stock_adjustments.adjustment_number,
+          warehouseName: getWName(item.stock_adjustments.warehouse_id),
+          createdAt: item.stock_adjustments.created_at,
+          notes: item.stock_adjustments.reason
+        });
+      });
+
+      // معالجة التحويلات المخزنية (تظهر فقط عند اختيار مستودع محدد)
+      if (transfers.data) {
+        transfers.data.forEach((item: any) => {
+            const t = item.stock_transfers;
+            
+            // إذا تم اختيار مستودع محدد، نعرض الحركات الخاصة به فقط
+            if (selectedWarehouseId) {
+                if (t.from_warehouse_id === selectedWarehouseId) {
+                    // تحويل صادر من هذا المستودع
+                    allTxns.push({
+                        id: `TRN-OUT-${t.id}`,
+                        date: t.transfer_date,
+                        type: 'OUT',
+                        quantity: item.quantity,
+                        uomId: item.uom_id,
+                        documentType: 'تحويل صادر',
+                        documentNumber: t.transfer_number,
+                        warehouseName: `إلى: ${getWName(t.to_warehouse_id)}`,
+                        createdAt: t.created_at,
+                        notes: t.notes
+                    });
+                } else if (t.to_warehouse_id === selectedWarehouseId) {
+                    // تحويل وارد لهذا المستودع
+                    allTxns.push({
+                        id: `TRN-IN-${t.id}`,
+                        date: t.transfer_date,
+                        type: 'IN',
+                        quantity: item.quantity,
+                        uomId: item.uom_id,
+                        documentType: 'تحويل وارد',
+                        documentNumber: t.transfer_number,
+                        warehouseName: `من: ${getWName(t.from_warehouse_id)}`,
+                        createdAt: t.created_at,
+                        notes: t.notes
+                    });
+                }
+            } else {
+                // عند عرض "كل المستودعات"، التحويل الداخلي لا يغير إجمالي رصيد الشركة.
+                // نعرض حركة واحدة "توثيقية" بكمية صفر لكي لا يتذبذب الرصيد التراكمي بشكل وهمي.
+                allTxns.push({
+                    id: `TRN-DOC-${t.id}-${item.product_id}`,
+                    date: t.transfer_date,
+                    type: 'IN',
+                    quantity: 0,
+                    uomId: item.uom_id,
+                    documentType: 'تحويل مخزني (داخلي)',
+                    documentNumber: t.transfer_number,
+                    warehouseName: `${getWName(t.from_warehouse_id)} ➔ ${getWName(t.to_warehouse_id)}`,
+                    createdAt: t.created_at,
+                    notes: `نقل كمية (${item.quantity}) - ${t.notes || ''}`
+                });
+            }
+        });
+      }
+
+      // معالجة مبيعات المطعم المباشرة
+      restDirect.data?.forEach((item: any) => {
+          allTxns.push({
+              id: `REST-SALE-${item.id}`,
+              date: item.orders.created_at,
+              type: 'OUT',
+              quantity: item.quantity,
+              uomId: item.uom_id,
+              documentType: 'مبيعات مطعم',
+              documentNumber: item.orders.order_number,
+              warehouseName: getWName(item.orders.warehouse_id),
+              createdAt: item.orders.created_at,
+              notes: `بيع مباشر (${item.orders.order_type === 'DINE_IN' ? 'محلي' : item.orders.order_type === 'DELIVERY' ? 'توصيل' : 'سفري'})`
+          });
+      });
+
+      // معالجة استهلاك المواد الخام في المطعم
+      restConsumption.data?.forEach((item: any) => {
+          const bom = boms?.find(b => b.product_id === item.product_id);
+          if (bom) {
+              const consumedQty = item.quantity * bom.quantity_required;
+              allTxns.push({
+                  id: `REST-CONS-${item.id}-${selectedProductId}`,
+                  date: item.orders.created_at,
+                  type: 'OUT',
+                  quantity: consumedQty,
+                  uomId: null,
+                  documentType: 'استهلاك مطعم',
+                  documentNumber: item.orders.order_number,
+                  warehouseName: getWName(item.orders.warehouse_id),
+                  createdAt: item.orders.created_at,
+                  notes: `استهلاك في وجبة (BOM)`
+              });
+          }
+      });
+
+      // معالجة حركات المستشفى (صادر)
+      hims.data?.forEach((item: any) => {
+        allTxns.push({
+          id: `HIMS-${item.id}`,
+          date: item.hims_billing?.created_at ? item.hims_billing.created_at.split('T')[0] : '',
+          type: 'OUT',
+          quantity: Number(item.quantity),
+          uomId: item.uom_id,
+          documentType: 'صرف مستشفى/صيدلية',
+          documentNumber: `HIMS-${item.hims_billing?.visit_id?.substring(0, 8) || ''}`,
+          warehouseName: getWName(item.warehouse_id),
+          createdAt: item.hims_billing?.created_at || item.created_at,
+          notes: `صرف للمريض: ${item.hims_billing?.hims_patients?.full_name || ''}`
+        });
+      });
+
+      // معالجة صرف مواد مشاريع المقاولات (صادر)
+      construction.data?.forEach((item: any) => {
+        const issue = item.project_material_issues;
+        allTxns.push({
+          id: `MAT-${issue?.id || item.id}`,
+          date: issue?.issue_date || (issue?.created_at ? issue.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+          type: 'OUT',
+          quantity: Number(item.quantity),
+          uomId: item.uom_id,
+          documentType: 'إذن صرف موقع/مشروع',
+          documentNumber: issue?.issue_number || '-',
+          warehouseName: getWName(issue?.warehouse_id),
+          createdAt: issue?.created_at,
+          notes: `صرف لمشروع: ${issue?.projects?.name || ''}`
+        });
+      });
+
+      // ترتيب زمني (من الأقدم للأحدث) لحساب الرصيد التراكمي
+      allTxns.sort((a, b) => {
+        const dateA = new Date(a.date).getTime();
+        const dateB = new Date(b.date).getTime();
+        if (dateA !== dateB) return dateA - dateB;
+        
+        // إعطاء الأولوية للرصيد الافتتاحي ليظهر أولاً في نفس اليوم
+        if (a.documentType === 'رصيد افتتاحي') return -1;
+        if (b.documentType === 'رصيد افتتاحي') return 1;
+
+        const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return createdA - createdB;
+      });
+
+      const convertQty = (qty: number, fromUomId: string | null | undefined, toUomId: string | null | undefined) => {
+        if (!fromUomId || !toUomId || fromUomId === toUomId) return qty;
+        const fromUom = uoms.find(u => u.id === fromUomId);
+        const toUom = uoms.find(u => u.id === toUomId);
+        if (!fromUom || !toUom) return qty;
+        
+        let fromRatio = Number(fromUom.ratio) || 1;
+        let toRatio = Number(toUom.ratio) || 1;
+        
+        if (fromUom.uom_type === 'smaller') fromRatio = 1.0 / fromRatio;
+        if (toUom.uom_type === 'smaller') toRatio = 1.0 / toRatio;
+        
+        return (qty * fromRatio) / toRatio;
+      };
+
+      let balance = 0;
+      const txnsWithBalance = allTxns.map(t => {
+        const qtyInBase = convertQty(t.quantity, t.uomId, selectedProduct?.base_uom_id);
+        if (t.type === 'IN') balance += qtyInBase;
+        else balance -= qtyInBase;
+        return { ...t, qtyInBase, balance };
+      });
+
+      // عكس الترتيب للعرض (الأحدث أولاً)
+      setTransactions(txnsWithBalance.reverse());
+
+    } catch (error) {
+      console.error("Error fetching transactions:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const selectedProduct = products.find(p => p.id === selectedProductId) as unknown as Product | undefined;
+
+  const filteredTransactions = transactions.filter(t => 
+    (!notesSearch || (t.notes && t.notes.toLowerCase().includes(notesSearch.toLowerCase()))) &&
+    (!startDate || t.date >= startDate) &&
+    (!endDate || t.date <= endDate)
+  );
+
+  const processedTransactions = useMemo(() => {
+    return filteredTransactions.map(t => {
+      const displayQty = displayUnit === 'base' ? t.qtyInBase : t.quantity;
+      const displayUnitName = displayUnit === 'base' ? (selectedProduct?.unit || '') : (uoms.find(u => u.id === t.uomId)?.name || selectedProduct?.unit || '');
+      return {
+        ...t,
+        displayQty,
+        displayUnitName
+      };
+    });
+  }, [filteredTransactions, displayUnit, uoms, selectedProduct]);
+
+  const handleExportExcel = () => {
+    if (processedTransactions.length === 0) return;
+
+    const data = processedTransactions.map(t => ({
+      'التاريخ': new Date(t.date).toLocaleDateString('ar-EG'),
+      'نوع الحركة': t.documentType,
+      'المستند': t.documentNumber || '-',
+      'المستودع': t.warehouseName || '-',
+      'وارد (+)': t.type === 'IN' ? `${t.displayQty} ${t.displayUnitName}` : '-',
+      'صادر (-)': t.type === 'OUT' ? `${t.displayQty} ${t.displayUnitName}` : '-',
+      'الرصيد': `${t.balance?.toLocaleString()} ${selectedProduct?.unit || ''}`,
+      'ملاحظات': t.notes || '-'
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Stock Card");
+    XLSX.writeFile(wb, `StockCard_${selectedProduct?.name || 'Product'}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const handlePrintBarcode = () => {
+    if (selectedProduct) {
+        const printWindow = window.open('', '', 'width=600,height=400');
+        if (printWindow) {
+            printWindow.document.write(`
+                <html dir="rtl">
+                <head><title>طباعة باركود - ${selectedProduct.name}</title></head>
+                <body style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; font-family: sans-serif;">
+                    <div style="border: 1px solid #000; padding: 20px; text-align: center; border-radius: 8px; width: 300px;">
+                        <h2 style="margin: 0 0 10px 0; font-size: 18px;">${selectedProduct.name}</h2>
+                        <div style="font-family: 'Libre Barcode 39', sans-serif; font-size: 40px; margin: 10px 0;">*${selectedProduct.sku || '0000'}*</div>
+                        <p style="margin: 5px 0 0 0; font-weight: bold; font-family: monospace; font-size: 16px;">${selectedProduct.sku || 'No SKU'}</p>
+                        <p style="margin: 10px 0 0 0; font-size: 20px; font-weight: bold;">${(selectedProduct.sales_price || 0).toLocaleString()} ج.م</p>
+                    </div>
+                    <script>window.onload = function() { window.print(); }</script>
+                </body>
+                </html>
+            `);
+            printWindow.document.close();
+        }
+    }
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0 || !selectedProductId) return;
+    
+    if (currentUser?.role === 'demo') {
+        showToast('رفع الصور غير متاح في النسخة التجريبية', 'warning');
+        return;
+    }
+
+    const file = e.target.files[0];
+    const fileExt = file.name.split('.').pop();
+    const fileName = `prod-${selectedProductId}-${Date.now()}.${fileExt}`;
+    const filePath = `${fileName}`;
+
+    try {
+      setUploading(true);
+      const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
+      if (uploadError) throw uploadError;
+      
+      const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
+      
+      const { error: updateError } = await supabase.from('products').update({ image_url: data.publicUrl }).eq('id', selectedProductId);
+      if (updateError) throw updateError;
+      
+      await refreshData();
+    } catch (error: any) {
+      showToast('فشل رفع الصورة: ' + error.message, 'error');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const openEditModal = () => {
+      if (selectedProduct) {
+          const item = selectedProduct as any; // Cast to any to access all properties
+          const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
+          const defaultCogs = getSystemAccount('COGS')?.id || '';
+          const defaultSales = getSystemAccount('SALES_REVENUE')?.id || '';
+
+          const inventoryAccId = accounts.assets.find(a => a.id === item.inventory_account_id) ? item.inventory_account_id : defaultInventory;
+          const cogsAccId = accounts.expenses.find(a => a.id === item.cogs_account_id) ? item.cogs_account_id : defaultCogs;
+          const salesAccId = accounts.revenue.find(a => a.id === item.sales_account_id) ? item.sales_account_id : defaultSales;
+
+          setEditFormData({
+              name: item.name || '',
+              sku: item.sku || '',
+              barcode: item.barcode || '',
+              description: item.description || '',
+              sales_price: item.sales_price || 0,
+              purchase_price: item.purchase_price || 0,
+              unit: item.unit || 'قطعة',
+              product_type: (item as any).product_type || (item as any).item_type || ((item as any).mfg_type === 'standard' ? 'MANUFACTURED' : (item as any).mfg_type === 'raw' ? 'RAW_MATERIAL' : 'STOCK'),
+              inventory_account_id: inventoryAccId || '',
+              cogs_account_id: cogsAccId || '',
+              sales_account_id: salesAccId || '',
+              image_url: item.image_url || '',
+              category_id: item.category_id || null,
+              min_stock_level: item.min_stock_level || 0,
+              requires_serial: Boolean((item as any).requires_serial),
+              labor_cost: (item as any).labor_cost || 0,
+              overhead_cost: (item as any).overhead_cost || 0,
+              is_overhead_percentage: (item as any).is_overhead_percentage || false,
+              expiry_date: item.expiry_date || '',
+              offer_price: item.offer_price || 0,
+              offer_start_date: item.offer_start_date || '',
+              offer_end_date: item.offer_end_date || '',
+              offer_max_qty: item.offer_max_qty || 0,
+              available_modifiers: (item as any).available_modifiers || []
+          });
+          setIsEditModalOpen(true);
+      }
+  };
+
+  const handleSaveProduct = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!selectedProductId) return;
+
+      const productValidation = stockCardProductUpdateSchema.safeParse(editFormData); // Corrected line
+      if (!productValidation.success) {
+          showToast(productValidation.error.issues[0].message, 'warning');
+          return;
+      }
+
+      if (editFormData.product_type === 'STOCK') {
+          if (!editFormData.inventory_account_id || !editFormData.cogs_account_id || !editFormData.sales_account_id) {
+              showToast('خطأ محاسبي: يجب تحديد جميع الحسابات (المخزون, التكلفة, المبيعات) للأصناف المخزنية.', 'error');
+              return;
+          }
+      }
+
+      try {
+          const itemData = {
+              name: editFormData.name,
+              sku: editFormData.sku || null,
+              barcode: editFormData.barcode || null,
+              description: editFormData.description || null,
+              sales_price: editFormData.sales_price,
+              purchase_price: editFormData.purchase_price,
+              product_type: editFormData.product_type,
+              unit: editFormData.unit,
+              item_type: editFormData.product_type,
+              requires_serial: editFormData.requires_serial,
+              labor_cost: editFormData.labor_cost,
+              overhead_cost: editFormData.overhead_cost,
+              is_overhead_percentage: editFormData.is_overhead_percentage,
+              inventory_account_id: (editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED' || editFormData.product_type === 'RAW_MATERIAL') ? editFormData.inventory_account_id : null,
+              cogs_account_id: (editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED' || editFormData.product_type === 'RAW_MATERIAL') ? editFormData.cogs_account_id : null,
+              sales_account_id: editFormData.sales_account_id,
+              image_url: editFormData.image_url,
+              category_id: editFormData.category_id || null,
+              is_active: true,
+              min_stock_level: editFormData.min_stock_level,
+              expiry_date: editFormData.expiry_date || null,
+              offer_price: editFormData.offer_price || null,
+              offer_start_date: editFormData.offer_start_date || null,
+              offer_end_date: editFormData.offer_end_date || null,
+              offer_max_qty: editFormData.offer_max_qty || null,
+              available_modifiers: editFormData.available_modifiers || [],
+              // ضمان تحديث نوع التصنيع للمديول الصناعي
+              mfg_type: editFormData.product_type === 'RAW_MATERIAL' ? 'raw' : 
+                        editFormData.product_type === 'MANUFACTURED' ? 'standard' : null
+          };
+          await updateProduct(selectedProductId, itemData);
+          showToast('تم تحديث بيانات الصنف بنجاح ✅', 'success');
+          setIsEditModalOpen(false);
+          await refreshData();
+          await fetchTransactions(); // Refresh the card data
+      } catch (error: any) {
+          showToast('فشل التحديث: ' + error.message, 'error');
+      }
+  };
+
+  const handleShowPriceHistory = async () => {
+      if (!selectedProductId) return;
+      setHistoryLoading(true);
+      setIsHistoryModalOpen(true);
+      
+      try {
+          const { data, error } = await supabase
+              .from('security_logs')
+              .select('*')
+              .eq('metadata->>productId', selectedProductId)
+              .order('created_at', { ascending: false });
+              
+          if (error) throw error;
+          
+          const priceLogs = data?.filter((log: any) => {
+              const changes = log.metadata?.changes;
+              return changes && (changes.sales_price || changes.purchase_price || changes.price || changes.cost);
+          }) || [];
+          
+          setPriceHistory(priceLogs);
+      } catch (err) {
+          console.error(err);
+      } finally {
+          setHistoryLoading(false);
+      }
+  };
+
+  // دالة إعادة احتساب الأرصدة
+  const handleRecalculate = async () => {
+    if (window.confirm('هل تريد إعادة احتساب أرصدة المخزون بناءً على الحركات المسجلة؟ سيتم تصحيح أي فروقات.')) {
+        setIsRecalculating(true);
+        try {
+            // 🚀 تمرير المعرف لتحسين الأداء وسرعة التحديث لصنف واحد في المحرك V50.5
+            await recalculateStock(selectedProductId);
+            await fetchTransactions(); // تحديث جدول الحركات المكتملة
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setIsRecalculating(false);
+        }
+    }
+  };
+
+  const handleDeleteOpeningBalance = async () => {
+      if (!existingOpeningId) return;
+      if (!window.confirm('هل أنت متأكد من حذف رصيد أول المدة لهذا الصنف؟')) return;
+
+      setLoading(true);
+      try {
+          const { error } = await supabase.from('opening_inventories').delete().eq('id', existingOpeningId);
+          if (error) throw error;
+
+          await recalculateStock(selectedProductId);
+          const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+          if (orgId) {
+              try {
+                  await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+              } catch (e) {
+                  console.error('Failed to recalculate balances:', e);
+              }
+          }
+          await refreshData();
+          await fetchTransactions();
+          setIsOpeningModalOpen(false);
+          showToast('تم حذف رصيد أول المدة بنجاح ✅', 'success');
+      } catch (error: any) {
+          showToast('خطأ: ' + error.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  // دالة حفظ رصيد أول المدة
+  const handleSaveOpeningBalance = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!selectedProductId || !openingFormData.warehouseId) return;
+
+      const openingValidation = stockCardOpeningBalanceUpdateSchema.safeParse(openingFormData);
+      if (!openingValidation.success) {
+          showToast(openingValidation.error.issues[0].message, 'warning');
+          return;
+      }
+
+      setLoading(true);
+      try {
+          // 1. التحقق مما إذا كان هناك رصيد افتتاحي سابق لهذا الصنف في هذا المستودع
+          const { data: existing } = await supabase
+              .from('opening_inventories')
+              .select('id')
+              .eq('product_id', selectedProductId)
+              .eq('warehouse_id', openingFormData.warehouseId)
+              .maybeSingle();
+
+          if (existing) {
+              // تحديث الموجود
+              await supabase.from('opening_inventories').update({
+                  quantity: openingFormData.quantity,
+                  cost: openingFormData.cost
+              }).eq('id', existing.id);
+          } else {
+              // إنشاء جديد
+              await supabase.from('opening_inventories').insert({
+                  product_id: selectedProductId,
+                  warehouse_id: openingFormData.warehouseId,
+                  quantity: openingFormData.quantity,
+                  cost: openingFormData.cost
+              });
+          }
+
+          await recalculateStock(selectedProductId); // إعادة احتساب الأرصدة للصنف المحدث
+          const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+          if (orgId) {
+              try {
+                  await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+              } catch (e) {
+                  console.error('Failed to recalculate balances:', e);
+              }
+          }
+          await refreshData();
+          await fetchTransactions();
+          setIsOpeningModalOpen(false);
+          showToast('تم تحديث رصيد أول المدة وتجديد أرصدة النظام بنجاح ✅', 'success');
+      } catch (error: any) {
+          showToast('خطأ: ' + error.message, 'error');
+      } finally {
+          setLoading(false);
+      }
+  };
+
+  // عند فتح نافذة الرصيد الافتتاحي، نحاول جلب الرصيد الحالي
+  useEffect(() => {
+      if (isOpeningModalOpen && selectedProductId && openingFormData.warehouseId) {
+          const fetchExisting = async () => {
+              const { data } = await supabase
+                  .from('opening_inventories')
+                  .select('id, quantity, cost')
+                  .eq('product_id', selectedProductId)
+                  .eq('warehouse_id', openingFormData.warehouseId)
+                  .maybeSingle();
+              
+              if (data) {
+                  setOpeningFormData(prev => ({ ...prev, quantity: data.quantity, cost: data.cost || 0 }));
+                  setExistingOpeningId(data.id);
+              } else {
+                  setExistingOpeningId(null);
+                  // لا نصفر الكمية هنا لنسمح للمستخدم بإدخال جديد بسهولة
+              }
+          };
+          fetchExisting();
+      }
+  }, [isOpeningModalOpen, selectedProductId, openingFormData.warehouseId]);
+
+  const priceChartData = useMemo(() => {
+      return [...priceHistory].reverse().map(log => ({
+          date: new Date(log.created_at).toLocaleDateString('ar-EG'),
+          salesPrice: log.metadata.changes.sales_price?.to || log.metadata.changes.price?.to,
+          costPrice: log.metadata.changes.purchase_price?.to || log.metadata.changes.cost?.to
+      }));
+  }, [priceHistory]);
+
+  const totalIn = processedTransactions.reduce((sum, t) => t.type === 'IN' ? sum + (t.displayQty || 0) : sum, 0);
+  const totalOut = processedTransactions.reduce((sum, t) => t.type === 'OUT' ? sum + (t.displayQty || 0) : sum, 0);
+
+  return (
+    <div className="space-y-6 animate-in fade-in">
+      <div className="flex justify-between items-center print:hidden">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+            <History className="text-blue-600" /> كارت الصنف (حركة المخزون)
+          </h2>
+          <p className="text-slate-500">تتبع حركات الوارد والصادر والرصيد لكل صنف</p>
+        </div>
+        <div className="flex gap-2">
+            <button 
+                onClick={() => { setOpeningFormData({ warehouseId: warehouses[0]?.id || '', quantity: 0, cost: 0 }); setIsOpeningModalOpen(true); }}
+                disabled={!selectedProductId}
+                className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 font-bold disabled:opacity-50"
+            >
+                <PlusCircle size={18} /> رصيد أول المدة
+            </button>
+            <button 
+                onClick={handleRecalculate}
+                disabled={isRecalculating}
+                className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 font-bold"
+                title="إصلاح فروقات الأرصدة"
+            >
+                <RefreshCw size={18} className={isRecalculating ? 'animate-spin' : ''} /> إعادة احتساب
+            </button>
+            <button 
+                onClick={() => navigate('/stock-transfer', { state: { productId: selectedProductId } })}
+                className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700"
+            >
+                <ArrowRightLeft size={18} /> تحويل مخزني
+            </button>
+            <button 
+                onClick={() => navigate('/stock-adjustment', { state: { productId: selectedProductId } })}
+                className="bg-amber-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-amber-700"
+            >
+                <ClipboardList size={18} /> تسوية مخزنية
+            </button>
+            <button onClick={handlePrintBarcode} className="bg-purple-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-700">
+                <Barcode size={18} /> طباعة باركود
+            </button>
+            <button onClick={handleExportExcel} className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-700">
+                <Download size={18} /> تصدير Excel
+            </button>
+            <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-700">
+                <Printer size={18} /> طباعة الكارت
+            </button>
+        </div>
+      </div>
+
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-3 gap-6 print:hidden">
+        <div>
+          <label className="block text-sm font-bold text-slate-700 mb-1">بحث واختيار الصنف</label>
+          <div className="relative">
+             <Search className="absolute right-3 top-3 text-slate-400" size={18} />
+             <select 
+                className="w-full border rounded-lg p-2.5 pr-10 appearance-none outline-none focus:ring-2 focus:ring-blue-500" 
+                value={selectedProductId} 
+                onChange={e => setSelectedProductId(e.target.value)}
+             >
+                <option value="">-- اختر الصنف --</option>
+                {products.map(p => <option key={p.id} value={p.id}>{p.name} {p.sku ? `(${p.sku})` : ''}</option>)}
+             </select>
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-slate-700 mb-1">المستودع (اختياري)</label>
+          <select className="w-full border rounded-lg p-2.5" value={selectedWarehouseId} onChange={e => setSelectedWarehouseId(e.target.value)}>
+            <option value="">-- كل المستودعات --</option>
+            {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-slate-700 mb-1">بحث في الملاحظات</label>
+          <div className="relative">
+             <Search className="absolute right-3 top-3 text-slate-400" size={18} />
+             <input 
+                type="text" 
+                placeholder="بحث..." 
+                className="w-full border rounded-lg p-2.5 pr-10 outline-none focus:ring-2 focus:ring-blue-500"
+                value={notesSearch}
+                onChange={e => setNotesSearch(e.target.value)}
+             />
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-slate-700 mb-1">من تاريخ</label>
+          <input 
+            type="date" 
+            className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-blue-500"
+            value={startDate}
+            onChange={e => setStartDate(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-slate-700 mb-1">إلى تاريخ</label>
+          <input 
+            type="date" 
+            className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-blue-500"
+            value={endDate}
+            onChange={e => setEndDate(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="block text-sm font-bold text-slate-700 mb-1">وحدة عرض الكميات</label>
+          <select 
+            className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-blue-500"
+            value={displayUnit} 
+            onChange={e => setDisplayUnit(e.target.value as 'base' | 'original')}
+          >
+            <option value="base">الوحدة الأصغر (مثل: قطعة / زجاجة)</option>
+            <option value="original">الوحدة الأصلية للحركة (كرتونة / علبة / قطعة)</option>
+          </select>
+        </div>
+      </div>
+
+      {selectedProductId && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="p-6 bg-slate-50 border-b flex flex-col md:flex-row justify-between items-center gap-4">
+            <div className="flex items-center gap-4">
+                <div className="relative group">
+                    <div className="bg-white rounded-lg border border-slate-200 shadow-sm overflow-hidden cursor-pointer hover:opacity-90 transition-opacity" onClick={() => selectedProduct.image_url && setIsImageModalOpen(true)}>
+                        {selectedProduct.image_url ? (
+                            <img src={selectedProduct.image_url} alt={selectedProduct?.name} className="w-16 h-16 object-cover" />
+                        ) : (
+                            <div className="p-3">
+                                <Package size={32} className="text-blue-600" />
+                            </div>
+                        )}
+                    </div>
+                    <label className="absolute -bottom-2 -right-2 bg-white text-slate-600 p-1.5 rounded-full shadow-md border border-slate-100 cursor-pointer hover:text-blue-600 hover:bg-blue-50 transition-colors z-10" title="رفع صورة للصنف">
+                        {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                        <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={uploading} />
+                    </label>
+                </div>
+                <div>
+                    <div className="flex items-center gap-2">
+                        <h3 className="font-black text-xl text-slate-800">{selectedProduct?.name}</h3>
+                        <button onClick={handleShowPriceHistory} className="text-slate-400 hover:text-amber-600 transition-colors p-1 rounded-full hover:bg-slate-100" title="سجل تغييرات الأسعار">
+                            <Clock size={16} />
+                        </button>
+                        <button onClick={openEditModal} className="text-slate-400 hover:text-blue-600 transition-colors p-1 rounded-full hover:bg-slate-100" title="تعديل بيانات الصنف">
+                            <Edit size={16} />
+                        </button>
+                    </div>
+                    <p className="text-slate-500 font-mono text-sm">{selectedProduct?.sku || 'No SKU'}</p>
+                </div>
+            </div>
+            <div className="flex gap-6 text-center">
+                {/* سعر البيع */}
+                <div className="bg-white px-6 py-2 rounded-lg border border-slate-200 shadow-sm hidden md:block">
+                    <p className="text-xs text-slate-500 font-bold uppercase">سعر البيع</p>
+                    <p className="text-2xl font-black text-slate-700" dir="ltr">
+                        {(selectedProduct.sales_price || 0).toLocaleString()}
+                    </p>
+                </div>
+                {/* متوسط التكلفة */}
+                <div className="bg-white px-6 py-2 rounded-lg border border-slate-200 shadow-sm hidden md:block">
+                    <p className="text-xs text-slate-500 font-bold uppercase">متوسط التكلفة</p>
+                    <p className="text-2xl font-black text-amber-600" dir="ltr">
+                        {(selectedProduct.weighted_average_cost || selectedProduct.purchase_price || 0).toLocaleString()}
+                    </p>
+                </div>
+                {/* الرصيد الإجمالي (دائماً يظهر) */}
+                <div className="bg-white px-6 py-2 rounded-lg border border-slate-200 shadow-sm">
+                    <p className="text-xs text-slate-500 font-bold uppercase">إجمالي الرصيد (الكل)</p>
+                    <p className="text-2xl font-black text-blue-600" dir="ltr">
+                        {transactions.length > 0 && !selectedWarehouseId ? transactions[0].balance : (selectedProduct?.stock || 0)} <span className="text-sm font-normal text-slate-500">{selectedProduct?.unit || ''}</span>
+                    </p>
+                </div>
+                
+                {/* رصيد المستودع (يظهر فقط عند الفلترة) */}
+                {selectedWarehouseId && (
+                    <div className="bg-white px-6 py-2 rounded-lg border border-slate-200 shadow-sm">
+                        <p className="text-xs text-slate-500 font-bold uppercase flex items-center gap-1">
+                            <Warehouse size={12} /> رصيد المستودع
+                        </p>
+                        <p className="text-2xl font-black text-slate-800" dir="ltr">
+                            {transactions.length > 0 ? transactions[0].balance : 0}
+                        </p>
+                    </div>
+                )}
+            </div>
+          </div>
+
+          {loading ? (
+              <div className="p-12 text-center flex justify-center">
+                  <Loader2 className="animate-spin text-blue-600" size={32} />
+              </div>
+          ) : (
+            <table className="w-full text-right">
+                <thead className="bg-slate-100 text-slate-600 font-bold text-sm border-b">
+                <tr>
+                    <th className="p-4">التاريخ</th>
+                    <th className="p-4">نوع الحركة</th>
+                    <th className="p-4">المستند</th>
+                    <th className="p-4">المستودع</th>
+                    <th className="p-4 text-center text-emerald-700 bg-emerald-50">وارد (+)</th>
+                    <th className="p-4 text-center text-red-700 bg-red-50">صادر (-)</th>
+                    <th className="p-4 text-center">الرصيد</th>
+                    <th className="p-4">ملاحظات</th>
+                </tr>
+                </thead>
+                <tbody className="divide-y">
+                {processedTransactions.map(t => (
+                    <tr key={t.id} className={`hover:bg-slate-50 transition-colors ${t.warehouseName === 'غير محدد' ? 'bg-amber-50' : ''}`}>
+                        <td className="p-4 text-slate-600 font-medium">{new Date(t.date).toLocaleDateString('ar-EG')}</td>
+                        <td className="p-4 font-bold text-slate-700">{t.documentType}</td>
+                        <td className="p-4 font-mono text-sm text-slate-500">{t.documentNumber || '-'}</td>
+                        <td className="p-4 text-sm">{t.warehouseName}</td>
+                        <td className="p-4 text-center font-bold text-emerald-600 bg-emerald-50/30">
+                            {t.type === 'IN' ? `${t.displayQty?.toLocaleString()} ${t.displayUnitName}` : '-'}
+                        </td>
+                        <td className="p-4 text-center font-bold text-red-600 bg-red-50/30">
+                            {t.type === 'OUT' ? `${t.displayQty?.toLocaleString()} ${t.displayUnitName}` : '-'}
+                        </td>
+                        <td className={`p-4 text-center font-black ${t.balance && t.balance < 0 ? 'text-red-600' : 'text-slate-800'} bg-slate-50`} dir="ltr">
+                            {t.balance?.toLocaleString()} {selectedProduct?.unit || ''}
+                        </td>
+                        <td className="p-4 text-sm text-slate-500 max-w-xs truncate" title={t.notes}>
+                            {t.notes || '-'}
+                        </td>
+                    </tr>
+                ))}
+                {processedTransactions.length === 0 && (
+                    <tr><td colSpan={8} className="p-12 text-center text-slate-400 flex flex-col items-center justify-center gap-2">
+                        <AlertCircle size={32} />
+                        لا توجد حركات مسجلة لهذا الصنف في هذا النطاق
+                    </td></tr>
+                )}
+                </tbody>
+                <tfoot className="font-bold border-t-2 border-slate-300 text-sm">
+                    <tr className="bg-slate-200 text-slate-900">
+                        <td colSpan={4} className="p-4 text-left text-slate-600">الإجمالي:</td>
+                        <td className="p-4 text-center text-emerald-700 bg-emerald-50/30">
+                            {totalIn?.toLocaleString()} {displayUnit === 'base' ? (selectedProduct?.unit || '') : ''}
+                        </td>
+                        <td className="p-4 text-center text-red-700 bg-red-50/30">
+                            {totalOut?.toLocaleString()} {displayUnit === 'base' ? (selectedProduct?.unit || '') : ''}
+                        </td>
+                        <td className="p-4 text-center text-slate-800" dir="ltr">
+                            {processedTransactions.length > 0 ? `${processedTransactions[0].balance?.toLocaleString()} ${selectedProduct?.unit || ''}` : `0 ${selectedProduct?.unit || ''}`}
+                        </td>
+                        <td></td>
+                    </tr>
+                </tfoot>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Image Modal */}
+      {isImageModalOpen && selectedProduct?.image_url && (
+        <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setIsImageModalOpen(false)}>
+            <button 
+                onClick={() => setIsImageModalOpen(false)}
+                className="absolute top-4 right-4 text-white/70 hover:text-white transition-colors"
+            >
+                <X size={32} />
+            </button>
+            <img 
+                src={selectedProduct.image_url} 
+                alt={selectedProduct?.name} 
+                className="max-w-full max-h-[90vh] object-contain rounded-lg shadow-2xl animate-in zoom-in duration-200"
+                onClick={(e) => e.stopPropagation()}
+            />
+        </div>
+      )}
+
+      {/* Edit Product Modal */}
+      {isEditModalOpen && selectedProduct && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95">
+                <div className="bg-slate-50 px-6 py-4 border-b flex justify-between items-center">
+                    <h3 className="font-bold text-lg text-slate-800">تعديل بيانات الصنف</h3>
+                    <button onClick={() => setIsEditModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
+                </div>
+                <form onSubmit={handleSaveProduct} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+                    <div className="flex gap-4">
+                        <div className="w-24 flex-shrink-0">
+                            <div className="relative group cursor-pointer w-24 h-24 bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden">
+                                {editFormData.image_url ? (
+                                    <img src={editFormData.image_url} alt="Preview" className="w-full h-full object-cover" />
+                                ) : (
+                                    <ImageIcon className="text-slate-400 w-8 h-8" />
+                                )}
+                                <label className="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity rounded-xl cursor-pointer">
+                                    <Upload size={20} />
+                                    <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" disabled={uploading} />
+                                </label>
+                            </div>
+                        </div>
+                        <div className="flex-1 space-y-4">
+                            <div>
+                                <label className="block text-sm font-bold mb-1 text-slate-700">اسم الصنف <span className="text-red-500">*</span></label>
+                                <input required type="text" value={editFormData.name} onChange={e => setEditFormData({...editFormData, name: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-emerald-500 outline-none" />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">نوع الصنف</label>
+                                    <select value={editFormData.product_type} onChange={e => setEditFormData({...editFormData, product_type: e.target.value as any})} className="w-full border rounded-lg p-2 bg-white">
+                                        <option value="STOCK">مخزوني (بضاعة)</option>
+                                        <option value="RAW_MATERIAL">مواد خام (تصنيع)</option>
+                                        <option value="SERVICE">خدمة (غير مخزني)</option>
+                                        <option value="MANUFACTURED">منتج مصنع (يُصنع عند الطلب)</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">وحدة القياس</label>
+                                    <select 
+                                        value={editFormData.unit} 
+                                        onChange={e => setEditFormData({...editFormData, unit: e.target.value})}
+                                        className="w-full border rounded-lg p-2 bg-white"
+                                    >
+                                        <option value="piece">قطعة (Piece)</option>
+                                        <option value="kg">كجم (KG)</option>
+                                        <option value="g">جرام (Gram)</option>
+                                        <option value="l">لتر (Liter)</option>
+                                        <option value="ml">مللي (ML)</option>
+                                        <option value="box">علبة/كرتون (Box)</option>
+                                        <option value="m">متر (Meter)</option>
+                                    </select>
+                                </div>
+                                <div className="col-span-2 md:col-span-1">
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">الكود (SKU)</label>
+                                    <input type="text" value={editFormData.sku} onChange={e => setEditFormData({...editFormData, sku: e.target.value})} className="w-full border rounded-lg p-2 font-mono" />
+                                </div>
+                                <div className="col-span-2 md:col-span-1">
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">الباركود</label>
+                                    <input type="text" value={editFormData.barcode} onChange={e => setEditFormData({...editFormData, barcode: e.target.value})} className="w-full border rounded-lg p-2 font-mono" placeholder="Scan..." />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">حد الطلب (للتنبيهات)</label>
+                                    <input type="number" min="0" value={editFormData.min_stock_level} onChange={e => setEditFormData({...editFormData, min_stock_level: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2" placeholder="0" />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">تاريخ الصلاحية</label>
+                                    <input type="date" value={editFormData.expiry_date} onChange={e => setEditFormData({...editFormData, expiry_date: e.target.value})} className="w-full border rounded-lg p-2" />
+                                </div>
+                                <div className="flex items-center gap-2 pt-6">
+                                    <label className="relative inline-flex items-center cursor-pointer">
+                                      <input type="checkbox" checked={editFormData.requires_serial} onChange={e => setEditFormData({...editFormData, requires_serial: e.target.checked})} className="sr-only peer" />
+                                      <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-emerald-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                                      <span className="mr-3 text-xs font-bold text-slate-700">تتبع بالأرقام التسلسلية</span>
+                                    </label>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold mb-1 text-slate-700">التصنيف</label>
+                                    <select value={editFormData.category_id || ''} onChange={e => setEditFormData({...editFormData, category_id: e.target.value as any})} className="w-full border rounded-lg p-2 bg-white">
+                                        <option value="">-- بدون تصنيف --</option>
+                                        {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="col-span-2">
+                        <label className="block text-sm font-bold mb-1 text-slate-700">الوصف (Description)</label>
+                        <textarea value={editFormData.description} onChange={e => setEditFormData({...editFormData, description: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none" rows={2} placeholder="أدخل تفاصيل إضافية عن الصنف..." />
+                    </div>
+                    <div className="bg-yellow-50 p-4 rounded-xl border border-yellow-100">
+                        <h4 className="font-bold text-yellow-800 mb-3 flex items-center gap-2"><Percent size={16}/> العروض والخصومات</h4>
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div><label className="block text-xs font-bold text-slate-600 mb-1">سعر العرض</label><input type="number" min="0" value={editFormData.offer_price} onChange={e => setEditFormData({...editFormData, offer_price: parseFloat(e.target.value)})} className="w-full border border-yellow-200 rounded-lg p-2 text-sm bg-white" placeholder="0" /></div>
+                            <div><label className="block text-xs font-bold text-slate-600 mb-1">تاريخ البداية</label><input type="date" value={editFormData.offer_start_date} onChange={e => setEditFormData({...editFormData, offer_start_date: e.target.value})} className="w-full border border-yellow-200 rounded-lg p-2 text-sm bg-white" /></div>
+                            <div><label className="block text-xs font-bold text-slate-600 mb-1">تاريخ النهاية</label><input type="date" value={editFormData.offer_end_date} onChange={e => setEditFormData({...editFormData, offer_end_date: e.target.value})} className="w-full border border-yellow-200 rounded-lg p-2 text-sm bg-white" /></div>
+                            <div><label className="block text-xs font-bold text-slate-600 mb-1">الحد الأقصى (للعميل)</label><input type="number" min="0" value={editFormData.offer_max_qty} onChange={e => setEditFormData({...editFormData, offer_max_qty: parseFloat(e.target.value)})} className="w-full border border-yellow-200 rounded-lg p-2 text-sm bg-white" placeholder="0 (بلا حد)" /></div>
+                        </div>
+                    </div>
+                    {/* Modifiers for Restaurant Items */}
+                    {editFormData.product_type === 'MANUFACTURED' && (
+                        <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-100">
+                        <h4 className="font-bold text-indigo-800 mb-3 flex items-center gap-2">
+                            <UtensilsCrossed size={16}/> الإضافات المتاحة (Modifiers)
+                        </h4>
+                        <div className="space-y-2">
+                            {editFormData.available_modifiers.map((mod, index) => (
+                            <div key={index} className="grid grid-cols-12 gap-2 items-center">
+                                <div className="col-span-5">
+                                <label className="text-xs font-bold text-slate-600">اسم الإضافة</label>
+                                <input type="text" value={mod.name} onChange={e => { const newMods = [...editFormData.available_modifiers]; newMods[index].name = e.target.value; setEditFormData({...editFormData, available_modifiers: newMods}); }} className="w-full border rounded-lg p-1.5 text-sm" />
+                                </div>
+                                <div className="col-span-3">
+                                <label className="text-xs font-bold text-slate-600">السعر</label>
+                                <input type="number" value={mod.price} onChange={e => { const newMods = [...editFormData.available_modifiers]; newMods[index].price = parseFloat(e.target.value); setEditFormData({...editFormData, available_modifiers: newMods}); }} className="w-full border rounded-lg p-1.5 text-sm" />
+                                </div>
+                                <div className="col-span-3">
+                                <label className="text-xs font-bold text-slate-600">التكلفة</label>
+                                <input type="number" value={mod.cost} onChange={e => { const newMods = [...editFormData.available_modifiers]; newMods[index].cost = parseFloat(e.target.value); setEditFormData({...editFormData, available_modifiers: newMods}); }} className="w-full border rounded-lg p-1.5 text-sm" />
+                                </div>
+                                <div className="col-span-1 self-end">
+                                <button type="button" onClick={() => setEditFormData({...editFormData, available_modifiers: editFormData.available_modifiers.filter((_, i) => i !== index)})} className="text-red-500 hover:bg-red-100 p-1.5 rounded-lg">
+                                    <Trash2 size={16} />
+                                </button>
+                                </div>
+                            </div>
+                            ))}
+                        </div>
+                        <button type="button" onClick={() => setEditFormData({...editFormData, available_modifiers: [...editFormData.available_modifiers, { name: '', price: 0, cost: 0 }]})} className="mt-3 text-sm font-bold text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                            <PlusCircle size={16} /> إضافة خيار جديد
+                        </button>
+                        </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-4 border-t pt-4">
+                        <div><label className="block text-sm font-bold mb-1 text-slate-700">سعر التكلفة (تقديري)</label><input type="number" value={editFormData.purchase_price} onChange={e => setEditFormData({...editFormData, purchase_price: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2" /></div>
+                        <div><label className="block text-sm font-bold mb-1 text-slate-700">سعر البيع</label><input type="number" value={editFormData.sales_price} onChange={e => setEditFormData({...editFormData, sales_price: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2" /></div>
+                    </div>
+                    {editFormData.sales_price < editFormData.purchase_price && (<div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm font-bold flex items-center gap-2 mt-2"><AlertTriangle size={16} /> تنبيه: سعر البيع أقل من سعر التكلفة!</div>)}
+                    <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 mt-4">
+                        <h4 className="font-bold text-blue-800 mb-3 flex items-center gap-2"><AlertTriangle size={16}/> التوجيه المحاسبي (إلزامي)</h4>
+                        <div className="space-y-3">
+                            {(editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED') && (
+                                <>
+                                    <div>
+                                        <SearchableSelect
+                                            label="حساب المخزون (أصول)"
+                                            options={accounts.assets.map(a => ({ id: a.id, name: a.name, code: a.code }))}
+                                            required
+                                            value={editFormData.inventory_account_id}
+                                            onChange={value => setEditFormData({...editFormData, inventory_account_id: value})}
+                                            placeholder="-- اختر حساب المخزون --"
+                                        />
+                                    </div>
+                                    <div>
+                                        <SearchableSelect
+                                            label="حساب تكلفة البضاعة (مصروفات)"
+                                            options={accounts.expenses.map(a => ({ id: a.id, name: a.name, code: a.code }))}
+                                            required
+                                            value={editFormData.cogs_account_id}
+                                            onChange={value => setEditFormData({...editFormData, cogs_account_id: value})}
+                                            placeholder="-- اختر حساب التكلفة --"
+                                        />
+                                    </div>
+                                </>
+                            )}
+                            <div>
+                                <SearchableSelect
+                                    label="حساب المبيعات (إيرادات)"
+                                    options={accounts.revenue.map(a => ({ id: a.id, name: a.name, code: a.code }))}
+                                    required
+                                    value={editFormData.sales_account_id}
+                                    onChange={value => setEditFormData({...editFormData, sales_account_id: value})}
+                                    placeholder="-- اختر حساب الإيراد --"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                    <button type="submit" className="w-full bg-emerald-600 text-white py-3 rounded-lg font-bold hover:bg-emerald-700 mt-4 disabled:opacity-50 shadow-md transition-all">
+                        حفظ التعديلات
+                    </button>
+                </form>
+            </div>
+        </div>
+      )}
+
+      {/* Price History Modal */}
+      {isHistoryModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl p-6 animate-in zoom-in-95 max-h-[80vh] overflow-hidden flex flex-col">
+                <div className="flex justify-between items-center mb-4 shrink-0">
+                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
+                        <Clock size={20} className="text-amber-600" /> سجل تغييرات الأسعار
+                    </h3>
+                    <button onClick={() => setIsHistoryModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
+                </div>
+                
+                <div className="overflow-y-auto flex-1">
+                    {historyLoading ? (
+                        <div className="flex justify-center p-8"><Loader2 className="animate-spin text-blue-600" /></div>
+                    ) : priceHistory.length === 0 ? (
+                        <div className="text-center p-8 text-slate-500">لا توجد تغييرات مسجلة على الأسعار.</div>
+                    ) : (
+                        <>
+                        <div className="h-64 w-full mb-6 border-b border-slate-100 pb-4" dir="ltr">
+                            <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={priceChartData}>
+                                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                                    <XAxis dataKey="date" tick={{fontSize: 12}} />
+                                    <YAxis tick={{fontSize: 12}} />
+                                    <Tooltip contentStyle={{borderRadius: '8px'}} />
+                                    <Legend />
+                                    <Line type="monotone" dataKey="salesPrice" name="سعر البيع" stroke="#10b981" strokeWidth={2} connectNulls dot={{r: 4}} />
+                                    <Line type="monotone" dataKey="costPrice" name="سعر التكلفة" stroke="#f59e0b" strokeWidth={2} connectNulls dot={{r: 4}} />
+                                </LineChart>
+                            </ResponsiveContainer>
+                        </div>
+                        <table className="w-full text-right text-sm">
+                            <thead className="bg-slate-50 text-slate-600 font-bold sticky top-0">
+                                <tr>
+                                    <th className="p-3">التاريخ</th>
+                                    <th className="p-3">المستخدم</th>
+                                    <th className="p-3">التغيير</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y">
+                                {priceHistory.map((log: any) => (
+                                    <tr key={log.id}>
+                                        <td className="p-3 text-slate-500" dir="ltr">{new Date(log.created_at).toLocaleString('ar-EG')}</td>
+                                        <td className="p-3 font-bold">{users.find(u => u.id === log.performed_by)?.name || 'مستخدم'}</td>
+                                        <td className="p-3">
+                                            {Object.entries(log.metadata.changes).map(([key, val]: [string, any]) => (
+                                                (key === 'sales_price' || key === 'purchase_price' || key === 'price' || key === 'cost') && (
+                                                    <div key={key} className="flex items-center gap-2 mb-1">
+                                                        <span className="text-xs font-bold text-slate-500">{key === 'sales_price' || key === 'price' ? 'سعر البيع' : 'سعر التكلفة'}:</span>
+                                                        <span className="text-red-500 line-through">{val.from}</span>
+                                                        <span className="text-slate-400">←</span>
+                                                        <span className="text-emerald-600 font-bold">{val.to}</span>
+                                                    </div>
+                                                )
+                                            ))}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        </>
+                    )}
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* Opening Balance Modal */}
+      {isOpeningModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="font-bold text-lg text-slate-800">تعديل رصيد أول المدة</h3>
+                    <button onClick={() => setIsOpeningModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
+                </div>
+                <form onSubmit={handleSaveOpeningBalance} className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">المستودع</label>
+                        <select required className="w-full border rounded-lg p-2.5" value={openingFormData.warehouseId} onChange={e => setOpeningFormData({...openingFormData, warehouseId: e.target.value})}>
+                            {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                        </select>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">الكمية الافتتاحية</label>
+                        <input type="number" required value={openingFormData.quantity} onChange={e => setOpeningFormData({...openingFormData, quantity: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2.5" />
+                    </div>
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">تكلفة الوحدة</label>
+                        <input type="number" required min="0" step="0.01" value={openingFormData.cost} onChange={e => setOpeningFormData({...openingFormData, cost: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2.5" />
+                    </div>
+                    <div className="flex gap-2 mt-4">
+                        <button type="submit" disabled={loading} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold hover:bg-blue-700">
+                            {loading ? <Loader2 className="animate-spin mx-auto" /> : 'حفظ وتحديث'}
+                        </button>
+                        {existingOpeningId && (
+                            <button type="button" onClick={handleDeleteOpeningBalance} disabled={loading} className="bg-red-50 text-red-600 px-4 py-3 rounded-lg font-bold hover:bg-red-100 border border-red-200" title="حذف الرصيد الافتتاحي">
+                                <Trash2 size={20} />
+                            </button>
+                        )}
+                    </div>
+                </form>
+            </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default StockCard;

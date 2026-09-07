@@ -1,0 +1,224 @@
+import React, { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
+import { supabase } from '../../supabaseClient';
+import { useAccounting } from '../../context/AccountingContext';
+import { useToast } from '../../context/ToastContext';
+import { ArrowRightLeft, Save, Plus, Trash2, Package, Loader2 } from 'lucide-react';
+import { createStockTransferSchema } from '../../utils/validationSchemas'; // Removed z import
+
+const StockTransfer = () => {
+  const location = useLocation();
+  const { warehouses, products, recalculateStock, currentUser } = useAccounting();
+  const { showToast } = useToast();
+  const [loading, setLoading] = useState(false);
+  
+  const [formData, setFormData] = useState({
+    date: new Date().toISOString().split('T')[0],
+    fromWarehouseId: '',
+    toWarehouseId: '',
+    notes: ''
+  });
+
+  const [items, setItems] = useState<any[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState('');
+  const [qty, setQty] = useState(1);
+
+  useEffect(() => {
+    if (location.state?.productId) {
+        setSelectedProductId(location.state.productId);
+    }
+  }, [location.state]);
+
+  const handleAddItem = () => {
+    if (!selectedProductId) return;
+    const product = products.find(p => p.id === selectedProductId);
+    if (!product) return;
+
+    if (items.find(i => i.productId === selectedProductId)) {
+        showToast('الصنف موجود بالفعل في القائمة', 'warning');
+        return;
+    }
+
+    // التحقق من الرصيد في المستودع المصدر (اختياري، لكن مفضل)
+    if (formData.fromWarehouseId) {
+        const warehouseStockMap = (product as any)?.warehouse_stock || (product as any)?.warehouseStock;
+        const stockInSource = warehouseStockMap?.[formData.fromWarehouseId] || 0;
+        if (qty > stockInSource) {
+            if (!window.confirm(`تنبيه: الكمية المطلوبة (${qty}) أكبر من الرصيد المتوفر في المستودع المصدر (${stockInSource}). هل تريد المتابعة؟`)) {
+                return;
+            }
+        }
+    }
+
+    setItems([...items, {
+        productId: product.id,
+        productName: product.name,
+        quantity: qty
+    }]);
+    setSelectedProductId('');
+    setQty(1);
+  };
+
+  const handleRemoveItem = (index: number) => {
+    const newItems = [...items];
+    newItems.splice(index, 1);
+    setItems(newItems);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+
+    const validationResult = createStockTransferSchema.safeParse({ ...formData, items });
+    if (!validationResult.success) {
+        showToast(validationResult.error.issues[0].message, 'warning');
+        return;
+    }
+
+    setLoading(true);
+    try {
+        const transferNumber = `TRN-${Date.now().toString().slice(-6)}`;
+
+        // 1. إنشاء رأس التحويل في جدول stock_transfers
+        const { data: header, error: headerError } = await supabase.from('stock_transfers').insert({
+            transfer_number: transferNumber,
+            transfer_date: formData.date,
+            from_warehouse_id: formData.fromWarehouseId,
+            to_warehouse_id: formData.toWarehouseId,
+            notes: formData.notes,
+            organization_id: userOrgId,
+            status: 'posted' // ترحيل مباشر أو 'draft' حسب الحاجة
+        }).select().single();
+
+        if (headerError) throw headerError;
+
+        // 2. إنشاء بنود التحويل في جدول stock_transfer_items
+        const dbItems = items.map(item => ({
+            stock_transfer_id: header.id,
+            product_id: item.productId,
+            quantity: item.quantity,
+            organization_id: userOrgId
+        }));
+
+        const { error: itemsError } = await supabase.from('stock_transfer_items').insert(dbItems);
+        if (itemsError) throw itemsError;
+
+        // 3. تحديث الأرصدة في النظام
+        await recalculateStock();
+
+        setFormData({ ...formData, notes: '' });
+        setItems([]);
+        showToast('تمت عملية التحويل المخزني بنجاح ✅', 'success');
+    } catch (error) {
+        console.error(error);
+        showToast('حدث خطأ أثناء معالجة التحويل المخزني', 'error');
+    } finally {
+        setLoading(false);
+    }
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in">
+      <div className="flex justify-between items-center">
+        <div>
+            <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+                <ArrowRightLeft className="text-blue-600" /> تحويل مخزني
+            </h2>
+            <p className="text-slate-500">نقل البضاعة بين المستودعات والفروع</p>
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">تاريخ التحويل</label>
+                  <input type="date" required className="w-full border rounded-lg p-2.5" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
+              </div>
+              <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">من مستودع (المصدر)</label>
+                  <select required className="w-full border rounded-lg p-2.5" value={formData.fromWarehouseId} onChange={e => setFormData({...formData, fromWarehouseId: e.target.value})}>
+                      <option value="">-- اختر --</option>
+                      {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+              </div>
+              <div>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">إلى مستودع (المستلم)</label>
+                  <select required className="w-full border rounded-lg p-2.5" value={formData.toWarehouseId} onChange={e => setFormData({...formData, toWarehouseId: e.target.value})}>
+                      <option value="">-- اختر --</option>
+                      {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                  </select>
+              </div>
+          </div>
+
+          <div className="border-t pt-6">
+            <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+                <Package size={20} /> إضافة الأصناف
+            </h3>
+            
+            <div className="flex gap-2 mb-4 items-end">
+                <div className="flex-1">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">الصنف</label>
+                    <select 
+                        value={selectedProductId}
+                        onChange={e => setSelectedProductId(e.target.value)}
+                        className="w-full border rounded-lg p-2.5"
+                    >
+                        <option value="">اختر الصنف...</option>
+                        {products.map(p => <option key={p.id} value={p.id}>{p.name} (المتوفر: {p.stock})</option>)}
+                    </select>
+                </div>
+                <div className="w-32">
+                    <label className="block text-xs font-bold text-slate-500 mb-1">الكمية</label>
+                    <input 
+                        type="number" 
+                        min="1"
+                        value={qty}
+                        onChange={e => setQty(parseFloat(e.target.value))}
+                        className="w-full border rounded-lg p-2.5 text-center font-bold"
+                    />
+                </div>
+                <button 
+                    type="button" 
+                    onClick={handleAddItem}
+                    className="bg-blue-50 text-blue-600 px-4 py-2.5 rounded-lg hover:bg-blue-100 font-bold h-[42px]"
+                >
+                    <Plus />
+                </button>
+            </div>
+
+            {items.length > 0 && (
+                <table className="w-full text-right border rounded-lg overflow-hidden">
+                    <thead className="bg-slate-50 text-slate-600 font-bold text-sm">
+                        <tr>
+                            <th className="p-3">الصنف</th>
+                            <th className="p-3">الكمية</th>
+                            <th className="p-3 w-10"></th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                        {items.map((item, idx) => (
+                            <tr key={idx}>
+                                <td className="p-3 font-medium">{item.productName}</td>
+                                <td className="p-3 font-bold">{item.quantity}</td>
+                                <td className="p-3 text-center">
+                                    <button type="button" onClick={() => handleRemoveItem(idx)} className="text-red-500 hover:bg-red-50 p-1 rounded"><Trash2 size={18} /></button>
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            )}
+          </div>
+
+          <div className="pt-4 border-t border-slate-100 flex justify-end">
+              <button type="submit" disabled={loading} className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg hover:bg-blue-700 flex items-center gap-2">
+                  {loading ? <Loader2 className="animate-spin" /> : <Save size={20} />} إتمام التحويل
+              </button>
+          </div>
+      </form>
+    </div>
+  );
+};
+
+export default StockTransfer;
