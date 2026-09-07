@@ -1,16 +1,16 @@
 -- ==============================================================================
 -- تاريخ التحديث: 2026-09-07
--- الميزة / التعديل: إصلاح دالة صرف الروشتات الطبية (hims_dispense_prescription)
--- سبب الإصلاح: حل خطأ 404 (Not Found) وتوافق استدعاء الدالة بمعامل واحد أو معاملين
+-- الميزة / التعديل: حل تضارب دوال صرف الروشتات (Candidate Function Ambiguity)
+-- سبب الإصلاح: إزالة الازدواجية التي سببت خطأ "Could not choose the best candidate function"
 -- البيئة: بيئة تطوير معزولة
 -- ==============================================================================
 
--- 1. تنظيف التوقيعات القديمة المتضاربة لتجنب أخطاء تضارب المعاملات في PostgREST
+-- 1. حذف كافة النسخ والتوقيعات القديمة لإلغاء أي تضارب نهائياً
 DROP FUNCTION IF EXISTS public.hims_dispense_prescription(uuid);
 DROP FUNCTION IF EXISTS public.hims_dispense_prescription(uuid, uuid);
 DROP FUNCTION IF EXISTS public.hims_dispense_prescription(uuid, uuid, uuid);
 
--- 2. إنشاء الدالة الأساسية بمعاملين مع قيمة افتراضية للمستودع
+-- 2. إنشاء الدالة الواحدة الموحدة (تقبل استدعاءً بمعامل واحد أو معاملين بسلاسة تامة)
 CREATE OR REPLACE FUNCTION public.hims_dispense_prescription(
     p_prescription_id uuid, 
     p_warehouse_id uuid DEFAULT NULL
@@ -36,10 +36,11 @@ DECLARE
     v_mappings jsonb; 
     v_cost_price numeric; 
     v_journal_id uuid;
+    v_meds jsonb;
 BEGIN
-    -- أ. جلب معلومات الروشتة والمنظمة والزيارة
-    SELECT p.organization_id, p.visit_id, v.visit_type 
-      INTO v_org_id, v_visit_id, v_visit_type
+    -- أ. جلب بيانات الروشتة والأدوية والزيارة
+    SELECT p.organization_id, p.visit_id, v.visit_type, p.medications
+      INTO v_org_id, v_visit_id, v_visit_type, v_meds
       FROM public.hims_prescriptions p
       LEFT JOIN public.hims_visits v ON v.id = p.visit_id
      WHERE p.id = p_prescription_id;
@@ -49,11 +50,11 @@ BEGIN
     END IF;
 
     -- ب. التحقق المالي الذكي:
-    -- يُسمح بالصرف في الحالات التالية:
-    -- 1. وضع الاستعادة أو المحاكاة (app.restore_mode = 'on')
-    -- 2. المرضى المؤمن عليهم (Insurance)
-    -- 3. حالات الطوارئ والتنويم الداخلي (تُحاسب عند الخروج)
-    -- 4. الفواتير المسددة بالكامل أو جزئياً بالخزينة
+    -- يُسمح بالصرف فوراً إذا:
+    -- 1. وضع المحاكاة / الاستعادة مفعل (app.restore_mode = 'on')
+    -- 2. المريض لديه جهة تأمين مسجلة (Insurance)
+    -- 3. المريض حالة طوارئ أو تنويم داخلي (يُحاسب لاحقاً عند الخروج)
+    -- 4. الفاتورة مسددة بالكامل أو مسددة جزئياً بالخزينة
     SELECT payment_status, insurance_provider_id 
       INTO v_bill_status, v_ins_id 
       FROM public.hims_billing 
@@ -67,7 +68,7 @@ BEGIN
         END IF;
     END IF;
 
-    -- ج. تحديد المستودع (الممرر صراحة > إعدادات الصيدلية > أول مستودع متاح للمنظمة)
+    -- ج. تحديد المستودع (الممرر صراحة > إعدادات الصيدلية > أول مستودع متاح)
     v_final_wh_id := COALESCE(
         p_warehouse_id,
         (SELECT default_pharmacy_warehouse FROM public.hims_settings WHERE organization_id = v_org_id),
@@ -78,9 +79,8 @@ BEGIN
         RAISE EXCEPTION '⚠️ فشل الصرف: لم يتم العثور على مستودع صيدلية معرف لهذه المنظمة.';
     END IF;
 
-    -- د. جلب حسابات التكلفة والمخزون
+    -- د. جلب حسابات التكلفة والمخزون للربط المالي
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
-    
     IF v_mappings IS NOT NULL THEN
         BEGIN
             v_cogs_acc_id := public.resolve_leaf_account(COALESCE((v_mappings->>'COGS')::uuid, (SELECT id FROM public.accounts WHERE organization_id = v_org_id AND code = '511' LIMIT 1)));
@@ -91,77 +91,79 @@ BEGIN
         END;
     END IF;
 
-    -- هـ. التكرار على الأدوية وخصم المخزون
-    FOR v_med IN 
-        SELECT * FROM jsonb_to_recordset((SELECT medications FROM public.hims_prescriptions WHERE id = p_prescription_id)) 
-        AS x(product_id uuid, qty numeric)
-    LOOP
-        -- التحقق من صلاحية الدواء
-        IF EXISTS (
-            SELECT 1 FROM public.products 
-            WHERE id = v_med.product_id 
-              AND organization_id = v_org_id 
-              AND expiry_date IS NOT NULL 
-              AND expiry_date < CURRENT_DATE
-        ) THEN
-            RAISE EXCEPTION '⚠️ خطأ أمني: الدواء (%) منتهي الصلاحية ولا يمكن صرفه طبياً.', 
-                (SELECT name FROM public.products WHERE id = v_med.product_id);
-        END IF;
+    -- هـ. خصم الأدوية من المخزون
+    IF v_meds IS NOT NULL AND jsonb_array_length(v_meds) > 0 THEN
+        FOR v_med IN 
+            SELECT * FROM jsonb_to_recordset(v_meds) 
+            AS x(product_id uuid, qty numeric)
+        LOOP
+            -- 1. التأكد من تاريخ الصلاحية
+            IF EXISTS (
+                SELECT 1 FROM public.products 
+                WHERE id = v_med.product_id 
+                  AND organization_id = v_org_id 
+                  AND expiry_date IS NOT NULL 
+                  AND expiry_date < CURRENT_DATE
+            ) THEN
+                RAISE EXCEPTION '⚠️ خطأ أمني: الدواء (%) منتهي الصلاحية ولا يمكن صرفه طبياً.', 
+                    (SELECT name FROM public.products WHERE id = v_med.product_id);
+            END IF;
 
-        -- التحقق من توفر الرصيد
-        IF (SELECT COALESCE(stock, 0) FROM public.products WHERE id = v_med.product_id AND organization_id = v_org_id) < v_med.qty THEN
-            RAISE EXCEPTION '⚠️ عجز مخزني: لا يتوفر رصيد كافٍ للدواء (%). الرصيد المتوفر (%) فقط.', 
-                (SELECT name FROM public.products WHERE id = v_med.product_id),
-                (SELECT COALESCE(stock, 0) FROM public.products WHERE id = v_med.product_id AND organization_id = v_org_id);
-        END IF;
+            -- 2. التأكد من توفر الرصيد الكافي بالمخزن
+            IF (SELECT COALESCE(stock, 0) FROM public.products WHERE id = v_med.product_id AND organization_id = v_org_id) < v_med.qty THEN
+                RAISE EXCEPTION '⚠️ عجز مخزني: لا يتوفر رصيد كافٍ للدواء (%). الرصيد المتوفر (%) فقط.', 
+                    (SELECT name FROM public.products WHERE id = v_med.product_id),
+                    (SELECT COALESCE(stock, 0) FROM public.products WHERE id = v_med.product_id AND organization_id = v_org_id);
+            END IF;
 
-        SELECT name, sales_price, COALESCE(cost, 0) 
-          INTO v_product_name, v_sales_price, v_cost_price
-          FROM public.products 
-         WHERE id = v_med.product_id;
+            SELECT name, sales_price, COALESCE(cost, 0) 
+              INTO v_product_name, v_sales_price, v_cost_price
+              FROM public.products 
+             WHERE id = v_med.product_id;
 
-        -- 1. خصم الكمية من مخزن المنتجات
-        UPDATE public.products 
-           SET stock = stock - v_med.qty 
-         WHERE id = v_med.product_id 
-           AND organization_id = v_org_id;
+            -- خصم الكمية من رصيد المنتج
+            UPDATE public.products 
+               SET stock = stock - v_med.qty 
+             WHERE id = v_med.product_id 
+               AND organization_id = v_org_id;
 
-        -- 2. خصم التشغيلات FEFO إن وجدت
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'product_batches') THEN
-            DECLARE
-                v_rem numeric := v_med.qty;
-                v_b RECORD;
-            BEGIN
-                FOR v_b IN 
-                    SELECT id, quantity 
-                    FROM public.product_batches
-                    WHERE product_id = v_med.product_id 
-                      AND warehouse_id = v_final_wh_id
-                      AND quantity > 0
-                    ORDER BY expiry_date ASC, created_at ASC
-                LOOP
-                    EXIT WHEN v_rem <= 0;
-                    IF v_b.quantity >= v_rem THEN
-                        UPDATE public.product_batches SET quantity = quantity - v_rem WHERE id = v_b.id;
-                        v_rem := 0;
-                    ELSE
-                        UPDATE public.product_batches SET quantity = 0 WHERE id = v_b.id;
-                        v_rem := v_rem - v_b.quantity;
-                    END IF;
-                END LOOP;
-            END;
-        END IF;
+            -- خصم التشغيلات FEFO إن كانت مفعلة
+            IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'product_batches') THEN
+                DECLARE
+                    v_rem numeric := v_med.qty;
+                    v_b RECORD;
+                BEGIN
+                    FOR v_b IN 
+                        SELECT id, quantity 
+                        FROM public.product_batches
+                        WHERE product_id = v_med.product_id 
+                          AND warehouse_id = v_final_wh_id
+                          AND quantity > 0
+                        ORDER BY expiry_date ASC, created_at ASC
+                    LOOP
+                        EXIT WHEN v_rem <= 0;
+                        IF v_b.quantity >= v_rem THEN
+                            UPDATE public.product_batches SET quantity = quantity - v_rem WHERE id = v_b.id;
+                            v_rem := 0;
+                        ELSE
+                            UPDATE public.product_batches SET quantity = 0 WHERE id = v_b.id;
+                            v_rem := v_rem - v_b.quantity;
+                        END IF;
+                    END LOOP;
+                END;
+            END IF;
 
-        v_total_cogs := v_total_cogs + (v_cost_price * v_med.qty);
-    END LOOP;
+            v_total_cogs := v_total_cogs + (v_cost_price * v_med.qty);
+        END LOOP;
+    END IF;
 
-    -- و. تحديث حالة الروشتة إلى "مصروفة"
+    -- و. تحديث حالة الروشتة إلى "مصروفة" وتثبيت تاريخ الصرف
     UPDATE public.hims_prescriptions 
        SET status = 'dispensed', 
            dispensed_at = now() 
      WHERE id = p_prescription_id;
 
-    -- ز. تسجيل قيد تكلفة المخزون إذا توفرت الحسابات
+    -- ز. تسجيل قيد محاسبي لتكلفة البضاعة المباعة إن وُجدت حسابات
     IF v_total_cogs > 0.01 AND v_cogs_acc_id IS NOT NULL AND v_inv_acc_id IS NOT NULL THEN
         BEGIN
             INSERT INTO public.journal_entries (organization_id, transaction_date, description, reference, status, related_document_id, related_document_type, is_posted)
@@ -173,12 +175,11 @@ BEGIN
                 (v_journal_id, v_cogs_acc_id, v_total_cogs, 0, v_org_id, 'تكلفة أدوية مباعة'),
                 (v_journal_id, v_inv_acc_id, 0, v_total_cogs, v_org_id, 'تخفيض مخزون الصيدلية');
         EXCEPTION WHEN OTHERS THEN
-            -- لا نوقف عملية الصرف إذا كان هناك نقص في شجرة الحسابات
             NULL;
         END;
     END IF;
 
-    -- ح. إعادة احتساب الأرصدة والمخزون
+    -- ح. إعادة احتساب الأرصدة التراكمية
     BEGIN
         PERFORM public.recalculate_stock_rpc(v_org_id);
     EXCEPTION WHEN OTHERS THEN
@@ -187,21 +188,8 @@ BEGIN
 END;
 $$;
 
--- 3. إنشاء توقيع بديل بمعامل واحد (لضمان حل مشكلة 404 في PostgREST بشكل قطعي)
-CREATE OR REPLACE FUNCTION public.hims_dispense_prescription(p_prescription_id uuid)
-RETURNS void 
-LANGUAGE plpgsql 
-SECURITY DEFINER
-SET search_path = public
-AS $$
-BEGIN
-    PERFORM public.hims_dispense_prescription(p_prescription_id, NULL::uuid);
-END;
-$$;
-
--- 4. منح الصلاحيات لجميع الأدوار (authenticated و anon)
+-- 3. منح الصلاحيات لدور المستخدمين
 GRANT EXECUTE ON FUNCTION public.hims_dispense_prescription(uuid, uuid) TO authenticated, anon, service_role;
-GRANT EXECUTE ON FUNCTION public.hims_dispense_prescription(uuid) TO authenticated, anon, service_role;
 
--- 5. تحديث كاش واجهة PostgREST فوراً
+-- 4. إجبار PostgREST على تحديث الكاش فوراً
 NOTIFY pgrst, 'reload schema';
