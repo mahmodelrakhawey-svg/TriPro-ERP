@@ -2,10 +2,10 @@ import React from 'react';
 import { supabaseUrl } from '../supabaseClient';
 
 export const DevEnvironmentBanner: React.FC = () => {
-  // تظهر الشارة فقط إذا كنا في وضع التطوير المحلي أو متصلين بقاعدة بيانات التطوير
-  const isDev = import.meta.env.DEV || (supabaseUrl && supabaseUrl.includes('jsgmrspnthtlsracbmcq'));
+  // تظهر الشارة فقط وحصرياً إذا كان الاتصال بقاعدة بيانات التطوير المعزولة
+  const isDevDb = Boolean(supabaseUrl && supabaseUrl.includes('jsgmrspnthtlsracbmcq'));
   
-  if (!isDev) return null;
+  if (!isDevDb) return null;
 
   const dbRef = supabaseUrl ? supabaseUrl.replace('https://', '').split('.')[0] : 'dev';
 
