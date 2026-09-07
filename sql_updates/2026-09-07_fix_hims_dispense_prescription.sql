@@ -1,16 +1,19 @@
 -- ==============================================================================
 -- تاريخ التحديث: 2026-09-07
--- الميزة / التعديل: حل تضارب دوال صرف الروشتات (Candidate Function Ambiguity)
--- سبب الإصلاح: إزالة الازدواجية التي سببت خطأ "Could not choose the best candidate function"
+-- الميزة / التعديل: حل خطأ 400 وإضافة عمود dispensed_at وضبط دالة صرف الروشتات
+-- سبب الإصلاح: إضافة عمود dispensed_at الناقص في جدول hims_prescriptions ومنع تضارب الدوال
 -- البيئة: بيئة تطوير معزولة
 -- ==============================================================================
 
--- 1. حذف كافة النسخ والتوقيعات القديمة لإلغاء أي تضارب نهائياً
+-- 1. إضافة عمود توثيق وقت الصرف في جدول الروشتات إن لم يكن موجوداً
+ALTER TABLE public.hims_prescriptions ADD COLUMN IF NOT EXISTS dispensed_at timestamptz DEFAULT now();
+
+-- 2. حذف كافة النسخ والتوقيعات القديمة لإلغاء أي تضارب نهائياً
 DROP FUNCTION IF EXISTS public.hims_dispense_prescription(uuid);
 DROP FUNCTION IF EXISTS public.hims_dispense_prescription(uuid, uuid);
 DROP FUNCTION IF EXISTS public.hims_dispense_prescription(uuid, uuid, uuid);
 
--- 2. إنشاء الدالة الواحدة الموحدة (تقبل استدعاءً بمعامل واحد أو معاملين بسلاسة تامة)
+-- 3. إنشاء الدالة الواحدة الموحدة (تقبل استدعاءً بمعامل واحد أو معاملين بسلاسة تامة)
 CREATE OR REPLACE FUNCTION public.hims_dispense_prescription(
     p_prescription_id uuid, 
     p_warehouse_id uuid DEFAULT NULL
@@ -188,8 +191,8 @@ BEGIN
 END;
 $$;
 
--- 3. منح الصلاحيات لدور المستخدمين
+-- 4. منح الصلاحيات لدور المستخدمين
 GRANT EXECUTE ON FUNCTION public.hims_dispense_prescription(uuid, uuid) TO authenticated, anon, service_role;
 
--- 4. إجبار PostgREST على تحديث الكاش فوراً
+-- 5. إجبار PostgREST على تحديث الكاش فوراً
 NOTIFY pgrst, 'reload schema';
