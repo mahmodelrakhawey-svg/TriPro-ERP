@@ -26,7 +26,7 @@ type Item = {
   weighted_average_cost?: number; // متوسط التكلفة
   stock: number; // هذا هو حقل المخزون
   item_type?: string; 
-  product_type: 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL';
+  product_type: 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL' | 'INTERMEDIATE_PRODUCT';
   inventory_account_id: string | null;
   cogs_account_id: string | null;
   sales_account_id: string | null;
@@ -77,7 +77,7 @@ type ProductFormData = {
   base_uom_id: string;
   purchase_uom_id: string;
   sale_uom_id: string;
-  product_type: 'STOCK' | 'SERVICE' | 'RAW_MATERIAL' | 'MANUFACTURED';
+  product_type: 'STOCK' | 'SERVICE' | 'RAW_MATERIAL' | 'MANUFACTURED' | 'INTERMEDIATE_PRODUCT';
   inventory_account_id: string;
   cogs_account_id: string;
   sales_account_id: string;
