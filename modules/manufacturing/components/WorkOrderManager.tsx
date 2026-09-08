@@ -493,7 +493,7 @@ const WorkOrderManager = () => {
                           <label className="block text-sm font-bold mb-1">المنتج المراد تصنيعه</label>
                           <select required className="w-full border rounded p-2" value={formData.productId} onChange={e => setFormData({...formData, productId: e.target.value})}>
                               <option value="">-- اختر المنتج --</option>
-                              {products.filter(p => p.item_type === 'STOCK').map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                              {products.filter(p => p.item_type === 'STOCK' || p.item_type === 'MANUFACTURED' || (p as any).product_type === 'MANUFACTURED' || (p as any).product_type === 'INTERMEDIATE_PRODUCT').map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                           </select>
                       </div>
                       <div>
