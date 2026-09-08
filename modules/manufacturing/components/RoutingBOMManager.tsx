@@ -56,7 +56,8 @@ interface MfgProduct {
   id: string;
   name: string;
   unit?: string;
-  mfg_type?: 'standard' | 'raw' | 'subassembly';
+  mfg_type?: 'standard' | 'raw' | 'subassembly' | 'intermediate';
+  product_type?: string;
 }
 
 interface SearchableOption {
@@ -90,15 +91,59 @@ const RoutingBOMManager = () => {
 
   const productOptions: SearchableOption[] = useMemo(() => {
     return (allProducts as MfgProduct[])
-      .filter(p => p.mfg_type === 'standard' || (p as any).product_type === 'MANUFACTURED') 
-      .map(p => ({ id: p.id, name: p.name }));
+      .filter(p => 
+        p.mfg_type === 'standard' || 
+        p.mfg_type === 'subassembly' || 
+        p.mfg_type === 'intermediate' || 
+        (p as any).product_type === 'MANUFACTURED' || 
+        (p as any).product_type === 'INTERMEDIATE_PRODUCT'
+      ) 
+      .map(p => {
+        const isIntermediate = (p as any).product_type === 'INTERMEDIATE_PRODUCT' || p.mfg_type === 'subassembly' || p.mfg_type === 'intermediate';
+        return { 
+          id: p.id, 
+          name: isIntermediate ? `${p.name} (منتج وسيط)` : p.name 
+        };
+      });
   }, [allProducts]);
 
   const rawMaterialOptions: SearchableOption[] = useMemo(() => {
     return (allProducts as MfgProduct[])
-      .filter(p => p.mfg_type === 'raw' || (p as any).product_type === 'RAW_MATERIAL') 
-      .map(p => ({ id: p.id, name: p.name, code: p.unit || undefined }));
-  }, [allProducts]);
+      .filter(p => {
+        // منع اختيار المنتج لنفسه كمدخل لتفادي العلاقات الدائرية
+        if (selectedProductId && p.id === selectedProductId) return false;
+        
+        const pType = (p as any).product_type;
+        const mType = p.mfg_type;
+        
+        // إتاحة الخامات الأولية، المنتجات الوسيطة، المنتجات المصنعة، والأصناف المخزنية
+        return (
+          mType === 'raw' ||
+          mType === 'subassembly' ||
+          mType === 'intermediate' ||
+          mType === 'standard' ||
+          pType === 'RAW_MATERIAL' ||
+          pType === 'MANUFACTURED' ||
+          pType === 'INTERMEDIATE_PRODUCT' ||
+          pType === 'STOCK' ||
+          !pType
+        );
+      })
+      .map(p => {
+        const isSemiFinished = 
+          (p as any).product_type === 'MANUFACTURED' || 
+          (p as any).product_type === 'INTERMEDIATE_PRODUCT' ||
+          p.mfg_type === 'subassembly' || 
+          p.mfg_type === 'intermediate';
+        const isStock = (p as any).product_type === 'STOCK';
+        const badge = isSemiFinished ? ' 🍰 [منتج وسيط / مصنّع]' : isStock ? ' 📦 [صنف مخزني]' : '';
+        return { 
+          id: p.id, 
+          name: `${p.name}${badge}`, 
+          code: p.unit || undefined 
+        };
+      });
+  }, [allProducts, selectedProductId]);
 
   // --- Data Fetching ---
   const fetchWorkCenters = async () => {
@@ -348,7 +393,7 @@ const RoutingBOMManager = () => {
   // --- Step Material Management (BOM) ---
   const handleAddMaterialToStep = async (stepId: string, rawMaterialId: string, quantity: number) => {
     if (!rawMaterialId || quantity <= 0) {
-      showToast('الرجاء اختيار مادة خام وتحديد كمية صحيحة', 'warning');
+      showToast('الرجاء اختيار مادة خام أو منتج وسيط وتحديد كمية صحيحة', 'warning');
       return;
     }
     const preciseQuantity = Number(quantity.toFixed(4));
@@ -374,9 +419,9 @@ const RoutingBOMManager = () => {
         )
       );
       setNewMaterial({ raw_material_id: '', quantity_required: 0 }); // Clear form
-      showToast('تم إضافة المادة الخام للمرحلة', 'success');
+      showToast('تم إضافة المكون للمرحلة بنجاح', 'success');
     } catch (error: any) {
-      showToast('فشل إضافة المادة الخام: ' + error.message, 'error');
+      showToast('فشل إضافة المكون للمرحلة: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }
@@ -796,7 +841,7 @@ const RoutingBOMManager = () => {
                                   </tbody>
                                 </table>
                               ) : (
-                                <div className="text-center text-gray-500 py-2">لا توجد مواد خام معرفة لهذه المرحلة.</div>
+                                <div className="text-center text-gray-500 py-2">لا توجد مواد خام أو منتجات وسيطة معرفة لهذه المرحلة.</div>
                               )}
 
                               {/* Add new material form */}
@@ -806,7 +851,7 @@ const RoutingBOMManager = () => {
                                     options={rawMaterialOptions}
                                     value={newMaterial.raw_material_id} // Bind to newMaterial state
                                     onChange={(val) => setNewMaterial(prev => ({ ...prev, raw_material_id: val }))}
-                                    placeholder="اختر مادة خام"
+                                    placeholder="اختر مادة خام أو منتج وسيط..."
                                   />
                                 </div>
                                 <input

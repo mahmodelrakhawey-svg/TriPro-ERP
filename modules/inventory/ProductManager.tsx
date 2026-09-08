@@ -2365,6 +2365,7 @@ const ProductManager = () => {
                 <option value="all">-- كل أنواع الأصناف --</option>
                 <option value="RAW_MATERIAL">🥩 مواد خام وأولية (RAW_MATERIAL)</option>
                 <option value="MANUFACTURED">🍲 منتجات مصنعة / وجبات (MANUFACTURED)</option>
+                <option value="INTERMEDIATE_PRODUCT">🍰 منتجات وسيطة / نصف مصنعة (INTERMEDIATE)</option>
                 <option value="STOCK">📦 بضاعة مخزنية جاهزة (STOCK)</option>
                 <option value="SERVICE">⚙️ خدمات (SERVICE)</option>
             </select>
@@ -2460,6 +2461,10 @@ const ProductManager = () => {
                   ) : effectiveType === 'MANUFACTURED' ? (
                     <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200">
                       🍲 منتج مصنع
+                    </span>
+                  ) : effectiveType === 'INTERMEDIATE_PRODUCT' ? (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                      🍰 منتج وسيط
                     </span>
                   ) : effectiveType === 'SERVICE' ? (
                     <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
@@ -2592,11 +2597,11 @@ const ProductManager = () => {
                       <select 
                         value={formData.product_type} 
                         onChange={e => {
-                          const newType = e.target.value as 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL';
+                          const newType = e.target.value as 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL' | 'INTERMEDIATE_PRODUCT';
                           let updatedInvAcc = formData.inventory_account_id;
                           if (newType === 'RAW_MATERIAL') {
-                            updatedInvAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || formData.inventory_account_id;
-                          } else if (newType === 'STOCK' || newType === 'MANUFACTURED') {
+                            updatedInvAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || formData.inventory_account_id;
+                          } else if (newType === 'MANUFACTURED' || newType === 'INTERMEDIATE_PRODUCT') {
                             updatedInvAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || formData.inventory_account_id;
                           }
                           setFormData({
@@ -2610,6 +2615,7 @@ const ProductManager = () => {
                         <option value="STOCK">مخزوني (بضاعة)</option>
                         <option value="RAW_MATERIAL">خامة أولية (Raw Material)</option>
                         <option value="MANUFACTURED">منتج مصنع (Finished Good)</option>
+                        <option value="INTERMEDIATE_PRODUCT">منتج وسيط / نصف مصنع (Subassembly / Intermediate)</option>
                         <option value="SERVICE">خدمة (ليس لها مخزون)</option>
                       </select>
                     </div>
