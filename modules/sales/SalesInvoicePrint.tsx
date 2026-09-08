@@ -14,7 +14,7 @@ export const SalesInvoicePrint = ({ invoice, companySettings }: SalesInvoicePrin
   const rawItems = invoice.items || invoice.invoice_items || [];
   const itemsList = rawItems.map((item: any) => {
     const pName = item.productName || item.product_name || item.products?.name || item.name || 'صنف';
-    const uName = item.uomName || item.uom_name || item.uoms?.name || item.products?.uoms?.name || '-';
+    const uName = item.uomName || item.uom_name || item.uoms?.name || item.products?.uoms?.name || item.products?.uom?.name || item.products?.unit || '-';
     const qty = Number(item.quantity || 0);
     const price = Number(item.unitPrice ?? item.unit_price ?? item.price ?? 0);
     const tot = Number(item.total ?? (qty * price));

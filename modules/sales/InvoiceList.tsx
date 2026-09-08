@@ -367,7 +367,7 @@ export const InvoiceList = () => {
           *,
           customers(id, name, phone, address, tax_number),
           warehouses(id, name),
-          invoice_items(id, product_id, quantity, unit_price, total, cost, products(name, sku, uom:uoms(name)))
+          invoice_items(id, product_id, quantity, unit_price, total, cost, uoms(name), products(name, sku, unit, uom:uoms!base_uom_id(name)))
         `)
         .eq('id', invoice.id)
         .single();
