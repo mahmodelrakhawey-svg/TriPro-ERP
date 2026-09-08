@@ -55,7 +55,7 @@ const baseProductSchema = z.object({
   name: nameSchema,
   sku: z.string().max(50).optional(),
   unit: z.string().max(50).optional().default('piece'), // إضافة وحدة القياس
-  product_type: z.enum(['STOCK', 'SERVICE', 'RAW_MATERIAL', 'MANUFACTURED']),
+  product_type: z.enum(['STOCK', 'SERVICE', 'RAW_MATERIAL', 'MANUFACTURED', 'INTERMEDIATE_PRODUCT']),
   purchase_price: z.coerce.number().min(0, 'سعر الشراء يجب أن يكون أكبر من أو يساوي صفر').default(0),
   sales_price: z.coerce.number().min(0, 'سعر البيع يجب أن يكون أكبر من أو يساوي صفر').default(0),
   inventory_account_id: idSchema.optional(),
@@ -68,7 +68,7 @@ const baseProductSchema = z.object({
 });
 
 export const createProductSchema = baseProductSchema.refine(
-  (data) => data.sales_price >= data.purchase_price || data.product_type === 'SERVICE' || data.product_type === 'RAW_MATERIAL',
+  (data) => data.sales_price >= data.purchase_price || data.product_type === 'SERVICE' || data.product_type === 'RAW_MATERIAL' || data.product_type === 'INTERMEDIATE_PRODUCT',
   {
     message: 'سعر البيع يجب أن يكون أكبر من أو يساوي سعر الشراء',
     path: ['sales_price'],
