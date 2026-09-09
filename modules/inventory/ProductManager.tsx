@@ -622,6 +622,10 @@ const ProductManager = () => {
     showToast('جاري تجهيز الملف للتصدير...', 'info');
     try {
         let query = supabase.from('products').select('*');
+        if (targetOrgId) {
+          query = query.eq('organization_id', targetOrgId);
+        }
+        query = query.is('deleted_at', null);
         // تطبيق نفس الفلاتر المستخدمة في العرض الرئيسي
         query = queryModifier(query);
 

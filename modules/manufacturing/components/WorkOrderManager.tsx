@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
-import { Factory, Plus, Play, CheckCircle, XCircle, Save, DollarSign, Eye, BarChart3, Settings2, Printer } from 'lucide-react';
+import { Factory, Plus, Play, CheckCircle, XCircle, Save, DollarSign, Eye, BarChart3, Settings2, Printer, Trash2 } from 'lucide-react';
 import { z } from 'zod';
 import { useReactToPrint } from 'react-to-print';
 import StageLedger from './StageLedger';
@@ -10,8 +10,9 @@ import StageVarianceReport from '../reports/StageVarianceReport';
 import AdvancedCostingReports from '../reports/AdvancedCostingReports';
 
 const WorkOrderManager = () => {
-  const { products, warehouses, produceItem, settings } = useAccounting();
+  const { products, warehouses, produceItem, settings, organization, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
+  const activeOrgId = currentSelectedOrgId || organization?.id;
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -46,16 +47,44 @@ const WorkOrderManager = () => {
 
   useEffect(() => {
     fetchOrders();
-  }, []);
+  }, [activeOrgId]);
 
   const fetchOrders = async () => {
     setLoading(true);
-    const { data } = await supabase
+    let query = supabase
       .from('mfg_production_orders')
       .select('*, products(name, sku), warehouses(name)')
       .order('created_at', { ascending: false });
+
+    if (activeOrgId) {
+      query = query.eq('organization_id', activeOrgId);
+    }
+
+    const { data } = await query;
     setOrders(data || []);
     setLoading(false);
+  };
+
+  const handleDeleteOrder = async (id: string, orderNumber: string) => {
+    if (!window.confirm(`هل أنت متأكد من رغبتك في حذف أمر التشغيل (${orderNumber}) نهائياً؟`)) return;
+    try {
+      // حذف التكاليف والمراحل التابعة للأمر إن وجدت
+      await supabase.from('work_order_costs').delete().eq('work_order_id', id);
+      await supabase.from('mfg_order_steps').delete().eq('production_order_id', id);
+      await supabase.from('mfg_order_progress').delete().eq('production_order_id', id);
+
+      const { error } = await supabase.from('mfg_production_orders').delete().eq('id', id);
+      if (error) throw error;
+
+      showToast(`تم حذف أمر التشغيل ${orderNumber} بنجاح ✅`, 'success');
+      if (selectedOrder?.id === id) {
+        setViewMode('list');
+        setSelectedOrder(null);
+      }
+      fetchOrders();
+    } catch (err: any) {
+      showToast('فشل حذف أمر التشغيل: ' + err.message, 'error');
+    }
   };
 
   const fetchOrderSteps = async (orderId: string) => {
@@ -99,7 +128,8 @@ const WorkOrderManager = () => {
             start_date: formData.startDate,
             end_date: formData.endDate || null,
             notes: formData.notes,
-            status: 'draft'
+            status: 'draft',
+            organization_id: activeOrgId || undefined
         });
 
         if (error) throw error;
@@ -239,6 +269,15 @@ const WorkOrderManager = () => {
                 >
                     <Printer size={18} /> طباعة أمر الشغل
                 </button>
+                {selectedOrder && (
+                    <button 
+                        onClick={() => handleDeleteOrder(selectedOrder.id, selectedOrder.order_number)}
+                        className="bg-rose-50 text-rose-600 border border-rose-200 px-4 py-2 rounded-lg font-bold hover:bg-rose-100 flex items-center gap-2 shadow-sm transition-all"
+                        title="حذف هذا الأمر"
+                    >
+                        <Trash2 size={18} /> حذف الأمر
+                    </button>
+                )}
                 <button onClick={() => setViewMode('list')} className="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg font-bold hover:bg-slate-200">
                     عودة للقائمة
                 </button>
@@ -269,15 +308,22 @@ const WorkOrderManager = () => {
                             <td className="p-4 text-sm">{order.warehouses?.name}</td>
                             <td className="p-4 text-sm">{order.start_date}</td>
                             <td className="p-4">{getStatusBadge(order.status)}</td>
-                            <td className="p-4 flex justify-center gap-2">
-                                <button onClick={() => openDetails(order)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg" title="التفاصيل والتكاليف">
+                            <td className="p-4 flex justify-center items-center gap-1.5">
+                                <button onClick={() => openDetails(order)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="التفاصيل والتكاليف">
                                     <Eye size={18} />
                                 </button>
                                 {order.status === 'draft' && (
-                                    <button onClick={() => handleStatusChange(order.id, 'in_progress')} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg" title="بدء التشغيل">
+                                    <button onClick={() => handleStatusChange(order.id, 'in_progress')} className="p-2 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors" title="بدء التشغيل">
                                         <Play size={18} />
                                     </button>
                                 )}
+                                <button 
+                                    onClick={() => handleDeleteOrder(order.id, order.order_number)} 
+                                    className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors" 
+                                    title="حذف أمر التشغيل"
+                                >
+                                    <Trash2 size={18} />
+                                </button>
                             </td>
                         </tr>
                     ))}
