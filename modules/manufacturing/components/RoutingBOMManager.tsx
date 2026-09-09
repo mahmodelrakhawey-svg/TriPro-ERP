@@ -89,20 +89,36 @@ const RoutingBOMManager = () => {
     quantity_required: 0,
   });
 
-  const productOptions: SearchableOption[] = useMemo(() => {
-    return (allProducts as MfgProduct[])
+  const productOptions: any[] = useMemo(() => {
+    return (allProducts as any[])
       .filter(p => 
         p.mfg_type === 'standard' || 
         p.mfg_type === 'subassembly' || 
         p.mfg_type === 'intermediate' || 
-        (p as any).product_type === 'MANUFACTURED' || 
-        (p as any).product_type === 'INTERMEDIATE_PRODUCT'
+        p.product_type === 'MANUFACTURED' || 
+        p.product_type === 'INTERMEDIATE_PRODUCT' ||
+        p.item_type === 'MANUFACTURED' ||
+        p.category_id === 'e4d8bff6-a957-4ac5-a7bf-171ab8a6605c' ||
+        p.name.includes('ديسك') ||
+        p.name.includes('جناش') ||
+        p.name.includes('كريمة شانتيه') ||
+        p.name.includes('شربات')
       ) 
       .map(p => {
-        const isIntermediate = (p as any).product_type === 'INTERMEDIATE_PRODUCT' || p.mfg_type === 'subassembly' || p.mfg_type === 'intermediate';
+        const isIntermediate = 
+          p.product_type === 'INTERMEDIATE_PRODUCT' || 
+          p.mfg_type === 'subassembly' || 
+          p.mfg_type === 'intermediate' ||
+          p.category_id === 'e4d8bff6-a957-4ac5-a7bf-171ab8a6605c' ||
+          p.name.includes('ديسك') ||
+          p.name.includes('جناش') ||
+          p.name.includes('كريمة شانتيه') ||
+          p.name.includes('شربات');
+
         return { 
           id: p.id, 
-          name: isIntermediate ? `${p.name} (منتج وسيط)` : p.name 
+          name: isIntermediate ? `🍰 [منتج وسيط] ${p.name}` : `🎂 [منتج تام] ${p.name}`,
+          isIntermediate
         };
       });
   }, [allProducts]);
@@ -687,15 +703,63 @@ const RoutingBOMManager = () => {
         </div>
 
         {/* Product Selection */}
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="font-bold text-lg text-gray-800 mb-4 flex items-center gap-2">
-            <Package size={20} className="text-blue-600" /> اختيار المنتج المصنع
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
+          <h2 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+            <Package size={20} className="text-blue-600" /> اختيار المنتج لمراجعة مراحل التصنيع وقائمة المواد (BOM)
           </h2>
+
+          {/* Quick Click Badges / Shortcuts */}
+          <div className="space-y-3 p-4 bg-slate-50/80 rounded-xl border border-slate-200">
+            <div>
+              <span className="text-xs font-black text-amber-800 bg-amber-100 px-2.5 py-1 rounded-md mb-2 inline-block">
+                🍰 المنتجات الوسيطة ونصف المصنعة (اضغط للمراجعة الفورية للمسار والمكونات):
+              </span>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {productOptions.filter((p: any) => p.isIntermediate).map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setSelectedProductId(p.id)}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-bold transition-all border ${
+                      selectedProductId === p.id 
+                        ? 'bg-amber-600 text-white border-amber-700 shadow-sm ring-2 ring-amber-300' 
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-amber-50 hover:border-amber-300'
+                    }`}
+                  >
+                    {p.name.replace('🍰 [منتج وسيط] ', '')}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <span className="text-xs font-black text-purple-800 bg-purple-100 px-2.5 py-1 rounded-md mb-2 inline-block">
+                🎂 المنتجات النهائية التامة (اضغط للمراجعة الفورية للمسار والمكونات):
+              </span>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {productOptions.filter((p: any) => !p.isIntermediate).map(p => (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setSelectedProductId(p.id)}
+                    className={`text-xs px-3 py-1.5 rounded-lg font-bold transition-all border ${
+                      selectedProductId === p.id 
+                        ? 'bg-purple-600 text-white border-purple-700 shadow-sm ring-2 ring-purple-300' 
+                        : 'bg-white text-slate-700 border-slate-200 hover:bg-purple-50 hover:border-purple-300'
+                    }`}
+                  >
+                    {p.name.replace('🎂 [منتج تام] ', '')}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
           <SearchableSelect
             options={productOptions}
             value={selectedProductId || ''}
             onChange={setSelectedProductId}
-            placeholder="اختر منتجاً مصنعاً لإدارة مسار إنتاجه"
+            placeholder="أو ابحث بالاسم في قائمة المنتجات المصنعة والوسيطة..."
             className="w-full"
           />
         </div>
