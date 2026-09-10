@@ -13,6 +13,8 @@ export interface ReorderItemRecommendation {
   productName: string;
   sku: string;
   unit: string;
+  categoryId?: string;
+  categoryName?: string;
   currentStock: number;
   minSafetyStock: number;
   reorderQuantity: number;
@@ -29,17 +31,21 @@ class AutoReorderService {
    */
   public analyzeReorderNeeds(
     products: Product[],
-    suppliers: Array<{ id: string; name: string }>
+    suppliers: Array<{ id: string; name: string }>,
+    categories?: Array<{ id: string; name: string }>
   ): ReorderItemRecommendation[] {
     const recommendations: ReorderItemRecommendation[] = [];
 
     products.forEach(p => {
-      // فحص المواد الخام والسلع المخزنية
-      if (p.product_type !== 'RAW_MATERIAL' && p.product_type !== 'STOCK') return;
+      // استبعاد الخدمات والأصناف غير المخزنية
+      if (p.item_type === 'SERVICE' || (p as any).product_type === 'SERVICE') return;
 
       const currentStock = Number(p.stock || 0);
-      const minStock = Number((p as any).min_stock || (p as any).reorder_level || 10);
-      const targetMax = Number((p as any).max_stock || minStock * 3);
+      // فحص حد الطلب من الحقول المعتمدة في النظام
+      const minStock = Number((p as any).min_stock_level ?? (p as any).min_stock ?? (p as any).reorder_level ?? 0);
+      if (minStock <= 0) return;
+
+      const targetMax = Number((p as any).max_stock_level ?? (p as any).max_stock ?? (minStock * 2));
 
       if (currentStock <= minStock) {
         const neededQty = Math.max(1, targetMax - currentStock);
@@ -50,6 +56,9 @@ class AutoReorderService {
           ? suppliers.find(s => s.id === (p as any).supplier_id)
           : suppliers[0];
 
+        const category = categories?.find(c => c.id === (p as any).category_id);
+        const categoryName = category?.name || (p as any).category_name || (p as any).category || 'عام';
+
         const urgency: ReorderItemRecommendation['urgency'] =
           currentStock <= 0 ? 'CRITICAL' : currentStock <= minStock * 0.5 ? 'LOW_STOCK' : 'NORMAL';
 
@@ -58,6 +67,8 @@ class AutoReorderService {
           productName: p.name,
           sku: p.sku || '',
           unit: p.unit || 'وحدة',
+          categoryId: (p as any).category_id || undefined,
+          categoryName,
           currentStock,
           minSafetyStock: minStock,
           reorderQuantity: neededQty,
@@ -108,7 +119,7 @@ class AutoReorderService {
           order_date: new Date().toISOString().split('T')[0],
           status: 'draft',
           total_amount: totalAmount,
-          notes: `أمر شراء تم توليده تلقائياً وفق حد الأمان لنواقص المطبخ (${items.length} أصناف)`
+          notes: `أمر شراء تم توليده تلقائياً وفق حد الأمان لنواقص المخزون (${items.length} أصناف)`
         };
 
         let po: any = null;

@@ -175,6 +175,7 @@ const Sidebar: React.FC = () => {
     { to: '/purchase-invoices-list', label: 'سجل المشتريات', icon: Truck, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
     { to: '/purchase-order-new', label: 'أمر شراء جديد', icon: Plus, color: 'text-orange-400', module: 'purchases', permission: 'purchases.create' },
     { to: '/purchase-order-list', label: 'سجل أوامر الشراء', icon: ClipboardList, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
+    { to: '/purchases/auto-reorder', label: 'أوامر الشراء التلقائية (حد الأمان)', icon: Zap, color: 'text-orange-400', module: 'purchases', permission: 'purchases.create' },
     { to: '/purchase-return', label: 'مرتجع مشتريات', icon: RotateCw, color: 'text-orange-400', module: 'purchases', permission: 'purchases.delete' },
     { to: '/purchase-returns-list', label: 'سجل مرتجعات المشتريات', icon: List, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
     { to: '/debit-note', label: 'إشعار مدين للمورد', icon: FilePlus, color: 'text-orange-400', module: 'purchases', permission: 'purchases.create' },

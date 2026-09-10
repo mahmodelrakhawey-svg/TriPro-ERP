@@ -231,6 +231,7 @@ const TipsPoolManager = lazy(() => import('./modules/restaurant/components/Manag
 const MultiChannelPricingManager = lazy(() => import('./modules/restaurant/components/Management/MultiChannelPricingManager'));
 const CustomerWinBackManager = lazy(() => import('./modules/restaurant/components/Management/CustomerWinBackManager'));
 const AutoReorderManager = lazy(() => import('./modules/restaurant/components/Management/AutoReorderManager'));
+const AutoReorderPurchases = lazy(() => import('./modules/purchases/AutoReorderPurchases'));
 const RestaurantSalesReport = lazy(() => import('./modules/restaurant/reports/RestaurantSalesReport'));
 const SalesByUserReport = lazy(() => import('./modules/restaurant/reports/SalesByUserReport'));
 const WastageAnalysisReport = lazy(() => import('./modules/restaurant/reports/WastageAnalysisReport'));
@@ -564,6 +565,7 @@ const MainLayout = () => {
                 <Route path="/purchase-invoices-list" element={<ModuleGuard module="purchases"><PurchaseInvoiceList /></ModuleGuard>} />
                 <Route path="/purchase-order-new" element={<ModuleGuard module="purchases"><PurchaseOrderForm /></ModuleGuard>} />
                 <Route path="/purchase-order-list" element={<ModuleGuard module="purchases"><PurchaseOrderList /></ModuleGuard>} />
+                <Route path="/purchases/auto-reorder" element={<ModuleGuard module="purchases"><AutoReorderPurchases /></ModuleGuard>} />
                 <Route path="/purchase-return" element={<ModuleGuard module="purchases"><PurchaseReturnForm /></ModuleGuard>} />
                 <Route path="/purchase-returns-list" element={<ModuleGuard module="purchases"><PurchaseReturnsList /></ModuleGuard>} />
                 <Route path="/debit-note" element={<ModuleGuard module="purchases"><DebitNoteForm /></ModuleGuard>} />

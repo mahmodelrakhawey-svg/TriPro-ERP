@@ -287,6 +287,7 @@ export interface Product {
   min_stock_level?: number;
   category_id?: string;
   category?: string;
+  supplier_id?: string | null;
   is_manufactured?: boolean;
   bom?: { productId: string; quantity: number }[];
   product_type: string;

@@ -669,12 +669,33 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };  const addProduct = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { data: p, error } = await supabase.from('products').insert({ ...data, organization_id: targetOrgId }).select().single();
+    const payload = { ...data, organization_id: targetOrgId };
+    const hasSupplierCol = products.length > 0 ? ('supplier_id' in products[0]) : false;
+    if (!hasSupplierCol) {
+      delete payload.supplier_id;
+    }
+    let { data: p, error } = await supabase.from('products').insert(payload).select().single();
+    if (error && (error.message?.includes('supplier_id') || error.code === 'PGRST204')) {
+      delete payload.supplier_id;
+      const res = await supabase.from('products').insert(payload).select().single();
+      p = res.data;
+      error = res.error;
+    }
     if (error) throw error;
     await refreshData(); return p; 
   };
    const updateProduct = async (id: string, data: any) => { 
-    const { error } = await supabase.from('products').update(data).eq('id', id);
+    const payload = { ...data };
+    const hasSupplierCol = products.length > 0 ? ('supplier_id' in products[0]) : false;
+    if (!hasSupplierCol) {
+      delete payload.supplier_id;
+    }
+    let { error } = await supabase.from('products').update(payload).eq('id', id);
+    if (error && (error.message?.includes('supplier_id') || error.code === 'PGRST204')) {
+      delete payload.supplier_id;
+      const res = await supabase.from('products').update(payload).eq('id', id);
+      error = res.error;
+    }
     if (error) throw error;
     refreshData(); 
   };
