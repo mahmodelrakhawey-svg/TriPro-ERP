@@ -1,62 +1,49 @@
-# 🛡️ دليل العمل الآمن بين بيئتي التطوير والإنتاج (Safe Workflow Guide)
+# 🛡️ دليل العمل الآمن وتوزيع البيئات (TriPro ERP Multi-Environment & Deployment Guide)
 
-مرحباً بك! هذا الدليل يوضح لك ببساطة كيف تعمل وتطور ميزات جديدة بدون أي قلق أو خوف من التأثير على نظام الإنتاج أو موقع العملاء.
-
----
-
-## 🏗️ 1. البيئتان لديك الآن:
-
-| البيئة | المجلد | قاعدة البيانات | هل يمكن الرفع لـ Vercel؟ |
-| :--- | :--- | :--- | :--- |
-| **التطوير (Development)** | `C:\Users\pc\Desktop\TriPro-ERP` | الجديدة المعزولة (`jsgmrspnthtlsracbmcq`) | ❌ **مستحيل (مقفول بأمان)** |
-| **الإنتاج (Production)** | `F:\نسخه منضبطه من البرنامج\...` | الأصلية الحية (`pjvphxfschfllpawfewn`) | ✅ نعم (هو المخول الوحيد بالرفع) |
+تم تسجيل وتثبيت هذا الدليل ليكون المرجع الأساسي المعتمد في جميع عمليات التطوير والرفع دون الحاجة للتذكير المتكرر.
 
 ---
 
-## 💻 2. كيفية العمل اليومي في مجلد التطوير:
+## 🏗️ 1. خريطة البيئات وقواعد البيانات:
 
-1. افتح الـ Terminal في مجلد التطوير وشغل السيرفر:
-   ```powershell
-   npm run dev
-   ```
-2. جرّب وعدّل وطوّر براحتك.
-3. **لحفظ نقطة استعادة محلية (مثل حفظ اللعبة Save Game):**
-   ```powershell
-   git add .
-   git commit -m "وصف ما قمت به"
-   ```
-4. **لو حدث خطأ وأردت التراجع عن كل التعديلات غير المحفوظة فوراً:**
-   ```powershell
-   git restore .
-   ```
-5. **لو كتبت `git push` بالخطأ:**
-   * سيرفض Git العملية فوراً، ولن يُرسل أي شيء للإنترنت إطلاقاً.
+| البيئة | المجلد المحلي | قاعدة البيانات (Supabase) | النطاق المباشر على Vercel | الغرض والاستخدام |
+| :--- | :--- | :--- | :--- | :--- |
+| **التطوير / حلواني لينزا** | `C:\Users\pc\Desktop\TriPro-ERP` | `jsgmrspnthtlsracbmcq.supabase.co` | [tri-pro-erp-malak.vercel.app](https://tri-pro-erp-malak.vercel.app) | بيئة التطوير النشطة، والبيئة التشغيلية لشركة حلواني لينزا |
+| **الإنتاج العام (Master)** | `F:\نسخه منضبطه من البرنامج\نسخه 7 سبتمبر 2026\TriPro-Production` | `pjvphxfschfllpawfewn.supabase.co` | [tri-pro-erp.vercel.app](https://tri-pro-erp.vercel.app) | بيئة الإنتاج العامة للنظام المربوطة بمستودع GitHub الرئيسي |
 
 ---
 
-## 🗄️ 3. إذا قمت بتعديل في قاعدة البيانات:
-* لا تعدل قاعدة الإنتاج مباشرة.
-* احفظ كود الـ SQL في مجلد:
-  ```text
-  sql_updates/YYYY-MM-DD_اسم_الميزة.sql
-  ```
-* طبّقه على قاعدة التطوير فقط أثناء الاختبار.
+## 🔄 2. آلية العمل والرفع التلقائي (Standard Operating Procedure):
 
----
+نظراً لأن مشروعي Vercel (`tri-pro-erp` و `tri-pro-erp-malak`) مرتبطان بنفس مستودع GitHub (`mahmodelrakhawey-svg/TriPro-ERP.git`) وكل منهما يستخدم متغيرات البيئة الخاصة بقاعدته:
 
-## 🚀 4. كيف تنقل الميزة إلى الإنتاج عند الانتهاء منها؟
+1. **مرحلة التطوير والاختبار:**
+   - يتم التطوير وإجراء التعديلات في مجلد: `C:\Users\pc\Desktop\TriPro-ERP`.
+   - يتم اختبار الميزات والتحقق من `npm run build` ومطابقة الأنواع TypeScript.
+   - يتم عمل Commit محلي لحفظ التعديلات في مجلد التطوير.
 
-عندما تنتهي من فحص الميزة وتصبح جاهزة 100%:
-1. قم بتشغيل سكريبت النقل الآمن:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts/sync-to-production.ps1
-   ```
-   *(هذا السكريبت يقوم بنسخ الأكواد الجديدة فقط، ويستثني ملف `.env` تلقائياً ليظل الإنتاج متصلاً بقاعدته الأصلية).*
-2. إذا كان هناك ملف SQL جديد في `sql_updates`، شغله على قاعدة بيانات الإنتاج.
-3. افتح مجلد الإنتاج، وجرب النظام للتأكيد.
-4. ارفع التحديث للعملاء عبر Vercel من مجلد الإنتاج:
-   ```powershell
-   git add .
-   git commit -m "إطلاق الميزة الجديدة"
-   git push
-   ```
+2. **مرحلة المزامنة والرفع (Sync & Deploy):**
+   - عند اكتمال العمل، يتم تشغيل المزامنة إلى مجلد الإنتاج:
+     ```powershell
+     $SourceDir = "C:\Users\pc\Desktop\TriPro-ERP"
+     $TargetDir = "F:\نسخه منضبطه من البرنامج\نسخه 7 سبتمبر 2026\TriPro-Production"
+     $ExcludeFiles = @(".env", ".env.*", "npm-debug.log*")
+     $ExcludeDirs  = @(".git", "node_modules", ".vercel", "dist", "scratch", ".vite")
+     $roboParams = @($SourceDir, $TargetDir, "/E", "/XO", "/FFT", "/XF") + $ExcludeFiles + @("/XD") + $ExcludeDirs + @("/R:1", "/W:1", "/NP")
+     robocopy @roboParams
+     ```
+   - يتم عمل Commit ثم `git push origin main` من مجلد الإنتاج:
+     ```powershell
+     git -C "F:\نسخه منضبطه من البرنامج\نسخه 7 سبتمبر 2026\TriPro-Production" add .
+     git -C "F:\نسخه منضبطه من البرنامج\نسخه 7 سبتمبر 2026\TriPro-Production" commit -m "وصف التحديث"
+     git -C "F:\نسخه منضبطه من البرنامج\نسخه 7 سبتمبر 2026\TriPro-Production" push origin main
+     ```
+   - **النتيجة التلقائية:** يقوم Vercel فوراً ببناء ونشر النسخة الجديدة لكل من:
+     - موقع **حلواني لينزا** (`tri-pro-erp-malak.vercel.app`).
+     - موقع **الإنتاج العام** (`tri-pro-erp.vercel.app`).
+
+3. **تحديثات قاعدة البيانات (Database Migrations):**
+   - أي ملف في `sql_updates/` يتم تطبيقه على:
+     - قاعدة لينزا (`jsgmrspnthtlsracbmcq`) لتفعيل الميزات لدى العميل.
+     - قاعدة الإنتاج (`pjvphxfschfllpawfewn`) لضمان تزامن الجداول.
+
