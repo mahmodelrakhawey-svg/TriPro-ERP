@@ -63,6 +63,7 @@ type Item = {
   max_stock_level?: number | null;
   wholesale_price?: number | null;
   half_wholesale_price?: number | null;
+  supplier_id?: string | null;
 };
 
 // Define a type for the formData state to ensure consistency
@@ -112,11 +113,12 @@ type ProductFormData = {
   max_stock_level: number;
   wholesale_price: number;
   half_wholesale_price: number;
+  supplier_id?: string | null;
 };
 
 const ProductManager = () => {
   const queryClient = useQueryClient();
-  const { accounts: contextAccounts, getSystemAccount, refreshData, deleteProduct, updateProduct, currentUser, products: contextProducts, warehouses, can, categories, addProduct, addEntry, settings, recalculateStock, currentSelectedOrgId } = useAccounting();
+  const { accounts: contextAccounts, getSystemAccount, refreshData, deleteProduct, updateProduct, currentUser, products: contextProducts, warehouses, can, categories, addProduct, addEntry, settings, recalculateStock, currentSelectedOrgId, suppliers } = useAccounting();
   const { showToast } = useToast();
   
   // نقلنا تعريفات الحالة للأعلى لمنع خطأ TS2448 (Used before declaration)
@@ -165,6 +167,11 @@ const ProductManager = () => {
   // استخدام Hook التصفح
   const targetOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
   const { data: serverItems, loading: serverLoading, page, setPage, totalPages, totalCount, refresh } = usePagination<Item>('products', { select: '*', pageSize: 20, orderBy: 'name', ascending: true, organizationId: targetOrgId }, queryModifier);
+
+  const hasSupplierColumn = Boolean(
+    (serverItems && serverItems.length > 0 && 'supplier_id' in (serverItems[0] || {})) ||
+    (contextProducts && contextProducts.length > 0 && 'supplier_id' in (contextProducts[0] || {}))
+  );
 
   useEffect(() => {
     const fetchUoms = async () => {
@@ -341,6 +348,7 @@ const ProductManager = () => {
     max_stock_level: 0,
     wholesale_price: 0,
     half_wholesale_price: 0,
+    supplier_id: null,
   });
 
   // 🚀 تحديث تلقائي لسعر التكلفة التقديري بناءً على العمالة والمصاريف (للوجبات)
@@ -548,6 +556,7 @@ const ProductManager = () => {
         max_stock_level: Number((item as any).max_stock_level || 0),
         wholesale_price: Number((item as any).wholesale_price || 0),
         half_wholesale_price: Number((item as any).half_wholesale_price || 0),
+        supplier_id: (item as any).supplier_id || null,
       };
       setFormData(productDataToSet);
     } else {
@@ -603,6 +612,7 @@ const ProductManager = () => {
         max_stock_level: 0,
         wholesale_price: 0,
         half_wholesale_price: 0,
+        supplier_id: null,
       });
     }
     setIsModalOpen(true);
@@ -1517,6 +1527,7 @@ const ProductManager = () => {
             max_stock_level: Number(formData.max_stock_level) || 0,
             wholesale_price: Number(formData.wholesale_price) || 0,
             half_wholesale_price: Number(formData.half_wholesale_price) || 0,
+            ...(hasSupplierColumn ? { supplier_id: formData.supplier_id || null } : {}),
         };
         await updateProduct(editingId, itemData);
 
@@ -1657,6 +1668,7 @@ const ProductManager = () => {
           max_stock_level: Number(formData.max_stock_level) || 0,
           wholesale_price: Number(formData.wholesale_price) || 0,
           half_wholesale_price: Number(formData.half_wholesale_price) || 0,
+          ...(hasSupplierColumn ? { supplier_id: formData.supplier_id || null } : {}),
         };
 
         const newProduct = await addProduct(productPayload as any); // Use handleError for consistency
@@ -1879,6 +1891,7 @@ const ProductManager = () => {
         max_stock_level: Number((item as any).max_stock_level || 0),
         wholesale_price: Number((item as any).wholesale_price || 0),
         half_wholesale_price: Number((item as any).half_wholesale_price || 0),
+        supplier_id: (item as any).supplier_id || null,
       });
       setIsModalOpen(true);
   };
@@ -2456,6 +2469,11 @@ const ProductManager = () => {
                   {item.category_id && (
                       <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-medium">{categories.find(c => c.id === item.category_id)?.name || '-'}</span>
                   )}
+                  {(item as any).supplier_id && (
+                      <span className="block mt-1 text-[11px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 font-medium">
+                        🏢 {suppliers?.find((s: any) => s.id === (item as any).supplier_id)?.name || 'مورد محدد'}
+                      </span>
+                  )}
                 </td>
                 <td className="p-4">
                   {effectiveType === 'RAW_MATERIAL' ? (
@@ -2857,6 +2875,23 @@ const ProductManager = () => {
                             </>
                         )}
                     </div>
+                  </div>
+                  <div>
+                    <SearchableSelect
+                        label="المورد المفضل (المشتريات وإعادة الطلب)"
+                        options={(suppliers || []).map((s: any) => ({ 
+                            id: s.id, 
+                            name: s.name + (s.contact_person ? ` (${s.contact_person})` : '') + (s.phone ? ` - ${s.phone}` : '')
+                        }))}
+                        value={formData.supplier_id || ''}
+                        onChange={value => setFormData({...formData, supplier_id: value || null})}
+                        placeholder="اختر المورد المعتمد / المفضل للصنف..."
+                    />
+                    {!hasSupplierColumn && (
+                        <span className="text-[11px] text-amber-600 block mt-1">
+                          ⚠️ يتطلب تشغيل استعلام SQL في Supabase لتفعيل عمود المورد المفضل في قاعدة البيانات.
+                        </span>
+                    )}
                   </div>
                       <div className="col-span-2">
                         <label className="block text-sm font-bold mb-1 text-slate-700">الوصف (Description)</label>
