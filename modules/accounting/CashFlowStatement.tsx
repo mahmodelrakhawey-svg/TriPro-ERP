@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
-import { Banknote, Filter, Printer, Loader2, Download } from 'lucide-react';
+import { Banknote, Filter, Printer, Loader2, Download, Info } from 'lucide-react';
 
 type Account = {
   id: string;
@@ -17,12 +17,19 @@ type CashFlowRow = {
   isTotal?: boolean;
 };
 
+type NonCashDisclosure = {
+  label: string;
+  amount: number;
+  notes: string;
+};
+
 const CashFlowStatement = () => {
   const { currentUser } = useAccounting();
   const { showToast } = useToast();
   const [operatingRows, setOperatingRows] = useState<CashFlowRow[]>([]);
   const [investingRows, setInvestingRows] = useState<CashFlowRow[]>([]);
   const [financingRows, setInvestingRowsFinancing] = useState<CashFlowRow[]>([]);
+  const [nonCashDisclosures, setNonCashDisclosures] = useState<NonCashDisclosure[]>([]);
   const [netCashFlow, setNetCashFlow] = useState(0);
   const [openingCashBalance, setOpeningCashBalance] = useState(0);
   const [closingCashBalance, setClosingCashBalance] = useState(0);
@@ -79,7 +86,7 @@ const CashFlowStatement = () => {
         movements[line.account_id] = current + (Number(line.debit) || 0) - (Number(line.credit) || 0);
       });
 
-      // دوال مساعدة لتصنيف الحسابات بدقة متناهية
+      // دوال مساعدة لتصنيف الحسابات بدقة متناهية وفق معايير المحاسبة (IAS 7)
       const isCashAccount = (acc: any) => {
         const code = String(acc.code || '').trim();
         const name = String(acc.name || '').toLowerCase();
@@ -92,7 +99,21 @@ const CashFlowStatement = () => {
           name.includes('محفظة') || name.includes('محفظه') || name.includes('فودافون كاش') ||
           name.includes('اورنج كاش') || name.includes('أورنج كاش') || name.includes('اتصالات كاش') ||
           name.includes('انستا باي') || name.includes('insta') ||
-          code.startsWith('123') || code.startsWith('101') || code.startsWith('1101')
+          code.startsWith('123') || code.startsWith('101')
+        );
+      };
+
+      // فحص الحسابات الوسيطة للأرصدة الافتتاحية لاستبعادها من التدفقات النقدية (غير نقدية - IAS 7 الفقرة 43)
+      const isNonCashSuspenseAccount = (acc: any) => {
+        const code = String(acc.code || '').trim();
+        const name = String(acc.name || '').toLowerCase();
+        return (
+          code === '3999' ||
+          code.startsWith('39') ||
+          name.includes('أرصدة افتتاحية') ||
+          name.includes('ارصدة افتتاحية') ||
+          name.includes('حساب وسيط') ||
+          name.includes('تسوية افتتاحية')
         );
       };
 
@@ -116,6 +137,9 @@ const CashFlowStatement = () => {
 
         if (isCashAccount(acc)) return false;
 
+        // مجمع الإهلاك هو حساب ميزانية مقابل (Contra-Asset) يُعالج ضمن تسويات الإهلاك في الأنشطة التشغيلية
+        if (name.includes('مجمع إهلاك') || name.includes('مجمع الاهلاك') || type.includes('depreciation')) return false;
+
         // الأصول المتداولة صراحة (تشغيلية)
         const isExplicitCurrent = (
           code.startsWith('10') || // مخزون ومشروعات تحت التنفيذ
@@ -137,8 +161,8 @@ const CashFlowStatement = () => {
           'أصول ثابتة', 'أصل ثابت', 'مباني', 'مبنى', 'أراضي', 'أرض', 'عقارات', 'عقار',
           'سيارات', 'سيارة', 'مركبات', 'شاحنات', 'وسائل النقل', 'آلات', 'معدات', 'أجهزة',
           'أثاث', 'تجهيزات', 'حاسب', 'كمبيوتر', 'برمجيات', 'مصاريف تأسيس', 'شهرة',
-          'أصول غير ملموسة', 'استثمارات طويلة', 'fixed assets', 'equipment', 'machinery',
-          'vehicles', 'furniture', 'buildings', 'land'
+          'أصول غير ملموسة', 'استثمارات طويلة', 'حفارة', 'حفار', 'معدات ثقيلة', 'أصل',
+          'fixed assets', 'equipment', 'machinery', 'vehicles', 'furniture', 'buildings', 'land'
         ];
 
         const hasFixedKeyword = fixedAssetKeywords.some(k => name.includes(k));
@@ -160,6 +184,7 @@ const CashFlowStatement = () => {
       const operating: CashFlowRow[] = [{ label: 'صافي الربح قبل الضرائب', amount: netIncome, isTotal: true }];
       const investing: CashFlowRow[] = [];
       const financing: CashFlowRow[] = [];
+      const nonCashList: NonCashDisclosure[] = [];
 
       accounts.forEach(acc => {
         const movement = movements[acc.id] || 0;
@@ -169,6 +194,16 @@ const CashFlowStatement = () => {
         const code = acc.code ? acc.code.toString().trim() : '';
         const name = acc.name.toLowerCase();
         const firstDigit = code.charAt(0);
+
+        // رصد واستبعاد حسابات التسوية الافتتاحية غير النقدية (IAS 7 الفقرة 43)
+        if (isNonCashSuspenseAccount(acc)) {
+          nonCashList.push({
+            label: `تسويات أرصدة افتتاحية غير نقدية (${acc.name})`,
+            amount: Math.abs(movement),
+            notes: 'معاملة دفتريّة غير نقدية مستبعدة من صلب التدفقات النقدية وفق معيار IAS 7 الفقرة 43'
+          });
+          return; // استبعاد كامل من التدفقات النقدية
+        }
 
         // استبعاد حسابات النقدية والبنوك وقائمة الدخل من عناصر رأس المال العامل
         if (isCashAccount(acc) || isPnlAccount(acc)) return;
@@ -218,7 +253,7 @@ const CashFlowStatement = () => {
           name.includes('جاري الشركاء') ||
           name.includes('توزيعات')
         ) {
-          // استبعاد الأرباح المرحلة وحسابات الدخل لتجنب التكرار مع صافي الدخل
+          // استبعاد الأرباح المرحلة وحسابات الدخل والحسابات الوسيطة الافتتاحية
           if (!type.includes('retained') && !name.includes('مرحلة') && !name.includes('مرحل') && !name.includes('صافي الربح') && !name.includes('أرباح العام')) {
             financing.push({ label: `التغير في ${acc.name}`, amount: -movement });
           }
@@ -228,12 +263,15 @@ const CashFlowStatement = () => {
       setOperatingRows(operating);
       setInvestingRows(investing);
       setInvestingRowsFinancing(financing);
+      setNonCashDisclosures(nonCashList);
 
-      // 6. حساب رصيد النقدية أول المدة من الحسابات النقدية الفعلية
+      // 6. حساب رصيد النقدية أول المدة وآخر المدة من الحسابات النقدية الفعلية بالدفتر
       const cashAccountIds = accounts.filter(isCashAccount).map(a => a.id);
 
       let openingCash = 0;
+      let closingCashActual = 0;
       if (cashAccountIds.length > 0) {
+        // رصيد النقدية أول المدة
         const { data: openingData } = await supabase
           .from('journal_lines')
           .select('debit, credit, journal_entries!inner(status, transaction_date, organization_id)')
@@ -245,16 +283,29 @@ const CashFlowStatement = () => {
         if (openingData) {
           openingCash = openingData.reduce((sum, line) => sum + ((Number(line.debit) || 0) - (Number(line.credit) || 0)), 0);
         }
+
+        // رصيد النقدية آخر المدة الفعلي
+        const { data: closingData } = await supabase
+          .from('journal_lines')
+          .select('debit, credit, journal_entries!inner(status, transaction_date, organization_id)')
+          .in('account_id', cashAccountIds)
+          .eq('journal_entries.status', 'posted')
+          .eq('journal_entries.organization_id', userOrgId)
+          .lte('journal_entries.transaction_date', endDate);
+
+        if (closingData) {
+          closingCashActual = closingData.reduce((sum, line) => sum + ((Number(line.debit) || 0) - (Number(line.credit) || 0)), 0);
+        }
       }
 
       const totalOperating = operating.reduce((sum, r) => sum + r.amount, 0);
       const totalInvesting = investing.reduce((sum, r) => sum + r.amount, 0);
       const totalFinancing = financing.reduce((sum, r) => sum + r.amount, 0);
       
-      const netChange = totalOperating + totalInvesting + totalFinancing;
-      setNetCashFlow(netChange);
+      const netChangeCalculated = totalOperating + totalInvesting + totalFinancing;
+      setNetCashFlow(netChangeCalculated);
       setOpeningCashBalance(openingCash);
-      setClosingCashBalance(openingCash + netChange);
+      setClosingCashBalance(closingCashActual || (openingCash + netChangeCalculated));
 
     } catch (error: any) {
       showToast('فشل تحميل قائمة التدفقات النقدية: ' + error.message, 'error');
@@ -298,6 +349,13 @@ const CashFlowStatement = () => {
     csvRows.push(['صافي التغير في النقدية', netCashFlow.toFixed(2)]);
     csvRows.push(['رصيد النقدية أول المدة', openingCashBalance.toFixed(2)]);
     csvRows.push(['رصيد النقدية آخر المدة', closingCashBalance.toFixed(2)]);
+
+    // إفصاح المعاملات غير النقدية (IAS 7 الفقرة 43)
+    if (nonCashDisclosures.length > 0) {
+      csvRows.push(['', '']);
+      csvRows.push(['إفصاح المعاملات الاستثمارية والتمويلية غير النقدية (IAS 7)', '']);
+      nonCashDisclosures.forEach(row => csvRows.push([`"${row.label} - ${row.notes}"`, row.amount.toFixed(2)]));
+    }
 
     const csvContent = [headers.join(','), ...csvRows.map(r => r.join(','))].join('\n');
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -443,6 +501,32 @@ const CashFlowStatement = () => {
                 </div>
             </div>
         </div>
+
+        {/* إفصاح المعاملات غير النقدية الهامة وفق معيار المحاسبة الدولي IAS 7 (الفقرة 43) */}
+        {nonCashDisclosures.length > 0 && (
+          <div className="mt-8 border border-blue-200 bg-blue-50/50 rounded-xl p-5 print:border-slate-300">
+            <h3 className="text-base font-bold text-blue-900 mb-2 flex items-center gap-2">
+              <Info size={18} className="text-blue-600" />
+              إفصاح المعاملات الاستثمارية والتمويلية غير النقدية (IAS 7 الفقرة 43)
+            </h3>
+            <p className="text-xs text-blue-700/80 mb-3 leading-relaxed">
+              وفقاً لمعايير المحاسبة الدولية، تُستبعد المعاملات غير النقدية (مثل الأصول الثابتة أو المخزون المثبتة مقابل أرصدة افتتاحية أو تسويات دفتريّة) من صلب قائمة التدفقات وتُفصح هنا لعدم تأثيرها المباشر على السيولة النقدية:
+            </p>
+            <table className="w-full text-sm text-right bg-white rounded-lg border border-blue-100 overflow-hidden shadow-xs">
+              <tbody>
+                {nonCashDisclosures.map((item, idx) => (
+                  <tr key={idx} className="border-b border-blue-50 hover:bg-blue-50/40">
+                    <td className="py-2.5 px-3 font-medium text-slate-800">{item.label}</td>
+                    <td className="py-2.5 px-3 text-slate-500 text-xs">{item.notes}</td>
+                    <td className="py-2.5 px-3 text-left font-mono font-bold text-blue-950">
+                      {item.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
 
       </div>
     </div>
