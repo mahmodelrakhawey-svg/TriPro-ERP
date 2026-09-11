@@ -207,19 +207,25 @@ BEGIN
         true
     ) RETURNING id INTO v_journal_id;
 
-    -- 1. سطر مدين للعميل بإجمالي الفاتورة الصافي
-    IF v_customer_acc_id IS NOT NULL THEN
+    -- 1. إثبات الجزء المحصل نقداً فوري مباشرة في حساب النقدية بالخزينة (CASH)
+    IF COALESCE(v_invoice.paid_amount, 0) > 0 AND v_treasury_acc_id IS NOT NULL THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES (v_journal_id, v_customer_acc_id, v_invoice.total_amount, 0, 'استحقاق فاتورة مبيعات رقم ' || COALESCE(v_invoice.invoice_number, '-'), v_org_id);
+        VALUES (v_journal_id, v_treasury_acc_id, v_invoice.paid_amount, 0, 'تحصيل نقدي بالخزينة - فاتورة ' || COALESCE(v_invoice.invoice_number, '-'), v_org_id);
     END IF;
 
-    -- 2. سطر مدين للخصم المسموح به وعروض المبيعات (لتوازن القيد محاسبياً)
+    -- 2. إثبات الجزء المتبقي آجل على ذمة العميل (فقط إن وجد متبقي غير مسدد نقداً منعاً لتحميل العميل بمبالغ محصلة)
+    IF (v_invoice.total_amount - COALESCE(v_invoice.paid_amount, 0)) > 0 AND v_customer_acc_id IS NOT NULL THEN
+        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
+        VALUES (v_journal_id, v_customer_acc_id, (v_invoice.total_amount - COALESCE(v_invoice.paid_amount, 0)), 0, 'استحقاق مبيعات آجل (ذمم) - فاتورة ' || COALESCE(v_invoice.invoice_number, '-'), v_org_id);
+    END IF;
+
+    -- 3. سطر مدين للخصم المسموح به وعروض المبيعات (لتوازن القيد محاسبياً)
     IF v_discount_amount > 0 AND v_discount_acc_id IS NOT NULL THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
         VALUES (v_journal_id, v_discount_acc_id, v_discount_amount, 0, 'خصم مسموح به وعروض ترويجية - فاتورة ' || COALESCE(v_invoice.invoice_number, '-'), v_org_id);
     END IF;
 
-    -- 3. سطر دائن لإيراد المبيعات (حساب 411) - مضمون القيمة دائماً
+    -- 4. سطر دائن لإيراد المبيعات (حساب 411) - مضمون القيمة دائماً
     IF v_sales_acc_id IS NOT NULL THEN
         v_sales_credit := CASE 
             WHEN v_discount_acc_id IS NOT NULL THEN v_subtotal 
@@ -233,26 +239,18 @@ BEGIN
         VALUES (v_journal_id, v_sales_acc_id, 0, v_sales_credit, 'إيراد مبيعات فاتورة رقم ' || COALESCE(v_invoice.invoice_number, '-'), v_org_id);
     END IF;
 
-    -- 4. سطر دائن لضريبة القيمة المضافة
+    -- 5. سطر دائن لضريبة القيمة المضافة
     IF COALESCE(v_invoice.tax_amount, 0) > 0 AND v_vat_acc_id IS NOT NULL THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
         VALUES (v_journal_id, v_vat_acc_id, 0, v_invoice.tax_amount, 'ضريبة مخرجات مبيعات', v_org_id);
     END IF;
 
-    -- 5. سطر تكلفة البضاعة المباعة وصرف المخزون
+    -- 6. سطر تكلفة البضاعة المباعة وصرف المخزون
     IF v_total_cost > 0 AND v_cogs_acc_id IS NOT NULL AND v_inv_acc_id IS NOT NULL THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
         VALUES 
             (v_journal_id, v_cogs_acc_id, v_total_cost, 0, 'تكلفة بضاعة مباعة', v_org_id),
             (v_journal_id, v_inv_acc_id, 0, v_total_cost, 'صرف مخزون بضاعة مباعة', v_org_id);
-    END IF;
-
-    -- 6. إثبات السداد الفوري (إن وجد)
-    IF COALESCE(v_invoice.paid_amount, 0) > 0 AND v_treasury_acc_id IS NOT NULL AND v_customer_acc_id IS NOT NULL THEN
-        INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-        VALUES 
-            (v_journal_id, v_treasury_acc_id, v_invoice.paid_amount, 0, 'تحصيل نقدي - فاتورة ' || COALESCE(v_invoice.invoice_number, '-'), v_org_id),
-            (v_journal_id, v_customer_acc_id, 0, v_invoice.paid_amount, 'سداد فوري من العميل - فاتورة ' || COALESCE(v_invoice.invoice_number, '-'), v_org_id);
     END IF;
 
     -- و. تحديث حالة الفاتورة
@@ -271,6 +269,22 @@ BEGIN
         EXCEPTION WHEN OTHERS THEN NULL;
         END;
     END IF;
+END;
+$$;
+
+-- 🛠️ اسم مستعار متوافق مع كافة واجهات المبيعات
+CREATE OR REPLACE FUNCTION public.post_sales_invoice(
+    p_invoice_id uuid,
+    p_org_id uuid DEFAULT NULL,
+    p_warehouse_id uuid DEFAULT NULL
+)
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+    PERFORM public.approve_invoice(p_invoice_id, p_org_id, p_warehouse_id);
 END;
 $$;
 
@@ -297,3 +311,19 @@ JOIN public.accounts acc ON jl.account_id = acc.id
 WHERE jl.journal_entry_id = je.id
   AND acc.code = '411'
   AND (jl.credit IS NULL OR jl.credit = 0);
+
+-- إصلاح أسطر الفواتير النقدية التي سجلت خطأ في حساب العملاء (1221) بدلاً من الخزينة/الصندوق (1231)
+UPDATE public.journal_lines jl
+SET account_id = COALESCE(
+    inv.treasury_account_id,
+    (SELECT id FROM public.accounts WHERE organization_id = je.organization_id AND code IN ('1231', '123101', '101') AND is_group = false LIMIT 1)
+),
+description = 'تحصيل نقدي بالخزينة - فاتورة مبيعات رقم ' || COALESCE(inv.invoice_number, '-')
+FROM public.journal_entries je
+JOIN public.invoices inv ON je.related_document_id = inv.id AND je.related_document_type = 'invoice'
+JOIN public.accounts acc ON jl.account_id = acc.id
+WHERE jl.journal_entry_id = je.id
+  AND acc.code = '1221'
+  AND (inv.status = 'paid' OR inv.paid_amount >= inv.total_amount)
+  AND jl.debit > 0;
+
