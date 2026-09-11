@@ -700,15 +700,7 @@ export const InvoiceList = () => {
                       </td>
                       <td className="p-3.5">
                         <div className="flex items-center justify-center gap-1">
-                          {inv.status === 'draft' ? (
-                            <button 
-                              onClick={() => handleApprove(inv)}
-                              className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                              title="ترحيل الفاتورة وتوليد القيد"
-                            >
-                              <CheckCircle size={16} />
-                            </button>
-                          ) : (
+                          {inv.status === 'posted' ? (
                             <button 
                               onClick={() => handleUnpost(inv)}
                               disabled={deletingId === inv.id}
@@ -716,6 +708,14 @@ export const InvoiceList = () => {
                               title="إلغاء الترحيل وتحويل لمسودة للتعديل"
                             >
                               {deletingId === inv.id ? <Loader2 size={16} className="animate-spin" /> : <Unlock size={16} />}
+                            </button>
+                          ) : (
+                            <button 
+                              onClick={() => handleApprove(inv)}
+                              className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                              title="اعتماد وترحيل الفاتورة وتوليد القيد المحاسبي"
+                            >
+                              <CheckCircle size={16} />
                             </button>
                           )}
 
