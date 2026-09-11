@@ -142,6 +142,17 @@ const rolePresets: Record<string, { name: string; description: string; matchActi
       (p.module === 'products' && p.action === 'view')
   },
 
+  // 🚚 7.1 مندوب مبيعات وتوزيع ميداني - سيارات (Van Sales - Mobile Only)
+  van_sales: {
+    name: 'مندوب مبيعات وتوزيع سيارة (Van Sales)',
+    description: 'تطبيق الموبايل فقط: إصدار فواتير البيع الميداني، الجرد بالكاميرا لسيارته، ومزامنة بيانات السيارة بدون الوصول للنظام المكتبي أو الحسابات',
+    matchActions: (p) =>
+      (p.module === 'sales' && ['view', 'create'].includes(p.action)) ||
+      (p.module === 'products' && p.action === 'view') ||
+      (p.module === 'customers' && ['view', 'create'].includes(p.action)) ||
+      (p.module === 'inventory' && ['view', 'count'].includes(p.action))
+  },
+
   // 📈 8. مدير مبيعات (Sales Manager)
   sales_manager: {
     name: 'مدير مبيعات (Sales Manager)',

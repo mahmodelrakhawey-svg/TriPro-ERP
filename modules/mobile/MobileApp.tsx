@@ -26,7 +26,12 @@ import {
   Clock,
   Sparkles,
   Warehouse,
-  Truck
+  Truck,
+  Eye,
+  MessageCircle,
+  X,
+  Share2,
+  LogOut
 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../context/AuthContext';
@@ -34,15 +39,18 @@ import { useToast } from '../../context/ToastContext';
 import { offlineService, db, CachedProduct } from '../../services/offlineService';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { secureStorage } from '../../utils/securityMiddleware';
+import { QRCodeSVG } from 'qrcode.react';
+import { generateZatcaTlvQrString } from '../../utils/zatcaQrHelper';
 
 type MobileTab = 'dashboard' | 'scanner' | 'sales' | 'sync';
 
 export default function MobileApp() {
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, logout } = useAuth();
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<MobileTab>('dashboard');
+  const isVanSalesUser = (currentUser?.role as string) === 'van_sales';
+  const [activeTab, setActiveTab] = useState<MobileTab>(isVanSalesUser ? 'sales' : 'dashboard');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [currentOrgId, setCurrentOrgId] = useState<string>('');
 
@@ -68,6 +76,23 @@ export default function MobileApp() {
       window.removeEventListener('offline', handleOffline);
     };
   }, [currentUser]);
+
+  // Company Settings for Receipt Header & QR Code
+  const [companySettings, setCompanySettings] = useState<any>(null);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+
+  useEffect(() => {
+    if (currentOrgId && isOnline) {
+      supabase
+        .from('company_settings')
+        .select('*')
+        .eq('organization_id', currentOrgId)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) setCompanySettings(data);
+        });
+    }
+  }, [currentOrgId, isOnline]);
 
   // Dexie live queries for cached items
   const cachedProductsCount = useLiveQuery(() => db.products.count(), [], 0);
@@ -354,15 +379,31 @@ export default function MobileApp() {
   // 3. TAB: FIELD SALES & VAN SALES (FASTER INVOICING)
   // =========================================================================
   const [cart, setCart] = useState<Array<{ product: any; qty: number; price: number }>>([]);
-  const [customerName, setCustomerName] = useState('عميل ميداني نقدي');
+  const [customerName, setCustomerName] = useState('عميل نقدي');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [customerSearchQuery, setCustomerSearchQuery] = useState<string>('');
   const [paymentType, setPaymentType] = useState<'cash' | 'credit'>('cash');
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [lastSavedInvoice, setLastSavedInvoice] = useState<any | null>(null);
 
+  // Quick Add Customer modal
+  const [showAddCustomerModal, setShowAddCustomerModal] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [savingNewCustomer, setSavingNewCustomer] = useState(false);
+
   // Products and Customers for field sales
   const [catalogProducts, setCatalogProducts] = useState<any[]>([]);
-  const [customersList, setCustomersList] = useState<any[]>([]);
+  const [customersList, setCustomersList] = useState<any[]>(() => {
+    try {
+      const cached = secureStorage.getItem('tripro_cached_customers');
+      if (typeof cached === 'string') return JSON.parse(cached);
+      if (Array.isArray(cached)) return cached;
+      return [];
+    } catch {
+      return [];
+    }
+  });
   const [warehousesList, setWarehousesList] = useState<any[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('');
   const [productSearch, setProductSearch] = useState('');
@@ -370,6 +411,62 @@ export default function MobileApp() {
   const [showSalesCamera, setShowSalesCamera] = useState(false);
   const salesVideoRef = useRef<HTMLVideoElement | null>(null);
   const salesScannerStreamRef = useRef<MediaStream | null>(null);
+
+  const filteredCustomers = customersList.filter(c => {
+    if (!customerSearchQuery.trim()) return true;
+    const q = customerSearchQuery.trim().toLowerCase();
+    const nameMatch = (c.name || '').toLowerCase().includes(q);
+    const phoneMatch = (c.phone || '').includes(q);
+    return nameMatch || phoneMatch;
+  });
+
+  const handleQuickAddCustomer = async () => {
+    if (!newCustName.trim()) {
+      showToast('يرجى كتابة اسم العميل أولاً!', 'warning');
+      return;
+    }
+    setSavingNewCustomer(true);
+    try {
+      let createdCustomer: any = null;
+      if (isOnline && currentOrgId) {
+        const { data, error } = await supabase
+          .from('customers')
+          .insert({
+            name: newCustName.trim(),
+            phone: newCustPhone.trim() || null,
+            organization_id: currentOrgId
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        createdCustomer = data;
+      } else {
+        createdCustomer = {
+          id: `local-cust-${Date.now()}`,
+          name: newCustName.trim(),
+          phone: newCustPhone.trim() || null,
+          balance: 0
+        };
+      }
+
+      const updated = [createdCustomer, ...customersList.filter(c => c.id !== createdCustomer.id)];
+      setCustomersList(updated);
+      try {
+        secureStorage.setItem('tripro_cached_customers', JSON.stringify(updated));
+      } catch {}
+
+      setSelectedCustomerId(createdCustomer.id);
+      setCustomerName(createdCustomer.name);
+      setShowAddCustomerModal(false);
+      setNewCustName('');
+      setNewCustPhone('');
+      showToast(`تمت إضافة العميل "${createdCustomer.name}" بنجاح واختياره للفاتورة ✅`, 'success');
+    } catch (err: any) {
+      showToast('خطأ في إضافة العميل: ' + err.message, 'error');
+    } finally {
+      setSavingNewCustomer(false);
+    }
+  };
 
   const getProductStockInWarehouse = (product: any, whId?: string): number => {
     const targetWhId = whId || selectedWarehouseId;
@@ -435,12 +532,17 @@ export default function MobileApp() {
       if (isOnline && currentOrgId) {
         const { data: cData } = await supabase
           .from('customers')
-          .select('id, name, phone')
+          .select('id, name, phone, balance')
           .eq('organization_id', currentOrgId)
           .is('deleted_at', null)
           .order('name', { ascending: true })
-          .limit(100);
-        if (cData) setCustomersList(cData);
+          .limit(200);
+        if (cData) {
+          setCustomersList(cData);
+          try {
+            secureStorage.setItem('tripro_cached_customers', JSON.stringify(cData));
+          } catch {}
+        }
       }
     } catch (e) {
       console.warn('Catalog load warning:', e);
@@ -557,20 +659,36 @@ export default function MobileApp() {
       return;
     }
 
+    if (paymentType === 'credit' && !selectedCustomerId) {
+      showToast('⚠️ في البيع الآجل (ذمم)، يجب اختيار عميل مسجل من القائمة لتقييد المديونية عليه!', 'error');
+      return;
+    }
+
     setSavingInvoice(true);
     const invoiceNumber = `VAN-${Date.now().toString().slice(-6)}`;
+    const resolvedCustomerName = selectedCustomerId 
+      ? (customersList.find(c => c.id === selectedCustomerId)?.name || customerName)
+      : (paymentType === 'cash' ? (customerName.trim() || 'عميل نقدي') : customerName);
+
     const invoicePayload = {
       invoice_number: invoiceNumber,
       invoice_date: new Date().toISOString().split('T')[0],
+      invoice_time: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
       total_amount: cartTotal,
       tax_amount: cartTax,
       subtotal: cartSubtotal,
       paid_amount: paymentType === 'cash' ? cartTotal : 0,
       status: paymentType === 'cash' ? 'paid' : 'unpaid',
-      notes: `فاتورة ميدانية سريعة - العميل: ${customerName}`,
+      customer_name: resolvedCustomerName,
+      customer_id: selectedCustomerId || null,
+      warehouse_name: warehousesList.find(w => w.id === selectedWarehouseId)?.name || 'المستودع الرئيسي',
+      notes: paymentType === 'cash'
+        ? `فاتورة مبيعات نقدية - الخزينة | العميل: ${resolvedCustomerName}`
+        : `فاتورة مبيعات آجل (ذمم) - ذمة العميل: ${resolvedCustomerName}`,
       organization_id: currentOrgId,
       items: cart.map(it => ({
         product_id: it.product.id,
+        name: it.product.name,
         quantity: it.qty,
         unit_price: it.price,
         total: it.price * it.qty
@@ -579,6 +697,23 @@ export default function MobileApp() {
 
     try {
       if (isOnline) {
+        // Resolve cash treasury if cash payment
+        let treasuryId = null;
+        if (paymentType === 'cash') {
+          treasuryId = companySettings?.default_treasury_id || companySettings?.account_mappings?.CASH || null;
+          if (!treasuryId && currentOrgId) {
+            const { data: defaultCashAcc } = await supabase
+              .from('accounts')
+              .select('id')
+              .eq('organization_id', currentOrgId)
+              .in('code', ['1231', '123101', '101', '1101'])
+              .eq('is_group', false)
+              .limit(1)
+              .maybeSingle();
+            treasuryId = defaultCashAcc?.id || null;
+          }
+        }
+
         // Direct Online Save
         const { data: invData, error: invErr } = await supabase
           .from('invoices')
@@ -587,7 +722,9 @@ export default function MobileApp() {
             invoice_date: invoicePayload.invoice_date,
             total_amount: invoicePayload.total_amount,
             tax_amount: invoicePayload.tax_amount,
+            subtotal: invoicePayload.subtotal,
             paid_amount: invoicePayload.paid_amount,
+            treasury_account_id: treasuryId,
             status: 'draft',
             customer_id: selectedCustomerId || null,
             warehouse_id: selectedWarehouseId || null,
@@ -621,7 +758,39 @@ export default function MobileApp() {
 
           if (!postErr) {
             invoicePayload.status = 'posted';
-            showToast(`تم حفظ وترحيل الفاتورة #${invoiceNumber} وتوليد القيد المحاسبي بنجاح ✅`, 'success');
+
+            // 🛡️ صمام أمان فوري: التأكد من تسجيل الطرف المدين في الخزينة/الصندوق (1231) وليس العملاء (1221)
+            if (paymentType === 'cash' && invData?.id && treasuryId) {
+              try {
+                const { data: entries } = await supabase
+                  .from('journal_entries')
+                  .select('id')
+                  .eq('related_document_id', invData.id)
+                  .eq('related_document_type', 'invoice');
+
+                for (const ent of entries || []) {
+                  const { data: lines } = await supabase
+                    .from('journal_lines')
+                    .select('id, account_id, debit, accounts(code)')
+                    .eq('journal_entry_id', ent.id);
+
+                  for (const line of lines || []) {
+                    if ((line as any).accounts?.code === '1221' && Number(line.debit) > 0) {
+                      await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', ent.id);
+                      await supabase.from('journal_lines').update({
+                        account_id: treasuryId,
+                        description: `تحصيل نقدي بالخزينة - فاتورة مبيعات رقم ${invoiceNumber}`
+                      }).eq('id', line.id);
+                      await supabase.from('journal_entries').update({ status: 'posted', is_posted: true }).eq('id', ent.id);
+                    }
+                  }
+                }
+              } catch (autoFixErr) {
+                console.warn('Auto-repair cash entry warning:', autoFixErr);
+              }
+            }
+
+            showToast(`تم حفظ وترحيل الفاتورة #${invoiceNumber} وتوليد القيد المحاسبي بالخزينة بنجاح ✅`, 'success');
           } else {
             console.warn('post_sales_invoice notice:', postErr);
             const errMsg = postErr.message || '';
@@ -637,10 +806,12 @@ export default function MobileApp() {
         }
 
         setLastSavedInvoice(invoicePayload);
+        setShowReceiptModal(true);
       } else {
         // Offline IndexedDB Queue
         await offlineService.queueOrder(invoicePayload);
         setLastSavedInvoice(invoicePayload);
+        setShowReceiptModal(true);
         showToast(`🔌 تم حفظ الفاتورة محلياً #${invoiceNumber} (ستُرفع تلقائياً فور توفر الإنترنت)`, 'success');
       }
 
@@ -654,6 +825,29 @@ export default function MobileApp() {
 
   const handlePrintReceipt = () => {
     window.print();
+  };
+
+  const handleShareWhatsApp = () => {
+    if (!lastSavedInvoice) return;
+    const itemsText = (lastSavedInvoice.items || [])
+      .map((it: any) => `• ${it.name}: ${it.quantity} × ${Number(it.unit_price).toFixed(2)} = ${Number(it.total).toFixed(2)} ج.م`)
+      .join('\n');
+    const text = `🧾 *فاتورة مبيعات - ${companySettings?.company_name || 'تري برو للتوزيع'}*\n` +
+      `رقم الفاتورة: #${lastSavedInvoice.invoice_number}\n` +
+      `التاريخ: ${lastSavedInvoice.invoice_date} ${lastSavedInvoice.invoice_time || ''}\n` +
+      `العميل: ${lastSavedInvoice.customer_name || 'عميل نقدي'}\n` +
+      `مخزن الصرف: ${lastSavedInvoice.warehouse_name || 'المستودع الرئيسي'}\n` +
+      `--------------------------------\n` +
+      `${itemsText}\n` +
+      `--------------------------------\n` +
+      `المجموع قبل الضريبة: ${Number(lastSavedInvoice.subtotal || 0).toFixed(2)} ج.م\n` +
+      `ضريبة القيمة المضافة (14%): ${Number(lastSavedInvoice.tax_amount || 0).toFixed(2)} ج.م\n` +
+      `💰 *الإجمالي النهائي: ${Number(lastSavedInvoice.total_amount || 0).toFixed(2)} ج.م*\n` +
+      `المدفوع: ${Number(lastSavedInvoice.paid_amount || 0).toFixed(2)} ج.م\n` +
+      `طريقة الدفع: ${lastSavedInvoice.status === 'paid' ? 'نقدي فوري' : 'آجل'}\n` +
+      `--------------------------------\n` +
+      `شكراً لتعاملكم معنا!`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
   };
 
   // =========================================================================
@@ -705,14 +899,29 @@ export default function MobileApp() {
             <span>{isOnline ? 'أونلاين' : 'أوفلاين'}</span>
           </div>
 
-          {/* Switch to Full Desktop Mode */}
-          <button
-            onClick={() => navigate('/')}
-            className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 hover:text-white transition-colors"
-            title="العودة للنظام الكامل"
-          >
-            <ArrowRight size={16} />
-          </button>
+          {/* Switch to Full Desktop Mode (Admins) OR Logout (Van Sales) */}
+          {isVanSalesUser ? (
+            <button
+              onClick={async () => {
+                if (window.confirm('هل تريد بالتأكيد تسجيل الخروج من التطبيق؟')) {
+                  await logout();
+                  navigate('/login');
+                }
+              }}
+              className="p-1.5 bg-red-950/60 border border-red-800/60 hover:bg-red-900 rounded-lg text-red-300 hover:text-white transition-colors"
+              title="تسجيل الخروج"
+            >
+              <LogOut size={16} />
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate('/')}
+              className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 hover:text-white transition-colors"
+              title="العودة للنظام الكامل"
+            >
+              <ArrowRight size={16} />
+            </button>
+          )}
         </div>
       </header>
 
@@ -1050,11 +1259,117 @@ export default function MobileApp() {
               )}
             </div>
 
-            {/* Customer & Type */}
-            <div className="bg-slate-800 p-3.5 rounded-xl border border-slate-700 space-y-2.5">
-              <label className="text-xs text-slate-300 font-bold block">اختيار أو إدخال اسم العميل:</label>
-              <div className="space-y-2">
-                {customersList.length > 0 && (
+            {/* 💳 طريقة الدفع واختيار العميل */}
+            <div className="bg-slate-800 p-3.5 rounded-xl border border-slate-700 space-y-3">
+              <div>
+                <label className="text-xs text-slate-300 font-bold block mb-1.5">
+                  💳 طريقة سداد الفاتورة:
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentType('cash');
+                      if (!selectedCustomerId) setCustomerName('عميل نقدي');
+                    }}
+                    className={`py-2.5 px-3 rounded-lg text-xs font-bold border flex items-center justify-center gap-1.5 transition-all ${
+                      paymentType === 'cash'
+                        ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg shadow-emerald-600/30 ring-2 ring-emerald-400/40'
+                        : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800'
+                    }`}
+                  >
+                    <span>💵 نقدي فوري (خزينة)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPaymentType('credit');
+                      if (customerName === 'عميل نقدي') setCustomerName('');
+                    }}
+                    className={`py-2.5 px-3 rounded-lg text-xs font-bold border flex items-center justify-center gap-1.5 transition-all ${
+                      paymentType === 'credit'
+                        ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg shadow-indigo-600/30 ring-2 ring-indigo-400/40'
+                        : 'bg-slate-900 text-slate-400 border-slate-700 hover:bg-slate-800'
+                    }`}
+                  >
+                    <span>📝 آجل (ذمم عملاء)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* إذا كانت نقدي */}
+              {paymentType === 'cash' && (
+                <div className="bg-emerald-950/40 border border-emerald-500/30 rounded-lg p-2.5 space-y-2">
+                  <div className="flex items-center gap-1.5 text-[11px] text-emerald-300 font-bold">
+                    <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />
+                    <span>سداد نقدي: القيد يسجل مباشرة في النقدية بالصندوق (1231) دون مديونية</span>
+                  </div>
+
+                  <div className="space-y-1.5 pt-1">
+                    <label className="text-[11px] text-slate-300 block font-medium">العميل (اختياري للنقدي):</label>
+                    <div className="flex gap-2">
+                      <select
+                        value={selectedCustomerId}
+                        onChange={e => {
+                          setSelectedCustomerId(e.target.value);
+                          const found = customersList.find(c => c.id === e.target.value);
+                          if (found) setCustomerName(found.name);
+                          else setCustomerName('عميل نقدي');
+                        }}
+                        className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                      >
+                        <option value="">-- عميل نقدي عام (افتراضي) --</option>
+                        {customersList.map(c => (
+                          <option key={c.id} value={c.id}>
+                            {c.name} {c.phone ? `(${c.phone})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setShowAddCustomerModal(true)}
+                        className="bg-emerald-700/50 hover:bg-emerald-700 border border-emerald-500/40 text-emerald-200 text-xs px-2.5 py-1.5 rounded-lg font-bold flex items-center gap-1 shrink-0"
+                        title="إضافة عميل جديد"
+                      >
+                        <Plus size={13} />
+                        <span>عميل جديد</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* إذا كانت آجل */}
+              {paymentType === 'credit' && (
+                <div className="bg-indigo-950/50 border-2 border-indigo-500/60 rounded-xl p-3 space-y-2.5 shadow-md">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 text-xs text-indigo-300 font-bold">
+                      <AlertCircle size={15} className="text-indigo-400 shrink-0" />
+                      <span>تحديد حساب العميل (إلزامي للبيع الآجل):</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowAddCustomerModal(true)}
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 shadow transition-colors shrink-0"
+                    >
+                      <Plus size={13} />
+                      <span>+ عميل جديد</span>
+                    </button>
+                  </div>
+
+                  {/* بحث في العملاء */}
+                  <div className="relative">
+                    <Search size={14} className="absolute right-2.5 top-2.5 text-slate-400" />
+                    <input
+                      type="text"
+                      value={customerSearchQuery}
+                      onChange={e => setCustomerSearchQuery(e.target.value)}
+                      placeholder="بحث سريع بالاسم أو الهاتف..."
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg pr-8 pl-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-400"
+                    />
+                  </div>
+
+                  {/* قائمة العملاء */}
                   <select
                     value={selectedCustomerId}
                     onChange={e => {
@@ -1062,53 +1377,41 @@ export default function MobileApp() {
                       const found = customersList.find(c => c.id === e.target.value);
                       if (found) setCustomerName(found.name);
                     }}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                    className={`w-full bg-slate-900 rounded-lg px-2.5 py-2 text-xs font-bold text-white focus:outline-none transition-all ${
+                      !selectedCustomerId 
+                        ? 'border-2 border-amber-500/70 animate-pulse text-amber-200' 
+                        : 'border border-indigo-500 text-emerald-300'
+                    }`}
                   >
-                    <option value="">-- اختيار عميل مسجل من القائمة --</option>
-                    {customersList.map(c => (
-                      <option key={c.id} value={c.id}>{c.name} {c.phone ? `(${c.phone})` : ''}</option>
+                    <option value="">-- اضغط هنا لاختيار العميل المسجل --</option>
+                    {filteredCustomers.map(c => (
+                      <option key={c.id} value={c.id}>
+                        👤 {c.name} {c.phone ? `(${c.phone})` : ''} | الرصيد: {Number(c.balance || 0).toLocaleString()} ج.م
+                      </option>
                     ))}
                   </select>
-                )}
-                <div className="flex items-center gap-2">
-                  <User size={16} className="text-emerald-400 shrink-0" />
-                  <input
-                    type="text"
-                    value={customerName}
-                    onChange={e => {
-                      setCustomerName(e.target.value);
-                      setSelectedCustomerId('');
-                    }}
-                    placeholder="أو اكتب اسم عميل نقدي يدوي..."
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
-                  />
-                </div>
-              </div>
 
-              <div className="flex gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setPaymentType('cash')}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                    paymentType === 'cash'
-                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30'
-                      : 'bg-slate-900 text-slate-400 border-slate-700'
-                  }`}
-                >
-                  💵 نقدي فوري
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaymentType('credit')}
-                  className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
-                    paymentType === 'credit'
-                      ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30'
-                      : 'bg-slate-900 text-slate-400 border-slate-700'
-                  }`}
-                >
-                  📝 آجل (ذمم)
-                </button>
-              </div>
+                  {/* بطاقة العميل المختار */}
+                  {selectedCustomerId ? (
+                    <div className="bg-slate-900/90 rounded-lg p-2 border border-indigo-500/40 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="text-slate-400 block text-[10px]">العميل المحدد للفاتورة:</span>
+                        <span className="text-white font-bold">{customerName}</span>
+                      </div>
+                      <div className="text-left">
+                        <span className="text-slate-400 block text-[10px]">الرصيد الحالي:</span>
+                        <span className="text-amber-400 font-bold">
+                          {Number(customersList.find(c => c.id === selectedCustomerId)?.balance || 0).toLocaleString()} ج.م
+                        </span>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-amber-400 font-semibold bg-amber-950/40 border border-amber-500/30 rounded p-1.5">
+                      ⚠️ يرجى اختيار عميل مسجل لترحيل الفاتورة لحسابه (1221). إن لم يكن مسجلاً، اضغط "+ عميل جديد".
+                    </p>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* 📦 مباشرة: إضافة أصناف للفاتورة (بحث واختيار فوري) */}
@@ -1315,17 +1618,36 @@ export default function MobileApp() {
 
             {/* Receipt Print Section (When invoice saved) */}
             {lastSavedInvoice && (
-              <div className="bg-slate-800/80 p-3 rounded-xl border border-emerald-500/40 text-center space-y-2">
-                <div className="text-xs text-emerald-400 font-bold flex items-center justify-center gap-1">
+              <div className="bg-slate-800/80 p-3.5 rounded-xl border border-emerald-500/40 text-center space-y-2.5 shadow-lg">
+                <div className="text-xs text-emerald-400 font-bold flex items-center justify-center gap-1.5">
                   <CheckCircle2 size={16} />
                   <span>تم حفظ الفاتورة بنجاح #{lastSavedInvoice.invoice_number}</span>
                 </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handlePrintReceipt}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/30 transition-all active:scale-95"
+                  >
+                    <Printer size={15} />
+                    <span>طباعة حرارية (80mm)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowReceiptModal(true)}
+                    className="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-indigo-600/30 transition-all active:scale-95"
+                  >
+                    <Eye size={15} />
+                    <span>معاينة الإيصال</span>
+                  </button>
+                </div>
                 <button
-                  onClick={handlePrintReceipt}
-                  className="bg-slate-700 hover:bg-slate-600 text-white text-xs font-bold px-4 py-2 rounded-lg flex items-center justify-center gap-1.5 mx-auto"
+                  type="button"
+                  onClick={handleShareWhatsApp}
+                  className="w-full bg-emerald-950/60 hover:bg-emerald-900/60 border border-emerald-700/60 text-emerald-300 text-xs font-bold py-2 px-3 rounded-xl flex items-center justify-center gap-1.5 transition-colors"
                 >
-                  <Printer size={14} />
-                  <span>طباعة إيصال بلوتوث حراري (Thermal 80mm)</span>
+                  <MessageCircle size={14} className="text-emerald-400" />
+                  <span>إرسال تفاصيل الفاتورة عبر واتساب</span>
                 </button>
               </div>
             )}
@@ -1366,19 +1688,393 @@ export default function MobileApp() {
             </div>
           </div>
         )}
+
+        {/* ➕ QUICK ADD CUSTOMER MODAL */}
+        {showAddCustomerModal && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-sm w-full p-4 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <User size={18} className="text-indigo-400" />
+                  <h3 className="font-bold text-sm text-white">إضافة عميل جديد سريعاً</h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowAddCustomerModal(false)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-slate-300 font-bold block mb-1">
+                    اسم العميل / المحل <span className="text-rose-400">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={newCustName}
+                    onChange={e => setNewCustName(e.target.value)}
+                    placeholder="مثال: بقالة الأمل أو محمد علي"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                    autoFocus
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs text-slate-300 font-bold block mb-1">رقم الهاتف (اختياري)</label>
+                  <input
+                    type="tel"
+                    value={newCustPhone}
+                    onChange={e => setNewCustPhone(e.target.value)}
+                    placeholder="مثال: 01012345678"
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAddCustomerModal(false)}
+                  className="flex-1 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-bold transition-colors"
+                >
+                  إلغاء
+                </button>
+                <button
+                  type="button"
+                  onClick={handleQuickAddCustomer}
+                  disabled={savingNewCustomer || !newCustName.trim()}
+                  className="flex-1 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-lg shadow-indigo-600/30 flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  {savingNewCustomer ? (
+                    <RefreshCw size={14} className="animate-spin" />
+                  ) : (
+                    <CheckCircle2 size={14} />
+                  )}
+                  <span>{savingNewCustomer ? 'جاري الحفظ...' : 'حفظ واختيار العميل'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 🖨️ ON-SCREEN THERMAL RECEIPT PREVIEW MODAL */}
+        {showReceiptModal && lastSavedInvoice && (
+          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 animate-in fade-in duration-200">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-sm w-full max-h-[92vh] flex flex-col overflow-hidden shadow-2xl">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/80">
+                <div className="flex items-center gap-2">
+                  <Printer size={16} className="text-emerald-400" />
+                  <span className="font-bold text-xs text-white">معاينة الإيصال الحراري (80mm)</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowReceiptModal(false)}
+                  className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Modal Body: Realistic Paper Receipt Simulator */}
+              <div className="flex-1 overflow-y-auto p-4 bg-slate-950/50">
+                <div 
+                  className="bg-white text-black p-4 rounded-lg shadow-xl mx-auto text-[11px] leading-tight select-text"
+                  style={{ width: '100%', maxWidth: '280px', fontFamily: "'Courier New', Courier, monospace, system-ui" }}
+                  dir="rtl"
+                >
+                  {/* Header */}
+                  <div className="text-center pb-2 mb-2 border-b border-dashed border-black">
+                    <h2 className="text-sm font-black tracking-tight">{companySettings?.company_name || 'شركة تري برو للتوزيع'}</h2>
+                    {companySettings?.address && <p className="text-[9px] text-gray-700 mt-0.5">{companySettings.address}</p>}
+                    {companySettings?.phone && <p className="text-[9px] text-gray-700">هاتف: {companySettings.phone}</p>}
+                    {companySettings?.tax_number && <p className="text-[9px] font-bold text-gray-800">الرقم الضريبي: {companySettings.tax_number}</p>}
+                    
+                    <div className="mt-1 pt-1 border-t border-dotted border-gray-400">
+                      <h3 className="text-[10px] font-black uppercase">فاتورة مبيعات نقدية (إيصال)</h3>
+                      <p className="font-mono text-xs font-bold mt-0.5">#{lastSavedInvoice.invoice_number}</p>
+                      <p className="text-[9px] text-gray-600 mt-0.5">
+                        {lastSavedInvoice.invoice_date} {lastSavedInvoice.invoice_time || ''}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Details */}
+                  <div className="text-[9px] space-y-0.5 mb-2 pb-1 border-b border-dashed border-black">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">العميل:</span>
+                      <span className="font-bold">{lastSavedInvoice.customer_name || 'عميل نقدي'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">المستودع:</span>
+                      <span className="font-bold">{lastSavedInvoice.warehouse_name || 'المستودع الرئيسي'}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">الدفع:</span>
+                      <span className="font-bold">{lastSavedInvoice.status === 'paid' ? 'نقدي فوري' : 'آجل'}</span>
+                    </div>
+                  </div>
+
+                  {/* Items Table */}
+                  <table className="w-full text-right text-[9px] border-collapse mb-2">
+                    <thead>
+                      <tr className="border-b border-black border-dashed font-bold">
+                        <th className="py-1">الصنف</th>
+                        <th className="py-1 text-center w-6">ك</th>
+                        <th className="py-1 text-center w-10">سعر</th>
+                        <th className="py-1 text-left w-12">إجمالي</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(lastSavedInvoice.items || []).map((it: any, idx: number) => (
+                        <tr key={idx} className="border-b border-gray-200 border-dotted">
+                          <td className="py-1 font-medium">{it.name}</td>
+                          <td className="py-1 text-center font-bold">{it.quantity}</td>
+                          <td className="py-1 text-center">{Number(it.unit_price).toFixed(2)}</td>
+                          <td className="py-1 text-left font-bold">{Number(it.total).toFixed(2)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  {/* Financial Summary */}
+                  <div className="border-t border-black border-dashed pt-1.5 text-[10px] space-y-0.5">
+                    <div className="flex justify-between">
+                      <span>المجموع:</span>
+                      <span className="font-mono">{Number(lastSavedInvoice.subtotal || 0).toFixed(2)} ج.م</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>ضريبة (14%):</span>
+                      <span className="font-mono">{Number(lastSavedInvoice.tax_amount || 0).toFixed(2)} ج.م</span>
+                    </div>
+                    <div className="flex justify-between text-xs font-black border-t-2 border-black border-double pt-1 mt-1">
+                      <span>الإجمالي الصافي:</span>
+                      <span className="font-mono">{Number(lastSavedInvoice.total_amount || 0).toFixed(2)} ج.م</span>
+                    </div>
+                    {lastSavedInvoice.paid_amount !== undefined && (
+                      <div className="flex justify-between text-[9px] text-gray-700 pt-0.5">
+                        <span>المدفوع:</span>
+                        <span className="font-mono font-bold">{Number(lastSavedInvoice.paid_amount || 0).toFixed(2)} ج.م</span>
+                      </div>
+                    )}
+                    {Number(lastSavedInvoice.total_amount || 0) - Number(lastSavedInvoice.paid_amount || 0) > 0 && (
+                      <div className="flex justify-between text-[9px] text-red-600 font-bold">
+                        <span>المتبقي:</span>
+                        <span className="font-mono">{(Number(lastSavedInvoice.total_amount || 0) - Number(lastSavedInvoice.paid_amount || 0)).toFixed(2)} ج.م</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* QR Code */}
+                  <div className="mt-2.5 text-center flex flex-col items-center justify-center pt-2 border-t border-dashed border-black">
+                    <QRCodeSVG
+                      value={generateZatcaTlvQrString({
+                        sellerName: companySettings?.company_name || 'TriPro Distribution',
+                        taxNumber: companySettings?.tax_number || '300000000000003',
+                        invoiceDate: lastSavedInvoice.invoice_date,
+                        totalAmount: Number(lastSavedInvoice.total_amount || 0),
+                        taxAmount: Number(lastSavedInvoice.tax_amount || 0)
+                      })}
+                      size={80}
+                      level="M"
+                    />
+                    <p className="text-[8px] text-gray-500 mt-1 font-mono">فاتورة إلكترونية ضريبية مبسطة</p>
+                  </div>
+
+                  {/* Footer */}
+                  <div className="text-center mt-2 pt-1 border-t border-dotted border-gray-400 text-[8px] text-gray-600">
+                    <p>شكراً لتعاملكم معنا</p>
+                    <p className="font-mono text-[7px] text-gray-400 mt-0.5">Powered by TriPro ERP</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Modal Actions */}
+              <div className="p-3 bg-slate-950 border-t border-slate-800 flex gap-2">
+                <button
+                  type="button"
+                  onClick={handlePrintReceipt}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs py-2.5 rounded-xl flex items-center justify-center gap-1.5 shadow-md shadow-emerald-600/30"
+                >
+                  <Printer size={15} />
+                  <span>طباعة فورية 🖨️</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleShareWhatsApp}
+                  className="bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 border border-slate-700"
+                  title="مشاركة عبر واتساب"
+                >
+                  <MessageCircle size={15} />
+                  <span>واتساب</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 🖨️ STANDALONE PRINTABLE RECEIPT CONTAINER (VISIBLE ONLY DURING WINDOW.PRINT, REST OF APP HIDDEN) */}
+        {lastSavedInvoice && (
+          <div id="mobile-printable-receipt" className="hidden print:block" dir="rtl">
+            {/* Header */}
+            <div className="text-center pb-2 mb-2 border-b border-dashed border-black">
+              <h2 className="text-base font-black tracking-tight">{companySettings?.company_name || 'شركة تري برو للتوزيع'}</h2>
+              {companySettings?.address && <p className="text-[10px] text-gray-700 mt-0.5">{companySettings.address}</p>}
+              {companySettings?.phone && <p className="text-[10px] text-gray-700">هاتف: {companySettings.phone}</p>}
+              {companySettings?.tax_number && <p className="text-[10px] font-bold text-gray-800">الرقم الضريبي: {companySettings.tax_number}</p>}
+              
+              <div className="mt-1 pt-1 border-t border-dotted border-gray-400">
+                <h3 className="text-xs font-black uppercase tracking-wider">فاتورة مبيعات نقدية (إيصال استلام)</h3>
+                <p className="font-mono text-xs font-bold mt-0.5">#{lastSavedInvoice.invoice_number}</p>
+                <p className="text-[10px] text-gray-600 mt-0.5">
+                  {lastSavedInvoice.invoice_date} {lastSavedInvoice.invoice_time || ''}
+                </p>
+              </div>
+            </div>
+
+            {/* Details */}
+            <div className="text-[10px] space-y-0.5 mb-2 pb-1 border-b border-dashed border-black">
+              <div className="flex justify-between">
+                <span className="text-gray-600">العميل:</span>
+                <span className="font-bold">{lastSavedInvoice.customer_name || 'عميل نقدي'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">مخزن الصرف:</span>
+                <span className="font-bold">{lastSavedInvoice.warehouse_name || 'المستودع الرئيسي'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-600">طريقة الدفع:</span>
+                <span className="font-bold">{lastSavedInvoice.status === 'paid' ? '💵 نقدي فوري' : '📝 آجل (ذمم)'}</span>
+              </div>
+            </div>
+
+            {/* Items Table */}
+            <table className="w-full text-right text-[10px] border-collapse mb-2">
+              <thead>
+                <tr className="border-b border-black border-dashed font-bold">
+                  <th className="py-1">الصنف</th>
+                  <th className="py-1 text-center w-8">ك</th>
+                  <th className="py-1 text-center w-12">سعر</th>
+                  <th className="py-1 text-left w-14">إجمالي</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(lastSavedInvoice.items || []).map((it: any, idx: number) => (
+                  <tr key={idx} className="border-b border-gray-200 border-dotted">
+                    <td className="py-1 font-medium leading-tight">{it.name}</td>
+                    <td className="py-1 text-center font-bold">{it.quantity}</td>
+                    <td className="py-1 text-center">{Number(it.unit_price).toFixed(2)}</td>
+                    <td className="py-1 text-left font-bold">{Number(it.total).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
+            {/* Financial Summary */}
+            <div className="border-t border-black border-dashed pt-1.5 text-[11px] space-y-1">
+              <div className="flex justify-between">
+                <span>المجموع قبل الضريبة:</span>
+                <span className="font-mono">{Number(lastSavedInvoice.subtotal || 0).toFixed(2)} ج.م</span>
+              </div>
+              <div className="flex justify-between">
+                <span>ضريبة القيمة المضافة (14%):</span>
+                <span className="font-mono">{Number(lastSavedInvoice.tax_amount || 0).toFixed(2)} ج.م</span>
+              </div>
+              <div className="flex justify-between text-xs font-black border-t-2 border-black border-double pt-1 mt-1">
+                <span>الإجمالي النهائي:</span>
+                <span className="font-mono text-sm">{Number(lastSavedInvoice.total_amount || 0).toFixed(2)} ج.م</span>
+              </div>
+              {lastSavedInvoice.paid_amount !== undefined && (
+                <div className="flex justify-between text-[10px] text-gray-700 pt-0.5">
+                  <span>المدفوع:</span>
+                  <span className="font-mono font-bold">{Number(lastSavedInvoice.paid_amount || 0).toFixed(2)} ج.م</span>
+                </div>
+              )}
+              {Number(lastSavedInvoice.total_amount || 0) - Number(lastSavedInvoice.paid_amount || 0) > 0 && (
+                <div className="flex justify-between text-[10px] text-red-600 font-bold">
+                  <span>المتبقي آجل:</span>
+                  <span className="font-mono">{(Number(lastSavedInvoice.total_amount || 0) - Number(lastSavedInvoice.paid_amount || 0)).toFixed(2)} ج.م</span>
+                </div>
+              )}
+            </div>
+
+            {/* QR Code */}
+            <div className="mt-3 text-center flex flex-col items-center justify-center pt-2 border-t border-dashed border-black">
+              <QRCodeSVG
+                value={generateZatcaTlvQrString({
+                  sellerName: companySettings?.company_name || 'TriPro Distribution',
+                  taxNumber: companySettings?.tax_number || '300000000000003',
+                  invoiceDate: lastSavedInvoice.invoice_date,
+                  totalAmount: Number(lastSavedInvoice.total_amount || 0),
+                  taxAmount: Number(lastSavedInvoice.tax_amount || 0)
+                })}
+                size={88}
+                level="M"
+              />
+              <p className="text-[9px] text-gray-500 mt-1 font-mono">فاتورة إلكترونية ضريبية مبسطة</p>
+            </div>
+
+            {/* Footer */}
+            <div className="text-center mt-2 pt-1 border-t border-dotted border-gray-400 text-[9px] text-gray-600">
+              <p>شكراً لتعاملكم معنا</p>
+              <p className="font-mono text-[8px] text-gray-400 mt-0.5">Powered by TriPro ERP</p>
+            </div>
+          </div>
+        )}
+
+        {/* 🖨️ DEDICATED THERMAL PRINT CSS (ISOLATES RECEIPT TO 80MM AND HIDES ENTIRE APP UI) */}
+        <style>{`
+          @media print {
+            /* 1. إخفاء كل عناصر صفحة وتطبيق الموبايل بالكامل */
+            body * {
+              visibility: hidden !important;
+            }
+            /* 2. إظهار الإيصال الحراري فقط لا غير */
+            #mobile-printable-receipt, #mobile-printable-receipt * {
+              visibility: visible !important;
+            }
+            /* 3. تثبيت أبعاد الرول الحراري 80 مم وإزالة الهوامش الزائدة */
+            #mobile-printable-receipt {
+              display: block !important;
+              position: absolute !important;
+              left: 0 !important;
+              top: 0 !important;
+              width: 76mm !important;
+              max-width: 80mm !important;
+              margin: 0 auto !important;
+              padding: 3mm 4mm !important;
+              background: #ffffff !important;
+              color: #000000 !important;
+              box-sizing: border-box !important;
+              font-family: 'Courier New', Courier, monospace, system-ui !important;
+              font-size: 11px !important;
+              line-height: 1.3 !important;
+              z-index: 9999999 !important;
+            }
+            @page {
+              size: 80mm auto;
+              margin: 0mm;
+            }
+          }
+        `}</style>
       </main>
 
       {/* 🧭 BOTTOM NAVIGATION BAR (FIXED TOUCH BAR) */}
       <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-3 py-2 flex items-center justify-around z-40">
-        <button
-          onClick={() => setActiveTab('dashboard')}
-          className={`flex flex-col items-center gap-1 transition-colors ${
-            activeTab === 'dashboard' ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <LayoutDashboard size={20} />
-          <span className="text-[10px] font-bold">لوحة المدير</span>
-        </button>
+        {!isVanSalesUser && (
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`flex flex-col items-center gap-1 transition-colors ${
+              activeTab === 'dashboard' ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <LayoutDashboard size={20} />
+            <span className="text-[10px] font-bold">لوحة المدير</span>
+          </button>
+        )}
 
         <button
           onClick={() => setActiveTab('scanner')}

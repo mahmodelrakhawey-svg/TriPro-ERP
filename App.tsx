@@ -394,6 +394,13 @@ const MainLayout = () => {
         };
     }, []);
 
+    const isVanSales = (currentUser?.role as string) === 'van_sales';
+
+    // 🚚 إذا كان المستخدم مندوب مبيعات وتوزيع سيارة، يُلزم بتطبيق الموبايل الميداني فقط ويُمنع من الوصول للواجهة المكتبية
+    if (isVanSales && location.pathname !== '/mobile') {
+        return <Navigate to="/mobile" replace />;
+    }
+
     // إذا كان المستخدم في وضع الموبايل الميداني (Mobile Companion)، يتم عرضه بملء الشاشة مخصصاً للهواتف
     if (location.pathname === '/mobile') {
         return (
@@ -436,6 +443,8 @@ const MainLayout = () => {
                       ? <Navigate to="/restaurant/waiter" replace />
                       : (currentUser?.role as string) === 'restaurant_driver'
                       ? <Navigate to="/restaurant/driver-dispatch" replace />
+                      : (currentUser?.role as string) === 'van_sales'
+                      ? <Navigate to="/mobile" replace />
                       : <Dashboard />
                   }
                 />
