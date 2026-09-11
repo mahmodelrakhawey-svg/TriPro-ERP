@@ -20,6 +20,8 @@ const routeTitles: Record<string, string> = {
     '/income-statement': 'قائمة الدخل الشامل (IFRS 18)',
     '/balance-sheet': 'قائمة المركز المالي',
     '/changes-in-equity': 'قائمة التغير في حقوق الملكية',
+    '/annual-report': 'كتاب التقرير المالي السنوي الموحد (IAS 1)',
+    '/cfo-dashboard': 'لوحة قيادة المدير المالي (CFO)',
     '/about': 'حول البرنامج',
     // ... يمكن إضافة باقي المسارات هنا
 };

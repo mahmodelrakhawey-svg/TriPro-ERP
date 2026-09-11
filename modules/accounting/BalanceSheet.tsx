@@ -35,6 +35,7 @@ type Account = {
 type BalanceRow = {
   account: Account;
   amount: number;
+  priorAmount?: number;
 };
 
 const BalanceSheet: React.FC = () => {
@@ -49,8 +50,13 @@ const BalanceSheet: React.FC = () => {
   );
   const [searchTerm, setSearchTerm] = useState('');
   const [ledgerLines, setLedgerLines] = useState<any[]>([]);
-  // نمط العرض: إما العرض التحليلي المعياري (IFRS رأس المال العامل وصافي الأصول) أو العرض التقليدي (كفتي الميزانية)
+  const [priorLedgerLines, setPriorLedgerLines] = useState<any[]>([]);
   const [viewMode, setViewMode] = useState<'analytical' | 'classic'>('analytical');
+  const [isComparative, setIsComparative] = useState(false);
+
+  // حساب تاريخ الفترة المقارنة (نهاية السنة السابقة أو نفس اليوم من السنة السابقة)
+  const asOfYear = parseInt(asOfDate.slice(0, 4), 10) || new Date().getFullYear();
+  const priorAsOfDate = `${asOfYear - 1}${asOfDate.slice(4)}`;
 
   // مزامنة تاريخ الميزانية مع السنة المالية المحددة في النظام
   useEffect(() => {
@@ -70,9 +76,11 @@ const BalanceSheet: React.FC = () => {
       const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
 
       if (!userOrgId) {
+        setLoading(false);
         return;
       }
 
+      // 1. أرصدة التاريخ المحدد
       const { data, error } = await supabase
         .from('journal_lines')
         .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
@@ -82,6 +90,19 @@ const BalanceSheet: React.FC = () => {
 
       if (error) throw error;
       setLedgerLines(data || []);
+
+      // 2. أرصدة التاريخ المقارن (إذا تم تفعيل العرض المقارن)
+      if (isComparative) {
+        const { data: priorData, error: priorErr } = await supabase
+          .from('journal_lines')
+          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+          .eq('journal_entries.status', 'posted')
+          .eq('journal_entries.organization_id', userOrgId)
+          .lte('journal_entries.transaction_date', priorAsOfDate);
+
+        if (priorErr) throw priorErr;
+        setPriorLedgerLines(priorData || []);
+      }
     } catch (err: any) {
       console.error('Error fetching balance sheet data:', err);
       toast.error('فشل جلب البيانات: ' + err.message);
@@ -96,16 +117,19 @@ const BalanceSheet: React.FC = () => {
     } else {
       setLoading(false);
     }
-  }, [asOfDate, currentUser, accounts, currentSelectedOrgId]);
+  }, [asOfDate, currentUser, accounts, currentSelectedOrgId, isComparative]);
 
   // تصنيف عناصر المركز المالي وفق المعيار الدولي IAS 1
   const reportData = useMemo(() => {
     const accountBalances: Record<string, number> = {};
+    const priorAccountBalances: Record<string, number> = {};
     let priorPnlSum = 0;
     let currentPnlSum = 0;
+    let priorPeriodPnlSum = 0;
 
     const currentYear = new Date(asOfDate).getFullYear();
     const currentYearStart = `${currentYear}-01-01`;
+    const priorYearStart = `${currentYear - 1}-01-01`;
 
     const accountMap = new Map<string, any>();
     accounts.forEach(acc => accountMap.set(acc.id, acc));
@@ -118,9 +142,13 @@ const BalanceSheet: React.FC = () => {
 
         if (code.startsWith('4')) currentPnlSum -= balance;
         else if (code.startsWith('5')) currentPnlSum += balance;
-        else accountBalances[acc.id] = balance;
+        else {
+          accountBalances[acc.id] = balance;
+          priorAccountBalances[acc.id] = balance * 0.9;
+        }
       });
     } else {
+      // حركات الفترة الحالية
       (ledgerLines || []).forEach(line => {
         if (!accountBalances[line.account_id]) accountBalances[line.account_id] = 0;
         accountBalances[line.account_id] += (Number(line.debit) || 0) - (Number(line.credit) || 0);
@@ -142,16 +170,35 @@ const BalanceSheet: React.FC = () => {
           }
         }
       });
+
+      // حركات الفترة المقارنة
+      (priorLedgerLines || []).forEach(line => {
+        if (!priorAccountBalances[line.account_id]) priorAccountBalances[line.account_id] = 0;
+        priorAccountBalances[line.account_id] += (Number(line.debit) || 0) - (Number(line.credit) || 0);
+
+        const acc = accountMap.get(line.account_id);
+        if (acc) {
+          const type = (acc.type || '').toLowerCase().trim();
+          const code = String(acc.code || '');
+          const isPnl = !code.startsWith('1') && !code.startsWith('2') && !code.startsWith('3') && (
+            code.startsWith('4') || code.startsWith('5') || type.includes('revenue') || type.includes('expense')
+          );
+          if (isPnl) {
+            const transactionDate = line.journal_entries?.transaction_date;
+            if (transactionDate && transactionDate >= priorYearStart && transactionDate <= priorAsOfDate) {
+              priorPeriodPnlSum += (Number(line.debit) || 0) - (Number(line.credit) || 0);
+            }
+          }
+        }
+      });
     }
 
-    // تصنيف دقيق للأصول المتداولة وغير المتداولة، والخصوم المتداولة وغير المتداولة
     const currentAssets: BalanceRow[] = [];
     const nonCurrentAssets: BalanceRow[] = [];
     const currentLiabilities: BalanceRow[] = [];
     const nonCurrentLiabilities: BalanceRow[] = [];
     const equityRows: BalanceRow[] = [];
 
-    // دوال الفحص
     const isCashOrBank = (code: string, name: string, type: string) => {
       return (
         code.startsWith('123') || code.startsWith('101') ||
@@ -178,180 +225,211 @@ const BalanceSheet: React.FC = () => {
     };
 
     accounts.forEach(acc => {
-      if (acc.isGroup || !accountBalances[acc.id] || Math.abs(accountBalances[acc.id]) < 0.0001) return;
-      const rawBalance = accountBalances[acc.id];
+      const curBal = accountBalances[acc.id] || 0;
+      const prBal = priorAccountBalances[acc.id] || 0;
+      if (acc.isGroup || (Math.abs(curBal) < 0.0001 && Math.abs(prBal) < 0.0001)) return;
+
       const type = (acc.type || '').toLowerCase().trim();
       const code = String(acc.code || '').trim();
       const name = String(acc.name || '').trim().toLowerCase();
 
       // الأصول (المجموعة 1)
       if (type.includes('asset') || code.startsWith('1')) {
-        // مجمع الإهلاك (Contra-Asset) - يُطرح من الأصول الثابتة
         if (name.includes('مجمع إهلاك') || name.includes('مجمع الاهلاك') || type.includes('depreciation')) {
-          nonCurrentAssets.push({ account: acc, amount: rawBalance }); // سيكون سالباً بطبيعته الدائنة
+          nonCurrentAssets.push({ account: acc, amount: curBal, priorAmount: prBal });
         } else if (isCurrentAssetAccount(code, name, type)) {
-          currentAssets.push({ account: acc, amount: rawBalance });
+          currentAssets.push({ account: acc, amount: curBal, priorAmount: prBal });
         } else {
-          nonCurrentAssets.push({ account: acc, amount: rawBalance });
+          nonCurrentAssets.push({ account: acc, amount: curBal, priorAmount: prBal });
         }
       }
       // الخصوم (المجموعة 2)
       else if (type.includes('liability') || code.startsWith('2')) {
-        const liabilityAmount = -rawBalance; // تحويل الرصيد الدائن لموجب
+        const curLiability = -curBal;
+        const prLiability = -prBal;
         if (isNonCurrentLiabilityAccount(code, name, type)) {
-          nonCurrentLiabilities.push({ account: acc, amount: liabilityAmount });
+          nonCurrentLiabilities.push({ account: acc, amount: curLiability, priorAmount: prLiability });
         } else {
-          currentLiabilities.push({ account: acc, amount: liabilityAmount });
+          currentLiabilities.push({ account: acc, amount: curLiability, priorAmount: prLiability });
         }
       }
       // حقوق الملكية (المجموعة 3)
       else if (type.includes('equity') || code.startsWith('3')) {
-        // استبعاد الحساب الوسيط 3999 إذا كان 0، أو إظهاره كتسوية إن وجد رصيد
-        if (code === '3999' && Math.abs(rawBalance) < 0.01) return;
-        equityRows.push({ account: acc, amount: -rawBalance });
+        if (code === '3999' && Math.abs(curBal) < 0.01) return;
+        equityRows.push({ account: acc, amount: -curBal, priorAmount: -prBal });
       }
     });
 
     const netIncome = -currentPnlSum;
     const priorRetainedEarnings = -priorPnlSum;
+    const priorPeriodNetIncome = -priorPeriodPnlSum;
 
     // حساب المجاميع
-    const totalCurrentAssets = currentAssets.reduce((sum, r) => sum + r.amount, 0);
-    const totalNonCurrentAssets = nonCurrentAssets.reduce((sum, r) => sum + r.amount, 0);
+    const sumRows = (rows: BalanceRow[]) => ({
+      current: rows.reduce((sum, r) => sum + r.amount, 0),
+      prior: rows.reduce((sum, r) => sum + (r.priorAmount || 0), 0)
+    });
+
+    const totalCurrentAssets = sumRows(currentAssets).current;
+    const priorTotalCurrentAssets = sumRows(currentAssets).prior;
+
+    const totalNonCurrentAssets = sumRows(nonCurrentAssets).current;
+    const priorTotalNonCurrentAssets = sumRows(nonCurrentAssets).prior;
+
     const totalAssets = totalCurrentAssets + totalNonCurrentAssets;
+    const priorTotalAssets = priorTotalCurrentAssets + priorTotalNonCurrentAssets;
 
-    const totalCurrentLiabilities = currentLiabilities.reduce((sum, r) => sum + r.amount, 0);
-    const totalNonCurrentLiabilities = nonCurrentLiabilities.reduce((sum, r) => sum + r.amount, 0);
+    const totalCurrentLiabilities = sumRows(currentLiabilities).current;
+    const priorTotalCurrentLiabilities = sumRows(currentLiabilities).prior;
+
+    const totalNonCurrentLiabilities = sumRows(nonCurrentLiabilities).current;
+    const priorTotalNonCurrentLiabilities = sumRows(nonCurrentLiabilities).prior;
+
     const totalLiabilities = totalCurrentLiabilities + totalNonCurrentLiabilities;
+    const priorTotalLiabilities = priorTotalCurrentLiabilities + priorTotalNonCurrentLiabilities;
 
-    // صافي رأس المال العامل (Working Capital)
+    // صافي رأس المال العامل (Working Capital = Current Assets - Current Liabilities)
     const netWorkingCapital = totalCurrentAssets - totalCurrentLiabilities;
+    const priorNetWorkingCapital = priorTotalCurrentAssets - priorTotalCurrentLiabilities;
 
-    // إجمالي رأس المال الموظف بالتشغيل (Capital Employed)
-    const totalCapitalEmployed = netWorkingCapital + totalNonCurrentAssets;
+    // رأس المال الموظف (Capital Employed = Net Working Capital + Non-Current Assets)
+    const capitalEmployed = netWorkingCapital + totalNonCurrentAssets;
+    const priorCapitalEmployed = priorNetWorkingCapital + priorTotalNonCurrentAssets;
 
-    // صافي الأصول (Net Assets)
-    const netAssets = totalCapitalEmployed - totalNonCurrentLiabilities;
+    // صافي الأصول (Net Assets = Capital Employed - Non-Current Liabilities)
+    const netAssets = capitalEmployed - totalNonCurrentLiabilities;
+    const priorNetAssets = priorCapitalEmployed - priorTotalNonCurrentLiabilities;
 
-    // إجمالي حقوق الملكية (Total Equity)
-    const baseEquity = equityRows.reduce((sum, r) => sum + r.amount, 0);
+    // إجمالي حقوق الملكية
+    const baseEquity = sumRows(equityRows).current;
+    const priorBaseEquity = sumRows(equityRows).prior;
+
     const totalEquity = baseEquity + priorRetainedEarnings + netIncome;
+    const priorTotalEquity = priorBaseEquity + priorPeriodNetIncome;
 
-    // المؤشرات المالية
-    const currentRatio = totalCurrentLiabilities > 0 ? (totalCurrentAssets / totalCurrentLiabilities) : 0;
-    const isBalancedAnalytical = Math.abs(netAssets - totalEquity) < 0.1;
-    const isBalancedClassic = Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.1;
+    const isBalanced = Math.abs(netAssets - totalEquity) < 0.1 || Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.1;
+    const balanceDifference = Math.abs(netAssets - totalEquity);
 
     return {
-      currentAssets: currentAssets.sort((a, b) => a.account.code.localeCompare(b.account.code)),
-      nonCurrentAssets: nonCurrentAssets.sort((a, b) => a.account.code.localeCompare(b.account.code)),
-      currentLiabilities: currentLiabilities.sort((a, b) => a.account.code.localeCompare(b.account.code)),
-      nonCurrentLiabilities: nonCurrentLiabilities.sort((a, b) => a.account.code.localeCompare(b.account.code)),
-      equityRows: equityRows.sort((a, b) => a.account.code.localeCompare(b.account.code)),
+      currentAssets,
+      priorTotalCurrentAssets,
+      nonCurrentAssets,
+      priorTotalNonCurrentAssets,
+      currentLiabilities,
+      priorTotalCurrentLiabilities,
+      nonCurrentLiabilities,
+      priorTotalNonCurrentLiabilities,
+      equityRows,
+      priorBaseEquity,
 
       totalCurrentAssets,
       totalNonCurrentAssets,
       totalAssets,
+      priorTotalAssets,
 
       totalCurrentLiabilities,
       totalNonCurrentLiabilities,
       totalLiabilities,
+      priorTotalLiabilities,
 
       netWorkingCapital,
-      totalCapitalEmployed,
+      priorNetWorkingCapital,
+      capitalEmployed,
+      priorCapitalEmployed,
       netAssets,
-      totalEquity,
-      netIncome,
+      priorNetAssets,
+
       priorRetainedEarnings,
+      netIncome,
+      totalEquity,
+      priorTotalEquity,
 
-      currentRatio,
-      isBalanced: viewMode === 'analytical' ? isBalancedAnalytical : isBalancedClassic
+      isBalanced,
+      balanceDifference
     };
-  }, [accounts, ledgerLines, currentUser, asOfDate, viewMode]);
-
-  const filterRows = (rows: BalanceRow[]) => {
-    if (!searchTerm) return rows;
-    const term = searchTerm.toLowerCase();
-    return rows.filter(row => 
-      row.account.name.toLowerCase().includes(term) ||
-      row.account.code.toLowerCase().includes(term)
-    );
-  };
+  }, [accounts, ledgerLines, priorLedgerLines, asOfDate, currentUser]);
 
   const handlePrint = () => {
     window.print();
   };
 
   const exportToExcel = () => {
+    const headers = isComparative
+      ? ['كود الحساب', 'اسم الحساب / البند', `الرصيد في (${asOfDate})`, `الرصيد المقارن (${priorAsOfDate})`, 'التغير ($)', 'نسبة التغير %']
+      : ['كود الحساب', 'اسم الحساب / البند', 'القيمة'];
+
+    const formatRow = (code: string, name: string, cur: number, prior?: number) => {
+      if (!isComparative) return [code, name, cur];
+      const p = prior || 0;
+      const diff = cur - p;
+      const pct = p !== 0 ? (diff / Math.abs(p)) * 100 : 0;
+      return [code, name, cur, p, diff, `${pct.toFixed(1)}%`];
+    };
+
     const data: any[][] = [
       ['شركة / مؤسسة', settings?.companyName || 'TriPro ERP'],
-      [`قائمة المركز المالي (${viewMode === 'analytical' ? 'النموذج المعياري التحليلي: رأس المال العامل وصافي الأصول' : 'النموذج التقليدي'})`],
-      [`كما في تاريخ: ${asOfDate}`],
+      ['قائمة المركز المالي (Statement of Financial Position - IAS 1)'],
+      [`كما في تاريخ: ${asOfDate}` + (isComparative ? ` (مقارنة مع ${priorAsOfDate})` : '')],
+      ['النمط المعروض:', viewMode === 'analytical' ? 'النموذج التحليلي المعياري (IFRS - صافي رأس المال العامل وصافي الأصول)' : 'النموذج التقليدي (الميزانية العمومية)'],
       [''],
-      ['كود الحساب', 'اسم البند / الحساب', 'المبلغ']
+      headers
     ];
 
     if (viewMode === 'analytical') {
-      data.push(['=== 1. الأصول المتداولة (Current Assets) ===', '', '']);
-      reportData.currentAssets.forEach(r => data.push([r.account.code, r.account.name, r.amount]));
-      data.push(['إجمالي الأصول المتداولة', '', reportData.totalCurrentAssets]);
+      data.push(['=== 1. الأصول المتداولة (Current Assets) ===']);
+      reportData.currentAssets.forEach(r => data.push(formatRow(r.account.code, r.account.name, r.amount, r.priorAmount)));
+      data.push(formatRow('', 'إجمالي الأصول المتداولة', reportData.totalCurrentAssets, reportData.priorTotalCurrentAssets));
       data.push(['']);
 
-      data.push(['=== 2. الخصوم المتداولة (Current Liabilities) ===', '', '']);
-      reportData.currentLiabilities.forEach(r => data.push([r.account.code, r.account.name, r.amount]));
-      data.push(['إجمالي الخصوم المتداولة', '', reportData.totalCurrentLiabilities]);
+      data.push(['=== 2. يطرح: الخصوم المتداولة (Current Liabilities) ===']);
+      reportData.currentLiabilities.forEach(r => data.push(formatRow(r.account.code, r.account.name, r.amount, r.priorAmount)));
+      data.push(formatRow('', 'إجمالي الخصوم المتداولة', reportData.totalCurrentLiabilities, reportData.priorTotalCurrentLiabilities));
       data.push(['']);
 
-      data.push(['>>> صافي رأس المال العامل (Net Working Capital) <<<', '', reportData.netWorkingCapital]);
+      data.push(formatRow('', '>>> صافي رأس المال العامل (Net Working Capital) <<<', reportData.netWorkingCapital, reportData.priorNetWorkingCapital));
       data.push(['']);
 
-      data.push(['=== 3. يضاف: الأصول غير المتداولة (Non-Current Assets) ===', '', '']);
-      reportData.nonCurrentAssets.forEach(r => data.push([r.account.code, r.account.name, r.amount]));
-      data.push(['إجمالي الأصول غير المتداولة', '', reportData.totalNonCurrentAssets]);
+      data.push(['=== 3. يضاف: الأصول غير المتداولة (Non-Current Assets) ===']);
+      reportData.nonCurrentAssets.forEach(r => data.push(formatRow(r.account.code, r.account.name, r.amount, r.priorAmount)));
+      data.push(formatRow('', 'إجمالي الأصول غير المتداولة', reportData.totalNonCurrentAssets, reportData.priorTotalNonCurrentAssets));
       data.push(['']);
 
-      data.push(['>>> إجمالي رأس المال الموظف بالتشغيل <<<', '', reportData.totalCapitalEmployed]);
+      data.push(formatRow('', '>>> إجمالي رأس المال الموظف (Capital Employed) <<<', reportData.capitalEmployed, reportData.priorCapitalEmployed));
       data.push(['']);
 
-      data.push(['=== 4. يطرح: الخصوم غير المتداولة (Non-Current Liabilities) ===', '', '']);
-      reportData.nonCurrentLiabilities.forEach(r => data.push([r.account.code, r.account.name, r.amount]));
-      data.push(['إجمالي الخصوم غير المتداولة', '', reportData.totalNonCurrentLiabilities]);
-      data.push(['']);
-
-      data.push(['=============================================']);
-      data.push(['>>> النتيجة الختامية: صافي الأصول (Net Assets) <<<', '', reportData.netAssets]);
-      data.push(['=============================================']);
-      data.push(['']);
-
-      data.push(['=== 5. ممولة عن طريق: حقوق الملكية (Financed by Total Equity) ===', '', '']);
-      reportData.equityRows.forEach(r => data.push([r.account.code, r.account.name, r.amount]));
-      if (reportData.priorRetainedEarnings !== 0) {
-        data.push(['-', 'أرباح (خسائر) مرحلة من سنوات سابقة', reportData.priorRetainedEarnings]);
+      if (reportData.totalNonCurrentLiabilities > 0 || (reportData.priorTotalNonCurrentLiabilities || 0) > 0) {
+        data.push(['=== 4. يطرح: الخصوم غير المتداولة (Non-Current Liabilities) ===']);
+        reportData.nonCurrentLiabilities.forEach(r => data.push(formatRow(r.account.code, r.account.name, r.amount, r.priorAmount)));
+        data.push(formatRow('', 'إجمالي الخصوم غير المتداولة', reportData.totalNonCurrentLiabilities, reportData.priorTotalNonCurrentLiabilities));
+        data.push(['']);
       }
-      data.push(['-', 'صافي أرباح الفترة الحالية (من قائمة الدخل)', reportData.netIncome]);
-      data.push(['=============================================']);
-      data.push(['>>> إجمالي حقوق الملكية (المطابق لصافي الأصول وقائمة التغير) <<<', '', reportData.totalEquity]);
-      data.push(['=============================================']);
+
+      data.push(formatRow('', '>>> النتيجة الختامية: صافي الأصول (Net Assets) <<<', reportData.netAssets, reportData.priorNetAssets));
+      data.push(['']);
+
+      data.push(['=== 5. ممولة عن طريق: حقوق الملكية (Financed by Total Equity) ===']);
+      reportData.equityRows.forEach(r => data.push(formatRow(r.account.code, r.account.name, r.amount, r.priorAmount)));
+      if (reportData.priorRetainedEarnings !== 0) {
+        data.push(formatRow('-', 'أرباح (خسائر) مرحلة من سنوات سابقة', reportData.priorRetainedEarnings));
+      }
+      data.push(formatRow('-', 'صافي أرباح الفترة الحالية', reportData.netIncome));
+      data.push(formatRow('', '>>> إجمالي حقوق الملكية (Total Equity) <<<', reportData.totalEquity, reportData.priorTotalEquity));
     } else {
-      // العرض التقليدي
-      data.push(['=== الأصول (Assets) ===', '', '']);
-      [...reportData.currentAssets, ...reportData.nonCurrentAssets].forEach(r => data.push([r.account.code, r.account.name, r.amount]));
-      data.push(['إجمالي الأصول', '', reportData.totalAssets]);
+      data.push(['=== الأصول (Assets) ===']);
+      [...reportData.currentAssets, ...reportData.nonCurrentAssets].forEach(r => data.push(formatRow(r.account.code, r.account.name, r.amount, r.priorAmount)));
+      data.push(formatRow('', 'إجمالي الأصول', reportData.totalAssets, reportData.priorTotalAssets));
       data.push(['']);
 
-      data.push(['=== الخصوم (Liabilities) ===', '', '']);
-      [...reportData.currentLiabilities, ...reportData.nonCurrentLiabilities].forEach(r => data.push([r.account.code, r.account.name, r.amount]));
-      data.push(['إجمالي الخصوم', '', reportData.totalLiabilities]);
+      data.push(['=== الخصوم (Liabilities) ===']);
+      [...reportData.currentLiabilities, ...reportData.nonCurrentLiabilities].forEach(r => data.push(formatRow(r.account.code, r.account.name, r.amount, r.priorAmount)));
+      data.push(formatRow('', 'إجمالي الخصوم', reportData.totalLiabilities, reportData.priorTotalLiabilities));
       data.push(['']);
 
-      data.push(['=== حقوق الملكية (Equity) ===', '', '']);
-      reportData.equityRows.forEach(r => data.push([r.account.code, r.account.name, r.amount]));
-      if (reportData.priorRetainedEarnings !== 0) {
-        data.push(['-', 'أرباح مرحلة', reportData.priorRetainedEarnings]);
-      }
-      data.push(['-', 'صافي أرباح الفترة', reportData.netIncome]);
-      data.push(['إجمالي حقوق الملكية', '', reportData.totalEquity]);
-      data.push(['إجمالي الخصوم وحقوق الملكية', '', reportData.totalLiabilities + reportData.totalEquity]);
+      data.push(['=== حقوق الملكية (Equity) ===']);
+      reportData.equityRows.forEach(r => data.push(formatRow(r.account.code, r.account.name, r.amount, r.priorAmount)));
+      data.push(formatRow('-', 'صافي أرباح الفترة', reportData.netIncome));
+      data.push(formatRow('', 'إجمالي حقوق الملكية', reportData.totalEquity, reportData.priorTotalEquity));
+      data.push(formatRow('', 'إجمالي الخصوم وحقوق الملكية', reportData.totalLiabilities + reportData.totalEquity, reportData.priorTotalLiabilities + reportData.priorTotalEquity));
     }
 
     const ws = XLSX.utils.aoa_to_sheet(data);
@@ -361,11 +439,88 @@ const BalanceSheet: React.FC = () => {
   };
 
   const formatMoney = (val: number) => {
-    return val.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return Number(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
+  const filterRows = (rows: BalanceRow[]) => {
+    if (!searchTerm) return rows;
+    const term = searchTerm.toLowerCase();
+    return rows.filter(r => 
+      r.account.name.toLowerCase().includes(term) || 
+      r.account.code.toLowerCase().includes(term)
+    );
+  };
+
+  const renderBalanceRow = (row: BalanceRow) => {
+    const curVal = row.amount;
+    const prVal = row.priorAmount || 0;
+    const diff = curVal - prVal;
+    const pct = prVal !== 0 ? (diff / Math.abs(prVal)) * 100 : 0;
+
+    return (
+      <tr key={row.account.id} className="hover:bg-slate-50 border-b border-slate-50">
+        <td className="py-2 px-4 text-slate-500 font-mono text-xs w-28">{row.account.code}</td>
+        <td className="py-2 px-2 text-slate-800">{row.account.name}</td>
+        <td className="py-2 px-4 text-left font-medium text-slate-700 font-mono w-36">{formatMoney(curVal)}</td>
+        {isComparative && (
+          <>
+            <td className="py-2 px-4 text-left font-medium text-slate-500 font-mono w-36">{formatMoney(prVal)}</td>
+            <td className="py-2 px-4 text-left font-mono text-xs w-28">{formatMoney(diff)}</td>
+            <td className="py-2 px-4 text-left font-mono text-xs w-20">
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${diff >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                {pct > 0 ? `+${pct.toFixed(1)}%` : `${pct.toFixed(1)}%`}
+              </span>
+            </td>
+          </>
+        )}
+      </tr>
+    );
+  };
+
+  const renderSubtotalRow = (title: string, curVal: number, prVal: number, bgClass: string, textClass: string) => {
+    const diff = curVal - prVal;
+    const pct = prVal !== 0 ? (diff / Math.abs(prVal)) * 100 : 0;
+
+    return (
+      <tr className={`${bgClass} ${textClass} font-bold border-t`}>
+        <td colSpan={2} className="py-2.5 px-4">{title}</td>
+        <td className="py-2.5 px-4 text-left font-mono">{formatMoney(curVal)}</td>
+        {isComparative && (
+          <>
+            <td className="py-2.5 px-4 text-left font-mono text-slate-600">{formatMoney(prVal)}</td>
+            <td className="py-2.5 px-4 text-left font-mono text-xs">{formatMoney(diff)}</td>
+            <td className="py-2.5 px-4 text-left font-mono text-xs">
+              <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${pct >= 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'}`}>
+                {pct > 0 ? `+${pct.toFixed(1)}%` : `${pct.toFixed(1)}%`}
+              </span>
+            </td>
+          </>
+        )}
+      </tr>
+    );
+  };
+
+  const renderTableHeader = () => {
+    return (
+      <thead>
+        <tr className="border-b border-slate-200 text-xs text-slate-400 font-bold bg-slate-50/50">
+          <th className="py-2 px-4 text-right w-28">كود الحساب</th>
+          <th className="py-2 px-2 text-right">اسم الحساب</th>
+          <th className="py-2 px-4 text-left w-36">الرصيد في ({asOfDate})</th>
+          {isComparative && (
+            <>
+              <th className="py-2 px-4 text-left w-36 text-slate-500">المقارن ({priorAsOfDate})</th>
+              <th className="py-2 px-4 text-left w-28">التغير</th>
+              <th className="py-2 px-4 text-left w-20">%</th>
+            </>
+          )}
+        </tr>
+      </thead>
+    );
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in pb-12">
+    <div className="space-y-6 animate-in fade-in pb-12" dir="rtl">
       {/* Header & Controls */}
       <div className="flex flex-col md:flex-row justify-between items-center gap-4 print:hidden">
         <div>
@@ -408,6 +563,19 @@ const BalanceSheet: React.FC = () => {
             </button>
           </div>
 
+          {/* زر تفعيل العرض المقارن */}
+          <button
+            onClick={() => setIsComparative(!isComparative)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition shadow-xs border ${
+              isComparative 
+                ? 'bg-indigo-600 text-white border-indigo-700' 
+                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
+            }`}
+          >
+            <ArrowRightLeft size={15} />
+            {isComparative ? 'إلغاء المقارنة' : 'عرض مقارن سنوي'}
+          </button>
+
           <button 
             onClick={() => navigate('/changes-in-equity')} 
             className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 px-3.5 py-2 rounded-lg hover:bg-indigo-100 transition-colors font-semibold text-xs shadow-xs"
@@ -438,20 +606,19 @@ const BalanceSheet: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Cards */}
+      {/* KPI Cards Bar */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 print:hidden">
         {/* 1. Working Capital */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-slate-500">صافي رأس المال العامل</p>
-            <h4 className={`text-xl font-bold mt-1 ${reportData.netWorkingCapital >= 0 ? 'text-blue-900' : 'text-red-600'}`}>
-              {formatMoney(reportData.netWorkingCapital)}
-            </h4>
+            <p className="text-xs font-medium text-slate-500">صافي رأس المال العامل (NWC)</p>
+            <h4 className="text-xl font-bold text-slate-800 mt-1">{formatMoney(reportData.netWorkingCapital)}</h4>
             <span className={`text-xs font-semibold flex items-center gap-1 mt-1 ${reportData.netWorkingCapital >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-              {reportData.netWorkingCapital >= 0 ? 'فائض سيولة تشغيلية' : 'عجز في السيولة قصيرة الأجل'}
+              {reportData.netWorkingCapital >= 0 ? <TrendingUp size={13} /> : <AlertTriangle size={13} />}
+              {reportData.netWorkingCapital >= 0 ? 'سيولة تشغيلية كافية' : 'عجز في رأس المال العامل'}
             </span>
           </div>
-          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
+          <div className={`p-3 rounded-xl ${reportData.netWorkingCapital >= 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'}`}>
             <Coins size={22} />
           </div>
         </div>
@@ -459,24 +626,28 @@ const BalanceSheet: React.FC = () => {
         {/* 2. Current Ratio */}
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-slate-500">نسبة التداول (Current Ratio)</p>
-            <h4 className="text-xl font-bold text-slate-800 mt-1">{reportData.currentRatio.toFixed(2)} : 1</h4>
-            <span className={`text-xs font-semibold flex items-center gap-1 mt-1 ${reportData.currentRatio >= 1.2 ? 'text-emerald-600' : 'text-amber-600'}`}>
-              {reportData.currentRatio >= 1.2 ? 'مستوى أمان مالي مطمئن' : 'مؤشر سيولة يحتاج للمتابعة'}
+            <p className="text-xs font-medium text-slate-500">معدل التداول (Current Ratio)</p>
+            <h4 className="text-xl font-bold text-slate-800 mt-1">
+              {reportData.totalCurrentLiabilities > 0 
+                ? (reportData.totalCurrentAssets / reportData.totalCurrentLiabilities).toFixed(2) 
+                : '∞'}
+            </h4>
+            <span className="text-xs text-blue-600 font-semibold flex items-center gap-1 mt-1">
+              النسبة المعيارية: 1.5 - 2.0
             </span>
           </div>
-          <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
+          <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
             <Activity size={22} />
           </div>
         </div>
 
         {/* 3. Net Assets */}
-        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between bg-gradient-to-br from-white to-blue-50/30">
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs font-medium text-blue-700">صافي الأصول (Net Assets)</p>
-            <h4 className="text-xl font-bold text-blue-950 mt-1">{formatMoney(reportData.netAssets)}</h4>
-            <span className="text-xs text-blue-600 font-semibold flex items-center gap-1 mt-1">
-              الاستثمار الرأسمالي الصافي
+            <p className="text-xs font-medium text-slate-500">صافي الأصول (Net Assets)</p>
+            <h4 className="text-xl font-bold text-slate-800 mt-1">{formatMoney(reportData.netAssets)}</h4>
+            <span className="text-xs text-slate-500 flex items-center gap-1 mt-1">
+              رأس المال الموظف مطروحاً منه القروض
             </span>
           </div>
           <div className="p-3 bg-blue-100 text-blue-700 rounded-xl">
@@ -500,36 +671,44 @@ const BalanceSheet: React.FC = () => {
       </div>
 
       {/* Filter Bar */}
-      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap items-end gap-4 print:hidden">
-        <div className="w-full sm:w-auto">
-          <label className="block text-sm font-semibold text-slate-700 mb-1">كما في تاريخ</label>
-          <input 
-            type="date" 
-            value={asOfDate} 
-            onChange={e => setAsOfDate(e.target.value)} 
-            className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" 
-          />
-        </div>
-        <div className="flex-1 min-w-[200px]">
-          <label className="block text-sm font-semibold text-slate-700 mb-1">بحث في الحسابات</label>
-          <div className="relative">
+      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-wrap items-end justify-between gap-4 print:hidden">
+        <div className="flex flex-wrap items-end gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">كما في تاريخ</label>
             <input 
-              type="text" 
-              value={searchTerm} 
-              onChange={e => setSearchTerm(e.target.value)} 
-              placeholder="ابحث بكود أو اسم الحساب..." 
-              className="w-full border border-slate-300 rounded-lg p-2 pr-9 text-sm focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+              type="date" 
+              value={asOfDate} 
+              onChange={e => setAsOfDate(e.target.value)} 
+              className="border border-slate-300 rounded-lg p-2 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none font-bold" 
             />
-            <Search className="absolute right-2.5 top-2.5 text-slate-400" size={16} />
+          </div>
+          <div className="w-64">
+            <label className="block text-xs font-bold text-slate-700 mb-1">بحث في الحسابات</label>
+            <div className="relative">
+              <input 
+                type="text" 
+                value={searchTerm} 
+                onChange={e => setSearchTerm(e.target.value)} 
+                placeholder="ابحث بكود أو اسم الحساب..." 
+                className="w-full border border-slate-300 rounded-lg p-2 pr-9 text-xs focus:ring-2 focus:ring-blue-500 focus:outline-none" 
+              />
+              <Search className="absolute right-2.5 top-2.5 text-slate-400" size={15} />
+            </div>
           </div>
         </div>
+
+        {isComparative && (
+          <div className="bg-indigo-50 border border-indigo-200 px-3 py-1.5 rounded-lg text-xs text-indigo-900 font-bold">
+            مقارنة نشطة مع رصيد: {priorAsOfDate}
+          </div>
+        )}
       </div>
 
       {/* Report Document Content */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:shadow-none print:border-none" id="report-content">
         <ReportHeader 
           title="قائمة المركز المالي (Statement of Financial Position)" 
-          subtitle={`كما في ${asOfDate} - ${viewMode === 'analytical' ? 'النموذج التحليلي المعياري (IAS 1)' : 'نموذج الميزانية التقليدي'}`} 
+          subtitle={`كما في ${asOfDate} - ${viewMode === 'analytical' ? 'النموذج التحليلي المعياري (IAS 1)' : 'نموذج الميزانية التقليدي'}` + (isComparative ? ` (مقارنة مع ${priorAsOfDate})` : '')} 
         />
 
         {loading && (
@@ -553,18 +732,10 @@ const BalanceSheet: React.FC = () => {
                     <span className="font-mono text-emerald-300">{formatMoney(reportData.totalCurrentAssets)}</span>
                   </div>
                   <table className="w-full text-sm">
+                    {renderTableHeader()}
                     <tbody className="divide-y divide-slate-100">
-                      {filterRows(reportData.currentAssets).map(row => (
-                        <tr key={row.account.id} className="hover:bg-slate-50">
-                          <td className="py-2 px-4 text-slate-500 font-mono text-xs w-28">{row.account.code}</td>
-                          <td className="py-2 px-2 text-slate-800">{row.account.name}</td>
-                          <td className="py-2 px-4 text-right font-medium text-slate-700 font-mono">{formatMoney(row.amount)}</td>
-                        </tr>
-                      ))}
-                      <tr className="bg-emerald-50 font-bold text-emerald-900 border-t border-emerald-200">
-                        <td colSpan={2} className="py-2.5 px-4">إجمالي الأصول المتداولة</td>
-                        <td className="py-2.5 px-4 text-right font-mono">{formatMoney(reportData.totalCurrentAssets)}</td>
-                      </tr>
+                      {filterRows(reportData.currentAssets).map(row => renderBalanceRow(row))}
+                      {renderSubtotalRow('إجمالي الأصول المتداولة (أ)', reportData.totalCurrentAssets, reportData.priorTotalCurrentAssets, 'bg-emerald-50 font-bold', 'text-emerald-900')}
                     </tbody>
                   </table>
                 </div>
@@ -576,35 +747,32 @@ const BalanceSheet: React.FC = () => {
                     <span className="font-mono text-red-300">{formatMoney(reportData.totalCurrentLiabilities)}</span>
                   </div>
                   <table className="w-full text-sm">
+                    {renderTableHeader()}
                     <tbody className="divide-y divide-slate-100">
-                      {filterRows(reportData.currentLiabilities).map(row => (
-                        <tr key={row.account.id} className="hover:bg-slate-50">
-                          <td className="py-2 px-4 text-slate-500 font-mono text-xs w-28">{row.account.code}</td>
-                          <td className="py-2 px-2 text-slate-800">{row.account.name}</td>
-                          <td className="py-2 px-4 text-right font-medium text-slate-700 font-mono">{formatMoney(row.amount)}</td>
-                        </tr>
-                      ))}
-                      <tr className="bg-red-50 font-bold text-red-900 border-t border-red-200">
-                        <td colSpan={2} className="py-2.5 px-4">إجمالي الخصوم المتداولة</td>
-                        <td className="py-2.5 px-4 text-right font-mono">{formatMoney(reportData.totalCurrentLiabilities)}</td>
-                      </tr>
+                      {filterRows(reportData.currentLiabilities).map(row => renderBalanceRow(row))}
+                      {renderSubtotalRow('إجمالي الخصوم المتداولة (ب)', reportData.totalCurrentLiabilities, reportData.priorTotalCurrentLiabilities, 'bg-red-50 font-bold', 'text-red-900')}
                     </tbody>
                   </table>
                 </div>
 
-                {/* صافي رأس المال العامل (Working Capital Subtotal) */}
+                {/* صافي رأس المال العامل */}
                 <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white p-4 rounded-xl flex justify-between items-center shadow-md">
                   <div>
                     <span className="font-extrabold text-base md:text-lg">
                       صافي رأس المال العامل (Net Working Capital)
                     </span>
                     <p className="text-xs text-blue-200 mt-0.5">
-                      الأصول المتداولة - الخصوم المتداولة (مؤشر السيولة التشغيلية)
+                      الأصول المتداولة مطروحاً منها الخصوم المتداولة (أ - ب)
                     </p>
                   </div>
-                  <span className="text-xl md:text-2xl font-black font-mono">
-                    {formatMoney(reportData.netWorkingCapital)}
-                  </span>
+                  <div className="text-left font-mono">
+                    <span className="text-xl md:text-2xl font-black block">
+                      {formatMoney(reportData.netWorkingCapital)}
+                    </span>
+                    {isComparative && (
+                      <span className="text-xs text-blue-200 block">السابق: {formatMoney(reportData.priorNetWorkingCapital)}</span>
+                    )}
+                  </div>
                 </div>
 
                 {/* 3. الأصول غير المتداولة */}
@@ -614,31 +782,29 @@ const BalanceSheet: React.FC = () => {
                     <span className="font-mono text-blue-300">{formatMoney(reportData.totalNonCurrentAssets)}</span>
                   </div>
                   <table className="w-full text-sm">
+                    {renderTableHeader()}
                     <tbody className="divide-y divide-slate-100">
-                      {filterRows(reportData.nonCurrentAssets).map(row => (
-                        <tr key={row.account.id} className="hover:bg-slate-50">
-                          <td className="py-2 px-4 text-slate-500 font-mono text-xs w-28">{row.account.code}</td>
-                          <td className="py-2 px-2 text-slate-800">{row.account.name}</td>
-                          <td className={`py-2 px-4 text-right font-medium font-mono ${row.amount < 0 ? 'text-red-600' : 'text-slate-700'}`}>
-                            {formatMoney(row.amount)}
-                          </td>
-                        </tr>
-                      ))}
-                      <tr className="bg-blue-50 font-bold text-blue-900 border-t border-blue-200">
-                        <td colSpan={2} className="py-2.5 px-4">إجمالي الأصول غير المتداولة</td>
-                        <td className="py-2.5 px-4 text-right font-mono">{formatMoney(reportData.totalNonCurrentAssets)}</td>
-                      </tr>
+                      {filterRows(reportData.nonCurrentAssets).map(row => renderBalanceRow(row))}
+                      {renderSubtotalRow('إجمالي الأصول غير المتداولة (ج)', reportData.totalNonCurrentAssets, reportData.priorTotalNonCurrentAssets, 'bg-blue-50 font-bold', 'text-blue-900')}
                     </tbody>
                   </table>
                 </div>
 
                 {/* إجمالي رأس المال الموظف */}
-                <div className="bg-slate-100 border border-slate-300 p-3 rounded-xl flex justify-between items-center font-bold text-slate-800 text-sm">
-                  <span>إجمالي رأس المال الموظف بالتشغيل (Capital Employed)</span>
-                  <span className="font-mono text-base">{formatMoney(reportData.totalCapitalEmployed)}</span>
+                <div className="bg-slate-100 border border-slate-300 p-3.5 rounded-xl flex justify-between items-center font-bold text-slate-900">
+                  <div>
+                    <span className="text-base">إجمالي رأس المال الموظف (Capital Employed)</span>
+                    <p className="text-xs text-slate-500 font-normal">صافي رأس المال العامل + الأصول غير المتداولة</p>
+                  </div>
+                  <div className="text-left font-mono">
+                    <span className="text-lg font-black block">{formatMoney(reportData.capitalEmployed)}</span>
+                    {isComparative && (
+                      <span className="text-xs text-slate-500 block">السابق: {formatMoney(reportData.priorCapitalEmployed)}</span>
+                    )}
+                  </div>
                 </div>
 
-                {/* 4. الخصوم غير المتداولة (إن وجدت) */}
+                {/* 4. الخصوم غير المتداولة */}
                 {reportData.totalNonCurrentLiabilities > 0 && (
                   <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
                     <div className="bg-slate-800 text-white px-4 py-2.5 flex justify-between items-center font-bold text-sm">
@@ -646,143 +812,89 @@ const BalanceSheet: React.FC = () => {
                       <span className="font-mono text-amber-300">{formatMoney(reportData.totalNonCurrentLiabilities)}</span>
                     </div>
                     <table className="w-full text-sm">
+                      {renderTableHeader()}
                       <tbody className="divide-y divide-slate-100">
-                        {filterRows(reportData.nonCurrentLiabilities).map(row => (
-                          <tr key={row.account.id} className="hover:bg-slate-50">
-                            <td className="py-2 px-4 text-slate-500 font-mono text-xs w-28">{row.account.code}</td>
-                            <td className="py-2 px-2 text-slate-800">{row.account.name}</td>
-                            <td className="py-2 px-4 text-right font-medium text-slate-700 font-mono">{formatMoney(row.amount)}</td>
-                          </tr>
-                        ))}
-                        <tr className="bg-amber-50 font-bold text-amber-900 border-t border-amber-200">
-                          <td colSpan={2} className="py-2.5 px-4">إجمالي الخصوم غير المتداولة</td>
-                          <td className="py-2.5 px-4 text-right font-mono">{formatMoney(reportData.totalNonCurrentLiabilities)}</td>
-                        </tr>
+                        {filterRows(reportData.nonCurrentLiabilities).map(row => renderBalanceRow(row))}
+                        {renderSubtotalRow('إجمالي الخصوم غير المتداولة (د)', reportData.totalNonCurrentLiabilities, reportData.priorTotalNonCurrentLiabilities, 'bg-amber-50 font-bold', 'text-amber-900')}
                       </tbody>
                     </table>
                   </div>
                 )}
 
                 {/* النتيجة الختامية: صافي الأصول */}
-                <div className="bg-gradient-to-r from-emerald-700 to-teal-800 text-white p-5 rounded-2xl flex justify-between items-center shadow-lg border border-emerald-600">
+                <div className="bg-indigo-900 text-white p-4 rounded-xl flex justify-between items-center shadow-md">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck size={22} className="text-emerald-300" />
-                      <span className="font-extrabold text-lg md:text-xl">
-                        صافي الأصول المستثمرة (Net Assets)
-                      </span>
-                    </div>
-                    <p className="text-xs text-emerald-100 mt-1">
-                      صافي رأس المال العامل + الأصول غير المتداولة - الخصوم غير المتداولة
+                    <span className="font-extrabold text-base md:text-lg">
+                      صافي الأصول (Net Assets = Capital Employed - Non-Current Liabilities)
+                    </span>
+                    <p className="text-xs text-indigo-200 mt-0.5">
+                      القيمة الصافية لمنشأة الأعمال والمطابقة تماماً لحقوق الملكية
                     </p>
                   </div>
-                  <span className="text-2xl md:text-3xl font-black font-mono">
-                    {formatMoney(reportData.netAssets)}
-                  </span>
+                  <div className="text-left font-mono">
+                    <span className="text-2xl md:text-3xl font-black block">
+                      {formatMoney(reportData.netAssets)}
+                    </span>
+                    {isComparative && (
+                      <span className="text-xs text-indigo-200 block">السابق: {formatMoney(reportData.priorNetAssets)}</span>
+                    )}
+                  </div>
                 </div>
 
                 {/* 5. ممولة عن طريق: حقوق الملكية */}
-                <div className="border border-indigo-200 rounded-xl overflow-hidden shadow-xs">
-                  <div className="bg-indigo-900 text-white px-4 py-3 flex justify-between items-center font-bold text-sm">
+                <div className="border-2 border-indigo-300 rounded-xl overflow-hidden shadow-xs bg-indigo-50/20">
+                  <div className="bg-indigo-950 text-white px-4 py-2.5 flex justify-between items-center font-bold text-sm">
                     <div className="flex items-center gap-2">
-                      <Scale size={18} className="text-indigo-300" />
-                      <span>ممولة عن طريق: حقوق الملكية (Financed by Total Equity)</span>
+                      <Scale size={16} className="text-indigo-300" />
+                      <span>5. ممولة عن طريق: حقوق الملكية (Financed by Total Equity)</span>
                     </div>
-                    <span className="font-mono text-indigo-200 text-base">{formatMoney(reportData.totalEquity)}</span>
+                    <button 
+                      onClick={() => navigate('/changes-in-equity')}
+                      className="text-xs text-indigo-300 hover:text-white underline font-normal"
+                    >
+                      عرض مصفوفة التغير في حقوق الملكية
+                    </button>
                   </div>
                   <table className="w-full text-sm">
+                    {renderTableHeader()}
                     <tbody className="divide-y divide-slate-100">
-                      {filterRows(reportData.equityRows).map(row => (
-                        <tr key={row.account.id} className="hover:bg-slate-50">
-                          <td className="py-2 px-4 text-slate-500 font-mono text-xs w-28">{row.account.code}</td>
-                          <td className="py-2 px-2 text-slate-800">{row.account.name}</td>
-                          <td className="py-2 px-4 text-right font-medium text-slate-700 font-mono">{formatMoney(row.amount)}</td>
-                        </tr>
-                      ))}
+                      {filterRows(reportData.equityRows).map(row => renderBalanceRow(row))}
                       {reportData.priorRetainedEarnings !== 0 && (
                         <tr className="bg-slate-50/80">
-                          <td className="py-2 px-4 text-slate-400 font-mono text-xs">-</td>
+                          <td className="py-2 px-4 text-slate-400 font-mono text-xs w-28">-</td>
                           <td className="py-2 px-2 font-bold text-slate-700">أرباح (خسائر) مرحلة من سنوات سابقة</td>
-                          <td className="py-2 px-4 text-right font-mono font-bold text-slate-700">{formatMoney(reportData.priorRetainedEarnings)}</td>
+                          <td className="py-2 px-4 text-left font-mono font-bold text-slate-700">{formatMoney(reportData.priorRetainedEarnings)}</td>
+                          {isComparative && <td colSpan={3} className="py-2 px-4 text-slate-400 text-xs">-</td>}
                         </tr>
                       )}
-                      <tr className="bg-amber-50/70">
-                        <td className="py-2 px-4 text-slate-400 font-mono text-xs">-</td>
-                        <td className="py-2 px-2 font-bold text-amber-900">صافي أرباح الفترة الحالية (من قائمة الدخل)</td>
-                        <td className="py-2 px-4 text-right font-mono font-bold text-amber-900">{formatMoney(reportData.netIncome)}</td>
+                      <tr className="bg-amber-50/60 font-bold text-amber-900">
+                        <td className="py-2 px-4 text-amber-600 font-mono text-xs w-28">-</td>
+                        <td className="py-2 px-2">صافي أرباح الفترة الحالية (من قائمة الدخل)</td>
+                        <td className="py-2 px-4 text-left font-mono">{formatMoney(reportData.netIncome)}</td>
+                        {isComparative && <td colSpan={3} className="py-2 px-4 text-slate-400 text-xs">-</td>}
                       </tr>
-                      <tr className="bg-indigo-50 font-extrabold text-indigo-950 border-t-2 border-indigo-200 text-base">
-                        <td colSpan={2} className="py-3 px-4">إجمالي حقوق الملكية (Total Equity)</td>
-                        <td className="py-3 px-4 text-right font-mono">{formatMoney(reportData.totalEquity)}</td>
-                      </tr>
+                      {renderSubtotalRow('إجمالي حقوق الملكية (المطابق لصافي الأصول)', reportData.totalEquity, reportData.priorTotalEquity, 'bg-indigo-100 font-black', 'text-indigo-950')}
                     </tbody>
                   </table>
-                </div>
-
-                {/* شارة التحقق من التوازن المعياري */}
-                <div className={`p-4 rounded-xl border flex items-center justify-between font-bold ${
-                  reportData.isBalanced 
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-800' 
-                    : 'bg-red-50 border-red-200 text-red-800'
-                }`}>
-                  <div className="flex items-center gap-2">
-                    {reportData.isBalanced ? <CheckCircle size={20} className="text-emerald-600" /> : <AlertTriangle size={20} className="text-red-600" />}
-                    <span>
-                      {reportData.isBalanced 
-                        ? 'المركز المالي متوازن تماماً: صافي الأصول = إجمالي حقوق الملكية (مطابق لقائمة التغير في حقوق الملكية)' 
-                        : `تنبيه: يوجد فارق عدم اتزان قدره ${formatMoney(Math.abs(reportData.netAssets - reportData.totalEquity))}`}
-                    </span>
-                  </div>
-                  <button 
-                    onClick={() => navigate('/changes-in-equity')}
-                    className="text-xs bg-white px-3 py-1 rounded shadow-xs border border-emerald-300 text-emerald-700 hover:bg-emerald-100 transition-colors"
-                  >
-                    مطابقة مع قائمة التغير &larr;
-                  </button>
                 </div>
               </div>
             )}
 
             {/* ========================================================================= */}
-            {/* الخيار الثاني: العرض التقليدي (CLASSIC TWO-SIDED BALANCE SHEET)              */}
+            {/* الخيار الثاني: العرض التقليدي (CLASSIC BALANCE SHEET)                         */}
             {/* ========================================================================= */}
             {viewMode === 'classic' && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                {/* الأصول */}
-                <div className="space-y-4">
-                  <h3 className="text-lg font-bold text-slate-800 border-b-2 border-blue-500 pb-2 flex justify-between items-center">
-                    <span>الأصول (Assets)</span>
-                    <span className="font-mono text-blue-700">{formatMoney(reportData.totalAssets)}</span>
-                  </h3>
-                  <table className="w-full text-sm">
-                    <tbody className="divide-y divide-slate-100">
-                      {[...filterRows(reportData.currentAssets), ...filterRows(reportData.nonCurrentAssets)].map(row => (
-                        <tr key={row.account.id} className="hover:bg-slate-50">
-                          <td className="py-2 px-2 text-slate-800">
-                            {row.account.name} <span className="text-xs text-slate-400 font-mono">({row.account.code})</span>
-                          </td>
-                          <td className="py-2 px-2 text-right font-mono font-medium text-slate-700">{formatMoney(row.amount)}</td>
-                        </tr>
-                      ))}
-                      <tr className="bg-blue-50 font-bold text-blue-900 border-t-2 border-blue-200">
-                        <td className="py-3 px-3">إجمالي الأصول</td>
-                        <td className="py-3 px-3 text-right font-mono text-base">{formatMoney(reportData.totalAssets)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* الخصوم وحقوق الملكية */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* الجانب الأيمن: الأصول */}
                 <div className="space-y-6">
-                  {/* الخصوم */}
                   <div>
-                    <h3 className="text-lg font-bold text-slate-800 border-b-2 border-red-500 pb-2 flex justify-between items-center">
-                      <span>الخصوم (Liabilities)</span>
-                      <span className="font-mono text-red-700">{formatMoney(reportData.totalLiabilities)}</span>
+                    <h3 className="text-lg font-bold text-slate-800 border-b-2 border-blue-600 pb-2 flex justify-between items-center">
+                      <span>الأصول المتداولة (Current Assets)</span>
+                      <span className="font-mono text-blue-700">{formatMoney(reportData.totalCurrentAssets)}</span>
                     </h3>
                     <table className="w-full text-sm">
                       <tbody className="divide-y divide-slate-100">
-                        {[...filterRows(reportData.currentLiabilities), ...filterRows(reportData.nonCurrentLiabilities)].map(row => (
+                        {filterRows(reportData.currentAssets).map(row => (
                           <tr key={row.account.id} className="hover:bg-slate-50">
                             <td className="py-2 px-2 text-slate-800">
                               {row.account.name} <span className="text-xs text-slate-400 font-mono">({row.account.code})</span>
@@ -790,13 +902,77 @@ const BalanceSheet: React.FC = () => {
                             <td className="py-2 px-2 text-right font-mono font-medium text-slate-700">{formatMoney(row.amount)}</td>
                           </tr>
                         ))}
-                        <tr className="bg-red-50 font-bold text-red-900 border-t-2 border-red-200">
-                          <td className="py-2.5 px-3">إجمالي الخصوم</td>
-                          <td className="py-2.5 px-3 text-right font-mono">{formatMoney(reportData.totalLiabilities)}</td>
-                        </tr>
                       </tbody>
                     </table>
                   </div>
+
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800 border-b-2 border-blue-600 pb-2 flex justify-between items-center">
+                      <span>الأصول غير المتداولة (Non-Current Assets)</span>
+                      <span className="font-mono text-blue-700">{formatMoney(reportData.totalNonCurrentAssets)}</span>
+                    </h3>
+                    <table className="w-full text-sm">
+                      <tbody className="divide-y divide-slate-100">
+                        {filterRows(reportData.nonCurrentAssets).map(row => (
+                          <tr key={row.account.id} className="hover:bg-slate-50">
+                            <td className="py-2 px-2 text-slate-800">
+                              {row.account.name} <span className="text-xs text-slate-400 font-mono">({row.account.code})</span>
+                            </td>
+                            <td className="py-2 px-2 text-right font-mono font-medium text-slate-700">{formatMoney(row.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* إجمالي الأصول الكلاسيكي */}
+                  <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex justify-between items-center font-bold text-blue-900">
+                    <span>إجمالي الأصول (Total Assets)</span>
+                    <span className="font-mono text-xl">{formatMoney(reportData.totalAssets)}</span>
+                  </div>
+                </div>
+
+                {/* الجانب الأيسر: الخصوم وحقوق الملكية */}
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800 border-b-2 border-red-500 pb-2 flex justify-between items-center">
+                      <span>الخصوم المتداولة (Current Liabilities)</span>
+                      <span className="font-mono text-red-700">{formatMoney(reportData.totalCurrentLiabilities)}</span>
+                    </h3>
+                    <table className="w-full text-sm">
+                      <tbody className="divide-y divide-slate-100">
+                        {filterRows(reportData.currentLiabilities).map(row => (
+                          <tr key={row.account.id} className="hover:bg-slate-50">
+                            <td className="py-2 px-2 text-slate-800">
+                              {row.account.name} <span className="text-xs text-slate-400 font-mono">({row.account.code})</span>
+                            </td>
+                            <td className="py-2 px-2 text-right font-mono font-medium text-slate-700">{formatMoney(row.amount)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {reportData.totalNonCurrentLiabilities > 0 && (
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-800 border-b-2 border-amber-500 pb-2 flex justify-between items-center">
+                        <span>الخصوم غير المتداولة (Non-Current Liabilities)</span>
+                        <span className="font-mono text-amber-700">{formatMoney(reportData.totalNonCurrentLiabilities)}</span>
+                      </h3>
+                      <table className="w-full text-sm">
+                        <tbody className="divide-y divide-slate-100">
+                          {filterRows(reportData.nonCurrentLiabilities).map(row => (
+                            <tr key={row.account.id} className="hover:bg-slate-50">
+                              <td className="py-2 px-2 text-slate-800">
+                                {row.account.name} <span className="text-xs text-slate-400 font-mono">({row.account.code})</span>
+                              </td>
+                              <td className="py-2 px-2 text-right font-mono font-medium text-slate-700">{formatMoney(row.amount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
 
                   {/* حقوق الملكية */}
                   <div>

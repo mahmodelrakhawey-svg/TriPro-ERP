@@ -48,6 +48,8 @@ const ROUTE_INFO: Record<string, { title: string; icon: any }> = {
     '/balance-sheet': { title: 'قائمة المركز المالي', icon: BarChart3 },
     '/changes-in-equity': { title: 'قائمة التغير في حقوق الملكية', icon: Scale },
     '/cash-flow': { title: 'قائمة التدفقات النقدية', icon: BarChart3 },
+    '/annual-report': { title: 'كتاب التقرير المالي السنوي', icon: BookOpen },
+    '/cfo-dashboard': { title: 'لوحة المدير المالي (CFO)', icon: BarChart3 },
     
     '/products': { title: 'الأصناف والمخزون', icon: Package },
     '/warehouses': { title: 'المستودعات', icon: Package },

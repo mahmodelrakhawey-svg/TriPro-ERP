@@ -28,6 +28,8 @@ const IncomeStatement = lazy(() => import('./modules/accounting/IncomeStatement'
 const BalanceSheet = lazy(() => import('./modules/accounting/BalanceSheet'));
 const ChangesInEquityStatement = lazy(() => import('./modules/accounting/ChangesInEquityStatement'));
 const CashFlowStatement = lazy(() => import('./modules/accounting/CashFlowStatement'));
+const AnnualFinancialReport = lazy(() => import('./modules/accounting/AnnualFinancialReport'));
+const CFODashboard = lazy(() => import('./modules/accounting/CFODashboard'));
 const CashFlowReport = lazy(() => import('./modules/accounting/CashFlowReport'));
 const AccountingDashboard = lazy(() => import('./modules/accounting/AccountingDashboard'));
 const JournalEntriesExport = lazy(() => import('./modules/accounting/JournalEntriesExport'));
@@ -642,6 +644,8 @@ const MainLayout = () => {
                 <Route path="/balance-sheet" element={<ModuleGuard module="accounting"><BalanceSheet /></ModuleGuard>} />
                 <Route path="/changes-in-equity" element={<ModuleGuard module="accounting"><ChangesInEquityStatement /></ModuleGuard>} />
                 <Route path="/cash-flow" element={<ModuleGuard module="accounting"><CashFlowStatement /></ModuleGuard>} />
+                <Route path="/annual-report" element={<ModuleGuard module="accounting"><AnnualFinancialReport /></ModuleGuard>} />
+                <Route path="/cfo-dashboard" element={<ModuleGuard module="accounting"><CFODashboard /></ModuleGuard>} />
                 <Route path="/cash-flow-report" element={<ModuleGuard module="accounting"><CashFlowReport /></ModuleGuard>} />
                 <Route path="/tax-return" element={<ModuleGuard module="accounting"><TaxReturnReport /></ModuleGuard>} />
                 <Route path="/performance-comparison" element={<ModuleGuard module="accounting"><PerformanceComparisonReport /></ModuleGuard>} /> 
