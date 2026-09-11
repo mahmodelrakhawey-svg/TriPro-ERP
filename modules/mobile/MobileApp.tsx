@@ -334,9 +334,115 @@ export default function MobileApp() {
   // =========================================================================
   const [cart, setCart] = useState<Array<{ product: any; qty: number; price: number }>>([]);
   const [customerName, setCustomerName] = useState('عميل ميداني نقدي');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
   const [paymentType, setPaymentType] = useState<'cash' | 'credit'>('cash');
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [lastSavedInvoice, setLastSavedInvoice] = useState<any | null>(null);
+
+  // Products and Customers for field sales
+  const [catalogProducts, setCatalogProducts] = useState<any[]>([]);
+  const [customersList, setCustomersList] = useState<any[]>([]);
+  const [productSearch, setProductSearch] = useState('');
+  const [loadingCatalog, setLoadingCatalog] = useState(false);
+  const [showSalesCamera, setShowSalesCamera] = useState(false);
+  const salesVideoRef = useRef<HTMLVideoElement | null>(null);
+  const salesScannerStreamRef = useRef<MediaStream | null>(null);
+
+  const loadCatalogData = async () => {
+    setLoadingCatalog(true);
+    try {
+      // 1. Try local Dexie products first
+      const localProducts = await db.products.toArray();
+      if (localProducts && localProducts.length > 0) {
+        setCatalogProducts(localProducts);
+      } else if (isOnline && currentOrgId) {
+        const { data: pData } = await supabase
+          .from('products')
+          .select('id, name, barcode, sku, sales_price, stock, image_url')
+          .eq('organization_id', currentOrgId)
+          .order('name', { ascending: true })
+          .limit(100);
+        if (pData) setCatalogProducts(pData);
+      }
+
+      // 2. Load Customers
+      if (isOnline && currentOrgId) {
+        const { data: cData } = await supabase
+          .from('customers')
+          .select('id, name, phone')
+          .eq('organization_id', currentOrgId)
+          .order('name', { ascending: true })
+          .limit(50);
+        if (cData) setCustomersList(cData);
+      }
+    } catch (e) {
+      console.warn('Catalog load warning:', e);
+    } finally {
+      setLoadingCatalog(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'sales') {
+      loadCatalogData();
+    } else {
+      stopSalesCamera();
+    }
+  }, [activeTab, currentOrgId]);
+
+  const startSalesCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+      });
+      salesScannerStreamRef.current = stream;
+      if (salesVideoRef.current) {
+        salesVideoRef.current.srcObject = stream;
+        salesVideoRef.current.play();
+      }
+      setShowSalesCamera(true);
+      scanSalesFrame();
+    } catch (err) {
+      showToast('تعذر فتح الكاميرا: يرجى السماح بالإذن أو اختيار الصنف من القائمة', 'warning');
+      setShowSalesCamera(false);
+    }
+  };
+
+  const stopSalesCamera = () => {
+    if (salesScannerStreamRef.current) {
+      salesScannerStreamRef.current.getTracks().forEach(t => t.stop());
+      salesScannerStreamRef.current = null;
+    }
+    setShowSalesCamera(false);
+  };
+
+  const scanSalesFrame = async () => {
+    if (!salesScannerStreamRef.current || !salesVideoRef.current) return;
+
+    if ('BarcodeDetector' in window) {
+      try {
+        const detector = new (window as any).BarcodeDetector({
+          formats: ['ean_13', 'ean_8', 'code_128', 'code_39', 'qr_code', 'upc_a', 'upc_e']
+        });
+        const barcodes = await detector.detect(salesVideoRef.current);
+        if (barcodes && barcodes.length > 0) {
+          const rawVal = barcodes[0].rawValue.trim();
+          const found = catalogProducts.find(p => p.barcode === rawVal || p.sku === rawVal);
+          if (found) {
+            addToCart(found);
+            stopSalesCamera();
+            return;
+          } else {
+            showToast(`لم يتم العثور على صنف بالباركود: ${rawVal}`, 'warning');
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (showSalesCamera) {
+      requestAnimationFrame(scanSalesFrame);
+    }
+  };
 
   const addToCart = (product: any) => {
     setCart(prev => {
@@ -765,34 +871,58 @@ export default function MobileApp() {
         {activeTab === 'sales' && (
           <div className="space-y-4 animate-in fade-in duration-200">
             {/* Customer & Type */}
-            <div className="bg-slate-800 p-3 rounded-xl border border-slate-700 space-y-2">
-              <div className="flex items-center gap-2">
-                <User size={16} className="text-emerald-400" />
-                <input
-                  type="text"
-                  value={customerName}
-                  onChange={e => setCustomerName(e.target.value)}
-                  placeholder="اسم العميل الميداني..."
-                  className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
-                />
+            <div className="bg-slate-800 p-3.5 rounded-xl border border-slate-700 space-y-2.5">
+              <label className="text-xs text-slate-300 font-bold block">اختيار أو إدخال اسم العميل:</label>
+              <div className="space-y-2">
+                {customersList.length > 0 && (
+                  <select
+                    value={selectedCustomerId}
+                    onChange={e => {
+                      setSelectedCustomerId(e.target.value);
+                      const found = customersList.find(c => c.id === e.target.value);
+                      if (found) setCustomerName(found.name);
+                    }}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-2 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  >
+                    <option value="">-- اختيار عميل مسجل من القائمة --</option>
+                    {customersList.map(c => (
+                      <option key={c.id} value={c.id}>{c.name} {c.phone ? `(${c.phone})` : ''}</option>
+                    ))}
+                  </select>
+                )}
+                <div className="flex items-center gap-2">
+                  <User size={16} className="text-emerald-400 shrink-0" />
+                  <input
+                    type="text"
+                    value={customerName}
+                    onChange={e => {
+                      setCustomerName(e.target.value);
+                      setSelectedCustomerId('');
+                    }}
+                    placeholder="أو اكتب اسم عميل نقدي يدوي..."
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-emerald-500"
+                  />
+                </div>
               </div>
 
               <div className="flex gap-2 pt-1">
                 <button
+                  type="button"
                   onClick={() => setPaymentType('cash')}
                   className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
                     paymentType === 'cash'
-                      ? 'bg-emerald-600 text-white border-emerald-500'
+                      ? 'bg-emerald-600 text-white border-emerald-500 shadow-md shadow-emerald-600/30'
                       : 'bg-slate-900 text-slate-400 border-slate-700'
                   }`}
                 >
                   💵 نقدي فوري
                 </button>
                 <button
+                  type="button"
                   onClick={() => setPaymentType('credit')}
                   className={`flex-1 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
                     paymentType === 'credit'
-                      ? 'bg-indigo-600 text-white border-indigo-500'
+                      ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30'
                       : 'bg-slate-900 text-slate-400 border-slate-700'
                   }`}
                 >
@@ -801,22 +931,129 @@ export default function MobileApp() {
               </div>
             </div>
 
-            {/* Cart Items */}
-            <div className="bg-slate-800 rounded-xl p-3 border border-slate-700">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="font-bold text-xs text-slate-200">بنود الفاتورة ({cart.length})</h3>
+            {/* 📦 مباشرة: إضافة أصناف للفاتورة (بحث واختيار فوري) */}
+            <div className="bg-slate-800 p-3.5 rounded-xl border border-slate-700 space-y-3">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-xs text-white flex items-center gap-1.5">
+                  <Package size={15} className="text-emerald-400" />
+                  <span>دليل الأصناف المتاحة ({catalogProducts.length} صنف)</span>
+                </h3>
                 <button
-                  onClick={() => setActiveTab('scanner')}
-                  className="text-[11px] text-indigo-400 hover:text-indigo-300 font-bold flex items-center gap-1"
+                  type="button"
+                  onClick={showSalesCamera ? stopSalesCamera : startSalesCamera}
+                  className="bg-indigo-600/40 hover:bg-indigo-600/60 border border-indigo-500/40 text-indigo-300 text-[11px] font-bold px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors"
                 >
-                  <Plus size={12} />
-                  <span>إضافة صنف بالباركود</span>
+                  <Camera size={13} />
+                  <span>{showSalesCamera ? 'إغلاق الكاميرا' : 'مسح بالكاميرا'}</span>
                 </button>
               </div>
 
+              {/* Inline Camera View if active */}
+              {showSalesCamera && (
+                <div className="bg-black rounded-lg overflow-hidden relative">
+                  <video ref={salesVideoRef} className="w-full h-36 object-cover" playsInline muted />
+                  <div className="absolute inset-0 border-2 border-emerald-500/40 pointer-events-none flex items-center justify-center">
+                    <span className="text-[10px] bg-black/70 text-emerald-300 px-2 py-0.5 rounded font-bold">وجّه الكاميرا للباركود للإضافة التلقائية</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Search Bar */}
+              <div className="relative">
+                <Search size={14} className="absolute right-3 top-2.5 text-slate-400" />
+                <input
+                  type="text"
+                  value={productSearch}
+                  onChange={e => setProductSearch(e.target.value)}
+                  placeholder="ابحث باسم الصنف، الباركود، أو الكود..."
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pr-9 pl-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                />
+                {productSearch && (
+                  <button
+                    type="button"
+                    onClick={() => setProductSearch('')}
+                    className="absolute left-2.5 top-2 text-slate-400 hover:text-white text-xs"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+
+              {/* Products Quick Pick List */}
+              <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                {catalogProducts
+                  .filter(p => {
+                    if (!productSearch.trim()) return true;
+                    const term = productSearch.toLowerCase();
+                    return (
+                      p.name?.toLowerCase().includes(term) ||
+                      p.barcode?.toLowerCase().includes(term) ||
+                      p.sku?.toLowerCase().includes(term)
+                    );
+                  })
+                  .slice(0, 20)
+                  .map(p => {
+                    const inCartItem = cart.find(c => c.product.id === p.id);
+                    return (
+                      <div
+                        key={p.id}
+                        className="bg-slate-900/80 hover:bg-slate-900 p-2.5 rounded-lg border border-slate-700/80 flex items-center justify-between transition-colors"
+                      >
+                        <div className="flex-1 min-w-0 pr-1">
+                          <div className="font-bold text-xs text-white truncate">{p.name}</div>
+                          <div className="flex items-center gap-2 mt-0.5 text-[11px]">
+                            <span className="text-emerald-400 font-bold">{Number(p.sales_price || 0).toLocaleString()} ج.م</span>
+                            <span className="text-slate-600">|</span>
+                            <span className="text-slate-400 text-[10px]">المخزون: <b className="text-amber-400">{p.stock || 0}</b></span>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => addToCart(p)}
+                          className={`text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-all active:scale-95 shrink-0 ${
+                            inCartItem 
+                              ? 'bg-emerald-500 text-slate-900 font-black' 
+                              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                          }`}
+                        >
+                          <Plus size={13} />
+                          <span>{inCartItem ? `في السلة (${inCartItem.qty})` : 'إضافة +'}</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                {catalogProducts.length === 0 && (
+                  <div className="py-4 text-center text-slate-400 text-xs">
+                    {loadingCatalog ? 'جاري تحميل قائمة الأصناف...' : 'لا توجد أصناف مسجلة في النظام.'}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Cart Items */}
+            <div className="bg-slate-800 rounded-xl p-3.5 border border-slate-700">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="font-bold text-xs text-slate-200 flex items-center gap-1.5">
+                  <ShoppingCart size={15} className="text-emerald-400" />
+                  <span>بنود الفاتورة الحالية ({cart.length})</span>
+                </h3>
+                {cart.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setCart([])}
+                    className="text-[11px] text-red-400 hover:text-red-300 font-bold flex items-center gap-1"
+                  >
+                    <Trash2 size={12} />
+                    <span>إفراغ السلة</span>
+                  </button>
+                )}
+              </div>
+
               {cart.length === 0 ? (
-                <div className="py-6 text-center text-slate-400 text-xs">
-                  السلة فارغة. انتقل لماسح الباركود لإضافة الأصناف.
+                <div className="py-5 text-center text-slate-400 text-xs bg-slate-900/50 rounded-lg border border-dashed border-slate-700">
+                  السلة فارغة. اضغط على زر <b className="text-emerald-400 font-bold">"إضافة +"</b> بجانب أي صنف أعلاه لإدراجه فورياً في الفاتورة.
                 </div>
               ) : (
                 <div className="space-y-2">
