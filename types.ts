@@ -204,6 +204,7 @@ export type UserRole =
   | 'restaurant_chef'
   | 'restaurant_cook'
   | 'restaurant_driver'
+  | 'van_sales'
   | 'medical_director'
   | 'stadium_director'
   | 'stadium_receptionist'

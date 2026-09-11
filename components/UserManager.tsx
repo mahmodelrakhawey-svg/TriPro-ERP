@@ -516,6 +516,12 @@ const UserManager = () => {
                       <option value="viewer">👁️ Viewer (مشاهدة فقط)</option>
                       <option value="owner">🏢 Owner (مالك منشأة)</option>
                     </optgroup>
+                    <optgroup label="── 🛒 المبيعات وسيارات التوزيع ──">
+                      <option value="van_sales">🚚 مندوب مبيعات وتوزيع سيارة (Van Sales - الموبايل فقط)</option>
+                      <option value="sales">💼 مسؤول ومندوب مبيعات (Sales Rep)</option>
+                      <option value="storekeeper">📦 أمين مستودع (Storekeeper)</option>
+                      <option value="cashier">💵 كاشير مبيعات (Cashier)</option>
+                    </optgroup>
                     {dynamicRoles.length > 0 && (() => {
                       const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo'];
                       const customRoles = dynamicRoles.filter(r => !builtinNames.includes(r.name));
@@ -662,11 +668,12 @@ const UserManager = () => {
                                 <option value="owner">🏢 Owner (مالك منشأة)</option>
                             </optgroup>
 
-                            <optgroup label="── 🛒 التجزئة، السوبر ماركت والمخازن ──">
+                            <optgroup label="── 🛒 التجزئة، المبيعات والمخازن ──">
+                                <option value="van_sales">🚚 مندوب مبيعات وتوزيع سيارة (Van Sales - الموبايل فقط)</option>
+                                <option value="sales">💼 مسؤول ومندوب مبيعات (Sales Rep)</option>
                                 <option value="pos_supervisor">🪪 رئيس الكاشيرية / مشرف نقطة البيع (Head Cashier & Supervisor)</option>
                                 <option value="cashier">💵 كاشير نقطة البيع (POS Cashier)</option>
                                 <option value="storekeeper">📦 أمين مخزن ومستودعات (Storekeeper)</option>
-                                <option value="sales">💼 مسؤول ومندوب مبيعات (Sales Rep)</option>
                             </optgroup>
 
                             <optgroup label="── 🍽️ المطاعم والضيافة (F&B) ──">

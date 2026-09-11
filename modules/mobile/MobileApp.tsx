@@ -30,7 +30,8 @@ import {
   Eye,
   MessageCircle,
   X,
-  Share2
+  Share2,
+  LogOut
 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../context/AuthContext';
@@ -45,10 +46,11 @@ type MobileTab = 'dashboard' | 'scanner' | 'sales' | 'sync';
 
 export default function MobileApp() {
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, logout } = useAuth();
   const { showToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<MobileTab>('dashboard');
+  const isVanSalesUser = (currentUser?.role as string) === 'van_sales';
+  const [activeTab, setActiveTab] = useState<MobileTab>(isVanSalesUser ? 'sales' : 'dashboard');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [currentOrgId, setCurrentOrgId] = useState<string>('');
 
@@ -776,14 +778,29 @@ export default function MobileApp() {
             <span>{isOnline ? 'أونلاين' : 'أوفلاين'}</span>
           </div>
 
-          {/* Switch to Full Desktop Mode */}
-          <button
-            onClick={() => navigate('/')}
-            className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 hover:text-white transition-colors"
-            title="العودة للنظام الكامل"
-          >
-            <ArrowRight size={16} />
-          </button>
+          {/* Switch to Full Desktop Mode (Admins) OR Logout (Van Sales) */}
+          {isVanSalesUser ? (
+            <button
+              onClick={async () => {
+                if (window.confirm('هل تريد بالتأكيد تسجيل الخروج من التطبيق؟')) {
+                  await logout();
+                  navigate('/login');
+                }
+              }}
+              className="p-1.5 bg-red-950/60 border border-red-800/60 hover:bg-red-900 rounded-lg text-red-300 hover:text-white transition-colors"
+              title="تسجيل الخروج"
+            >
+              <LogOut size={16} />
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate('/')}
+              className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 hover:text-white transition-colors"
+              title="العودة للنظام الكامل"
+            >
+              <ArrowRight size={16} />
+            </button>
+          )}
         </div>
       </header>
 
@@ -1761,15 +1778,17 @@ export default function MobileApp() {
 
       {/* 🧭 BOTTOM NAVIGATION BAR (FIXED TOUCH BAR) */}
       <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-900/95 backdrop-blur-md border-t border-slate-800 px-3 py-2 flex items-center justify-around z-40">
-        <button
-          onClick={() => setActiveTab('dashboard')}
-          className={`flex flex-col items-center gap-1 transition-colors ${
-            activeTab === 'dashboard' ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'
-          }`}
-        >
-          <LayoutDashboard size={20} />
-          <span className="text-[10px] font-bold">لوحة المدير</span>
-        </button>
+        {!isVanSalesUser && (
+          <button
+            onClick={() => setActiveTab('dashboard')}
+            className={`flex flex-col items-center gap-1 transition-colors ${
+              activeTab === 'dashboard' ? 'text-emerald-400' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <LayoutDashboard size={20} />
+            <span className="text-[10px] font-bold">لوحة المدير</span>
+          </button>
+        )}
 
         <button
           onClick={() => setActiveTab('scanner')}
