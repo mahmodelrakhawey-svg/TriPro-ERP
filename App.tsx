@@ -1,5 +1,5 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ConfigProvider } from 'antd';
 import arEG from 'antd/locale/ar_EG';
@@ -14,6 +14,9 @@ import Header from './components/Header';
 import WorkspaceTabsBar from './components/WorkspaceTabsBar';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
+
+// 📱 تطبيق الموبايل الميداني التقدمي (Mobile PWA Companion)
+const MobileApp = lazy(() => import('./modules/mobile/MobileApp'));
 
 // 📊 لوحات التحكم والأدوات الإدارية (Lazy Loaded)
 const AdminTestDashboard = lazy(() => import('./components/AdminTestDashboard'));
@@ -376,6 +379,7 @@ const COMPATIBILITY_REDIRECTS: [string, string][] = [
 
 const MainLayout = () => {
     const { currentUser } = useAccounting();
+    const location = useLocation();
 
     useEffect(() => {
         // بدء جدول الإخطارات الذكية
@@ -389,6 +393,15 @@ const MainLayout = () => {
             NotificationScheduler.stop();
         };
     }, []);
+
+    // إذا كان المستخدم في وضع الموبايل الميداني (Mobile Companion)، يتم عرضه بملء الشاشة مخصصاً للهواتف
+    if (location.pathname === '/mobile') {
+        return (
+            <Suspense fallback={<LazyLoadingFallback />}>
+                <MobileApp />
+            </Suspense>
+        );
+    }
 
     return (
         <div className="flex min-h-screen bg-slate-50 font-sans text-right print:block print:h-auto" dir="rtl">
@@ -411,6 +424,7 @@ const MainLayout = () => {
                         <Suspense fallback={<LazyLoadingFallback />}>
                         <Routes>
                 {/* المسارات الأساسية */}
+                <Route path="/mobile" element={<MobileApp />} />
                 <Route
                   path="/"
                   element={

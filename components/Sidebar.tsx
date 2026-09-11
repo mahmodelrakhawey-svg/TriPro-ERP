@@ -144,6 +144,7 @@ const Sidebar: React.FC = () => {
   // تعريف عناصر القائمة
   const navItems = [
     { to: '/dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, color: 'text-blue-400', permission: 'reports.view' },
+    { to: '/mobile', label: 'تطبيق الموبايل الميداني (PWA)', icon: Smartphone, color: 'text-indigo-400', permission: 'reports.view' },
     
     // موديول المبيعات
     { type: 'section', label: 'المبيعات والعملاء' },

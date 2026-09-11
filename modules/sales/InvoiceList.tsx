@@ -105,6 +105,10 @@ export const InvoiceList = () => {
           warehouse_id,
           customer_id,
           related_journal_entry_id,
+          eta_status,
+          eta_uuid,
+          eta_submission_id,
+          eta_qr_code,
           created_at,
           customers(id, name, phone),
           warehouses(id, name)
@@ -397,13 +401,13 @@ export const InvoiceList = () => {
   const handleEtaSubmit = async (invoice: any) => {
     setSubmittingId(invoice.id);
     try {
-      showToast('جاري إرسال الفاتورة لمنظومة الفاتورة الإلكترونية...', 'info');
+      showToast('جاري إرسال الفاتورة لمنظومة الضرائب المصرية...', 'info');
       const response = await etaService.submitInvoiceToETA(invoice.id);
-      if (response && response.uuid) {
-        showToast('تم إرسال الفاتورة للضرائب بنجاح ✅', 'success');
+      if (response && response.success) {
+        showToast(`تم اعتماد الفاتورة لدى الضرائب بنجاح ✅ (UUID: ${response.uuid?.slice(0, 12)}...)`, 'success');
         fetchInvoices();
       } else {
-        showToast('فشل الإرسال لمنظومة الضرائب', 'error');
+        showToast('فشل الإرسال لمنظومة الضرائب: ' + (response.error || 'يرجى مراجعة إعدادات الضرائب'), 'error');
       }
     } catch (err: any) {
       console.error(err);
@@ -740,14 +744,27 @@ export const InvoiceList = () => {
                           </button>
 
                           {settings.enableEta && (
-                            <button 
-                              onClick={() => handleEtaSubmit(inv)}
-                              disabled={submittingId === inv.id}
-                              className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-50"
-                              title="إرسال لمنظومة الضرائب"
-                            >
-                              {submittingId === inv.id ? <Loader2 size={16} className="animate-spin" /> : <Landmark size={16} />}
-                            </button>
+                            inv.eta_uuid ? (
+                              <a 
+                                href={inv.eta_qr_code || `https://invoicing.eta.gov.eg/invoices/${inv.eta_uuid}/preview`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors flex items-center gap-1"
+                                title={`معتمدة في مصلحة الضرائب (${inv.eta_uuid}) - اضغط للمعاينة الرسمية`}
+                              >
+                                <Landmark size={16} />
+                                <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1 py-0.5 rounded font-bold">معتمد</span>
+                              </a>
+                            ) : (
+                              <button 
+                                onClick={() => handleEtaSubmit(inv)}
+                                disabled={submittingId === inv.id}
+                                className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-50"
+                                title="إرسال لمنظومة الضرائب المصرية"
+                              >
+                                {submittingId === inv.id ? <Loader2 size={16} className="animate-spin" /> : <Landmark size={16} />}
+                              </button>
+                            )
                           )}
 
                           <button 
