@@ -342,6 +342,8 @@ export default function MobileApp() {
   // Products and Customers for field sales
   const [catalogProducts, setCatalogProducts] = useState<any[]>([]);
   const [customersList, setCustomersList] = useState<any[]>([]);
+  const [warehousesList, setWarehousesList] = useState<any[]>([]);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState<string>('');
   const [productSearch, setProductSearch] = useState('');
   const [loadingCatalog, setLoadingCatalog] = useState(false);
   const [showSalesCamera, setShowSalesCamera] = useState(false);
@@ -374,6 +376,20 @@ export default function MobileApp() {
           .order('name', { ascending: true })
           .limit(50);
         if (cData) setCustomersList(cData);
+      }
+
+      // 3. Load Warehouses
+      if (isOnline && currentOrgId) {
+        const { data: wData } = await supabase
+          .from('warehouses')
+          .select('id, name')
+          .eq('organization_id', currentOrgId);
+        if (wData && wData.length > 0) {
+          setWarehousesList(wData);
+          if (!selectedWarehouseId) {
+            setSelectedWarehouseId(wData[0].id);
+          }
+        }
       }
     } catch (e) {
       console.warn('Catalog load warning:', e);
@@ -513,7 +529,9 @@ export default function MobileApp() {
             total_amount: invoicePayload.total_amount,
             tax_amount: invoicePayload.tax_amount,
             paid_amount: invoicePayload.paid_amount,
-            status: invoicePayload.status,
+            status: 'draft',
+            customer_id: selectedCustomerId || null,
+            warehouse_id: selectedWarehouseId || null,
             notes: invoicePayload.notes,
             organization_id: currentOrgId
           })
@@ -534,8 +552,27 @@ export default function MobileApp() {
           );
         }
 
+        // 🚀 ترحيل الفاتورة وتوليد القيد المحاسبي فوراً
+        try {
+          const { error: postErr } = await supabase.rpc('post_sales_invoice', {
+            p_invoice_id: invData.id,
+            p_org_id: currentOrgId,
+            p_warehouse_id: selectedWarehouseId || null
+          });
+
+          if (!postErr) {
+            invoicePayload.status = 'posted';
+            showToast(`تم حفظ وترحيل الفاتورة #${invoiceNumber} وتوليد القيد المحاسبي بنجاح ✅`, 'success');
+          } else {
+            console.warn('post_sales_invoice notice:', postErr);
+            showToast(`تم حفظ الفاتورة #${invoiceNumber} كمسودة (اضغط على علامة الصح في سجل الفواتير للترحيل) ✅`, 'info');
+          }
+        } catch (postEx) {
+          console.warn('post_sales_invoice exception:', postEx);
+          showToast(`تم حفظ الفاتورة #${invoiceNumber} بنجاح ✅`, 'success');
+        }
+
         setLastSavedInvoice(invoicePayload);
-        showToast(`تم حفظ الفاتورة #${invoiceNumber} بنجاح ✅`, 'success');
       } else {
         // Offline IndexedDB Queue
         await offlineService.queueOrder(invoicePayload);
