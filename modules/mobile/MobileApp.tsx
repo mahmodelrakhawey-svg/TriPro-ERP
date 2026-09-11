@@ -606,6 +606,23 @@ export default function MobileApp() {
 
     try {
       if (isOnline) {
+        // Resolve cash treasury if cash payment
+        let treasuryId = null;
+        if (paymentType === 'cash') {
+          treasuryId = companySettings?.default_treasury_id || companySettings?.account_mappings?.CASH || null;
+          if (!treasuryId && currentOrgId) {
+            const { data: defaultCashAcc } = await supabase
+              .from('accounts')
+              .select('id')
+              .eq('organization_id', currentOrgId)
+              .in('code', ['1231', '123101', '101', '1101'])
+              .eq('is_group', false)
+              .limit(1)
+              .maybeSingle();
+            treasuryId = defaultCashAcc?.id || null;
+          }
+        }
+
         // Direct Online Save
         const { data: invData, error: invErr } = await supabase
           .from('invoices')
@@ -614,7 +631,9 @@ export default function MobileApp() {
             invoice_date: invoicePayload.invoice_date,
             total_amount: invoicePayload.total_amount,
             tax_amount: invoicePayload.tax_amount,
+            subtotal: invoicePayload.subtotal,
             paid_amount: invoicePayload.paid_amount,
+            treasury_account_id: treasuryId,
             status: 'draft',
             customer_id: selectedCustomerId || null,
             warehouse_id: selectedWarehouseId || null,
