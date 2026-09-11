@@ -5,7 +5,7 @@ import {
     X, Plus, Home, ShoppingCart, ShoppingBag, DollarSign, 
     BookOpen, Layers, Users, Truck, FileText, BarChart3, 
     Settings, Package, CreditCard, Landmark, CheckCircle2,
-    LayoutDashboard
+    LayoutDashboard, Scale
 } from 'lucide-react';
 
 export interface WorkspaceTab {
@@ -44,8 +44,9 @@ const ROUTE_INFO: Record<string, { title: string; icon: any }> = {
     '/general-ledger': { title: 'دفتر الأستاذ العام', icon: BookOpen },
     '/journal-entry': { title: 'قيد يومية جديد', icon: FileText },
     '/accounts': { title: 'دليل الحسابات', icon: Layers },
-    '/income-statement': { title: 'قائمة الدخل', icon: BarChart3 },
-    '/balance-sheet': { title: 'الميزانية العمومية', icon: BarChart3 },
+    '/income-statement': { title: 'قائمة الدخل الشامل', icon: BarChart3 },
+    '/balance-sheet': { title: 'قائمة المركز المالي', icon: BarChart3 },
+    '/changes-in-equity': { title: 'قائمة التغير في حقوق الملكية', icon: Scale },
     '/cash-flow': { title: 'قائمة التدفقات النقدية', icon: BarChart3 },
     
     '/products': { title: 'الأصناف والمخزون', icon: Package },

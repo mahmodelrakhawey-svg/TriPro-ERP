@@ -17,8 +17,9 @@ const routeTitles: Record<string, string> = {
     '/accounts': 'دليل الحسابات',
     '/ledger': 'دفتر الأستاذ العام',
     '/trial-balance': 'ميزان المراجعة',
-    '/income-statement': 'قائمة الدخل',
-    '/balance-sheet': 'الميزانية العمومية',
+    '/income-statement': 'قائمة الدخل الشامل (IFRS 18)',
+    '/balance-sheet': 'قائمة المركز المالي',
+    '/changes-in-equity': 'قائمة التغير في حقوق الملكية',
     '/about': 'حول البرنامج',
     // ... يمكن إضافة باقي المسارات هنا
 };
