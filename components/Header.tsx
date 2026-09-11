@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
 import { secureStorage } from '../utils/securityMiddleware';
-import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2, ArrowLeftCircle, Calendar, Layers } from 'lucide-react';
+import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2, ArrowLeftCircle, Calendar, Layers, Smartphone } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../utils/useNotifications';
@@ -314,6 +314,17 @@ const Header = () => {
                 >
                     <Layers size={15} className={showTabsBar ? "text-emerald-600" : "text-slate-400"} />
                     <span className="hidden md:inline">{showTabsBar ? "شريط التبويبات" : "التبويبات معطلة"}</span>
+                </button>
+
+                {/* 📱 زر وضع الموبايل الميداني (PWA Mobile Companion) */}
+                <button
+                    type="button"
+                    onClick={() => navigate('/mobile')}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-all shadow-xs"
+                    title="فتح تطبيق الموبايل الميداني (ماسح الباركود بالكاميرا، فواتير المندوب، ولوحة تحكم المدير)"
+                >
+                    <Smartphone size={15} className="text-indigo-600" />
+                    <span className="hidden sm:inline">تطبيق الموبايل</span>
                 </button>
 
                 {/* Smart Notification Bell */}

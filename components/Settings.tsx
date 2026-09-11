@@ -6,7 +6,7 @@ import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
 import { secureStorage } from '../utils/securityMiddleware';
 import * as XLSX from 'xlsx';
-import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap, RefreshCw, Info, Calculator, Layers } from 'lucide-react';
+import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap, RefreshCw, Info, Calculator, Layers, Loader2 } from 'lucide-react';
 import SearchableSelect from './SearchableSelect';
 import { z } from 'zod';
 import { runRestaurantModuleTest } from '../modules/restaurant/utils/runRestaurantFlowTest';
@@ -1007,6 +1007,41 @@ const Settings = () => {
       setFormData(prev => ({ ...prev, accountMappings: { ...prev.accountMappings, [key]: accountId } }));
   };
 
+  const [testingEta, setTestingEta] = useState(false);
+  const handleTestEta = async () => {
+      if (!formData.etaTaxpayerId && !formData.etaClientId) {
+          showToast('يرجى إدخال رقم التسجيل الضريبي أو معرف العميل أولاً.', 'warning');
+          return;
+      }
+      setTestingEta(true);
+      try {
+          const res = await fetch('/api/eta-submit', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                  action: 'status',
+                  uuid: 'TEST-PING',
+                  settings: {
+                      eta_client_id: formData.etaClientId,
+                      eta_client_secret: formData.etaClientSecret,
+                      eta_environment: formData.etaEnvironment,
+                      eta_taxpayer_id: formData.etaTaxpayerId
+                  }
+              })
+          });
+          const data = await res.json();
+          if (data.success) {
+              showToast('الاتصال بالبوابة السحابية لمنظومة الضرائب يعمل بنجاح! 🚀', 'success');
+          } else {
+              showToast('تنبيه: ' + (data.error || 'فشل الاتصال بمصلحة الضرائب'), 'warning');
+          }
+      } catch (err: any) {
+          showToast('خطأ في فحص الاتصال: ' + err.message, 'error');
+      } finally {
+          setTestingEta(false);
+      }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3 mb-6">
@@ -1959,10 +1994,20 @@ const Settings = () => {
                               </ul>
                           </div>
 
-                          <div className="flex justify-end pt-4 border-t">
+                          <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 border-t">
+                              <button
+                                  type="button"
+                                  onClick={handleTestEta}
+                                  disabled={testingEta || !formData.etaIsActive}
+                                  className="w-full sm:w-auto bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 border border-slate-300 disabled:opacity-50 text-xs"
+                              >
+                                  {testingEta ? <Loader2 size={16} className="animate-spin" /> : <Landmark size={16} className="text-cyan-600" />}
+                                  <span>{testingEta ? 'جاري اختبار الاتصال...' : 'اختبار الاتصال بمنظومة الضرائب'}</span>
+                              </button>
+
                               <button
                                   type="submit"
-                                  className="bg-cyan-600 text-white font-bold px-6 py-2.5 rounded-lg hover:bg-cyan-700 transition-colors flex items-center gap-2"
+                                  className="w-full sm:w-auto bg-cyan-600 text-white font-bold px-6 py-2.5 rounded-lg hover:bg-cyan-700 transition-colors flex items-center justify-center gap-2"
                               >
                                   <Save size={18} /> حفظ إعدادات الضرائب
                               </button>
