@@ -1769,9 +1769,11 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               {editingId ? `فاتورة مبيعات: ${formData.invoiceNumber}` : 'فاتورة مبيعات جديدة'}
               {editingId && (
                 <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
-                  formData.status === 'posted' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                  (formData.status === 'posted' || formData.status === 'paid')
+                    ? (formData.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700')
+                    : 'bg-amber-100 text-amber-700'
                 }`}>
-                  {formData.status === 'posted' ? 'مرحلة ✅' : 'مسودة 📝'}
+                  {formData.status === 'paid' ? 'مرحلة (مسددة) ✅' : formData.status === 'posted' ? 'مرحلة ✅' : 'مسودة 📝'}
                 </span>
               )}
             </h2>

@@ -121,7 +121,13 @@ export const InvoiceList = () => {
       if (endDate) query = query.lte('invoice_date', endDate);
       if (selectedCustomerId) query = query.eq('customer_id', selectedCustomerId);
       if (selectedWarehouseId) query = query.eq('warehouse_id', selectedWarehouseId);
-      if (statusFilter !== 'all') query = query.eq('status', statusFilter);
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'posted') {
+          query = query.in('status', ['posted', 'paid']);
+        } else {
+          query = query.eq('status', statusFilter);
+        }
+      }
       if (debouncedSearch.trim()) {
         const term = debouncedSearch.trim();
         query = query.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
@@ -147,7 +153,13 @@ export const InvoiceList = () => {
       if (endDate) summaryQuery = summaryQuery.lte('invoice_date', endDate);
       if (selectedCustomerId) summaryQuery = summaryQuery.eq('customer_id', selectedCustomerId);
       if (selectedWarehouseId) summaryQuery = summaryQuery.eq('warehouse_id', selectedWarehouseId);
-      if (statusFilter !== 'all') summaryQuery = summaryQuery.eq('status', statusFilter);
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'posted') {
+          summaryQuery = summaryQuery.in('status', ['posted', 'paid']);
+        } else {
+          summaryQuery = summaryQuery.eq('status', statusFilter);
+        }
+      }
       if (debouncedSearch.trim()) {
         const term = debouncedSearch.trim();
         summaryQuery = summaryQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
@@ -165,7 +177,7 @@ export const InvoiceList = () => {
           tAmount += Number(row.total_amount || 0);
           tTax += Number(row.tax_amount || 0);
           tPaid += Number(row.paid_amount || 0);
-          if (row.status === 'posted') postedC++;
+          if (row.status === 'posted' || row.status === 'paid') postedC++;
           else if (row.status === 'draft') draftC++;
         }
 
@@ -308,7 +320,7 @@ export const InvoiceList = () => {
         console.warn('Atomic delete RPC unavailable or failed, attempting client fallback:', rpcErr);
       }
 
-      if (invoice.status === 'posted') {
+      if (invoice.status === 'posted' || invoice.status === 'paid') {
         let itemsToReverse = invoice.invoice_items;
         if (!itemsToReverse || itemsToReverse.length === 0) {
           const { data: itemRows } = await supabase
@@ -446,7 +458,13 @@ export const InvoiceList = () => {
       if (endDate) expQuery = expQuery.lte('invoice_date', endDate);
       if (selectedCustomerId) expQuery = expQuery.eq('customer_id', selectedCustomerId);
       if (selectedWarehouseId) expQuery = expQuery.eq('warehouse_id', selectedWarehouseId);
-      if (statusFilter !== 'all') expQuery = expQuery.eq('status', statusFilter);
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'posted') {
+          expQuery = expQuery.in('status', ['posted', 'paid']);
+        } else {
+          expQuery = expQuery.eq('status', statusFilter);
+        }
+      }
       if (debouncedSearch.trim()) {
         const term = debouncedSearch.trim();
         expQuery = expQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
@@ -470,7 +488,7 @@ export const InvoiceList = () => {
         'الضريبة': inv.tax_amount || 0,
         'المسدد': inv.paid_amount || 0,
         'المتبقي': (inv.total_amount || 0) - (inv.paid_amount || 0),
-        'الحالة': inv.status === 'posted' ? 'مرحلة' : 'مسودة',
+        'الحالة': (inv.status === 'posted' || inv.status === 'paid') ? (inv.status === 'paid' ? 'مرحلة (مسددة)' : 'مرحلة') : 'مسودة',
         'ملاحظات': inv.notes || ''
       }));
 
@@ -696,14 +714,23 @@ export const InvoiceList = () => {
                       </td>
                       <td className="p-3.5 text-center">
                         <span className={`text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1 ${
-                          inv.status === 'posted' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
+                          (inv.status === 'posted' || inv.status === 'paid')
+                            ? (inv.status === 'paid' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700')
+                            : 'bg-amber-100 text-amber-700'
                         }`}>
-                          {inv.status === 'posted' ? <><CheckCircle size={12} /> مرحلة</> : 'مسودة'}
+                          {(inv.status === 'posted' || inv.status === 'paid') ? (
+                            <>
+                              <CheckCircle size={12} />
+                              {inv.status === 'paid' ? 'مرحلة (مسددة)' : 'مرحلة'}
+                            </>
+                          ) : (
+                            'مسودة'
+                          )}
                         </span>
                       </td>
                       <td className="p-3.5">
                         <div className="flex items-center justify-center gap-1">
-                          {inv.status === 'posted' ? (
+                          {(inv.status === 'posted' || inv.status === 'paid') ? (
                             <button 
                               onClick={() => handleUnpost(inv)}
                               disabled={deletingId === inv.id}
