@@ -24,13 +24,16 @@ import {
   User,
   ShieldCheck,
   Clock,
-  Sparkles
+  Sparkles,
+  Warehouse,
+  Truck
 } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { offlineService, db, CachedProduct } from '../../services/offlineService';
 import { useLiveQuery } from 'dexie-react-hooks';
+import { secureStorage } from '../../utils/securityMiddleware';
 
 type MobileTab = 'dashboard' | 'scanner' | 'sales' | 'sync';
 
@@ -307,21 +310,39 @@ export default function MobileApp() {
 
     setAdjustingStock(true);
     try {
-      // 1. Update IndexedDB locally
-      await db.products.update(selectedProduct.id, { stock: targetCount });
+      if (selectedWarehouseId) {
+        const updatedWStock: Record<string, number> = { ...(selectedProduct.warehouse_stock || {}) };
+        updatedWStock[selectedWarehouseId] = targetCount;
+        const newTotalStock: number = Number(Object.values(updatedWStock).reduce((sum: number, val: any) => sum + Number(val || 0), 0));
 
-      // 2. Update Supabase if online
-      if (isOnline) {
-        const { error } = await supabase
-          .from('products')
-          .update({ stock: targetCount })
-          .eq('id', selectedProduct.id);
+        // 1. Update IndexedDB locally
+        await (db.products as any).update(selectedProduct.id, { stock: newTotalStock, warehouse_stock: updatedWStock });
 
-        if (error) throw error;
+        // 2. Update Supabase if online
+        if (isOnline) {
+          const { error } = await supabase
+            .from('products')
+            .update({ stock: newTotalStock, warehouse_stock: updatedWStock })
+            .eq('id', selectedProduct.id);
+
+          if (error) throw error;
+        }
+
+        setSelectedProduct((prev: any) => ({ ...prev, stock: newTotalStock, warehouse_stock: updatedWStock }));
+        const whName = warehousesList.find(w => w.id === selectedWarehouseId)?.name || 'المستودع المحدد';
+        showToast(`تم تحديث رصيد (${whName}) إلى: ${targetCount} بنجاح ✅`, 'success');
+      } else {
+        await db.products.update(selectedProduct.id, { stock: targetCount });
+        if (isOnline) {
+          const { error } = await supabase
+            .from('products')
+            .update({ stock: targetCount })
+            .eq('id', selectedProduct.id);
+          if (error) throw error;
+        }
+        setSelectedProduct((prev: any) => ({ ...prev, stock: targetCount }));
+        showToast(`تم تحديث رصيد المخزن إلى: ${targetCount} بنجاح ✅`, 'success');
       }
-
-      setSelectedProduct((prev: any) => ({ ...prev, stock: targetCount }));
-      showToast(`تم تحديث رصيد المخزن إلى: ${targetCount} بنجاح ✅`, 'success');
     } catch (err: any) {
       showToast('خطأ في حفظ الرصيد: ' + err.message, 'error');
     } finally {
@@ -350,46 +371,76 @@ export default function MobileApp() {
   const salesVideoRef = useRef<HTMLVideoElement | null>(null);
   const salesScannerStreamRef = useRef<MediaStream | null>(null);
 
+  const getProductStockInWarehouse = (product: any, whId?: string): number => {
+    const targetWhId = whId || selectedWarehouseId;
+    if (!targetWhId) return Number(product?.stock || 0);
+
+    if (product?.warehouse_stock && typeof product.warehouse_stock === 'object') {
+      const val = product.warehouse_stock[targetWhId];
+      if (val !== undefined && val !== null) {
+        return Number(val);
+      }
+    }
+    if (warehousesList.length <= 1) {
+      return Number(product?.stock || 0);
+    }
+    return 0;
+  };
+
   const loadCatalogData = async () => {
     setLoadingCatalog(true);
     try {
-      // 1. Try local Dexie products first
-      const localProducts = await db.products.toArray();
-      if (localProducts && localProducts.length > 0) {
-        setCatalogProducts(localProducts);
-      } else if (isOnline && currentOrgId) {
-        const { data: pData } = await supabase
-          .from('products')
-          .select('id, name, barcode, sku, sales_price, stock, image_url')
+      // 1. Load Warehouses first so stock is evaluated per warehouse/van
+      if (isOnline && currentOrgId) {
+        const { data: wData } = await supabase
+          .from('warehouses')
+          .select('id, name')
           .eq('organization_id', currentOrgId)
-          .order('name', { ascending: true })
-          .limit(100);
-        if (pData) setCatalogProducts(pData);
+          .is('deleted_at', null)
+          .order('name', { ascending: true });
+        if (wData && wData.length > 0) {
+          setWarehousesList(wData);
+          const savedWh = secureStorage.getItem('tripro_mobile_preferred_warehouse') as string | null;
+          if (savedWh && wData.some(w => w.id === savedWh)) {
+            setSelectedWarehouseId(savedWh);
+          } else if (!selectedWarehouseId || !wData.some(w => w.id === selectedWarehouseId)) {
+            setSelectedWarehouseId(wData[0].id);
+          }
+        }
       }
 
-      // 2. Load Customers
+      // 2. Load Products (with warehouse_stock)
+      if (isOnline && currentOrgId) {
+        const { data: pData } = await supabase
+          .from('products')
+          .select('id, name, barcode, sku, sales_price, stock, warehouse_stock, image_url')
+          .eq('organization_id', currentOrgId)
+          .is('deleted_at', null)
+          .order('name', { ascending: true })
+          .limit(200);
+        if (pData) {
+          setCatalogProducts(pData);
+          try {
+            await offlineService.syncProductsLocally(currentOrgId);
+          } catch (e) {}
+        }
+      } else {
+        const localProducts = await db.products.toArray();
+        if (localProducts && localProducts.length > 0) {
+          setCatalogProducts(localProducts);
+        }
+      }
+
+      // 3. Load Customers
       if (isOnline && currentOrgId) {
         const { data: cData } = await supabase
           .from('customers')
           .select('id, name, phone')
           .eq('organization_id', currentOrgId)
+          .is('deleted_at', null)
           .order('name', { ascending: true })
-          .limit(50);
+          .limit(100);
         if (cData) setCustomersList(cData);
-      }
-
-      // 3. Load Warehouses
-      if (isOnline && currentOrgId) {
-        const { data: wData } = await supabase
-          .from('warehouses')
-          .select('id, name')
-          .eq('organization_id', currentOrgId);
-        if (wData && wData.length > 0) {
-          setWarehousesList(wData);
-          if (!selectedWarehouseId) {
-            setSelectedWarehouseId(wData[0].id);
-          }
-        }
       }
     } catch (e) {
       console.warn('Catalog load warning:', e);
@@ -461,8 +512,16 @@ export default function MobileApp() {
   };
 
   const addToCart = (product: any) => {
+    const available = getProductStockInWarehouse(product, selectedWarehouseId);
+    const selectedWh = warehousesList.find(w => w.id === selectedWarehouseId);
+    const whName = selectedWh ? selectedWh.name : 'المستودع المحدد';
+
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
+      const currentQty = existing ? existing.qty : 0;
+      if (currentQty + 1 > available) {
+        showToast(`⚠️ تنبيه: الرصيد في (${whName}) هو (${available}) فقط! تأكد من وجود بضاعة بالسيارة.`, 'warning');
+      }
       if (existing) {
         return prev.map(item =>
           item.product.id === product.id ? { ...item, qty: item.qty + 1 } : item
@@ -565,11 +624,16 @@ export default function MobileApp() {
             showToast(`تم حفظ وترحيل الفاتورة #${invoiceNumber} وتوليد القيد المحاسبي بنجاح ✅`, 'success');
           } else {
             console.warn('post_sales_invoice notice:', postErr);
-            showToast(`تم حفظ الفاتورة #${invoiceNumber} كمسودة (اضغط على علامة الصح في سجل الفواتير للترحيل) ✅`, 'info');
+            const errMsg = postErr.message || '';
+            if (errMsg.includes('عجز مخزون') || errMsg.includes('الرصيد')) {
+              showToast(`⚠️ حُفظت الفاتورة كمسودة: ${errMsg} (يلزم تحويل بضاعة للمخزن أو تفعيل البيع بالسالب)`, 'warning');
+            } else {
+              showToast(`تم حفظ الفاتورة #${invoiceNumber} كمسودة: ${errMsg}`, 'info');
+            }
           }
-        } catch (postEx) {
+        } catch (postEx: any) {
           console.warn('post_sales_invoice exception:', postEx);
-          showToast(`تم حفظ الفاتورة #${invoiceNumber} بنجاح ✅`, 'success');
+          showToast(`تم حفظ الفاتورة #${invoiceNumber} كمسودة`, 'info');
         }
 
         setLastSavedInvoice(invoicePayload);
@@ -827,6 +891,29 @@ export default function MobileApp() {
               )}
             </div>
 
+            {/* Warehouse Selector for Stock Audit */}
+            {warehousesList.length > 0 && (
+              <div className="flex items-center gap-2 bg-slate-800 p-2.5 rounded-xl border border-slate-700">
+                <Truck size={15} className="text-indigo-400 shrink-0" />
+                <span className="text-xs text-slate-300 font-bold shrink-0">المستودع / السيارة للجرد:</span>
+                <select
+                  value={selectedWarehouseId}
+                  onChange={e => {
+                    const newId = e.target.value;
+                    setSelectedWarehouseId(newId);
+                    secureStorage.setItem('tripro_mobile_preferred_warehouse', newId);
+                  }}
+                  className="flex-1 bg-slate-900 border border-slate-700 rounded-lg text-xs font-bold text-white px-2 py-1.5 focus:outline-none focus:border-indigo-500"
+                >
+                  {warehousesList.map(w => (
+                    <option key={w.id} value={w.id}>
+                      🏢 {w.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
             {/* Manual Search or Barcode Input */}
             <div className="flex gap-2">
               <div className="relative flex-1">
@@ -862,8 +949,13 @@ export default function MobileApp() {
                     </p>
                   </div>
                   <div className="text-left bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-700">
-                    <span className="text-[10px] text-slate-400 block">الرصيد الفعلي</span>
-                    <span className="text-lg font-black text-amber-400">{selectedProduct.stock || 0}</span>
+                    <span className="text-[10px] text-slate-400 block">رصيد المستودع المختار</span>
+                    <span className="text-lg font-black text-amber-400">
+                      {getProductStockInWarehouse(selectedProduct, selectedWarehouseId)}
+                    </span>
+                    <span className="text-[9px] text-slate-500 block">
+                      الإجمالي العام: {selectedProduct.stock || 0}
+                    </span>
                   </div>
                 </div>
 
@@ -907,6 +999,57 @@ export default function MobileApp() {
         {/* ======================= TAB 3: FIELD SALES ======================= */}
         {activeTab === 'sales' && (
           <div className="space-y-4 animate-in fade-in duration-200">
+            {/* 🚚 Warehouse / Van Selector Card */}
+            <div className="bg-gradient-to-r from-slate-800 to-indigo-950/40 p-3.5 rounded-xl border border-indigo-500/30 space-y-2 shadow-sm">
+              <div className="flex items-center justify-between">
+                <label className="text-xs text-indigo-300 font-bold flex items-center gap-1.5">
+                  <Truck size={16} className="text-indigo-400" />
+                  <span>مخزن الصرف / سيارة المندوب:</span>
+                </label>
+                {selectedWarehouseId && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      secureStorage.setItem('tripro_mobile_preferred_warehouse', selectedWarehouseId);
+                      showToast('تم حفظ هذا المخزن كافتراضي لجهازك بنجاح ★', 'success');
+                    }}
+                    className="text-[10px] bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/30 px-2 py-0.5 rounded font-bold transition-colors flex items-center gap-1"
+                    title="حفظ هذا المستودع كافتراضي في كل مرة تفتح فيها التطبيق"
+                  >
+                    <span>★ حفظ كسيارتي الافتراضية</span>
+                  </button>
+                )}
+              </div>
+
+              {warehousesList.length > 0 ? (
+                <div className="space-y-1">
+                  <select
+                    value={selectedWarehouseId}
+                    onChange={e => {
+                      const newId = e.target.value;
+                      setSelectedWarehouseId(newId);
+                      secureStorage.setItem('tripro_mobile_preferred_warehouse', newId);
+                    }}
+                    className="w-full bg-slate-900 border border-indigo-500/40 rounded-lg px-2.5 py-2 text-xs font-bold text-white focus:outline-none focus:border-indigo-400"
+                  >
+                    {warehousesList.map(w => (
+                      <option key={w.id} value={w.id}>
+                        🚚 {w.name}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="flex items-center justify-between text-[10px] text-slate-400 px-1 pt-0.5">
+                    <span>يتم خصم الفاتورة وتوليد القيد من هذا المخزن مباشرة</span>
+                    <span className="text-indigo-400 font-bold">
+                      {warehousesList.find(w => w.id === selectedWarehouseId)?.name || ''}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-amber-400 py-1">جاري تحميل المستودعات...</div>
+              )}
+            </div>
+
             {/* Customer & Type */}
             <div className="bg-slate-800 p-3.5 rounded-xl border border-slate-700 space-y-2.5">
               <label className="text-xs text-slate-300 font-bold block">اختيار أو إدخال اسم العميل:</label>
@@ -1031,17 +1174,31 @@ export default function MobileApp() {
                   .slice(0, 20)
                   .map(p => {
                     const inCartItem = cart.find(c => c.product.id === p.id);
+                    const whStock = getProductStockInWarehouse(p, selectedWarehouseId);
+                    const hasStockInWh = whStock > 0;
+
                     return (
                       <div
                         key={p.id}
-                        className="bg-slate-900/80 hover:bg-slate-900 p-2.5 rounded-lg border border-slate-700/80 flex items-center justify-between transition-colors"
+                        className="bg-slate-900/80 hover:bg-slate-900 p-2.5 rounded-lg border border-slate-700/80 flex items-center justify-between transition-colors gap-2"
                       >
                         <div className="flex-1 min-w-0 pr-1">
                           <div className="font-bold text-xs text-white truncate">{p.name}</div>
-                          <div className="flex items-center gap-2 mt-0.5 text-[11px]">
+                          <div className="flex items-center gap-2 mt-1 text-[11px] flex-wrap">
                             <span className="text-emerald-400 font-bold">{Number(p.sales_price || 0).toLocaleString()} ج.م</span>
                             <span className="text-slate-600">|</span>
-                            <span className="text-slate-400 text-[10px]">المخزون: <b className="text-amber-400">{p.stock || 0}</b></span>
+                            {hasStockInWh ? (
+                              <span className="text-emerald-400 font-bold bg-emerald-950/60 border border-emerald-800/60 px-1.5 py-0.5 rounded text-[10px]">
+                                متوفر بالسيارة: {whStock}
+                              </span>
+                            ) : (
+                              <span className="text-rose-400 font-bold bg-rose-950/60 border border-rose-800/60 px-1.5 py-0.5 rounded text-[10px]">
+                                غير متوفر بالسيارة (0)
+                              </span>
+                            )}
+                            {Number(p.stock || 0) > 0 && !hasStockInWh && (
+                              <span className="text-slate-400 text-[10px]">(متوفر بالفروع: {p.stock})</span>
+                            )}
                           </div>
                         </div>
 
@@ -1051,7 +1208,9 @@ export default function MobileApp() {
                           className={`text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 shadow-sm transition-all active:scale-95 shrink-0 ${
                             inCartItem 
                               ? 'bg-emerald-500 text-slate-900 font-black' 
-                              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                              : hasStockInWh
+                                ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                                : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
                           }`}
                         >
                           <Plus size={13} />

@@ -203,14 +203,17 @@ export const InvoiceList = () => {
     }
 
     try {
-      const success = await approveInvoice(invoice.id);
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const success = await approveInvoice(invoice.id, userOrgId, invoice.warehouse_id);
       if (success) {
-        showToast('تم ترحيل الفاتورة بنجاح ✅', 'success');
+        showToast('تم ترحيل الفاتورة بنجاح وتوليد القيد المحاسبي ✅', 'success');
         fetchInvoices();
       }
     } catch (err: any) {
-      console.error(err);
-      showToast('فشل ترحيل الفاتورة: ' + err.message, 'error');
+      console.error('Invoice approve error:', err);
+      const errMsg = err?.message || err?.details || String(err);
+      showToast('فشل ترحيل الفاتورة: ' + errMsg, 'error');
     }
   };
 

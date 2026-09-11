@@ -35,6 +35,7 @@ export interface CachedProduct {
   max_stock_level?: number;
   wholesale_price?: number;
   half_wholesale_price?: number;
+  warehouse_stock?: Record<string, number> | null;
 }
 
 export interface QueuedMedicalItem {
@@ -147,6 +148,7 @@ export const offlineService = {
           max_stock_level: Number(p.max_stock_level || 0),
           wholesale_price: Number(p.wholesale_price || 0),
           half_wholesale_price: Number(p.half_wholesale_price || 0),
+          warehouse_stock: p.warehouse_stock || null,
         }));
         await db.products.bulkAdd(productsToCache);
         console.log(`Synced ${productsToCache.length} products locally.`);
