@@ -4,7 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
-import { Truck, Plus, Search, Edit2, Trash2, X, Phone, Mail, Loader2, Upload, Download, RefreshCw, Scale, FileSpreadsheet, ArrowUp, ArrowDown, Printer } from 'lucide-react'; // Removed z import
+import { Truck, Plus, Search, Edit2, Trash2, X, Phone, Mail, Loader2, Upload, Download, RefreshCw, Scale, FileSpreadsheet, ArrowUp, ArrowDown, Printer, ChevronRight, ChevronLeft, ShieldAlert } from 'lucide-react'; // Removed z import
 import { createSupplierSchema, updateSupplierSchema } from '../../utils/validationSchemas';
 import { useNavigate } from 'react-router-dom';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
@@ -39,6 +39,14 @@ const SupplierManager = () => {
 
   const [serverSuppliers, setServerSuppliers] = useState<Supplier[]>([]);
   const [isServerLoading, setIsServerLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [totalRecords, setTotalRecords] = useState(0);
+
+  // إعادة ضبط الصفحة عند تغيير البحث
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearch]);
 
   useEffect(() => {
     if (currentUser?.role === 'demo') return;
@@ -53,21 +61,75 @@ const SupplierManager = () => {
             return;
         }
 
-        let query = supabase.from('suppliers').select('*').is('deleted_at', null).eq('organization_id', userOrgId);
+        try {
+            // 🚀 محرك الأرصدة السيرفري الفوري مع الترقيم والبحث المقيد (Server-Side Pagination)
+            const { data: serverStats, error: rpcError } = await (supabase.rpc as any)('get_all_supplier_balances_fast', {
+                p_org_id: userOrgId,
+                p_search: debouncedSearch ? debouncedSearch.trim() : null,
+                p_limit: pageSize,
+                p_offset: (currentPage - 1) * pageSize
+            });
+
+            if (!rpcError && serverStats && Array.isArray(serverStats)) {
+                const list: Supplier[] = [];
+                const statsMap: Record<string, any> = {};
+                let count = 0;
+
+                serverStats.forEach((row: any) => {
+                    count = Number(row.total_count || 0);
+                    list.push({
+                        id: row.supplier_id,
+                        name: row.supplier_name,
+                        phone: row.phone || '',
+                        email: '',
+                        tax_number: row.tax_number || '',
+                        address: '',
+                        credit_limit: 0,
+                        opening_balance: Number(row.opening_balance || 0),
+                        balance: Number(row.balance || 0)
+                    });
+                    statsMap[row.supplier_id] = {
+                        balance: Number(row.balance || 0),
+                        totalPurchases: Number(row.total_purchases || 0),
+                        lastInvoice: row.last_invoice || null
+                    };
+                });
+
+                setTotalRecords(count);
+                setServerSuppliers(list);
+                setStats(statsMap);
+                setIsServerLoading(false);
+                return;
+            }
+        } catch (err) {
+            console.warn('get_all_supplier_balances_fast fallback:', err);
+        }
+
+        // مسار بديل بالترقيم الصفحي المقيد
+        let query = supabase.from('suppliers')
+            .select('*', { count: 'exact' })
+            .is('deleted_at', null)
+            .eq('organization_id', userOrgId);
+
         if (debouncedSearch) {
             query = query.or(`name.ilike.%${debouncedSearch}%,tax_number.ilike.%${debouncedSearch}%`);
         }
-        const { data, error } = await query.order('name', { ascending: true });
+
+        const { data, count, error } = await query
+            .order('name', { ascending: true })
+            .range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
+
         if (error) {
             showToast('فشل جلب الموردين', 'error');
         } else {
-            setServerSuppliers(data as Supplier[]);
+            setServerSuppliers((data || []) as Supplier[]);
+            setTotalRecords(count || 0);
         }
         setIsServerLoading(false);
     };
 
     fetchSuppliers();
-  }, [debouncedSearch, currentUser]);
+  }, [debouncedSearch, currentPage, pageSize, currentUser]);
 
   const suppliers = (currentUser?.role === 'demo' ? contextSuppliers : serverSuppliers) as Supplier[];
   const isLoading = currentUser?.role === 'demo' ? false : isServerLoading;
@@ -106,8 +168,8 @@ const SupplierManager = () => {
           const { data: serverStats, error: rpcError } = await (supabase.rpc as any)('get_all_supplier_balances_fast', {
             p_org_id: userOrgId,
             p_search: null,
-            p_limit: 10000,
-            p_offset: 0
+            p_limit: pageSize,
+            p_offset: (currentPage - 1) * pageSize
           });
 
           if (!rpcError && serverStats && Array.isArray(serverStats)) {
@@ -452,15 +514,25 @@ const SupplierManager = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا المورد؟')) {
-      const reason = prompt("الرجاء إدخال سبب الحذف (إلزامي):");
+    const supp = suppliers.find(s => s.id === id);
+    const suppStats = stats[id];
+    const balance = Math.abs(Number(suppStats?.balance ?? supp?.balance ?? 0));
+    const purchases = Number(suppStats?.totalPurchases || 0);
+
+    if (balance > 0.01 || purchases > 0) {
+      showToast(`⚠️ لا يمكن حذف هذا المورد لوجود رصيد مالي قائم (${balance.toLocaleString()} ج.م) أو فواتير مسجلة (${purchases.toLocaleString()} ج.م). المتطلبات المحاسبية تمنع الحذف للحفاظ على دقة الأستاذ العام، ويمكنك بدلاً من ذلك إيقاف التعامل معه.`, 'error');
+      return;
+    }
+
+    if (window.confirm(`هل أنت متأكد من تجميد / إيقاف التعامل مع المورد "${supp?.name || ''}"؟`)) {
+      const reason = prompt("الرجاء إدخال سبب إيقاف التعامل (إلزامي للرقابة المالية):");
       if (reason) {
         try {
           await deleteSupplier(id, reason);
           queryClient.invalidateQueries({ queryKey: ['suppliers'] });
-          showToast('تم حذف المورد بنجاح', 'success');
+          showToast('تم إيقاف التعامل مع المورد بنجاح', 'success');
         } catch (error: any) {
-          showToast('لا يمكن حذف المورد, قد يكون مرتبطاً بفواتير. الخطأ: ' + error.message, 'error');
+          showToast('تعذر إيقاف المورد: ' + error.message, 'error');
         }
       }
     }
@@ -614,6 +686,7 @@ const SupplierManager = () => {
       {isLoading ? (
         <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-600" size={32} /></div>
       ) : (
+        <>
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto print:shadow-none print:border-none print:rounded-none">
             <table className="w-full text-right">
                 <thead className="bg-slate-50 text-slate-600 font-bold text-sm">
@@ -679,6 +752,56 @@ const SupplierManager = () => {
                 </tfoot>
             </table>
         </div>
+
+        {/* شريط التنقل بين الصفحات (Server-Side Pagination Controls) */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 px-4 py-3 bg-white rounded-xl shadow-sm border border-slate-200 print:hidden">
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <span>عرض</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="border border-slate-300 rounded px-2 py-1 text-sm bg-white font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+            <span>سجل لكل صفحة</span>
+            <span className="text-slate-400 mx-2">|</span>
+            <span>
+              إجمالي الموردين: <strong className="font-mono text-slate-800">{totalRecords}</strong>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1 || isServerLoading}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              <ChevronRight size={16} />
+              <span>السابق</span>
+            </button>
+
+            <span className="text-sm font-medium text-slate-700 px-3">
+              صفحة <strong className="font-mono text-blue-600">{currentPage}</strong> من <strong className="font-mono">{Math.max(1, Math.ceil(totalRecords / pageSize))}</strong>
+            </span>
+
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(Math.max(1, Math.ceil(totalRecords / pageSize)), p + 1))}
+              disabled={currentPage >= Math.ceil(totalRecords / pageSize) || isServerLoading}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              <span>التالي</span>
+              <ChevronLeft size={16} />
+            </button>
+          </div>
+        </div>
+        </>
       )}
 
       {isModalOpen && (

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Users, Plus, Search, Edit2, Trash2, X, Phone, MapPin, FileText, CircleDollarSign, Loader2, Upload, Download, Wallet, TrendingUp, RefreshCw, Scale, Mail, FileSpreadsheet, ArrowUp, ArrowDown, Printer } from 'lucide-react';
+import { Users, Plus, Search, Edit2, Trash2, X, Phone, MapPin, FileText, CircleDollarSign, Loader2, Upload, Download, Wallet, TrendingUp, RefreshCw, Scale, Mail, FileSpreadsheet, ArrowUp, ArrowDown, Printer, ChevronRight, ChevronLeft, ShieldAlert } from 'lucide-react';
 import { useCustomers } from '../hooks/usePermissions';
 import { useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
@@ -40,10 +40,11 @@ const CustomerManager = () => {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // في وضع الديمو، نستخدم العملاء من السياق (الوهميين) بدلاً من جلبهم من السيرفر
-  const { data: serverCustomers = [], isLoading: isServerLoading } = useCustomers(debouncedSearch);
-  const customers = currentUser?.role === 'demo' ? contextCustomers : serverCustomers;
-  const isLoading = currentUser?.role === 'demo' ? false : isServerLoading;
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const [serverCustomers, setServerCustomers] = useState<Customer[]>([]);
+  const [isServerLoading, setIsServerLoading] = useState(false);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState<Partial<Customer>>({});
@@ -52,181 +53,115 @@ const CustomerManager = () => {
   const [statsLoading, setStatsLoading] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string; direction: 'asc' | 'desc' }>({ key: 'balance', direction: 'desc' });
 
-  // جلب الإحصائيات عند تحميل العملاء
+  // تصفير الصفحة إلى الأولى عند تغيير نص البحث
   useEffect(() => {
-    if (customers.length > 0) {
-        fetchStats();
-    }
-  }, [customers]);
+    setCurrentPage(1);
+  }, [debouncedSearch]);
 
-  const fetchStats = async () => {
+  const fetchCustomers = async () => {
     if (currentUser?.role === 'demo') {
-        setStats({
-            'demo-c1': { balance: 4775, totalSales: 9775, lastInvoice: '2024-07-25' },
-            'demo-c2': { balance: 0, totalSales: 4887.5, lastInvoice: '2024-07-24' },
-            'demo-c3': { balance: 1500, totalSales: 1500, lastInvoice: '2024-07-25' }
-        });
-        return;
+      setStats({
+        'demo-c1': { balance: 4775, totalSales: 9775, lastInvoice: '2024-07-25' },
+        'demo-c2': { balance: 0, totalSales: 4887.5, lastInvoice: '2024-07-24' },
+        'demo-c3': { balance: 1500, totalSales: 1500, lastInvoice: '2024-07-25' }
+      });
+      setTotalRecords(contextCustomers?.length || 0);
+      return;
     }
-    
+
+    setIsServerLoading(true);
     setStatsLoading(true);
     try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userOrgId = sessionData?.session?.user?.user_metadata?.org_id || currentUser?.organization_id;
 
-        if (!userOrgId) throw new Error('Org ID missing');
+      if (!userOrgId) {
+        setIsServerLoading(false);
+        setStatsLoading(false);
+        return;
+      }
 
-        // ⚖️ المحرك المحاسبي الشامل المباشر لأرصدة العملاء (مطابق 100% لكشف الحساب والأستاذ العام حساب 1221)
-        let customerAccId = getSystemAccount('CUSTOMERS')?.id;
-        if (!customerAccId) {
-          const { data: customerAccounts } = await supabase
-            .from('accounts')
-            .select('id')
-            .eq('organization_id', userOrgId)
-            .eq('code', '1221')
-            .limit(1);
-          customerAccId = customerAccounts?.[0]?.id || accounts.find(a => a.code === '1221' || a.name?.includes('العملاء') || a.name?.includes('عملاء') || a.code === '1103')?.id;
-        }
-
-        // 🛡️ جمع معرفات القيود من المستندات المرتبطة بالعميل + مستخلصات المشاريع + القيود اليدوية + طلبات المطاعم + المديولات المتقدمة (HIMS، الاستاد، المقاولات)
-        const [
-            invRes, recRes, retRes, cnRes, chqRes, ordRes,
-            projectsRes, projectBillingsRes,
-            manualEntriesRes,
-            unpostedOrdersRes,
-            modularCustomerDocs
-        ] = await Promise.all([
-            supabase.from('invoices').select('related_journal_entry_id, customer_id, total_amount, invoice_date').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('receipt_vouchers').select('related_journal_entry_id, customer_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('sales_returns').select('related_journal_entry_id, customer_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('credit_notes').select('related_journal_entry_id, customer_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('cheques').select('related_journal_entry_id, party_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('orders').select('related_journal_entry_id, customer_id, grand_total').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('projects').select('id, customer_id').eq('organization_id', userOrgId),
-            supabase.from('project_progress_billings').select('id, project_id, related_journal_entry_id, net_amount, billing_date').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-            supabase.from('journal_entries').select('id, description, reference, related_document_type, related_document_id').eq('organization_id', userOrgId).eq('status', 'posted'),
-            supabase.from('orders').select('customer_id, grand_total').eq('organization_id', userOrgId).is('related_journal_entry_id', null).neq('status', 'CANCELLED'),
-            SubledgerRegistry.fetchCustomerDocs(userOrgId)
-        ]);
-
-        const allEntryIds = new Set<string>();
-        const entryToCustomer: Record<string, string> = {}; // To map entry ID back to customer ID
-
-        invRes.data?.forEach(i => { if (i.related_journal_entry_id && i.customer_id) { allEntryIds.add(i.related_journal_entry_id); entryToCustomer[i.related_journal_entry_id] = i.customer_id; } });
-        recRes.data?.forEach(r => { if (r.related_journal_entry_id && r.customer_id) { allEntryIds.add(r.related_journal_entry_id); entryToCustomer[r.related_journal_entry_id] = r.customer_id; } });
-        retRes.data?.forEach(r => { if (r.related_journal_entry_id && r.customer_id) { allEntryIds.add(r.related_journal_entry_id); entryToCustomer[r.related_journal_entry_id] = r.customer_id; } });
-        cnRes.data?.forEach(c => { if (c.related_journal_entry_id && c.customer_id) { allEntryIds.add(c.related_journal_entry_id); entryToCustomer[c.related_journal_entry_id] = c.customer_id; } });
-        chqRes.data?.forEach(c => { if (c.related_journal_entry_id && c.party_id) { allEntryIds.add(c.related_journal_entry_id); entryToCustomer[c.related_journal_entry_id] = c.party_id; } });
-        ordRes.data?.forEach(o => { if (o.related_journal_entry_id && o.customer_id) { allEntryIds.add(o.related_journal_entry_id); entryToCustomer[o.related_journal_entry_id] = o.customer_id; } });
-
-        const projectToCustomer: Record<string, string> = {};
-        projectsRes.data?.forEach(p => { if (p.id && p.customer_id) projectToCustomer[p.id] = p.customer_id; });
-
-        projectBillingsRes.data?.forEach(pb => {
-            if (pb.related_journal_entry_id && pb.project_id) {
-                const cId = projectToCustomer[pb.project_id];
-                if (cId) {
-                    allEntryIds.add(pb.related_journal_entry_id);
-                    entryToCustomer[pb.related_journal_entry_id] = cId;
-                }
-            }
+      // 🚀 استدعاء دالة قاعدة البيانات فائقة السرعة get_all_customer_balances_fast مع الترقيم الصفحي والبحث
+      try {
+        const { data: rpcData, error: rpcErr } = await (supabase.rpc as any)('get_all_customer_balances_fast', {
+          p_org_id: userOrgId,
+          p_search: debouncedSearch || null,
+          p_limit: pageSize,
+          p_offset: (currentPage - 1) * pageSize
         });
 
-        // ربط مستندات وقيود المديولات المتقدمة (المستشفيات، الاستاد الرياضي، المقاولات)
-        modularCustomerDocs?.forEach(doc => {
-            let cId = doc.customerId;
-            if (!cId && doc.customerName) {
-                const docName = doc.customerName.trim().toLowerCase();
-                const matched = customers.find(c => (c.name || '').trim().toLowerCase() === docName);
-                if (matched) cId = matched.id;
-            }
-            if (doc.journalEntryId && cId) {
-                allEntryIds.add(doc.journalEntryId);
-                entryToCustomer[doc.journalEntryId] = cId;
-            }
-        });
+        if (!rpcErr && rpcData && Array.isArray(rpcData)) {
+          const list: Customer[] = [];
+          const statsMap: Record<string, any> = {};
+          let count = 0;
 
-        // ربط القيود اليومية بالعملاء (بالمعرف أو بالاسم في البيان أو بالمرجع)
-        manualEntriesRes.data?.forEach((je: any) => {
-            const desc = (je.description || '').toLowerCase();
-            const ref = (je.reference || '').toLowerCase();
-            const docId = je.related_document_id;
-            customers.forEach(c => {
-                const cName = (c.name || '').trim().toLowerCase();
-                const isMatch = (docId && docId === c.id) ||
-                                (cName && desc.includes(cName)) ||
-                                (ref && ref.includes(c.id.toLowerCase()));
-                if (isMatch) {
-                    allEntryIds.add(je.id);
-                    entryToCustomer[je.id] = c.id;
-                }
+          rpcData.forEach((row: any) => {
+            count = Number(row.total_count || 0);
+            list.push({
+              id: row.customer_id,
+              name: row.customer_name,
+              phone: row.phone || '',
+              email: '',
+              tax_number: row.tax_number || '',
+              address: '',
+              credit_limit: 0,
+              opening_balance: Number(row.opening_balance || 0),
+              balance: Number(row.balance || 0)
             });
-        });
+            statsMap[row.customer_id] = {
+              balance: Number(row.balance || 0),
+              totalSales: Number(row.total_sales || 0),
+              lastInvoice: row.last_invoice || null
+            };
+          });
 
-        const customersWithOpeningEntry = new Set<string>();
-        manualEntriesRes.data?.forEach((je: any) => {
-            const desc = (je.description || '').toLowerCase();
-            const ref = (je.reference || '').toLowerCase();
-            const isOpening = je.related_document_type === 'opening_balance' || ref.startsWith('op-cust-') || ref.startsWith('ob-') || desc.includes('رصيد افتتاحي');
-            if (isOpening) {
-                customers.forEach(c => {
-                    const cName = (c.name || '').trim().toLowerCase();
-                    if ((cName && desc.includes(cName)) || ref.includes(c.id.toLowerCase())) {
-                        customersWithOpeningEntry.add(c.id);
-                    }
-                });
-            }
-        });
-
-        const newStats: Record<string, any> = {};
-        customers.forEach(c => { 
-          newStats[c.id] = { 
-            balance: customersWithOpeningEntry.has(c.id) ? 0 : Number(c.opening_balance || 0), 
-            totalSales: 0, 
-            lastInvoice: null 
-          }; 
-        });
-
-        if (customerAccId && allEntryIds.size > 0) {
-            const { data: ledgerLines } = await supabase.from('journal_lines')
-              .select('journal_entry_id, debit, credit')
-              .in('journal_entry_id', Array.from(allEntryIds))
-              .eq('account_id', customerAccId)
-              .eq('organization_id', userOrgId);
-
-            ledgerLines?.forEach(line => {
-                const custId = entryToCustomer[line.journal_entry_id];
-                if (custId && newStats[custId]) {
-                    newStats[custId].balance += (Number(line.debit || 0) - Number(line.credit || 0));
-                }
-            });
+          setTotalRecords(count);
+          setServerCustomers(list);
+          setStats(statsMap);
+          setIsServerLoading(false);
+          setStatsLoading(false);
+          return;
         }
+      } catch (rpcErr) {
+        console.warn('get_all_customer_balances_fast fallback:', rpcErr);
+      }
 
-        // إضافة مبيعات المطاعم ونقاط البيع غير المرحلة (التي لم ينشأ لها قيد بعد)
-        unpostedOrdersRes.data?.forEach(ord => {
-          if (ord.customer_id && newStats[ord.customer_id]) {
-            newStats[ord.customer_id].balance += Number(ord.grand_total || 0);
-          }
-        });
+      // مسار بديل بالترقيم الصفحي المقيد
+      let query = supabase.from('customers')
+        .select('*', { count: 'exact' })
+        .is('deleted_at', null)
+        .eq('organization_id', userOrgId);
 
-        // 📈 تحديث إحصائيات المبيعات الإضافية (معرض + مطعم) وتاريخ آخر فاتورة (بدون تكرار)
-        invRes.data?.forEach(inv => {
-          if (newStats[inv.customer_id]) {
-            newStats[inv.customer_id].totalSales += Number(inv.total_amount || 0);
-            if (!newStats[inv.customer_id].lastInvoice || inv.invoice_date > newStats[inv.customer_id].lastInvoice) {
-              newStats[inv.customer_id].lastInvoice = inv.invoice_date;
-            }
-          }
-        });
-        ordRes.data?.forEach(ord => {
-          if (newStats[ord.customer_id]) {
-            newStats[ord.customer_id].totalSales += Number(ord.grand_total || 0);
-          }
-        });
+      if (debouncedSearch) {
+        query = query.or(`name.ilike.%${debouncedSearch}%,phone.ilike.%${debouncedSearch}%,tax_number.ilike.%${debouncedSearch}%`);
+      }
 
-        setStats(newStats);
-    } catch (error) { console.error("Error fetching stats", error); } finally { setStatsLoading(false); }
+      const { data, count, error } = await query
+        .order('name', { ascending: true })
+        .range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
+
+      if (error) {
+        showToast('فشل جلب العملاء', 'error');
+      } else {
+        setServerCustomers((data || []) as Customer[]);
+        setTotalRecords(count || 0);
+      }
+    } catch (err: any) {
+      showToast('خطأ في جلب بيانات العملاء: ' + err.message, 'error');
+    } finally {
+      setIsServerLoading(false);
+      setStatsLoading(false);
+    }
   };
+
+  useEffect(() => {
+    fetchCustomers();
+  }, [debouncedSearch, currentPage, pageSize, currentUser]);
+
+  const fetchStats = fetchCustomers;
+
+  const customers = (currentUser?.role === 'demo' ? contextCustomers : serverCustomers) as Customer[];
+  const isLoading = currentUser?.role === 'demo' ? false : isServerLoading;
 
   const requestSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -324,6 +259,7 @@ const CustomerManager = () => {
               );
             }
         }
+        fetchCustomers();
         queryClient.invalidateQueries({ queryKey: ['customers'] }); // تحديث القائمة فوراً
         setIsModalOpen(false);
         showToast('تم حفظ بيانات العميل بنجاح ✅', 'success');
@@ -334,16 +270,27 @@ const CustomerManager = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (window.confirm('هل أنت متأكد من حذف هذا العميل؟')) {
-      const reason = prompt("الرجاء إدخال سبب الحذف (إلزامي):");
+    const cust = customers.find(c => c.id === id);
+    const custStats = stats[id];
+    const balance = Math.abs(Number(custStats?.balance ?? cust?.balance ?? 0));
+    const sales = Number(custStats?.totalSales || 0);
+
+    if (balance > 0.01 || sales > 0) {
+      showToast(`⚠️ لا يمكن حذف هذا العميل لوجود رصيد مالي قائم (${balance.toLocaleString()} ج.م) أو فواتير مسجلة (${sales.toLocaleString()} ج.م). المتطلبات المحاسبية تمنع الحذف للحفاظ على دقة الأستاذ العام، ويمكنك بدلاً من ذلك إيقاف التعامل معه.`, 'error');
+      return;
+    }
+
+    if (window.confirm(`هل أنت متأكد من تجميد / إيقاف التعامل مع العميل "${cust?.name || ''}"؟`)) {
+      const reason = prompt("الرجاء إدخال سبب إيقاف التعامل (إلزامي للرقابة المالية):");
       if (reason) {
         try {
           await deleteCustomer(id, reason);
-          queryClient.invalidateQueries({ queryKey: ['customers'] }); // تحديث القائمة فوراً
-          showToast('تم حذف العميل بنجاح', 'success');
+          fetchCustomers();
+          queryClient.invalidateQueries({ queryKey: ['customers'] });
+          showToast('تم إيقاف التعامل مع العميل بنجاح', 'success');
         } catch (error: any) {
           console.error(error);
-          showToast('لا يمكن حذف العميل, قد يكون مرتبطاً بفواتير. الخطأ: ' + error.message, 'error');
+          showToast('تعذر إيقاف العميل: ' + error.message, 'error');
         }
       }
     }
@@ -577,6 +524,7 @@ const CustomerManager = () => {
       {isLoading ? (
         <div className="flex justify-center p-12"><Loader2 className="animate-spin text-blue-600" size={32} /></div>
       ) : (
+        <>
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-x-auto print:shadow-none print:border-none print:rounded-none">
             <table className="w-full text-right">
                 <thead className="bg-slate-50 text-slate-600 font-bold text-sm">
@@ -654,6 +602,56 @@ const CustomerManager = () => {
                 </tfoot>
             </table>
         </div>
+
+        {/* شريط التنقل بين الصفحات (Server-Side Pagination Controls) */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 px-4 py-3 bg-white rounded-xl shadow-sm border border-slate-200 print:hidden">
+          <div className="flex items-center gap-2 text-sm text-slate-600">
+            <span>عرض</span>
+            <select
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setCurrentPage(1);
+              }}
+              className="border border-slate-300 rounded px-2 py-1 text-sm bg-white font-mono focus:outline-none focus:ring-1 focus:ring-blue-500"
+            >
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+            <span>سجل لكل صفحة</span>
+            <span className="text-slate-400 mx-2">|</span>
+            <span>
+              إجمالي العملاء: <strong className="font-mono text-slate-800">{totalRecords}</strong>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1 || isServerLoading}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              <ChevronRight size={16} />
+              <span>السابق</span>
+            </button>
+
+            <span className="text-sm font-medium text-slate-700 px-3">
+              صفحة <strong className="font-mono text-blue-600">{currentPage}</strong> من <strong className="font-mono">{Math.max(1, Math.ceil(totalRecords / pageSize))}</strong>
+            </span>
+
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(Math.max(1, Math.ceil(totalRecords / pageSize)), p + 1))}
+              disabled={currentPage >= Math.ceil(totalRecords / pageSize) || isServerLoading}
+              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition"
+            >
+              <span>التالي</span>
+              <ChevronLeft size={16} />
+            </button>
+          </div>
+        </div>
+        </>
       )}
 
       {isModalOpen && (
