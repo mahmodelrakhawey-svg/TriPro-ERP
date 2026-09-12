@@ -55,7 +55,7 @@ const SupplierManager = () => {
 
         let query = supabase.from('suppliers').select('*').is('deleted_at', null).eq('organization_id', userOrgId);
         if (debouncedSearch) {
-            query = query.ilike('name', `%${debouncedSearch}%`);
+            query = query.or(`name.ilike.%${debouncedSearch}%,tax_number.ilike.%${debouncedSearch}%`);
         }
         const { data, error } = await query.order('name', { ascending: true });
         if (error) {
@@ -607,7 +607,7 @@ const SupplierManager = () => {
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 print:hidden">
         <div className="relative">
           <Search className="absolute right-3 top-3 text-slate-400" size={20} />
-          <input type="text" placeholder="بحث عن مورد..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pr-10 pl-4 py-2 border rounded-lg focus:outline-none focus:border-blue-500" />
+          <input type="text" placeholder="بحث باسم المورد أو كود المورد..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pr-10 pl-4 py-2 border rounded-lg focus:outline-none focus:border-blue-500" />
         </div>
       </div>
 
@@ -619,7 +619,7 @@ const SupplierManager = () => {
                 <thead className="bg-slate-50 text-slate-600 font-bold text-sm">
                     <tr>
                         <th className="p-4 cursor-pointer hover:bg-slate-100" onClick={() => requestSort('name')}>
-                            <div className="flex items-center gap-1 justify-end">{sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)} الاسم</div>
+                            <div className="flex items-center gap-1 justify-end">{sortConfig.key === 'name' && (sortConfig.direction === 'asc' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)} المورد</div>
                         </th>
                         <th className="p-4">الهاتف</th>
                         <th className="p-4">البريد الإلكتروني</th>
@@ -638,7 +638,16 @@ const SupplierManager = () => {
                 <tbody className="divide-y divide-slate-100">
                     {sortedSuppliers.map(supplier => (
                     <tr key={supplier.id} className="hover:bg-slate-50/50">
-                        <td className="p-4 font-bold text-slate-800">{supplier.name}</td>
+                        <td className="p-4 font-bold text-slate-800">
+                            <div className="flex items-center gap-2">
+                                {supplier.tax_number && (
+                                    <span className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-amber-50 text-amber-700 border border-amber-200" title="كود المورد">
+                                        #{supplier.tax_number}
+                                    </span>
+                                )}
+                                <span>{supplier.name}</span>
+                            </div>
+                        </td>
                         <td className="p-4 text-slate-600 font-mono">{supplier.phone || '-'}</td>
                         <td className="p-4 text-slate-600">{supplier.email || '-'}</td>
                         <td className={`p-4 font-mono font-bold ${stats[supplier.id]?.balance > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
