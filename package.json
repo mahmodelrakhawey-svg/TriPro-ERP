@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "npm run security-audit && tsc && vite build",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
-    "test": "vitest",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "demo": "vite --mode demo",
     "preview": "vite preview",

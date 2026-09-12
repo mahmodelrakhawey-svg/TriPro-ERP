@@ -62,8 +62,11 @@ type Item = {
   min_sales_price?: number | null;
   max_stock_level?: number | null;
   wholesale_price?: number | null;
-  half_wholesale_price?: number | null;
   supplier_id?: string | null;
+  // ========== بيانات الفاتورة الإلكترونية المصرية ==========
+  item_code_type?: 'GS1' | 'EGS';
+  egs_code?: string | null;
+  eta_unit_code?: string | null;
 };
 
 // Define a type for the formData state to ensure consistency
@@ -114,6 +117,10 @@ type ProductFormData = {
   wholesale_price: number;
   half_wholesale_price: number;
   supplier_id?: string | null;
+  // ========== بيانات الفاتورة الإلكترونية المصرية ==========
+  item_code_type?: 'GS1' | 'EGS';
+  egs_code?: string;
+  eta_unit_code?: string;
 };
 
 const ProductManager = () => {
@@ -613,6 +620,10 @@ const ProductManager = () => {
         wholesale_price: 0,
         half_wholesale_price: 0,
         supplier_id: null,
+        // بيانات الفاتورة الإلكترونية
+        item_code_type: 'EGS',
+        egs_code: '',
+        eta_unit_code: '',
       });
     }
     setIsModalOpen(true);
@@ -1528,6 +1539,10 @@ const ProductManager = () => {
             wholesale_price: Number(formData.wholesale_price) || 0,
             half_wholesale_price: Number(formData.half_wholesale_price) || 0,
             ...(hasSupplierColumn ? { supplier_id: formData.supplier_id || null } : {}),
+            // بيانات الفاتورة الإلكترونية
+            item_code_type: formData.item_code_type || 'EGS',
+            egs_code: formData.egs_code || null,
+            eta_unit_code: formData.eta_unit_code || null,
         };
         await updateProduct(editingId, itemData);
 
@@ -1669,6 +1684,10 @@ const ProductManager = () => {
           wholesale_price: Number(formData.wholesale_price) || 0,
           half_wholesale_price: Number(formData.half_wholesale_price) || 0,
           ...(hasSupplierColumn ? { supplier_id: formData.supplier_id || null } : {}),
+          // بيانات الفاتورة الإلكترونية
+          item_code_type: formData.item_code_type || 'EGS',
+          egs_code: formData.egs_code || null,
+          eta_unit_code: formData.eta_unit_code || null,
         };
 
         const newProduct = await addProduct(productPayload as any); // Use handleError for consistency
@@ -1892,6 +1911,10 @@ const ProductManager = () => {
         wholesale_price: Number((item as any).wholesale_price || 0),
         half_wholesale_price: Number((item as any).half_wholesale_price || 0),
         supplier_id: (item as any).supplier_id || null,
+        // بيانات الفاتورة الإلكترونية
+        item_code_type: (item as any).item_code_type || 'EGS',
+        egs_code: (item as any).egs_code || '',
+        eta_unit_code: (item as any).eta_unit_code || '',
       });
       setIsModalOpen(true);
   };
@@ -2824,6 +2847,54 @@ const ProductManager = () => {
                           placeholder="امسح الباركود بمسدس الليزر أو اضغط توليد..." 
                         />
                         <span className="text-[10px] text-slate-400 block mt-0.5">باركود المنتج للبيع عبر الكاشير بالليزر</span>
+                    </div>
+
+                    {/* 🏛️ بيانات الفاتورة الإلكترونية لمصلحة الضرائب المصرية (ETA e-Invoicing) */}
+                    <div className="col-span-2 bg-amber-50/60 p-4 rounded-xl border border-amber-200/80 space-y-3">
+                      <div className="flex items-center gap-2 text-amber-900 font-bold text-xs">
+                        <span className="text-base">🏛️</span>
+                        <span>بيانات الربط مع مصلحة الضرائب المصرية (ETA e-Invoicing)</span>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">نوع الكود الضريبي</label>
+                          <select
+                            value={formData.item_code_type || 'EGS'}
+                            onChange={e => setFormData({ ...formData, item_code_type: e.target.value as 'GS1' | 'EGS' })}
+                            className="w-full border border-slate-300 rounded-lg p-2 text-xs bg-white font-bold"
+                          >
+                            <option value="EGS">كود مصري موحد (EGS - EG-...)</option>
+                            <option value="GS1">باركود عالمي دولي (GS1)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">كود الصنف الضريبي (EGS / GS1)</label>
+                          <input
+                            type="text"
+                            value={formData.egs_code || ''}
+                            onChange={e => setFormData({ ...formData, egs_code: e.target.value })}
+                            placeholder="مثال: EG-113327101-1001"
+                            className="w-full border border-slate-300 rounded-lg p-2 text-xs font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">وحدة القياس الضريبية (ETA Code)</label>
+                          <select
+                            value={formData.eta_unit_code || ''}
+                            onChange={e => setFormData({ ...formData, eta_unit_code: e.target.value })}
+                            className="w-full border border-slate-300 rounded-lg p-2 text-xs bg-white font-mono"
+                          >
+                            <option value="">تلقائي من وحدة الصنف</option>
+                            <option value="KGM">KGM - كيلوجرام</option>
+                            <option value="EA">EA - قطعة / عدد</option>
+                            <option value="BOX">BOX - كرتونة / علبة</option>
+                            <option value="LTR">LTR - لتر</option>
+                            <option value="TNE">TNE - طن متري</option>
+                            <option value="GRM">GRM - جرام</option>
+                            <option value="MTR">MTR - متر</option>
+                          </select>
+                        </div>
+                      </div>
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                         <div>

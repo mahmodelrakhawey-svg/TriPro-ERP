@@ -124,6 +124,10 @@ export const InvoiceList = () => {
       if (statusFilter !== 'all') {
         if (statusFilter === 'posted') {
           query = query.in('status', ['posted', 'paid']);
+        } else if ((statusFilter as string) === 'eta_submitted') {
+          query = query.not('eta_uuid', 'is', null);
+        } else if ((statusFilter as string) === 'eta_pending') {
+          query = query.in('status', ['posted', 'paid']).is('eta_uuid', null);
         } else {
           query = query.eq('status', statusFilter);
         }
@@ -664,6 +668,8 @@ export const InvoiceList = () => {
             <option value="all">جميع الحالات</option>
             <option value="posted">مرحلة ومكتملة ✅</option>
             <option value="draft">مسودة 📝</option>
+            <option value="eta_submitted">معتمدة بالضرائب المصرية 🏛️</option>
+            <option value="eta_pending">بانتظار الإرسال للضرائب ⏳</option>
           </select>
         </div>
       </div>
@@ -773,7 +779,7 @@ export const InvoiceList = () => {
                             <MessageCircle size={16} />
                           </button>
 
-                          {settings.enableEta && (
+                          {(companySettings?.eta_is_active || (settings as any)?.enableEta) && (
                             inv.eta_uuid ? (
                               <a 
                                 href={inv.eta_qr_code || `https://invoicing.eta.gov.eg/invoices/${inv.eta_uuid}/preview`}
