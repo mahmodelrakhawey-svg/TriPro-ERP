@@ -311,6 +311,10 @@ export interface Product {
   station_id?: string | null;
   prep_time_minutes?: number;
   is_86?: boolean;
+  // 🏛️ متطلبات الفاتورة الإلكترونية المصرية (ETA e-Invoicing)
+  item_code_type?: 'GS1' | 'EGS';
+  egs_code?: string;
+  eta_unit_code?: string;
 }
 
 export interface InvoiceItem {

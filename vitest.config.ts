@@ -13,5 +13,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom', // محاكاة بيئة المتصفح
+    include: ['tests/**/*.{test,spec}.{ts,tsx}', 'modules/**/*.{test,spec}.{ts,tsx}'],
+    exclude: ['node_modules/**', 'dist/**', '.git/**'],
   },
 });

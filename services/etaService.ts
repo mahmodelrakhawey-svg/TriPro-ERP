@@ -102,8 +102,8 @@ export const etaService = {
         return {
           description: item.products?.name || "Product Description",
           itemType: item.products?.item_code_type || "EGS", // EGS or GS1
-          itemCode: item.products?.sku || `EG-11111111-${item.products?.id?.slice(0, 8)}`,
-          unitType: item.uoms?.code || "EA",
+          itemCode: item.products?.egs_code || item.products?.sku || `EG-11111111-${item.products?.id?.slice(0, 8)}`,
+          unitType: item.products?.eta_unit_code || item.uoms?.code || "EA",
           quantity: itemQty,
           internalCode: item.products?.sku || "sku",
           valueDifference: 0,
@@ -122,9 +122,9 @@ export const etaService = {
           taxableItems: [
             {
               taxType: "T1", // T1 = VAT
-              amount: vatAmount,
+              amount: Math.round(vatAmount * 100) / 100,
               subType: "V009", // V009 = Standard VAT rate 14%
-              rate: vatRate * 100,
+              rate: Math.round(vatRate * 100),
             }
           ]
         };
