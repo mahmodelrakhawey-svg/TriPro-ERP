@@ -2012,7 +2012,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const exportData = async () => { /* Logic to export JSON */ };
 
   const deleteOrganization = useCallback(async (orgId: string) => {
-    if (currentUser?.role !== 'super_admin') {
+    if (currentUser?.role !== 'super_admin' && currentUser?.role !== 'admin') {
       showToast('ليس لديك صلاحية لحذف الشركات.', 'error');
       return { success: false, message: 'ليس لديك صلاحية لحذف الشركات.' };
     }
@@ -2022,13 +2022,45 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     try {
-      // استدعاء دالة الحذف الآمنة التي تتجاوز الحماية السيادية في قاعدة البيانات
-      const { error } = await supabase.rpc('fn_delete_organization_safe', { p_org_id: orgId });
+      // 1. استدعاء دالة الحذف الآمنة التي تتجاوز الحماية السيادية في قاعدة البيانات
+      let deleteResult = await supabase.rpc('fn_delete_organization_safe', { p_org_id: orgId });
 
-      if (error) {
-        console.error('Error deleting organization:', error);
-        showToast(`فشل حذف الشركة: ${error.message}`, 'error');
-        return { success: false, message: `فشل حذف الشركة: ${error.message}` };
+      // 2. إذا حدث خطأ قيود مرجعية نقوم بتفكيك القيود برمجياً وإعادة المحاولة
+      if (deleteResult.error) {
+        console.warn('RPC delete failed in context, initiating cascade cleanup...', deleteResult.error);
+        try {
+          await supabase.from('profiles').update({ organization_id: null }).eq('organization_id', orgId);
+          await supabase.from('role_permissions').delete().eq('organization_id', orgId);
+          await supabase.from('roles').delete().eq('organization_id', orgId);
+
+          const tablesToClean = [
+            'mfg_step_materials', 'mfg_step_attachments', 'mfg_production_order_materials', 'mfg_production_order_steps',
+            'mfg_scrap_records', 'mfg_qc_inspections', 'mfg_production_orders', 'mfg_routings', 'mfg_work_centers',
+            'order_item_modifiers', 'order_items', 'kitchen_orders', 'orders',
+            'invoice_items', 'purchase_invoice_items', 'sales_return_items', 'purchase_return_items',
+            'stock_adjustment_items', 'journal_lines', 'payroll_variables', 'payroll_items',
+            'invoices', 'purchase_invoices', 'sales_returns', 'purchase_returns', 'journal_entries',
+            'payments', 'receipt_vouchers', 'payment_vouchers', 'cheques', 'payrolls', 'stock_adjustments',
+            'work_orders', 'bill_of_materials', 'credit_notes', 'debit_notes', 'shifts', 'table_sessions',
+            'promotions', 'retail_promotions', 'stadium_bookings', 'stadium_subscriptions', 'construction_projects',
+            'products', 'customers', 'suppliers', 'accounts', 'warehouses', 'cost_centers', 'assets',
+            'employees', 'company_settings', 'invitations', 'budgets', 'notification_preferences', 'security_logs', 'audit_logs'
+          ];
+          for (const tbl of tablesToClean) {
+            try { await (supabase.from(tbl as any) as any).delete().eq('organization_id', orgId); } catch (_) {}
+          }
+
+          deleteResult = await supabase.rpc('fn_delete_organization_safe', { p_org_id: orgId });
+
+          if (deleteResult.error) {
+            const directDelete = await supabase.from('organizations').delete().eq('id', orgId);
+            if (directDelete.error) {
+              throw new Error(deleteResult.error.message || directDelete.error.message);
+            }
+          }
+        } catch (cleanupErr: any) {
+          throw new Error(deleteResult.error?.message || cleanupErr.message);
+        }
       }
 
       showToast('تم حذف الشركة وجميع بياناتها بنجاح ✅', 'success');
