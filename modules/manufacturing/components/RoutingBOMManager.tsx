@@ -96,39 +96,30 @@ const RoutingBOMManager = () => {
         const mType = String(p.mfg_type || '').toLowerCase();
         const pType = String(p.product_type || p.item_type || '').toUpperCase();
 
+        // استبعاد المواد الخام ومستلزمات الإنتاج بشكل صريح ونهائي
+        if (pType === 'RAW_MATERIAL' || mType === 'raw') return false;
+
+        // استبعاد الخدمات
+        if (pType === 'SERVICE') return false;
+
+        // إتاحة فقط المنتجات تامة الصنع والمنتجات الوسيطة / نصف المصنعة المحددة صراحة
         return (
-          mType === 'standard' || 
-          mType === 'subassembly' || 
-          mType === 'intermediate' || 
           pType === 'MANUFACTURED' || 
           pType === 'INTERMEDIATE_PRODUCT' ||
-          p.category_id === 'e4d8bff6-a957-4ac5-a7bf-171ab8a6605c' ||
-          p.name?.includes('عجين') ||
-          p.name?.includes('عجينه') ||
-          p.name?.includes('عجينة') ||
-          p.name?.includes('سبونش') ||
-          p.name?.includes('ديسك') ||
-          p.name?.includes('جناش') ||
-          p.name?.includes('كريمة شانتيه') ||
-          p.name?.includes('شربات')
+          mType === 'standard' || 
+          mType === 'intermediate' || 
+          mType === 'subassembly'
         );
       }) 
       .map(p => {
         const mType = String(p.mfg_type || '').toLowerCase();
         const pType = String(p.product_type || p.item_type || '').toUpperCase();
+
+        // المنتج الوسيط هو حصراً ما تم اختياره صراحة كمنتج وسيط
         const isIntermediate = 
           pType === 'INTERMEDIATE_PRODUCT' || 
-          mType === 'subassembly' || 
-          mType === 'intermediate' ||
-          p.category_id === 'e4d8bff6-a957-4ac5-a7bf-171ab8a6605c' ||
-          p.name?.includes('عجين') ||
-          p.name?.includes('عجينه') ||
-          p.name?.includes('عجينة') ||
-          p.name?.includes('سبونش') ||
-          p.name?.includes('ديسك') ||
-          p.name?.includes('جناش') ||
-          p.name?.includes('كريمة شانتيه') ||
-          p.name?.includes('شربات');
+          mType === 'intermediate' || 
+          mType === 'subassembly';
 
         return { 
           id: p.id, 
@@ -738,20 +729,26 @@ const RoutingBOMManager = () => {
                 🍰 المنتجات الوسيطة ونصف المصنعة (اضغط للمراجعة الفورية للمسار والمكونات):
               </span>
               <div className="flex flex-wrap gap-2 mt-1">
-                {productOptions.filter((p: any) => p.isIntermediate).map(p => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setSelectedProductId(p.id)}
-                    className={`text-xs px-3 py-1.5 rounded-lg font-bold transition-all border ${
-                      selectedProductId === p.id 
-                        ? 'bg-amber-600 text-white border-amber-700 shadow-sm ring-2 ring-amber-300' 
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-amber-50 hover:border-amber-300'
-                    }`}
-                  >
-                    {p.name.replace('🍰 [منتج وسيط] ', '')}
-                  </button>
-                ))}
+                {productOptions.filter((p: any) => p.isIntermediate).length === 0 ? (
+                  <p className="text-xs text-slate-400 italic py-1">
+                    لا توجد منتجات وسيطة مضافة حالياً. (تظهر الأصناف هنا فقط عند تحديد نوعها كـ "منتج وسيط / نصف مصنع" في كارت الصنف).
+                  </p>
+                ) : (
+                  productOptions.filter((p: any) => p.isIntermediate).map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setSelectedProductId(p.id)}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-bold transition-all border ${
+                        selectedProductId === p.id 
+                          ? 'bg-amber-600 text-white border-amber-700 shadow-sm ring-2 ring-amber-300' 
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-amber-50 hover:border-amber-300'
+                      }`}
+                    >
+                      {p.name.replace('🍰 [منتج وسيط] ', '')}
+                    </button>
+                  ))
+                )}
               </div>
             </div>
 
@@ -760,20 +757,24 @@ const RoutingBOMManager = () => {
                 🎂 المنتجات النهائية التامة (اضغط للمراجعة الفورية للمسار والمكونات):
               </span>
               <div className="flex flex-wrap gap-2 mt-1">
-                {productOptions.filter((p: any) => !p.isIntermediate).map(p => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => setSelectedProductId(p.id)}
-                    className={`text-xs px-3 py-1.5 rounded-lg font-bold transition-all border ${
-                      selectedProductId === p.id 
-                        ? 'bg-purple-600 text-white border-purple-700 shadow-sm ring-2 ring-purple-300' 
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-purple-50 hover:border-purple-300'
-                    }`}
-                  >
-                    {p.name.replace('🎂 [منتج تام] ', '')}
-                  </button>
-                ))}
+                {productOptions.filter((p: any) => !p.isIntermediate).length === 0 ? (
+                  <p className="text-xs text-slate-400 italic py-1">لا توجد منتجات تامة مسجلة حالياً.</p>
+                ) : (
+                  productOptions.filter((p: any) => !p.isIntermediate).map(p => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setSelectedProductId(p.id)}
+                      className={`text-xs px-3 py-1.5 rounded-lg font-bold transition-all border ${
+                        selectedProductId === p.id 
+                          ? 'bg-purple-600 text-white border-purple-700 shadow-sm ring-2 ring-purple-300' 
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-purple-50 hover:border-purple-300'
+                      }`}
+                    >
+                      {p.name.replace('🎂 [منتج تام] ', '')}
+                    </button>
+                  ))
+                )}
               </div>
             </div>
           </div>
