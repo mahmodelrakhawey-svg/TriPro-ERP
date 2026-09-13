@@ -103,6 +103,10 @@ const RoutingBOMManager = () => {
           pType === 'MANUFACTURED' || 
           pType === 'INTERMEDIATE_PRODUCT' ||
           p.category_id === 'e4d8bff6-a957-4ac5-a7bf-171ab8a6605c' ||
+          p.name?.includes('عجين') ||
+          p.name?.includes('عجينه') ||
+          p.name?.includes('عجينة') ||
+          p.name?.includes('سبونش') ||
           p.name?.includes('ديسك') ||
           p.name?.includes('جناش') ||
           p.name?.includes('كريمة شانتيه') ||
@@ -117,6 +121,10 @@ const RoutingBOMManager = () => {
           mType === 'subassembly' || 
           mType === 'intermediate' ||
           p.category_id === 'e4d8bff6-a957-4ac5-a7bf-171ab8a6605c' ||
+          p.name?.includes('عجين') ||
+          p.name?.includes('عجينه') ||
+          p.name?.includes('عجينة') ||
+          p.name?.includes('سبونش') ||
           p.name?.includes('ديسك') ||
           p.name?.includes('جناش') ||
           p.name?.includes('كريمة شانتيه') ||

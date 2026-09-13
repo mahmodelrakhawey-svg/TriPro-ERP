@@ -357,7 +357,8 @@ export const stockCardProductUpdateSchema = z.object({
   name: nameSchema,
   sales_price: amountSchema,
   purchase_price: amountSchema,
-}).refine(data => data.sales_price >= data.purchase_price, {
+  product_type: z.string().optional(),
+}).refine(data => data.sales_price >= data.purchase_price || data.product_type === 'SERVICE' || data.product_type === 'RAW_MATERIAL' || data.product_type === 'INTERMEDIATE_PRODUCT', {
   message: 'سعر البيع يجب أن يكون أكبر من أو يساوي سعر التكلفة',
   path: ['sales_price']
 });
