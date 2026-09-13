@@ -6,12 +6,13 @@ import {
   Users, Plus, Search, Edit, Trash2, Save, X, Phone, Mail, 
   Briefcase, Calendar, DollarSign, Loader2, Filter, Building2, 
   LayoutGrid, List, RotateCcw, CheckCircle2, XCircle, Printer,
-  UserCheck, MapPin
+  UserCheck, MapPin, Sparkles
 } from 'lucide-react';
 import { createEmployeeSchema } from '../../../utils/validationSchemas';
+import { FACTORY_EMPLOYEES_LIST } from '../data/factoryEmployees';
 
 const EmployeeManager = () => {
-  const { employees, updateEmployee, addEmployee, deleteEmployee, currentUser, isLoading: contextLoading } = useAccounting();
+  const { employees, updateEmployee, addEmployee, deleteEmployee, currentUser, isLoading: contextLoading, refreshData } = useAccounting();
   const { showToast } = useToast();
   const [editingId, setEditingId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -23,6 +24,8 @@ const EmployeeManager = () => {
   const [positionFilter, setPositionFilter] = useState('all');
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [saving, setSaving] = useState(false);
+  const [importingFactory, setImportingFactory] = useState(false);
+  const [importProgress, setImportProgress] = useState(0);
 
   const [formData, setFormData] = useState({
     full_name: '',
@@ -161,6 +164,84 @@ const EmployeeManager = () => {
     }
   };
 
+  // استيراد كشف طاقم عمال المصنع (181 موظفاً) دفعة واحدة مع منع التكرار
+  const handleImportFactoryStaff = async () => {
+    if (importingFactory) return;
+
+    const confirmed = window.confirm(
+      `هل تريد بدء استيراد كشف طاقم عمال المصنع (${FACTORY_EMPLOYEES_LIST.length} عاملاً وفنياً)؟\nسيقوم النظام بفحص الأسماء آلياً لمنع تكرار أي اسم مسجل مسبقاً.`
+    );
+    if (!confirmed) return;
+
+    setImportingFactory(true);
+    setImportProgress(5);
+
+    try {
+      const orgId = currentUser?.organization_id || '2d9b24d6-f5cf-4bd9-b8b6-0a85d1c9c967';
+
+      // 1. جلب الأسماء المسجلة بالفعل في المصنع لمنع أي تكرار
+      const { data: existingEmployees, error: fetchErr } = await supabase
+        .from('employees')
+        .select('full_name')
+        .eq('organization_id', orgId)
+        .eq('department', 'المصنع');
+
+      if (fetchErr) throw fetchErr;
+
+      const existingNames = new Set((existingEmployees || []).map((e: any) => e.full_name?.trim()));
+      const toInsert = FACTORY_EMPLOYEES_LIST
+        .filter(name => !existingNames.has(name.trim()))
+        .map(name => ({
+          organization_id: orgId,
+          name: name.trim(),
+          full_name: name.trim(),
+          department: 'المصنع',
+          position: 'طاقم المصنع',
+          status: 'active',
+          basic_salary: 0,
+          hourly_rate: 0,
+          hire_date: new Date().toISOString().split('T')[0],
+          notes: 'تم التسجيل ضمن كشف عمال المصنع'
+        }));
+
+      setImportProgress(20);
+
+      if (toInsert.length === 0) {
+        showToast('كافة عمال المصنع (181 عاملاً) مسجلون بالفعل في قاعدة البيانات ✅', 'info');
+        setDepartmentFilter('المصنع');
+        setImportingFactory(false);
+        return;
+      }
+
+      // 2. تقسيم الحفظ على دفعات متتالية (Batches)
+      const BATCH_SIZE = 45;
+      let insertedCount = 0;
+
+      for (let i = 0; i < toInsert.length; i += BATCH_SIZE) {
+        const batch = toInsert.slice(i, i + BATCH_SIZE);
+        const { error: insErr } = await supabase.from('employees').insert(batch);
+        if (insErr) throw insErr;
+        insertedCount += batch.length;
+        const pct = Math.min(95, 20 + Math.round((insertedCount / toInsert.length) * 75));
+        setImportProgress(pct);
+      }
+
+      setImportProgress(100);
+      showToast(`🎉 تم بنجاح استيراد ${insertedCount} عاملاً للمصنع وتحديث السجلات فورياً!`, 'success');
+
+      // 3. تحديث البيانات في الـ Context فورياً
+      if (refreshData) {
+        await refreshData();
+      }
+      setDepartmentFilter('المصنع');
+    } catch (error: any) {
+      console.error('Failed to import factory employees:', error);
+      showToast(`فشل استيراد طاقم المصنع: ${error.message || 'يرجى التحقق من الاتصال'}`, 'error');
+    } finally {
+      setImportingFactory(false);
+    }
+  };
+
   // حماية الصفحة من مستخدم الديمو
   if (currentUser?.role === 'demo') {
       return (
@@ -190,7 +271,25 @@ const EmployeeManager = () => {
               سجل كامل لكافة العاملين بالفروع والإدارات مع إدارة العقود والرواتب
             </p>
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
+        <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+            <button 
+                onClick={handleImportFactoryStaff}
+                disabled={importingFactory}
+                title="استيراد كشف عمال وطاقم المصنع (181 موظفاً)"
+                className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-md shadow-amber-200 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+            >
+                {importingFactory ? (
+                  <>
+                    <Loader2 size={17} className="animate-spin" />
+                    <span>جاري الاستيراد ({importProgress}%)...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles size={17} />
+                    <span>استيراد طاقم المصنع (181)</span>
+                  </>
+                )}
+            </button>
             <button 
                 onClick={() => window.print()}
                 title="طباعة الدليل"
@@ -250,6 +349,47 @@ const EmployeeManager = () => {
           </div>
         </div>
       </div>
+
+      {/* بانر جاهزية كشف طاقم المصنع */}
+      {(!branchCounts['المصنع'] || branchCounts['المصنع'] < 181) && (
+        <div className="bg-gradient-to-r from-amber-500/10 via-amber-50 to-orange-50 p-5 rounded-2xl border border-amber-200 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in">
+          <div className="flex items-center gap-3.5">
+            <div className="p-3 bg-amber-500 text-white rounded-xl shadow-md shadow-amber-200 flex-shrink-0">
+              <Building2 size={24} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-black text-slate-800 text-base">كشف عمال وفنيي المصنع (181 موظفاً) جاهز للاستيراد</h3>
+                <span className="px-2.5 py-0.5 bg-amber-100 text-amber-800 text-xs font-black rounded-full border border-amber-200">
+                  {branchCounts['المصنع'] ? `${branchCounts['المصنع']} / 181 مسجل حالياً` : 'لم يتم الاستيراد بعد'}
+                </span>
+              </div>
+              <p className="text-xs text-slate-600 mt-1 font-medium">
+                تم تجهيز وتنسيق كشف الـ 181 عاملاً للمصنع بالكامل. اضغط الزر لحفظهم دفعة واحدة في قاعدة بيانات حلواني لينزا فورياً دون أي تكرار.
+              </p>
+            </div>
+          </div>
+          <div className="w-full md:w-auto flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleImportFactoryStaff}
+              disabled={importingFactory}
+              className="w-full md:w-auto bg-amber-600 hover:bg-amber-700 text-white px-6 py-2.5 rounded-xl font-black text-sm flex items-center justify-center gap-2 shadow-lg shadow-amber-200 hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+            >
+              {importingFactory ? (
+                <>
+                  <Loader2 size={18} className="animate-spin" />
+                  <span>جاري الحفظ ({importProgress}%)...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles size={18} />
+                  <span>⚡ استيراد طاقم المصنع الآن (181 عاملاً)</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* أزرار سريعة لاختيار الفرع (Quick Branch Pills) */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">

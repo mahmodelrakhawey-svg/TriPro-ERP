@@ -180,6 +180,11 @@ const ProductManager = () => {
     (contextProducts && contextProducts.length > 0 && 'supplier_id' in (contextProducts[0] || {}))
   );
 
+  const hasEtaColumns = Boolean(
+    (serverItems && serverItems.length > 0 && 'egs_code' in (serverItems[0] || {})) ||
+    (contextProducts && contextProducts.length > 0 && 'egs_code' in (contextProducts[0] || {}))
+  );
+
   useEffect(() => {
     const fetchUoms = async () => {
       if (currentUser?.role === 'demo') {
@@ -1540,9 +1545,11 @@ const ProductManager = () => {
             half_wholesale_price: Number(formData.half_wholesale_price) || 0,
             ...(hasSupplierColumn ? { supplier_id: formData.supplier_id || null } : {}),
             // بيانات الفاتورة الإلكترونية
-            item_code_type: formData.item_code_type || 'EGS',
-            egs_code: formData.egs_code || null,
-            eta_unit_code: formData.eta_unit_code || null,
+            ...(hasEtaColumns ? {
+              item_code_type: formData.item_code_type || 'EGS',
+              egs_code: formData.egs_code || null,
+              eta_unit_code: formData.eta_unit_code || null,
+            } : {}),
         };
         await updateProduct(editingId, itemData);
 
@@ -1685,9 +1692,11 @@ const ProductManager = () => {
           half_wholesale_price: Number(formData.half_wholesale_price) || 0,
           ...(hasSupplierColumn ? { supplier_id: formData.supplier_id || null } : {}),
           // بيانات الفاتورة الإلكترونية
-          item_code_type: formData.item_code_type || 'EGS',
-          egs_code: formData.egs_code || null,
-          eta_unit_code: formData.eta_unit_code || null,
+          ...(hasEtaColumns ? {
+            item_code_type: formData.item_code_type || 'EGS',
+            egs_code: formData.egs_code || null,
+            eta_unit_code: formData.eta_unit_code || null,
+          } : {}),
         };
 
         const newProduct = await addProduct(productPayload as any); // Use handleError for consistency

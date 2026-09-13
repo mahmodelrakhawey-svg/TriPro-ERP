@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Search, X } from 'lucide-react';
 
 interface Option {
@@ -16,6 +16,16 @@ interface SearchableSelectProps {
   required?: boolean;
   className?: string;
 }
+
+const normalizeArabic = (text: string) => {
+  return (text || '')
+    .replace(/[\u064B-\u065F\u0670]/g, '') // إزالة علامات التشكيل
+    .replace(/[أإآ]/g, 'ا') // توحيد الألف
+    .replace(/ة/g, 'ه')     // توحيد التاء المربوطة
+    .replace(/ى/g, 'ي')     // توحيد الألف المقصورة والياء
+    .toLowerCase()
+    .trim();
+};
 
 const SearchableSelect: React.FC<SearchableSelectProps> = ({
   options,
@@ -41,10 +51,20 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     }
   }, [selectedOption]);
 
-  const filteredOptions = options.filter(option =>
-    (option.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-     (option.code && option.code.toLowerCase().includes(searchTerm.toLowerCase())))
-  );
+  const normalizedSearch = normalizeArabic(searchTerm);
+
+  const filteredOptions = useMemo(() => {
+    if (!normalizedSearch) return options;
+    return options.filter(option => {
+      const nameNorm = normalizeArabic(option.name);
+      const codeNorm = normalizeArabic(option.code || '');
+      return nameNorm.includes(normalizedSearch) || codeNorm.includes(normalizedSearch);
+    });
+  }, [options, normalizedSearch]);
+
+  const visibleOptions = useMemo(() => {
+    return filteredOptions.slice(0, 100);
+  }, [filteredOptions]);
 
   const handleSelect = (optionId: string) => {
     onChange(optionId);
@@ -59,7 +79,7 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
     if (selectRef.current && !selectRef.current.contains(event.target as Node)) {
       setIsOpen(false);
       // Reset search term if nothing is selected or if the current search term doesn't match a selected option
-      if (!selectedOption || !displayValue.toLowerCase().includes(searchTerm.toLowerCase())) {
+      if (!selectedOption || !normalizeArabic(displayValue).includes(normalizeArabic(searchTerm))) {
         setSearchTerm(displayValue);
       }
     }
@@ -110,8 +130,8 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
       </div>
 
       {isOpen && filteredOptions.length > 0 && (
-        <div className="absolute z-20 w-full bg-white border border-slate-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
-          {filteredOptions.map(option => (
+        <div className="absolute z-20 w-full bg-white border border-slate-200 rounded-lg shadow-lg mt-1 max-h-56 overflow-y-auto">
+          {visibleOptions.map(option => (
             <div
               key={option.id}
               onMouseDown={(e) => { // Use onMouseDown to prevent blur event from closing dropdown before click
@@ -124,6 +144,11 @@ const SearchableSelect: React.FC<SearchableSelectProps> = ({
               <span className="font-bold text-slate-800">{option.name}</span>
             </div>
           ))}
+          {filteredOptions.length > 100 && (
+            <div className="p-2 text-center text-xs text-slate-500 bg-slate-50 border-t sticky bottom-0">
+              يتم عرض أول 100 نتيجة من أصل {filteredOptions.length}. اكتب للبحث بمزيد من الدقة...
+            </div>
+          )}
         </div>
       )}
       {isOpen && filteredOptions.length === 0 && searchTerm && (
