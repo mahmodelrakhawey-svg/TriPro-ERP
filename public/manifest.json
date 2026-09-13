@@ -1,8 +1,8 @@
 {
-  "name": "TriPro ERP - الرفيق الميداني",
-  "short_name": "TriPro الميداني",
-  "description": "منظومة TriPro الميدانية السريعة: ماسح باركود المخزون بالكاميرا، فواتير المندوب الميداني، ولوحة تحكم المدير للاعتمادات اللحظية.",
-  "start_url": "/#/mobile",
+  "name": "TriPro ERP - نظام إدارة المؤسسات",
+  "short_name": "TriPro ERP",
+  "description": "نظام TriPro ERP السحابي المتكامل لإدارة الحسابات، المخازن، المبيعات، والموارد البشرية.",
+  "start_url": "/",
   "display": "standalone",
   "background_color": "#f8fafc",
   "theme_color": "#0f172a",

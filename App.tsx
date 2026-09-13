@@ -737,6 +737,15 @@ const MainLayout = () => {
     );
 };
 
+// 🛡️ مكون شاشة تسجيل الدخول المباشر
+const LoginRoute = () => {
+  const { currentUser } = useAuth();
+  if (currentUser) {
+    return <Navigate to="/" replace />;
+  }
+  return <Login />;
+};
+
 // 🛡️ مكون حماية المسارات (ProtectedRoute)
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { currentUser } = useAuth();
@@ -782,6 +791,7 @@ const AppContent = () => {
       <Suspense fallback={<LazyLoadingFallback />}>
         <Routes>
           {/* 1. المسارات العامة (متاحة للجميع دون تسجيل دخول) */}
+          <Route path="/login" element={<LoginRoute />} />
           <Route path="/customer-display" element={<CustomerDisplay />} />
           <Route path="/menu/:qrKey" element={<GuestMenuLayout />} />
           <Route path="/menu" element={<GuestMenuLayout />} />

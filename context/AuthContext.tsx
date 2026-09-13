@@ -97,6 +97,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  // دالة مساعدة لتنظيف كافة بيانات الجلسة والتوكنات المحلية
+  const clearSessionData = () => {
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key) {
+          if (
+            key.startsWith('sb-') ||
+            key.includes('supabase') ||
+            key.includes('auth-token') ||
+            key.startsWith('tripro_') ||
+            key === 'admin_original_org_id' ||
+            key.includes('token')
+          ) {
+            keysToRemove.push(key);
+          }
+        }
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+    } catch (e) {
+      console.warn('localStorage cleanup error:', e);
+    }
+
+    try {
+      sessionStorage.clear();
+    } catch (e) {}
+  };
+
   // دالة معالجة أخطاء التوكن والجلسة التالفة
   const handleAuthError = useCallback(async (error: unknown) => {
     if (!error) return;
@@ -114,18 +143,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         console.warn("TriPro-ERP Safety: اكتشاف جلسة تالفة، يتم تنظيف البيانات وإعادة التوجيه...");
       }
 
-      // 1. مسح كل ما يتعلق بسوبابيز من الذاكرة المحلية للمتصفح
-      Object.keys(localStorage).forEach(key => {
-        if (key.includes('supabase.auth.token')) {
-          localStorage.removeItem(key);
-        }
-      });
+      // 1. مسح شامل لكافة التوكنات والجلسات من الذاكرة المحلية والجلسة
+      clearSessionData();
 
-      // 2. محاولة تسجيل الخروج برمجياً لتصفية حالة المكتبة
-      try { await supabase.auth.signOut(); } catch (e) { /* ignore */ }
+      // 2. محاولة تسجيل الخروج محلياً وعالمياً
+      try { await supabase.auth.signOut({ scope: 'local' }); } catch (e) { /* ignore */ }
+      try { await supabase.auth.signOut({ scope: 'global' }); } catch (e) { /* ignore */ }
 
-      // 3. إعادة التوجيه لصفحة تسجيل الدخول
-      window.location.href = '/login';
+      // 3. إعادة التوجيه لصفحة تسجيل الدخول وإعادة تحميل الصفحة
+      window.location.hash = '/login';
+      window.location.reload();
     }
   }, []);
 
@@ -273,23 +300,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // التحقق مما إذا كان المستخدم الحالي هو مستخدم الديمو
     const isDemo = userRole === 'demo';
 
-    // 🛡️ تسريع عملية الخروج: مسح الحالة محلياً فوراً لمنع "طلبات الأشباح" (401 Errors)
+    // 🛡️ 1. مسح الحالة محلياً فوراً لمنع أي طلبات معلقة
     setCurrentUser(null);
     setUserRole(null);
     setUserPermissions(new Set());
     setIsLoading(false);
 
-    // 🧹 تنظيف يدوي للتوكنات لضمان عدم بقاء جلسة تالفة (Identity Gap Fix)
-    Object.keys(localStorage).forEach(key => {
-      if (key.includes('supabase.auth.token')) {
-        localStorage.removeItem(key);
+    // 🧹 2. تنظيف يدوي شامل لكافة التوكنات ومفاتيح الجلسات (سوبابيز والنظام)
+    clearSessionData();
+
+    // 🗑️ 3. تنظيف كاش الـ Service Worker لضمان عدم بقاء استجابات مخزنة مؤقتاً
+    if (typeof window !== 'undefined' && 'caches' in window) {
+      try {
+        const cacheKeys = await caches.keys();
+        await Promise.all(
+          cacheKeys.map(key => {
+            if (key.includes('runtime') || key.includes('tripro')) {
+              return caches.delete(key);
+            }
+            return Promise.resolve(false);
+          })
+        );
+      } catch (e) {
+        console.warn('Cache clearing warning:', e);
       }
-    });
+    }
 
-    // تنفيذ تسجيل الخروج من سوبابايز
-    await supabase.auth.signOut();
+    // 🚪 4. تنفيذ تسجيل الخروج من سوبابايز: محلياً أولاً لضمان إلغاء التوكن، ثم عالمياً
+    try {
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch (e) {
+      /* ignore */
+    }
+    try {
+      await supabase.auth.signOut({ scope: 'global' });
+    } catch (e) {
+      /* ignore */
+    }
 
-    // إذا كان المستخدم هو الديمو، قم بإعادة تعيين البيانات بعد الخروج
+    // 5. إذا كان المستخدم هو الديمو، قم بإعادة تعيين البيانات بعد الخروج
     if (isDemo) {
       try {
         await supabase.functions.invoke('reset-demo');
@@ -298,8 +347,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     }
 
-    // 🚀 تحويل فوري وقسري لصفحة تسجيل الدخول لضمان تنظيف كافة العمليات في المتصفح
-    window.location.href = '/login';
+    // 🚀 6. تحويل فوري وقسري لصفحة تسجيل الدخول مع إعادة تحميل الصفحة لمحو أي آثار في الذاكرة
+    window.location.hash = '/login';
+    window.location.reload();
   };
 
   const can = (module: string, action: string): boolean => {

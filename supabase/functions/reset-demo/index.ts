@@ -14,28 +14,37 @@ serve(async (req) => {
   }
 
   try {
-    // 2. إنشاء عميل Supabase بمفتاح الخدمة لتخطي قيود الحماية العادية
+    // 2. تعيين معرف المستخدم التجريبي الثابت فقط
+    const DEMO_EMAIL = 'demo@demo.com'
+    const DEMO_PASSWORD = '123456'
+
+    // 3. إنشاء عميل Supabase بمفتاح الخدمة لتخطي قيود الحماية العادية
     const supabaseClient = createClient(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    // 3. استخراج البيانات من الطلب
-    const { userId, newPassword } = await req.json()
+    // 4. استعلام عن المستخدم التجريبي بالبريد الإلكتروني لمنع العبث بأي حساب آخر
+    const { data: usersData, error: listError } = await supabaseClient.auth.admin.listUsers()
+    if (listError) throw listError
 
-    if (!userId || !newPassword) {
-      throw new Error('UserId and newPassword are required')
+    const demoUser = usersData.users.find(u => u.email === DEMO_EMAIL)
+    if (!demoUser) {
+      return new Response(JSON.stringify({ message: 'Demo user not found or not initialized' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200,
+      })
     }
 
-    // 4. تحديث كلمة المرور عبر واجهة الإدارة (Admin Auth)
-    const { data, error } = await supabaseClient.auth.admin.updateUserById(
-      userId,
-      { password: newPassword }
+    // 5. إعادة تعيين كلمة مرور الديمو إلى 123456 حصراً
+    const { error: resetError } = await supabaseClient.auth.admin.updateUserById(
+      demoUser.id,
+      { password: DEMO_PASSWORD }
     )
 
-    if (error) throw error
+    if (resetError) throw resetError
 
-    return new Response(JSON.stringify({ data }), {
+    return new Response(JSON.stringify({ success: true, message: 'Demo account reset successfully' }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 200,
     })

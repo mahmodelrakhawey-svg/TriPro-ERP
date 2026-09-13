@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ==============================================================================
  * TriPro ERP — Application System Guards & Layout Components
  * components/AppGuardsAndLayout.tsx
@@ -12,6 +12,7 @@ import React, { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Landmark, X, Info } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
+import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 
 export const PrintHeader = () => {
@@ -130,18 +131,21 @@ export const DemoWatermark = () => {
     );
 };
 
-export const SuspendedScreen = ({ message }: { message?: string }) => (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 text-center" dir="rtl">
-        <div className="bg-white p-10 rounded-3xl shadow-xl border border-rose-100 max-w-md w-full">
-            <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-6"><X className="text-rose-600" size={40} /></div>
-            <h1 className="text-2xl font-black text-slate-800 mb-2">عذراً، هذا الحساب متوقف</h1>
-            <p className="text-slate-500 mb-6 font-medium">
-                {message || "يرجى التواصل مع إدارة TriPro ERP لتفعيل اشتراككم والعودة للعمل."}
-            </p>
-            <button onClick={() => supabase.auth.signOut()} className="w-full bg-slate-100 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-200 transition-colors">تسجيل الخروج</button>
+export const SuspendedScreen = ({ message }: { message?: string }) => {
+    const { logout } = useAuth();
+    return (
+        <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center p-4 text-center" dir="rtl">
+            <div className="bg-white p-10 rounded-3xl shadow-xl border border-rose-100 max-w-md w-full">
+                <div className="w-20 h-20 bg-rose-50 rounded-full flex items-center justify-center mx-auto mb-6"><X className="text-rose-600" size={40} /></div>
+                <h1 className="text-2xl font-black text-slate-800 mb-2">عذراً، هذا الحساب متوقف</h1>
+                <p className="text-slate-500 mb-6 font-medium">
+                    {message || "يرجى التواصل مع إدارة TriPro ERP لتفعيل اشتراككم والعودة للعمل."}
+                </p>
+                <button onClick={() => logout()} className="w-full bg-slate-100 py-3 rounded-xl font-bold text-slate-600 hover:bg-slate-200 transition-colors">تسجيل الخروج</button>
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
 export const ModuleGuard = ({ module, children }: { module: string, children: React.ReactNode }) => {
     const { organization, currentUser, isLoading, can } = useAccounting();
