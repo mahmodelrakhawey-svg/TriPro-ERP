@@ -91,29 +91,36 @@ const RoutingBOMManager = () => {
 
   const productOptions: any[] = useMemo(() => {
     return (allProducts as any[])
-      .filter(p => 
-        p.mfg_type === 'standard' || 
-        p.mfg_type === 'subassembly' || 
-        p.mfg_type === 'intermediate' || 
-        p.product_type === 'MANUFACTURED' || 
-        p.product_type === 'INTERMEDIATE_PRODUCT' ||
-        p.item_type === 'MANUFACTURED' ||
-        p.category_id === 'e4d8bff6-a957-4ac5-a7bf-171ab8a6605c' ||
-        p.name.includes('ديسك') ||
-        p.name.includes('جناش') ||
-        p.name.includes('كريمة شانتيه') ||
-        p.name.includes('شربات')
-      ) 
-      .map(p => {
-        const isIntermediate = 
-          p.product_type === 'INTERMEDIATE_PRODUCT' || 
-          p.mfg_type === 'subassembly' || 
-          p.mfg_type === 'intermediate' ||
+      .filter(p => {
+        if (!p || p.deleted_at) return false;
+        const mType = String(p.mfg_type || '').toLowerCase();
+        const pType = String(p.product_type || p.item_type || '').toUpperCase();
+
+        return (
+          mType === 'standard' || 
+          mType === 'subassembly' || 
+          mType === 'intermediate' || 
+          pType === 'MANUFACTURED' || 
+          pType === 'INTERMEDIATE_PRODUCT' ||
           p.category_id === 'e4d8bff6-a957-4ac5-a7bf-171ab8a6605c' ||
-          p.name.includes('ديسك') ||
-          p.name.includes('جناش') ||
-          p.name.includes('كريمة شانتيه') ||
-          p.name.includes('شربات');
+          p.name?.includes('ديسك') ||
+          p.name?.includes('جناش') ||
+          p.name?.includes('كريمة شانتيه') ||
+          p.name?.includes('شربات')
+        );
+      }) 
+      .map(p => {
+        const mType = String(p.mfg_type || '').toLowerCase();
+        const pType = String(p.product_type || p.item_type || '').toUpperCase();
+        const isIntermediate = 
+          pType === 'INTERMEDIATE_PRODUCT' || 
+          mType === 'subassembly' || 
+          mType === 'intermediate' ||
+          p.category_id === 'e4d8bff6-a957-4ac5-a7bf-171ab8a6605c' ||
+          p.name?.includes('ديسك') ||
+          p.name?.includes('جناش') ||
+          p.name?.includes('كريمة شانتيه') ||
+          p.name?.includes('شربات');
 
         return { 
           id: p.id, 
@@ -124,39 +131,47 @@ const RoutingBOMManager = () => {
   }, [allProducts]);
 
   const rawMaterialOptions: SearchableOption[] = useMemo(() => {
-    return (allProducts as MfgProduct[])
+    return (allProducts as any[])
       .filter(p => {
+        if (!p || p.deleted_at) return false;
         // منع اختيار المنتج لنفسه كمدخل لتفادي العلاقات الدائرية
         if (selectedProductId && p.id === selectedProductId) return false;
         
-        const pType = (p as any).product_type;
-        const mType = p.mfg_type;
+        const pType = String(p.product_type || p.item_type || '').toUpperCase();
         
-        // إتاحة الخامات الأولية، المنتجات الوسيطة، المنتجات المصنعة، والأصناف المخزنية
-        return (
-          mType === 'raw' ||
-          mType === 'subassembly' ||
-          mType === 'intermediate' ||
-          mType === 'standard' ||
-          pType === 'RAW_MATERIAL' ||
-          pType === 'MANUFACTURED' ||
-          pType === 'INTERMEDIATE_PRODUCT' ||
-          pType === 'STOCK' ||
-          !pType
-        );
+        // استبعاد الخدمات فقط التي ليس لها حركة مخزنية
+        if (pType === 'SERVICE') return false;
+        
+        // إتاحة كافة الأصناف المخزنية والمواد الخام والمنتجات الوسيطة والمصنعة
+        return true;
       })
       .map(p => {
+        const pType = String(p.product_type || p.item_type || '').toUpperCase();
+        const mType = String(p.mfg_type || '').toLowerCase();
+
         const isSemiFinished = 
-          (p as any).product_type === 'MANUFACTURED' || 
-          (p as any).product_type === 'INTERMEDIATE_PRODUCT' ||
-          p.mfg_type === 'subassembly' || 
-          p.mfg_type === 'intermediate';
-        const isStock = (p as any).product_type === 'STOCK';
-        const badge = isSemiFinished ? ' 🍰 [منتج وسيط / مصنّع]' : isStock ? ' 📦 [صنف مخزني]' : '';
+          pType === 'INTERMEDIATE_PRODUCT' ||
+          mType === 'subassembly' || 
+          mType === 'intermediate';
+        const isManufactured = 
+          pType === 'MANUFACTURED' || 
+          mType === 'standard';
+        const isRaw = 
+          pType === 'RAW_MATERIAL' || 
+          mType === 'raw';
+
+        const badge = isSemiFinished 
+          ? ' 🍰 [منتج وسيط]' 
+          : isManufactured 
+            ? ' ⚙️ [منتج مصنّع]' 
+            : isRaw 
+              ? ' 🧪 [مادة خام]' 
+              : ' 📦 [صنف مخزني]';
+
         return { 
           id: p.id, 
           name: `${p.name}${badge}`, 
-          code: p.unit || undefined 
+          code: p.unit || p.sku || undefined 
         };
       });
   }, [allProducts, selectedProductId]);

@@ -213,6 +213,42 @@ export { useCustomerDomain } from './domains/CustomerContext';
 export { useSupplierDomain } from './domains/SupplierContext';
 export { useSettingsDomain } from './domains/AccountingSettingsContext';
 
+/**
+ * دالة مساعدة عامة لجلب كافة سجلات الجداول الكبيرة التي تتجاوز حد 1000 سجل في Supabase/PostgREST
+ */
+async function fetchAllTableRecords<T = any>(
+  tableName: string,
+  filterFn: (query: any) => any,
+  pageSize = 1000
+): Promise<{ data: T[]; error: any }> {
+  let allData: T[] = [];
+  let from = 0;
+  let hasMore = true;
+
+  while (hasMore) {
+    let query = supabase.from(tableName).select('*');
+    query = filterFn(query);
+    const { data, error } = await query.range(from, from + pageSize - 1);
+
+    if (error) {
+      console.error(`Error fetching ${tableName} chunk:`, error);
+      return { data: allData, error };
+    }
+
+    if (data && data.length > 0) {
+      allData = allData.concat(data as T[]);
+      if (data.length < pageSize) {
+        hasMore = false;
+      } else {
+        from += pageSize;
+      }
+    } else {
+      hasMore = false;
+    }
+  }
+
+  return { data: allData, error: null };
+}
 
 export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser: authUser, can } = useAuth();
@@ -424,7 +460,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           .limit(1000),
         supabase.from('cost_centers').select('*').eq('organization_id', fetchOrgId).order('name'),
         supabase.from('employees').select('*').eq('organization_id', fetchOrgId).order('full_name'),
-        supabase.from('products').select('*').eq('organization_id', fetchOrgId).order('name'),
+        fetchAllTableRecords('products', q => q.eq('organization_id', fetchOrgId).is('deleted_at', null).order('name')),
         supabase.from('stock_transfers').select('*').eq('organization_id', fetchOrgId).order('transfer_date', { ascending: false }).limit(500),
         supabase.from('purchase_invoices')
           .select('*')
@@ -444,8 +480,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         supabase.from('profiles').select('*').eq('organization_id', fetchOrgId).order('full_name'),
         supabase.from('warehouses').select('*').eq('organization_id', fetchOrgId).eq('is_active', true),
         supabase.from('restaurant_tables').select('*').eq('organization_id', fetchOrgId).order('name'),
-        supabase.from('customers').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
-        supabase.from('suppliers').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
+        fetchAllTableRecords('customers', q => q.eq('organization_id', fetchOrgId).is('deleted_at', null).order('name')),
+        fetchAllTableRecords('suppliers', q => q.eq('organization_id', fetchOrgId).is('deleted_at', null).order('name')),
         supabase.from('cheques').select('*').eq('organization_id', fetchOrgId).order('due_date'),
         supabase.rpc('get_active_shift', { p_org_id: fetchOrgId }),
         supabase.from('assets').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
@@ -670,32 +706,77 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };  const addProduct = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const payload = { ...data, organization_id: targetOrgId };
-    const hasSupplierCol = products.length > 0 ? ('supplier_id' in products[0]) : false;
-    if (!hasSupplierCol) {
-      delete payload.supplier_id;
+    
+    // إزالة الحقول غير الموجودة في جدول الأصناف بقاعدة البيانات
+    const firstProd = products.length > 0 ? products[0] : null;
+    if (firstProd) {
+      if (!('supplier_id' in firstProd)) delete payload.supplier_id;
+      if (!('egs_code' in firstProd)) delete payload.egs_code;
+      if (!('item_code_type' in firstProd)) delete payload.item_code_type;
+      if (!('eta_unit_code' in firstProd)) delete payload.eta_unit_code;
     }
-    let { data: p, error } = await supabase.from('products').insert(payload).select().single();
-    if (error && (error.message?.includes('supplier_id') || error.code === 'PGRST204')) {
-      delete payload.supplier_id;
+
+    let p: any = null;
+    let error: any = null;
+
+    // محاولة الإدخال مع معالجة ديناميكية لأي عمود مفقود من قاعدة البيانات
+    for (let attempt = 0; attempt < 5; attempt++) {
       const res = await supabase.from('products').insert(payload).select().single();
       p = res.data;
       error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+        if (error.message?.includes('supplier_id') && 'supplier_id' in payload) {
+          delete payload.supplier_id;
+          continue;
+        }
+      }
+      break;
     }
+
     if (error) throw error;
     await refreshData(); return p; 
   };
-   const updateProduct = async (id: string, data: any) => { 
+  const updateProduct = async (id: string, data: any) => { 
     const payload = { ...data };
-    const hasSupplierCol = products.length > 0 ? ('supplier_id' in products[0]) : false;
-    if (!hasSupplierCol) {
-      delete payload.supplier_id;
+    
+    // إزالة الحقول غير الموجودة في جدول الأصناف بقاعدة البيانات
+    const firstProd = products.length > 0 ? products[0] : null;
+    if (firstProd) {
+      if (!('supplier_id' in firstProd)) delete payload.supplier_id;
+      if (!('egs_code' in firstProd)) delete payload.egs_code;
+      if (!('item_code_type' in firstProd)) delete payload.item_code_type;
+      if (!('eta_unit_code' in firstProd)) delete payload.eta_unit_code;
     }
-    let { error } = await supabase.from('products').update(payload).eq('id', id);
-    if (error && (error.message?.includes('supplier_id') || error.code === 'PGRST204')) {
-      delete payload.supplier_id;
+
+    let error: any = null;
+
+    // محاولة التحديث مع معالجة ديناميكية لأي عمود مفقود من قاعدة البيانات
+    for (let attempt = 0; attempt < 5; attempt++) {
       const res = await supabase.from('products').update(payload).eq('id', id);
       error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+        if (error.message?.includes('supplier_id') && 'supplier_id' in payload) {
+          delete payload.supplier_id;
+          continue;
+        }
+      }
+      break;
     }
+
     if (error) throw error;
     refreshData(); 
   };
