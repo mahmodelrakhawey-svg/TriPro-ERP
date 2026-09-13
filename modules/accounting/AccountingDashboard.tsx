@@ -627,19 +627,14 @@ export default function AccountingDashboard() {
                 <button 
                     onClick={async () => {
                         if (selectedOrgIdToDelete) {
-                            if (window.confirm('⚠️ تحذير نهائي: سيتم حذف الشركة وكامل بياناتها (حسابات، فواتير، عملاء...) نهائياً. هل أنت متأكد؟')) {
-                                setLoading(true);
-                                try {
-                                    const { error } = await supabase.rpc('fn_delete_organization_safe', { p_org_id: selectedOrgIdToDelete });
-                                    if (error) throw error;
-                                    showToast('تم حذف الشركة بنجاح ✅', 'success');
+                            setLoading(true);
+                            try {
+                                const res = await deleteOrganization(selectedOrgIdToDelete);
+                                if (res?.success) {
                                     setSelectedOrgIdToDelete('');
-                                    window.location.reload();
-                                } catch (e: any) {
-                                    showToast('فشل الحذف: ' + (e.message || 'خطأ غير معروف'), 'error');
-                                } finally {
-                                    setLoading(false);
                                 }
+                            } finally {
+                                setLoading(false);
                             }
                         } else {
                             showToast('الرجاء اختيار شركة أولاً', 'warning');

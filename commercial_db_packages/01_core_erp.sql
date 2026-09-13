@@ -3136,49 +3136,233 @@ DROP TRIGGER IF EXISTS trg_protect_system_accounts ON public.accounts;
 CREATE TRIGGER trg_protect_system_accounts BEFORE DELETE ON public.accounts FOR EACH ROW EXECUTE FUNCTION public.fn_protect_system_accounts();
 
 CREATE OR REPLACE FUNCTION public.fn_delete_organization_safe(p_org_id uuid)
-RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$
+RETURNS void
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
 DECLARE
     v_tables text[] := ARRAY[
+        -- المرفقات والتفاصيل الدقيقة
         'notification_audit_log', 'cheque_attachments', 'receipt_voucher_attachments', 
-        'payment_voucher_attachments', 'notification_preferences', 'security_logs', 
-        'journal_attachments', 'order_item_modifiers', 'payroll_variables', 
-        'opening_inventories', 'bill_of_materials', 'order_items', 'kitchen_orders', 
-        'invoice_items', 'purchase_invoice_items', 'journal_lines', 'payroll_items', 
-        'stock_adjustment_items', 'sales_return_items', 'purchase_return_items', 
-        'delivery_orders', 'payments', 'orders', 'invoices', 'purchase_invoices', 
-        'sales_returns', 'purchase_returns', 'journal_entries', 'payrolls', 
-        'stock_adjustments', 'cheques', 'receipt_vouchers', 'payment_vouchers', 
-        'table_sessions', 'shifts', 'work_orders', 'credit_notes', 'debit_notes', 
-        'assets', 'products', 'customers', 'suppliers', 'employees', 
-        'restaurant_tables', 'modifiers', 'modifier_groups', 'accounts', 
+        'payment_voucher_attachments', 'journal_attachments', 'notification_preferences', 
+        'security_logs', 'audit_logs', 'organization_backups',
+        
+        -- موديول التشفية وتفكيك الذبائح (Butchering Yield Module)
+        'butchering_order_items', 'butchering_orders', 'butchering_template_items', 'butchering_templates',
+
+        -- موديول التصنيع (Manufacturing)
+        'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_batch_serials', 'mfg_production_variances',
+        'mfg_order_progress', 'mfg_step_materials', 'mfg_step_attachments', 'mfg_routing_steps',
+        'mfg_production_order_materials', 'mfg_production_order_steps', 'mfg_scrap_records', 'mfg_qc_inspections',
+        'mfg_production_orders', 'mfg_routings', 'mfg_work_centers',
+        
+        -- موديول المطاعم والكاشير والورديات
+        'order_item_modifiers', 'order_items', 'kitchen_ticket_items', 'kitchen_orders', 'orders', 
+        'table_sessions', 'shifts', 'restaurant_tables', 'modifiers', 'modifier_groups',
+        'product_channel_prices', 'recipe_items', 'restaurant_recipes', 'combo_items',
+        'cashier_shifts', 'pos_petty_cash_payouts', 'waiter_call_requests', 'tips_distribution_records',
+        
+        -- موديول الاستاد والمشاريع والصحة
+        'stadium_court_pricing', 'stadium_subscriptions', 'stadium_bookings', 'stadium_academy_trainees',
+        'stadium_courts', 'stadium_members', 'stadium_academies',
+        'construction_boq_items', 'construction_progress_billings', 'construction_subcontracts', 'construction_projects',
+        'hims_prescription_items', 'hims_invoice_items', 'hims_lab_order_items', 'hims_radiology_order_items',
+        'hims_vital_signs', 'hims_visits', 'hims_inpatient_admissions', 'hims_appointments',
+        'hims_patients', 'hims_doctors', 'hims_departments', 'hims_rooms', 'hims_beds',
+
+        -- فواتير المبيعات والمشتريات والتسويات والمخازن
+        'invoice_items', 'purchase_invoice_items', 'sales_return_items', 'purchase_return_items', 
+        'stock_adjustment_items', 'payroll_variables', 'payroll_items', 'journal_lines',
+        'delivery_order_items', 'delivery_orders', 'inventory_count_items', 'inventory_counts',
+        'waste_records', 'transfer_items', 'stock_transfers',
+        'payments', 'invoices', 'purchase_invoices', 'sales_returns', 'purchase_returns', 
+        'journal_entries', 'payrolls', 'stock_adjustments', 'cheques', 'receipt_vouchers', 'payment_vouchers', 
+        'work_orders', 'bill_of_materials', 'credit_notes', 'debit_notes', 'promotions', 'retail_promotions',
+        'opening_inventories',
+        
+        -- السجلات الرئيسية للشركة
+        'assets', 'products', 'customers', 'suppliers', 'employees', 'accounts', 
         'cost_centers', 'warehouses', 'invitations', 'budgets', 'company_settings'
     ];
     v_t text;
+    v_dyn RECORD;
+    v_caller_role text;
 BEGIN
-    -- 1. التحقق من الصلاحيات (يجب أن يكون سوبر أدمن)
-    IF public.get_my_role() != 'super_admin' THEN
+    -- أ. التحقق من المدخلات
+    IF p_org_id IS NULL THEN
+        RAISE EXCEPTION 'معرف الشركة غير صالح أو فارغ.';
+    END IF;
+
+    -- ب. التحقق من صلاحية المستخدم (super_admin أو admin أو owner)
+    v_caller_role := COALESCE(public.get_my_role(), auth.jwt() ->> 'role', '');
+    IF v_caller_role NOT IN ('super_admin', 'admin', 'owner') 
+       AND COALESCE(auth.jwt() ->> 'role', '') NOT IN ('super_admin', 'service_role') THEN
         RAISE EXCEPTION '⚠️ خطأ أمني: غير مصرح لك بحذف المنظمات من هذا المستوى.';
     END IF;
 
-    -- 2. تفعيل وضع التجاوز (Restore Mode) لتعطيل حماية الحسابات "السيادية" والتدقيق التلقائي للحذف
+    -- ج. تفعيل وضع التجاوز (Restore Mode) لتعطيل موانع الحذف
     PERFORM set_config('app.restore_mode', 'on', true);
 
-    -- 3. تنظيف متسلسل للبيانات التابعة للمنظمة لمنع تعارض القيود المرجعية
+    -- د. فك ارتباط كافة المستخدمين بالمنظمة في جدول profiles لمنع تعارض المفتاح الأجنبي
+    BEGIN
+        UPDATE public.profiles 
+        SET organization_id = NULL 
+        WHERE organization_id = p_org_id;
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
+
+    -- هـ. حذف صلاحيات وأدوار المنظمة
+    BEGIN
+        DELETE FROM public.role_permissions WHERE organization_id = p_org_id;
+        DELETE FROM public.roles WHERE organization_id = p_org_id;
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
+
+    -- و.1 تفكيك موديول التشفية واللحوم (Butchering) مسبقاً لمنع أي تعارض مفاتيح مع الأصناف
+    BEGIN
+        DELETE FROM public.butchering_order_items 
+        WHERE order_id IN (SELECT id FROM public.butchering_orders WHERE organization_id = p_org_id)
+           OR output_product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.butchering_orders 
+        WHERE organization_id = p_org_id 
+           OR source_product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.butchering_template_items 
+        WHERE template_id IN (SELECT id FROM public.butchering_templates WHERE organization_id = p_org_id)
+           OR output_product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.butchering_templates 
+        WHERE organization_id = p_org_id 
+           OR source_product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    -- و.2 تفكيك قيود موديول التصنيع المتبقية مسبقاً
+    BEGIN
+        DELETE FROM public.mfg_actual_material_usage 
+        WHERE organization_id = p_org_id 
+           OR raw_material_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.mfg_scrap_logs 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.mfg_batch_serials 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.mfg_step_materials 
+        WHERE organization_id = p_org_id 
+           OR raw_material_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.bill_of_materials 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id)
+           OR raw_material_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.mfg_production_orders 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.mfg_routings 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    -- و.3 تفكيك قيود المطاعم ونقاط البيع المرتبطة بالأصناف
+    BEGIN
+        DELETE FROM public.kitchen_ticket_items 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.product_channel_prices 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.recipe_items 
+        WHERE product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id)
+           OR ingredient_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.combo_items 
+        WHERE product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id)
+           OR included_product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    -- ز. المسح المتسلسل لكافة الجداول المعروفة
     FOREACH v_t IN ARRAY v_tables
     LOOP
         BEGIN
             EXECUTE format('DELETE FROM public.%I WHERE organization_id = %L', v_t, p_org_id);
         EXCEPTION WHEN OTHERS THEN
-            -- نتجاوز أي خطأ في حال عدم وجود الجدول أو العمود في قاعدة البيانات الحالية
             NULL;
         END;
     END LOOP;
 
-    -- 4. حذف المنظمة نهائياً
+    -- ح. شبكة الأمان الديناميكية: فحص وحذف أي جدول آخر بقاعدة البيانات مرتبط بمفتاح أجنبي مع organizations
+    FOR v_dyn IN (
+        SELECT DISTINCT
+            c.conrelid::regclass::text AS tbl,
+            a.attname AS col
+        FROM pg_constraint c
+        JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY(c.conkey)
+        WHERE c.confrelid = 'public.organizations'::regclass
+          AND c.contype = 'f'
+          AND c.conrelid::regclass::text NOT IN ('public.organizations', 'public.profiles')
+    ) LOOP
+        BEGIN
+            EXECUTE format('DELETE FROM %s WHERE %I = %L', v_dyn.tbl, v_dyn.col, p_org_id);
+        EXCEPTION WHEN OTHERS THEN
+            NULL;
+        END;
+    END LOOP;
+
+    -- ط. حذف سجل المنظمة نهائياً
     DELETE FROM public.organizations WHERE id = p_org_id;
 
-    -- 5. إعادة الوضع الطبيعي
+    -- ي. إعادة وضع الحماية الطبيعي
     PERFORM set_config('app.restore_mode', 'off', true);
+
 END; $$;
 
 -- 🛠️ دالة مساعدة لضمان الترحيل إلى حساب فرعي (Resolve Leaf Account)

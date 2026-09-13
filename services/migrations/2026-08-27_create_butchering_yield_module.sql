@@ -7,11 +7,11 @@
 -- 1. جدول قوالب التشفية والتشريح القياسية (Butchering Templates)
 CREATE TABLE IF NOT EXISTS butchering_templates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID,
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
     description TEXT,
     category VARCHAR(100) DEFAULT 'beef', -- beef, poultry, lamb, fish, other
-    source_product_id UUID REFERENCES products(id) ON DELETE SET NULL,
+    source_product_id UUID REFERENCES products(id) ON DELETE CASCADE,
     default_expected_yield_pct NUMERIC(6, 2) DEFAULT 95.00, -- نسبة اللحم النافع المعيارية
     default_max_shrinkage_pct NUMERIC(6, 2) DEFAULT 5.00,   -- أقصى نسبة فاقد/هالك مسموح بها
     cost_allocation_method VARCHAR(50) DEFAULT 'relative_value', -- relative_value, by_product_deduction, weight_equal
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS butchering_templates (
 CREATE TABLE IF NOT EXISTS butchering_template_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     template_id UUID NOT NULL REFERENCES butchering_templates(id) ON DELETE CASCADE,
-    output_product_id UUID REFERENCES products(id) ON DELETE SET NULL,
+    output_product_id UUID REFERENCES products(id) ON DELETE CASCADE,
     output_name VARCHAR(255) NOT NULL,
     expected_yield_pct NUMERIC(6, 2) NOT NULL DEFAULT 0.00, -- النسبة المتوقعة من إجمالي وزن الذبيحة
     relative_value_weight NUMERIC(6, 2) NOT NULL DEFAULT 1.00, -- معامل القيمة النسبية لتوزيع التكلفة
@@ -38,10 +38,10 @@ CREATE TABLE IF NOT EXISTS butchering_template_items (
 -- 3. جدول أوامر وجلسات التشفية الفعلية (Butchering Work Orders)
 CREATE TABLE IF NOT EXISTS butchering_orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    organization_id UUID,
+    organization_id UUID REFERENCES organizations(id) ON DELETE CASCADE,
     order_number VARCHAR(100) NOT NULL UNIQUE,
     template_id UUID REFERENCES butchering_templates(id) ON DELETE SET NULL,
-    source_product_id UUID NOT NULL REFERENCES products(id),
+    source_product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     warehouse_id UUID REFERENCES warehouses(id) ON DELETE SET NULL,
     destination_warehouse_id UUID REFERENCES warehouses(id) ON DELETE SET NULL,
     order_date DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS butchering_orders (
 CREATE TABLE IF NOT EXISTS butchering_order_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     order_id UUID NOT NULL REFERENCES butchering_orders(id) ON DELETE CASCADE,
-    output_product_id UUID REFERENCES products(id) ON DELETE SET NULL,
+    output_product_id UUID REFERENCES products(id) ON DELETE CASCADE,
     output_name VARCHAR(255) NOT NULL,
     actual_weight NUMERIC(12, 3) NOT NULL, -- الوزن الفعلي المستخرج (كجم)
     yield_pct NUMERIC(6, 2) NOT NULL DEFAULT 0.00, -- نسبة الاستخراج الفعلية من الذبيحة
