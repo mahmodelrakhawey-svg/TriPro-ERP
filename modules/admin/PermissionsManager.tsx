@@ -4,7 +4,7 @@ import {
   Shield, Save, Check, AlertTriangle, Loader2, CheckSquare, Square, 
   Info, Search, Plus, Trash2, Sliders, ShieldAlert, Sparkles, 
   RotateCcw, Eye, Filter, CheckCircle2, Lock, FileSpreadsheet,
-  Layers, ChevronDown, ChevronUp, Copy, Utensils, ShoppingCart
+  Layers, ChevronDown, ChevronUp, Copy, Utensils, ShoppingCart, Cake
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -241,6 +241,96 @@ const rolePresets: Record<string, { name: string; description: string; matchActi
       (p.module === 'restaurant' && ['manage', 'pos', 'driver_dispatch'].includes(p.action)) ||
       (p.module === 'sales' && p.action === 'view') ||
       (p.module === 'customers' && p.action === 'view')
+  },
+
+  // 🍰 -------------------------------------------------------------
+  // 🍰 صلاحيات الحلواني ومصانع ومعارض الحلويات (حلواني لينزا)
+  // -------------------------------------------------------------
+
+  // 16. مسؤول تحويلات مخازن الخامات (التحويل بين المخازن)
+  bakery_transfers: {
+    name: '🍰 مسؤول تحويلات مخازن الخامات (التحويل بين المخازن)',
+    description: 'تحويل المواد الخام ومستلزمات الإنتاج بين مخازن المصنع والفروع، متابعة الأرصدة وبطاقات الأصناف (دون تعديل الأسعار أو القيود)',
+    matchActions: (p) =>
+      (p.module === 'inventory' && ['view', 'transfer', 'stock_card'].includes(p.action)) ||
+      (p.module === 'products' && p.action === 'view')
+  },
+
+  // 17. مسؤول التصنيع والتشغيل (قوائم المواد والمراحل BOM)
+  bakery_production: {
+    name: '🍰 مسؤول التصنيع والتشغيل (قوائم المواد والمراحل BOM)',
+    description: 'إعداد ومراجعة مراحل التصنيع وقوائم المواد (BOM)، أوامر التشغيل والإنتاج، صرف خامات التشغيل، واستلام المنتجات التامة ونصف المصنعة والهالك',
+    matchActions: (p) =>
+      (p.module === 'manufacturing' && ['view', 'bom_manage', 'order_create', 'material_issue', 'production_finish', 'scrap_record', 'qc_inspect'].includes(p.action)) ||
+      (p.module === 'products' && ['view', 'create', 'update'].includes(p.action)) ||
+      (p.module === 'inventory' && ['view', 'transfer', 'stock_card'].includes(p.action))
+  },
+
+  // 18. محاسب مشتريات ومدخل بيانات (Data Entry فواتير وموردين)
+  bakery_purchasing: {
+    name: '🍰 محاسب مشتريات ومدخل بيانات (Data Entry فواتير)',
+    description: 'تسجيل وإدخال فواتير المشتريات اليومية، أوامر الشراء، تسجيل الموردين ومقارنة الأسعار (دون صلاحية التعديل على القيود العامة أو الحسابات)',
+    matchActions: (p) =>
+      (p.module === 'purchases' && ['view', 'create', 'update', 'po_manage', 'price_history'].includes(p.action)) ||
+      (p.module === 'suppliers' && ['view', 'create', 'update'].includes(p.action)) ||
+      (p.module === 'products' && ['view', 'create'].includes(p.action)) ||
+      (p.module === 'inventory' && p.action === 'view')
+  },
+
+  // 19. كاشير معارض وفروع الحلويات (POS Cashier)
+  bakery_cashier: {
+    name: '🍰 كاشير معارض وفروع الحلويات (POS Cashier)',
+    description: 'فتح الشفت، وزن وبيع الحلويات بالكيلو والقطعة، إصدار فواتير الكاشير والباركود، سندات القبض، وتقفيل الشفت والدرج (دون صلاحية الحذف أو الخصم إلا بالمشرف)',
+    matchActions: (p) =>
+      (p.module === 'pos' && ['open_shift', 'close_shift', 'view'].includes(p.action)) ||
+      (p.module === 'retail' && ['pos', 'price_checker', 'view'].includes(p.action)) ||
+      (p.module === 'sales' && ['view', 'create'].includes(p.action)) ||
+      (p.module === 'customers' && ['view', 'create'].includes(p.action)) ||
+      (p.module === 'products' && p.action === 'view') ||
+      (p.module === 'treasury' && ['receipt_create', 'view'].includes(p.action))
+  },
+
+  // 20. مشرف ومعتمد معارض الحلويات (Branch Supervisor)
+  bakery_branch_supervisor: {
+    name: '🍰 مشرف ومعتمد معارض الحلويات (Branch Supervisor)',
+    description: 'استلام طلبيات الحلويات التامة من المصنع، اعتماد المرتجعات والإلغاء (Void/Return)، سحب النقدية، إثبات هالك الحلويات، وجرد نهاية اليوم للمعرض',
+    matchActions: (p) =>
+      (p.module === 'retail' && ['pos', 'returns', 'void', 'cash_drop', 'promotions', 'supervisor_badge', 'price_checker', 'shifts_manage', 'view'].includes(p.action)) ||
+      (p.module === 'pos' && ['open_shift', 'close_shift', 'view'].includes(p.action)) ||
+      (p.module === 'sales' && ['view', 'create', 'return', 'credit_note', 'apply_discount'].includes(p.action)) ||
+      (p.module === 'inventory' && ['view', 'transfer', 'wastage', 'stock_card'].includes(p.action)) ||
+      (p.module === 'products' && ['view', 'pricing', 'update'].includes(p.action)) ||
+      (p.module === 'customers' && ['view', 'create'].includes(p.action)) ||
+      (p.module === 'treasury' && ['receipt_create', 'view'].includes(p.action))
+  },
+
+  // 21. مراقب تكاليف الأغذية والتصنيع (Pastry Cost Controller)
+  bakery_cost_controller: {
+    name: '🍰 مراقب تكاليف الأغذية والتصنيع (Pastry Cost Controller)',
+    description: 'مراقبة وتحليل تكاليف الخامات والمقادير، تقارير هدر التصنيع وانحرافات التشغيل، هوامش أرباح المنتجات، وإعادة احتساب التكلفة المرجحة',
+    matchActions: (p) =>
+      (p.module === 'manufacturing' && ['view', 'bom_manage', 'wip_close'].includes(p.action)) ||
+      (p.module === 'reports' && ['general_view', 'profit_margins', 'export_data'].includes(p.action)) ||
+      (p.module === 'sales' && ['view', 'view_cost_profit'].includes(p.action)) ||
+      (p.module === 'inventory' && ['view', 'wastage', 'recalculate_cost', 'stock_card'].includes(p.action)) ||
+      (p.module === 'purchases' && ['view', 'price_history'].includes(p.action)) ||
+      (p.module === 'products' && ['view', 'edit_pricing'].includes(p.action))
+  },
+
+  // 22. المدير المالي والمشرف العام (CFO / Financial Director)
+  bakery_cfo: {
+    name: '🍰 المدير المالي والمشرف العام (CFO / Financial Director)',
+    description: 'إشراف ورقابة مالية ومحاسبية كاملة: القيود، الحسابات، ميزان المراجعة، موازين الفروع، التدفقات النقدية، اعتماد المشتريات والتكاليف، وإقفال الفترات',
+    matchActions: (p) =>
+      p.module === 'accounting' ||
+      p.module === 'treasury' ||
+      p.module === 'assets' ||
+      p.module === 'reports' ||
+      p.module === 'hr' ||
+      (p.module === 'sales' && ['view', 'approve', 'view_cost_profit', 'export'].includes(p.action)) ||
+      (p.module === 'purchases' && ['view', 'approve', 'export'].includes(p.action)) ||
+      (p.module === 'inventory' && ['view', 'adjustment_approve', 'recalculate_cost', 'wastage'].includes(p.action)) ||
+      (p.module === 'manufacturing' && ['view', 'wip_close'].includes(p.action))
   }
 };
 
@@ -273,6 +363,7 @@ const PermissionsManager = () => {
   const [showPresetModal, setShowPresetModal] = useState(false);
   const [installingRestaurantRoles, setInstallingRestaurantRoles] = useState(false);
   const [installingRetailRoles, setInstallingRetailRoles] = useState(false);
+  const [installingBakeryRoles, setInstallingBakeryRoles] = useState(false);
 
   // Fetch initial roles and permissions
   useEffect(() => {
@@ -653,6 +744,86 @@ const PermissionsManager = () => {
     }
   };
 
+  // 🍰 One-Click Bakery & Confectionery Roles Provisioner (حلواني ومصانع لينزا)
+  const handleInstallBakeryRoles = async () => {
+    const orgId = currentUser?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    if (!orgId) {
+      showToast('لم يتم العثور على معرّف المنظمة', 'error');
+      return;
+    }
+
+    if (!window.confirm('هل تريد تثبيت حزمة صلاحيات الحلواني المتكاملة (حلواني لينزا)؟\nسيتم إنشاء وتحديث 7 أدوار تخصصية (مسؤول تحويلات الخامات، مسؤول التصنيع وقوائم المواد BOM، محاسب المشتريات والداتا إنتري، كاشير المعارض، مشرف المعرض، مراقب التكاليف، والمدير المالي) مع ربط صلاحياتها التلقائية للمنظمة.')) {
+      return;
+    }
+
+    setInstallingBakeryRoles(true);
+    try {
+      // 1. Fetch fresh permissions from DB
+      const { data: freshPerms } = await supabase.from('permissions').select('*');
+      const allPerms: Permission[] = freshPerms || permissions;
+      if (freshPerms) setPermissions(freshPerms);
+
+      // 2. Target bakery roles
+      const targetRoles = [
+        { key: 'bakery_transfers', name: 'bakery_transfers', desc: 'مسؤول تحويلات مخازن الخامات - تحويل المواد الخام بين المخازن ومتابعة الأرصدة' },
+        { key: 'bakery_production', name: 'bakery_production', desc: 'مسؤول التصنيع والتشغيل - إعداد ومراجعة قوائم المواد BOM وأوامر التشغيل' },
+        { key: 'bakery_purchasing', name: 'bakery_purchasing', desc: 'محاسب مشتريات ومدخل بيانات - تسجيل فواتير المشتريات والموردين اليومية' },
+        { key: 'bakery_cashier', name: 'bakery_cashier', desc: 'كاشير معارض وفروع الحلويات - إصدار فواتير الكاشير والوزن وتقفيل الورديات' },
+        { key: 'bakery_branch_supervisor', name: 'bakery_branch_supervisor', desc: 'مشرف ومعتمد معارض الحلويات - استلام طلبيات المصنع واعتماد الإلغاء والهالك' },
+        { key: 'bakery_cost_controller', name: 'bakery_cost_controller', desc: 'مراقب تكاليف الأغذية والتصنيع - مراقبة تكلفة الخامات وهدر التصنيع وهوامش الربح' },
+        { key: 'bakery_cfo', name: 'bakery_cfo', desc: 'المدير المالي والمشرف العام - رقابة شاملة على الحسابات، موازين المراجعة، والاعتمادات' }
+      ];
+
+      const { data: existingRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
+      const rolesList = existingRoles || [];
+
+      for (const rDef of targetRoles) {
+        let roleObj = rolesList.find(r => r.name === rDef.key);
+
+        if (!roleObj) {
+          const { data: newRole, error: crtErr } = await supabase.from('roles').insert({
+            name: rDef.key,
+            description: rDef.desc,
+            organization_id: orgId
+          }).select().single();
+
+          if (crtErr) {
+            console.warn('Role creation notice:', crtErr);
+            continue;
+          }
+          roleObj = newRole;
+        }
+
+        const preset = rolePresets[rDef.key];
+        if (preset && roleObj) {
+          const matchedIds = allPerms.filter(preset.matchActions).map(p => p.id.toString());
+          await supabase.rpc('sync_role_permissions', {
+            p_role_id: roleObj.id,
+            p_permission_ids: matchedIds
+          });
+        }
+      }
+
+      // Reload updated roles list
+      const { data: updatedRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
+      if (updatedRoles && updatedRoles.length > 0) {
+        setRoles(updatedRoles);
+        const targetSelection = updatedRoles.find(r => r.name === 'bakery_production') || updatedRoles.find(r => r.name === 'bakery_cfo');
+        if (targetSelection) {
+          setSelectedRoleId(targetSelection.id);
+        }
+      }
+
+      showToast('تم بنجاح تثبيت وتفعيل حزمة صلاحيات الحلواني السبعة (لينزا) بصلاحياتها التامة! 🍰👑', 'success');
+      await refreshPermissions();
+    } catch (err: any) {
+      console.error('Error installing bakery roles:', err);
+      showToast('فشل تثبيت الأدوار: ' + (err.message || 'خطأ غير متوقع'), 'error');
+    } finally {
+      setInstallingBakeryRoles(false);
+    }
+  };
+
   // Save Permissions via Atomic RPC
   const handleSave = async () => {
     if (!selectedRoleId) return;
@@ -774,6 +945,21 @@ const PermissionsManager = () => {
 
         {/* أزرار الإجراءات السريعة */}
         <div className="flex flex-wrap items-center gap-3">
+          {/* 🍰 زر تثبيت حزمة صلاحيات الحلواني (لينزا) */}
+          <button
+            onClick={handleInstallBakeryRoles}
+            disabled={installingBakeryRoles}
+            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-pink-600 via-rose-600 to-amber-600 hover:from-pink-700 hover:to-amber-700 text-white rounded-xl font-bold text-sm transition-all shadow-md shadow-pink-500/25 disabled:opacity-50 active:scale-95"
+            title="تثبيت وتهيئة حزمة صلاحيات الحلواني السبعة التخصصية (تحويلات الخامات، التصنيع وقوائم المواد BOM، محاسب المشتريات، كاشير المعارض، مشرف المعرض، مراقب التكاليف، والمدير المالي)"
+          >
+            {installingBakeryRoles ? (
+              <Loader2 className="animate-spin" size={16} />
+            ) : (
+              <Cake size={16} />
+            )}
+            <span>🍰 صلاحيات الحلواني (لينزا)</span>
+          </button>
+
           <button
             onClick={handleInstallRestaurantRoles}
             disabled={installingRestaurantRoles}
