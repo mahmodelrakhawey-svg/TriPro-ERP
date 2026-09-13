@@ -361,6 +361,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return true;
     }
 
+    // 👥 مسؤول ومدير الموارد البشرية والرواتب (HR Specialist & Manager)
+    if ((userRole === 'hr' || userRole === 'hr_officer' || userRole === 'hr_manager') && (module === 'hr' || module.startsWith('hr') || module === 'reports')) {
+      if (module === 'reports') {
+        return ['view', 'general_view', 'export_data', 'export'].includes(action);
+      }
+      return true;
+    }
+
     // 🏟️ أدوار قطاع الاستاد والمنشآت الرياضية
     if (userRole === 'stadium_director' && (module === 'stadium' || module.startsWith('stadium'))) {
       return true;

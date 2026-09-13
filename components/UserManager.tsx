@@ -523,6 +523,19 @@ const UserManager = () => {
                       <option value="storekeeper">📦 أمين مستودع (Storekeeper)</option>
                       <option value="cashier">💵 كاشير مبيعات (Cashier)</option>
                     </optgroup>
+                    <optgroup label="── 👥 الموارد البشرية وشؤون الموظفين (HR) ──">
+                      <option value="hr_officer">👥 مسؤول الموارد البشرية والرواتب (HR Specialist)</option>
+                      <option value="hr">📋 أخصائي شؤون موظفين وحضور (HR Officer)</option>
+                    </optgroup>
+                    <optgroup label="── 🍰 أدوار مصانع ومعارض الحلواني (حلواني لينزا) ──">
+                      <option value="bakery_transfers">🍰 مسؤول تحويلات مخازن الخامات (بين المخازن)</option>
+                      <option value="bakery_production">🍰 مسؤول التصنيع وقوائم المواد (BOM)</option>
+                      <option value="bakery_purchasing">🍰 محاسب مشتريات وداتا إنتري فواتير</option>
+                      <option value="bakery_cashier">🍰 كاشير معارض وفروع الحلويات</option>
+                      <option value="bakery_branch_supervisor">🍰 مشرف ومعتمد معارض الحلويات</option>
+                      <option value="bakery_cost_controller">🍰 مراقب تكاليف الأغذية والتصنيع</option>
+                      <option value="bakery_cfo">🍰 المدير المالي والمشرف العام (CFO)</option>
+                    </optgroup>
                     {dynamicRoles.length > 0 && (() => {
                       const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo'];
                       const customRoles = dynamicRoles.filter(r => !builtinNames.includes(r.name));
@@ -682,6 +695,21 @@ const UserManager = () => {
                                 <option value="chef">🍳 شيف المطبخ التنفيذي (Executive Chef)</option>
                                 <option value="restaurant_cook">🔥 طاهي محطة مطبخ (Line Cook)</option>
                                 <option value="restaurant_driver">🛵 كابتن توصيل / ديلفري (Driver)</option>
+                            </optgroup>
+
+                            <optgroup label="── 👥 الموارد البشرية وشؤون الموظفين (HR) ──">
+                                <option value="hr_officer">👥 مسؤول الموارد البشرية والرواتب (HR Specialist)</option>
+                                <option value="hr">📋 أخصائي شؤون موظفين وحضور (HR Officer)</option>
+                            </optgroup>
+
+                            <optgroup label="── 🍰 أدوار مصانع ومعارض الحلواني (حلواني لينزا) ──">
+                                <option value="bakery_transfers">🍰 مسؤول تحويلات مخازن الخامات (بين المخازن)</option>
+                                <option value="bakery_production">🍰 مسؤول التصنيع وقوائم المواد (BOM)</option>
+                                <option value="bakery_purchasing">🍰 محاسب مشتريات وداتا إنتري فواتير</option>
+                                <option value="bakery_cashier">🍰 كاشير معارض وفروع الحلويات</option>
+                                <option value="bakery_branch_supervisor">🍰 مشرف ومعتمد معارض الحلويات</option>
+                                <option value="bakery_cost_controller">🍰 مراقب تكاليف الأغذية والتصنيع</option>
+                                <option value="bakery_cfo">🍰 المدير المالي والمشرف العام (CFO)</option>
                             </optgroup>
 
                             {/* الأدوار المخصصة المُنشأة من صفحة الأدوار والصلاحيات */}

@@ -4,7 +4,7 @@ import {
   Shield, Save, Check, AlertTriangle, Loader2, CheckSquare, Square, 
   Info, Search, Plus, Trash2, Sliders, ShieldAlert, Sparkles, 
   RotateCcw, Eye, Filter, CheckCircle2, Lock, FileSpreadsheet,
-  Layers, ChevronDown, ChevronUp, Copy, Utensils, ShoppingCart, Cake
+  Layers, ChevronDown, ChevronUp, Copy, Utensils, ShoppingCart, Cake, UserCheck, Users
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -177,8 +177,26 @@ const rolePresets: Record<string, { name: string; description: string; matchActi
 
   // 👥 10. مسؤول موارد بشرية ورواتب (HR Specialist)
   hr_officer: {
-    name: 'مسؤول موارد بشرية (HR Specialist)',
-    description: 'إدارة الموظفين، مسير الرواتب، السلف والقروض، كشف حساب الموظف، وتقارير الحضور والغياب',
+    name: 'مسؤول موارد بشرية ورواتب (HR Specialist)',
+    description: 'إدارة الموظفين، مسير الرواتب، السلف والعهد، الجزاءات والمكافآت، الحضور والغياب، أجهزة البصمة، وتقارير الموارد البشرية',
+    matchActions: (p) =>
+      p.module === 'hr' ||
+      (p.module === 'reports' && ['general_view', 'export_data'].includes(p.action))
+  },
+
+  // 👥 10.1 أخصائي شؤون موظفين وحضور (HR Officer)
+  hr: {
+    name: 'أخصائي شؤون موظفين وحضور (HR Officer)',
+    description: 'ملفات الموظفين، الحضور والانصراف، أجهزة البصمة، الإجازات، والتقارير الإدارية',
+    matchActions: (p) =>
+      p.module === 'hr' ||
+      (p.module === 'reports' && ['general_view', 'export_data'].includes(p.action))
+  },
+
+  // 👥 10.2 مدير الموارد البشرية (HR Manager)
+  hr_manager: {
+    name: 'مدير الموارد البشرية (HR Manager)',
+    description: 'صلاحيات كاملة على شؤون الموظفين، اعتماد وترحيل الرواتب، لوائح العمل، ومكافأة نهاية الخدمة',
     matchActions: (p) =>
       p.module === 'hr' ||
       (p.module === 'reports' && ['general_view', 'export_data'].includes(p.action))
@@ -364,6 +382,7 @@ const PermissionsManager = () => {
   const [installingRestaurantRoles, setInstallingRestaurantRoles] = useState(false);
   const [installingRetailRoles, setInstallingRetailRoles] = useState(false);
   const [installingBakeryRoles, setInstallingBakeryRoles] = useState(false);
+  const [installingHrRole, setInstallingHrRole] = useState(false);
 
   // Fetch initial roles and permissions
   useEffect(() => {
@@ -824,6 +843,78 @@ const PermissionsManager = () => {
     }
   };
 
+  // 👥 One-Click HR Role Provisioner (إنشاء وتفعيل دور الموارد البشرية)
+  const handleInstallHrRole = async () => {
+    const orgId = currentUser?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    if (!orgId) {
+      showToast('لم يتم العثور على معرّف المنظمة', 'error');
+      return;
+    }
+
+    if (!window.confirm('هل تريد إنشاء وتفعيل دور مسؤول الموارد البشرية والرواتب (HR Specialist) وتعيين كافة صلاحيات شؤون الموظفين، الحضور، الإجازات، والرواتب؟')) {
+      return;
+    }
+
+    setInstallingHrRole(true);
+    try {
+      // 1. Fetch fresh permissions from DB
+      const { data: freshPerms } = await supabase.from('permissions').select('*');
+      const allPerms: Permission[] = freshPerms || permissions;
+      if (freshPerms) setPermissions(freshPerms);
+
+      // 2. Target HR role
+      const hrRoleDef = {
+        key: 'hr_officer',
+        name: 'hr_officer',
+        desc: 'مسؤول موارد بشرية ورواتب (HR Specialist) - إدارة الموظفين، مسير الرواتب، السلف والعهد، الحضور والغياب، وأجهزة البصمة'
+      };
+
+      const { data: existingRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
+      const rolesList = existingRoles || [];
+
+      let roleObj = rolesList.find(r => r.name === hrRoleDef.key);
+
+      if (!roleObj) {
+        const { data: newRole, error: crtErr } = await supabase.from('roles').insert({
+          name: hrRoleDef.key,
+          description: hrRoleDef.desc,
+          organization_id: orgId
+        }).select().single();
+
+        if (crtErr) throw crtErr;
+        roleObj = newRole;
+      }
+
+      // 3. Sync permissions
+      const preset = rolePresets[hrRoleDef.key];
+      if (preset && roleObj) {
+        const matchedIds = allPerms.filter(preset.matchActions).map(p => p.id.toString());
+        await supabase.rpc('sync_role_permissions', {
+          p_role_id: roleObj.id,
+          p_permission_ids: matchedIds
+        });
+      }
+
+      // 4. Reload updated roles list
+      const { data: updatedRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
+      if (updatedRoles && updatedRoles.length > 0) {
+        setRoles(updatedRoles);
+        const targetSelection = updatedRoles.find(r => r.name === 'hr_officer') || updatedRoles.find(r => r.id === roleObj?.id);
+        if (targetSelection) {
+          setSelectedRoleId(targetSelection.id);
+        }
+      }
+
+      showToast('تم بنجاح إنشاء وتفعيل دور مسؤول الموارد البشرية والرواتب (HR) وربط كافة صلاحياته! 👥👑', 'success');
+      await refreshPermissions();
+    } catch (err: any) {
+      console.error('Error installing HR role:', err);
+      showToast('فشل إنشاء دور الموارد البشرية: ' + (err.message || 'خطأ غير متوقع'), 'error');
+    } finally {
+      setInstallingHrRole(false);
+    }
+  };
+
   // Save Permissions via Atomic RPC
   const handleSave = async () => {
     if (!selectedRoleId) return;
@@ -958,6 +1049,21 @@ const PermissionsManager = () => {
               <Cake size={16} />
             )}
             <span>🍰 صلاحيات الحلواني (لينزا)</span>
+          </button>
+
+          {/* 👥 زر إنشاء وتثبيت دور الموارد البشرية HR */}
+          <button
+            onClick={handleInstallHrRole}
+            disabled={installingHrRole}
+            className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-cyan-600 via-teal-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white rounded-xl font-bold text-sm transition-all shadow-md shadow-cyan-500/20 disabled:opacity-50 active:scale-95"
+            title="إنشاء وتفعيل دور مسؤول الموارد البشرية والرواتب (HR Specialist) وربط كافة صلاحيات شؤون الموظفين والرواتب والحضور"
+          >
+            {installingHrRole ? (
+              <Loader2 className="animate-spin" size={16} />
+            ) : (
+              <UserCheck size={16} />
+            )}
+            <span>👥 دور الموارد البشرية (HR)</span>
           </button>
 
           <button
