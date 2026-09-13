@@ -71,6 +71,23 @@ class NotificationService {
         return null;
       }
 
+      // 🛡️ منع التكرار: إذا كان هناك إشعار غير مقروء بالفعل لنفس السجل والمستخدم، لا تقم بإنشاء إشعار مكرر
+      if (validRelatedId) {
+        const { data: existing } = await supabase
+          .from('notifications')
+          .select('id')
+          .eq('user_id', validUserId)
+          .eq('type', type)
+          .eq('related_id', validRelatedId)
+          .eq('is_read', false)
+          .limit(1)
+          .maybeSingle();
+
+        if (existing) {
+          return null;
+        }
+      }
+
       const { data, error } = await supabase
         .from('notifications')
         .insert({
@@ -315,23 +332,40 @@ class NotificationService {
         .eq('organization_id', orgId)
         .in('role', ['admin', 'super_admin']);
 
-      if (!admins) return;
+      if (!admins || admins.length === 0) return;
 
-      for (const item of products) {
+      // 🛡️ جلب معرفات الأصناف التي لها إشعار نقص مخزون غير مقروء بالفعل لمنع التكرار والإغراق
+      const { data: existingNotifs } = await supabase
+        .from('notifications')
+        .select('related_id')
+        .eq('organization_id', orgId)
+        .eq('type', 'low_inventory')
+        .eq('is_read', false)
+        .limit(300);
+
+      const existingProductIds = new Set((existingNotifs || []).map(n => n.related_id).filter(Boolean));
+
+      // ترشيح الأصناف التي تحتاج إشعاراً جديداً فقط (بحد أقصى 20 صنفاً في الدفعة الواحدة)
+      const neededAlerts = products
+        .filter(item => {
+          const minLevel = item.min_stock_level || 5;
+          return (item.stock || 0) <= minLevel && !existingProductIds.has(item.id);
+        })
+        .slice(0, 20);
+
+      for (const item of neededAlerts) {
         const minLevel = item.min_stock_level || 5;
-        if ((item.stock || 0) <= minLevel) {
-           for (const admin of admins) {
-              await this.createNotification(
-                admin.id,
-                orgId,
-                `مخزون منخفض: ${item.name}`,
-                `المخزون الحالي: ${item.stock} والحد الأدنى: ${minLevel}`,
+        for (const admin of admins) {
+          await this.createNotification(
+            admin.id,
+            orgId,
+            `مخزون منخفض: ${item.name}`,
+            `المخزون الحالي: ${item.stock} والحد الأدنى: ${minLevel}`,
             'low_inventory',
             'medium',
             item.id,
             `/products`
           );
-           }
         }
       }
     } catch (err) {
@@ -674,26 +708,31 @@ class NotificationService {
    */
   static async getUnreadCount(userId: string, orgId: string): Promise<number> {
     try {
+      const validUserId = this.sanitizeUuid(userId);
+      if (!validUserId) return 0;
+
       let query = supabase
         .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId);
-
-      if (orgId) {
-        query = query.eq('organization_id', orgId);
-      }
-
-      const { count, error } = await query
+        .select('id')
+        .eq('user_id', validUserId)
         .eq('is_read', false);
 
+      const validOrgId = this.sanitizeUuid(orgId);
+      if (validOrgId) {
+        query = query.eq('organization_id', validOrgId);
+      }
+
+      // قصر الاستعلام على حد 100 لسرعة التنفيذ الفورية وتجنب مهلة خادم PostgREST (500 Error)
+      const { data, error } = await query.limit(100);
+
       if (error) {
-        console.error('Error getting unread count:', error);
+        console.warn('Notice getting unread count:', error.message);
         return 0;
       }
 
-      return count || 0;
+      return data?.length || 0;
     } catch (err) {
-      console.error('Error getting unread count:', err);
+      console.warn('Error getting unread count:', err);
       return 0;
     }
   }
