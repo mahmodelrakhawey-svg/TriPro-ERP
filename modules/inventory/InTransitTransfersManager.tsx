@@ -10,6 +10,7 @@ import { InTransitTransfer, InTransitTransferItem, TransferType, InTransitStatus
 import StockTransferService from '../../services/stockTransferService';
 import WmsLocationService from '../../services/wmsLocationService';
 import { useToast } from '../../context/ToastContext';
+import ProductSearchSelect from '../../components/ProductSearchSelect';
 
 export const InTransitTransfersManager: React.FC = () => {
   const { warehouses, products, currentUser } = useAccounting();
@@ -681,18 +682,14 @@ export const InTransitTransfersManager: React.FC = () => {
                     <tbody className="divide-y divide-slate-100">
                       {items.map((item, idx) => (
                         <tr key={idx} className="hover:bg-slate-50">
-                          <td className="p-2">
-                            <select
-                              required
+                          <td className="p-2 min-w-[260px]">
+                            <ProductSearchSelect
+                              products={products}
                               value={item.product_id}
-                              onChange={e => handleItemChange(idx, 'product_id', e.target.value)}
-                              className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg font-bold"
-                            >
-                              <option value="">-- اختر الصنف --</option>
-                              {products.map(p => (
-                                <option key={p.id} value={p.id}>{p.name} {p.sku ? `(SKU: ${p.sku})` : ''}</option>
-                              ))}
-                            </select>
+                              warehouseId={formData.from_warehouse_id}
+                              onChange={val => handleItemChange(idx, 'product_id', val)}
+                              placeholder="اختر أو ابحث عن الصنف..."
+                            />
                           </td>
 
                           <td className="p-2">
