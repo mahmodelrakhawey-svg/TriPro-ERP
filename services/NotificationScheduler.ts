@@ -4,6 +4,7 @@
  */
 
 import NotificationService from './notificationService';
+import { secureStorage } from '../utils/securityMiddleware';
 
 interface SchedulerConfig {
   intervalMinutes?: number; // الفترة بالدقائق (افتراضي: 60)
@@ -28,9 +29,19 @@ class NotificationScheduler {
 
     this.intervalMinutes = intervalMinutes;
 
-    // تشغيل الفحوصات الأولى فوراً
+    // تشغيل الفحوصات الأولى بعد التأكد من عدم تشغيلها مؤخراً لتفادي تكرارها عند كل إعادة تحميل
     if (autoStart) {
-      this.runChecks();
+      const LAST_RUN_KEY = 'tripro_last_notification_check';
+      const lastRun = secureStorage.getItem<string>(LAST_RUN_KEY);
+      const now = Date.now();
+      const minIntervalMs = 15 * 60 * 1000; // 15 دقيقة كحد أدنى بين الفحوصات عند فتح الصفحة
+
+      if (!lastRun || (now - parseInt(lastRun, 10)) > minIntervalMs) {
+        this.runChecks();
+      } else {
+        const minutesAgo = Math.round((now - parseInt(lastRun, 10)) / 60000);
+        console.log(`⏳ Notification checks were run recently (${minutesAgo}m ago). Skipping immediate run.`);
+      }
     }
 
     // تشغيل الفحوصات بشكل دوري
@@ -60,8 +71,10 @@ class NotificationScheduler {
    * تشغيل جميع الفحوصات
    */
   private static async runChecks(): Promise<void> {
+    if (this.isRunning) return;
     try {
       this.isRunning = true;
+      secureStorage.setItem('tripro_last_notification_check', Date.now().toString());
       console.log(`🔔 Running notification checks at ${new Date().toLocaleTimeString()}`);
 
       // تشغيل جميع الفحوصات

@@ -786,7 +786,7 @@ const AppContent = () => {
   }
 
   return (
-    <HashRouter>
+    <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       {/* The single source of truth for authentication is now `currentUser` from the context */}
       <Suspense fallback={<LazyLoadingFallback />}>
         <Routes>
