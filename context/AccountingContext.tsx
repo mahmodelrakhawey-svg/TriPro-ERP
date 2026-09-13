@@ -2033,15 +2033,65 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           await supabase.from('role_permissions').delete().eq('organization_id', orgId);
           await supabase.from('roles').delete().eq('organization_id', orgId);
 
+          // استخراج معرفات الأصناف التابعة للمنظمة لفك أي قيود معلقة عليها
+          const { data: orgProducts } = await supabase.from('products').select('id').eq('organization_id', orgId);
+          const prodIds = (orgProducts || []).map((p: any) => p.id).filter(Boolean);
+
+          // 1. تفكيك موديول التشفية والذبائح (Butchering Module)
+          try {
+            if (prodIds.length > 0) {
+              await supabase.from('butchering_order_items').delete().in('output_product_id', prodIds);
+              await supabase.from('butchering_template_items').delete().in('output_product_id', prodIds);
+              await supabase.from('butchering_orders').delete().in('source_product_id', prodIds);
+              await supabase.from('butchering_templates').delete().in('source_product_id', prodIds);
+            }
+            await supabase.from('butchering_orders').delete().eq('organization_id', orgId);
+            await supabase.from('butchering_templates').delete().eq('organization_id', orgId);
+          } catch (_) {}
+
+          // 2. تفكيك موديول التصنيع (Manufacturing Module)
+          try {
+            if (prodIds.length > 0) {
+              await supabase.from('mfg_actual_material_usage').delete().in('raw_material_id', prodIds);
+              await supabase.from('mfg_scrap_logs').delete().in('product_id', prodIds);
+              await supabase.from('mfg_batch_serials').delete().in('product_id', prodIds);
+              await supabase.from('mfg_step_materials').delete().in('raw_material_id', prodIds);
+              await supabase.from('bill_of_materials').delete().in('product_id', prodIds);
+              await supabase.from('bill_of_materials').delete().in('raw_material_id', prodIds);
+              await supabase.from('mfg_production_orders').delete().in('product_id', prodIds);
+              await supabase.from('mfg_routings').delete().in('product_id', prodIds);
+            }
+          } catch (_) {}
+
+          // 3. تفكيك قيود المطاعم ونقاط البيع (Restaurant & Channel Pricing)
+          try {
+            if (prodIds.length > 0) {
+              await supabase.from('kitchen_ticket_items').delete().in('product_id', prodIds);
+              await supabase.from('product_channel_prices').delete().in('product_id', prodIds);
+              await supabase.from('recipe_items').delete().in('product_id', prodIds);
+              await supabase.from('recipe_items').delete().in('ingredient_id', prodIds);
+              await supabase.from('combo_items').delete().in('product_id', prodIds);
+              await supabase.from('combo_items').delete().in('included_product_id', prodIds);
+            }
+          } catch (_) {}
+
           const tablesToClean = [
-            'mfg_step_materials', 'mfg_step_attachments', 'mfg_production_order_materials', 'mfg_production_order_steps',
+            'butchering_order_items', 'butchering_orders', 'butchering_template_items', 'butchering_templates',
+            'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_batch_serials', 'mfg_production_variances',
+            'mfg_order_progress', 'mfg_step_materials', 'mfg_step_attachments', 'mfg_routing_steps',
+            'mfg_production_order_materials', 'mfg_production_order_steps',
             'mfg_scrap_records', 'mfg_qc_inspections', 'mfg_production_orders', 'mfg_routings', 'mfg_work_centers',
-            'order_item_modifiers', 'order_items', 'kitchen_orders', 'orders',
+            'order_item_modifiers', 'order_items', 'kitchen_ticket_items', 'kitchen_orders', 'orders',
+            'product_channel_prices', 'recipe_items', 'restaurant_recipes', 'combo_items',
             'invoice_items', 'purchase_invoice_items', 'sales_return_items', 'purchase_return_items',
             'stock_adjustment_items', 'journal_lines', 'payroll_variables', 'payroll_items',
+            'delivery_order_items', 'inventory_count_items', 'waste_records', 'transfer_items',
             'invoices', 'purchase_invoices', 'sales_returns', 'purchase_returns', 'journal_entries',
             'payments', 'receipt_vouchers', 'payment_vouchers', 'cheques', 'payrolls', 'stock_adjustments',
+            'stock_transfers', 'inventory_counts', 'delivery_orders',
             'work_orders', 'bill_of_materials', 'credit_notes', 'debit_notes', 'shifts', 'table_sessions',
+            'cashier_shifts', 'pos_petty_cash_payouts', 'waiter_call_requests', 'tips_distribution_records',
+            'restaurant_tables', 'modifiers', 'modifier_groups',
             'promotions', 'retail_promotions', 'stadium_bookings', 'stadium_subscriptions', 'construction_projects',
             'products', 'customers', 'suppliers', 'accounts', 'warehouses', 'cost_centers', 'assets',
             'employees', 'company_settings', 'invitations', 'budgets', 'notification_preferences', 'security_logs', 'audit_logs'

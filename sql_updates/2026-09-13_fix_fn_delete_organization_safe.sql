@@ -1,11 +1,88 @@
 -- =====================================================================
--- 🛡️ حل جذري ونهائي لمشاكل حذف الشركات والمنظمات (HTTP 400, 409, 500)
+-- 🛡️ حل جذري ونهائي لمشاكل حذف الشركات والمنظمات (Foreign Key & HTTP Errors)
 -- التاريخ: 2026-09-13
 -- الوصف: 
+--   0. تصحيح القيود المرجعية لموديول التشفية والتصنيع لتدعم الحذف المتسلسل (ON DELETE CASCADE)
 --   1. تمكين تجاوز حماية الحسابات، العملاء، الموردين، والقيود عند الحذف (app.restore_mode = 'on')
---   2. تحديث دالة fn_delete_organization_safe لدعم الصلاحيات الكاملة (super_admin / admin / owner)
---   3. فك ارتباط بروفايلات المستخدمين والأدوار وحذف الجداول التابعة ديناميكياً
+--   2. تحديث دالة fn_delete_organization_safe لتفكيك وحذف كافة موديولات التشفية، التصنيع، والمطاعم قبل الأصناف
 -- =====================================================================
+
+-- ---------------------------------------------------------------------
+-- 0. تعديل القيود المرجعية لموديول التشفية والتصنيع والمطاعم
+-- ---------------------------------------------------------------------
+DO $$ 
+BEGIN
+    -- أ. قيود موديول التشفية واللحوم (Butchering Module)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'butchering_orders') THEN
+        ALTER TABLE public.butchering_orders DROP CONSTRAINT IF EXISTS butchering_orders_source_product_id_fkey;
+        ALTER TABLE public.butchering_orders ADD CONSTRAINT butchering_orders_source_product_id_fkey 
+            FOREIGN KEY (source_product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+            
+        ALTER TABLE public.butchering_orders DROP CONSTRAINT IF EXISTS butchering_orders_organization_id_fkey;
+        ALTER TABLE public.butchering_orders ADD CONSTRAINT butchering_orders_organization_id_fkey 
+            FOREIGN KEY (organization_id) REFERENCES public.organizations(id) ON DELETE CASCADE;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'butchering_order_items') THEN
+        ALTER TABLE public.butchering_order_items DROP CONSTRAINT IF EXISTS butchering_order_items_output_product_id_fkey;
+        ALTER TABLE public.butchering_order_items ADD CONSTRAINT butchering_order_items_output_product_id_fkey 
+            FOREIGN KEY (output_product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'butchering_templates') THEN
+        ALTER TABLE public.butchering_templates DROP CONSTRAINT IF EXISTS butchering_templates_source_product_id_fkey;
+        ALTER TABLE public.butchering_templates ADD CONSTRAINT butchering_templates_source_product_id_fkey 
+            FOREIGN KEY (source_product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+
+        ALTER TABLE public.butchering_templates DROP CONSTRAINT IF EXISTS butchering_templates_organization_id_fkey;
+        ALTER TABLE public.butchering_templates ADD CONSTRAINT butchering_templates_organization_id_fkey 
+            FOREIGN KEY (organization_id) REFERENCES public.organizations(id) ON DELETE CASCADE;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'butchering_template_items') THEN
+        ALTER TABLE public.butchering_template_items DROP CONSTRAINT IF EXISTS butchering_template_items_output_product_id_fkey;
+        ALTER TABLE public.butchering_template_items ADD CONSTRAINT butchering_template_items_output_product_id_fkey 
+            FOREIGN KEY (output_product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+    END IF;
+
+    -- ب. قيود موديول التصنيع (Manufacturing)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'mfg_production_orders') THEN
+        ALTER TABLE public.mfg_production_orders DROP CONSTRAINT IF EXISTS mfg_production_orders_product_id_fkey;
+        ALTER TABLE public.mfg_production_orders ADD CONSTRAINT mfg_production_orders_product_id_fkey 
+            FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'mfg_scrap_logs') THEN
+        ALTER TABLE public.mfg_scrap_logs DROP CONSTRAINT IF EXISTS mfg_scrap_logs_product_id_fkey;
+        ALTER TABLE public.mfg_scrap_logs ADD CONSTRAINT mfg_scrap_logs_product_id_fkey 
+            FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'mfg_batch_serials') THEN
+        ALTER TABLE public.mfg_batch_serials DROP CONSTRAINT IF EXISTS mfg_batch_serials_product_id_fkey;
+        ALTER TABLE public.mfg_batch_serials ADD CONSTRAINT mfg_batch_serials_product_id_fkey 
+            FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'mfg_actual_material_usage') THEN
+        ALTER TABLE public.mfg_actual_material_usage DROP CONSTRAINT IF EXISTS mfg_actual_material_usage_raw_material_id_fkey;
+        ALTER TABLE public.mfg_actual_material_usage ADD CONSTRAINT mfg_actual_material_usage_raw_material_id_fkey 
+            FOREIGN KEY (raw_material_id) REFERENCES public.products(id) ON DELETE CASCADE;
+    END IF;
+
+    -- ج. قيود موديول المطاعم ونقاط البيع (Restaurants & POS)
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'kitchen_ticket_items') THEN
+        ALTER TABLE public.kitchen_ticket_items DROP CONSTRAINT IF EXISTS kitchen_ticket_items_product_id_fkey;
+        ALTER TABLE public.kitchen_ticket_items ADD CONSTRAINT kitchen_ticket_items_product_id_fkey 
+            FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'product_channel_prices') THEN
+        ALTER TABLE public.product_channel_prices DROP CONSTRAINT IF EXISTS product_channel_prices_product_id_fkey;
+        ALTER TABLE public.product_channel_prices ADD CONSTRAINT product_channel_prices_product_id_fkey 
+            FOREIGN KEY (product_id) REFERENCES public.products(id) ON DELETE CASCADE;
+    END IF;
+END $$;
 
 -- ---------------------------------------------------------------------
 -- 1. تحديث دوال حماية القيود والحسابات والعملاء والموردين لدعم وضع التجاوز
@@ -20,7 +97,6 @@ AS $$
 DECLARE
     v_status TEXT;
 BEGIN
-    -- السماح بالتجاوز أثناء مسح المنظمة أو استعادة النسخ الاحتياطية
     IF current_setting('app.restore_mode', true) = 'on' THEN
         IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
     END IF;
@@ -51,7 +127,6 @@ AS $$
 DECLARE
     v_count INTEGER;
 BEGIN
-    -- السماح بالتجاوز أثناء مسح المنظمة
     IF current_setting('app.restore_mode', true) = 'on' THEN
         RETURN OLD;
     END IF;
@@ -74,7 +149,6 @@ DECLARE
     v_inv_count INTEGER;
     v_rv_count INTEGER;
 BEGIN
-    -- السماح بالتجاوز أثناء مسح المنظمة
     IF current_setting('app.restore_mode', true) = 'on' THEN
         RETURN OLD;
     END IF;
@@ -99,7 +173,6 @@ DECLARE
     v_pi_count INTEGER;
     v_pv_count INTEGER;
 BEGIN
-    -- السماح بالتجاوز أثناء مسح المنظمة
     IF current_setting('app.restore_mode', true) = 'on' THEN
         RETURN OLD;
     END IF;
@@ -129,14 +202,20 @@ DECLARE
         'payment_voucher_attachments', 'journal_attachments', 'notification_preferences', 
         'security_logs', 'audit_logs', 'organization_backups',
         
+        -- موديول التشفية وتفكيك الذبائح (Butchering Yield Module)
+        'butchering_order_items', 'butchering_orders', 'butchering_template_items', 'butchering_templates',
+
         -- موديول التصنيع (Manufacturing)
-        'mfg_step_materials', 'mfg_step_attachments', 'mfg_production_order_materials', 
-        'mfg_production_order_steps', 'mfg_scrap_records', 'mfg_qc_inspections',
+        'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_batch_serials', 'mfg_production_variances',
+        'mfg_order_progress', 'mfg_step_materials', 'mfg_step_attachments', 'mfg_routing_steps',
+        'mfg_production_order_materials', 'mfg_production_order_steps', 'mfg_scrap_records', 'mfg_qc_inspections',
         'mfg_production_orders', 'mfg_routings', 'mfg_work_centers',
         
         -- موديول المطاعم والكاشير والورديات
-        'order_item_modifiers', 'order_items', 'kitchen_orders', 'orders', 
+        'order_item_modifiers', 'order_items', 'kitchen_ticket_items', 'kitchen_orders', 'orders', 
         'table_sessions', 'shifts', 'restaurant_tables', 'modifiers', 'modifier_groups',
+        'product_channel_prices', 'recipe_items', 'restaurant_recipes', 'combo_items',
+        'cashier_shifts', 'pos_petty_cash_payouts', 'waiter_call_requests', 'tips_distribution_records',
         
         -- موديول الاستاد والمشاريع والصحة
         'stadium_court_pricing', 'stadium_subscriptions', 'stadium_bookings', 'stadium_academy_trainees',
@@ -146,10 +225,12 @@ DECLARE
         'hims_vital_signs', 'hims_visits', 'hims_inpatient_admissions', 'hims_appointments',
         'hims_patients', 'hims_doctors', 'hims_departments', 'hims_rooms', 'hims_beds',
 
-        -- فواتير المبيعات والمشتريات والتسويات
+        -- فواتير المبيعات والمشتريات والتسويات والمخازن
         'invoice_items', 'purchase_invoice_items', 'sales_return_items', 'purchase_return_items', 
         'stock_adjustment_items', 'payroll_variables', 'payroll_items', 'journal_lines',
-        'delivery_orders', 'payments', 'invoices', 'purchase_invoices', 'sales_returns', 'purchase_returns', 
+        'delivery_order_items', 'delivery_orders', 'inventory_count_items', 'inventory_counts',
+        'waste_records', 'transfer_items', 'stock_transfers',
+        'payments', 'invoices', 'purchase_invoices', 'sales_returns', 'purchase_returns', 
         'journal_entries', 'payrolls', 'stock_adjustments', 'cheques', 'receipt_vouchers', 'payment_vouchers', 
         'work_orders', 'bill_of_materials', 'credit_notes', 'debit_notes', 'promotions', 'retail_promotions',
         'opening_inventories',
@@ -194,7 +275,116 @@ BEGIN
         NULL;
     END;
 
-    -- و. المسح المتسلسل لكافة الجداول المعروفة
+    -- و.1 تفكيك موديول التشفية واللحوم (Butchering) مسبقاً لمنع أي تعارض مفاتيح مع الأصناف
+    BEGIN
+        DELETE FROM public.butchering_order_items 
+        WHERE order_id IN (SELECT id FROM public.butchering_orders WHERE organization_id = p_org_id)
+           OR output_product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.butchering_orders 
+        WHERE organization_id = p_org_id 
+           OR source_product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.butchering_template_items 
+        WHERE template_id IN (SELECT id FROM public.butchering_templates WHERE organization_id = p_org_id)
+           OR output_product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.butchering_templates 
+        WHERE organization_id = p_org_id 
+           OR source_product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    -- و.2 تفكيك قيود موديول التصنيع المتبقية مسبقاً
+    BEGIN
+        DELETE FROM public.mfg_actual_material_usage 
+        WHERE organization_id = p_org_id 
+           OR raw_material_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.mfg_scrap_logs 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.mfg_batch_serials 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.mfg_step_materials 
+        WHERE organization_id = p_org_id 
+           OR raw_material_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.bill_of_materials 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id)
+           OR raw_material_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.mfg_production_orders 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.mfg_routings 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    -- و.3 تفكيك قيود المطاعم ونقاط البيع المرتبطة بالأصناف
+    BEGIN
+        DELETE FROM public.kitchen_ticket_items 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.product_channel_prices 
+        WHERE organization_id = p_org_id 
+           OR product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.recipe_items 
+        WHERE product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id)
+           OR ingredient_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    BEGIN
+        DELETE FROM public.combo_items 
+        WHERE product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id)
+           OR included_product_id IN (SELECT id FROM public.products WHERE organization_id = p_org_id);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+
+    -- ز. المسح المتسلسل لكافة الجداول المعروفة
     FOREACH v_t IN ARRAY v_tables
     LOOP
         BEGIN
@@ -204,7 +394,7 @@ BEGIN
         END;
     END LOOP;
 
-    -- ز. شبكة الأمان الديناميكية: فحص وحذف أي جدول آخر بقاعدة البيانات مرتبط بمفتاح أجنبي مع organizations
+    -- ح. شبكة الأمان الديناميكية: فحص وحذف أي جدول آخر بقاعدة البيانات مرتبط بمفتاح أجنبي مع organizations
     FOR v_dyn IN (
         SELECT DISTINCT
             c.conrelid::regclass::text AS tbl,
@@ -222,10 +412,10 @@ BEGIN
         END;
     END LOOP;
 
-    -- ح. حذف سجل المنظمة نهائياً
+    -- ط. حذف سجل المنظمة نهائياً
     DELETE FROM public.organizations WHERE id = p_org_id;
 
-    -- ط. إعادة وضع الحماية الطبيعي
+    -- ي. إعادة وضع الحماية الطبيعي
     PERFORM set_config('app.restore_mode', 'off', true);
 
 END; $$;
