@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
+import { useAuth } from '../context/AuthContext';
 import { secureStorage } from '../utils/securityMiddleware';
 import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2, ArrowLeftCircle, Calendar, Layers, Smartphone } from 'lucide-react';
 import { supabase } from '../supabaseClient';
@@ -155,10 +156,10 @@ const Header = () => {
             }
         }
     }, [currentUser]);
+    const { logout: authLogout } = useAuth();
     // Logout function
     const logout = async () => {
-        await supabase.auth.signOut();
-        navigate('/login');
+        await authLogout();
     };
 
     // Close dropdown on outside click

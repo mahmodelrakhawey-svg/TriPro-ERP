@@ -136,6 +136,11 @@ self.addEventListener('fetch', (event) => {
   // D. Dynamic API calls & Supabase queries
   // Strategy: Network-First with quick timeout (3s) and runtime cache fallback
   if (url.origin.includes('supabase.co') || url.pathname.startsWith('/api/')) {
+    // 🛡️ صمام أمان أمني: استثناء طلبات المصادقة والجلسات من الكاش تماماً
+    if (url.pathname.includes('/auth/v1/') || url.pathname.includes('/auth/')) {
+      return; // تمرير مباشر للشبكة دون تخزين أو تدخل
+    }
+
     event.respondWith(
       new Promise((resolve) => {
         const timeoutId = setTimeout(async () => {
