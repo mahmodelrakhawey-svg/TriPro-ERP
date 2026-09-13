@@ -483,6 +483,30 @@ const Sidebar: React.FC = () => {
       return item.to === '/restaurant/driver-dispatch';
     }
 
+    // 👥 مسؤول وموظف الموارد البشرية وشؤون الموظفين (HR Specialist)
+    if (userRole === 'hr' || userRole === 'hr_officer') {
+      const allowedHrPaths = [
+        '/hr/dashboard',
+        '/employees',
+        '/hr/biometrics',
+        '/hr/shifts',
+        '/hr/attendance',
+        '/hr/leaves',
+        '/hr/penalties',
+        '/payroll-run',
+        '/employee-advances',
+        '/hr/end-of-service',
+        '/payroll-report',
+        '/employee-statement',
+        '/employee-reports',
+        '/user-guide'
+      ];
+      if (!item.to || !allowedHrPaths.includes(item.to)) {
+        return false;
+      }
+      return true;
+    }
+
     // 🏟️ تصفية ذكية للأدوار التخصصية لقطاع الاستاد
     if (userRole && typeof userRole === 'string' && userRole.startsWith('stadium_')) {
       if (!item.to || !item.to.startsWith('/stadium')) {

@@ -211,7 +211,17 @@ export type UserRole =
   | 'stadium_booking_officer'
   | 'stadium_gate_security'
   | 'stadium_maintenance_lead'
-  | 'stadium_sports_supervisor';
+  | 'stadium_sports_supervisor'
+  | 'hr'
+  | 'hr_officer'
+  | 'hr_manager'
+  | 'bakery_transfers'
+  | 'bakery_production'
+  | 'bakery_purchasing'
+  | 'bakery_cashier'
+  | 'bakery_branch_supervisor'
+  | 'bakery_cost_controller'
+  | 'bakery_cfo';
 
 
 export interface User {
