@@ -62,7 +62,7 @@ const StockCard = () => {
     description: '',
     purchase_price: 0,
     unit: 'قطعة',
-    product_type: 'STOCK' as 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL',
+    product_type: 'STOCK' as 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL' | 'INTERMEDIATE_PRODUCT',
     inventory_account_id: '',
     cogs_account_id: '',
     sales_account_id: '',
@@ -768,7 +768,7 @@ const StockCard = () => {
               sales_price: item.sales_price || 0,
               purchase_price: item.purchase_price || 0,
               unit: item.unit || 'قطعة',
-              product_type: (item as any).product_type || (item as any).item_type || ((item as any).mfg_type === 'standard' ? 'MANUFACTURED' : (item as any).mfg_type === 'raw' ? 'RAW_MATERIAL' : 'STOCK'),
+              product_type: (item as any).product_type === 'INTERMEDIATE_PRODUCT' || (item as any).mfg_type === 'intermediate' ? 'INTERMEDIATE_PRODUCT' : (item as any).product_type || (item as any).item_type || ((item as any).mfg_type === 'standard' ? 'MANUFACTURED' : (item as any).mfg_type === 'raw' ? 'RAW_MATERIAL' : 'STOCK'),
               inventory_account_id: inventoryAccId || '',
               cogs_account_id: cogsAccId || '',
               sales_account_id: salesAccId || '',
@@ -817,13 +817,13 @@ const StockCard = () => {
               purchase_price: editFormData.purchase_price,
               product_type: editFormData.product_type,
               unit: editFormData.unit,
-              item_type: editFormData.product_type,
+              item_type: editFormData.product_type === 'INTERMEDIATE_PRODUCT' ? 'STOCK' : editFormData.product_type,
               requires_serial: editFormData.requires_serial,
               labor_cost: editFormData.labor_cost,
               overhead_cost: editFormData.overhead_cost,
               is_overhead_percentage: editFormData.is_overhead_percentage,
-              inventory_account_id: (editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED' || editFormData.product_type === 'RAW_MATERIAL') ? editFormData.inventory_account_id : null,
-              cogs_account_id: (editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED' || editFormData.product_type === 'RAW_MATERIAL') ? editFormData.cogs_account_id : null,
+              inventory_account_id: (editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED' || editFormData.product_type === 'RAW_MATERIAL' || editFormData.product_type === 'INTERMEDIATE_PRODUCT') ? editFormData.inventory_account_id : null,
+              cogs_account_id: (editFormData.product_type === 'STOCK' || editFormData.product_type === 'MANUFACTURED' || editFormData.product_type === 'RAW_MATERIAL' || editFormData.product_type === 'INTERMEDIATE_PRODUCT') ? editFormData.cogs_account_id : null,
               sales_account_id: editFormData.sales_account_id,
               image_url: editFormData.image_url,
               category_id: editFormData.category_id || null,
@@ -837,7 +837,8 @@ const StockCard = () => {
               available_modifiers: editFormData.available_modifiers || [],
               // ضمان تحديث نوع التصنيع للمديول الصناعي
               mfg_type: editFormData.product_type === 'RAW_MATERIAL' ? 'raw' : 
-                        editFormData.product_type === 'MANUFACTURED' ? 'standard' : null
+                        editFormData.product_type === 'MANUFACTURED' ? 'standard' : 
+                        editFormData.product_type === 'INTERMEDIATE_PRODUCT' ? 'intermediate' : null
           };
           await updateProduct(selectedProductId, itemData);
           showToast('تم تحديث بيانات الصنف بنجاح ✅', 'success');
@@ -1314,8 +1315,9 @@ const StockCard = () => {
                                     <select value={editFormData.product_type} onChange={e => setEditFormData({...editFormData, product_type: e.target.value as any})} className="w-full border rounded-lg p-2 bg-white">
                                         <option value="STOCK">مخزوني (بضاعة)</option>
                                         <option value="RAW_MATERIAL">مواد خام (تصنيع)</option>
+                                        <option value="MANUFACTURED">منتج مصنع (Finished Good)</option>
+                                        <option value="INTERMEDIATE_PRODUCT">منتج وسيط / نصف مصنع (Subassembly / Intermediate)</option>
                                         <option value="SERVICE">خدمة (غير مخزني)</option>
-                                        <option value="MANUFACTURED">منتج مصنع (يُصنع عند الطلب)</option>
                                     </select>
                                 </div>
                                 <div>

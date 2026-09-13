@@ -162,6 +162,8 @@ const ProductManager = () => {
         query = query.or('product_type.eq.RAW_MATERIAL,mfg_type.eq.raw,item_type.eq.RAW_MATERIAL');
       } else if (typeFilter === 'MANUFACTURED') {
         query = query.or('product_type.eq.MANUFACTURED,mfg_type.eq.standard,item_type.eq.MANUFACTURED');
+      } else if (typeFilter === 'INTERMEDIATE_PRODUCT') {
+        query = query.or('product_type.eq.INTERMEDIATE_PRODUCT,mfg_type.eq.intermediate,item_type.eq.INTERMEDIATE_PRODUCT');
       } else if (typeFilter === 'SERVICE') {
         query = query.or('product_type.eq.SERVICE,item_type.eq.SERVICE');
       } else if (typeFilter === 'STOCK') {
@@ -213,7 +215,10 @@ const ProductManager = () => {
           (i.sku && i.sku.toLowerCase().includes(searchTerm.toLowerCase())) ||
           ((i as any).description && (i as any).description.toLowerCase().includes(searchTerm.toLowerCase()));
         const matchesCategory = categoryFilter === 'all' || i.category_id === categoryFilter;
-        const effectiveType = i.product_type || (i as any).item_type || 'STOCK';
+        const effectiveType = 
+          i.product_type === 'INTERMEDIATE_PRODUCT' || (i as any).mfg_type === 'intermediate'
+            ? 'INTERMEDIATE_PRODUCT'
+            : i.product_type || (i as any).item_type || 'STOCK';
         const matchesType = typeFilter === 'all' || effectiveType === typeFilter;
         return matchesSearch && matchesCategory && matchesType;
       }) 
@@ -533,7 +538,15 @@ const ProductManager = () => {
         base_uom_id: item.base_uom_id || '',
         purchase_uom_id: item.purchase_uom_id || '',
         sale_uom_id: item.sale_uom_id || '',
-        product_type: (item.product_type || item.item_type || 'STOCK') as any, 
+        product_type: ((item.product_type === 'INTERMEDIATE_PRODUCT' || (item as any).mfg_type === 'intermediate')
+          ? 'INTERMEDIATE_PRODUCT' 
+          : (item.product_type === 'MANUFACTURED' || (item as any).mfg_type === 'standard')
+          ? 'MANUFACTURED'
+          : (item.product_type === 'RAW_MATERIAL' || (item as any).mfg_type === 'raw')
+          ? 'RAW_MATERIAL'
+          : (item.product_type === 'SERVICE' || (item as any).item_type === 'SERVICE')
+          ? 'SERVICE'
+          : (item.product_type || item.item_type || 'STOCK')) as any, 
         inventory_account_id: inventoryAccId || '',
         cogs_account_id: cogsAccId || '',
         sales_account_id: salesAccId || '',
@@ -1470,9 +1483,9 @@ const ProductManager = () => {
         showToast('خطأ محاسبي: يجب تحديد جميع الحسابات (المخزون, التكلفة, المبيعات) للأصناف المخزنية.', 'error');
         return;
       }
-    } else if (formData.product_type === 'RAW_MATERIAL') {
+    } else if (formData.product_type === 'RAW_MATERIAL' || formData.product_type === 'INTERMEDIATE_PRODUCT') {
       if (!formData.inventory_account_id) {
-        showToast('خطأ محاسبي: يجب تحديد حساب المخزون للمواد الخام.', 'error');
+        showToast('خطأ محاسبي: يجب تحديد حساب المخزون للمواد الخام والأصناف الوسيطة.', 'error');
         return;
       }
     }
@@ -1505,9 +1518,9 @@ const ProductManager = () => {
             purchase_uom_id: formData.purchase_uom_id || null,
             sale_uom_id: formData.sale_uom_id || null,
             purchase_price: formData.purchase_price,
-            product_type: formData.product_type as 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL',
-            inventory_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED' || formData.product_type === 'RAW_MATERIAL') ? formData.inventory_account_id : null,
-            cogs_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED' || formData.product_type === 'RAW_MATERIAL') ? formData.cogs_account_id : null,
+            product_type: formData.product_type,
+            inventory_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED' || formData.product_type === 'RAW_MATERIAL' || formData.product_type === 'INTERMEDIATE_PRODUCT') ? formData.inventory_account_id : null,
+            cogs_account_id: (formData.product_type === 'STOCK' || formData.product_type === 'MANUFACTURED' || formData.product_type === 'RAW_MATERIAL' || formData.product_type === 'INTERMEDIATE_PRODUCT') ? formData.cogs_account_id : null,
             sales_account_id: formData.sales_account_id,
             image_url: formData.image_url,
             organization_id: orgId,
@@ -1521,9 +1534,10 @@ const ProductManager = () => {
             offer_end_date: formData.offer_end_date || null,
             offer_max_qty: formData.offer_max_qty || null,
             available_modifiers: formData.available_modifiers || [],
-            item_type: formData.product_type,
+            item_type: formData.product_type === 'INTERMEDIATE_PRODUCT' ? 'STOCK' : formData.product_type,
             mfg_type: formData.product_type === 'RAW_MATERIAL' ? 'raw' : 
-                      formData.product_type === 'MANUFACTURED' ? 'standard' : null,
+                      formData.product_type === 'MANUFACTURED' ? 'standard' : 
+                      formData.product_type === 'INTERMEDIATE_PRODUCT' ? 'intermediate' : null,
             labor_cost: formData.labor_cost || 0,
             overhead_cost: formData.overhead_cost || 0,
             is_overhead_percentage: formData.is_overhead_percentage || false,
@@ -1599,6 +1613,8 @@ const ProductManager = () => {
                          ? `مخزون مواد خام افتتاحي - ${formData.name}` 
                          : formData.product_type === 'MANUFACTURED'
                          ? `مخزون إنتاج تام افتتاحي - ${formData.name}`
+                         : formData.product_type === 'INTERMEDIATE_PRODUCT'
+                         ? `مخزون إنتاج وسيط / تحت التشغيل افتتاحي - ${formData.name}`
                          : `مخزون افتتاحي - ${formData.name}`;
 
                      await addEntry({
@@ -1638,7 +1654,7 @@ const ProductManager = () => {
             return;
         }
         
-        const isPhysicalStock = formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL' || formData.product_type === 'MANUFACTURED';
+        const isPhysicalStock = formData.product_type === 'STOCK' || formData.product_type === 'RAW_MATERIAL' || formData.product_type === 'MANUFACTURED' || formData.product_type === 'INTERMEDIATE_PRODUCT';
         const productPayload = {
           name: formData.name,
           sku: (formData.sku?.trim()) || generateUniqueSku(),
@@ -1652,10 +1668,10 @@ const ProductManager = () => {
           purchase_price: formData.purchase_price,
           cost: formData.purchase_price, // Set initial cost to purchase price
           stock: isPhysicalStock ? formData.opening_stock : (formData.product_type === 'SERVICE' ? 999999 : 0),
-          item_type: formData.product_type,
+          item_type: formData.product_type === 'INTERMEDIATE_PRODUCT' ? 'STOCK' : formData.product_type,
           product_type: formData.product_type,
-          inventory_account_id: isPhysicalStock || formData.product_type === 'MANUFACTURED' ? formData.inventory_account_id : null,
-          cogs_account_id: isPhysicalStock || formData.product_type === 'MANUFACTURED' ? formData.cogs_account_id : null,
+          inventory_account_id: isPhysicalStock ? formData.inventory_account_id : null,
+          cogs_account_id: isPhysicalStock ? formData.cogs_account_id : null,
           sales_account_id: formData.sales_account_id || null,
           is_active: true,
           min_stock_level: formData.min_stock_level,
@@ -1673,7 +1689,8 @@ const ProductManager = () => {
           organization_id: orgId,
           // إضافة نوع التصنيع ليتوافق مع مديول التصنيع تلقائياً
           mfg_type: formData.product_type === 'RAW_MATERIAL' ? 'raw' : 
-                    formData.product_type === 'MANUFACTURED' ? 'standard' : null,
+                    formData.product_type === 'MANUFACTURED' ? 'standard' : 
+                    formData.product_type === 'INTERMEDIATE_PRODUCT' ? 'intermediate' : null,
           // حقول الهايبر ماركت
           barcode2: formData.barcode2 || null,
           is_scale_item: formData.is_scale_item || false,
@@ -1737,6 +1754,10 @@ const ProductManager = () => {
                  const ref = `OP-PROD-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
                  const lineDesc = formData.product_type === 'RAW_MATERIAL' 
                      ? `مخزون مواد خام افتتاحي - ${newProduct.name}` 
+                     : formData.product_type === 'MANUFACTURED'
+                     ? `مخزون إنتاج تام افتتاحي - ${newProduct.name}`
+                     : formData.product_type === 'INTERMEDIATE_PRODUCT'
+                     ? `مخزون إنتاج وسيط / تحت التشغيل افتتاحي - ${newProduct.name}`
                      : `مخزون افتتاحي - ${newProduct.name}`;
 
                  await addEntry({
