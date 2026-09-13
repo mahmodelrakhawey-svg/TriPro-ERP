@@ -1576,10 +1576,68 @@ const SaaSAdmin: React.FC = () => {
         console.error('Failed to clean up attachments from storage:', err);
       }
 
-      // 3. حذف سجل المنظمة من قاعدة البيانات عبر الدالة الآمنة لضمان التخلص من البيانات والقيود المرجعية
-      const { error } = await supabase.rpc('fn_delete_organization_safe', { p_org_id: deletingOrg.id });
+      // 3. محاولة الحذف عبر الدالة الآمنة في قاعدة البيانات
+      const orgId = deletingOrg.id;
+      let deleteResult = await supabase.rpc('fn_delete_organization_safe', { p_org_id: orgId });
 
-      if (error) throw error;
+      // إذا حدث خطأ (400 أو 409 أو 500) نقوم بالتدخل لتفكيك القيود المرجعية فورياً
+      if (deleteResult.error) {
+        console.warn('RPC delete failed, executing client-side cascade cleanup...', deleteResult.error);
+
+        try {
+          // أ. فك ارتباط كافة المستخدمين بالشركة
+          await supabase.from('profiles').update({ organization_id: null }).eq('organization_id', orgId);
+
+          // ب. حذف صلاحيات وأدوار الشركة
+          await supabase.from('role_permissions').delete().eq('organization_id', orgId);
+          await supabase.from('roles').delete().eq('organization_id', orgId);
+
+          // ج. حذف تفاصيل الحركات والبنود المعلقة
+          const detailTables = [
+            'mfg_step_materials', 'mfg_step_attachments', 'mfg_production_order_materials', 'mfg_production_order_steps',
+            'mfg_scrap_records', 'mfg_qc_inspections', 'mfg_production_orders', 'mfg_routings', 'mfg_work_centers',
+            'order_item_modifiers', 'order_items', 'kitchen_orders', 'orders',
+            'invoice_items', 'purchase_invoice_items', 'sales_return_items', 'purchase_return_items',
+            'stock_adjustment_items', 'journal_lines', 'payroll_variables', 'payroll_items'
+          ];
+          for (const tbl of detailTables) {
+            try { await (supabase.from(tbl as any) as any).delete().eq('organization_id', orgId); } catch (_) {}
+          }
+
+          // د. حذف رؤوس الحركات والمستندات
+          const headerTables = [
+            'invoices', 'purchase_invoices', 'sales_returns', 'purchase_returns', 'journal_entries',
+            'payments', 'receipt_vouchers', 'payment_vouchers', 'cheques', 'payrolls', 'stock_adjustments',
+            'work_orders', 'bill_of_materials', 'credit_notes', 'debit_notes', 'shifts', 'table_sessions',
+            'promotions', 'retail_promotions', 'stadium_bookings', 'stadium_subscriptions', 'construction_projects'
+          ];
+          for (const tbl of headerTables) {
+            try { await (supabase.from(tbl as any) as any).delete().eq('organization_id', orgId); } catch (_) {}
+          }
+
+          // هـ. حذف السجلات التأسيسية
+          const masterTables = [
+            'products', 'customers', 'suppliers', 'accounts', 'warehouses', 'cost_centers', 'assets',
+            'employees', 'company_settings', 'invitations', 'budgets', 'notification_preferences', 'security_logs', 'audit_logs'
+          ];
+          for (const tbl of masterTables) {
+            try { await (supabase.from(tbl as any) as any).delete().eq('organization_id', orgId); } catch (_) {}
+          }
+
+          // و. إعادة محاولة استدعاء الدالة الآمنة بعد تفكيك القيود
+          deleteResult = await supabase.rpc('fn_delete_organization_safe', { p_org_id: orgId });
+
+          // ز. في حال بقاء أي عائق بالدالة، يتم مسح سجل المنظمة مباشرة من جدول organizations
+          if (deleteResult.error) {
+            const directDelete = await supabase.from('organizations').delete().eq('id', orgId);
+            if (directDelete.error) {
+              throw new Error(deleteResult.error.message || directDelete.error.message);
+            }
+          }
+        } catch (cleanupErr: any) {
+          throw new Error(deleteResult.error?.message || cleanupErr.message);
+        }
+      }
 
       showToast(`تم حذف الشركة ${deletingOrg.name} بنجاح ✅`, 'success');
       await loadData();

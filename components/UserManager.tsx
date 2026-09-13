@@ -500,7 +500,7 @@ const UserManager = () => {
                 )}
                 <td className="px-6 py-4">
                   <select 
-                    value={user.role}
+                    value={user.role || ''}
                     onChange={(e) => updateUserRole(user.id, e.target.value)}
                     disabled={currentUserRole !== 'super_admin' && currentUserRole !== 'admin'}
                     className={`px-3 py-1.5 rounded-lg text-sm font-bold border-2 outline-none cursor-pointer
@@ -508,6 +508,7 @@ const UserManager = () => {
                         user.role === 'admin' ? 'border-indigo-200 bg-indigo-50 text-indigo-700' :
                         'border-slate-200 bg-white text-slate-700'}`}
                   >
+                    {!user.role && <option value="">-- بدون دور محدد --</option>}
                     {(currentUserRole === 'super_admin' || user.role === 'super_admin') && <option value="super_admin">⚡ Super Admin (مدير النظام)</option>}
                     <optgroup label="── الأدوار الأساسية للنظام ──">
                       <option value="admin">🛡️ Admin (مسؤول)</option>
