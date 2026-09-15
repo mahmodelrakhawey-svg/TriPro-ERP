@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization } from '../types';
+import { Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization, HrScope } from '../types';
 import { useToast } from '../context/ToastContext';
 import { secureStorage } from '../utils/securityMiddleware';
 
@@ -12,6 +12,7 @@ export interface UserProfile {
   organization_id: string | null;
   is_active: boolean;
   avatar_url?: string;
+  hr_scope?: HrScope;
 }
 
 
@@ -497,12 +498,29 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setBudgets(budgetData?.data || []);
       setVouchers([]);
       setCostCenters(ccs.data || []);
-      setEmployees(emps.data || []);
+
+      // 🛡️ عزل نطاق الإشراف للموارد البشرية والرواتب (HR Supervisory Scope)
+      const rawEmployees = emps.data || [];
+      const userHrScope = (profile as any)?.hr_scope || (authUser as any)?.hr_scope || (authUser as any)?.user_metadata?.hr_scope || 'all';
+
+      const isFactoryDept = (dept: any) => {
+        const d = String(dept || '').trim().toLowerCase();
+        return d === 'المصنع' || d === 'مصنع' || d === 'factory';
+      };
+
+      let scopedEmployees = rawEmployees;
+      if (userHrScope === 'factory') {
+        scopedEmployees = rawEmployees.filter((e: any) => isFactoryDept(e.department));
+      } else if (userHrScope === 'branches') {
+        scopedEmployees = rawEmployees.filter((e: any) => !isFactoryDept(e.department));
+      }
+
+      setEmployees(scopedEmployees);
+      setSalespeople(scopedEmployees);
       setProducts(prods.data || []);
       setTransfers(trns.data || []);
       setPurchaseInvoices(pinvs.data || []);
       setInvoices(invs.data || []);
-      setSalespeople(emps.data || []);
       setCategories(cats.data || []);
       setUsers(usrs.data || []);
       setWarehouses(whs.data || []);

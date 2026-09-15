@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { Package, Search, Printer, Loader2, ArrowUpRight, ArrowDownLeft, Filter, Download, X, User, ArrowRightLeft, Factory } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import ProductSearchSelect from '../../components/ProductSearchSelect';
 
 type Movement = {
   id: string;
@@ -674,63 +675,13 @@ const ItemMovementReport = () => {
         <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
             <div className="md:col-span-2 relative z-50">
                 <label className="block text-sm font-bold text-slate-700 mb-1">الصنف</label>
-                
-                <div className="relative">
-                    <input 
-                        type="text"
-                        value={productSearchTerm}
-                        onChange={(e) => {
-                            setProductSearchTerm(e.target.value);
-                            setShowProductDropdown(true);
-                            setSelectedProductId(''); // إعادة تعيين الاختيار عند الكتابة
-                        }}
-                        onFocus={() => setShowProductDropdown(true)}
-                        onBlur={() => setTimeout(() => setShowProductDropdown(false), 200)}
-                        placeholder="ابحث باسم الصنف أو الكود..."
-                        className="w-full border border-slate-300 rounded-lg px-4 py-2.5 pl-10 focus:outline-none focus:border-blue-500"
-                    />
-                    <Search className="absolute left-3 top-3 text-slate-400 pointer-events-none" size={18} />
-                    {selectedProductId && (
-                        <button 
-                            onClick={() => {
-                                setSelectedProductId('');
-                                setProductSearchTerm('');
-                            }}
-                            className="absolute right-3 top-3 text-slate-400 hover:text-red-500"
-                        >
-                            <X size={18} />
-                        </button>
-                    )}
-                    
-                    {showProductDropdown && (
-                        <div className="absolute top-full left-0 w-full bg-white border border-slate-200 rounded-lg shadow-xl mt-1 max-h-60 overflow-y-auto">
-                            {products.filter(p => 
-                                (p.name || '').toLowerCase().includes(productSearchTerm.toLowerCase()) ||
-                                (p.sku || '').toLowerCase().includes(productSearchTerm.toLowerCase())
-                            ).map(p => (
-                                <div 
-                                    key={p.id}
-                                    onMouseDown={(e) => {
-                                        e.preventDefault(); // منع فقدان التركيز المفاجئ
-                                        setSelectedProductId(p.id);
-                                        setProductSearchTerm(p.name); // تحديث النص بالاسم المختار
-                                        setShowProductDropdown(false);
-                                    }}
-                                    className="p-3 hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-0"
-                                >
-                                    <div className="font-bold text-slate-800">{p.name}</div>
-                                    <div className="text-xs text-slate-500 font-mono">{p.sku || 'No SKU'}</div>
-                                </div>
-                            ))}
-                            {products.length > 0 && products.filter(p => (p.name || '').toLowerCase().includes(productSearchTerm.toLowerCase())).length === 0 && (
-                                <div className="p-3 text-slate-400 text-center text-sm">لا توجد نتائج</div>
-                            )}
-                            {products.length === 0 && (
-                                <div className="p-3 text-slate-400 text-center text-sm">جاري تحميل الأصناف...</div>
-                            )}
-                        </div>
-                    )}
-                </div>
+                <ProductSearchSelect
+                    products={products}
+                    value={selectedProductId}
+                    onChange={(id) => setSelectedProductId(id)}
+                    warehouseId={selectedWarehouseId}
+                    placeholder="ابحث باسم الصنف، الكود SKU، أو الباركود لعرض حركته..."
+                />
             </div>
             <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1">المستودع</label>

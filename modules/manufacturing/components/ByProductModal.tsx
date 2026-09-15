@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
 import { PackagePlus, DollarSign, X, Warehouse } from 'lucide-react';
+import ProductSearchSelect from '../../../components/ProductSearchSelect';
 
 interface ByProductModalProps {
   isOpen: boolean;
@@ -100,17 +101,13 @@ export const ByProductModal: React.FC<ByProductModalProps> = ({ isOpen, onClose,
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">المنتج الناتج (مثل: قصاقيص)</label>
-            <select 
-              className="w-full border rounded-lg p-2.5 outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
+            <ProductSearchSelect
+              products={products}
               value={formData.productId}
-              onChange={e => setFormData({...formData, productId: e.target.value})}
-              required
-            >
-              <option value="">-- اختر المنتج العرضي --</option>
-              {products.map(p => (
-                <option key={p.id} value={p.id}>{p.name} {p.sku ? `(${p.sku})` : ''}</option>
-              ))}
-            </select>
+              onChange={(id) => setFormData({...formData, productId: id})}
+              warehouseId={formData.warehouseId}
+              placeholder="ابحث عن الصنف العرضي بالاسم، الكود، أو الباركود..."
+            />
           </div>
 
           <div>

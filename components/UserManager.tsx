@@ -18,6 +18,7 @@ type UserProfile = {
   created_at: string;
   organizations?: { name: string }; // إضافة اسم المنظمة للنوع
   last_activity?: string;
+  hr_scope?: 'all' | 'factory' | 'branches';
 };
 
 
@@ -33,7 +34,8 @@ const UserManager = () => {
     email: '',
     password: '',
     fullName: '',
-    role: 'admin' // تغيير الافتراضي إلى admin لتقليل أخطاء التأسيس
+    role: 'admin', // تغيير الافتراضي إلى admin لتقليل أخطاء التأسيس
+    hr_scope: 'all' as 'all' | 'factory' | 'branches'
   });
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -159,6 +161,31 @@ const UserManager = () => {
     else fetchUsers();
   };
 
+  // تحديث نطاق إشراف الموارد البشرية والرواتب (HR Scope)
+  const updateUserHrScope = async (userId: string, newScope: string) => {
+    if (currentUserRole === 'demo') {
+      showToast('تم تحديث نطاق الإشراف بنجاح (محاكاة)', 'success');
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, hr_scope: newScope as any } : u));
+      return;
+    }
+    if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
+      showToast('عذراً، هذه الصلاحية للمدراء فقط', 'error');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ hr_scope: newScope })
+      .eq('id', userId);
+
+    if (error) {
+      showToast('فشل تحديث نطاق الإشراف: ' + error.message, 'error');
+    } else {
+      showToast('تم تحديث نطاق إشراف الموظفين بنجاح ✅', 'success');
+      fetchUsers();
+    }
+  };
+
   // تفعيل/تعطيل المستخدم
   const toggleUserStatus = async (userId: string, currentStatus: boolean) => {
     if (currentUserRole === 'demo') {
@@ -225,7 +252,7 @@ const UserManager = () => {
             const fakeUser: UserProfile = { id: `new-demo-${Date.now()}`, email: newUserData.email, full_name: newUserData.fullName, role: newUserData.role as any, is_active: true, created_at: new Date().toISOString() };
             setUsers(prev => [fakeUser, ...prev]);
             setIsAddModalOpen(false);
-            setNewUserData({ email: '', password: '', fullName: '', role: 'viewer' });
+            setNewUserData({ email: '', password: '', fullName: '', role: 'viewer', hr_scope: 'all' });
             setCreating(false);
         }, 1000);
         return;
@@ -249,6 +276,7 @@ const UserManager = () => {
             full_name: newUserData.fullName.trim(),
             role: newUserData.role,
             app_role: newUserData.role,
+            hr_scope: newUserData.hr_scope,
             org_id: targetOrgId, 
           }
         }
@@ -279,6 +307,7 @@ const UserManager = () => {
           full_name: newUserData.fullName.trim(),
           role: newUserData.role,
           organization_id: targetOrgId,
+          hr_scope: newUserData.hr_scope,
         });
         if (profileInsertError) {
           if (profileInsertError.message?.includes('violates foreign key constraint') || profileInsertError.code === '23503') {
@@ -288,13 +317,20 @@ const UserManager = () => {
         }
       }
 
-      // ملاحظة: لم نعد بحاجة لتحديث الملف الشخصي من هنا.
-      // التريجر (handle_new_user) في قاعدة البيانات سيقوم بذلك تلقائياً
-      // باستخدام الدور الذي تم تمريره أعلاه.
+      // 🛡️ صمام أمان ذهبي: تحديث البروفايل فوراً لضمان حفظ hr_scope والدور حتى لو كان التريجر قديماً
+      await supabase
+        .from('profiles')
+        .update({
+          full_name: newUserData.fullName.trim(),
+          role: newUserData.role,
+          hr_scope: newUserData.hr_scope,
+          organization_id: targetOrgId
+        })
+        .eq('id', authData.user.id);
 
       showToast('تم إنشاء المستخدم بنجاح! ✅ سيتمكن المستخدم من تسجيل الدخول فوراً.', 'success');
       setIsAddModalOpen(false);
-      setNewUserData({ email: '', password: '', fullName: '', role: 'viewer' });
+      setNewUserData({ email: '', password: '', fullName: '', role: 'viewer', hr_scope: 'all' });
       fetchUsers(); // تحديث القائمة
     } catch (err: any) {
       if (process.env.NODE_ENV === 'development') console.error('Error creating user:', err);
@@ -447,13 +483,16 @@ const UserManager = () => {
         </div>
       )}
 
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        <table className="w-full text-right">
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-x-auto">
+        <table className="w-full text-right min-w-[920px]">
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-black">
             <tr>
               <th className="px-6 py-4">المستخدم</th>
               {currentUserRole === 'super_admin' && <th className="px-6 py-4">المنظمة / الشركة</th>}
               <th className="px-6 py-4">الدور الحالي</th>
+              <th className="px-4 py-4 text-center bg-amber-100/70 text-amber-900 border-x border-amber-200 font-black">
+                👥 نطاق الإشراف (HR)
+              </th>
               <th className="px-6 py-4 text-center">الحالة</th>
               <th className="px-6 py-4 text-center">آخر نشاط</th>
               <th className="px-6 py-4 text-center">إجراءات</th>
@@ -462,7 +501,7 @@ const UserManager = () => {
           <tbody className="divide-y divide-slate-100">
             {users.map((user) => (
               <tr key={user.id} className="hover:bg-slate-50/50 transition-colors">
-                <td className="px-6 py-4 w-1/3">
+                <td className="px-6 py-4 min-w-[190px]">
                   {editingUserId === user.id ? (
                     <div className="flex items-center gap-2">
                         <input
@@ -489,7 +528,16 @@ const UserManager = () => {
                         {(currentUserRole === 'super_admin' || currentUserRole === 'admin') && <PenTool size={14} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />}
                     </div>
                   )}
-                  <div className="font-mono text-xs text-slate-400 mt-1">{user.id.slice(0, 8)}...</div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="font-mono text-xs text-slate-400">{user.id.slice(0, 8)}...</span>
+                    <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
+                      user.hr_scope === 'factory' ? 'bg-amber-100 text-amber-900 border-amber-300' :
+                      user.hr_scope === 'branches' ? 'bg-sky-100 text-sky-900 border-sky-300' :
+                      'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}>
+                      {user.hr_scope === 'factory' ? '🏭 مصنع' : user.hr_scope === 'branches' ? '🏪 فروع' : '🏢 عام'}
+                    </span>
+                  </div>
                 </td>
                 {currentUserRole === 'super_admin' && (
                   <td className="px-6 py-4">
@@ -551,7 +599,22 @@ const UserManager = () => {
                       );
                     })()}
                   </select>
-
+                </td>
+                <td className="px-4 py-4 text-center bg-amber-50/50 border-x border-amber-200">
+                  <select
+                    value={user.hr_scope || 'all'}
+                    onChange={(e) => updateUserHrScope(user.id, e.target.value)}
+                    disabled={currentUserRole !== 'super_admin' && currentUserRole !== 'admin'}
+                    className={`px-3 py-2 rounded-xl text-xs font-black border-2 outline-none cursor-pointer transition-all shadow-sm
+                      ${user.hr_scope === 'factory' ? 'border-amber-400 bg-amber-100 text-amber-950 font-black' :
+                        user.hr_scope === 'branches' ? 'border-sky-400 bg-sky-100 text-sky-950 font-black' :
+                        'border-slate-300 bg-white text-slate-800 hover:border-slate-400'}`}
+                    title="نطاق رؤية وإدارة الموظفين والرواتب"
+                  >
+                    <option value="all">🏢 كامل المنشأة (عام)</option>
+                    <option value="factory">🏭 موظفو المصنع فقط</option>
+                    <option value="branches">🏪 موظفو الفروع فقط</option>
+                  </select>
                 </td>
                 <td className="px-6 py-4 text-center">
                   <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black
@@ -573,6 +636,20 @@ const UserManager = () => {
                 <td className="px-6 py-4 text-center">
                   {(currentUserRole === 'super_admin' || currentUserRole === 'admin') && (
                     <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={() => {
+                          const next = user.hr_scope === 'factory' ? 'branches' : user.hr_scope === 'branches' ? 'all' : 'factory';
+                          updateUserHrScope(user.id, next);
+                        }}
+                        className={`text-xs font-bold px-2.5 py-2 rounded-lg transition-colors border flex items-center gap-1 ${
+                          user.hr_scope === 'factory' ? 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200' :
+                          user.hr_scope === 'branches' ? 'bg-sky-100 text-sky-900 border-sky-300 hover:bg-sky-200' :
+                          'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                        }`}
+                        title="تبديل نطاق الإشراف بنقرة واحدة (مصنع / فروع / عام)"
+                      >
+                        <span>{user.hr_scope === 'factory' ? '🏭 المصنع' : user.hr_scope === 'branches' ? '🏪 الفروع' : '🏢 عام'}</span>
+                      </button>
                       <button
                         onClick={() => toggleUserStatus(user.id, user.is_active)}
                         className={`text-xs font-bold px-4 py-2 rounded-lg transition-colors
@@ -729,7 +806,22 @@ const UserManager = () => {
                               );
                             })()}
                         </select>
+                    </div>
 
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">
+                          نطاق إشراف الموارد البشرية (HR Scope)
+                        </label>
+                        <select 
+                            value={newUserData.hr_scope}
+                            onChange={(e) => setNewUserData({...newUserData, hr_scope: e.target.value as any})}
+                            className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:outline-none focus:border-indigo-500 bg-white font-medium text-sm"
+                        >
+                            <option value="all">🏢 كامل موظفي المنشأة (افتراضي للكل)</option>
+                            <option value="factory">🏭 طاقم وموظفو المصنع فقط</option>
+                            <option value="branches">🏪 طاقم وموظفو الفروع والمعارض فقط</option>
+                        </select>
+                        <p className="text-xs text-slate-400 mt-1">يحدد أي موظفين ومسيرات رواتب تظهر لهذا المستخدم عند فتح صفحات الـ HR.</p>
                     </div>
 
                     <div className="pt-4 flex gap-3 border-t border-slate-100 mt-4">

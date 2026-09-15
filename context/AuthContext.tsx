@@ -167,7 +167,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const isDemoUser = email === DEMO_EMAIL || user.id === DEMO_USER_ID;
         
         // تحديد الدور: الديمو أولاً، ثم البيانات الوصفية، ثم البروفايل، وأخيراً admin كافتراضي للمنشئ
-        const roleName = isDemoUser ? 'demo' : (user.user_metadata?.role || user.user_metadata?.app_role || profile?.role || 'admin');
+        // تحديد الدور: الديمو أولاً، ثم البروفايل من قاعدة البيانات (لضمان فورية التعديلات)، ثم البيانات الوصفية، وأخيراً admin
+        const roleName = isDemoUser ? 'demo' : (profile?.role || user.user_metadata?.role || user.user_metadata?.app_role || 'admin');
+        const hrScope = (profile as any)?.hr_scope || (user.user_metadata?.hr_scope as any) || 'all';
         
         if (profile) {
           setCurrentUser({
@@ -176,7 +178,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             username: user.email || '',
             role: roleName as UserRole,
             is_active: profile.is_active ?? true,
-            organization_id: profile.organization_id || user.user_metadata?.org_id || undefined
+            organization_id: profile.organization_id || user.user_metadata?.org_id || undefined,
+            hr_scope: hrScope
           });
         } else {
            // Fallback للمستخدمين الجدد الذين لم تكتمل بيانات ملفهم الشخصي بعد
@@ -186,7 +189,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             username: user.email || '',
             role: roleName as UserRole,
             is_active: true,
-            organization_id: (user.user_metadata?.org_id as string) || undefined
+            organization_id: (user.user_metadata?.org_id as string) || undefined,
+            hr_scope: hrScope
           });
         }
         setUserRole(roleName);

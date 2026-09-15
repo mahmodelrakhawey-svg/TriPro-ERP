@@ -10,6 +10,7 @@ import { WarehouseBin, BinStockAllocation, BinType, Product } from '../../types'
 import WmsLocationService from '../../services/wmsLocationService';
 import { useToast } from '../../context/ToastContext';
 import { QRCodeSVG } from 'qrcode.react';
+import ProductSearchSelect from '../../components/ProductSearchSelect';
 
 export const BinLocationManager: React.FC = () => {
   const { warehouses, products, currentUser } = useAccounting();
@@ -821,17 +822,13 @@ export const BinLocationManager: React.FC = () => {
             <form onSubmit={handleSaveAllocation} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">اختر الصنف المراد تسكينه *</label>
-                <select
-                  required
+                <ProductSearchSelect
+                  products={products}
                   value={allocFormData.product_id}
-                  onChange={e => setAllocFormData(prev => ({ ...prev, product_id: e.target.value }))}
-                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold"
-                >
-                  <option value="">-- اختر الصنف --</option>
-                  {products.map(p => (
-                    <option key={p.id} value={p.id}>{p.name} {p.sku ? `(SKU: ${p.sku})` : ''}</option>
-                  ))}
-                </select>
+                  onChange={(id) => setAllocFormData(prev => ({ ...prev, product_id: id }))}
+                  warehouseId={selectedWarehouseId}
+                  placeholder="ابحث باسم الصنف، الكود SKU، أو الباركود لتسكينه..."
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">

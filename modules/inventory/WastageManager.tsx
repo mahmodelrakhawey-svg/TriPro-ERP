@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Trash2, Save, Plus, Search, Loader2, AlertCircle, Package } from 'lucide-react';
+import ProductSearchSelect from '../../components/ProductSearchSelect';
 
 const WastageManager = () => {
   const { warehouses, products, recalculateStock, addEntry, accounts, getSystemAccount, settings, currentUser } = useAccounting();
@@ -12,14 +13,14 @@ const WastageManager = () => {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<any[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-
-  const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase()) && 
-    !items.some(i => i.productId === p.id)
-  ).slice(0, 5);
+  const [selectedProductId, setSelectedProductId] = useState('');
 
   const addItem = (product: any) => {
+    if (!product) return;
+    if (items.some(i => i.productId === product.id)) {
+      showToast('الصنف موجود بالفعل في جدول الهوالك', 'warning');
+      return;
+    }
     setItems([...items, {
       productId: product.id,
       name: product.name,
@@ -27,7 +28,7 @@ const WastageManager = () => {
       unitCost: product.weighted_average_cost || product.purchase_price || 0,
       reason: 'spoiled' // spoiled, expired, prep_error
     }]);
-    setSearchTerm('');
+    setSelectedProductId('');
   };
 
   const removeItem = (idx: number) => setItems(items.filter((_, i) => i !== idx));
@@ -140,21 +141,19 @@ const WastageManager = () => {
         </div>
 
         <div className="relative">
-          <label className="block text-sm font-bold text-slate-700 mb-1">البحث عن صنف تالف</label>
-          <div className="relative">
-            <Search className="absolute right-3 top-3 text-slate-400" size={18} />
-            <input type="text" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} placeholder="ابحث باسم المادة الخام..." className="w-full pr-10 pl-4 py-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-red-500" />
-          </div>
-          {searchTerm && (
-            <div className="absolute z-10 w-full mt-1 bg-white border rounded-xl shadow-xl overflow-hidden">
-              {filteredProducts.map(p => (
-                <button key={p.id} type="button" onClick={() => addItem(p)} className="w-full text-right px-4 py-3 hover:bg-red-50 border-b last:border-0 flex justify-between items-center">
-                  <span className="font-bold">{p.name}</span>
-                  <span className="text-xs text-slate-400">المخزون: {p.stock}</span>
-                </button>
-              ))}
-            </div>
-          )}
+          <label className="block text-sm font-bold text-slate-700 mb-1">البحث عن صنف تالف لإضافته</label>
+          <ProductSearchSelect
+            products={products}
+            value={selectedProductId}
+            onChange={(id, prod) => {
+              if (prod) addItem(prod);
+              else setSelectedProductId(id);
+            }}
+            onEnterSelect={(prod) => addItem(prod)}
+            warehouseId={warehouseId}
+            clearOnSelect={true}
+            placeholder="ابحث باسم الصنف، الكود SKU، أو الباركود لإضافته لقائمة الهوالك..."
+          />
         </div>
 
         <div className="border rounded-xl overflow-hidden">

@@ -10,6 +10,7 @@ import {
 import { createPurchaseReturnSchema } from '../../utils/validationSchemas';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { PurchaseReturnPrint } from './PurchaseReturnPrint';
+import ProductSearchSelect from '../../components/ProductSearchSelect';
 
 const PurchaseReturnForm = () => {
   const { suppliers, products, warehouses, settings, purchaseInvoices, currentUser } = useAccounting();
@@ -760,10 +761,13 @@ const PurchaseReturnForm = () => {
           {items.map((item, index) => (
             <div key={index} className="grid grid-cols-12 gap-2 items-center">
               <div className="col-span-4">
-                <select required value={item.productId || ''} onChange={e => handleItemChange(index, 'productId', e.target.value)} className="w-full border rounded-lg p-2 text-sm bg-white font-bold">
-                  <option value="">اختر الصنف...</option>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <ProductSearchSelect
+                  products={products}
+                  value={item.productId || ''}
+                  onChange={(val) => handleItemChange(index, 'productId', val)}
+                  warehouseId={formData.warehouseId}
+                  placeholder="ابحث أو اختر الصنف المراد إرجاعه..."
+                />
               </div>
               <div className="col-span-2">
                   <select 

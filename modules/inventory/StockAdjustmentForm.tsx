@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext'; // Removed z import
 import { Save, Plus, Trash2, AlertTriangle, Search, Loader2, Package, Upload, Download, Barcode } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { createStockAdjustmentSchema } from '../../utils/validationSchemas';
+import ProductSearchSelect from '../../components/ProductSearchSelect';
 
 interface AdjustmentItem {
   productId: string;
@@ -44,20 +45,21 @@ const StockAdjustmentForm = () => {
     }
   }, [location.state, products]);
 
-  const handleAddItem = () => {
-    if (!selectedProductId) return;
-    const product = products.find(p => p.id === selectedProductId);
+  const handleAddItem = (prodToAdd?: any) => {
+    const targetId = prodToAdd?.id || selectedProductId;
+    if (!targetId) return;
+    const product = prodToAdd || products.find(p => p.id === targetId);
     if (!product) return;
 
-    if (items.find(i => i.productId === selectedProductId)) {
+    if (items.find(i => i.productId === targetId)) {
         showToast('الصنف موجود بالفعل في القائمة', 'warning');
         return;
     }
 
-    setItems([...items, {
+    setItems(prev => [...prev, {
         productId: product.id,
         productName: product.name,
-        quantity: 0,
+        quantity: 1,
         type: 'in' // in (increase) or out (decrease)
     }]);
     setSelectedProductId('');
@@ -405,24 +407,25 @@ const StockAdjustmentForm = () => {
                 <Package size={20} /> إضافة الأصناف
             </h3>
             
-            <div className="flex gap-2 mb-4">
-                <div className="flex-1 relative">
-                    <Search className="absolute right-3 top-3 text-slate-400" size={18} />
-                    <select 
+            <div className="flex gap-2 mb-4 items-center">
+                <div className="flex-1">
+                    <ProductSearchSelect
+                        products={products}
                         value={selectedProductId}
-                        onChange={e => setSelectedProductId(e.target.value)}
-                        className="w-full border rounded-lg p-2.5 pr-10 outline-none focus:ring-2 focus:ring-blue-500 appearance-none"
-                    >
-                        <option value="">بحث عن صنف لإضافته...</option>
-                        {products.map(p => <option key={p.id} value={p.id}>{p.name} (الرصيد: {p.stock})</option>)}
-                    </select>
+                        onChange={(id) => setSelectedProductId(id)}
+                        onEnterSelect={(prod) => handleAddItem(prod)}
+                        warehouseId={warehouseId}
+                        clearOnSelect={true}
+                        placeholder="ابحث باسم الصنف، الكود SKU، أو الباركود لإضافته للتسوية..."
+                    />
                 </div>
                 <button 
                     type="button" 
-                    onClick={handleAddItem}
-                    className="bg-blue-50 text-blue-600 px-4 rounded-lg hover:bg-blue-100 font-bold"
+                    onClick={() => handleAddItem()}
+                    disabled={!selectedProductId}
+                    className="bg-blue-600 text-white px-5 py-2.5 rounded-xl hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 font-bold flex items-center gap-1.5 transition-colors shadow-sm h-[42px]"
                 >
-                    <Plus />
+                    <Plus size={18} /> إضافة للتسوية
                 </button>
             </div>
 
