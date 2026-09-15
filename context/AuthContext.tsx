@@ -23,6 +23,13 @@ interface RolePermissionJoin {
   } | null;
 }
 
+interface UserPermissionJoin {
+  permissions: {
+    module: string;
+    action: string;
+  } | null;
+}
+
 interface AuthContextType {
   currentUser: User | null;
   users: User[];
@@ -214,13 +221,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else {
             if (profile?.role_id) {
                 const { data: rolePerms } = await supabase.from('role_permissions').select('permissions(module, action)').eq('role_id', profile.role_id) as { data: RolePermissionJoin[] | null };
-                setUserPermissions(new Set(rolePerms?.map((p) => p.permissions && `${p.permissions.module}.${p.permissions.action}`).filter(Boolean) as string[] || []));
+                const permsSet = new Set(rolePerms?.map((p) => p.permissions && `${p.permissions.module}.${p.permissions.action}`).filter(Boolean) as string[] || []);
+
+                // دمج الصلاحيات المباشرة للمستخدم (Direct User Permissions)
+                const { data: userPerms } = await supabase
+                  .from('user_permissions')
+                  .select('permissions(module, action)')
+                  .eq('user_id', user.id)
+                  .eq('granted', true) as { data: UserPermissionJoin[] | null };
+
+                userPerms?.forEach((up) => {
+                  if (up.permissions) {
+                    permsSet.add(`${up.permissions.module}.${up.permissions.action}`);
+                  }
+                });
+
+                setUserPermissions(permsSet);
             } else {
-                // 🛡️ الأمان الافتراضي: منع الصلاحيات الشاملة لمن ليس له دور محدد (Deny by default)
-                if (process.env.NODE_ENV === 'development') {
-                    console.warn(`[Security] User ${user.id} has no role_id assigned. Restricting to read-only permissions.`);
+                // محاولة جلب الصلاحيات المباشرة فقط (حتى لو لا يوجد دور محدد)
+                const { data: userPerms } = await supabase
+                  .from('user_permissions')
+                  .select('permissions(module, action)')
+                  .eq('user_id', user.id)
+                  .eq('granted', true) as { data: UserPermissionJoin[] | null };
+
+                if (userPerms && userPerms.length > 0) {
+                  const directSet = new Set<string>();
+                  userPerms.forEach((up) => {
+                    if (up.permissions) directSet.add(`${up.permissions.module}.${up.permissions.action}`);
+                  });
+                  setUserPermissions(directSet);
+                } else {
+                  // 🛡️ الأمان الافتراضي: منع الصلاحيات الشاملة لمن ليس له دور محدد (Deny by default)
+                  if (process.env.NODE_ENV === 'development') {
+                      console.warn(`[Security] User ${user.id} has no role_id assigned. Restricting to read-only permissions.`);
+                  }
+                  setUserPermissions(new Set(['*.view', '*.read', '*.list']));
                 }
-                setUserPermissions(new Set(['*.view', '*.read', '*.list']));
             }
         }
 
