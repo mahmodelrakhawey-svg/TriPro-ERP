@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
+import UserPermissionsEditor from './UserPermissionsEditor';
 
 // Types
 type Role = {
@@ -366,6 +367,9 @@ const PermissionsManager = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  // Active Tab: 'roles' = صلاحيات الأدوار | 'users' = صلاحيات المستخدمين المباشرة
+  const [activeTab, setActiveTab] = useState<'roles' | 'users'>('roles');
   
   // UI & Filters
   const [searchQuery, setSearchQuery] = useState('');
@@ -1134,6 +1138,43 @@ const PermissionsManager = () => {
         </div>
       )}
 
+      {/* ── Tab Navigation ── */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit">
+        <button
+          onClick={() => setActiveTab('roles')}
+          className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold transition-all ${
+            activeTab === 'roles'
+              ? 'bg-white text-indigo-700 shadow-sm'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <Layers size={15} />
+          صلاحيات الأدوار
+        </button>
+        <button
+          onClick={() => setActiveTab('users')}
+          className={`flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-bold transition-all ${
+            activeTab === 'users'
+              ? 'bg-white text-indigo-700 shadow-sm'
+              : 'text-slate-500 hover:text-slate-700'
+          }`}
+        >
+          <Users size={15} />
+          صلاحيات المستخدمين المباشرة
+          <span className="text-[10px] bg-indigo-100 text-indigo-600 px-1.5 py-0.5 rounded-full font-medium">جديد</span>
+        </button>
+      </div>
+
+      {/* ── Tab: Direct User Permissions ── */}
+      {activeTab === 'users' && (
+        <div className="min-h-[600px]">
+          <UserPermissionsEditor />
+        </div>
+      )}
+
+      {/* ── Tab: Role Permissions (original content) ── */}
+      {activeTab === 'roles' && (
+        <>
       {/* 🧭 تخطيط الشاشة: شريط الأدوار الجانبي + مصفوفة الصلاحيات التفصيلية */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
@@ -1434,6 +1475,8 @@ const PermissionsManager = () => {
           )}
         </div>
       </div>
+        </>
+      )}
 
       {/* 🌟 نافذة إنشاء دور جديد (New Role Modal) */}
       {showNewRoleModal && (
