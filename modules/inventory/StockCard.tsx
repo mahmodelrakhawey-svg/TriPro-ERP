@@ -5,6 +5,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext'; // Removed z import
 import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle, RefreshCw, PlusCircle, Trash2, Tag, Percent, ImageIcon, UtensilsCrossed } from 'lucide-react';
 import SearchableSelect from '../../components/SearchableSelect';
+import ProductSearchSelect from '../../components/ProductSearchSelect';
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { stockCardProductUpdateSchema, stockCardOpeningBalanceUpdateSchema } from '../../utils/validationSchemas';
@@ -1065,17 +1066,13 @@ const StockCard = () => {
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-3 gap-6 print:hidden">
         <div>
           <label className="block text-sm font-bold text-slate-700 mb-1">بحث واختيار الصنف</label>
-          <div className="relative">
-             <Search className="absolute right-3 top-3 text-slate-400" size={18} />
-             <select 
-                className="w-full border rounded-lg p-2.5 pr-10 appearance-none outline-none focus:ring-2 focus:ring-blue-500" 
-                value={selectedProductId} 
-                onChange={e => setSelectedProductId(e.target.value)}
-             >
-                <option value="">-- اختر الصنف --</option>
-                {products.map(p => <option key={p.id} value={p.id}>{p.name} {p.sku ? `(${p.sku})` : ''}</option>)}
-             </select>
-          </div>
+          <ProductSearchSelect
+            products={products as any}
+            value={selectedProductId}
+            onChange={(id) => setSelectedProductId(id)}
+            warehouseId={selectedWarehouseId}
+            placeholder="ابحث باسم الصنف، الكود SKU، أو الباركود..."
+          />
         </div>
         <div>
           <label className="block text-sm font-bold text-slate-700 mb-1">المستودع (اختياري)</label>

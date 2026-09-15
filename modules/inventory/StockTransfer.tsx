@@ -40,6 +40,8 @@ const StockTransfer = () => {
   const [barcodeInput, setBarcodeInput] = useState('');
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const productSearchInputRef = useRef<HTMLInputElement>(null);
+  const qtyInputRef = useRef<HTMLInputElement>(null);
 
   // إذا تم التوجيه إلى الصفحة مع صنف محدد مسبقاً
   useEffect(() => {
@@ -171,6 +173,9 @@ const StockTransfer = () => {
 
     setSelectedProductId('');
     setQty(1);
+    setTimeout(() => {
+      productSearchInputRef.current?.focus();
+    }, 50);
   };
 
   // تعديل الكمية مباشرة داخل الجدول
@@ -434,9 +439,16 @@ const StockTransfer = () => {
                 )}
               </label>
               <ProductSearchSelect
+                inputRef={productSearchInputRef}
                 products={products}
                 value={selectedProductId}
                 onChange={(pId) => setSelectedProductId(pId)}
+                onEnterSelect={() => {
+                  setTimeout(() => {
+                    qtyInputRef.current?.focus();
+                    qtyInputRef.current?.select();
+                  }, 50);
+                }}
                 warehouseId={formData.fromWarehouseId}
                 filterAvailableOnly={filterAvailableOnly}
                 disabled={!formData.fromWarehouseId}
@@ -450,12 +462,19 @@ const StockTransfer = () => {
                 الكمية {selectedProductObj?.unit ? `(${selectedProductObj.unit})` : ''}
               </label>
               <input 
+                ref={qtyInputRef}
                 type="number" 
                 min="0.01"
                 step="any"
                 disabled={!formData.fromWarehouseId}
                 value={qty}
                 onChange={e => setQty(parseFloat(e.target.value) || 0)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddItem();
+                  }
+                }}
                 className="w-full border border-slate-200 focus:border-blue-500 rounded-xl py-2.5 px-2 text-center text-sm font-black bg-white focus:ring-2 focus:ring-blue-100 outline-none transition-all disabled:bg-slate-100"
               />
             </div>

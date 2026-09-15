@@ -4,6 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { Search, Download, Printer, Loader2, ArrowRightLeft } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
+import ProductSearchSelect from '../../components/ProductSearchSelect';
 
 type StockMovement = {
   id: string;
@@ -829,12 +830,17 @@ const DetailedStockMovementReport = () => {
           <label className="block text-sm font-bold text-slate-700 mb-1">إلى تاريخ</label>
           <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full border rounded-lg p-2" />
         </div>
-        <div className="flex-1 min-w-[200px]">
+        <div className="flex-1 min-w-[240px]">
           <label className="block text-sm font-bold text-slate-700 mb-1">الصنف</label>
-          <select value={selectedProduct} onChange={e => setSelectedProduct(e.target.value)} className="w-full border rounded-lg p-2 bg-white">
-            <option value="">-- كل الأصناف --</option>
-            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <ProductSearchSelect
+            products={products}
+            value={selectedProduct}
+            onChange={(id) => setSelectedProduct(id)}
+            warehouseId={selectedWarehouse}
+            showAllOption={true}
+            allOptionLabel="-- كل الأصناف --"
+            placeholder="ابحث بالاسم، الكود، أو الباركود..."
+          />
         </div>
         <div className="flex-1 min-w-[200px]">
           <label className="block text-sm font-bold text-slate-700 mb-1">المستودع</label>

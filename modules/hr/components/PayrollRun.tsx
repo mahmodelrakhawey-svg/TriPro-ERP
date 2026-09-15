@@ -105,9 +105,24 @@ const PayrollRun = () => {
       const lastDayNumber = new Date(selectedYear, selectedMonth, 0).getDate();
       const monthEndStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(lastDayNumber).padStart(2, '0')}`;
 
+      // 🛡️ عزل نطاق الإشراف للموارد البشرية والرواتب (HR Supervisory Scope)
+      let empQuery = supabase.from('employees').select('*').eq('status', 'active').eq('organization_id', targetOrg);
+      const hrScope = currentUser?.hr_scope || (currentUser as any)?.user_metadata?.hr_scope || 'all';
+
+      const isFactoryDept = (dept: any) => {
+        const d = String(dept || '').trim().toLowerCase();
+        return d === 'المصنع' || d === 'مصنع' || d === 'factory';
+      };
+
+      if (hrScope === 'factory') {
+        empQuery = empQuery.in('department', ['المصنع', 'مصنع']);
+      } else if (hrScope === 'branches') {
+        empQuery = empQuery.not('department', 'in', '("المصنع","مصنع")');
+      }
+
       // 2. جلب البيانات بالتوازي: الموظفين، السلف، الإجازات، الحضور، الجزاءات والمكافآت
       const [empRes, advRes, leavesRes, attRes, penRes] = await Promise.all([
-        supabase.from('employees').select('*').eq('status', 'active').eq('organization_id', targetOrg),
+        empQuery,
         supabase.from('employee_advances').select('*').eq('status', 'paid').is('payroll_item_id', null).eq('organization_id', targetOrg),
         supabase.from('hr_leave_requests').select('*').eq('organization_id', targetOrg).eq('status', 'APPROVED'),
         supabase.from('hr_attendance_logs').select('*').eq('organization_id', targetOrg).gte('log_date', monthStartStr).lte('log_date', monthEndStr),
@@ -115,7 +130,12 @@ const PayrollRun = () => {
       ]);
 
       if (empRes.error) throw empRes.error;
-      const employees = empRes.data || [];
+      const rawEmployees = empRes.data || [];
+      const employees = hrScope === 'factory'
+        ? rawEmployees.filter(e => isFactoryDept(e.department))
+        : hrScope === 'branches'
+          ? rawEmployees.filter(e => !isFactoryDept(e.department))
+          : rawEmployees;
       const advances = advRes.data || [];
       const approvedLeaves = leavesRes.data || [];
       const attendanceLogs = attRes.data || [];
@@ -359,6 +379,17 @@ const PayrollRun = () => {
             </p>
           </div>
         </div>
+
+        {currentUser?.hr_scope && currentUser?.hr_scope !== 'all' && (
+          <div className={`px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 border ${
+            currentUser.hr_scope === 'factory'
+              ? 'bg-amber-50 text-amber-800 border-amber-200'
+              : 'bg-sky-50 text-sky-800 border-sky-200'
+          }`}>
+            <span>نطاق إشراف المسير:</span>
+            <span>{currentUser.hr_scope === 'factory' ? '🏭 طاقم المصنع فقط' : '🏪 طاقم الفروع فقط'}</span>
+          </div>
+        )}
       </div>
 
       {/* Control Panel */}

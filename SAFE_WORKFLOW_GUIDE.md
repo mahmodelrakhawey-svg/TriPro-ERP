@@ -8,14 +8,14 @@
 
 | البيئة | المجلد المحلي | قاعدة البيانات (Supabase) | النطاق المباشر على Vercel | الغرض والاستخدام |
 | :--- | :--- | :--- | :--- | :--- |
-| **التطوير / حلواني لينزا** | `C:\Users\pc\Desktop\TriPro-ERP` | `jsgmrspnthtlsracbmcq.supabase.co` | [tri-pro-erp-malak.vercel.app](https://tri-pro-erp-malak.vercel.app) | بيئة التطوير النشطة، والبيئة التشغيلية لشركة حلواني لينزا |
+| **التطوير / حلواني لينزا** | `C:\Users\pc\Desktop\TriPro-ERP` | `jsgmrspnthtlsracbmcq.supabase.co` | [tri-pro-erp-lenza.vercel.app](https://tri-pro-erp-lenza.vercel.app) | بيئة التطوير النشطة، والبيئة التشغيلية لشركة حلواني لينزا |
 | **الإنتاج العام (Master)** | `F:\نسخه منضبطه من البرنامج\نسخه 7 سبتمبر 2026\TriPro-Production` | `pjvphxfschfllpawfewn.supabase.co` | [tri-pro-erp.vercel.app](https://tri-pro-erp.vercel.app) | بيئة الإنتاج العامة للنظام المربوطة بمستودع GitHub الرئيسي |
 
 ---
 
 ## 🔄 2. آلية العمل والرفع التلقائي (Standard Operating Procedure):
 
-نظراً لأن مشروعي Vercel (`tri-pro-erp` و `tri-pro-erp-malak`) مرتبطان بنفس مستودع GitHub (`mahmodelrakhawey-svg/TriPro-ERP.git`) وكل منهما يستخدم متغيرات البيئة الخاصة بقاعدته:
+نظراً لأن مشروعي Vercel (`tri-pro-erp` و `tri-pro-erp-lenza`) مرتبطان بنفس مستودع GitHub (`mahmodelrakhawey-svg/TriPro-ERP.git`) وكل منهما يستخدم متغيرات البيئة الخاصة بقاعدته:
 
 1. **مرحلة التطوير والاختبار:**
    - يتم التطوير وإجراء التعديلات في مجلد: `C:\Users\pc\Desktop\TriPro-ERP`.
@@ -39,7 +39,7 @@
      git -C "F:\نسخه منضبطه من البرنامج\نسخه 7 سبتمبر 2026\TriPro-Production" push origin main
      ```
    - **النتيجة التلقائية:** يقوم Vercel فوراً ببناء ونشر النسخة الجديدة لكل من:
-     - موقع **حلواني لينزا** (`tri-pro-erp-malak.vercel.app`).
+     - موقع **حلواني لينزا** (`tri-pro-erp-lenza.vercel.app`).
      - موقع **الإنتاج العام** (`tri-pro-erp.vercel.app`).
 
 3. **تحديثات قاعدة البيانات (Database Migrations):**

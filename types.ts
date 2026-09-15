@@ -223,6 +223,7 @@ export type UserRole =
   | 'bakery_cost_controller'
   | 'bakery_cfo';
 
+export type HrScope = 'all' | 'factory' | 'branches';
 
 export interface User {
   id: string;
@@ -232,6 +233,7 @@ export interface User {
   role: UserRole;
   is_active: boolean;
   organization_id?: string;
+  hr_scope?: HrScope;
 }
 
 export interface Salesperson {

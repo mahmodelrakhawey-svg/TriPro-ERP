@@ -39,29 +39,47 @@ const EmployeeManager = () => {
     notes: ''
   });
 
+  // 🛡️ عزل نطاق الإشراف مباشرة في دليل الموظفين كصمام أمان مزدوج
+  const userHrScope = currentUser?.hr_scope || (currentUser as any)?.user_metadata?.hr_scope || 'all';
+
+  const isFactoryDept = (dept: any) => {
+    const d = String(dept || '').trim().toLowerCase();
+    return d === 'المصنع' || d === 'مصنع' || d === 'factory';
+  };
+
+  const scopedEmployees = useMemo(() => {
+    if (userHrScope === 'factory') {
+      return employees.filter(e => isFactoryDept(e.department));
+    }
+    if (userHrScope === 'branches') {
+      return employees.filter(e => !isFactoryDept(e.department));
+    }
+    return employees;
+  }, [employees, userHrScope]);
+
   // حساب عدد الموظفين في كل فرع
   const branchCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    employees.forEach(e => {
+    scopedEmployees.forEach(e => {
       const dept = e.department ? e.department.trim() : 'بدون فرع';
       counts[dept] = (counts[dept] || 0) + 1;
     });
     return counts;
-  }, [employees]);
+  }, [scopedEmployees]);
 
   // قائمة الفروع الفريدة مرتبة
   const departments = useMemo(() => {
-    return Array.from(new Set(employees.map(e => e.department?.trim() || '').filter(Boolean))).sort();
-  }, [employees]);
+    return Array.from(new Set(scopedEmployees.map(e => e.department?.trim() || '').filter(Boolean))).sort();
+  }, [scopedEmployees]);
 
   // قائمة المسميات الوظيفية الفريدة
   const positions = useMemo(() => {
-    return Array.from(new Set(employees.map(e => e.position?.trim() || '').filter(Boolean))).sort();
-  }, [employees]);
+    return Array.from(new Set(scopedEmployees.map(e => e.position?.trim() || '').filter(Boolean))).sort();
+  }, [scopedEmployees]);
 
   // فلترة الموظفين
   const filteredEmployees = useMemo(() => {
-    return employees.filter(e => {
+    return scopedEmployees.filter(e => {
       const term = searchTerm.toLowerCase().trim();
       const matchesSearch = !term ||
         e.full_name?.toLowerCase().includes(term) ||
@@ -75,7 +93,7 @@ const EmployeeManager = () => {
 
       return matchesSearch && matchesDept && matchesStatus && matchesPosition;
     });
-  }, [employees, searchTerm, departmentFilter, statusFilter, positionFilter]);
+  }, [scopedEmployees, searchTerm, departmentFilter, statusFilter, positionFilter]);
 
   // فحص ما إذا كان هناك أي فلتر نشط
   const isFiltered = searchTerm !== '' || departmentFilter !== 'all' || statusFilter !== 'all' || positionFilter !== 'all';
@@ -103,10 +121,15 @@ const EmployeeManager = () => {
       });
     } else {
       setEditingId(null);
+      const isFactoryHR = currentUser?.hr_scope === 'factory';
+      const defaultDept = isFactoryHR 
+        ? 'المصنع' 
+        : (departmentFilter !== 'all' && departmentFilter !== 'المصنع' ? departmentFilter : (departments.find(d => d !== 'المصنع') || 'فرع الاستاد'));
+
       setFormData({
         full_name: '',
-        position: 'موظف فرع',
-        department: departmentFilter !== 'all' ? departmentFilter : (departments[0] || 'فرع الاستاد'),
+        position: isFactoryHR ? 'فني إنتاج' : 'موظف فرع',
+        department: defaultDept,
         basic_salary: 0,
         hire_date: new Date().toISOString().split('T')[0],
         phone: '',
@@ -254,42 +277,55 @@ const EmployeeManager = () => {
   }
 
   // إحصائيات سريعة
-  const activeEmployeesCount = employees.filter(e => e.status === 'active').length;
+  const activeEmployeesCount = scopedEmployees.filter(e => e.status === 'active').length;
 
   return (
     <div className="space-y-6 animate-in fade-in pb-12">
       {/* رأس الصفحة */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-            <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
-                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
-                  <Users className="w-6 h-6" />
-                </div>
-                دليل وبيانات الموظفين
-            </h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-black text-slate-800 flex items-center gap-3">
+                  <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
+                    <Users className="w-6 h-6" />
+                  </div>
+                  دليل وبيانات الموظفين
+              </h2>
+              {currentUser?.hr_scope && currentUser?.hr_scope !== 'all' && (
+                <span className={`px-3 py-1 rounded-full text-xs font-black border ${
+                  currentUser.hr_scope === 'factory'
+                    ? 'bg-amber-50 text-amber-800 border-amber-200'
+                    : 'bg-sky-50 text-sky-800 border-sky-200'
+                }`}>
+                  {currentUser.hr_scope === 'factory' ? '🏭 نطاق الإشراف: موظفو المصنع فقط' : '🏪 نطاق الإشراف: موظفو الفروع فقط'}
+                </span>
+              )}
+            </div>
             <p className="text-slate-500 mt-1 font-medium text-sm">
               سجل كامل لكافة العاملين بالفروع والإدارات مع إدارة العقود والرواتب
             </p>
         </div>
         <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
-            <button 
-                onClick={handleImportFactoryStaff}
-                disabled={importingFactory}
-                title="استيراد كشف عمال وطاقم المصنع (181 موظفاً)"
-                className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-md shadow-amber-200 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
-            >
-                {importingFactory ? (
-                  <>
-                    <Loader2 size={17} className="animate-spin" />
-                    <span>جاري الاستيراد ({importProgress}%)...</span>
-                  </>
-                ) : (
-                  <>
-                    <Sparkles size={17} />
-                    <span>استيراد طاقم المصنع (181)</span>
-                  </>
-                )}
-            </button>
+            {currentUser?.hr_scope !== 'branches' && (
+              <button 
+                  onClick={handleImportFactoryStaff}
+                  disabled={importingFactory}
+                  title="استيراد كشف عمال وطاقم المصنع (181 موظفاً)"
+                  className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-md shadow-amber-200 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+              >
+                  {importingFactory ? (
+                    <>
+                      <Loader2 size={17} className="animate-spin" />
+                      <span>جاري الاستيراد ({importProgress}%)...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={17} />
+                      <span>استيراد طاقم المصنع (181)</span>
+                    </>
+                  )}
+              </button>
+            )}
             <button 
                 onClick={() => window.print()}
                 title="طباعة الدليل"
@@ -315,7 +351,7 @@ const EmployeeManager = () => {
           </div>
           <div>
             <div className="text-xs font-bold text-slate-400">إجمالي الموظفين</div>
-            <div className="text-xl font-black text-slate-800">{employees.length}</div>
+            <div className="text-xl font-black text-slate-800">{scopedEmployees.length}</div>
           </div>
         </div>
 

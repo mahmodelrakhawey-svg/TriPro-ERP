@@ -45,28 +45,44 @@ const PayrollReport = () => {
       if (payrollError) throw payrollError;
 
       if (payrollsList && payrollsList.length > 0) {
-        // دمج البيانات للعرض (في حال وجود دفعات متعددة لنفس الشهر)
-        const summary = payrollsList.reduce((acc, curr) => ({
-            ...curr,
-            total_gross_salary: acc.total_gross_salary + curr.total_gross_salary,
-            total_additions: acc.total_additions + curr.total_additions,
-            total_payroll_tax: (acc.total_payroll_tax || 0) + (curr.total_payroll_tax || 0),
-            total_deductions: acc.total_deductions + curr.total_deductions,
-            total_net_salary: acc.total_net_salary + curr.total_net_salary,
-        }), { total_gross_salary: 0, total_additions: 0, total_payroll_tax: 0, total_deductions: 0, total_net_salary: 0 });
-
-        setPayrollSummary(summary);
         const payrollIds = payrollsList.map(p => p.id);
         
-        // 2. جلب تفاصيل الرواتب للموظفين
+        // 2. جلب تفاصيل الرواتب للموظفين مع القسم
         const { data: items, error: itemsError } = await supabase
           .from('payroll_items')
-          .select('*, employees(full_name, position)')
+          .select('*, employees(full_name, position, department)')
           .eq('organization_id', userOrgId)
           .in('payroll_id', payrollIds);
 
         if (itemsError) throw itemsError;
-        setPayrollData(items || []);
+
+        // تطبيق عزل نطاق الإشراف (HR Scope)
+        const hrScope = currentUser?.hr_scope || (currentUser as any)?.user_metadata?.hr_scope || 'all';
+
+        const isFactoryDept = (dept: any) => {
+          const d = String(dept || '').trim().toLowerCase();
+          return d === 'المصنع' || d === 'مصنع' || d === 'factory';
+        };
+
+        let filteredItems = items || [];
+        if (hrScope === 'factory') {
+          filteredItems = filteredItems.filter(item => isFactoryDept(item.employees?.department));
+        } else if (hrScope === 'branches') {
+          filteredItems = filteredItems.filter(item => !isFactoryDept(item.employees?.department));
+        }
+
+        // حساب الملخص بناء على الموظفين المتاحين للمستخدم فقط
+        const summary = filteredItems.reduce((acc, curr) => ({
+            ...acc,
+            total_gross_salary: acc.total_gross_salary + Number(curr.gross_salary || 0),
+            total_additions: acc.total_additions + Number(curr.additions || 0),
+            total_payroll_tax: acc.total_payroll_tax + Number(curr.payroll_tax || 0),
+            total_deductions: acc.total_deductions + Number(curr.advances_deducted || 0) + Number(curr.other_deductions || 0),
+            total_net_salary: acc.total_net_salary + Number(curr.net_salary || 0),
+        }), { total_gross_salary: 0, total_additions: 0, total_payroll_tax: 0, total_deductions: 0, total_net_salary: 0 });
+
+        setPayrollSummary(summary);
+        setPayrollData(filteredItems);
       } else {
         setPayrollSummary(null);
         setPayrollData([]);
@@ -113,9 +129,20 @@ const PayrollReport = () => {
   return (
     <div className="space-y-6 animate-in fade-in">
       <div className="flex justify-between items-center print:hidden">
-        <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-          <FileText className="text-blue-600" /> كشف رواتب الموظفين
-        </h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
+            <FileText className="text-blue-600" /> كشف رواتب الموظفين
+          </h2>
+          {currentUser?.hr_scope && currentUser?.hr_scope !== 'all' && (
+            <span className={`px-3 py-1 rounded-full text-xs font-black border ${
+              currentUser.hr_scope === 'factory'
+                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                : 'bg-sky-50 text-sky-800 border-sky-200'
+            }`}>
+              {currentUser.hr_scope === 'factory' ? '🏭 طاقم المصنع فقط' : '🏪 طاقم الفروع فقط'}
+            </span>
+          )}
+        </div>
         <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-700">
             <Printer size={18} /> طباعة الكشف
         </button>
