@@ -1,9 +1,10 @@
-﻿﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { supabase } from '../../../supabaseClient';
 import { Hammer, Save, Loader2, Package, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
 import { z } from 'zod';
+import ProductSearchSelect from '../../../components/ProductSearchSelect';
 
 const ManufacturingManager = () => {
   const { products, warehouses, produceItem } = useAccounting();
@@ -18,8 +19,24 @@ const ManufacturingManager = () => {
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
-  // تصفية المنتجات التي لها BOM فقط (قابلة للتصنيع)
-  const manufacturableProducts = products.filter(p => p.item_type === 'STOCK');
+  // تصفية المنتجات القابلة للتصنيع (تام ونصف مصنع) واستبعاد الخامات والخدمات
+  const manufacturableProducts = useMemo(() => {
+    return (products || []).filter(p => {
+      if (!p) return false;
+      const pType = String((p as any).product_type || p.item_type || '').toUpperCase();
+      const mType = String((p as any).mfg_type || '').toLowerCase();
+      if (pType === 'RAW_MATERIAL' || mType === 'raw' || pType === 'SERVICE') return false;
+      return (
+        pType === 'MANUFACTURED' || 
+        pType === 'INTERMEDIATE_PRODUCT' || 
+        mType === 'standard' || 
+        mType === 'intermediate' || 
+        mType === 'subassembly' ||
+        p.item_type === 'STOCK' ||
+        p.item_type === 'MANUFACTURED'
+      );
+    });
+  }, [products]);
 
   useEffect(() => {
       if (warehouses.length > 0 && !formData.warehouseId) {
@@ -115,21 +132,15 @@ const ManufacturingManager = () => {
         <form onSubmit={handleSubmit} className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                    <label className="block text-sm font-bold text-slate-700 mb-1">المنتج التام</label>
-                    <div className="relative">
-                        <select 
-                            required 
-                            value={formData.productId} 
-                            onChange={e => setFormData({...formData, productId: e.target.value})}
-                            className="w-full border rounded-lg p-3 appearance-none focus:ring-2 focus:ring-amber-500 outline-none"
-                        >
-                            <option value="">-- اختر المنتج --</option>
-                            {manufacturableProducts.map(p => (
-                                <option key={p.id} value={p.id}>{p.name}</option>
-                            ))}
-                        </select>
-                        <Package className="absolute left-3 top-3.5 text-slate-400" size={18} />
-                    </div>
+                    <label className="block text-sm font-bold text-slate-700 mb-1">المنتج التام <span className="text-red-500">*</span></label>
+                    <ProductSearchSelect 
+                        products={manufacturableProducts}
+                        value={formData.productId} 
+                        onChange={(productId) => setFormData(prev => ({ ...prev, productId }))}
+                        warehouseId={formData.warehouseId}
+                        placeholder="ابحث بالاسم، الكود (SKU)، الباركود، أو الحروف..."
+                        className="w-full"
+                    />
                     <p className="text-xs text-slate-400 mt-1">يجب تعريف مكونات المنتج (BOM) مسبقاً.</p>
                 </div>
 

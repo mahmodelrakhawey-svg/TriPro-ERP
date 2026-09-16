@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -8,6 +8,7 @@ import { useReactToPrint } from 'react-to-print';
 import StageLedger from './StageLedger';
 import StageVarianceReport from '../reports/StageVarianceReport';
 import AdvancedCostingReports from '../reports/AdvancedCostingReports';
+import ProductSearchSelect from '../../../components/ProductSearchSelect';
 
 const WorkOrderManager = () => {
   const { products, warehouses, produceItem, settings, organization, currentSelectedOrgId } = useAccounting();
@@ -40,6 +41,24 @@ const WorkOrderManager = () => {
     endDate: '',
     notes: ''
   });
+
+  // تصفية المنتجات القابلة للتصنيع (منتجات تامة ووسيطة) للبحث السريع
+  const manufacturableProducts = useMemo(() => {
+    return (products || []).filter(p => {
+      if (!p) return false;
+      const pType = String((p as any).product_type || p.item_type || '').toUpperCase();
+      const mType = String((p as any).mfg_type || '').toLowerCase();
+      if (pType === 'RAW_MATERIAL' || mType === 'raw' || pType === 'SERVICE') return false;
+      return (
+        pType === 'MANUFACTURED' || 
+        pType === 'INTERMEDIATE_PRODUCT' || 
+        mType === 'standard' || 
+        mType === 'intermediate' || 
+        mType === 'subassembly' ||
+        p.item_type === 'MANUFACTURED'
+      );
+    });
+  }, [products]);
 
   // Costs State
   const [costs, setCosts] = useState<any[]>([]);
@@ -532,34 +551,24 @@ const WorkOrderManager = () => {
       {/* Create Modal */}
       {isModalOpen && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-6">
                   <h3 className="font-bold text-xl mb-4">أمر تشغيل جديد</h3>
                   <form onSubmit={handleCreateOrder} className="space-y-4">
                       <div>
-                          <label className="block text-sm font-bold mb-1">المنتج المراد تصنيعه</label>
-                          <select required className="w-full border rounded p-2" value={formData.productId} onChange={e => setFormData({...formData, productId: e.target.value})}>
-                              <option value="">-- اختر المنتج --</option>
-                              {products.filter(p => {
-                                  const pType = String((p as any).product_type || p.item_type || '').toUpperCase();
-                                  const mType = String((p as any).mfg_type || '').toLowerCase();
-                                  if (pType === 'RAW_MATERIAL' || mType === 'raw' || pType === 'SERVICE') return false;
-                                  return (
-                                      pType === 'MANUFACTURED' || 
-                                      pType === 'INTERMEDIATE_PRODUCT' || 
-                                      mType === 'standard' || 
-                                      mType === 'intermediate' || 
-                                      mType === 'subassembly' ||
-                                      p.item_type === 'MANUFACTURED'
-                                  );
-                              }).map(p => {
-                                  const isIntermediate = (p as any).product_type === 'INTERMEDIATE_PRODUCT' || (p as any).mfg_type === 'intermediate' || (p as any).mfg_type === 'subassembly';
-                                  return (
-                                      <option key={p.id} value={p.id}>
-                                          {isIntermediate ? `🍰 [منتج وسيط] ${p.name}` : `🎂 [منتج تام] ${p.name}`}
-                                      </option>
-                                  );
-                              })}
-                          </select>
+                          <label className="block text-sm font-bold text-slate-700 mb-1">المنتج المراد تصنيعه <span className="text-red-500">*</span></label>
+                          <ProductSearchSelect
+                              products={manufacturableProducts}
+                              value={formData.productId}
+                              onChange={(productId) => setFormData(prev => ({ ...prev, productId }))}
+                              warehouseId={formData.warehouseId}
+                              placeholder="ابحث بالاسم، الكود (SKU)، الباركود أو الحروف..."
+                              className="w-full"
+                          />
+                          {!formData.productId && (
+                              <p className="text-[11px] text-slate-400 mt-1">
+                                  ابحث بالكلمة أو بالحروف لاختيار المنتج التام أو الوسيط
+                              </p>
+                          )}
                       </div>
                       <div>
                           <label className="block text-sm font-bold mb-1">الكمية</label>
