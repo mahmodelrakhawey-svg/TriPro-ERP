@@ -650,7 +650,18 @@ const ProductManager = () => {
 
   const handleDownloadTemplate = () => {
     const headers = [
-      { 'اسم المنتج': '', 'الكود (SKU)': '', 'الباركود': '', 'سعر الشراء': '', 'سعر البيع': '', 'نوع المنتج': '', 'الوحدة': '', 'التصنيف': '', 'الوصف': '', 'الكمية الافتتاحية': '' }
+      { 
+        'اسم الصنف': 'صنف تجريبي 1', 
+        'الكود (SKU)': 'SKU-001', 
+        'الباركود': '6221234567890', 
+        'التصنيف': 'عام', 
+        'نوع الصنف': 'مخزوني', 
+        'الوحدة': 'قطعة', 
+        'الكمية الافتتاحية': 100, 
+        'سعر الشراء': 20, 
+        'سعر البيع': 25, 
+        'الوصف': 'وصف تجريبي للصنف' 
+      }
     ];
     const ws = XLSX.utils.json_to_sheet(headers);
     const wb = XLSX.utils.book_new();
@@ -1079,8 +1090,8 @@ const ProductManager = () => {
 
         // 1. التأكد من وجود كافة التصنيفات وإنشاء المفقود منها تلقائياً
         const categoryNamesInFile = [...new Set(data
-          .filter(row => row['التصنيف'] || row['Category'] || row['category'])
-          .map(row => String(row['التصنيف'] || row['Category'] || row['category']).trim())
+          .filter(row => row['التصنيف'] || row['القسم'] || row['المجموعة'] || row['Category'] || row['category'])
+          .map(row => String(row['التصنيف'] || row['القسم'] || row['المجموعة'] || row['Category'] || row['category']).trim())
         )];
 
         for (const catName of categoryNamesInFile) {
@@ -1117,22 +1128,36 @@ const ProductManager = () => {
         const user = sessionData?.session?.user;
 
         for (const row of data as any[]) {
-          const name = row['اسم المنتج'] || row['Name'] || row['name'];
-          const sku = row['الكود (SKU)'] || row['SKU'] || row['sku'];
-          const barcode = row['الباركود'] || row['Barcode'] || row['barcode'];
-          const purchase_price = row['سعر الشراء'] || row['Purchase Price'] || row['Cost'] || row['cost'];
-          const sales_price = row['سعر البيع'] || row['Sales Price'] || row['Price'] || row['price'];
-          const stock = row['الكمية الافتتاحية'] || row['Stock'] || row['stock'] || 0;
-          const rawType = row['نوع المنتج'] || row['Type'] || row['type'];
-          const unit = row['الوحدة'] || row['Unit'] || row['unit'];
-          const categoryName = row['التصنيف'] || row['Category'] || row['category'];
-          const description = row['الوصف'] || row['Description'] || row['description'];
+          const name = row['اسم الصنف'] || row['اسم المنتج'] || row['الاسم'] || row['الصنف'] || row['Name'] || row['name'] || row['item_name'];
+          const sku = row['الكود (SKU)'] || row['الكود'] || row['كود الصنف'] || row['SKU'] || row['sku'] || row['code'];
+          const barcode = row['الباركود'] || row['باركود'] || row['Barcode'] || row['barcode'];
+          const purchase_price = row['سعر الشراء'] || row['سعر الشراء (التكلفة)'] || row['التكلفة'] || row['سعر التكلفة'] || row['Purchase Price'] || row['Cost'] || row['cost'];
+          const sales_price = row['سعر البيع'] || row['البيع'] || row['Sales Price'] || row['Price'] || row['price'];
+          const stock = row['الكمية الافتتاحية'] || row['الرصيد الحالي'] || row['الرصيد'] || row['الكمية'] || row['Stock'] || row['stock'] || 0;
+          const rawType = row['نوع الصنف'] || row['نوع المنتج'] || row['النوع'] || row['Type'] || row['type'] || row['item_type'];
+          const unit = row['الوحدة'] || row['وحدة القياس'] || row['Unit'] || row['unit'] || row['uom'];
+          const categoryName = row['التصنيف'] || row['القسم'] || row['المجموعة'] || row['Category'] || row['category'];
+          const description = row['الوصف'] || row['ملاحظات'] || row['Description'] || row['description'];
+          const avgCost = row['متوسط التكلفة'] || row['متوسط تكلفة'] || row['Average Cost'] || purchase_price;
 
           const categoryId = categoryName ? catMap.get(String(categoryName).trim().toLowerCase()) : null;
           
           const isService = (String(rawType || '').includes('خدم') || String(rawType || '').toLowerCase().includes('serv'));
           const isRaw = (String(rawType || '').includes('خام') || String(rawType || '').toLowerCase().includes('raw'));
-          const productType = isService ? 'SERVICE' : (isRaw ? 'RAW_MATERIAL' : 'STOCK');
+          const isIntermediate = (String(rawType || '').includes('وسيط') || String(rawType || '').toLowerCase().includes('interm'));
+          const isManufactured = (String(rawType || '').includes('تام') || String(rawType || '').includes('مصنع') || String(rawType || '').toLowerCase().includes('manuf'));
+
+          const productType = isService 
+            ? 'SERVICE' 
+            : isRaw 
+            ? 'RAW_MATERIAL' 
+            : isIntermediate 
+            ? 'INTERMEDIATE_PRODUCT' 
+            : isManufactured 
+            ? 'MANUFACTURED' 
+            : 'STOCK';
+
+          const mfgType = isRaw ? 'raw' : isIntermediate ? 'intermediate' : isManufactured ? 'standard' : null;
           const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || contextAccounts.find(a => a.code === '10301' || a.code === '1211' || a.name?.includes('خامات'))?.id;
           const itemInvAcc = productType === 'RAW_MATERIAL' ? (rawMaterialAcc || defaultInventory) : defaultInventory;
 
@@ -1146,7 +1171,7 @@ const ProductManager = () => {
                 sales_price: sales_price ? Number(sales_price) : 0,
                 purchase_price: purchase_price ? Number(purchase_price) : 0,
                 cost: purchase_price ? Number(purchase_price) : 0,
-                weighted_average_cost: purchase_price ? Number(purchase_price) : 0,
+                weighted_average_cost: avgCost ? Number(avgCost) : (purchase_price ? Number(purchase_price) : 0),
                 stock: stock ? Number(stock) : 0,
                 opening_balance: stock ? Number(stock) : 0,
                 description: description ? String(description).trim() : null,
@@ -1155,7 +1180,7 @@ const ProductManager = () => {
                 organization_id: orgId,
                 item_type: productType,
                 product_type: productType,
-                mfg_type: productType === 'RAW_MATERIAL' ? 'raw' : null,
+                mfg_type: mfgType,
                 inventory_account_id: itemInvAcc,
                 cogs_account_id: defaultCogs,
                 sales_account_id: defaultSales,
