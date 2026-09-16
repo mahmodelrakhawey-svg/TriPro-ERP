@@ -5,6 +5,7 @@ import { User as SupabaseUser } from '@supabase/supabase-js';
 import { ADMIN_USER_ID, DEMO_USER_ID, DEMO_EMAIL } from '../utils/constants'; // Removed z import
 import { sanitizeHtml } from '../utils/securityGuards';
 import { LoginSchema, validateData } from '../utils/securityValidation';
+import { secureStorage } from '../utils/securityMiddleware';
 
 interface Profile {
   id: string;
@@ -178,29 +179,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const roleName = isDemoUser ? 'demo' : (profile?.role || user.user_metadata?.role || user.user_metadata?.app_role || 'admin');
         const hrScope = (profile as any)?.hr_scope || (user.user_metadata?.hr_scope as any) || 'all';
         
-        if (profile) {
-          setCurrentUser({
-            id: user.id,
-            name: profile.full_name || user.email || '',
-            username: user.email || '',
-            role: roleName as UserRole,
-            is_active: profile.is_active ?? true,
-            organization_id: profile.organization_id || user.user_metadata?.org_id || undefined,
-            hr_scope: hrScope
-          });
-        } else {
-           // Fallback للمستخدمين الجدد الذين لم تكتمل بيانات ملفهم الشخصي بعد
-           setCurrentUser({
-            id: user.id,
-            name: (user.user_metadata?.full_name as string) || user.email || '',
-            username: user.email || '',
-            role: roleName as UserRole,
-            is_active: true,
-            organization_id: (user.user_metadata?.org_id as string) || undefined,
-            hr_scope: hrScope
-          });
-        }
+        const profileData = profile ? {
+          id: user.id,
+          name: profile.full_name || user.email || '',
+          username: user.email || '',
+          role: roleName as UserRole,
+          is_active: profile.is_active ?? true,
+          organization_id: profile.organization_id || user.user_metadata?.org_id || undefined,
+          hr_scope: hrScope
+        } : {
+          id: user.id,
+          name: (user.user_metadata?.full_name as string) || user.email || '',
+          username: user.email || '',
+          role: roleName as UserRole,
+          is_active: true,
+          organization_id: (user.user_metadata?.org_id as string) || undefined,
+          hr_scope: hrScope
+        };
+
+        setCurrentUser(profileData);
         setUserRole(roleName);
+        // حفظ بيانات المستخدم للدخول بدون إنترنت (Offline Access Cache)
+        secureStorage.setItem('tripro_cached_user_profile', profileData);
 
         // تحسين أمان SaaS: منع الدخول إذا لم تكن المنظمة موجودة (إلا للديمو والمسؤول العام)
         if (roleName !== 'super_admin' && roleName !== 'demo' && !profile?.organization_id && !user.user_metadata?.org_id && user.email !== 'admin') {
@@ -327,11 +327,61 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       
       if (error) {
+        // إذا كان الجهاز غير متصل بالإنترنت وفشل الاتصال، نتحقق من الكاش المحلي للمستخدم
+        if (!navigator.onLine || error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')) {
+          const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
+          if (cachedUser && (cachedUser.username.toLowerCase() === finalEmail.toLowerCase() || finalEmail === DEMO_EMAIL)) {
+            setCurrentUser(cachedUser);
+            setUserRole(cachedUser.role);
+            setUserPermissions(new Set(['*.*']));
+            setAuthInitialized(true);
+            return { success: true };
+          }
+          if (finalEmail === DEMO_EMAIL) {
+            const demoUser: User = {
+              id: DEMO_USER_ID,
+              name: 'مستخدم تجريبي (وضع غير متصل)',
+              username: DEMO_EMAIL,
+              role: 'demo',
+              is_active: true
+            };
+            setCurrentUser(demoUser);
+            setUserRole('demo');
+            setUserPermissions(new Set(['*.*']));
+            setAuthInitialized(true);
+            return { success: true };
+          }
+        }
         console.error('Login error:', error);
         return { success: false, message: error.message || 'بيانات الدخول غير صحيحة' };
       }
       return { success: true };
     } catch (error: any) {
+      // وضع العمل بدون إنترنت عند انقطاع الاتصال التام (Offline Resilience Fallback)
+      if (!navigator.onLine || error?.message?.includes('Failed to fetch') || error?.message?.includes('NetworkError')) {
+        const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
+        if (cachedUser && (cachedUser.username.toLowerCase() === finalEmail.toLowerCase() || finalEmail === DEMO_EMAIL)) {
+          setCurrentUser(cachedUser);
+          setUserRole(cachedUser.role);
+          setUserPermissions(new Set(['*.*']));
+          setAuthInitialized(true);
+          return { success: true };
+        }
+        if (finalEmail === DEMO_EMAIL) {
+          const demoUser: User = {
+            id: DEMO_USER_ID,
+            name: 'مستخدم تجريبي (وضع غير متصل)',
+            username: DEMO_EMAIL,
+            role: 'demo',
+            is_active: true
+          };
+          setCurrentUser(demoUser);
+          setUserRole('demo');
+          setUserPermissions(new Set(['*.*']));
+          setAuthInitialized(true);
+          return { success: true };
+        }
+      }
       console.error('Login exception:', error);
       return { success: false, message: error?.message || 'حدث خطأ في الاتصال بنظام تسجيل الدخول' };
     }
