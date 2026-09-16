@@ -8,8 +8,7 @@ import {
   Wallet, FileText, Package, Truck, BarChart2, Calendar, Loader2,
   DollarSign, Target, Crown, Star, PieChart as PieChartIcon,
   Edit,
-  Building2, Briefcase, BarChart3 as ChartIcon, Zap,
-  Layout
+  Building2, Briefcase, BarChart3 as ChartIcon, Zap
 } from 'lucide-react'; // 💡 Note: I've removed unused imports for cleaner code
 import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
@@ -367,23 +366,7 @@ const Dashboard = () => {
   const realReceivables = stats.receivables;
   const realPayables = stats.payables;
 
-  // 🛡️ عرض حالة "انتظار اختيار الشركة" للسوبر أدمن
-  if (!loading && currentUser?.role === 'super_admin' && !currentSelectedOrgId) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6 animate-in fade-in duration-500">
-        <div className="w-32 h-32 bg-indigo-50 rounded-full flex items-center justify-center text-indigo-600 shadow-inner">
-          <Layout size={64} className="opacity-50" />
-        </div>
-        <div>
-          <h1 className="text-3xl font-black text-slate-800">مرحباً بك، مدير المنصة 👋</h1>
-          <p className="text-slate-500 mt-2 max-w-md mx-auto">
-            لعرض الإحصائيات المالية والنشاطات، يرجى اختيار شركة من القائمة المنسدلة في 
-            <span className="font-bold text-indigo-600"> القائمة الجانبية</span>.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  // ✅ لا نعيق الدخول أبداً — المنظمة يتم اختيارها تلقائياً في AccountingContext
 
   return (
     <div className="space-y-8 animate-in fade-in pb-10">

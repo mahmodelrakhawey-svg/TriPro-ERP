@@ -706,7 +706,7 @@ const PosScreen = () => {
   // New useEffect to fetch external orders (Takeaway, Delivery & Self-Ordering Kiosk)
   useEffect(() => {
     const fetchOpenExternalOrders = async () => {
-        if (isDemo) {
+        if (isDemo || !navigator.onLine) {
             return;
         }
         try {
@@ -731,7 +731,7 @@ const PosScreen = () => {
     };
 
     fetchOpenExternalOrders();
-    if (!isDemo) {
+    if (!isDemo && navigator.onLine) {
       const channel = supabase.channel('public:orders').on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchOpenExternalOrders).subscribe();
       return () => { supabase.removeChannel(channel); };
     }
@@ -739,6 +739,7 @@ const PosScreen = () => {
 
   // الاشتراك في تحديثات الطاولات (لظهور الطلبات الجديدة من رمز QR فوراً كطاولة مشغولة)
   useEffect(() => {
+    if (!navigator.onLine || isDemo) return;
     const channel = supabase.channel('pos-table-updates')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, () => {
         refreshData();
@@ -746,7 +747,7 @@ const PosScreen = () => {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [refreshData]);
+  }, [refreshData, isDemo]);
 
   // Effect to trigger print when orderToPrint is set
   useEffect(() => {
@@ -1321,7 +1322,7 @@ const PosScreen = () => {
           }
 
           // تصفير حالة طلب الحساب عند إتمام الدفع
-          if (activeOrder.type === 'dine-in' && activeOrder.tableId) {
+          if (activeOrder.type === 'dine-in' && activeOrder.tableId && navigator.onLine && !isDemo) {
               await supabase.from('restaurant_tables').update({ bill_requested: false }).eq('id', activeOrder.tableId);
           }
 

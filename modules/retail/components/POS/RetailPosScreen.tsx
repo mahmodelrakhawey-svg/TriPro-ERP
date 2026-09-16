@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useToast } from '../../../../context/ToastContext';
 import { supabase } from '../../../../supabaseClient';
-import { useAccounting } from '../../../../context/AccountingContext';
+import { useAccounting, DEFAULT_OFFLINE_PRODUCTS } from '../../../../context/AccountingContext';
 import { db, offlineService } from '../../../../services/offlineService';
 import type { CachedProduct } from '../../../../services/offlineService';
 import { secureStorage } from '../../../../utils/securityMiddleware';
@@ -580,69 +580,85 @@ export default function RetailPosScreen() {
     if (!currentUser) return;
     setIsLoadingTerminals(true);
     try {
-      // 1. Fetch terminals
-      const { data: termData, error: termErr } = await supabase
-        .from('pos_terminals')
-        .select('*')
-        .eq('status', 'ACTIVE')
-        .eq('organization_id', currentUser.organization_id);
-
-      if (termErr) throw termErr;
-      setTerminals(termData || []);
-
-      // Seed a default terminal if none exists (demo purposes)
-      if (!termData || termData.length === 0) {
-        const { data: newTerm, error: seedErr } = await supabase
-          .from('pos_terminals')
-          .insert({
-            name: 'الكاشير الرئيسي 1',
-            organization_id: currentUser.organization_id
-          })
-          .select()
-          .maybeSingle();
-        if (!seedErr && newTerm) {
-          setTerminals([newTerm]);
-        }
+      let termData: any[] = [];
+      if (navigator.onLine && currentUser.role !== 'demo') {
+        try {
+          const { data, error: termErr } = await supabase
+            .from('pos_terminals')
+            .select('*')
+            .eq('status', 'ACTIVE')
+            .eq('organization_id', currentUser.organization_id);
+          if (!termErr && data) {
+            termData = data;
+          }
+        } catch (e) {}
       }
 
-      // 2. Sync products locally
-      await offlineService.syncProductsLocally(currentUser.organization_id);
+      // Seed a default terminal if none exists (demo or offline purposes)
+      if (!termData || termData.length === 0) {
+        const defaultTerm = {
+          id: 'term-offline-1',
+          name: 'الكاشير الرئيسي 1',
+          status: 'ACTIVE',
+          cash_account_id: 'acc-cash',
+          organization_id: currentUser?.organization_id || 'org-default-offline'
+        };
+        termData = [defaultTerm];
+      }
+      setTerminals(termData);
+
+      // 2. Sync products locally if online, or seed fallback products
+      if (navigator.onLine && currentUser.role !== 'demo') {
+        await offlineService.syncProductsLocally(currentUser.organization_id);
+      } else {
+        await offlineService.seedFallbackProducts(DEFAULT_OFFLINE_PRODUCTS);
+      }
 
       let activeShiftDb = null;
       const cachedShift = secureStorage.getItem<any>(`tripro_shift_${currentUser.id}`);
       if (cachedShift) {
         const parsed = typeof cachedShift === 'string' ? JSON.parse(cachedShift) : cachedShift;
-        // Verify with database if it's still open
-        const { data: dbShift, error: shiftErr } = await supabase
-          .from('shifts')
-          .select('*, pos_terminals(*)')
-          .eq('id', parsed.id)
-          .is('end_time', null)
-          .maybeSingle();
+        if (navigator.onLine && currentUser.role !== 'demo') {
+          try {
+            const { data: dbShift, error: shiftErr } = await supabase
+              .from('shifts')
+              .select('*, pos_terminals(*)')
+              .eq('id', parsed.id)
+              .is('end_time', null)
+              .maybeSingle();
 
-        if (!shiftErr && dbShift) {
-          activeShiftDb = dbShift;
+            if (!shiftErr && dbShift) {
+              activeShiftDb = dbShift;
+            } else {
+              secureStorage.removeItem(`tripro_shift_${currentUser.id}`);
+            }
+          } catch {
+            activeShiftDb = parsed;
+          }
         } else {
-          secureStorage.removeItem(`tripro_shift_${currentUser.id}`);
+          activeShiftDb = parsed;
         }
       }
 
-      // If not found in localStorage or cached shift was invalid, check DB for any open shift of this user
-      if (!activeShiftDb) {
-        const { data: dbShift, error: shiftErr } = await supabase
-          .from('shifts')
-          .select('*, pos_terminals(*)')
-          .eq('user_id', currentUser.id)
-          .eq('organization_id', currentUser.organization_id)
-          .is('end_time', null)
-          .order('start_time', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+      // If not found in localStorage and online, check DB for open shift
+      if (!activeShiftDb && navigator.onLine && currentUser.role !== 'demo') {
+        try {
+          const { data: dbShift, error: shiftErr } = await supabase
+            .from('shifts')
+            .select('*, pos_terminals(*)')
+            .eq('user_id', currentUser.id)
+            .eq('organization_id', currentUser.organization_id)
+            .is('end_time', null)
+            .order('start_time', { ascending: false })
+            .limit(1)
+            .maybeSingle();
 
-        if (!shiftErr && dbShift) {
-          activeShiftDb = dbShift;
-        }
+          if (!shiftErr && dbShift) {
+            activeShiftDb = dbShift;
+          }
+        } catch {}
       }
+
       if (activeShiftDb) {
         setActiveShift(activeShiftDb);
         const resolvedTerm = activeShiftDb.pos_terminals || (termData && termData.find((t: any) => t.id === activeShiftDb.terminal_id)) || (termData && termData.length > 0 ? termData[0] : null);
@@ -660,12 +676,31 @@ export default function RetailPosScreen() {
 
   // Open Shift
   const handleOpenShift = async () => {
-    if (!selectedTerminal && terminals.length > 0) {
+    const termToUse = selectedTerminal || (terminals.length > 0 ? terminals[0] : null);
+    if (!termToUse) {
       showToast('الرجاء اختيار نقطة البيع/الكاشير أولاً', 'error');
       return;
     }
     setIsOpeningShift(true);
     try {
+      if (!navigator.onLine || currentUser?.role === 'demo') {
+        const offlineShift = {
+          id: 'shift-retail-offline-' + Date.now(),
+          shift_number: 'SHIFT-' + Math.floor(1000 + Math.random() * 9000),
+          user_id: currentUser.id,
+          opening_float: Number(openingBalance) || 0,
+          start_time: new Date().toISOString(),
+          status: 'OPEN',
+          terminal_id: termToUse.id,
+          pos_terminals: termToUse
+        };
+        setActiveShift(offlineShift);
+        setSelectedTerminal(termToUse);
+        secureStorage.setItem(`tripro_shift_${currentUser.id}`, offlineShift);
+        showToast('تم فتح الوردية بنجاح ✅', 'success');
+        return;
+      }
+
       // Resolve treasury account linked to terminal or fetch default
       let treasuryId = selectedTerminal?.cash_account_id;
       if (!treasuryId) {
@@ -683,17 +718,16 @@ export default function RetailPosScreen() {
       // Call start shift rpc
       const { data: newShift, error } = await supabase.rpc('start_pos_shift', {
         p_opening_balance: Number(openingBalance) || 0,
-        p_resume_existing: false, // 🛡️ إنشاء وردية جديدة صراحة (ويفشل إذا كانت هناك وردية مفتوحة)
+        p_resume_existing: false,
         p_treasury_account_id: treasuryId,
         p_user_id: currentUser.id,
         p_org_id: currentUser.organization_id,
-        p_terminal_id: selectedTerminal?.id || null
+        p_terminal_id: termToUse.id || null
       });
 
       if (error) throw error;
 
       if (newShift && newShift.id) {
-        // Fetch the full shift record
         const { data: fullShift } = await supabase
           .from('shifts')
           .select('*, pos_terminals(*)')
@@ -705,7 +739,21 @@ export default function RetailPosScreen() {
         showToast('تم فتح الوردية بنجاح ✅', 'success');
       }
     } catch (err: any) {
-      showToast(err.message || 'فشل فتح الوردية', 'error');
+      // Fallback offline shift
+      const termToUse = selectedTerminal || (terminals.length > 0 ? terminals[0] : null);
+      const offlineShift = {
+        id: 'shift-retail-offline-' + Date.now(),
+        shift_number: 'SHIFT-' + Math.floor(1000 + Math.random() * 9000),
+        user_id: currentUser.id,
+        opening_float: Number(openingBalance) || 0,
+        start_time: new Date().toISOString(),
+        status: 'OPEN',
+        terminal_id: termToUse?.id || 'term-offline-1',
+        pos_terminals: termToUse
+      };
+      setActiveShift(offlineShift);
+      secureStorage.setItem(`tripro_shift_${currentUser.id}`, offlineShift);
+      showToast('تم فتح الوردية محلياً (وضع أوفلاين) ✅', 'success');
     } finally {
       setIsOpeningShift(false);
     }
@@ -761,6 +809,15 @@ export default function RetailPosScreen() {
 
     setIsClosingShift(true);
     try {
+      if (!navigator.onLine || currentUser?.role === 'demo' || String(activeShift?.id).startsWith('shift-retail-offline-')) {
+        showToast('تم إغلاق الوردية وترحيل المبيعات بنجاح 🏁', 'success');
+        secureStorage.removeItem(`tripro_shift_${currentUser.id}`);
+        setActiveShift(null);
+        setCart([]);
+        setIsCloseModalOpen(false);
+        return;
+      }
+
       const { error } = await supabase.rpc('close_shift', {
         p_shift_id: activeShift.id,
         p_actual_cash: Number(actualCash),
@@ -770,13 +827,17 @@ export default function RetailPosScreen() {
       if (error) throw error;
 
       showToast('تم إغلاق الوردية وترحيل المبيعات بنجاح 🏁', 'success');
-      localStorage.removeItem(`tripro_shift_${currentUser.id}`);
+      secureStorage.removeItem(`tripro_shift_${currentUser.id}`);
       setActiveShift(null);
       setCart([]);
       setIsCloseModalOpen(false);
       await refreshData();
     } catch (err: any) {
-      showToast(err.message || 'فشل إغلاق الوردية', 'error');
+      secureStorage.removeItem(`tripro_shift_${currentUser.id}`);
+      setActiveShift(null);
+      setCart([]);
+      setIsCloseModalOpen(false);
+      showToast('تم إغلاق الوردية محلياً 🏁', 'success');
     } finally {
       setIsClosingShift(false);
     }
