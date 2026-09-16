@@ -451,7 +451,32 @@ class ThermalPrinterService {
         return this.sendSerialRawBytes(rawBytes);
       }
 
-      // 3. Network IP TCP / HTTP raw socket
+      // 3. Local Hardware Agent Bridge (Port 8500)
+      try {
+        const localHelperRes = await fetch('http://127.0.0.1:8500/print', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            printerName: printer.name,
+            targetIp: printer.connectionType === 'NETWORK_IP' ? printer.ipAddress : undefined,
+            targetPort: printer.port || 9100,
+            rawBase64: btoa(String.fromCharCode(...rawBytes))
+          })
+        });
+        if (localHelperRes.ok) {
+          const resJson = await localHelperRes.json();
+          if (resJson.success) {
+            return {
+              success: true,
+              message: resJson.message || `تمت الطباعة الصامتة عبر الجسر المحلي لـ ${printer.name} 🖨️`
+            };
+          }
+        }
+      } catch (localBridgeErr) {
+        // Local agent is not running, proceed to network or browser fallback
+      }
+
+      // 4. Network IP TCP / HTTP raw socket
       if (printer.connectionType === 'NETWORK_IP' && printer.ipAddress) {
         const url = `http://${printer.ipAddress}:${printer.port || 9100}/print`;
         try {
