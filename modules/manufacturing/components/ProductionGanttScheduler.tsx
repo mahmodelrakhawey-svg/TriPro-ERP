@@ -9,6 +9,7 @@ import {
   ChevronRight, ChevronLeft, Zap, Wrench, ShieldAlert, TrendingUp,
   Cpu, Users, Play, Edit3, X, Eye, ArrowRight, CheckSquare, Sparkles
 } from 'lucide-react';
+import ProductSearchSelect from '../../../components/ProductSearchSelect';
 
 export interface GanttOrder {
   id: string;
@@ -886,17 +887,20 @@ export default function ProductionGanttScheduler() {
             <form onSubmit={handleCreateNewOrder} className="space-y-4 text-xs">
               <div>
                 <label className="block text-slate-400 font-bold mb-1">اختر المنتج التام المراد تصنيعه *</label>
-                <select
-                  required
+                <ProductSearchSelect
+                  products={products.filter(p => {
+                    if (!p) return false;
+                    const pType = String((p as any).product_type || p.item_type || '').toUpperCase();
+                    const mType = String((p as any).mfg_type || '').toLowerCase();
+                    if (pType === 'RAW_MATERIAL' || mType === 'raw' || pType === 'SERVICE') return false;
+                    return true;
+                  })}
                   value={newOrderForm.product_id}
-                  onChange={e => setNewOrderForm({ ...newOrderForm, product_id: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-white outline-none focus:border-indigo-500"
-                >
-                  <option value="">-- اختر المنتج التام --</option>
-                  {products.filter(p => p.item_type === 'STOCK' || !p.item_type).map(p => (
-                    <option key={p.id} value={p.id}>{p.name} ({p.sku || p.code || 'كود'})</option>
-                  ))}
-                </select>
+                  onChange={(productId) => setNewOrderForm(prev => ({ ...prev, product_id: productId }))}
+                  placeholder="ابحث بالاسم، الكود (SKU)، الباركود، أو الحروف..."
+                  className="w-full"
+                  theme="dark"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
