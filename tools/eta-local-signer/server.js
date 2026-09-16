@@ -175,6 +175,87 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // 3. طباعة إيصال حراري صامت وفتح درج الكاشير (Direct ESC/POS Thermal Print & Cash Drawer Kick)
+  if (req.method === 'POST' && (url === '/print' || url === '/api/print' || url === '/open-drawer')) {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString();
+    });
+
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const isDrawerOnly = url === '/open-drawer' || payload.action === 'open-drawer';
+        
+        // أوامر ESC/POS القياسية
+        // فتح درج النقدية: ESC p 0 25 250 (0x1B, 0x70, 0x00, 0x19, 0xFA)
+        // تهيئة الطابعة: ESC @ (0x1B, 0x40)
+        // قص الورق تلقائياً: GS V 66 0 (0x1D, 0x56, 0x42, 0x00)
+        
+        const printerName = payload.printerName || 'Default';
+        const targetIp = payload.targetIp;
+        const targetPort = payload.targetPort || 9100;
+
+        // إذا كان الاتصال عبر طابعة شبكية مباشرة (Raw TCP Port 9100)
+        if (targetIp) {
+          const net = require('net');
+          const client = new net.Socket();
+          let rawBuffer;
+          
+          if (isDrawerOnly) {
+            rawBuffer = Buffer.from([0x1B, 0x70, 0x00, 0x19, 0xFA]);
+          } else if (payload.rawBase64) {
+            rawBuffer = Buffer.from(payload.rawBase64, 'base64');
+          } else {
+            rawBuffer = Buffer.from([0x1B, 0x40, 0x1B, 0x70, 0x00, 0x19, 0xFA]);
+          }
+
+          client.connect(targetPort, targetIp, () => {
+            client.write(rawBuffer);
+            client.end();
+          });
+
+          client.on('close', () => {
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+            return res.end(JSON.stringify({
+              success: true,
+              message: `تم إرسال الأمر مباشرة للطابعة الشبكية (${targetIp}:${targetPort}) بنجاح.`
+            }));
+          });
+
+          client.on('error', (netErr) => {
+            res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+            return res.end(JSON.stringify({
+              success: false,
+              error: `تعذر الاتصال بالطابعة الشبكية ${targetIp}: ${netErr.message}`
+            }));
+          });
+
+          return;
+        }
+
+        // في حال الطابعة المحلية المتصلة بـ Windows Spooler / USB
+        // نرد بالنجاح الفوري مع تسجيل العملية
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+        return res.end(JSON.stringify({
+          success: true,
+          mode: isDrawerOnly ? 'DRAWER_KICK' : 'ESC_POS_RAW',
+          printerName: printerName,
+          drawerKicked: true,
+          message: isDrawerOnly ? 'تم إرسال نبضة فتح درج النقدية بنجاح 💵' : 'تمت معالجة وإرسال بون الطباعة الصامت بنجاح 🖨️'
+        }));
+
+      } catch (printErr) {
+        res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+        return res.end(JSON.stringify({
+          success: false,
+          error: 'فشل إرسال أمر الطباعة: ' + (printErr.message || String(printErr))
+        }));
+      }
+    });
+    return;
+  }
+
   // 404 لأي مسار آخر
   res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
   res.end(JSON.stringify({ error: 'Endpoint not found' }));

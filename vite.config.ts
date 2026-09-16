@@ -32,30 +32,42 @@ export default defineConfig(({ mode }) => {
           output: {
             manualChunks(id) {
               if (id.includes('node_modules')) {
-                if (id.includes('xlsx')) {
-                  return 'vendor-xlsx';
+                // Large libraries
+                if (id.includes('xlsx')) return 'vendor-xlsx';
+                if (id.includes('jspdf') || id.includes('html2canvas')) return 'vendor-pdf';
+                if (id.includes('recharts') || id.includes('d3')) return 'vendor-charts';
+                if (id.includes('lucide-react')) return 'vendor-icons';
+                if (id.includes('@supabase')) return 'vendor-supabase';
+                if (id.includes('dexie')) return 'vendor-offline';
+
+                // Ant Design split
+                if (id.includes('@ant-design/icons')) return 'vendor-antd-icons';
+                if (id.includes('@rc-component') || id.includes('rc-')) return 'vendor-rc-components';
+                if (id.includes('antd')) return 'vendor-antd';
+
+                // React & Router
+                if (id.includes('react/') || id.includes('react-dom') || id.includes('react-router')) {
+                  return 'vendor-react';
                 }
-                if (id.includes('jspdf') || id.includes('html2canvas')) {
-                  return 'vendor-pdf';
+
+                // Query & State
+                if (id.includes('@tanstack')) return 'vendor-query';
+
+                // Forms & Validation
+                if (id.includes('react-hook-form') || id.includes('zod') || id.includes('@hookform')) {
+                  return 'vendor-forms';
                 }
-                if (id.includes('recharts') || id.includes('d3')) {
-                  return 'vendor-charts';
-                }
-                if (id.includes('lucide-react')) {
-                  return 'vendor-icons';
-                }
-                if (id.includes('@supabase')) {
-                  return 'vendor-supabase';
-                }
-                if (id.includes('dexie')) {
-                  return 'vendor-offline';
-                }
-                if (id.includes('antd') || id.includes('@ant-design') || id.includes('@rc-component') || id.includes('rc-')) {
-                  return 'vendor-antd';
-                }
-                return 'vendor-core';
+
+                // Date utilities
+                if (id.includes('dayjs') || id.includes('date-fns')) return 'vendor-dates';
+
+                // Drag & Drop
+                if (id.includes('@dnd-kit')) return 'vendor-dnd';
+
+                return 'vendor-utils';
               }
             },
+
           },
         },
       },

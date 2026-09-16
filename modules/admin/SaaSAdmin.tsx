@@ -31,10 +31,13 @@ import {
   PlusCircle,
   Upload,
   GitFork,
-  Sparkles
+  Sparkles,
+  UploadCloud
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { secureStorage } from '../../utils/securityMiddleware';
+import { offsiteBackupService } from '../../services/offsiteBackupService';
+
 
 const AVAILABLE_MODULES = [
   { id: 'accounting', label: 'المحاسبة العامة' },
@@ -1456,6 +1459,27 @@ const SaaSAdmin: React.FC = () => {
     }
   };
 
+  const [exportingS3, setExportingS3] = useState(false);
+  const handleExportToS3 = async () => {
+    if (!selectedBackupOrgId) return;
+    setExportingS3(true);
+    try {
+      showToast('جاري أخذ نسخة سحابية ورفعها إلى مستودع S3 / R2 الخارجي...', 'info');
+      const res = await offsiteBackupService.createAndExportOffsiteBackup(selectedBackupOrgId);
+      if (res.success) {
+        showToast((res.message || 'تم الرفع إلى S3 بنجاح') + ' ✅', 'success');
+        fetchBackups(selectedBackupOrgId);
+      } else {
+        showToast((res.message || 'فشل الرفع إلى S3') + (res.error ? ': ' + res.error : ''), 'error');
+      }
+    } catch (err: any) {
+      showToast('خطأ في الرفع الخارجي: ' + err.message, 'error');
+    } finally {
+      setExportingS3(false);
+    }
+  };
+
+
   const handleDownloadBackup = (backup: OrganizationBackup) => {
     const blob = new Blob([JSON.stringify(backup.backup_data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -2222,8 +2246,17 @@ const SaaSAdmin: React.FC = () => {
               >
                 {creatingBackup ? <Loader2 className="animate-spin" size={20} /> : <PlusCircle size={20} />} إنشاء نسخة احتياطية
               </button>
+              <button 
+                onClick={handleExportToS3} 
+                disabled={exportingS3 || !selectedBackupOrgId} 
+                className="bg-indigo-600 text-white px-6 py-3 rounded-2xl font-black hover:bg-indigo-700 flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-indigo-100"
+                title="أخذ نسخة احتياطية ورفعها إلى مستودع S3 / Cloudflare R2 خارجي"
+              >
+                {exportingS3 ? <Loader2 className="animate-spin" size={20} /> : <UploadCloud size={20} />} تصدير خارجي (S3 / R2)
+              </button>
             </div>
           </div>
+
 
           {selectedBackupOrgId && (
             <div className="border-2 border-slate-50 rounded-[32px] overflow-hidden">
