@@ -2,17 +2,66 @@
  * ==============================================================================
  * TriPro ERP - Desktop Standalone Runner (Electron Native Window)
  * ==============================================================================
- * يتيح هذا المشغل فتح TriPro ERP كتطبيق حاسوب مستقل بالكامل (Desktop .exe)
- * مع تخزين مؤقت محلي يعمل حتى لو انقطع الاتصال بالإنترنت تماماً.
- * ==============================================================================
  */
 
 const { app, BrowserWindow, Menu } = require('electron');
 const path = require('path');
+const http = require('http');
+const fs = require('fs');
 
 let mainWindow = null;
+let localServer = null;
 
-function createWindow() {
+function startLocalDistServer() {
+  return new Promise((resolve) => {
+    const distPath = path.join(__dirname, '../dist');
+    const mimeTypes = {
+      '.html': 'text/html; charset=utf-8',
+      '.js': 'application/javascript; charset=utf-8',
+      '.mjs': 'application/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.json': 'application/json; charset=utf-8',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.svg': 'image/svg+xml',
+      '.ico': 'image/x-icon',
+      '.woff2': 'font/woff2'
+    };
+
+    localServer = http.createServer((req, res) => {
+      let reqPath = req.url.split('?')[0];
+      if (reqPath === '/') reqPath = '/index.html';
+
+      let filePath = path.join(distPath, reqPath);
+
+      if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+        filePath = path.join(distPath, 'index.html');
+      }
+
+      const ext = path.extname(filePath).toLowerCase();
+      const contentType = mimeTypes[ext] || 'application/octet-stream';
+
+      fs.readFile(filePath, (err, content) => {
+        if (err) {
+          res.writeHead(404);
+          res.end('File not found');
+        } else {
+          res.writeHead(200, {
+            'Content-Type': contentType,
+            'Access-Control-Allow-Origin': '*'
+          });
+          res.end(content);
+        }
+      });
+    });
+
+    localServer.listen(0, '127.0.0.1', () => {
+      resolve(localServer.address().port);
+    });
+  });
+}
+
+async function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1366,
     height: 850,
@@ -22,26 +71,19 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: true,
+      webSecurity: false,
       preload: path.join(__dirname, 'preload.cjs')
     }
   });
 
   Menu.setApplicationMenu(null);
 
-  const distIndexPath = path.join(__dirname, '../dist/index.html');
-  const devServerUrl = 'http://localhost:5173';
-
-  if (process.env.VITE_DEV === 'true') {
-    mainWindow.loadURL(devServerUrl).catch(() => {
-      mainWindow.loadFile(distIndexPath);
-    });
-  } else {
-    mainWindow.loadFile(distIndexPath);
-  }
+  const port = await startLocalDistServer();
+  mainWindow.loadURL(`http://127.0.0.1:${port}/index.html`);
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    if (localServer) localServer.close();
   });
 }
 
@@ -49,14 +91,10 @@ app.whenReady().then(() => {
   createWindow();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
+  if (process.platform !== 'darwin') app.quit();
 });

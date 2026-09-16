@@ -40,15 +40,14 @@ export default defineConfig(({ mode }) => {
                 if (id.includes('@supabase')) return 'vendor-supabase';
                 if (id.includes('dexie')) return 'vendor-offline';
 
-                // Ant Design split
-                if (id.includes('@ant-design/icons')) return 'vendor-antd-icons';
-                if (id.includes('@rc-component') || id.includes('rc-')) return 'vendor-rc-components';
-                if (id.includes('antd')) return 'vendor-antd';
-
-                // React & Router
-                if (id.includes('react/') || id.includes('react-dom') || id.includes('react-router')) {
+                // React Core first
+                if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') || id.includes('node_modules/react-router')) {
                   return 'vendor-react';
                 }
+
+                // Ant Design split
+                if (id.includes('@ant-design/icons')) return 'vendor-antd-icons';
+                if (id.includes('@rc-component') || id.includes('rc-') || id.includes('antd')) return 'vendor-antd';
 
                 // Query & State
                 if (id.includes('@tanstack')) return 'vendor-query';
