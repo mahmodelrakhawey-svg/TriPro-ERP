@@ -138,6 +138,7 @@ const ProductManager = () => {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [recipeCost, setRecipeCost] = useState(0); 
+  const [isExporting, setIsExporting] = useState(false); 
 
   // تأخير البحث
   useEffect(() => {
@@ -658,36 +659,70 @@ const ProductManager = () => {
   };
 
   const handleExportExcel = async () => {
-    showToast('جاري تجهيز الملف للتصدير...', 'info');
+    setIsExporting(true);
+    showToast('جاري جلب وتجهيز كافة الأصناف للتصدير...', 'info');
     try {
-        let query = supabase.from('products').select('*');
-        if (targetOrgId) {
-          query = query.eq('organization_id', targetOrgId);
+        const CHUNK_SIZE = 1000;
+        let allItems: any[] = [];
+        let from = 0;
+
+        while (true) {
+          let query = supabase.from('products').select('*');
+          if (targetOrgId) {
+            query = query.eq('organization_id', targetOrgId);
+          }
+          query = query.is('deleted_at', null);
+          // تطبيق نفس الفلاتر المستخدمة في العرض الرئيسي
+          query = queryModifier(query);
+          query = query.order('id', { ascending: true }).range(from, from + CHUNK_SIZE - 1);
+
+          const { data, error } = await query;
+          if (error) throw error;
+
+          if (!data || data.length === 0) break;
+          allItems = allItems.concat(data);
+          if (data.length < CHUNK_SIZE) break;
+          from += CHUNK_SIZE;
         }
-        query = query.is('deleted_at', null);
-        // تطبيق نفس الفلاتر المستخدمة في العرض الرئيسي
-        query = queryModifier(query);
 
-        const { data: allItems, error } = await query;
+        if (allItems.length === 0) {
+          showToast('لا توجد أصناف لتصديرها وفق الفلاتر الحالية.', 'info');
+          return;
+        }
 
-        if (error) throw error;
-        // Use handleError for consistency
-        const dataToExport = (allItems || []).map(item => ({
-          'اسم الصنف': item.name,
-          'الكود (SKU)': item.sku || '-',
-          'النوع': item.item_type === 'STOCK' ? 'مخزوني' : 'خدمي',
-          'الرصيد الحالي': item.stock,
-          'سعر الشراء': item.purchase_price,
-          'سعر البيع': item.sales_price,
-          'متوسط التكلفة': item.weighted_average_cost || item.purchase_price,
-        }));
+        const dataToExport = allItems.map(item => {
+          const categoryName = categories.find(c => c.id === item.category_id)?.name || (item as any).category || '-';
+          const pType = String(item.product_type || item.item_type || '').toUpperCase();
+          const mType = String((item as any).mfg_type || '').toLowerCase();
+          let typeLabel = 'مخزوني';
+          if (pType === 'RAW_MATERIAL' || mType === 'raw') typeLabel = 'مادة خام';
+          else if (pType === 'INTERMEDIATE_PRODUCT' || mType === 'intermediate' || mType === 'subassembly') typeLabel = 'منتج وسيط';
+          else if (pType === 'MANUFACTURED' || mType === 'standard' || item.item_type === 'MANUFACTURED') typeLabel = 'منتج تام';
+          else if (pType === 'SERVICE' || item.item_type === 'SERVICE') typeLabel = 'خدمي';
+
+          return {
+            'اسم الصنف': item.name,
+            'الكود (SKU)': item.sku || '-',
+            'الباركود': item.barcode || (item as any).barcode2 || '-',
+            'التصنيف': categoryName,
+            'النوع': typeLabel,
+            'الوحدة': item.unit || '-',
+            'الرصيد الحالي': Number(item.stock || 0),
+            'سعر الشراء': Number(item.purchase_price || 0),
+            'متوسط التكلفة': Number(item.weighted_average_cost || item.purchase_price || 0),
+            'سعر البيع': Number(item.sales_price || 0),
+          };
+        });
 
         const ws = XLSX.utils.json_to_sheet(dataToExport);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "قائمة الأصناف");
         XLSX.writeFile(wb, `Products_List_${new Date().toISOString().split('T')[0]}.xlsx`);
+        showToast(`تم تصدير ${allItems.length} صنف بنجاح إلى Excel ✅`, 'success');
     } catch (err: any) {
         showToast('فشل التصدير: ' + err.message, 'error');
+    } finally {
+        setIsExporting(false);
     }
   };
 
@@ -2315,8 +2350,14 @@ const ProductManager = () => {
                 {isRecalculatingAll ? <Loader2 size={16} className="animate-spin text-teal-600" /> : <RefreshCw size={16} className="text-teal-600" />}
                 <span>إعادة احتساب الأرصدة</span>
             </button>
-            <button onClick={handleExportExcel} className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-100 text-sm font-bold" title="تصدير القائمة الحالية إلى Excel">
-                <FileSpreadsheet size={16} /> تصدير
+            <button 
+                onClick={handleExportExcel} 
+                disabled={isExporting}
+                className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-100 text-sm font-bold shadow-sm transition-all disabled:opacity-50" 
+                title="تصدير القائمة الحالية بالكامل إلى Excel"
+            >
+                {isExporting ? <Loader2 size={16} className="animate-spin text-blue-600" /> : <FileSpreadsheet size={16} />}
+                <span>{isExporting ? 'جاري التصدير...' : 'تصدير'}</span>
             </button>
             <button onClick={handleExportScalePLU} className="bg-purple-50 border border-purple-200 text-purple-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-100 text-sm font-bold shadow-sm transition-all" title="تصدير ملف أكواد وأسعار الموازين الإلكترونية (PLU) لبرامج موازين الباركود">
                 <Scale size={16} /> ملف الموازين (PLU)

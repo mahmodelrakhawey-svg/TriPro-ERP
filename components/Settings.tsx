@@ -852,20 +852,34 @@ const Settings = () => {
           let data: any[] = [];
           let fileName = '';
           
-          if (type === 'customers') {
-              const { data: res, error } = await supabase.from('customers').select('*').is('deleted_at', null);
+          const fetchAllRecords = async (table: string) => {
+            const CHUNK_SIZE = 1000;
+            let all: any[] = [];
+            let from = 0;
+            while (true) {
+              const { data: chunk, error } = await supabase
+                .from(table)
+                .select('*')
+                .is('deleted_at', null)
+                .order('id', { ascending: true })
+                .range(from, from + CHUNK_SIZE - 1);
               if (error) throw error;
-              data = res || [];
+              if (!chunk || chunk.length === 0) break;
+              all = all.concat(chunk);
+              if (chunk.length < CHUNK_SIZE) break;
+              from += CHUNK_SIZE;
+            }
+            return all;
+          };
+
+          if (type === 'customers') {
+              data = await fetchAllRecords('customers');
               fileName = 'Customers_List.xlsx';
           } else if (type === 'suppliers') {
-              const { data: res, error } = await supabase.from('suppliers').select('*').is('deleted_at', null);
-              if (error) throw error;
-              data = res || [];
+              data = await fetchAllRecords('suppliers');
               fileName = 'Suppliers_List.xlsx';
           } else if (type === 'products') {
-              const { data: res, error } = await supabase.from('products').select('*').is('deleted_at', null);
-              if (error) throw error;
-              data = res || [];
+              data = await fetchAllRecords('products');
               fileName = 'Products_List.xlsx';
           }
 
