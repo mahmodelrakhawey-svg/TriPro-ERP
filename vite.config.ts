@@ -27,46 +27,20 @@ export default defineConfig(({ mode }) => {
         }
       },
       build: {
-        chunkSizeWarningLimit: 1600,
+        chunkSizeWarningLimit: 2500,
         rollupOptions: {
           output: {
             manualChunks(id) {
               if (id.includes('node_modules')) {
-                // Large libraries
+                // Heavy standalone data/export engines (No React runtime dependency)
                 if (id.includes('xlsx')) return 'vendor-xlsx';
                 if (id.includes('jspdf') || id.includes('html2canvas')) return 'vendor-pdf';
-                if (id.includes('recharts') || id.includes('d3')) return 'vendor-charts';
-                if (id.includes('lucide-react')) return 'vendor-icons';
                 if (id.includes('@supabase')) return 'vendor-supabase';
-                if (id.includes('dexie')) return 'vendor-offline';
 
-                // React Core first
-                if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/') || id.includes('node_modules/react-router')) {
-                  return 'vendor-react';
-                }
-
-                // Ant Design split
-                if (id.includes('@ant-design/icons')) return 'vendor-antd-icons';
-                if (id.includes('@rc-component') || id.includes('rc-') || id.includes('antd')) return 'vendor-antd';
-
-                // Query & State
-                if (id.includes('@tanstack')) return 'vendor-query';
-
-                // Forms & Validation
-                if (id.includes('react-hook-form') || id.includes('zod') || id.includes('@hookform')) {
-                  return 'vendor-forms';
-                }
-
-                // Date utilities
-                if (id.includes('dayjs') || id.includes('date-fns')) return 'vendor-dates';
-
-                // Drag & Drop
-                if (id.includes('@dnd-kit')) return 'vendor-dnd';
-
-                return 'vendor-utils';
+                // Unified Application Vendor Runtime (Everything else runs unified with React)
+                return 'vendor-app';
               }
             },
-
           },
         },
       },
