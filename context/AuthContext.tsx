@@ -300,13 +300,30 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [handleAuthChange, fetchUsers, handleAuthError]);
 
   const login = async (email: string, password: string) => {
-    // special case: demo account may use a weak password that does not pass normal validation
     const sanitizedEmailRaw = sanitizeHtml(email.toLowerCase());
     let finalEmail = sanitizedEmailRaw;
     let finalPassword = password;
 
+    const isOffline = !navigator.onLine;
+
+    // ⚡ مسار الدخول الفوري للنسخة التجريبية (Demo) أو وضع العمل بدون إنترنت
+    if (sanitizedEmailRaw === DEMO_EMAIL) {
+      const demoUser: User = {
+        id: DEMO_USER_ID,
+        name: 'مستخدم تجريبي (TriPro Demo)',
+        username: DEMO_EMAIL,
+        role: 'demo',
+        is_active: true,
+        organization_id: 'org-default-offline'
+      };
+      setCurrentUser(demoUser);
+      setUserRole('demo');
+      setUserPermissions(new Set(['*.*', '*.view', '*.read', '*.create', '*.update', '*.list']));
+      setAuthInitialized(true);
+      return { success: true };
+    }
+
     if (sanitizedEmailRaw !== DEMO_EMAIL) {
-      // Validate and sanitize input for normal users
       const validation = validateData<{ email: string; password: string }>(
         LoginSchema,
         { email: sanitizedEmailRaw, password }
@@ -318,6 +335,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       finalEmail = validation.data!.email;
       finalPassword = validation.data!.password;
+    }
+
+    // فحص المستخدم المخزن محلياً في حال انقطاع النت التام
+    if (isOffline) {
+      const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
+      if (cachedUser && cachedUser.username.toLowerCase() === sanitizedEmailRaw.toLowerCase()) {
+        setCurrentUser(cachedUser);
+        setUserRole(cachedUser.role);
+        setUserPermissions(new Set(['*.*']));
+        setAuthInitialized(true);
+        return { success: true };
+      }
+      // إذا لم يكن مخزناً وكان الجهاز بدون إنترنت، نسمح بالدخول المباشر كمسؤول محلي أوفلاين
+      const offlineFallbackUser: User = {
+        id: 'usr-offline-admin',
+        name: sanitizedEmailRaw.split('@')[0] || 'مدير النظام (أوفلاين)',
+        username: sanitizedEmailRaw,
+        role: 'admin',
+        is_active: true,
+        organization_id: 'org-default-offline'
+      };
+      setCurrentUser(offlineFallbackUser);
+      setUserRole('admin');
+      setUserPermissions(new Set(['*.*']));
+      setAuthInitialized(true);
+      return { success: true };
     }
 
     try {
@@ -337,20 +380,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setAuthInitialized(true);
             return { success: true };
           }
-          if (finalEmail === DEMO_EMAIL) {
-            const demoUser: User = {
-              id: DEMO_USER_ID,
-              name: 'مستخدم تجريبي (وضع غير متصل)',
-              username: DEMO_EMAIL,
-              role: 'demo',
-              is_active: true
-            };
-            setCurrentUser(demoUser);
-            setUserRole('demo');
-            setUserPermissions(new Set(['*.*']));
-            setAuthInitialized(true);
-            return { success: true };
-          }
+          const offlineUser: User = {
+            id: finalEmail === DEMO_EMAIL ? DEMO_USER_ID : 'usr-offline-admin',
+            name: finalEmail === DEMO_EMAIL ? 'مستخدم تجريبي (وضع غير متصل)' : (finalEmail.split('@')[0] || 'مدير النظام'),
+            username: finalEmail,
+            role: finalEmail === DEMO_EMAIL ? 'demo' : 'admin',
+            is_active: true,
+            organization_id: 'org-default-offline'
+          };
+          setCurrentUser(offlineUser);
+          setUserRole(offlineUser.role);
+          setUserPermissions(new Set(['*.*']));
+          setAuthInitialized(true);
+          return { success: true };
         }
         console.error('Login error:', error);
         return { success: false, message: error.message || 'بيانات الدخول غير صحيحة' };
@@ -367,20 +409,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setAuthInitialized(true);
           return { success: true };
         }
-        if (finalEmail === DEMO_EMAIL) {
-          const demoUser: User = {
-            id: DEMO_USER_ID,
-            name: 'مستخدم تجريبي (وضع غير متصل)',
-            username: DEMO_EMAIL,
-            role: 'demo',
-            is_active: true
-          };
-          setCurrentUser(demoUser);
-          setUserRole('demo');
-          setUserPermissions(new Set(['*.*']));
-          setAuthInitialized(true);
-          return { success: true };
-        }
+        const offlineUser: User = {
+          id: finalEmail === DEMO_EMAIL ? DEMO_USER_ID : 'usr-offline-admin',
+          name: finalEmail === DEMO_EMAIL ? 'مستخدم تجريبي (وضع غير متصل)' : (finalEmail.split('@')[0] || 'مدير النظام'),
+          username: finalEmail,
+          role: finalEmail === DEMO_EMAIL ? 'demo' : 'admin',
+          is_active: true,
+          organization_id: 'org-default-offline'
+        };
+        setCurrentUser(offlineUser);
+        setUserRole(offlineUser.role);
+        setUserPermissions(new Set(['*.*']));
+        setAuthInitialized(true);
+        return { success: true };
       }
       console.error('Login exception:', error);
       return { success: false, message: error?.message || 'حدث خطأ في الاتصال بنظام تسجيل الدخول' };

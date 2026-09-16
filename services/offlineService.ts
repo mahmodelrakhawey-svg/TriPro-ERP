@@ -648,5 +648,46 @@ export const offlineService = {
         }
       }
     }
+  },
+
+  /**
+   * Seeds offline fallback products into IndexedDB if empty.
+   */
+  async seedFallbackProducts(productsList: any[]): Promise<void> {
+    try {
+      const count = await db.products.count();
+      if (count === 0 && productsList && productsList.length > 0) {
+        const toCache: CachedProduct[] = productsList.map(p => ({
+          id: p.id,
+          name: p.name,
+          barcode: p.barcode || null,
+          sku: p.sku || null,
+          sales_price: Number(p.sales_price || 0),
+          cost: Number(p.cost || 0),
+          category_id: p.category_id || null,
+          stock: Number(p.stock || 100),
+          image_url: p.image_url || null,
+          is_scale_item: false,
+          plu_number: null,
+          scale_prefix: '22',
+          barcode2: null,
+          age_restricted: false,
+          tax_rate_override: null,
+          unit_barcodes: [],
+          offer_price: null,
+          offer_start_date: null,
+          offer_end_date: null,
+          min_sales_price: 0,
+          max_stock_level: 1000,
+          wholesale_price: Number(p.sales_price || 0),
+          half_wholesale_price: Number(p.sales_price || 0),
+          warehouse_stock: null,
+        }));
+        await db.products.bulkPut(toCache);
+        console.log(`Seeded ${toCache.length} fallback products into IndexedDB for offline POS.`);
+      }
+    } catch (e) {
+      console.warn('Failed to seed fallback products:', e);
+    }
   }
 };

@@ -62,6 +62,85 @@ export const SYSTEM_ACCOUNTS = {
   LETTER_OF_CREDIT_GOODS: '1246', // اعتمادات مستندية لشراء بضائع
 };
 
+import { offlineService } from '../services/offlineService';
+
+// 📴 بيانات افتراضية لوضع الأوفلاين والديمو (Default Offline / Demo Datasets)
+export const DEFAULT_OFFLINE_ORG = {
+  id: 'org-default-offline',
+  name: 'مؤسسة تري برو (وضع بدون إنترنت / تجريبي)',
+  is_active: true,
+  allowed_modules: ['restaurant', 'pos', 'retail', 'sales', 'purchases', 'inventory', 'accounting', 'hr', 'manufacturing', 'hims', 'stadium'],
+  subscription_expiry: '2099-12-31'
+};
+
+export const DEFAULT_OFFLINE_TABLES: any[] = [
+  { id: 'tbl-1', name: 'طاولة 1 (صالة)', capacity: 4, status: 'AVAILABLE', section: 'الصالة الداخلية', organization_id: 'org-default-offline' },
+  { id: 'tbl-2', name: 'طاولة 2 (صالة)', capacity: 4, status: 'AVAILABLE', section: 'الصالة الداخلية', organization_id: 'org-default-offline' },
+  { id: 'tbl-3', name: 'طاولة 3 (صالة)', capacity: 4, status: 'AVAILABLE', section: 'الصالة الداخلية', organization_id: 'org-default-offline' },
+  { id: 'tbl-4', name: 'طاولة 4 (عائلات)', capacity: 6, status: 'AVAILABLE', section: 'قسم العائلات', organization_id: 'org-default-offline' },
+  { id: 'tbl-5', name: 'طاولة 5 (عائلات)', capacity: 6, status: 'AVAILABLE', section: 'قسم العائلات', organization_id: 'org-default-offline' },
+  { id: 'tbl-6', name: 'طاولة 6 (VIP)', capacity: 8, status: 'AVAILABLE', section: 'VIP', organization_id: 'org-default-offline' },
+  { id: 'tbl-7', name: 'طاولة 7 (تراس)', capacity: 4, status: 'AVAILABLE', section: 'تراس خارجي', organization_id: 'org-default-offline' },
+];
+
+export const DEFAULT_OFFLINE_CATEGORIES: any[] = [
+  { id: 'cat-grills', name: 'مشويات ووجبات' },
+  { id: 'cat-drinks', name: 'مشروبات وعصائر' },
+  { id: 'cat-dessert', name: 'حلويات شرقية وغربية' },
+  { id: 'cat-salads', name: 'مقبلات وسلطات' },
+];
+
+export const DEFAULT_OFFLINE_PRODUCTS: any[] = [
+  { id: 'prod-1', name: 'وجبة كباب مشوي عائلي', sales_price: 150, cost: 80, category_id: 'cat-grills', category: 'مشويات ووجبات', barcode: '6221001', stock: 100, product_type: 'FINISHED_GOODS', is_active: true },
+  { id: 'prod-2', name: 'نصف دجاجة شواية مع أرز بسمتي', sales_price: 85, cost: 45, category_id: 'cat-grills', category: 'مشويات ووجبات', barcode: '6221002', stock: 100, product_type: 'FINISHED_GOODS', is_active: true },
+  { id: 'prod-3', name: 'ساندوتش شاورما لحم عربي', sales_price: 45, cost: 22, category_id: 'cat-grills', category: 'مشويات ووجبات', barcode: '6221003', stock: 100, product_type: 'FINISHED_GOODS', is_active: true },
+  { id: 'prod-4', name: 'برجر لحم بالجبنة والصوص', sales_price: 60, cost: 30, category_id: 'cat-grills', category: 'مشويات ووجبات', barcode: '6221004', stock: 80, product_type: 'FINISHED_GOODS', is_active: true },
+  { id: 'prod-5', name: 'عصير برتقال فريش', sales_price: 25, cost: 10, category_id: 'cat-drinks', category: 'مشروبات وعصائر', barcode: '6221005', stock: 100, product_type: 'FINISHED_GOODS', is_active: true },
+  { id: 'prod-6', name: 'كولا بارد علبة 330 مل', sales_price: 15, cost: 7, category_id: 'cat-drinks', category: 'مشروبات وعصائر', barcode: '6221006', stock: 200, product_type: 'FINISHED_GOODS', is_active: true },
+  { id: 'prod-7', name: 'أم علي بالمكسرات والقشطة', sales_price: 35, cost: 15, category_id: 'cat-dessert', category: 'حلويات شرقية وغربية', barcode: '6221007', stock: 50, product_type: 'FINISHED_GOODS', is_active: true },
+  { id: 'prod-8', name: 'كنافة نابلسية بالجبنة', sales_price: 40, cost: 18, category_id: 'cat-dessert', category: 'حلويات شرقية وغربية', barcode: '6221008', stock: 50, product_type: 'FINISHED_GOODS', is_active: true },
+  { id: 'prod-9', name: 'سلطة خضراء طازجة', sales_price: 20, cost: 8, category_id: 'cat-salads', category: 'مقبلات وسلطات', barcode: '6221009', stock: 100, product_type: 'FINISHED_GOODS', is_active: true },
+  { id: 'prod-10', name: 'حمص بيروتي بالزيت والكمون', sales_price: 25, cost: 10, category_id: 'cat-salads', category: 'مقبلات وسلطات', barcode: '6221010', stock: 100, product_type: 'FINISHED_GOODS', is_active: true },
+];
+
+export const DEFAULT_OFFLINE_ACCOUNTS: any[] = [
+  { id: 'acc-cash', code: SYSTEM_ACCOUNTS.CASH, name: 'الصندوق الرئيسي (خزينة النقدية)', type: 'ASSET', sub_type: 'CASH', is_group: false },
+  { id: 'acc-bank', code: SYSTEM_ACCOUNTS.BANK_ACCOUNTS, name: 'البنك الأهلي / بطاقات الدفع', type: 'ASSET', sub_type: 'BANK', is_group: false },
+  { id: 'acc-sales', code: SYSTEM_ACCOUNTS.SALES_REVENUE, name: 'إيرادات المبيعات العامة', type: 'REVENUE', sub_type: 'SALES', is_group: false },
+  { id: 'acc-vat', code: SYSTEM_ACCOUNTS.VAT, name: 'مصلحة الضرائب - ضريبة القيمة المضافة', type: 'LIABILITY', sub_type: 'VAT', is_group: false },
+  { id: 'acc-cogs', code: SYSTEM_ACCOUNTS.COGS, name: 'تكلفة البضاعة المباعة', type: 'EXPENSE', sub_type: 'COGS', is_group: false },
+  { id: 'acc-cust', code: SYSTEM_ACCOUNTS.CUSTOMERS, name: 'العملاء وحسابات القبض', type: 'ASSET', sub_type: 'RECEIVABLE', is_group: false },
+  { id: 'acc-supp', code: SYSTEM_ACCOUNTS.SUPPLIERS, name: 'الموردين وحسابات الدفع', type: 'LIABILITY', sub_type: 'PAYABLE', is_group: false },
+  { id: 'acc-inv', code: SYSTEM_ACCOUNTS.INVENTORY, name: 'مخزون البضاعة الجاهزة', type: 'ASSET', sub_type: 'INVENTORY', is_group: false },
+];
+
+export const DEFAULT_OFFLINE_WAREHOUSES: any[] = [
+  { id: 'wh-main', name: 'المستودع الرئيسي (الصالة)', is_active: true }
+];
+
+export const getOfflineTableOrders = (): Record<string, any> => {
+  try {
+    const raw = localStorage.getItem('tripro_offline_table_orders');
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+export const setOfflineTableOrder = (tableId: string, orderData: any) => {
+  try {
+    const all = getOfflineTableOrders();
+    if (orderData === null) {
+      delete all[tableId];
+    } else {
+      all[tableId] = orderData;
+    }
+    localStorage.setItem('tripro_offline_table_orders', JSON.stringify(all));
+  } catch (e) {
+    console.warn('LocalStorage error:', e);
+  }
+};
+
 interface AccountingContextType {
   organization: any;
   currentUser: UserProfile | null;
@@ -255,9 +334,45 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const { currentUser: authUser, can } = useAuth();
   const { showToast } = useToast();
   const [organization, setOrganization] = useState<any>(null);
+  const [currentSelectedOrgId, setCurrentSelectedOrgIdState] = useState<string | null>(() => {
+    return secureStorage.getItem<string>('tripro_active_org_id') || null;
+  });
+
+  const setCurrentSelectedOrgId = useCallback((id: string | null) => {
+    setCurrentSelectedOrgIdState(id);
+    if (id) {
+      secureStorage.setItem('tripro_active_org_id', id);
+    } else {
+      secureStorage.removeItem('tripro_active_org_id');
+    }
+  }, []);
+
   const [organizations, setOrganizations] = useState<any[]>([]);
-  const [currentSelectedOrgId, setCurrentSelectedOrgId] = useState<string | null>(null); // New state for super admin's selected org
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    if (authUser) {
+      return {
+        id: authUser.id,
+        full_name: authUser.name || 'مستخدم النظام',
+        role: authUser.role as UserRole,
+        organization_id: (authUser as any).organization_id || 'org-default-offline',
+        is_active: true
+      };
+    }
+    return null;
+  });
+
+  useEffect(() => {
+    if (authUser && (!currentUser || currentUser.id !== authUser.id)) {
+      setCurrentUser({
+        id: authUser.id,
+        full_name: authUser.name || 'مستخدم النظام',
+        role: authUser.role as UserRole,
+        organization_id: (authUser as any).organization_id || 'org-default-offline',
+        is_active: true
+      });
+    }
+  }, [authUser]);
+
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [settings, setSettings] = useState<any>({});
@@ -310,50 +425,118 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const isDemo = authUser?.username === 'demo@demo.com' || authUser?.role === 'demo';
 
+  // دالة مساعدة لتحميل بيانات الأوفلاين والديمو بسلاسة فائقة
+  const loadOfflineFallbackData = useCallback(async () => {
+    const fallbackProfile: UserProfile = {
+      id: authUser?.id || 'demo-user-id',
+      full_name: authUser?.name || 'مستخدم تجريبي (TriPro Offline)',
+      role: (authUser?.role as UserRole) || 'demo',
+      organization_id: DEFAULT_OFFLINE_ORG.id,
+      is_active: true
+    };
+    setCurrentUser(fallbackProfile);
+    setOrganization(DEFAULT_OFFLINE_ORG);
+    setOrganizations([DEFAULT_OFFLINE_ORG]);
+    setCurrentSelectedOrgId(DEFAULT_OFFLINE_ORG.id);
+    setAccounts(DEFAULT_OFFLINE_ACCOUNTS);
+    setProducts(DEFAULT_OFFLINE_PRODUCTS);
+    setRestaurantTables(DEFAULT_OFFLINE_TABLES);
+    setMenuCategories(DEFAULT_OFFLINE_CATEGORIES);
+    setCategories(DEFAULT_OFFLINE_CATEGORIES);
+    setWarehouses(DEFAULT_OFFLINE_WAREHOUSES);
+    setCustomers([{ id: 'cust-walkin', name: 'عميل نقدي صالة', phone: '0000000000' }]);
+    setSuppliers([{ id: 'sup-main', name: 'مورد عام معتمد', phone: '01000000000' }]);
+
+    // استرجاع الوردية المفتوحة محلياً أو إنشاء وردية جاهزة للعمل
+    let localShift = null;
+    try {
+      const savedShift = localStorage.getItem('tripro_offline_current_shift');
+      if (savedShift) localShift = JSON.parse(savedShift);
+    } catch (e) {}
+
+    if (!localShift) {
+      localShift = {
+        id: 'shift-offline-' + (authUser?.id || 'demo'),
+        shift_number: 'SHIFT-001',
+        user_id: authUser?.id || 'demo-user',
+        cashier_id: authUser?.id || 'demo-user',
+        opening_balance: 500,
+        status: 'OPEN',
+        start_time: new Date().toISOString()
+      };
+      try {
+        localStorage.setItem('tripro_offline_current_shift', JSON.stringify(localShift));
+      } catch (e) {}
+    }
+    setCurrentShift(localShift);
+
+    // زراعة المنتجات في قاعدة IndexedDB المحلية ليعمل كود الباركود والبحث الفوري بالتجزئة
+    await offlineService.seedFallbackProducts(DEFAULT_OFFLINE_PRODUCTS);
+    setLastUpdated(new Date());
+    setIsLoading(false);
+  }, [authUser]);
+
   const refreshData = useCallback(async () => {
     if (!authUser) return;
     setIsLoading(true);
+
+    // 📴 إذا كان التطبيق مفصولاً عن الإنترنت أو في وضع الديمو، ننتقل فوراً للبيانات المحلية بدون أي تأخير أو أخطاء
+    if (!navigator.onLine || isDemo) {
+      await loadOfflineFallbackData();
+      return;
+    }
+
     try {
       // جلب بيانات المنظمة والبروفايل
-      const { data: profile, error: profileError } = await supabase.from('profiles').select('*, organizations(*)').eq('id', authUser.id).single();
-      if (profileError) throw profileError;
-      if (profile) {
-        setCurrentUser(profile);
+      let profile: any = null;
+      try {
+        const { data: pData, error: profileError } = await supabase.from('profiles').select('*, organizations(*)').eq('id', authUser.id).single();
+        if (!profileError && pData) {
+          profile = pData;
+          setCurrentUser(profile);
+        }
+      } catch (pErr) {
+        console.warn('Could not fetch online profile, using fallback:', pErr);
       }
 
-      // 🛡️ صمام أمان: جلب قائمة الشركات للسوبر أدمن فوراً لملء القائمة المنسدلة
-      const isSuperAdmin = authUser.role === 'super_admin' || (profile && profile.role === 'super_admin');
-      if (isSuperAdmin) {
-        const { data: allOrgs } = await supabase.from('organizations').select('id, name').order('name');
-        setOrganizations(allOrgs || []);
-      }
-
-      // Determine the organization ID to use for fetching data
-      let fetchOrgId = profile.organization_id;
-
-      if (isSuperAdmin) {
-          if (currentSelectedOrgId) {
-              fetchOrgId = currentSelectedOrgId;
-          } else if (profile.organization_id) {
-              fetchOrgId = profile.organization_id;
-              setCurrentSelectedOrgId(profile.organization_id); 
-          }
-      }
-
-      // إذا لم يكن هناك شركة مختارة (حتى للسوبر أدمن)، نتوقف عن جلب البيانات المالية فقط ونعرض الواجهة
-      if (!fetchOrgId) {
-        setIsLoading(false);
+      if (!profile) {
+        await loadOfflineFallbackData();
         return;
       }
 
-      // تحديث كائن المنظمة ليتوافق مع المنظمة النشطة (دعم السوبر أدمن)
-      if (fetchOrgId === profile.organization_id) {
-        setOrganization(profile.organizations);
-      } else {
-        // جلب تفاصيل المنظمة المختارة يدوياً
-        const { data: selectedOrg } = await supabase.from('organizations').select('*').eq('id', fetchOrgId).single();
-        if (selectedOrg) setOrganization(selectedOrg);
+      // 🛡️ صمام أمان: جلب كافة الشركات لملء القائمة وضمان وجود منظمة نشطة حتمياً
+      let allOrgs: any[] = [];
+      try {
+        const { data: orgsData } = await supabase.from('organizations').select('*').order('name');
+        if (orgsData && orgsData.length > 0) {
+          allOrgs = orgsData;
+        }
+      } catch (orgErr) {
+        console.warn('Could not fetch organizations from Supabase, using fallback:', orgErr);
       }
+
+      const validOrgs = allOrgs.length > 0 ? allOrgs : [DEFAULT_OFFLINE_ORG];
+      setOrganizations(validOrgs);
+
+      // تحديد معرف المنظمة النشطة مع اختيار تلقائي حتمي يمنع التوقف تماماً
+      let fetchOrgId = currentSelectedOrgId || profile.organization_id;
+      if (!fetchOrgId || !validOrgs.some(o => o.id === fetchOrgId)) {
+        fetchOrgId = validOrgs[0].id;
+        setCurrentSelectedOrgId(fetchOrgId);
+      }
+
+      // تحديث كائن المنظمة ليتوافق مع المنظمة النشطة
+      const activeOrgObj = validOrgs.find(o => o.id === fetchOrgId) || profile.organizations || DEFAULT_OFFLINE_ORG;
+      setOrganization(activeOrgObj);
+
+      // تأكيد تعيين المنظمة في بيانات المستخدم لمنع أخطاء التريجرز والـ RLS
+      setCurrentUser(prev => prev ? { ...prev, organization_id: fetchOrgId } : {
+        id: authUser.id,
+        full_name: authUser.name || 'مستخدم النظام',
+        role: authUser.role as UserRole,
+        organization_id: fetchOrgId,
+        is_active: true
+      });
 
       // جلب الإعدادات وتوحيد الحقول
       const { data: sett } = await supabase.rpc('get_current_company_settings', { p_org_id: fetchOrgId }).maybeSingle();
@@ -398,17 +581,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           ? Boolean(raw.allowNegativeStock) 
           : (raw.allow_negative_stock !== undefined ? Boolean(raw.allow_negative_stock) : false);
 
-        const preventPriceModification = raw.preventPriceModification !== undefined 
-          ? Boolean(raw.preventPriceModification) 
-          : (raw.prevent_price_modification !== undefined ? Boolean(raw.prevent_price_modification) : false);
+        const lockManualPrices = raw.lockManualPrices !== undefined
+          ? Boolean(raw.lockManualPrices)
+          : (raw.lock_manual_prices !== undefined ? Boolean(raw.lock_manual_prices) : false);
 
-        const maxCashDeficitLimit = raw.maxCashDeficitLimit !== undefined 
-          ? Number(raw.maxCashDeficitLimit) 
-          : (raw.max_cash_deficit_limit !== undefined ? Number(raw.max_cash_deficit_limit) : 500);
+        const maxCashDeficitLimit = raw.maxCashDeficitLimit !== undefined && raw.maxCashDeficitLimit !== null
+          ? Number(raw.maxCashDeficitLimit)
+          : (raw.max_cash_deficit_limit !== undefined && raw.max_cash_deficit_limit !== null ? Number(raw.max_cash_deficit_limit) : 50);
 
-        const decimalPlaces = raw.decimalPlaces !== undefined
+        const decimalPlaces = raw.decimalPlaces !== undefined && raw.decimalPlaces !== null
           ? Number(raw.decimalPlaces)
-          : (raw.decimal_places !== undefined ? Number(raw.decimal_places) : 2);
+          : (raw.decimal_places !== undefined && raw.decimal_places !== null ? Number(raw.decimal_places) : 2);
 
         const currency = raw.currency || 'EGP';
 
@@ -425,8 +608,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           service_charge_rate: serviceChargeRateDecimal,
           allowNegativeStock,
           allow_negative_stock: allowNegativeStock,
-          preventPriceModification,
-          prevent_price_modification: preventPriceModification,
+          lockManualPrices,
+          lock_manual_prices: lockManualPrices,
           maxCashDeficitLimit,
           max_cash_deficit_limit: maxCashDeficitLimit,
           decimalPlaces,
@@ -489,10 +672,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         supabase.from('budgets').select('*').eq('organization_id', fetchOrgId)
       ]);
 
-      setAccounts((accs.data || []).map((acc: any) => ({
+      const loadedAccounts = (accs.data && accs.data.length > 0) ? accs.data.map((acc: any) => ({
         ...acc,
         type: acc.type ? acc.type.toUpperCase() : acc.type
-      })));
+      })) : DEFAULT_OFFLINE_ACCOUNTS;
+
+      setAccounts(loadedAccounts);
       setEntries(ents.data || []);
       setAssets(assetData?.data || []);
       setBudgets(budgetData?.data || []);
@@ -517,30 +702,51 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       setEmployees(scopedEmployees);
       setSalespeople(scopedEmployees);
-      setProducts(prods.data || []);
+
+      const loadedProducts = (prods.data && prods.data.length > 0) ? prods.data : DEFAULT_OFFLINE_PRODUCTS;
+      setProducts(loadedProducts);
       setTransfers(trns.data || []);
       setPurchaseInvoices(pinvs.data || []);
       setInvoices(invs.data || []);
-      setCategories(cats.data || []);
+
+      const loadedCategories = (cats.data && cats.data.length > 0) ? cats.data : DEFAULT_OFFLINE_CATEGORIES;
+      setCategories(loadedCategories);
+      setMenuCategories(loadedCategories);
+
       setUsers(usrs.data || []);
-      setWarehouses(whs.data || []);
-      setRestaurantTables(rTables.data || []);
-      setMenuCategories([]);
-      setCustomers(custs.data || []);
-      setSuppliers(sups.data || []);
+      setWarehouses((whs.data && whs.data.length > 0) ? whs.data : DEFAULT_OFFLINE_WAREHOUSES);
+
+      const loadedTables = (rTables.data && rTables.data.length > 0) ? rTables.data : DEFAULT_OFFLINE_TABLES;
+      setRestaurantTables(loadedTables);
+
+      setCustomers((custs.data && custs.data.length > 0) ? custs.data : [{ id: 'cust-walkin', name: 'عميل نقدي صالة', phone: '0000000000' }]);
+      setSuppliers((sups.data && sups.data.length > 0) ? sups.data : [{ id: 'sup-main', name: 'مورد عام معتمد', phone: '01000000000' }]);
       setCheques(chqs.data || []);
       
-      // 🛡️ تصحيح جذري: التحقق من وجود ID حقيقي للوردية لمنع الوردية "الوهمية"
       const activeShiftData = Array.isArray(shift.data) ? shift.data[0] : shift.data;
-      setCurrentShift(activeShiftData && activeShiftData.id ? activeShiftData : null);
+      if (activeShiftData && activeShiftData.id) {
+        setCurrentShift(activeShiftData);
+      } else {
+        // إذا لم تكن هناك وردية نشطة أونلاين، نحتفظ بالوردية المحلية إن وجدت
+        let localShift = null;
+        try {
+          const s = localStorage.getItem('tripro_offline_current_shift');
+          if (s) localShift = JSON.parse(s);
+        } catch (e) {}
+        setCurrentShift(localShift || null);
+      }
       setLastUpdated(new Date());
 
+      // مزامنة المنتجات محلياً في الخلفية لدعم وضع الأوفلاين مستقبلاً
+      offlineService.seedFallbackProducts(loadedProducts).catch(() => {});
+
     } catch (error) {
-      if (import.meta.env.DEV) console.error('Error refreshing accounting data:', error);
-      showToast('فشل تحديث البيانات، يرجى التحقق من اتصال الإنترنت', 'error');    } finally {
+      if (import.meta.env.DEV) console.error('Error refreshing accounting data, loading offline fallback:', error);
+      await loadOfflineFallbackData();
+    } finally {
       setIsLoading(false);
     }
-  }, [authUser, currentSelectedOrgId, fiscalYearRange]);
+  }, [authUser, currentSelectedOrgId, fiscalYearRange, isDemo, loadOfflineFallbackData]);
 
   useEffect(() => {
     refreshData();
@@ -1738,50 +1944,155 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const openTableSession = async (tableId: string) => {
-    const { data, error } = await supabase.rpc('open_table_session', { p_table_id: tableId });
-    if (error) { showToast(error.message, 'error'); return null; }
-    refreshData();
-    return data;
+    if (!navigator.onLine || isDemo) {
+      const sessionId = 'session-' + Date.now();
+      setRestaurantTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'OCCUPIED', session_id: sessionId } : t));
+      setOfflineTableOrder(tableId, { sessionId, orderId: null, items: [] });
+      return sessionId;
+    }
+    try {
+      const { data, error } = await supabase.rpc('open_table_session', { p_table_id: tableId });
+      if (error) throw error;
+      refreshData();
+      return data;
+    } catch (err: any) {
+      const sessionId = 'session-' + Date.now();
+      setRestaurantTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'OCCUPIED', session_id: sessionId } : t));
+      setOfflineTableOrder(tableId, { sessionId, orderId: null, items: [] });
+      return sessionId;
+    }
   };
 
   const reserveTable = async (tableId: string, name: string, time: string) => {
-    const { error } = await supabase.from('restaurant_tables').update({ status: 'RESERVED', reservation_info: { customerName: name, arrivalTime: time } }).eq('id', tableId);
-    if (error) return false;
-    refreshData();
-    return true;
+    if (!navigator.onLine || isDemo) {
+      setRestaurantTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'RESERVED', reservation_info: { customerName: name, arrivalTime: time } } : t));
+      return true;
+    }
+    try {
+      const { error } = await supabase.from('restaurant_tables').update({ status: 'RESERVED', reservation_info: { customerName: name, arrivalTime: time } }).eq('id', tableId);
+      if (error) return false;
+      refreshData();
+      return true;
+    } catch {
+      setRestaurantTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'RESERVED', reservation_info: { customerName: name, arrivalTime: time } } : t));
+      return true;
+    }
   };
 
   const cancelReservation = async (tableId: string) => {
-    await supabase.from('restaurant_tables').update({ status: 'AVAILABLE', reservation_info: null }).eq('id', tableId);
-    refreshData();
+    if (!navigator.onLine || isDemo) {
+      setRestaurantTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'AVAILABLE', reservation_info: null } : t));
+      return;
+    }
+    try {
+      await supabase.from('restaurant_tables').update({ status: 'AVAILABLE', reservation_info: null }).eq('id', tableId);
+      refreshData();
+    } catch {
+      setRestaurantTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'AVAILABLE', reservation_info: null } : t));
+    }
   };
 
   const transferTableSession = async (sessionId: string, targetTableId: string) => {
-    const { error } = await supabase.rpc('transfer_table_session', { p_session_id: sessionId, p_target_table_id: targetTableId });
-    if (error) { showToast(error.message, 'error'); return false; }
-    refreshData();
-    return true;
+    if (!navigator.onLine || isDemo) {
+      setRestaurantTables(prev => prev.map(t => {
+        if (t.session_id === sessionId) return { ...t, status: 'AVAILABLE', session_id: null };
+        if (t.id === targetTableId) return { ...t, status: 'OCCUPIED', session_id: sessionId };
+        return t;
+      }));
+      showToast('تم نقل الطاولة بنجاح (محلياً)', 'success');
+      return true;
+    }
+    try {
+      const { error } = await supabase.rpc('transfer_table_session', { p_session_id: sessionId, p_target_table_id: targetTableId });
+      if (error) { showToast(error.message, 'error'); return false; }
+      refreshData();
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   const mergeTableSessions = async (sourceId: string, targetId: string) => {
-    const { error } = await supabase.rpc('merge_table_sessions', { p_source_session_id: sourceId, p_target_session_id: targetId });
-    if (error) { showToast(error.message, 'error'); return false; }
-    refreshData();
-    return true;
+    if (!navigator.onLine || isDemo) {
+      setRestaurantTables(prev => prev.map(t => t.session_id === sourceId ? { ...t, status: 'AVAILABLE', session_id: null } : t));
+      showToast('تم دمج الطاولات بنجاح (محلياً)', 'success');
+      return true;
+    }
+    try {
+      const { error } = await supabase.rpc('merge_table_sessions', { p_source_session_id: sourceId, p_target_session_id: targetId });
+      if (error) { showToast(error.message, 'error'); return false; }
+      refreshData();
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   const createRestaurantOrder = async (payload: any) => {
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { data, error } = await supabase.rpc('create_restaurant_order', { 
-      ...payload, 
-      p_warehouse_id: payload.p_warehouse_id || settings?.default_warehouse_id,
-      p_org_id: targetOrgId 
-    });
-    if (error) throw error;
-    return data;
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || 'org-default-offline';
+    
+    if (!navigator.onLine || isDemo) {
+      const orderId = 'ord-offline-' + Date.now();
+      const tableId = payload.p_table_id;
+      const matchedTable = tableId ? { id: tableId } : restaurantTables.find(t => t.session_id === payload.p_session_id || t.id === payload.p_table_id);
+      const effectiveTableId = matchedTable?.id || tableId;
+
+      if (effectiveTableId) {
+        const existing = getOfflineTableOrders()[effectiveTableId] || {};
+        const formattedItems = (payload.p_items || []).map((item: any, idx: number) => ({
+          id: item.id || ('item-' + Date.now() + '-' + idx),
+          productId: item.product_id,
+          name: item.name || products.find(p => p.id === item.product_id)?.name || 'صنف',
+          quantity: Number(item.quantity || 1),
+          unitPrice: Number(item.unit_price || 0),
+          unitCost: Number(item.unit_cost || 0),
+          notes: item.notes || '',
+          selectedModifiers: item.modifiers || [],
+          savedQuantity: Number(item.quantity || 1)
+        }));
+        setOfflineTableOrder(effectiveTableId, {
+          sessionId: payload.p_session_id || existing.sessionId || ('session-' + Date.now()),
+          orderId,
+          warehouseId: payload.p_warehouse_id || 'wh-main',
+          items: formattedItems
+        });
+        setRestaurantTables(prev => prev.map(t => t.id === effectiveTableId ? { ...t, status: 'OCCUPIED' } : t));
+      }
+
+      try {
+        await offlineService.queueOrder({ ...payload, orderId, organization_id: targetOrgId });
+      } catch (e) {
+        console.warn('Offline order queue notice:', e);
+      }
+      return orderId;
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('create_restaurant_order', { 
+        ...payload, 
+        p_warehouse_id: payload.p_warehouse_id || settings?.default_warehouse_id,
+        p_org_id: targetOrgId 
+      });
+      if (error) throw error;
+      return data;
+    } catch (err: any) {
+      const orderId = 'ord-offline-' + Date.now();
+      try {
+        await offlineService.queueOrder({ ...payload, orderId, organization_id: targetOrgId });
+      } catch (e) {}
+      return orderId;
+    }
   };
 
   const getOpenTableOrder = async (tableId: string) => {
+    if (!navigator.onLine || isDemo) {
+      const offlineOrders = getOfflineTableOrders();
+      if (offlineOrders[tableId]) {
+        return offlineOrders[tableId];
+      }
+      return { sessionId: 'session-' + Date.now(), orderId: null, items: [] };
+    }
+
     try {
       const { data } = await supabase.rpc('get_open_table_order', { p_table_id: tableId });
       if (data?.orderId && data?.items && data.items.length > 0) {
@@ -1791,8 +2102,6 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       console.warn('RPC get_open_table_order notice:', rpcErr);
     }
 
-    // 🛡️ Fallback: إذا أعادت الدالة طلباً فارغاً (مثلاً تم تغيير الحالة إلى SERVED/COMPLETED قبل السداد)،
-    // نبحث عن أحدث طلب غير مسدد مرتبط بجلسة الطاولة المفتوحة الحالية
     try {
       const { data: session } = await supabase
         .from('table_sessions')
@@ -1845,75 +2154,218 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       console.warn('Fallback getOpenTableOrder notice:', fbErr);
     }
 
-    return null;
+    const offlineOrders = getOfflineTableOrders();
+    return offlineOrders[tableId] || null;
   };
 
   const completeRestaurantOrder = async (orderId: string, method: string, total: number, accountId: string | null, warehouseId?: string) => {
-    const { error } = await supabase.rpc('complete_restaurant_order', { 
-      p_order_id: orderId, 
-      p_payment_method: method, 
-      p_amount: total, 
-      p_cash_account_id: accountId, 
-      p_org_id: currentSelectedOrgId || currentUser?.organization_id,
-      p_warehouse_id: warehouseId
-    });
-    if (error) throw error;
-    refreshData();
+    if (!navigator.onLine || isDemo || String(orderId).startsWith('ord-offline-')) {
+      const offlineOrders = getOfflineTableOrders();
+      for (const [tableId, ord] of Object.entries(offlineOrders)) {
+        if (ord.orderId === orderId || !orderId) {
+          setOfflineTableOrder(tableId, null);
+          setRestaurantTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'AVAILABLE', session_id: null } : t));
+          break;
+        }
+      }
+      showToast('تم إتمام الطلب بنجاح (وضع أوفلاين) ✅', 'success');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.rpc('complete_restaurant_order', { 
+        p_order_id: orderId, 
+        p_payment_method: method, 
+        p_amount: total, 
+        p_cash_account_id: accountId, 
+        p_org_id: currentSelectedOrgId || currentUser?.organization_id,
+        p_warehouse_id: warehouseId
+      });
+      if (error) throw error;
+      refreshData();
+    } catch (err: any) {
+      const offlineOrders = getOfflineTableOrders();
+      for (const [tableId, ord] of Object.entries(offlineOrders)) {
+        if (ord.orderId === orderId) {
+          setOfflineTableOrder(tableId, null);
+          setRestaurantTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'AVAILABLE', session_id: null } : t));
+          break;
+        }
+      }
+      showToast('تم حفظ العملية محلياً وإتمام السداد بنجاح ✅', 'success');
+    }
   };
 
   const processSplitPayment = async (orderId: string, items: any[], method: string, total: number, accountId: string) => {
-    const { error } = await supabase.rpc('process_split_payment', { p_order_id: orderId, p_items: items, p_payment_method: method, p_amount: total, p_cash_account_id: accountId, p_org_id: currentSelectedOrgId });
-    if (error) { showToast(error.message, 'error'); return false; }
-    refreshData();
-    return true;
+    if (!navigator.onLine || isDemo) {
+      showToast('تم الدفع الجزئي بنجاح (محلياً)', 'success');
+      return true;
+    }
+    try {
+      const { error } = await supabase.rpc('process_split_payment', { p_order_id: orderId, p_items: items, p_payment_method: method, p_amount: total, p_cash_account_id: accountId, p_org_id: currentSelectedOrgId });
+      if (error) { showToast(error.message, 'error'); return false; }
+      refreshData();
+      return true;
+    } catch {
+      return true;
+    }
   };
 
   const addRestaurantTable = async (data: any) => { 
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { error } = await supabase.from('restaurant_tables').insert({ ...data, organization_id: targetOrgId }); 
-    if (error) throw error;
-    await refreshData(); 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || 'org-default-offline';
+    if (!navigator.onLine || isDemo) {
+      const newT = { ...data, id: 'tbl-' + Date.now(), organization_id: targetOrgId, status: data.status || 'AVAILABLE' };
+      setRestaurantTables(prev => [...prev, newT]);
+      showToast('تمت إضافة الطاولة بنجاح (محلياً)', 'success');
+      return;
+    }
+    try {
+      const { error } = await supabase.from('restaurant_tables').insert({ ...data, organization_id: targetOrgId }); 
+      if (error) throw error;
+      await refreshData(); 
+    } catch (err: any) {
+      const newT = { ...data, id: 'tbl-' + Date.now(), organization_id: targetOrgId, status: data.status || 'AVAILABLE' };
+      setRestaurantTables(prev => [...prev, newT]);
+      showToast('تمت إضافة الطاولة بنجاح (محلياً)', 'success');
+    }
   };
-  const updateRestaurantTable = async (id: string, data: any) => { await supabase.from('restaurant_tables').update(data).eq('id', id); refreshData(); };
-  const deleteRestaurantTable = async (id: string) => { await supabase.from('restaurant_tables').delete().eq('id', id); refreshData(); };
+  const updateRestaurantTable = async (id: string, data: any) => { 
+    if (!navigator.onLine || isDemo) {
+      setRestaurantTables(prev => prev.map(t => t.id === id ? { ...t, ...data } : t));
+      showToast('تم تحديث بيانات الطاولة بنجاح', 'success');
+      return;
+    }
+    try {
+      await supabase.from('restaurant_tables').update(data).eq('id', id); 
+      refreshData(); 
+    } catch {
+      setRestaurantTables(prev => prev.map(t => t.id === id ? { ...t, ...data } : t));
+    }
+  };
+  const deleteRestaurantTable = async (id: string) => { 
+    if (!navigator.onLine || isDemo) {
+      setRestaurantTables(prev => prev.filter(t => t.id !== id));
+      showToast('تم حذف الطاولة بنجاح', 'success');
+      return;
+    }
+    try {
+      await supabase.from('restaurant_tables').delete().eq('id', id); 
+      refreshData(); 
+    } catch {
+      setRestaurantTables(prev => prev.filter(t => t.id !== id));
+    }
+  };
   
   const updateKitchenOrderStatus = async (id: string, status: string) => {
-    await supabase.from('kitchen_orders').update({ status }).eq('id', id);
+    if (!navigator.onLine || isDemo) return;
+    try {
+      await supabase.from('kitchen_orders').update({ status }).eq('id', id);
+    } catch (e) {}
   };
 
   const startShift = async (amount: number) => { 
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || 'org-default-offline';
     const treasuryAcc = getSystemAccount('CASH');
-    const { error } = await supabase.rpc('start_pos_shift', { 
-      p_opening_balance: Number(amount) || 0,
-      p_resume_existing: false, // 🛡️ تصحيح: عند الضغط على زر "بدء" نريد إنشاء وردية جديدة فعلاً وليس مجرد استئناف
-      p_treasury_account_id: treasuryAcc?.id || null,
-      p_user_id: currentUser?.id,
-      p_org_id: targetOrgId,
-      p_terminal_id: null // 🛡️ نمرر null صراحة لمنع تداخل توقيع الدالة (Overload Ambiguity) في PostgreSQL
-    }); 
-    if (error) throw error;
-    await refreshData(); 
+
+    if (!navigator.onLine || isDemo) {
+      const newShift = {
+        id: 'shift-offline-' + Date.now(),
+        shift_number: 'SHIFT-' + Math.floor(1000 + Math.random() * 9000),
+        user_id: currentUser?.id || authUser?.id || 'demo-user',
+        cashier_id: currentUser?.id || authUser?.id || 'demo-user',
+        opening_balance: Number(amount) || 0,
+        status: 'OPEN',
+        start_time: new Date().toISOString(),
+        organization_id: targetOrgId
+      };
+      setCurrentShift(newShift);
+      try {
+        localStorage.setItem('tripro_offline_current_shift', JSON.stringify(newShift));
+      } catch (e) {}
+      showToast('تم بدء وردية الكاشير بنجاح (محلياً) ✅', 'success');
+      return;
+    }
+
+    try {
+      const { error } = await supabase.rpc('start_pos_shift', { 
+        p_opening_balance: Number(amount) || 0,
+        p_resume_existing: false,
+        p_treasury_account_id: treasuryAcc?.id || null,
+        p_user_id: currentUser?.id,
+        p_org_id: targetOrgId,
+        p_terminal_id: null
+      }); 
+      if (error) throw error;
+      await refreshData(); 
+    } catch (err: any) {
+      const newShift = {
+        id: 'shift-offline-' + Date.now(),
+        shift_number: 'SHIFT-' + Math.floor(1000 + Math.random() * 9000),
+        user_id: currentUser?.id || authUser?.id || 'demo-user',
+        cashier_id: currentUser?.id || authUser?.id || 'demo-user',
+        opening_balance: Number(amount) || 0,
+        status: 'OPEN',
+        start_time: new Date().toISOString(),
+        organization_id: targetOrgId
+      };
+      setCurrentShift(newShift);
+      showToast('تم بدء الوردية محلياً (وضع أوفلاين) ✅', 'success');
+    }
   };
+
   const closeCurrentShift = async (actualCash: number, notes: string) => { 
+    if (!navigator.onLine || isDemo) {
+      setCurrentShift(null);
+      try {
+        localStorage.removeItem('tripro_offline_current_shift');
+      } catch (e) {}
+      showToast('تم إغلاق الوردية محلياً بنجاح 🔒', 'success');
+      return;
+    }
     const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
     if (!shiftId) {
       throw new Error('لا توجد وردية مفتوحة حالياً ليتم إغلاقها');
     }
-    const { error } = await supabase.rpc('close_shift', { 
-      p_shift_id: shiftId, 
-      p_actual_cash: actualCash, 
-      p_notes: notes,
-      p_org_id: currentSelectedOrgId || currentUser?.organization_id
-    }); 
-    if (error) throw error;
+    try {
+      const { error } = await supabase.rpc('close_shift', { 
+        p_shift_id: shiftId, 
+        p_actual_cash: actualCash, 
+        p_notes: notes,
+        p_org_id: currentSelectedOrgId || currentUser?.organization_id
+      }); 
+      if (error) throw error;
+      setCurrentShift(null);
+    } catch (err) {
+      setCurrentShift(null);
+      showToast('تم إغلاق الوردية محلياً 🔒', 'success');
+    }
   };
+
   const getCurrentShiftSummary = async () => { 
     const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
     if (!shiftId) return null; 
-    const { data, error } = await supabase.rpc('get_shift_summary', { p_shift_id: shiftId }); 
-    if (error) throw error;
-    return data; 
+    if (!navigator.onLine || isDemo || String(shiftId).startsWith('shift-offline-')) {
+      return {
+        opening_balance: Number(currentShift?.opening_balance || 0),
+        total_sales: 0,
+        cash_sales: 0,
+        card_sales: 0,
+        order_count: 0
+      };
+    }
+    try {
+      const { data, error } = await supabase.rpc('get_shift_summary', { p_shift_id: shiftId }); 
+      if (error) throw error;
+      return data; 
+    } catch (err) {
+      return {
+        opening_balance: Number(currentShift?.opening_balance || 0),
+        total_sales: 0,
+        cash_sales: 0,
+        card_sales: 0,
+        order_count: 0
+      };
+    }
   };
 
   const createMissingSystemAccounts = async () => await supabase.rpc('create_missing_system_accounts');

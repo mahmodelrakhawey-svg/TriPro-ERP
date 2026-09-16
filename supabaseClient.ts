@@ -33,11 +33,22 @@ if (!supabaseUrl || !supabaseKey) {
     throw new Error("Supabase URL and Key must be defined in the .env file");
 }
 
+// ✅ كشف بيئة Electron لتعطيل الميزات غير المدعومة
+const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('electron');
+
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
-    detectSessionInUrl: true
+    // ✅ في Electron لا نستخدم detectSessionInUrl ولا LockManager
+    detectSessionInUrl: !isElectron,
+    // ✅ إصلاح خطأ "LockManager null lock" في Electron
+    lock: isElectron
+      ? async <R>(name: string, acquireTimeout: number, fn: () => Promise<R>): Promise<R> => {
+          // Electron لا يدعم Web Locks API — نشغّل الدالة مباشرة بدون lock
+          return await fn();
+        }
+      : undefined,
   }
 });
 
