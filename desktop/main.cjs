@@ -9,6 +9,9 @@ const path = require('path');
 const http = require('http');
 const fs = require('fs');
 
+// تعطيل تحذيرات بيئة التطوير في كونسول Electron
+process.env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = 'true';
+
 let mainWindow = null;
 let localServer = null;
 
@@ -17,8 +20,8 @@ function startLocalDistServer() {
     const distPath = path.join(__dirname, '../dist');
     const mimeTypes = {
       '.html': 'text/html; charset=utf-8',
-      '.js': 'application/javascript; charset=utf-8',
-      '.mjs': 'application/javascript; charset=utf-8',
+      '.js': 'text/javascript; charset=utf-8',
+      '.mjs': 'text/javascript; charset=utf-8',
       '.css': 'text/css; charset=utf-8',
       '.json': 'application/json; charset=utf-8',
       '.png': 'image/png',
@@ -71,7 +74,7 @@ async function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      webSecurity: false,
+      webSecurity: true,
       preload: path.join(__dirname, 'preload.cjs')
     }
   });
