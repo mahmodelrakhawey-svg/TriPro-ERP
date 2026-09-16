@@ -536,12 +536,21 @@ export const InvoiceList = () => {
           </button>
 
           <button 
+            onClick={() => navigate('/eta-invoices')} 
+            className="bg-cyan-50 text-cyan-700 border border-cyan-200 hover:bg-cyan-100 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
+            title="مركز متابعة الفاتورة والإيصال الإلكتروني"
+          >
+            <Landmark size={16} /> مركز الضرائب (ETA)
+          </button>
+
+          <button 
             onClick={exportToExcel} 
             className="bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
             title="تصدير إلى إكسيل"
           >
             <Download size={16} /> تصدير Excel
           </button>
+
 
           <button 
             onClick={() => navigate('/sales-invoice')} 
@@ -791,6 +800,16 @@ export const InvoiceList = () => {
                                 <Landmark size={16} />
                                 <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1 py-0.5 rounded font-bold">معتمد</span>
                               </a>
+                            ) : inv.eta_error ? (
+                              <button 
+                                onClick={() => handleEtaSubmit(inv)}
+                                disabled={submittingId === inv.id}
+                                className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors flex items-center gap-1 disabled:opacity-50"
+                                title={`تعذر الإرسال للضرائب (${inv.eta_error}) - اضغط لإعادة المحاولة`}
+                              >
+                                {submittingId === inv.id ? <Loader2 size={16} className="animate-spin" /> : <Landmark size={16} />}
+                                <span className="text-[10px] bg-red-100 text-red-800 px-1 py-0.5 rounded font-bold">خطأ</span>
+                              </button>
                             ) : (
                               <button 
                                 onClick={() => handleEtaSubmit(inv)}
@@ -802,6 +821,7 @@ export const InvoiceList = () => {
                               </button>
                             )
                           )}
+
 
                           <button 
                             onClick={() => handleDelete(inv)}

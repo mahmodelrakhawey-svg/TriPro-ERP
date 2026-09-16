@@ -150,6 +150,7 @@ const Sidebar: React.FC = () => {
     { type: 'section', label: 'المبيعات والعملاء' },
     { to: '/sales-invoice', label: 'فاتورة مبيعات جديدة', icon: FilePlus, color: 'text-emerald-400', module: 'sales', permission: 'sales.create' },
     { to: '/invoices-list', label: 'سجل فواتير البيع', icon: ShoppingCart, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
+    { to: '/eta-invoices', label: 'الفاتورة والإيصال الإلكتروني (ETA)', icon: Landmark, color: 'text-cyan-400', module: 'sales', permission: 'sales.view' },
     { to: '/recurring-invoices', label: 'الفواتير الدورية والاشتراكات', icon: Repeat, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/quotations-new', label: 'عرض سعر جديد', icon: Plus, color: 'text-emerald-400', module: 'sales', permission: 'sales.quotation' },
     { to: '/quotations-list', label: 'سجل عروض الأسعار', icon: FileText, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },

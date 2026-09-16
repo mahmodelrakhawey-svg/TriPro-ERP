@@ -498,6 +498,79 @@ export const etaService = {
         message: e?.message || 'فشل الاستعلام'
       };
     }
+  },
+
+  /**
+   * Checks the status and connectivity of the Local USB Token Signer helper tool (localhost:8500)
+   */
+  async checkLocalSignerHealth(): Promise<{ online: boolean; message: string; details?: any }> {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2000);
+
+      const response = await fetch('http://localhost:8500/ping', {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          online: true,
+          message: data.hardwareTokenDetected 
+            ? `متصل وجاهز (تم اكتشاف ${data.certificatesCount || 1} شهادة توقيع إلكتروني)`
+            : 'متصل وجاهز (في انتظار إدخال فلاشة التوقيع USB Token)',
+          details: data
+        };
+      }
+    } catch (err: any) {
+      // Local helper is offline or not reachable
+    }
+
+    return {
+      online: false,
+      message: 'غير متصل (يرجى تشغيل أداة start-signer.bat على المنفذ 8500)'
+    };
+  },
+
+  /**
+   * Submits a batch of invoices to the ETA in a controlled sequence with progress tracking
+   */
+  async batchSubmitInvoices(
+    invoiceIds: string[],
+    onProgress?: (current: number, total: number, result: ETAInvoiceResponse) => void
+  ): Promise<{ successful: number; failed: number; results: Array<{ id: string; result: ETAInvoiceResponse }> }> {
+    let successful = 0;
+    let failed = 0;
+    const results: Array<{ id: string; result: ETAInvoiceResponse }> = [];
+
+    for (let i = 0; i < invoiceIds.length; i++) {
+      const invId = invoiceIds[i];
+      try {
+        const res = await this.submitInvoiceToETA(invId);
+        if (res.success) {
+          successful++;
+        } else {
+          failed++;
+        }
+        results.push({ id: invId, result: res });
+        if (onProgress) {
+          onProgress(i + 1, invoiceIds.length, res);
+        }
+      } catch (err: any) {
+        failed++;
+        const failRes: ETAInvoiceResponse = { success: false, error: err.message };
+        results.push({ id: invId, result: failRes });
+        if (onProgress) {
+          onProgress(i + 1, invoiceIds.length, failRes);
+        }
+      }
+    }
+
+    return { successful, failed, results };
   }
 };
+
 

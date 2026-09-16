@@ -13,6 +13,10 @@ export interface ZatcaQrData {
   invoiceDate: string; // ISO 8601 or YYYY-MM-DDTHH:mm:ss
   totalAmount: number;
   taxAmount: number;
+  // ZATCA Phase 2 Compliance Fields (مرحلة الربط والتكامل)
+  invoiceHash?: string;         // Tag 6: SHA-256 hash of the invoice XML
+  cryptographicStamp?: string;  // Tag 7: ECDSA digital signature
+  publicKey?: string;           // Tag 8: Public Key certificate (ECDSA secp256k1)
 }
 
 /**
@@ -50,7 +54,7 @@ function concatUint8Arrays(arrays: Uint8Array[]): Uint8Array {
 }
 
 /**
- * توليد كود ZATCA Base64 الرسمي
+ * توليد كود ZATCA Base64 الرسمي (المرحلة 1 و المرحلة 2)
  */
 export function generateZatcaTlvQrString(data: ZatcaQrData): string {
   try {
@@ -58,13 +62,26 @@ export function generateZatcaTlvQrString(data: ZatcaQrData): string {
       ? data.invoiceDate
       : `${data.invoiceDate}T12:00:00Z`;
 
-    const tag1 = createTlvTag(1, data.sellerName || 'المنشأة');
-    const tag2 = createTlvTag(2, data.taxNumber || '300000000000003');
-    const tag3 = createTlvTag(3, formattedDate);
-    const tag4 = createTlvTag(4, (Number(data.totalAmount) || 0).toFixed(2));
-    const tag5 = createTlvTag(5, (Number(data.taxAmount) || 0).toFixed(2));
+    const tags: Uint8Array[] = [
+      createTlvTag(1, data.sellerName || 'المنشأة'),
+      createTlvTag(2, data.taxNumber || '300000000000003'),
+      createTlvTag(3, formattedDate),
+      createTlvTag(4, (Number(data.totalAmount) || 0).toFixed(2)),
+      createTlvTag(5, (Number(data.taxAmount) || 0).toFixed(2))
+    ];
 
-    const combinedBytes = concatUint8Arrays([tag1, tag2, tag3, tag4, tag5]);
+    // إضافة حقول المرحلة الثانية من الفاتورة الإلكترونية لهيئة الزكاة والضريبة (Phase 2 Integration)
+    if (data.invoiceHash) {
+      tags.push(createTlvTag(6, data.invoiceHash));
+    }
+    if (data.cryptographicStamp) {
+      tags.push(createTlvTag(7, data.cryptographicStamp));
+    }
+    if (data.publicKey) {
+      tags.push(createTlvTag(8, data.publicKey));
+    }
+
+    const combinedBytes = concatUint8Arrays(tags);
 
     // تحويل البايتات إلى Base64
     let binary = '';
@@ -77,3 +94,4 @@ export function generateZatcaTlvQrString(data: ZatcaQrData): string {
     return `Invoice:${data.sellerName}|Tax:${data.taxNumber}|Total:${data.totalAmount}`;
   }
 }
+
