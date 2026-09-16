@@ -46,6 +46,7 @@ const FiscalPeriodManager = lazy(() => import('./modules/accounting/FiscalPeriod
 // 📈 المبيعات والعملاء (Sales & Customers - Lazy Loaded)
 const SalesInvoiceForm = lazy(() => import('./modules/sales/SalesInvoiceForm'));
 const InvoiceList = lazy(() => import('./modules/sales/InvoiceList'));
+const ETATracker = lazy(() => import('./modules/sales/ETATracker'));
 const SalesReturnForm = lazy(() => import('./modules/sales/SalesReturnForm'));
 const SalesReturnsList = lazy(() => import('./modules/sales/SalesReturnsList'));
 const SalesOrders = lazy(() => import('./modules/sales/SalesOrders'));
@@ -567,6 +568,7 @@ const MainLayout = () => {
                 {/* 🛒 مديول المبيعات والعملاء */}
                 <Route path="/sales-invoice" element={<ModuleGuard module="sales"><SalesInvoiceForm /></ModuleGuard>} />
                 <Route path="/invoices-list" element={<ModuleGuard module="sales"><InvoiceList /></ModuleGuard>} />
+                <Route path="/eta-invoices" element={<ModuleGuard module="sales"><ETATracker /></ModuleGuard>} />
                 <Route path="/recurring-invoices" element={<ModuleGuard module="sales"><RecurringInvoicesManager /></ModuleGuard>} />
                 <Route path="/quotations-new" element={<ModuleGuard module="sales"><QuotationForm /></ModuleGuard>} />
                 <Route path="/quotations-list" element={<ModuleGuard module="sales"><QuotationList /></ModuleGuard>} />

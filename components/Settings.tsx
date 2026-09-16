@@ -6,11 +6,13 @@ import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
 import { secureStorage } from '../utils/securityMiddleware';
 import * as XLSX from 'xlsx';
-import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap, RefreshCw, Info, Calculator, Layers, Loader2 } from 'lucide-react';
+import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap, RefreshCw, Info, Calculator, Layers, Loader2, Usb, CheckCircle2, XCircle } from 'lucide-react';
 import SearchableSelect from './SearchableSelect';
 import { z } from 'zod';
 import { runRestaurantModuleTest } from '../modules/restaurant/utils/runRestaurantFlowTest';
 import ArchiveManager from '../services/ArchiveManager'; // استيراد مدير الأرشفة
+import { etaService } from '../services/etaService';
+
 
 const ACCOUNT_LABELS: Record<string, string> = {
   CASH: 'النقدية (الصندوق الرئيسي)',
@@ -1056,6 +1058,27 @@ const Settings = () => {
       }
   };
 
+  const [localSignerStatus, setLocalSignerStatus] = useState<{ online: boolean; message: string; details?: any } | null>(null);
+  const [checkingSigner, setCheckingSigner] = useState(false);
+  const handleCheckLocalSigner = async () => {
+      setCheckingSigner(true);
+      try {
+          const result = await etaService.checkLocalSignerHealth();
+          setLocalSignerStatus(result);
+          if (result.online) {
+              showToast(result.message, 'success');
+          } else {
+              showToast(result.message, 'warning');
+          }
+      } catch (err: any) {
+          setLocalSignerStatus({ online: false, message: err.message || 'فشل الاتصال بالمساعد المحلي' });
+          showToast('تعذر فحص المساعد المحلي: ' + err.message, 'error');
+      } finally {
+          setCheckingSigner(false);
+      }
+  };
+
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-3 mb-6">
@@ -1997,14 +2020,44 @@ const Settings = () => {
                               </div>
                           </div>
 
-                          <div className="bg-cyan-50 border border-cyan-150 rounded-lg p-4 text-xs text-cyan-800 space-y-2">
-                              <p className="font-bold flex items-center gap-1 mb-1">
-                                  <Info size={14} /> متطلبات التوقيع الإلكتروني:
-                              </p>
-                              <ul className="list-disc list-inside space-y-1 pr-2">
-                                  <li>يجب تثبيت برنامج المساعد المحلي للتوقيع (Local Signer Helper) على الجهاز المتصل به فلاشة التوقيع (USB Token).</li>
-                                  <li>يعمل البرنامج المساعد افتراضياً على المنفذ المحلي 8500 لتبادل تشفير الملفات.</li>
-                                  <li>في البيئة التجريبية (Sandbox)، سيقوم النظام بمحاكاة التوقيع والرد الضريبي تلقائياً لتسهيل فحص وتجربة دورة العمل.</li>
+                          <div className="bg-cyan-50/70 border border-cyan-200 rounded-xl p-4 text-xs text-cyan-900 space-y-3">
+                              <div className="flex items-center justify-between flex-wrap gap-2">
+                                  <div className="flex items-center gap-2">
+                                      <Usb size={18} className="text-cyan-700" />
+                                      <span className="font-bold text-sm text-cyan-900">برنامج المساعد المحلي للتوقيع (Local Signer - Port 8500)</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                      {localSignerStatus && (
+                                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
+                                              localSignerStatus.online ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                          }`}>
+                                              {localSignerStatus.online ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
+                                              {localSignerStatus.online ? 'المساعد متصل وجاهز' : 'غير متصل'}
+                                          </span>
+                                      )}
+                                      <button
+                                          type="button"
+                                          onClick={handleCheckLocalSigner}
+                                          disabled={checkingSigner}
+                                          className="bg-white hover:bg-cyan-100 text-cyan-800 border border-cyan-300 font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 text-xs shadow-sm disabled:opacity-50"
+                                      >
+                                          {checkingSigner ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                                          <span>فحص المساعد المحلي</span>
+                                      </button>
+                                  </div>
+                              </div>
+
+                              {localSignerStatus && (
+                                  <div className={`p-2.5 rounded-lg font-mono text-[11px] ${
+                                      localSignerStatus.online ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' : 'bg-amber-50 text-amber-900 border border-amber-200'
+                                  }`}>
+                                      {localSignerStatus.message}
+                                  </div>
+                              )}
+
+                              <ul className="list-disc list-inside space-y-1 text-cyan-800/90 pr-1">
+                                  <li>لتشغيل التوقيع الحي، شغّل أداة <code className="bg-white/80 px-1 py-0.5 rounded text-cyan-900 font-mono text-[11px] font-bold">tools/eta-local-signer/start-signer.bat</code> على جهاز المحاسب الموصول به فلاشة التوقيع (USB Token).</li>
+                                  <li>في البيئة التجريبية (Sandbox)، يولد النظام توقيعاً رقمياً معيارياً تلقائياً لتسهيل فحص وتجربة دورة العمل الكاملة.</li>
                               </ul>
                           </div>
 
@@ -2016,8 +2069,9 @@ const Settings = () => {
                                   className="w-full sm:w-auto bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 border border-slate-300 disabled:opacity-50 text-xs"
                               >
                                   {testingEta ? <Loader2 size={16} className="animate-spin" /> : <Landmark size={16} className="text-cyan-600" />}
-                                  <span>{testingEta ? 'جاري اختبار الاتصال...' : 'اختبار الاتصال بمنظومة الضرائب'}</span>
+                                  <span>{testingEta ? 'جاري اختبار الاتصال...' : 'اختبار الاتصال ببوابة الضرائب (OAuth2)'}</span>
                               </button>
+
 
                               <button
                                   type="submit"
