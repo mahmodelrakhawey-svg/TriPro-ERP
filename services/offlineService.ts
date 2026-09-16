@@ -297,22 +297,66 @@ export const offlineService = {
       return;
     }
 
-    // 1. Sync POS Orders
-    const pendingOrders = await db.queuedOrders.where('status').anyOf('pending', 'failed').limit(10).toArray();
+    // 1. Sync POS Orders (Atomic Offline Batch Sync with Conflict Resolution)
+    const pendingOrders = await db.queuedOrders.where('status').anyOf('pending', 'failed').limit(20).toArray();
     if (pendingOrders.length > 0) {
-      console.log(`Processing ${pendingOrders.length} queued POS orders...`);
-      for (const order of pendingOrders) {
-        if (!order.id) continue;
-        await db.queuedOrders.update(order.id, { status: 'syncing', attempts: order.attempts + 1, lastAttempt: new Date() });
-        try {
-          const { error } = await supabase.rpc('create_restaurant_order', order.payload);
-          if (error) throw error;
-          await db.queuedOrders.delete(order.id);
-          console.log(`Order ${order.id} synced successfully.`);
-        } catch (error: any) {
-          console.error(`Failed to sync order ${order.id}:`, error);
-          await db.queuedOrders.update(order.id, { status: 'failed', error: error.message });
+      console.log(`Processing ${pendingOrders.length} queued POS orders via conflict-resilient sync...`);
+
+      // Prepare batch payload with offline_ref_id for each order
+      const ordersPayload = pendingOrders.map(order => ({
+        ...order.payload,
+        offline_ref_id: `OFFLINE-QUEUE-${order.id}`,
+        id: order.id
+      }));
+
+      try {
+        // Attempt high-speed batch sync RPC first
+        const { data: batchResult, error: batchErr } = await supabase.rpc('sync_offline_pos_orders_batch', {
+          p_orders: ordersPayload
+        });
+
+        if (!batchErr && batchResult?.results) {
+          for (const res of batchResult.results) {
+            const matchedOrder = pendingOrders.find(o => 
+              `OFFLINE-QUEUE-${o.id}` === res.offline_ref_id || String(o.id) === String(res.offline_ref_id)
+            );
+            if (matchedOrder && matchedOrder.id) {
+              if (res.success) {
+                await db.queuedOrders.delete(matchedOrder.id);
+                console.log(`Order ${matchedOrder.id} synced successfully (DB: ${res.order_number}).`);
+              } else {
+                console.error(`Order ${matchedOrder.id} failed in batch:`, res.error);
+                await db.queuedOrders.update(matchedOrder.id, { 
+                  status: 'failed', 
+                  error: res.error,
+                  lastAttempt: new Date() 
+                });
+              }
+            }
+          }
+        } else {
+          // Fallback to one-by-one atomic sync
+          for (const order of pendingOrders) {
+            if (!order.id) continue;
+            await db.queuedOrders.update(order.id, { status: 'syncing', attempts: order.attempts + 1, lastAttempt: new Date() });
+            try {
+              const { data: singleRes, error: singleErr } = await supabase.rpc('sync_offline_pos_order', {
+                p_order: {
+                  ...order.payload,
+                  offline_ref_id: `OFFLINE-QUEUE-${order.id}`
+                }
+              });
+              if (singleErr) throw singleErr;
+              await db.queuedOrders.delete(order.id);
+              console.log(`Order ${order.id} synced individually (DB: ${singleRes?.order_number}).`);
+            } catch (fallbackErr: any) {
+              console.error(`Failed to sync order ${order.id}:`, fallbackErr);
+              await db.queuedOrders.update(order.id, { status: 'failed', error: fallbackErr.message });
+            }
+          }
         }
+      } catch (globalErr: any) {
+        console.error('Critical failure in POS offline sync batch:', globalErr);
       }
     }
 
