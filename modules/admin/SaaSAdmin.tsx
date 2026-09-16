@@ -1962,7 +1962,26 @@ const SaaSAdmin: React.FC = () => {
         />
       </div>
 
-      {/* Main Content Area (Placeholder for Organizations Management) */}
+      {/* Tabs Navigation */}
+      <div className="flex gap-4 border-b border-slate-200">
+        <button 
+          onClick={() => setActiveAdminTab('organizations')}
+          className={`pb-3 px-5 font-black text-sm transition-all flex items-center gap-2 ${activeAdminTab === 'organizations' ? 'border-b-4 border-blue-600 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+        >
+          <Building2 size={18} />
+          إدارة المنظمات والاشتراكات
+        </button>
+        <button 
+          onClick={() => setActiveAdminTab('backups')}
+          className={`pb-3 px-5 font-black text-sm transition-all flex items-center gap-2 ${activeAdminTab === 'backups' ? 'border-b-4 border-blue-600 text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}
+        >
+          <DatabaseIcon size={18} />
+          النسخ الاحتياطي والاستعادة السحابية
+        </button>
+      </div>
+
+      {/* Main Content Area (Organizations Management) */}
+      {activeAdminTab === 'organizations' && (
       <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex justify-between items-center">
           <h2 className="text-xl font-bold text-slate-800">إدارة الشركات والاشتراكات</h2>
@@ -2174,22 +2193,7 @@ const SaaSAdmin: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* Tabs Navigation */}
-      <div className="flex gap-4 border-b border-slate-200 mb-6">
-        <button 
-          onClick={() => setActiveAdminTab('organizations')}
-          className={`pb-2 px-4 font-bold transition-all ${activeAdminTab === 'organizations' ? 'border-b-4 border-blue-600 text-blue-600' : 'text-slate-400'}`}
-        >
-          إدارة المنظمات
-        </button>
-        <button 
-          onClick={() => setActiveAdminTab('backups')}
-          className={`pb-2 px-4 font-bold transition-all ${activeAdminTab === 'backups' ? 'border-b-4 border-blue-600 text-blue-600' : 'text-slate-400'}`}
-        >
-          النسخ الاحتياطي والاستعادة
-        </button>
-      </div>
+      )}
 
       {/* Tab Content: Backup & Restore Management */}
       {activeAdminTab === 'backups' && (
