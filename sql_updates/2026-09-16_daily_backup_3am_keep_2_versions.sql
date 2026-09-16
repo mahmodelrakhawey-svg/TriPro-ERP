@@ -1,11 +1,6 @@
 -- ==============================================================================
 -- 🛡️ TriPro ERP - نظام النسخ الاحتياطي اليومي الآلي (Daily Automated Backup & Retention)
 -- التاريخ: 2026-09-16
--- الهدف:
---   1. تفعيل محرك النسخ الاحتياطي اليومي لقاعدة بيانات لينزا (وأي قاعدة نظام).
---   2. الجدولة التلقائية يومياً في تمام الساعة 3:00 فجراً (03:00 AM).
---   3. سياسة الاحتفاظ الصارمة: الاحتفاظ بآخر نسختين فقط (Keep Last 2 Backups Only) 
---      وحذف ما هو أقدم تلقائياً لتوفير المساحة والحفاظ على سرعة قاعدة البيانات.
 -- ==============================================================================
 
 -- 1. التأكد من وجود جدول النسخ الاحتياطية وفهارسه
@@ -31,19 +26,19 @@ CREATE POLICY "organization_backups_policy" ON public.organization_backups
     USING (
         organization_id = (SELECT organization_id FROM public.profiles WHERE id = auth.uid())
         OR (SELECT role FROM public.profiles WHERE id = auth.uid()) = 'super_admin'
-        OR auth.uid() IS NULL -- يسمح للجدولة التلقائية والخلفية بالكتابة
+        OR auth.uid() IS NULL
     );
 
 -- ------------------------------------------------------------------------------
--- 2. دالة تنظيف النسخ القديمة (الاحتفاظ بآخر نسختين فقط لكل شركة)
+-- 2. دالة الاحتفاظ بآخر نسختين فقط (حذف ما هو أقدم من أحدث نسختين)
 -- ------------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.clean_old_organization_backups(UUID);
 CREATE OR REPLACE FUNCTION public.clean_old_organization_backups(p_org_id UUID)
 RETURNS VOID 
 LANGUAGE plpgsql 
 SECURITY DEFINER 
 AS $$
 BEGIN
-    -- حذف أي نسخة تتجاوز أحدث نسختين للمنظمة المحددة
     DELETE FROM public.organization_backups
     WHERE organization_id = p_org_id
       AND id IN (
@@ -57,8 +52,11 @@ END;
 $$;
 
 -- ------------------------------------------------------------------------------
--- 3. دالة أخذ نسخة احتياطية لمنظمة معينة (Dynamic SaaS Backup Engine)
+-- 3. دالة أخذ نسخة احتياطية لمنظمة معينة (حذف التوقيعات القديمة أولاً)
 -- ------------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.create_organization_backup(uuid);
+DROP FUNCTION IF EXISTS public.create_organization_backup(uuid, text);
+
 CREATE OR REPLACE FUNCTION public.create_organization_backup(p_org_id uuid, p_notes text DEFAULT NULL)
 RETURNS uuid 
 LANGUAGE plpgsql 
@@ -71,10 +69,8 @@ DECLARE
     v_backup_id uuid;
     v_org_name text;
 BEGIN
-    -- جلب اسم الشركة
     SELECT name INTO v_org_name FROM public.organizations WHERE id = p_org_id;
 
-    -- ترويسة النسخة الوصفية
     v_backup_data := jsonb_build_object(
         'metadata', jsonb_build_object(
             'version', '2.0',
@@ -84,7 +80,6 @@ BEGIN
         )
     );
 
-    -- تجميع كافة جداول الشركة العامة ديناميكياً
     FOR v_table_name IN
         SELECT c.table_name
         FROM information_schema.columns c
@@ -113,7 +108,6 @@ BEGIN
         END;
     END LOOP;
 
-    -- إدراج سجل النسخة الاحتياطية في الجدول
     INSERT INTO public.organization_backups (
         organization_id, 
         backup_data, 
@@ -132,7 +126,7 @@ BEGIN
         now()
     ) RETURNING id INTO v_backup_id;
 
-    -- تطبيق سياسة الاستبقاء: الإبقاء على آخر نسختين فقط فوراً
+    -- تطبيق سياسة الاستبقاء: الإبقاء على آخر نسختين فقط
     PERFORM public.clean_old_organization_backups(p_org_id);
 
     RETURN v_backup_id;
@@ -140,15 +134,18 @@ END;
 $$;
 
 -- ------------------------------------------------------------------------------
--- 4. الدالة العامة المجدولة لتشغيل النسخ اليومي لكل الشركات النشطة
+-- 4. الدالة العامة لتشغيل النسخ اليومي لكل الشركات (مع DROP FUNCTION أولاً)
 -- ------------------------------------------------------------------------------
+DROP FUNCTION IF EXISTS public.run_daily_backups_all_orgs();
+
 CREATE OR REPLACE FUNCTION public.run_daily_backups_all_orgs()
-RETURNS void 
+RETURNS text 
 LANGUAGE plpgsql 
 SECURITY DEFINER
 AS $$
 DECLARE
     v_org record;
+    v_success_count int := 0;
 BEGIN
     -- 1. أخذ نسخة لكل منظمة نشطة
     FOR v_org IN SELECT id, name FROM public.organizations WHERE is_active = true LOOP
@@ -157,8 +154,8 @@ BEGIN
                 v_org.id, 
                 'نسخة احتياطية يومية آلية - ' || v_org.name || ' (' || to_char(now(), 'YYYY-MM-DD HH24:MI') || ')'
             );
+            v_success_count := v_success_count + 1;
         EXCEPTION WHEN OTHERS THEN
-            -- تسجيل الخطأ في حال حدوثه لشركة دون إيقاف بقية الشركات
             BEGIN
                 INSERT INTO public.system_error_logs (error_message, context, function_name, organization_id)
                 VALUES (SQLERRM, jsonb_build_object('org_id', v_org.id, 'step', 'auto_backup'), 'run_daily_backups_all_orgs', v_org.id);
@@ -167,41 +164,34 @@ BEGIN
         END;
     END LOOP;
 
-    -- 2. تنظيف إضافي شامل لأي نسخ قديمة تتجاوز نسختين
+    -- 2. تنظيف إضافي لضمان بقاء آخر نسختين فقط
     FOR v_org IN SELECT id FROM public.organizations LOOP
         PERFORM public.clean_old_organization_backups(v_org.id);
     END LOOP;
 
-    -- 3. تنظيف الإشعارات القديمة وسجلات النظام لتوفير المساحة
+    -- 3. تنظيف الإشعارات القديمة
     BEGIN
         DELETE FROM public.notifications WHERE is_read = true;
         DELETE FROM public.notifications WHERE created_at < (now() - interval '2 days');
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
+
+    RETURN 'Success: Processed ' || v_success_count || ' organizations.';
 END; 
 $$;
 
--- منح الصلاحيات اللازمة
 GRANT EXECUTE ON FUNCTION public.create_organization_backup(uuid, text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.run_daily_backups_all_orgs() TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.clean_old_organization_backups(UUID) TO authenticated, service_role;
 
 -- ------------------------------------------------------------------------------
--- 5. تفعيل الجدولة اليومية التلقائية الساعة 3:00 صباحاً عبر ملحق pg_cron
+-- 5. تفعيل الجدولة اليومية الساعة 3:00 صباحاً عبر pg_cron
 -- ------------------------------------------------------------------------------
 DO $$
 BEGIN
-    -- تفعيل إضافة pg_cron إذا كانت متاحة
-    BEGIN
-        CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA pg_catalog;
-    EXCEPTION WHEN OTHERS THEN
-        NULL;
-    END;
-
     IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'cron') 
        OR EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
         
-        -- 1. إلغاء أي مهام قديمة بنفس الاسم لتجنب الازدواجية
         BEGIN
             PERFORM cron.unschedule('daily-system-backup');
         EXCEPTION WHEN OTHERS THEN NULL;
@@ -212,13 +202,12 @@ BEGIN
         EXCEPTION WHEN OTHERS THEN NULL;
         END;
 
-        -- 2. الجدولة: تشغيل يومياً في تمام الساعة 3:00 صباحاً (03:00)
-        -- توقيت الخادم: 0 3 * * * تعني الدقيقة 0 من الساعة 3 فجراً كل يوم
+        -- تشغيل يومياً في تمام الساعة 3:00 صباحاً
         PERFORM cron.schedule('daily-system-backup', '0 3 * * *', 'SELECT public.run_daily_backups_all_orgs();');
         
-        RAISE NOTICE '✅ تم بنجاح تفعيل جدولة النسخ الاحتياطي اليومي الساعة 3:00 صباحاً مع الاحتفاظ بآخر نسختين فقط.';
+        RAISE NOTICE '✅ تم تفعيل جدولة النسخ الاحتياطي اليومي الساعة 3:00 صباحاً مع الاحتفاظ بآخر نسختين فقط.';
     ELSE
-        RAISE WARNING '⚠️ تنبيه: ملحق pg_cron يحتاج للتفعيل في لوحة Supabase من (Database -> Extensions -> pg_cron). بعد تفعيله أعد تشغيل هذا الملف.';
+        RAISE WARNING '⚠️ تنبيه: يرجى تفعيل ملحق pg_cron أولاً من (Database -> Extensions -> pg_cron).';
     END IF;
 END $$;
 
