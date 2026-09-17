@@ -24,6 +24,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+#variable_conflict use_column
 BEGIN
     p_org_id := COALESCE(p_org_id, public.get_my_org());
     IF p_org_id IS NULL THEN
@@ -117,10 +118,10 @@ BEGIN
           AND LENGTH(TRIM(s.name)) > 1
     ),
     all_supplier_entries AS (
-        SELECT DISTINCT je_id, supplier_id FROM (
-            SELECT je_id, supplier_id FROM entry_to_supplier
+        SELECT DISTINCT combined.je_id, combined.supplier_id FROM (
+            SELECT ets.je_id, ets.supplier_id FROM entry_to_supplier ets
             UNION ALL
-            SELECT je_id, supplier_id FROM manual_entries
+            SELECT me.je_id, me.supplier_id FROM manual_entries me
         ) combined
     ),
     -- 4. صافي الرصيد الدفتري لحساب الموردين 201 حصراً (دائن - مدين) مطابق 100% للأستاذ العام

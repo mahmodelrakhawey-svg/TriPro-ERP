@@ -60,6 +60,13 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // 🛡️ Bypass local hardware daemons, signer helpers, and different localhost ports (e.g. ETA Signer 8500, Thermal Printers)
+  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+    if (url.port && url.port !== self.location.port) {
+      return; // Direct network bypass without Service Worker interference
+    }
+  }
+
   // A. Hashed Static Assets (Vite chunks /assets/*.js and /assets/*.css)
   // Strategy: Cache-First (Instant 0.01s load for heavy vendors like antd, charts, pdf)
   if (url.pathname.startsWith('/assets/')) {
@@ -174,8 +181,11 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Default: Network with Cache Fallback
+  // Default: Network with Cache Fallback (guarantees valid Response object)
   event.respondWith(
-    fetch(request).catch(() => caches.match(request))
+    fetch(request).catch(async () => {
+      const match = await caches.match(request);
+      return match || new Response(null, { status: 404, statusText: 'Not Found' });
+    })
   );
 });

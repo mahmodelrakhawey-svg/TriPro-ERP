@@ -342,6 +342,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setCurrentSelectedOrgIdState(id);
     if (id) {
       secureStorage.setItem('tripro_active_org_id', id);
+      if (id !== 'org-default-offline' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
+        secureStorage.setItem('tripro_last_valid_org_id', id);
+        try { window.localStorage?.setItem('tripro_last_valid_org_id', JSON.stringify(id)); } catch (e) {}
+      }
     } else {
       secureStorage.removeItem('tripro_active_org_id');
     }
@@ -349,12 +353,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const [organizations, setOrganizations] = useState<any[]>([]);
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    const cachedLastOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || null;
     if (authUser) {
       return {
         id: authUser.id,
         full_name: authUser.name || 'مستخدم النظام',
         role: authUser.role as UserRole,
-        organization_id: (authUser as any).organization_id || 'org-default-offline',
+        organization_id: (authUser as any).organization_id || cachedLastOrg || 'org-default-offline',
         is_active: true
       };
     }
@@ -362,16 +367,26 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   });
 
   useEffect(() => {
+    const cachedLastOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || null;
     if (authUser && (!currentUser || currentUser.id !== authUser.id)) {
       setCurrentUser({
         id: authUser.id,
         full_name: authUser.name || 'مستخدم النظام',
         role: authUser.role as UserRole,
-        organization_id: (authUser as any).organization_id || 'org-default-offline',
+        organization_id: (authUser as any).organization_id || cachedLastOrg || 'org-default-offline',
         is_active: true
       });
     }
   }, [authUser]);
+
+  const getEffectiveOrgId = useCallback(() => {
+    const cachedValidOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
+      (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
+    if (currentSelectedOrgId && currentSelectedOrgId !== 'org-default-offline') return currentSelectedOrgId;
+    if (currentUser?.organization_id && currentUser.organization_id !== 'org-default-offline') return currentUser.organization_id;
+    if (cachedValidOrg && cachedValidOrg !== 'org-default-offline') return cachedValidOrg;
+    return 'org-default-offline';
+  }, [currentSelectedOrgId, currentUser?.organization_id]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -427,17 +442,24 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // دالة مساعدة لتحميل بيانات الأوفلاين والديمو بسلاسة فائقة
   const loadOfflineFallbackData = useCallback(async () => {
+    const cachedValidOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
+      (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null) ||
+      ((currentSelectedOrgId && currentSelectedOrgId !== 'org-default-offline') ? currentSelectedOrgId : null);
+    
+    const effectiveOfflineOrgId = cachedValidOrg || DEFAULT_OFFLINE_ORG.id;
+    const effectiveOrgObj = cachedValidOrg ? { ...DEFAULT_OFFLINE_ORG, id: cachedValidOrg } : DEFAULT_OFFLINE_ORG;
+
     const fallbackProfile: UserProfile = {
       id: authUser?.id || 'demo-user-id',
       full_name: authUser?.name || 'مستخدم تجريبي (TriPro Offline)',
       role: (authUser?.role as UserRole) || 'demo',
-      organization_id: DEFAULT_OFFLINE_ORG.id,
+      organization_id: effectiveOfflineOrgId,
       is_active: true
     };
     setCurrentUser(fallbackProfile);
-    setOrganization(DEFAULT_OFFLINE_ORG);
-    setOrganizations([DEFAULT_OFFLINE_ORG]);
-    setCurrentSelectedOrgId(DEFAULT_OFFLINE_ORG.id);
+    setOrganization(effectiveOrgObj);
+    setOrganizations([effectiveOrgObj]);
+    setCurrentSelectedOrgId(effectiveOfflineOrgId);
     setAccounts(DEFAULT_OFFLINE_ACCOUNTS);
     setProducts(DEFAULT_OFFLINE_PRODUCTS);
     setRestaurantTables(DEFAULT_OFFLINE_TABLES);
@@ -2029,7 +2051,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const createRestaurantOrder = async (payload: any) => {
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || 'org-default-offline';
+    const targetOrgId = getEffectiveOrgId();
     
     if (!navigator.onLine || isDemo) {
       const orderId = 'ord-offline-' + Date.now();
@@ -2212,7 +2234,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const addRestaurantTable = async (data: any) => { 
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || 'org-default-offline';
+    const targetOrgId = getEffectiveOrgId();
     if (!navigator.onLine || isDemo) {
       const newT = { ...data, id: 'tbl-' + Date.now(), organization_id: targetOrgId, status: data.status || 'AVAILABLE' };
       setRestaurantTables(prev => [...prev, newT]);
@@ -2264,7 +2286,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const startShift = async (amount: number) => { 
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || 'org-default-offline';
+    const targetOrgId = getEffectiveOrgId();
     const treasuryAcc = getSystemAccount('CASH');
 
     if (!navigator.onLine || isDemo) {

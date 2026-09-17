@@ -5,6 +5,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { useQueryClient } from '@tanstack/react-query';
 import { usePagination } from '../../components/usePagination';
+import { useNavigate } from 'react-router-dom';
 import RecipeManagement from '../restaurant/components/Management/RecipeManagement';
 import SearchableSelect from '../../components/SearchableSelect'; // Import the new component
 import { ModifierManagement } from '../restaurant/components/Management/ModifierManagement';
@@ -124,6 +125,7 @@ type ProductFormData = {
 };
 
 const ProductManager = () => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { accounts: contextAccounts, getSystemAccount, refreshData, deleteProduct, updateProduct, currentUser, products: contextProducts, warehouses, can, categories, addProduct, addEntry, settings, recalculateStock, currentSelectedOrgId, suppliers } = useAccounting();
   const { showToast } = useToast();
@@ -137,6 +139,8 @@ const ProductManager = () => {
   const [showOffersOnly, setShowOffersOnly] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [routingFilter, setRoutingFilter] = useState<'all' | 'has_routing_and_steps' | 'has_routing_no_steps' | 'no_routing' | 'has_any_routing'>('all');
+  const [routingsMap, setRoutingsMap] = useState<Map<string, { routingId: string; routingName: string; stepsCount: number }>>(new Map());
   const [recipeCost, setRecipeCost] = useState(0); 
   const [isExporting, setIsExporting] = useState(false); 
 
@@ -145,6 +149,51 @@ const ProductManager = () => {
     const timer = setTimeout(() => setDebouncedSearch(searchTerm), 500);
     return () => clearTimeout(timer);
   }, [searchTerm]);
+
+  // جلب مسارات ومراحل التصنيع لربطها بالأصناف والفلاتر
+  const fetchOrgRoutings = useCallback(async () => {
+    const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    if (!orgId) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('mfg_routings')
+        .select(`
+          id,
+          product_id,
+          name,
+          is_default,
+          mfg_routing_steps (
+            id
+          )
+        `)
+        .eq('organization_id', orgId)
+        .is('deleted_at', null);
+
+      if (!error && data) {
+        const map = new Map<string, { routingId: string; routingName: string; stepsCount: number }>();
+        data.forEach((r: any) => {
+          if (!r.product_id) return;
+          const stepsCount = Array.isArray(r.mfg_routing_steps) ? r.mfg_routing_steps.length : 0;
+          const existing = map.get(r.product_id);
+          if (!existing || r.is_default) {
+            map.set(r.product_id, {
+              routingId: r.id,
+              routingName: r.name,
+              stepsCount
+            });
+          }
+        });
+        setRoutingsMap(map);
+      }
+    } catch (err) {
+      console.warn('Error fetching routings for products filter:', err);
+    }
+  }, [currentSelectedOrgId, currentUser]);
+
+  useEffect(() => {
+    fetchOrgRoutings();
+  }, [fetchOrgRoutings]);
 
   // إعداد استعلام البيانات
   const queryModifier = useCallback((query: any) => {
@@ -171,8 +220,48 @@ const ProductManager = () => {
         query = query.or('product_type.eq.STOCK,and(product_type.is.null,mfg_type.is.null)');
       }
     }
+
+    // فلترة مسار ومراحل التصنيع
+    if (routingFilter !== 'all') {
+      if (routingFilter === 'has_routing_and_steps') {
+        const idsWithSteps = Array.from(routingsMap.entries())
+          .filter(([_, info]) => info.stepsCount > 0)
+          .map(([pid]) => pid);
+        if (idsWithSteps.length > 0) {
+          query = query.in('id', idsWithSteps);
+        } else {
+          query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+        }
+      } else if (routingFilter === 'has_routing_no_steps') {
+        const idsNoSteps = Array.from(routingsMap.entries())
+          .filter(([_, info]) => info.stepsCount === 0)
+          .map(([pid]) => pid);
+        if (idsNoSteps.length > 0) {
+          query = query.in('id', idsNoSteps);
+        } else {
+          query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+        }
+      } else if (routingFilter === 'has_any_routing') {
+        const allRoutingIds = Array.from(routingsMap.keys());
+        if (allRoutingIds.length > 0) {
+          query = query.in('id', allRoutingIds);
+        } else {
+          query = query.eq('id', '00000000-0000-0000-0000-000000000000');
+        }
+      } else if (routingFilter === 'no_routing') {
+        // حصر في الأصناف المصنعة والوسيطة إذا لم تكن محددة بالنوع
+        if (typeFilter === 'all') {
+          query = query.or('product_type.eq.MANUFACTURED,mfg_type.eq.standard,item_type.eq.MANUFACTURED,product_type.eq.INTERMEDIATE_PRODUCT,mfg_type.eq.intermediate,item_type.eq.INTERMEDIATE_PRODUCT');
+        }
+        const allRoutingIds = Array.from(routingsMap.keys());
+        if (allRoutingIds.length > 0) {
+          query = query.not('id', 'in', `(${allRoutingIds.join(',')})`);
+        }
+      }
+    }
+
     return query;
-  }, [debouncedSearch, showOffersOnly, categoryFilter, typeFilter]);
+  }, [debouncedSearch, showOffersOnly, categoryFilter, typeFilter, routingFilter, routingsMap]);
 
   // استخدام Hook التصفح
   const targetOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
@@ -221,7 +310,21 @@ const ProductManager = () => {
             ? 'INTERMEDIATE_PRODUCT'
             : i.product_type || (i as any).item_type || 'STOCK';
         const matchesType = typeFilter === 'all' || effectiveType === typeFilter;
-        return matchesSearch && matchesCategory && matchesType;
+
+        const isMfg = effectiveType === 'MANUFACTURED' || effectiveType === 'INTERMEDIATE_PRODUCT';
+        const rInfo = routingsMap.get(i.id);
+        let matchesRouting = true;
+        if (routingFilter === 'has_routing_and_steps') {
+          matchesRouting = isMfg && Boolean(rInfo && rInfo.stepsCount > 0);
+        } else if (routingFilter === 'has_routing_no_steps') {
+          matchesRouting = isMfg && Boolean(rInfo && rInfo.stepsCount === 0);
+        } else if (routingFilter === 'has_any_routing') {
+          matchesRouting = isMfg && Boolean(rInfo);
+        } else if (routingFilter === 'no_routing') {
+          matchesRouting = isMfg && !rInfo;
+        }
+
+        return matchesSearch && matchesCategory && matchesType && matchesRouting;
       }) 
     : serverItems;
     
@@ -2490,7 +2593,7 @@ const ProductManager = () => {
                 </>
             )}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3 pt-3 border-t">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3 pt-3 border-t">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">فلترة حسب نوع الصنف</label>
             <select 
@@ -2517,8 +2620,66 @@ const ProductManager = () => {
                 {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
             </select>
           </div>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-bold text-slate-700">مسار ومراحل التصنيع (BOM/Routing)</label>
+              {routingFilter !== 'all' && (
+                <button 
+                  onClick={() => setRoutingFilter('all')}
+                  className="text-[10px] text-red-600 hover:underline font-bold"
+                >
+                  إلغاء التصفية
+                </button>
+              )}
+            </div>
+            <select 
+                value={routingFilter}
+                onChange={e => setRoutingFilter(e.target.value as any)}
+                className={`w-full border rounded-lg p-2.5 text-xs font-bold outline-none focus:ring-2 transition-all ${
+                  routingFilter !== 'all'
+                    ? 'bg-purple-50 border-purple-300 text-purple-900 focus:ring-purple-500'
+                    : 'bg-white text-slate-700 focus:ring-emerald-500'
+                }`}
+            >
+                <option value="all">-- كل حالات مسار الإنتاج --</option>
+                <option value="has_routing_and_steps">✅ منتج مصنع له مسار ومراحل</option>
+                <option value="no_routing">⚠️ منتج مصنع ليس له مسار تصنيعي</option>
+                <option value="has_routing_no_steps">🔄 منتج مصنع له مسار بدون مراحل</option>
+                <option value="has_any_routing">📋 كل المنتجات التي لها مسار</option>
+            </select>
+          </div>
         </div>
       </div>
+
+      {routingFilter === 'no_routing' && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3.5 rounded-xl flex items-center justify-between gap-3 text-xs font-bold animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={18} className="text-rose-600 shrink-0" />
+            <span>يتم الآن عرض الأصناف المصنعة والوسيطة التي لم يتم إنشاء مسار إنتاج أو مراحل تشغيل لها بعد. يمكنك النقر على زر "بدون مسار تصنيعي" أمام أي صنف لبناء مساره ومراحله فوراً.</span>
+          </div>
+          <button 
+            onClick={() => setRoutingFilter('all')}
+            className="text-rose-700 hover:text-rose-900 underline shrink-0"
+          >
+            عرض كافة الأصناف
+          </button>
+        </div>
+      )}
+
+      {routingFilter === 'has_routing_and_steps' && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3.5 rounded-xl flex items-center justify-between gap-3 text-xs font-bold animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <Layers size={18} className="text-emerald-600 shrink-0" />
+            <span>يتم الآن عرض الأصناف المصنعة والوسيطة الجاهزة للإنتاج (التي لها مسار تشغيل ومراحل إنتاج متكاملة).</span>
+          </div>
+          <button 
+            onClick={() => setRoutingFilter('all')}
+            className="text-emerald-700 hover:text-emerald-900 underline shrink-0"
+          >
+            عرض كافة الأصناف
+          </button>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <table className="w-full text-right">
@@ -2600,13 +2761,77 @@ const ProductManager = () => {
                       🥩 مادة خام
                     </span>
                   ) : effectiveType === 'MANUFACTURED' ? (
-                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200">
-                      🍲 منتج مصنع
-                    </span>
+                    <div>
+                      <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200">
+                        🍲 منتج مصنع
+                      </span>
+                      {(() => {
+                        const routingInfo = routingsMap.get(item.id);
+                        if (routingInfo) {
+                          return (
+                            <button
+                              onClick={() => navigate(`/mfg/routing-bom?productId=${item.id}`)}
+                              title={`المسار: ${routingInfo.routingName} (${routingInfo.stepsCount} مراحل) - انقر لعرض المسار`}
+                              className={`mt-1.5 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border transition-all ${
+                                routingInfo.stepsCount > 0
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                              }`}
+                            >
+                              <Layers size={11} className={routingInfo.stepsCount > 0 ? 'text-emerald-600' : 'text-amber-600'} />
+                              <span>{routingInfo.stepsCount > 0 ? `مسار ومراحل (${routingInfo.stepsCount})` : 'مسار بدون مراحل'}</span>
+                            </button>
+                          );
+                        }
+                        return (
+                          <button
+                            onClick={() => navigate(`/mfg/routing-bom?productId=${item.id}`)}
+                            title="هذا الصنف مصنع ولكن لم يتم إنشاء مسار إنتاج أو مراحل له بعد - انقر لإنشاء مسار"
+                            className="mt-1.5 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 transition-all"
+                          >
+                            <AlertTriangle size={11} className="text-rose-600" />
+                            <span>بدون مسار تصنيعي</span>
+                            <PlusCircle size={10} className="text-rose-500" />
+                          </button>
+                        );
+                      })()}
+                    </div>
                   ) : effectiveType === 'INTERMEDIATE_PRODUCT' ? (
-                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
-                      🍰 منتج وسيط
-                    </span>
+                    <div>
+                      <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                        🍰 منتج وسيط
+                      </span>
+                      {(() => {
+                        const routingInfo = routingsMap.get(item.id);
+                        if (routingInfo) {
+                          return (
+                            <button
+                              onClick={() => navigate(`/mfg/routing-bom?productId=${item.id}`)}
+                              title={`المسار: ${routingInfo.routingName} (${routingInfo.stepsCount} مراحل) - انقر لعرض المسار`}
+                              className={`mt-1.5 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border transition-all ${
+                                routingInfo.stepsCount > 0
+                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                              }`}
+                            >
+                              <Layers size={11} className={routingInfo.stepsCount > 0 ? 'text-emerald-600' : 'text-amber-600'} />
+                              <span>{routingInfo.stepsCount > 0 ? `مسار ومراحل (${routingInfo.stepsCount})` : 'مسار بدون مراحل'}</span>
+                            </button>
+                          );
+                        }
+                        return (
+                          <button
+                            onClick={() => navigate(`/mfg/routing-bom?productId=${item.id}`)}
+                            title="هذا الصنف وسيط ولكن لم يتم إنشاء مسار إنتاج أو مراحل له بعد - انقر لإنشاء مسار"
+                            className="mt-1.5 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 transition-all"
+                          >
+                            <AlertTriangle size={11} className="text-rose-600" />
+                            <span>بدون مسار تصنيعي</span>
+                            <PlusCircle size={10} className="text-rose-500" />
+                          </button>
+                        );
+                      })()}
+                    </div>
                   ) : effectiveType === 'SERVICE' ? (
                     <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
                       ⚙️ خدمي

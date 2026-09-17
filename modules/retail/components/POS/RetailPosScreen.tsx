@@ -596,12 +596,18 @@ export default function RetailPosScreen() {
 
       // Seed a default terminal if none exists (demo or offline purposes)
       if (!termData || termData.length === 0) {
+        const cachedValidOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
+          (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
+        const effectiveOrg = (currentUser?.organization_id && currentUser.organization_id !== 'org-default-offline') 
+          ? currentUser.organization_id 
+          : (cachedValidOrg || '00000000-0000-0000-0000-000000000000');
+
         const defaultTerm = {
           id: 'term-offline-1',
           name: 'الكاشير الرئيسي 1',
           status: 'ACTIVE',
           cash_account_id: 'acc-cash',
-          organization_id: currentUser?.organization_id || 'org-default-offline'
+          organization_id: effectiveOrg
         };
         termData = [defaultTerm];
       }
@@ -609,7 +615,14 @@ export default function RetailPosScreen() {
 
       // 2. Sync products locally if online, or seed fallback products
       if (navigator.onLine && currentUser.role !== 'demo') {
-        await offlineService.syncProductsLocally(currentUser.organization_id);
+        const cachedValidOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
+          (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
+        const effectiveOrg = (currentUser?.organization_id && currentUser.organization_id !== 'org-default-offline') 
+          ? currentUser.organization_id 
+          : (cachedValidOrg || currentUser?.organization_id);
+        if (effectiveOrg) {
+          await offlineService.syncProductsLocally(effectiveOrg);
+        }
       } else {
         await offlineService.seedFallbackProducts(DEFAULT_OFFLINE_PRODUCTS);
       }

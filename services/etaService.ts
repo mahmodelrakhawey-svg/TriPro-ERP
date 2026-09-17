@@ -85,7 +85,7 @@ export const etaService = {
           buildingNumber: invoice.customers?.building_number || "1",
         },
         type: invoice.customers?.customer_type === 'company' ? "B" : "P",
-        id: invoice.customers?.taxpayer_id || invoice.customers?.national_id || "11111111111111",
+        id: invoice.customers?.tax_number || invoice.customers?.tax_id || invoice.customers?.national_id || invoice.customers?.taxpayer_id || "11111111111111",
         name: invoice.customers?.name || "Generic Customer",
       },
       documentType: invoice.invoice_type === 'credit_note' ? "C" : invoice.invoice_type === 'debit_note' ? "D" : "I",

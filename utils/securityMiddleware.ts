@@ -226,11 +226,14 @@ export const secureStorage = {
       // SECURITY-WRAPPER: Direct storage interface usage is intentional here - this is the secure wrapper layer
       const storage = typeof window !== 'undefined' ? window.localStorage : null;
       const item = storage ? storage.getItem(key) : null;
-      return item ? JSON.parse(item) : fallback || null;
-    } catch (error) {
-      if (process.env.NODE_ENV === 'development') {
-        console.error('Storage read error:', error);
+      if (item === null || item === undefined) return fallback || null;
+      try {
+        return JSON.parse(item) as T;
+      } catch {
+        // Fallback for plain text strings previously saved directly without JSON.stringify
+        return (item as unknown as T);
       }
+    } catch (error) {
       return fallback || null;
     }
   },

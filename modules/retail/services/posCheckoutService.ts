@@ -5,6 +5,7 @@
 
 import { supabase } from '../../../supabaseClient';
 import { offlineService } from '../../../services/offlineService';
+import { secureStorage } from '../../../utils/securityMiddleware';
 import { couponService, RetailCoupon } from './couponService';
 import type { PosCartItem } from '../hooks/usePosCart';
 import type { SplitPaymentDetails } from '../components/POS/SplitPaymentModal';
@@ -89,6 +90,12 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
 
   const effectiveWarehouseId = selectedTerminal?.warehouse_id || settings?.defaultWarehouseId || settings?.default_warehouse_id || (warehouses && warehouses[0]?.id) || '00000000-0000-0000-0000-000000000000';
 
+  const cachedValidOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
+    (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
+  const effectiveOrgId = (currentUser?.organization_id && currentUser.organization_id !== 'org-default-offline' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(currentUser.organization_id))
+    ? currentUser.organization_id
+    : (cachedValidOrg || currentUser?.organization_id || '00000000-0000-0000-0000-000000000000');
+
   const orderData = {
     sessionId: null,
     userId: currentUser.id,
@@ -98,7 +105,7 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
       : 'مبيعات كاشير تجزئة سريعة',
     items: itemsPayload,
     warehouseId: effectiveWarehouseId,
-    orgId: currentUser.organization_id,
+    orgId: effectiveOrgId,
     customerId: selectedCustomer?.id || null,
     paymentMethod: effectiveMethod,
     paymentAmount: total
@@ -119,7 +126,7 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
 
       const { data: atomicData, error: atomicErr } = await supabase.rpc('complete_pos_sale_atomic', {
         p_items: itemsPayload,
-        p_org_id: currentUser.organization_id,
+        p_org_id: effectiveOrgId,
         p_user_id: currentUser.id,
         p_warehouse_id: effectiveWarehouseId !== '00000000-0000-0000-0000-000000000000' ? effectiveWarehouseId : null,
         p_customer_id: selectedCustomer?.id || null,
@@ -197,7 +204,7 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
           p_payment_method: effectiveMethod,
           p_amount: total,
           p_cash_account_id: treasuryId,
-          p_org_id: currentUser.organization_id,
+          p_org_id: effectiveOrgId,
           p_warehouse_id: effectiveWarehouseId !== '00000000-0000-0000-0000-000000000000' ? effectiveWarehouseId : null
         });
 
@@ -207,7 +214,7 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
 
     // 3. Record coupon usage if applied
     if (appliedCoupon) {
-      await couponService.recordUsage(appliedCoupon.id, currentUser.organization_id);
+      await couponService.recordUsage(appliedCoupon.id, effectiveOrgId);
     }
   } else {
     // Queue order for offline sync

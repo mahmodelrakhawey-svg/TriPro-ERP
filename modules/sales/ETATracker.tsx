@@ -119,8 +119,8 @@ export const ETATracker: React.FC = () => {
           eta_qr_code,
           customers (
             name,
-            taxpayer_id,
-            national_id
+            tax_number,
+            tax_id
           )
         `)
         .eq('organization_id', orgId)
@@ -141,7 +141,7 @@ export const ETATracker: React.FC = () => {
         eta_error: inv.eta_error,
         eta_qr_code: inv.eta_qr_code,
         customer_name: inv.customers?.name || 'عميل عام',
-        customer_tax_id: inv.customers?.taxpayer_id || inv.customers?.national_id || '-'
+        customer_tax_id: inv.customers?.tax_number || inv.customers?.tax_id || '-'
       }));
 
       setInvoices(formatted);

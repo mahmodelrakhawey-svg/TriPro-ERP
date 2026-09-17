@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting as useOrg } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -74,8 +75,17 @@ const RoutingBOMManager = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const [searchParams] = useSearchParams();
+  const paramProductId = searchParams.get('productId');
+
   const [workCenters, setWorkCenters] = useState<WorkCenter[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(paramProductId || null);
+
+  useEffect(() => {
+    if (paramProductId && selectedProductId !== paramProductId) {
+      setSelectedProductId(paramProductId);
+    }
+  }, [paramProductId]);
   const [currentRouting, setCurrentRouting] = useState<Routing | null>(null);
   const [routingSteps, setRoutingSteps] = useState<RoutingStep[]>([]);
 
