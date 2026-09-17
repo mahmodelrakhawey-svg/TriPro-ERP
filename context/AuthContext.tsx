@@ -201,6 +201,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUserRole(roleName);
         // حفظ بيانات المستخدم للدخول بدون إنترنت (Offline Access Cache)
         secureStorage.setItem('tripro_cached_user_profile', profileData);
+        if (profileData.organization_id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(profileData.organization_id)) {
+          secureStorage.setItem('tripro_last_valid_org_id', profileData.organization_id);
+          try { window.localStorage?.setItem('tripro_last_valid_org_id', JSON.stringify(profileData.organization_id)); } catch (e) {}
+        }
 
         // تحسين أمان SaaS: منع الدخول إذا لم تكن المنظمة موجودة (إلا للديمو والمسؤول العام)
         if (roleName !== 'super_admin' && roleName !== 'demo' && !profile?.organization_id && !user.user_metadata?.org_id && user.email !== 'admin') {
@@ -348,13 +352,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: true };
       }
       // إذا لم يكن مخزناً وكان الجهاز بدون إنترنت، نسمح بالدخول المباشر كمسؤول محلي أوفلاين
+      const cachedLastOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
+        (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
+      const effectiveOfflineOrg = (cachedLastOrg && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cachedLastOrg))
+        ? cachedLastOrg
+        : '00000000-0000-0000-0000-000000000000';
+
       const offlineFallbackUser: User = {
-        id: 'usr-offline-admin',
+        id: ADMIN_USER_ID,
         name: sanitizedEmailRaw.split('@')[0] || 'مدير النظام (أوفلاين)',
         username: sanitizedEmailRaw,
         role: 'admin',
         is_active: true,
-        organization_id: 'org-default-offline'
+        organization_id: effectiveOfflineOrg
       };
       setCurrentUser(offlineFallbackUser);
       setUserRole('admin');
@@ -380,13 +390,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setAuthInitialized(true);
             return { success: true };
           }
+          const cachedLastOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
+            (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
+          const effectiveOfflineOrg = (cachedLastOrg && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cachedLastOrg))
+            ? cachedLastOrg
+            : '00000000-0000-0000-0000-000000000000';
+
           const offlineUser: User = {
-            id: finalEmail === DEMO_EMAIL ? DEMO_USER_ID : 'usr-offline-admin',
+            id: finalEmail === DEMO_EMAIL ? DEMO_USER_ID : ADMIN_USER_ID,
             name: finalEmail === DEMO_EMAIL ? 'مستخدم تجريبي (وضع غير متصل)' : (finalEmail.split('@')[0] || 'مدير النظام'),
             username: finalEmail,
             role: finalEmail === DEMO_EMAIL ? 'demo' : 'admin',
             is_active: true,
-            organization_id: 'org-default-offline'
+            organization_id: effectiveOfflineOrg
           };
           setCurrentUser(offlineUser);
           setUserRole(offlineUser.role);
@@ -409,13 +425,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setAuthInitialized(true);
           return { success: true };
         }
+        const cachedLastOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
+          (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
+        const effectiveOfflineOrg = (cachedLastOrg && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cachedLastOrg))
+          ? cachedLastOrg
+          : '00000000-0000-0000-0000-000000000000';
+
         const offlineUser: User = {
-          id: finalEmail === DEMO_EMAIL ? DEMO_USER_ID : 'usr-offline-admin',
+          id: finalEmail === DEMO_EMAIL ? DEMO_USER_ID : ADMIN_USER_ID,
           name: finalEmail === DEMO_EMAIL ? 'مستخدم تجريبي (وضع غير متصل)' : (finalEmail.split('@')[0] || 'مدير النظام'),
           username: finalEmail,
           role: finalEmail === DEMO_EMAIL ? 'demo' : 'admin',
           is_active: true,
-          organization_id: 'org-default-offline'
+          organization_id: effectiveOfflineOrg
         };
         setCurrentUser(offlineUser);
         setUserRole(offlineUser.role);

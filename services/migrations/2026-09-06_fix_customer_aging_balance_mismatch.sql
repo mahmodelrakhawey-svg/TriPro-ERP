@@ -40,6 +40,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+#variable_conflict use_column
 BEGIN
     RETURN QUERY
     WITH
@@ -146,10 +147,10 @@ BEGIN
           AND LENGTH(TRIM(c.name)) > 1
     ),
     all_customer_entries AS (
-        SELECT DISTINCT je_id, customer_id FROM (
-            SELECT je_id, customer_id FROM entry_to_customer
+        SELECT DISTINCT combined.je_id, combined.customer_id FROM (
+            SELECT etc.je_id, etc.customer_id FROM entry_to_customer etc
             UNION ALL
-            SELECT je_id, customer_id FROM manual_entries
+            SELECT me.je_id, me.customer_id FROM manual_entries me
         ) combined
     ),
     -- 4. صافي الرصيد الدفتري لحساب العملاء 1221 حصراً (مطابق 100% لكشف الحساب)
@@ -230,9 +231,9 @@ BEGIN
           AND ppb.status != 'draft'
     ),
     all_debit_items AS (
-        SELECT customer_id, age_days, amount FROM inv_items
+        SELECT ii.customer_id, ii.age_days, ii.amount FROM inv_items ii
         UNION ALL
-        SELECT customer_id, age_days, amount FROM billing_items
+        SELECT bi.customer_id, bi.age_days, bi.amount FROM billing_items bi
     ),
     debit_buckets AS (
         SELECT 
@@ -320,6 +321,7 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
 AS $$
+#variable_conflict use_column
 DECLARE
     v_search text;
     v_total_rows bigint;
@@ -413,10 +415,10 @@ BEGIN
           AND LENGTH(TRIM(c.name)) > 1
     ),
     all_customer_entries AS (
-        SELECT DISTINCT je_id, customer_id FROM (
-            SELECT je_id, customer_id FROM entry_to_customer
+        SELECT DISTINCT combined.je_id, combined.customer_id FROM (
+            SELECT etc.je_id, etc.customer_id FROM entry_to_customer etc
             UNION ALL
-            SELECT je_id, customer_id FROM manual_entries
+            SELECT me.je_id, me.customer_id FROM manual_entries me
         ) combined
     ),
     ledger_balances AS (
