@@ -292,6 +292,9 @@ export { useProductDomain } from './domains/ProductContext';
 export { useCustomerDomain } from './domains/CustomerContext';
 export { useSupplierDomain } from './domains/SupplierContext';
 export { useSettingsDomain } from './domains/AccountingSettingsContext';
+export { useSalesDomain } from './domains/SalesContext';
+export { useBankingDomain } from './domains/BankingContext';
+export { useGeneralLedgerDomain } from './domains/GeneralLedgerContext';
 
 /**
  * دالة مساعدة عامة لجلب كافة سجلات الجداول الكبيرة التي تتجاوز حد 1000 سجل في Supabase/PostgREST

@@ -29,7 +29,9 @@ import { loyaltyService } from '../../../../services/loyaltyService';
 import { etaService } from '../../../../services/etaService';
 import { whatsappService } from '../../../../services/whatsappService';
 import { driverDispatchService } from '../../../../services/driverDispatchService';
-import { Bell, AlertCircle, Smartphone, Gift, Zap, CheckCircle2 } from 'lucide-react';
+import SupervisorPinModal from '../../../retail/components/POS/SupervisorPinModal';
+import SupervisorBadgePrintModal from '../../../retail/components/POS/SupervisorBadgePrintModal';
+import { Bell, AlertCircle, Smartphone, Gift, Zap, CheckCircle2, ShieldCheck } from 'lucide-react';
 
 
 const DELIVERY_FEE = 15; // قيمة افتراضية لرسوم التوصيل
@@ -608,7 +610,7 @@ const CloseShiftModal = ({ isOpen, onClose, onConfirm, summary, isLoading }: { i
 
 
 const PosScreen = () => {
-  const { accounts, restaurantTables, openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, products: allProducts, menuCategories, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, createRestaurantOrder, getOpenTableOrder, completeRestaurantOrder, processSplitPayment, settings, currentShift, startShift, closeCurrentShift, getCurrentShiftSummary, isDemo, currentUser, refreshData, currentSelectedOrgId } = useAccounting();
+  const { accounts, restaurantTables, openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, products: allProducts, menuCategories, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, createRestaurantOrder, getOpenTableOrder, completeRestaurantOrder, processSplitPayment, settings, currentShift, startShift, closeCurrentShift, getCurrentShiftSummary, isDemo, currentUser, organization, refreshData, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('dine-in');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -639,6 +641,38 @@ const PosScreen = () => {
   const [qrCodeTarget, setQrCodeTarget] = useState<{ table: RestaurantTable, key: string } | null>(null);
   const [isBulkQrModalOpen, setIsBulkQrModalOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // 🪪 Supervisor PIN & Badge Scanner State (تصريح كارت ورقم المشرف السري)
+  const [supervisorModalState, setSupervisorModalState] = useState<{
+    isOpen: boolean;
+    actionTitle: string;
+    actionDescription?: string;
+    onSuccess: () => void;
+  }>({
+    isOpen: false,
+    actionTitle: '',
+    actionDescription: '',
+    onSuccess: () => {}
+  });
+  const [isBadgePrintOpen, setIsBadgePrintOpen] = useState(false);
+
+  // دالة الفحص الأمني: إذا كان المستخدم بالفعل مديراً أو مشرفاً يتم التجاوز فوراً، وإلا يُطلب كارت المشرف
+  const requireSupervisorAuth = useCallback((actionTitle: string, actionDescription: string, onAuthorized: () => void) => {
+    const isSupervisor = ['admin', 'manager', 'owner', 'super_admin', 'pos_supervisor', 'restaurant_supervisor'].includes(currentUser?.role || '');
+    if (isSupervisor) {
+      onAuthorized();
+      return;
+    }
+    setSupervisorModalState({
+      isOpen: true,
+      actionTitle,
+      actionDescription,
+      onSuccess: () => {
+        setSupervisorModalState(prev => ({ ...prev, isOpen: false }));
+        onAuthorized();
+      }
+    });
+  }, [currentUser]);
 
   // --- Print Logic ---
   const printRef = useRef<HTMLDivElement>(null);
@@ -851,6 +885,19 @@ const PosScreen = () => {
   };
 
   const clearOrder = () => {
+    if (!activeOrder) return;
+    // إذا كانت الطاولة بها طلبات مرسلة للمطبخ، نطلب تصريح المشرف أولاً لمنع مسح طاولات عليها حساب
+    if (activeOrder.items && activeOrder.items.some((it: any) => (it.savedQuantity || 0) > 0)) {
+      requireSupervisorAuth(
+        `تصريح إلغاء طاولة مشغولة (${activeOrder.tableName})`,
+        'قم بتمرير كارت باركود المشرف أو إدخال الرمز السري لإلغاء وتفريغ الطاولة بالكامل',
+        () => {
+          setActiveOrder(null);
+          showToast('تم إلغاء وتفريغ الطاولة بتصريح المشرف ✓', 'info');
+        }
+      );
+      return;
+    }
     setActiveOrder(null);
   };
 
@@ -1073,11 +1120,39 @@ const PosScreen = () => {
   };
 
   const updateOrderItem = (itemId: string, change: number) => {
+    if (!activeOrder) return;
+    const targetItem = activeOrder.items.find((item: any) => item.localId === itemId || item.id === itemId);
+    if (!targetItem) return;
+
+    // 🛡️ إذا كانت العملية هي إنقاص أو إلغاء صنف تم إرساله مسبقاً للمطبخ (savedQuantity)
+    if (change < 0 && targetItem.savedQuantity && targetItem.quantity <= targetItem.savedQuantity) {
+      requireSupervisorAuth(
+        `تصريح إلغاء طبق مرسل للمطبخ (${targetItem.name})`,
+        'قم بتمرير كارت باركود المشرف أو إدخال الرمز السري لاعتماد إلغاء الوجبة من المطبخ',
+        () => {
+          setActiveOrder(prevOrder => {
+            if (!prevOrder) return null;
+            const newItems = prevOrder.items.map((item: any) => {
+              if (item.localId === itemId || item.id === itemId) {
+                const newQty = item.quantity - 1;
+                const newSaved = Math.max(0, (item.savedQuantity || 0) - 1);
+                return { ...item, quantity: newQty, savedQuantity: newSaved };
+              }
+              return item;
+            }).filter(item => item.quantity > 0);
+            return { ...prevOrder, items: newItems };
+          });
+          showToast(`تم إلغاء الطبق (${targetItem.name}) بتصريح المشرف بنجاح ✓`, 'success');
+        }
+      );
+      return;
+    }
+
+    // التعديل العادي للأصناف غير المحفوظة
     setActiveOrder(prevOrder => {
       if (!prevOrder) return null;
       const newItems = prevOrder.items.map((item: any) => {
         if (item.localId === itemId || item.id === itemId) {
-          // لا نسمح بتقليل الكمية عن الكمية المحفوظة مسبقاً (التي تم طلبها بالفعل)
           const minQty = item.savedQuantity ?? 0;
           const newQty = Math.max(minQty, item.quantity + change);
           return { ...item, quantity: newQty };
@@ -1528,13 +1603,20 @@ const PosScreen = () => {
 
   const handleAddDiscount = () => {
     if (!activeOrder) return;
-    const discountValue = prompt('أدخل قيمة الخصم (نسبة % أو مبلغ ثابت):');
-    if (discountValue) {
-      const value = parseFloat(discountValue);
-      const type = discountValue.includes('%') ? 'percentage' : 'fixed';
-      const finalValue = type === 'percentage' ? parseFloat(discountValue.replace('%', '')) : value;
-      setActiveOrder({ ...activeOrder, discount: { type, value: finalValue } });
-    }
+    requireSupervisorAuth(
+      'تصريح منح خصم استثنائي (Discount Approval)',
+      'قم بتمرير كارت باركود المشرف أو إدخال الرمز السري لتطبيق الخصم على الفاتورة',
+      () => {
+        const discountValue = prompt('أدخل قيمة الخصم (نسبة % أو مبلغ ثابت):');
+        if (discountValue) {
+          const value = parseFloat(discountValue);
+          const type = discountValue.includes('%') ? 'percentage' : 'fixed';
+          const finalValue = type === 'percentage' ? parseFloat(discountValue.replace('%', '')) : value;
+          setActiveOrder({ ...activeOrder, discount: { type, value: finalValue } });
+          showToast(`تم تطبيق الخصم (${finalValue}${type === 'percentage' ? '%' : ' ج.م'}) بنجاح ✓`, 'success');
+        }
+      }
+    );
   };
 
   const handlePayLater = async () => {
@@ -1680,6 +1762,15 @@ const PosScreen = () => {
             title="إجراء الجرد وإقفال الوردية الحالية"
           >
             <Lock size={14} /> إقفال الوردية
+          </button>
+
+          {/* Supervisor Badge Shortcut */}
+          <button
+            onClick={() => setIsBadgePrintOpen(true)}
+            className="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 text-purple-700 bg-purple-50 hover:bg-purple-100 mr-1 border border-purple-200"
+            title="طباعة شارة باركود المشرف / الهيد كاشير (Supervisor Badge)"
+          >
+            <ShieldCheck size={14} className="text-purple-600" /> <span className="hidden sm:inline">كارت المشرف</span>
           </button>
 
           {/* Mobile Waiter Shortcut */}
@@ -2069,6 +2160,25 @@ const PosScreen = () => {
           </div>
         </div>
       )}
+
+      {/* 🪪 Supervisor PIN Modal */}
+      <SupervisorPinModal
+        isOpen={supervisorModalState.isOpen}
+        onClose={() => setSupervisorModalState(prev => ({ ...prev, isOpen: false }))}
+        onSuccess={supervisorModalState.onSuccess}
+        actionTitle={supervisorModalState.actionTitle}
+        actionDescription={supervisorModalState.actionDescription}
+        showPrintButton={['admin', 'manager', 'owner', 'super_admin', 'pos_supervisor', 'restaurant_supervisor'].includes(currentUser?.role || '')}
+        orgName={organization?.name || settings?.company_name || 'مطعمنا'}
+      />
+
+      {/* 🪪 Supervisor Badge Print Modal */}
+      <SupervisorBadgePrintModal
+        isOpen={isBadgePrintOpen}
+        onClose={() => setIsBadgePrintOpen(false)}
+        orgName={organization?.name || settings?.company_name || 'مطعمنا'}
+        supervisorName={(currentUser as any)?.full_name || (currentUser as any)?.name || 'مشرف الصالة'}
+      />
 
       {/* Hidden component for printing */}
       <div style={{ position: 'absolute', left: '-9999px', top: '-9999px' }}>
