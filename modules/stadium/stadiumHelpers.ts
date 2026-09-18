@@ -59,7 +59,7 @@ export function calcSubscriptionEndDate(
   startDate: string,
   duration: 'monthly' | 'quarterly' | 'semi_annual' | 'annual'
 ): string {
-  const start = new Date(startDate);
+  const [yearStr, monthStr, dayStr] = startDate.split('-');
   const monthsMap: Record<string, number> = {
     monthly: 1,
     quarterly: 3,
@@ -67,8 +67,11 @@ export function calcSubscriptionEndDate(
     annual: 12,
   };
   const months = monthsMap[duration] ?? 1;
-  start.setMonth(start.getMonth() + months);
-  return start.toISOString().split('T')[0];
+  const d = new Date(Number(yearStr), Number(monthStr) - 1 + months, Number(dayStr));
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
 }
 
 // ─────────────────────────────────────────────

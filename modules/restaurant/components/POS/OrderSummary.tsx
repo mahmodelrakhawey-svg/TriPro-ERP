@@ -193,7 +193,14 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({
               <div className="text-xs text-slate-500">{(Number(item.unitPrice) || 0).toFixed(2)}</div>
             </div>
             <div className="flex items-center gap-2">
-              <button onClick={() => onUpdateItem(itemId, -1)} className={`p-1 rounded-full ${item.savedQuantity && item.quantity <= item.savedQuantity ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-red-100 text-red-600'}`} disabled={item.savedQuantity ? item.quantity <= item.savedQuantity : false}><Minus size={12} /></button>
+              <button 
+                type="button"
+                onClick={() => onUpdateItem(itemId, -1)} 
+                className={`p-1 rounded-full transition-colors ${item.savedQuantity && item.quantity <= item.savedQuantity ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-red-100 text-red-600 hover:bg-red-200'}`} 
+                title={item.savedQuantity && item.quantity <= item.savedQuantity ? 'إلغاء طبق مرسل للمطبخ (يتطلب تصريح المشرف 🪪)' : 'تقليل الكمية'}
+              >
+                <Minus size={12} />
+              </button>
               <span className="font-bold w-6 text-center">{item.quantity}</span>
               {item.savedQuantity && item.savedQuantity > 0 && <span className="text-[10px] text-slate-400 bg-slate-100 px-1 rounded" title="تم طلبه مسبقاً">+{item.savedQuantity}</span>}
               <button onClick={() => onUpdateItem(itemId, 1)} className="p-1 bg-emerald-100 text-emerald-600 rounded-full hover:bg-emerald-200"><Plus size={12} /></button>
