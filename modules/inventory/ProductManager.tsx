@@ -594,6 +594,7 @@ const ProductManager = () => {
   };
 
   const [isSyncingRawAccounts, setIsSyncingRawAccounts] = useState(false);
+  const [isSyncingFinishedGoodsAccounts, setIsSyncingFinishedGoodsAccounts] = useState(false);
 
   // 📦 حساب عدد أصناف المواد الخام التي ما زالت تتبع حساب المخزون العام وتحتاج توجيه
   const rawItemsNeedingSyncCount = useMemo(() => {
@@ -605,6 +606,22 @@ const ProductManager = () => {
       (!p.inventory_account_id || p.inventory_account_id === generalInvAcc)
     ).length;
   }, [contextProducts, getSystemAccount, settings]);
+
+  // 🍰 حساب عدد أصناف التورت والجاتوهات والحلويات الشرقية التي ما زالت تتبع حساب المخزون العام وتحتاج توجيه للإنتاج التام
+  const finishedGoodsItemsNeedingSyncCount = useMemo(() => {
+    const finishedGoodsAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || settings?.account_mappings?.INVENTORY_FINISHED_GOODS || '90685bba-b765-4fe4-96a5-b3963a4ec085';
+    const generalInvAcc = getSystemAccount('INVENTORY')?.id || settings?.account_mappings?.INVENTORY || '5434d458-20fe-4641-bc0f-22b8ccba0de7';
+    const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || settings?.account_mappings?.INVENTORY_RAW_MATERIALS || '00bc8443-0ace-40ba-82c1-ce97f6a02e15';
+    const finishedCatNames = ['التورتات الغربية الفاخرة', 'الجاتوهات والقطع', 'الحلويات الشرقية', 'الشيكولاتة الفاخرة والهدايا', 'الآيس كريم والمثلجات'];
+    const finishedCatIds = new Set(categories.filter(c => finishedCatNames.includes(c.name)).map(c => c.id));
+
+    return (contextProducts || []).filter(p => {
+      const isTargetCategory = p.category_id && finishedCatIds.has(p.category_id);
+      const isManufactured = p.product_type === 'MANUFACTURED' && isTargetCategory;
+      const isWrongAccount = !p.inventory_account_id || p.inventory_account_id === generalInvAcc || p.inventory_account_id === rawMaterialAcc;
+      return (isTargetCategory || isManufactured) && p.inventory_account_id !== finishedGoodsAcc && isWrongAccount;
+    }).length;
+  }, [contextProducts, categories, getSystemAccount, settings]);
 
   // 🔄 توجيه حسابات أصناف المواد الخام آلياً لحساب مخزون المواد الخام مع الحفاظ التام على التعديلات اليدوية
   const handleSyncRawMaterialAccounts = async () => {
@@ -679,9 +696,92 @@ const ProductManager = () => {
     }
   };
 
+  // 🎂🔄 توجيه حسابات أصناف التورت والجاتوهات والشرقي آلياً لحساب مخزون الإنتاج التام (10302)
+  const handleSyncFinishedGoodsAccounts = async () => {
+    const finishedGoodsAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || settings?.account_mappings?.INVENTORY_FINISHED_GOODS || '90685bba-b765-4fe4-96a5-b3963a4ec085';
+    const generalInvAcc = getSystemAccount('INVENTORY')?.id || settings?.account_mappings?.INVENTORY || '5434d458-20fe-4641-bc0f-22b8ccba0de7';
+    const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || settings?.account_mappings?.INVENTORY_RAW_MATERIALS || '00bc8443-0ace-40ba-82c1-ce97f6a02e15';
+
+    if (!finishedGoodsAcc) {
+      showToast('لم يتم العثور على حساب مخزون الإنتاج التام في شجرة الحسابات أو الإعدادات', 'error');
+      return;
+    }
+
+    const finishedCatNames = ['التورتات الغربية الفاخرة', 'الجاتوهات والقطع', 'الحلويات الشرقية', 'الشيكولاتة الفاخرة والهدايا', 'الآيس كريم والمثلجات'];
+    const finishedCatIds = new Set(categories.filter(c => finishedCatNames.includes(c.name)).map(c => c.id));
+
+    const allProds = contextProducts || [];
+    const candidates = allProds.filter(p => {
+      const isTargetCategory = p.category_id && finishedCatIds.has(p.category_id);
+      const isManufactured = p.product_type === 'MANUFACTURED' && isTargetCategory;
+      const isWrongAccount = !p.inventory_account_id || p.inventory_account_id === generalInvAcc || p.inventory_account_id === rawMaterialAcc;
+      return (isTargetCategory || isManufactured) && p.inventory_account_id !== finishedGoodsAcc && isWrongAccount;
+    });
+
+    const preserved = allProds.filter(p => {
+      const isTargetCategory = p.category_id && finishedCatIds.has(p.category_id);
+      return isTargetCategory && p.inventory_account_id === finishedGoodsAcc;
+    });
+
+    if (candidates.length === 0) {
+      showToast('جميع أصناف التورت والجاتوهات والحلويات الشرقية موجهة بالفعل لحساب مخزون الإنتاج التام بنجاح ✅', 'info');
+      return;
+    }
+
+    const confirmMsg = `هل تريد توجيه (${candidates.length}) صنف من أصناف (التورت، الجاتوهات، والحلويات الشرقية) إلى "حساب مخزون الإنتاج التام (10302)"؟\n\n🛡️ صمام الأمان: سيتم الحفاظ التام على الأصناف المضبوطة مسبقاً (${preserved.length} صنف) دون أي مساس بها.`;
+
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    setIsSyncingFinishedGoodsAccounts(true);
+    try {
+      const candidateIds = candidates.map(p => p.id);
+      let updatedTotal = 0;
+      const chunkSize = 50;
+
+      for (let i = 0; i < candidateIds.length; i += chunkSize) {
+        const chunk = candidateIds.slice(i, i + chunkSize);
+        const { error: upErr } = await supabase
+          .from('products')
+          .update({ 
+            inventory_account_id: finishedGoodsAcc,
+            updated_at: new Date().toISOString()
+          })
+          .in('id', chunk);
+
+        if (upErr) throw upErr;
+        updatedTotal += chunk.length;
+      }
+
+      // تحديث التصنيفات الافتراضية للإنتاج التام لترتبط مستقبلاً بمخزون الإنتاج التام 10302
+      const orgId = targetOrgId || (currentUser as any)?.organization_id;
+      if (orgId) {
+        await supabase
+          .from('item_categories')
+          .update({ 
+            default_inventory_account_id: finishedGoodsAcc,
+            updated_at: new Date().toISOString()
+          })
+          .eq('organization_id', orgId)
+          .in('name', finishedCatNames);
+      }
+
+      await refresh();
+      await refreshData();
+      showToast(`تم بنجاح توجيه ${updatedTotal} صنف (تورت وجاتوهات وشرقي) إلى حساب مخزون الإنتاج التام (10302) وتثبيت حساب التصنيفات ✅`, 'success');
+    } catch (err: any) {
+      showToast('حدث خطأ أثناء تحديث الحسابات: ' + (err.message || err), 'error');
+    } finally {
+      setIsSyncingFinishedGoodsAccounts(false);
+    }
+  };
+
   const handleOpenModal = async (item?: Item) => {
-    const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || settings?.account_mappings?.INVENTORY_RAW_MATERIALS;
-    const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
+    const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || settings?.account_mappings?.INVENTORY_RAW_MATERIALS || '00bc8443-0ace-40ba-82c1-ce97f6a02e15';
+    const finishedGoodsAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || settings?.account_mappings?.INVENTORY_FINISHED_GOODS || '90685bba-b765-4fe4-96a5-b3963a4ec085';
+    const generalInvAcc = getSystemAccount('INVENTORY')?.id || settings?.account_mappings?.INVENTORY || '5434d458-20fe-4641-bc0f-22b8ccba0de7';
+    const defaultInventory = finishedGoodsAcc || getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
     const defaultCogs = getSystemAccount('COGS')?.id || '';
     const defaultSales = getSystemAccount('SALES_REVENUE')?.id || '';
 
@@ -694,9 +794,30 @@ const ProductManager = () => {
         setRecipeCost(0);
       }
       // التحقق من صلاحية الحسابات المرتبطة بالصنف، وإذا لم تكن صالحة، استخدم الحسابات الافتراضية
-      const isRawItem = item.product_type === 'RAW_MATERIAL' || (item as any).mfg_type === 'raw';
-      const effectiveDefaultInventory = (isRawItem && rawMaterialAcc) ? rawMaterialAcc : defaultInventory;
-      const inventoryAccId = accounts.assets.find(a => a.id === item.inventory_account_id) ? item.inventory_account_id : effectiveDefaultInventory;
+      const itemCat = categories.find(c => c.id === item.category_id);
+      const isRawItem = item.product_type === 'RAW_MATERIAL' || (item as any).mfg_type === 'raw' || (itemCat && ['خامات الحلويات الأولية', 'خامات التعبئة والتغليف'].includes(itemCat.name));
+      const isFinishedCategory = itemCat && ['التورتات الغربية الفاخرة', 'الجاتوهات والقطع', 'الحلويات الشرقية', 'الشيكولاتة الفاخرة والهدايا', 'الآيس كريم والمثلجات'].includes(itemCat.name);
+      const isManufactured = item.product_type === 'MANUFACTURED' || (item as any).mfg_type === 'standard' || isFinishedCategory;
+
+      let effectiveDefaultInventory = defaultInventory;
+      if (itemCat?.default_inventory_account_id) {
+        effectiveDefaultInventory = itemCat.default_inventory_account_id;
+      } else if (isRawItem && rawMaterialAcc) {
+        effectiveDefaultInventory = rawMaterialAcc;
+      } else if (isManufactured && finishedGoodsAcc) {
+        effectiveDefaultInventory = finishedGoodsAcc;
+      }
+
+      let inventoryAccId = item.inventory_account_id;
+      if (!accounts.assets.find(a => a.id === inventoryAccId)) {
+        inventoryAccId = effectiveDefaultInventory;
+      } else if (inventoryAccId === generalInvAcc) {
+        if (isRawItem) inventoryAccId = rawMaterialAcc;
+        else if (isManufactured || isFinishedCategory) inventoryAccId = finishedGoodsAcc;
+      } else if (inventoryAccId === rawMaterialAcc && isFinishedCategory) {
+        inventoryAccId = finishedGoodsAcc;
+      }
+
       const cogsAccId = accounts.expenses.find(a => a.id === item.cogs_account_id) ? item.cogs_account_id : defaultCogs;
       const salesAccId = accounts.revenue.find(a => a.id === item.sales_account_id) ? item.sales_account_id : defaultSales;
 
@@ -2710,6 +2831,24 @@ const ProductManager = () => {
                 </span>
               )}
             </button>
+            <button 
+              onClick={handleSyncFinishedGoodsAccounts}
+              disabled={isSyncingFinishedGoodsAccounts}
+              className="bg-emerald-50 border border-emerald-300 text-emerald-800 px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-emerald-100 text-sm font-bold shadow-sm transition-all disabled:opacity-50 animate-in fade-in"
+              title="توجيه أصناف التورت والجاتوهات والشرقي إلى حساب مخزون الإنتاج التام (10302)"
+            >
+              {isSyncingFinishedGoodsAccounts ? (
+                <Loader2 size={16} className="animate-spin text-emerald-600" />
+              ) : (
+                <UtensilsCrossed size={16} className="text-emerald-600" />
+              )}
+              <span>توجيه الإنتاج التام (10302)</span>
+              {finishedGoodsItemsNeedingSyncCount > 0 && (
+                <span className="bg-emerald-200 text-emerald-900 px-1.5 py-0.5 rounded-full text-xs font-black">
+                  {finishedGoodsItemsNeedingSyncCount}
+                </span>
+              )}
+            </button>
             <button onClick={() => handleOpenModal()} className="bg-emerald-600 text-white px-6 py-2.5 rounded-lg hover:bg-emerald-700 flex items-center gap-2 font-bold shadow-lg">
               <Plus size={20} /> صنف جديد
             </button>
@@ -3417,8 +3556,27 @@ const ProductManager = () => {
                                     name: cat.name + ((cat as any).description ? ` (${(cat as any).description})` : '')
                                 }))}
                                 value={formData.category_id || ''}
-                                onChange={value => setFormData({...formData, category_id: value})}
                                 placeholder="ابحث عن تصنيف..."
+                                onChange={value => {
+                                    const selectedCat = categories.find(c => c.id === value);
+                                    let newInvAcc = formData.inventory_account_id;
+                                    const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || settings?.account_mappings?.INVENTORY_RAW_MATERIALS || '00bc8443-0ace-40ba-82c1-ce97f6a02e15';
+                                    const finishedGoodsAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || settings?.account_mappings?.INVENTORY_FINISHED_GOODS || '90685bba-b765-4fe4-96a5-b3963a4ec085';
+                                    if (selectedCat) {
+                                        if (selectedCat.default_inventory_account_id) {
+                                            newInvAcc = selectedCat.default_inventory_account_id;
+                                        } else if (['التورتات الغربية الفاخرة', 'الجاتوهات والقطع', 'الحلويات الشرقية', 'الشيكولاتة الفاخرة والهدايا', 'الآيس كريم والمثلجات'].includes(selectedCat.name)) {
+                                            newInvAcc = finishedGoodsAcc;
+                                        } else if (['خامات الحلويات الأولية', 'خامات التعبئة والتغليف'].includes(selectedCat.name)) {
+                                            newInvAcc = rawMaterialAcc;
+                                        }
+                                    }
+                                    setFormData(prev => ({
+                                        ...prev,
+                                        category_id: value,
+                                        inventory_account_id: newInvAcc
+                                    }));
+                                }}
                             />
                         </div>
                         {formData.category_id && categories.find(c => c.id === formData.category_id) && (categories.find(c => c.id === formData.category_id) as any).image_url && (
