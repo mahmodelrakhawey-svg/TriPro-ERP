@@ -1218,6 +1218,68 @@ const ProductManager = () => {
             if (bomInserts.length > 0) {
                 const { error } = await supabase.from('bill_of_materials').upsert(bomInserts, { onConflict: 'product_id,raw_material_id' }); // Use handleError for consistency
                 if (error) throw error;
+
+                // 🏭 إنشاء وتحديث مسار ومرحلة التصنيع تلقائياً لكل منتج في موديول التصنيع
+                const uniqueProductIds = Array.from(new Set(bomInserts.map(b => b.product_id)));
+                for (const pId of uniqueProductIds) {
+                    try {
+                        let { data: routing } = await supabase
+                            .from('mfg_routings')
+                            .select('id')
+                            .eq('product_id', pId)
+                            .eq('is_default', true)
+                            .maybeSingle();
+
+                        if (!routing) {
+                            const pName = productDetailsMap.get(pId)?.name || 'مسار تصنيع';
+                            const { data: newRouting } = await supabase.from('mfg_routings').insert({
+                                product_id: pId,
+                                name: `مسار تصنيع ${pName}`,
+                                organization_id: orgId,
+                                is_default: true
+                            }).select('id').single();
+                            routing = newRouting;
+                        }
+
+                        if (routing) {
+                            let { data: step } = await supabase
+                                .from('mfg_routing_steps')
+                                .select('id')
+                                .eq('routing_id', routing.id)
+                                .eq('step_order', 1)
+                                .maybeSingle();
+
+                            if (!step) {
+                                const { data: newStep } = await supabase.from('mfg_routing_steps').insert({
+                                    routing_id: routing.id,
+                                    step_order: 1,
+                                    operation_name: 'مرحلة التجهيز والتصنيع',
+                                    standard_time_minutes: 15,
+                                    organization_id: orgId
+                                }).select('id').single();
+                                step = newStep;
+                            }
+
+                            if (step) {
+                                const stepMaterials = bomInserts
+                                    .filter(b => b.product_id === pId)
+                                    .map(b => ({
+                                        step_id: step.id,
+                                        raw_material_id: b.raw_material_id,
+                                        quantity_required: b.quantity_required,
+                                        organization_id: orgId
+                                    }));
+
+                                await supabase.from('mfg_step_materials').delete().eq('step_id', step.id);
+                                if (stepMaterials.length > 0) {
+                                    await supabase.from('mfg_step_materials').insert(stepMaterials);
+                                }
+                            }
+                        }
+                    } catch (mfgErr) {
+                        console.warn('Could not sync to mfg_routings:', mfgErr);
+                    }
+                }
             }
 
             // تنفيذ تحديثات الوحدات دفعة واحدة
