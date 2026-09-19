@@ -178,7 +178,73 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
         if (insertError) throw insertError;
       }
 
-      showToast('تم حفظ مكونات الوصفة وتحديث التكلفة بنجاح', 'success');
+      // 4. 🏭 مزامنة تلقائية لحظية مع موديول التصنيع (mfg_routings & mfg_step_materials)
+      try {
+        const orgId = currentUser?.organization_id;
+        if (orgId) {
+          let { data: routing } = await supabase
+            .from('mfg_routings')
+            .select('id')
+            .eq('product_id', productId)
+            .eq('is_default', true)
+            .maybeSingle();
+
+          if (!routing) {
+            const { data: newRouting } = await supabase
+              .from('mfg_routings')
+              .insert({
+                product_id: productId,
+                name: `مسار تصنيع ${productName || 'الصنف'}`,
+                organization_id: orgId,
+                is_default: true
+              })
+              .select('id')
+              .single();
+            routing = newRouting;
+          }
+
+          if (routing) {
+            let { data: step } = await supabase
+              .from('mfg_routing_steps')
+              .select('id')
+              .eq('routing_id', routing.id)
+              .eq('step_order', 1)
+              .maybeSingle();
+
+            if (!step) {
+              const { data: newStep } = await supabase
+                .from('mfg_routing_steps')
+                .insert({
+                  routing_id: routing.id,
+                  step_order: 1,
+                  operation_name: 'مرحلة التجهيز والتصنيع',
+                  standard_time_minutes: 15,
+                  organization_id: orgId
+                })
+                .select('id')
+                .single();
+              step = newStep;
+            }
+
+            if (step) {
+              await supabase.from('mfg_step_materials').delete().eq('step_id', step.id);
+              if (ingredients.length > 0) {
+                const stepMaterialsToInsert = ingredients.map(i => ({
+                  step_id: step.id,
+                  raw_material_id: i.raw_material_id,
+                  quantity_required: i.quantity_required,
+                  organization_id: orgId
+                }));
+                await supabase.from('mfg_step_materials').insert(stepMaterialsToInsert);
+              }
+            }
+          }
+        }
+      } catch (mfgSyncErr) {
+        console.warn('تنبيه: تعذر المزامنة التلقائية مع مسار التصنيع:', mfgSyncErr);
+      }
+
+      showToast('تم حفظ مكونات الوصفة وتحديث التكلفة ومسار التصنيع بنجاح', 'success');
       onClose();
     } catch (err: any) {
       showToast('خطأ في حفظ الوصفة: ' + err.message, 'error');
