@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Scale, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers, PackageOpen, Sparkles } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -593,7 +593,94 @@ const ProductManager = () => {
     }
   };
 
+  const [isSyncingRawAccounts, setIsSyncingRawAccounts] = useState(false);
+
+  // 📦 حساب عدد أصناف المواد الخام التي ما زالت تتبع حساب المخزون العام وتحتاج توجيه
+  const rawItemsNeedingSyncCount = useMemo(() => {
+    const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || settings?.account_mappings?.INVENTORY_RAW_MATERIALS || '00bc8443-0ace-40ba-82c1-ce97f6a02e15';
+    const generalInvAcc = getSystemAccount('INVENTORY')?.id || settings?.account_mappings?.INVENTORY || '5434d458-20fe-4641-bc0f-22b8ccba0de7';
+    return (contextProducts || []).filter(p => 
+      (p.product_type === 'RAW_MATERIAL' || (p as any).mfg_type === 'raw') &&
+      p.inventory_account_id !== rawMaterialAcc &&
+      (!p.inventory_account_id || p.inventory_account_id === generalInvAcc)
+    ).length;
+  }, [contextProducts, getSystemAccount, settings]);
+
+  // 🔄 توجيه حسابات أصناف المواد الخام آلياً لحساب مخزون المواد الخام مع الحفاظ التام على التعديلات اليدوية
+  const handleSyncRawMaterialAccounts = async () => {
+    const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || settings?.account_mappings?.INVENTORY_RAW_MATERIALS || '00bc8443-0ace-40ba-82c1-ce97f6a02e15';
+    const generalInvAcc = getSystemAccount('INVENTORY')?.id || settings?.account_mappings?.INVENTORY || '5434d458-20fe-4641-bc0f-22b8ccba0de7';
+
+    if (!rawMaterialAcc) {
+      showToast('لم يتم العثور على حساب مخزون المواد الخام في شجرة الحسابات أو الإعدادات', 'error');
+      return;
+    }
+
+    const allProds = contextProducts || [];
+    const candidates = allProds.filter(p => 
+      (p.product_type === 'RAW_MATERIAL' || (p as any).mfg_type === 'raw') &&
+      p.inventory_account_id !== rawMaterialAcc &&
+      (!p.inventory_account_id || p.inventory_account_id === generalInvAcc)
+    );
+
+    const preserved = allProds.filter(p => 
+      (p.product_type === 'RAW_MATERIAL' || (p as any).mfg_type === 'raw') &&
+      p.inventory_account_id === rawMaterialAcc
+    );
+
+    if (candidates.length === 0) {
+      showToast('جميع أصناف المواد الخام موجهة بالفعل لحساب مخزون المواد الخام بنجاح ✅', 'info');
+      return;
+    }
+
+    const confirmMsg = `هل تريد توجيه (${candidates.length}) صنف مواد خام تتبع حساب المخزون العام حالياً إلى "حساب مخزون المواد الخام"؟\n\n🛡️ صمام الأمان: سيتم الحفاظ التام على الأصناف التي تم تعديلها وتخصيصها يدوياً (${preserved.length} صنف) دون أي مساس بها.`;
+
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    setIsSyncingRawAccounts(true);
+    try {
+      const candidateIds = candidates.map(p => p.id);
+      let updatedTotal = 0;
+      const chunkSize = 50;
+
+      for (let i = 0; i < candidateIds.length; i += chunkSize) {
+        const chunk = candidateIds.slice(i, i + chunkSize);
+        const { error: upErr } = await supabase
+          .from('products')
+          .update({ 
+            inventory_account_id: rawMaterialAcc,
+            updated_at: new Date().toISOString()
+          })
+          .in('id', chunk);
+
+        if (upErr) throw upErr;
+        updatedTotal += chunk.length;
+      }
+
+      // تحديث التصنيفات الافتراضية للخامات لترتبط مستقبلاً بمخزون المواد الخام
+      const orgId = targetOrgId || (currentUser as any)?.organization_id;
+      if (orgId) {
+        await supabase
+          .from('item_categories')
+          .update({ default_inventory_account_id: rawMaterialAcc })
+          .eq('organization_id', orgId)
+          .in('name', ['خامات الحلويات الأولية', 'خامات التعبئة والتغليف']);
+      }
+
+      await refresh();
+      await refreshData();
+      showToast(`تم بنجاح توجيه ${updatedTotal} صنف خام إلى حساب مخزون المواد الخام، والحفاظ الكامل على ${preserved.length} صنف معدلة يدوياً ✅`, 'success');
+    } catch (err: any) {
+      showToast('حدث خطأ أثناء تحديث الحسابات: ' + (err.message || err), 'error');
+    } finally {
+      setIsSyncingRawAccounts(false);
+    }
+  };
+
   const handleOpenModal = async (item?: Item) => {
+    const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || settings?.account_mappings?.INVENTORY_RAW_MATERIALS;
     const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || '';
     const defaultCogs = getSystemAccount('COGS')?.id || '';
     const defaultSales = getSystemAccount('SALES_REVENUE')?.id || '';
@@ -607,7 +694,9 @@ const ProductManager = () => {
         setRecipeCost(0);
       }
       // التحقق من صلاحية الحسابات المرتبطة بالصنف، وإذا لم تكن صالحة، استخدم الحسابات الافتراضية
-      const inventoryAccId = accounts.assets.find(a => a.id === item.inventory_account_id) ? item.inventory_account_id : defaultInventory;
+      const isRawItem = item.product_type === 'RAW_MATERIAL' || (item as any).mfg_type === 'raw';
+      const effectiveDefaultInventory = (isRawItem && rawMaterialAcc) ? rawMaterialAcc : defaultInventory;
+      const inventoryAccId = accounts.assets.find(a => a.id === item.inventory_account_id) ? item.inventory_account_id : effectiveDefaultInventory;
       const cogsAccId = accounts.expenses.find(a => a.id === item.cogs_account_id) ? item.cogs_account_id : defaultCogs;
       const salesAccId = accounts.revenue.find(a => a.id === item.sales_account_id) ? item.sales_account_id : defaultSales;
 
@@ -2541,6 +2630,24 @@ const ProductManager = () => {
                   <span>توليد أكواد للأصناف الشاغرة ({(items || []).filter(p => !p.sku || !p.sku.trim()).length})</span>
                 </button>
             )}
+            <button 
+              onClick={handleSyncRawMaterialAccounts}
+              disabled={isSyncingRawAccounts}
+              className="bg-amber-50 border border-amber-300 text-amber-800 px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-amber-100 text-sm font-bold shadow-sm transition-all disabled:opacity-50 animate-in fade-in"
+              title="توجيه أصناف المواد الخام إلى حساب مخزون المواد الخام (10301) مع الحفاظ على الأصناف المعدلة يدوياً"
+            >
+              {isSyncingRawAccounts ? (
+                <Loader2 size={16} className="animate-spin text-amber-600" />
+              ) : (
+                <Layers size={16} className="text-amber-600" />
+              )}
+              <span>توجيه خامات المخزون (10301)</span>
+              {rawItemsNeedingSyncCount > 0 && (
+                <span className="bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded-full text-xs font-black">
+                  {rawItemsNeedingSyncCount}
+                </span>
+              )}
+            </button>
             <button onClick={() => handleOpenModal()} className="bg-emerald-600 text-white px-6 py-2.5 rounded-lg hover:bg-emerald-700 flex items-center gap-2 font-bold shadow-lg">
               <Plus size={20} /> صنف جديد
             </button>
