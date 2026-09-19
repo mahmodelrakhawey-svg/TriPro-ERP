@@ -415,14 +415,82 @@ const RoutingBOMManager = () => {
     }
   };
 
+  // 🔄 مزامنة خامات مراحل التصنيع لحظياً مع شجرة مكونات الصنف في المخازن (bill_of_materials) وتحديث التكلفة
+  const syncRoutingToBOM = async (productId: string, updatedSteps: RoutingStep[]) => {
+    if (!productId || !orgId) return;
+    try {
+      // 1. تجميع كميات الخامات عبر كافة مراحل المسار
+      const aggregatedMaterials = new Map<string, number>();
+      updatedSteps.forEach(step => {
+        (step.materials || []).forEach(mat => {
+          const prev = aggregatedMaterials.get(mat.raw_material_id) || 0;
+          aggregatedMaterials.set(mat.raw_material_id, prev + Number(mat.quantity_required || 0));
+        });
+      });
+
+      // 2. تحديث جدول bill_of_materials
+      await supabase.from('bill_of_materials').delete().eq('product_id', productId);
+
+      if (aggregatedMaterials.size > 0) {
+        const rowsToInsert = Array.from(aggregatedMaterials.entries()).map(([rawId, qty]) => ({
+          product_id: productId,
+          raw_material_id: rawId,
+          quantity_required: Number(qty.toFixed(4)),
+          organization_id: orgId
+        }));
+        await supabase.from('bill_of_materials').insert(rowsToInsert);
+      }
+
+      // 3. إعادة احتساب تكلفة الصنف وتحديثها في جدول products
+      let rawCost = 0;
+      aggregatedMaterials.forEach((qty, rawId) => {
+        const rawProd = (allProducts as any[])?.find(p => p.id === rawId);
+        const unitCost = Number(rawProd?.cost || rawProd?.purchase_price || 0);
+        rawCost += unitCost * qty;
+      });
+
+      const { data: prodData } = await supabase
+        .from('products')
+        .select('labor_cost, overhead_cost, is_overhead_percentage')
+        .eq('id', productId)
+        .single();
+
+      let totalCost = rawCost;
+      if (prodData) {
+        const labor = Number(prodData.labor_cost) || 0;
+        let overhead = Number(prodData.overhead_cost) || 0;
+        if (prodData.is_overhead_percentage) {
+          overhead = (rawCost + labor) * (overhead / 100);
+        }
+        totalCost = rawCost + labor + overhead;
+      }
+
+      await supabase
+        .from('products')
+        .update({ 
+          cost: Number(totalCost.toFixed(4)),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', productId);
+
+    } catch (syncErr) {
+      console.warn('تنبيه: تعذر المزامنة مع جدول bill_of_materials:', syncErr);
+    }
+  };
+
   const handleDeleteStep = async (stepId: string) => {
     if (!window.confirm('هل أنت متأكد من حذف هذه المرحلة وجميع المواد المرتبطة بها؟')) return;
     setSaving(true);
     try {
       const { error } = await supabase.from('mfg_routing_steps').delete().eq('id', stepId);
       if (error) throw error;
-      setRoutingSteps(prev => prev.filter(step => step.id !== stepId));
-      showToast('تم حذف المرحلة بنجاح', 'success');
+      const nextSteps = routingSteps.filter(step => step.id !== stepId);
+      setRoutingSteps(nextSteps);
+      const targetProdId = selectedProductId || currentRouting?.product_id;
+      if (targetProdId) {
+        await syncRoutingToBOM(targetProdId, nextSteps);
+      }
+      showToast('تم حذف المرحلة ومزامنة شجرة المكونات بنجاح', 'success');
     } catch (error: any) {
       showToast('فشل حذف المرحلة: ' + error.message, 'error');
     } finally {
@@ -451,15 +519,18 @@ const RoutingBOMManager = () => {
         .single();
       if (error) throw error;
 
-      setRoutingSteps(prev =>
-        prev.map(step =>
-          step.id === stepId
-            ? { ...step, materials: [...(step.materials || []), data] }
-            : step
-        )
+      const nextSteps = routingSteps.map(step =>
+        step.id === stepId
+          ? { ...step, materials: [...(step.materials || []), data] }
+          : step
       );
+      setRoutingSteps(nextSteps);
       setNewMaterial({ raw_material_id: '', quantity_required: 0 }); // Clear form
-      showToast('تم إضافة المكون للمرحلة بنجاح', 'success');
+      const targetProdId = selectedProductId || currentRouting?.product_id;
+      if (targetProdId) {
+        await syncRoutingToBOM(targetProdId, nextSteps);
+      }
+      showToast('تم إضافة المكون للمرحلة ومزامنة شجرة المكونات بنجاح', 'success');
     } catch (error: any) {
       showToast('فشل إضافة المكون للمرحلة: ' + error.message, 'error');
     } finally {
@@ -477,19 +548,22 @@ const RoutingBOMManager = () => {
     try {
       const { error } = await supabase.from('mfg_step_materials').update({ quantity_required: preciseQuantity }).eq('id', materialId);
       if (error) throw error;
-      setRoutingSteps(prev =>
-        prev.map(step =>
-          step.id === stepId
-            ? {
-                ...step,
-                materials: (step.materials || []).map(mat =>
-                  mat.id === materialId ? { ...mat, quantity_required: preciseQuantity } : mat
-                ),
-              }
-            : step
-        )
+      const nextSteps = routingSteps.map(step =>
+        step.id === stepId
+          ? {
+              ...step,
+              materials: (step.materials || []).map(mat =>
+                mat.id === materialId ? { ...mat, quantity_required: preciseQuantity } : mat
+              ),
+            }
+          : step
       );
-      showToast('تم تحديث كمية المادة الخام', 'success');
+      setRoutingSteps(nextSteps);
+      const targetProdId = selectedProductId || currentRouting?.product_id;
+      if (targetProdId) {
+        await syncRoutingToBOM(targetProdId, nextSteps);
+      }
+      showToast('تم تحديث كمية المادة الخام ومزامنة شجرة المكونات بنجاح', 'success');
     } catch (error: any) {
       showToast('فشل تحديث كمية المادة الخام: ' + error.message, 'error');
     } finally {
@@ -503,14 +577,17 @@ const RoutingBOMManager = () => {
     try {
       const { error } = await supabase.from('mfg_step_materials').delete().eq('id', materialId);
       if (error) throw error;
-      setRoutingSteps(prev =>
-        prev.map(step =>
-          step.id === stepId
-            ? { ...step, materials: (step.materials || []).filter(mat => mat.id !== materialId) }
-            : step
-        )
+      const nextSteps = routingSteps.map(step =>
+        step.id === stepId
+          ? { ...step, materials: (step.materials || []).filter(mat => mat.id !== materialId) }
+          : step
       );
-      showToast('تم حذف المادة الخام بنجاح', 'success');
+      setRoutingSteps(nextSteps);
+      const targetProdId = selectedProductId || currentRouting?.product_id;
+      if (targetProdId) {
+        await syncRoutingToBOM(targetProdId, nextSteps);
+      }
+      showToast('تم حذف المادة الخام ومزامنة شجرة المكونات بنجاح', 'success');
     } catch (error: any) {
       showToast('فشل حذف المادة الخام: ' + error.message, 'error');
     } finally {
