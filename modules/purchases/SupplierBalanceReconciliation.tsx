@@ -418,15 +418,27 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         // القيود الافتتاحية والإقفال
         if (openingEntryIds.has(jeId)) {
           matchedEntryIds.add(jeId);
-          suppliersList?.forEach(s => {
-            if (s.name && desc.includes(s.name)) {
-              const b = supplierBreakdown.get(s.id);
-              if (b) {
-                b.totalCredit += credit;
-                b.totalDebit += debit;
-              }
-            }
-          });
+          
+          let targetSuppId = line.journal_entries?.related_document_id;
+          if (!targetSuppId && ref.startsWith('OP-SUPP-')) {
+            targetSuppId = ref.replace('OP-SUPP-', '').trim();
+          }
+          if (!targetSuppId && ref.startsWith('OB-')) {
+            targetSuppId = refToSupplierId.get(ref);
+          }
+          if (!targetSuppId) {
+            const cleanDesc = desc.trim().toLowerCase();
+            const matched = suppliersList
+              ?.filter(s => s.name && cleanDesc.includes(s.name.trim().toLowerCase()))
+              ?.sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0))[0];
+            if (matched) targetSuppId = matched.id;
+          }
+
+          if (targetSuppId && supplierBreakdown.has(targetSuppId)) {
+            const b = supplierBreakdown.get(targetSuppId)!;
+            b.totalCredit += credit;
+            b.totalDebit += debit;
+          }
           return;
         }
 
