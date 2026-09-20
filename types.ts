@@ -258,6 +258,7 @@ export interface Customer {
 export interface Supplier {
   id: string;
   name: string;
+  code?: string;
   contactPerson?: string;
   phone?: string;
   taxId?: string;
@@ -266,6 +267,9 @@ export interface Supplier {
   // خصائص إضافية
   tax_number?: string;
   contact_person?: string;
+  opening_balance?: number;
+  balance?: number;
+  credit_limit?: number;
 }
 
 export interface Warehouse {

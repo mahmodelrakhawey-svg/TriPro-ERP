@@ -9,10 +9,12 @@ import { useAccounting } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
 import { supabase } from '../supabaseClient';
 import { fetchSingleSupplierBalance } from '../services/balanceService';
+import { secureStorage } from '../utils/securityMiddleware';
 
 export interface SupplierOption {
   id: string;
   name: string;
+  code?: string;
   phone?: string;
   tax_number?: string;
   taxId?: string;
@@ -176,6 +178,7 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
   const [quickAddSubmitting, setQuickAddSubmitting] = useState(false);
   const [newSupplierForm, setNewSupplierForm] = useState({
     name: '',
+    code: '',
     phone: '',
     tax_number: '',
     address: '',
@@ -183,6 +186,7 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
   });
   const [editSupplierForm, setEditSupplierForm] = useState({
     name: '',
+    code: '',
     phone: '',
     tax_number: '',
     address: ''
@@ -192,13 +196,12 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // تحميل الموردين الأحدث من localStorage
+  // تحميل الموردين الأحدث من secureStorage
   useEffect(() => {
     try {
-      const saved = localStorage.getItem(RECENT_SUPPLIERS_KEY);
-      if (saved) {
-        const ids = JSON.parse(saved);
-        if (Array.isArray(ids)) setRecentSupplierIds(ids);
+      const saved = secureStorage.getItem<string[]>(RECENT_SUPPLIERS_KEY);
+      if (Array.isArray(saved)) {
+        setRecentSupplierIds(saved);
       }
     } catch {}
   }, []);
@@ -207,7 +210,7 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
     try {
       const updated = [id, ...recentSupplierIds.filter(item => item !== id)].slice(0, 5);
       setRecentSupplierIds(updated);
-      localStorage.setItem(RECENT_SUPPLIERS_KEY, JSON.stringify(updated));
+      secureStorage.setItem(RECENT_SUPPLIERS_KEY, updated);
     } catch {}
   };
 
@@ -248,6 +251,7 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
   // 🚀 الفهرسة المسبقة الفائقة السرعة في الذاكرة
   const indexedSuppliers = useMemo(() => {
     return suppliersList.map(s => {
+      const code = s.code ? String(s.code).trim() : '';
       const name = s.name || '';
       const normName = normalizeArabic(name);
       const phone = s.phone || '';
@@ -259,10 +263,11 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
       const words = normName.split(/\s+/).filter(Boolean);
       const variations = words.map(w => w.startsWith('ال') && w.length > 3 ? w.slice(2) : `ال${w}`).join(' ');
 
-      const fullSearchable = `${normName} ${variations} ${phone} ${taxNumber} ${normContact}`.toLowerCase();
+      const fullSearchable = `${code} ${normName} ${variations} ${phone} ${taxNumber} ${normContact}`.toLowerCase();
 
       return {
         supplier: s,
+        code,
         normName,
         phone,
         taxNumber,
@@ -384,6 +389,7 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
     try {
       const created = await addSupplier({
         name: newSupplierForm.name.trim(),
+        code: newSupplierForm.code.trim() || null,
         phone: newSupplierForm.phone.trim() || null,
         tax_number: newSupplierForm.tax_number.trim() || null,
         address: newSupplierForm.address.trim() || null,
@@ -394,7 +400,7 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
         onChange(created.id, created);
         saveRecentSupplier(created.id);
         setIsQuickAddOpen(false);
-        setNewSupplierForm({ name: '', phone: '', tax_number: '', address: '', opening_balance: 0 });
+        setNewSupplierForm({ name: '', code: '', phone: '', tax_number: '', address: '', opening_balance: 0 });
         showToast(`تمت إضافة واختيار المورد "${created.name}" بنجاح ✅`, 'success');
         if (refreshData) refreshData();
       }
@@ -410,6 +416,7 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
     if (!selectedSupplier) return;
     setEditSupplierForm({
       name: selectedSupplier.name || '',
+      code: selectedSupplier.code || '',
       phone: selectedSupplier.phone || '',
       tax_number: selectedSupplier.tax_number || selectedSupplier.taxId || '',
       address: selectedSupplier.address || ''
@@ -429,6 +436,7 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
     try {
       await updateSupplier(selectedSupplier.id, {
         name: editSupplierForm.name.trim(),
+        code: editSupplierForm.code.trim() || null,
         phone: editSupplierForm.phone.trim() || null,
         tax_number: editSupplierForm.tax_number.trim() || null,
         address: editSupplierForm.address.trim() || null
@@ -494,6 +502,11 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
               
               <div className="min-w-0 space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
+                  {selectedSupplier.code && (
+                    <span className="inline-flex items-center gap-1 text-xs font-mono font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-md" title="كود المورد">
+                      #{selectedSupplier.code}
+                    </span>
+                  )}
                   <h4 className="text-base font-black text-slate-800 truncate">
                     {selectedSupplier.name}
                   </h4>
@@ -727,6 +740,12 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
 
                         <div className="min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
+                            {supplier.code && (
+                              <span className="text-[11px] font-mono font-black text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded shrink-0" title="كود المورد">
+                                #<HighlightedText text={supplier.code} query={searchTerm} />
+                              </span>
+                            )}
+
                             <span className="font-bold text-sm text-slate-900">
                               <HighlightedText text={supplier.name} query={searchTerm} />
                             </span>
@@ -801,19 +820,31 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
             </div>
 
             <form onSubmit={handleQuickAddSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">
-                  اسم المورد / الشركة <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  value={newSupplierForm.name}
-                  onChange={e => setNewSupplierForm({ ...newSupplierForm, name: e.target.value })}
-                  placeholder="مثال: شركة الأمل للتوريدات"
-                  className={`w-full border rounded-xl p-3 text-sm font-bold bg-slate-50 focus:bg-white outline-none ${themeStyles.borderActive}`}
-                />
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-600 mb-1">
+                    اسم المورد / الشركة <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    autoFocus
+                    value={newSupplierForm.name}
+                    onChange={e => setNewSupplierForm({ ...newSupplierForm, name: e.target.value })}
+                    placeholder="مثال: شركة الأمل للتوريدات"
+                    className={`w-full border rounded-xl p-3 text-sm font-bold bg-slate-50 focus:bg-white outline-none ${themeStyles.borderActive}`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">كود المورد</label>
+                  <input
+                    type="text"
+                    value={newSupplierForm.code}
+                    onChange={e => setNewSupplierForm({ ...newSupplierForm, code: e.target.value })}
+                    placeholder="مثال: 10"
+                    className={`w-full border rounded-xl p-3 text-sm font-bold font-mono bg-slate-50 focus:bg-white outline-none ${themeStyles.borderActive}`}
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -910,15 +941,27 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
             </div>
 
             <form onSubmit={handleQuickEditSubmit} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">اسم المورد <span className="text-red-500">*</span></label>
-                <input
-                  type="text"
-                  required
-                  value={editSupplierForm.name}
-                  onChange={e => setEditSupplierForm({ ...editSupplierForm, name: e.target.value })}
-                  className="w-full border rounded-xl p-3 text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-amber-500"
-                />
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-xs font-bold text-slate-600 mb-1">اسم المورد <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    required
+                    value={editSupplierForm.name}
+                    onChange={e => setEditSupplierForm({ ...editSupplierForm, name: e.target.value })}
+                    className="w-full border rounded-xl p-3 text-sm font-bold bg-slate-50 focus:bg-white outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-600 mb-1">كود المورد</label>
+                  <input
+                    type="text"
+                    value={editSupplierForm.code}
+                    onChange={e => setEditSupplierForm({ ...editSupplierForm, code: e.target.value })}
+                    placeholder="مثال: 10"
+                    className="w-full border rounded-xl p-3 text-sm font-bold font-mono bg-slate-50 focus:bg-white outline-none focus:border-amber-500"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
