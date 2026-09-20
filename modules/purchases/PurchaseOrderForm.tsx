@@ -10,6 +10,7 @@ import {
 import { createPurchaseOrderSchema } from '../../utils/validationSchemas';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { PurchaseOrderPrint } from './PurchaseOrderPrint';
+import SupplierSearchSelect from '../../components/SupplierSearchSelect';
 
 const PurchaseOrderForm = () => {
   const { suppliers, products, warehouses, currentUser, settings, convertPoToInvoice, currentSelectedOrgId } = useAccounting();
@@ -695,16 +696,15 @@ const PurchaseOrderForm = () => {
 
       {/* Main Form Body */}
       <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-xs font-bold text-slate-700 mb-1">المورد <span className="text-red-500">*</span></label>
-          <select 
-            className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-blue-500" 
-            value={formData.supplierId} 
-            onChange={e => setFormData({...formData, supplierId: e.target.value})}
-          >
-            <option value="">اختر المورد...</option>
-            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+        <div className="md:col-span-2">
+          <SupplierSearchSelect
+            value={formData.supplierId}
+            onChange={(supplierId) => setFormData(prev => ({ ...prev, supplierId }))}
+            suppliers={suppliers}
+            required
+            theme="blue"
+            disabled={formData.status === 'posted' || formData.status === 'completed'}
+          />
         </div>
 
         <div>
