@@ -17,6 +17,7 @@ import InvoiceOCRScannerModal from '../../components/InvoiceOCRScannerModal';
 import DocumentAuditTimeline from '../../components/DocumentAuditTimeline';
 import { logDocumentAction } from '../../services/auditService';
 import { getNextDocumentNumber } from '../../services/sequenceService';
+import SupplierSearchSelect from '../../components/SupplierSearchSelect';
 
 const PurchaseInvoiceForm = () => {
   const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can, currentUser, addDemoPurchaseInvoice, accounts } = useAccounting();
@@ -894,12 +895,15 @@ const PurchaseInvoiceForm = () => {
       <div className="space-y-6">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">المورد <span className="text-red-500">*</span></label>
-              <select required value={formData.supplierId} onChange={e => setFormData({...formData, supplierId: e.target.value})} className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-emerald-500">
-                <option value="">اختر المورد...</option>
-                {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
+            <div className="md:col-span-3">
+              <SupplierSearchSelect
+                value={formData.supplierId}
+                onChange={(supplierId) => setFormData(prev => ({ ...prev, supplierId }))}
+                suppliers={suppliers}
+                required
+                theme="emerald"
+                disabled={formData.status === 'posted'}
+              />
             </div>
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">تاريخ الفاتورة <span className="text-red-500">*</span></label>

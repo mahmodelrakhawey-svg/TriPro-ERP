@@ -11,6 +11,7 @@ import { createPurchaseReturnSchema } from '../../utils/validationSchemas';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { PurchaseReturnPrint } from './PurchaseReturnPrint';
 import ProductSearchSelect from '../../components/ProductSearchSelect';
+import SupplierSearchSelect from '../../components/SupplierSearchSelect';
 
 const PurchaseReturnForm = () => {
   const { suppliers, products, warehouses, settings, purchaseInvoices, currentUser } = useAccounting();
@@ -680,23 +681,21 @@ const PurchaseReturnForm = () => {
 
       <form onSubmit={handleSave} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">المورد <span className="text-red-500">*</span></label>
-            <select 
-              required 
-              value={formData.supplierId} 
-              onChange={e => {
-                setFormData(prev => ({ 
-                  ...prev, 
-                  supplierId: e.target.value,
-                  originalInvoiceId: '' 
+          <div className="md:col-span-3">
+            <SupplierSearchSelect
+              value={formData.supplierId}
+              onChange={(supplierId) => {
+                setFormData(prev => ({
+                  ...prev,
+                  supplierId,
+                  originalInvoiceId: ''
                 }));
-              }} 
-              className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-orange-500"
-            >
-              <option value="">اختر المورد...</option>
-              {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+              }}
+              suppliers={suppliers}
+              required
+              theme="slate"
+              disabled={formData.status === 'posted'}
+            />
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">

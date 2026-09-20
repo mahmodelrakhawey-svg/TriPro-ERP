@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { Printer, FileText, Loader2, Search, Download, MessageCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import SupplierSearchSelect from '../../components/SupplierSearchSelect';
 
 type Transaction = {
   id: string;
@@ -36,6 +38,15 @@ const SupplierStatement = () => {
     }
   }, [selectedFiscalYear]);
   
+  const location = useLocation();
+
+  // استقبال المورد المحال عبر state من شاشات المشتريات
+  useEffect(() => {
+    if (location.state && (location.state as any).selectedSupplierId) {
+      setSelectedSupplierId((location.state as any).selectedSupplierId);
+    }
+  }, [location.state]);
+
   const selectedSupplier = suppliers.find(s => s.id.toString() === selectedSupplierId.toString());
 
   const fetchStatement = async () => {
@@ -361,15 +372,15 @@ const SupplierStatement = () => {
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 print:hidden grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">المورد</label>
-            <div className="relative">
-                <select value={selectedSupplierId} onChange={e => setSelectedSupplierId(e.target.value)} className="w-full border rounded-lg p-2.5 pl-10 font-bold bg-slate-50 outline-none focus:border-emerald-500 transition-all appearance-none">
-                    <option value="">-- اختر المورد --</option>
-                    {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
-                <Search className="absolute left-3 top-3 text-slate-400 pointer-events-none" size={18} />
-            </div>
+          <div className="md:col-span-3">
+            <SupplierSearchSelect
+              value={selectedSupplierId}
+              onChange={(id) => setSelectedSupplierId(id)}
+              suppliers={suppliers}
+              theme="emerald"
+              showStatementButton={false}
+              label="المورد المطلوب لعرض كشف الحساب"
+            />
           </div>
           <div>
             <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">من تاريخ</label>
