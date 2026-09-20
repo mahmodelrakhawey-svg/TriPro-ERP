@@ -4,8 +4,10 @@
 -- المتطلبات: تطبيق السكربت على قاعدة بيانات حلواني لينزا (jsgmrspnthtlsracbmcq) وقاعدة الإنتاج (pjvphxfschfllpawfewn)
 -- ==============================================================================
 
--- 1. التأكد من وجود عمود كود المورد وفهرس البحث
+-- 1. التأكد من وجود عمود كود المورد وفهرس البحث وأعمدة التوقيت
 ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS code text;
+ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS created_at timestamptz DEFAULT now();
+ALTER TABLE public.suppliers ADD COLUMN IF NOT EXISTS updated_at timestamptz DEFAULT now();
 CREATE INDEX IF NOT EXISTS idx_suppliers_code ON public.suppliers(organization_id, code);
 
 -- 2. تحديث وتطوير دالة تسجيل الرصيد الافتتاحي (add_opening_balance) لدعم المبالغ الموجبة والسالبة بدقة محاسبية متوازنة
@@ -315,14 +317,13 @@ BEGIN
             LIMIT 1;
         END IF;
 
-        -- 4. إجراء التحديث أو الإدراج
+        -- 4. إجراء التحديث أو الإدراج (باستخدام الحقول الأساسية المؤكدة فقط)
         IF v_supp_id IS NOT NULL THEN
             UPDATE public.suppliers 
             SET code = r.code,
                 name = r.name,
                 opening_balance = r.balance,
-                deleted_at = NULL,
-                updated_at = NOW()
+                deleted_at = NULL
             WHERE id = v_supp_id;
             
             v_count_updated := v_count_updated + 1;
@@ -333,18 +334,14 @@ BEGIN
                 name, 
                 code, 
                 opening_balance, 
-                balance, 
-                created_at, 
-                updated_at
+                balance
             ) VALUES (
                 gen_random_uuid(), 
                 v_org_id, 
                 r.name, 
                 r.code, 
                 r.balance, 
-                r.balance, 
-                NOW(), 
-                NOW()
+                r.balance
             ) 
             RETURNING id INTO v_supp_id;
             
