@@ -14,6 +14,7 @@ import { fetchAllSupplierBalances } from '../../services/balanceService';
 type Supplier = {
   id: string;
   name: string;
+  code?: string;
   phone: string;
   email: string;
   tax_number: string;
@@ -713,9 +714,9 @@ const SupplierManager = () => {
                     <tr key={supplier.id} className="hover:bg-slate-50/50">
                         <td className="p-4 font-bold text-slate-800">
                             <div className="flex items-center gap-2">
-                                {supplier.tax_number && (
-                                    <span className="px-2 py-0.5 text-xs font-mono font-semibold rounded bg-amber-50 text-amber-700 border border-amber-200" title="كود المورد">
-                                        #{supplier.tax_number}
+                                {(supplier.code || supplier.tax_number) && (
+                                    <span className="px-2 py-0.5 text-xs font-mono font-bold rounded bg-indigo-50 text-indigo-700 border border-indigo-200" title="كود المورد">
+                                        #{supplier.code || supplier.tax_number}
                                     </span>
                                 )}
                                 <span>{supplier.name}</span>
@@ -812,7 +813,16 @@ const SupplierManager = () => {
               <button onClick={() => setIsModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
             </div>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div><label className="block text-sm font-bold mb-1">اسم المورد</label><input required type="text" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border rounded-lg p-2" /></div>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="block text-sm font-bold mb-1">اسم المورد <span className="text-red-500">*</span></label>
+                  <input required type="text" value={formData.name || ''} onChange={e => setFormData({...formData, name: e.target.value})} className="w-full border rounded-lg p-2" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold mb-1">كود المورد</label>
+                  <input type="text" value={formData.code || ''} onChange={e => setFormData({...formData, code: e.target.value})} className="w-full border rounded-lg p-2 font-mono" placeholder="مثال: 10" />
+                </div>
+              </div>
               <div><label className="block text-sm font-bold mb-1">رقم الهاتف</label><input type="text" value={formData.phone || ''} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full border rounded-lg p-2" /></div>
               <div><label className="block text-sm font-bold mb-1">البريد الإلكتروني</label><input type="email" value={formData.email || ''} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full border rounded-lg p-2" /></div>
               <div><label className="block text-sm font-bold mb-1">الرقم الضريبي</label><input type="text" value={formData.tax_number || ''} onChange={e => setFormData({...formData, tax_number: e.target.value})} className="w-full border rounded-lg p-2" /></div>
