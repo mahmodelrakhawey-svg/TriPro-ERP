@@ -12,6 +12,10 @@ type Movement = {
   date: string;
   type: 'in' | 'out';
   quantity: number;
+  uomId?: string | null;
+  qtyInBase?: number;
+  displayQty?: number;
+  displayUnitName?: string;
   documentType: string;
   documentNumber: string;
   description: string;
@@ -32,6 +36,32 @@ const ItemMovementReport = () => {
   const [loading, setLoading] = useState(false);
   const [openingBalance, setOpeningBalance] = useState(0);
   const [currentStock, setCurrentStock] = useState(0);
+  const [uoms, setUoms] = useState<any[]>([]);
+  const [displayUnit, setDisplayUnit] = useState<'base' | 'original'>('base');
+
+  // جلب وحدات القياس للتحويل بين الوحدات الأساسية وحركات الأصناف
+  useEffect(() => {
+    const fetchUoms = async () => {
+      const { data } = await supabase.from('uoms').select('*');
+      if (data) setUoms(data);
+    };
+    fetchUoms();
+  }, []);
+
+  const convertQty = (qty: number, fromUomId: string | null | undefined, toUomId: string | null | undefined) => {
+    if (!fromUomId || !toUomId || fromUomId === toUomId) return qty;
+    const fromUom = uoms.find(u => u.id === fromUomId);
+    const toUom = uoms.find(u => u.id === toUomId);
+    if (!fromUom || !toUom) return qty;
+    
+    let fromRatio = Number(fromUom.ratio) || 1;
+    let toRatio = Number(toUom.ratio) || 1;
+    
+    if (fromUom.uom_type === 'smaller') fromRatio = 1.0 / fromRatio;
+    if (toUom.uom_type === 'smaller') toRatio = 1.0 / toRatio;
+    
+    return (qty * fromRatio) / toRatio;
+  };
 
   // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
   useEffect(() => {
@@ -100,7 +130,7 @@ const ItemMovementReport = () => {
       // 1. جلب حركات المبيعات (Sales Invoices) - صادر
       let salesQuery = supabase
         .from('invoice_items')
-        .select('quantity, invoice_id, invoices!inner(id, invoice_date, invoice_number, status, warehouse_id, created_by)')
+        .select('quantity, uom_id, invoice_id, invoices!inner(id, invoice_date, invoice_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
         .neq('invoices.status', 'draft')
         .neq('invoices.status', 'cancelled')
@@ -112,7 +142,7 @@ const ItemMovementReport = () => {
       // 2. جلب حركات المشتريات (Purchase Invoices) - وارد
       let purchaseQuery = supabase
         .from('purchase_invoice_items')
-        .select('quantity, purchase_invoice_id, purchase_invoices!inner(id, invoice_date, invoice_number, status, warehouse_id, created_by)')
+        .select('quantity, uom_id, purchase_invoice_id, purchase_invoices!inner(id, invoice_date, invoice_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
         .in('purchase_invoices.status', ['posted', 'paid'])
         .eq('organization_id', userOrgId);
@@ -123,7 +153,7 @@ const ItemMovementReport = () => {
       // 2.1 جلب حركات توريد الاعتمادات المستندية (LC Receipts) - وارد
       let lcQuery = supabase
         .from('lc_receipt_items')
-        .select('quantity, receipt_date, notes, created_at, warehouse_id, letters_of_credit!inner(id, lc_number, status)')
+        .select('quantity, uom_id, receipt_date, notes, created_at, warehouse_id, letters_of_credit!inner(id, lc_number, status)')
         .eq('product_id', selectedProductId)
         .eq('organization_id', userOrgId);
 
@@ -133,7 +163,7 @@ const ItemMovementReport = () => {
       // 3. جلب مرتجعات المبيعات (Sales Returns) - وارد
       let salesReturnsQuery = supabase
         .from('sales_return_items')
-        .select('quantity, sales_returns!inner(id, return_date, return_number, status, warehouse_id)')
+        .select('quantity, uom_id, sales_returns!inner(id, return_date, return_number, status, warehouse_id)')
         .eq('product_id', selectedProductId)
         .eq('sales_returns.status', 'posted')
         .eq('organization_id', userOrgId);
@@ -144,7 +174,7 @@ const ItemMovementReport = () => {
       // 4. جلب مرتجعات المشتريات (Purchase Returns) - صادر
       let purchaseReturnsQuery = supabase
         .from('purchase_return_items')
-        .select('quantity, purchase_returns!inner(id, return_date, return_number, status, warehouse_id)')
+        .select('quantity, uom_id, purchase_returns!inner(id, return_date, return_number, status, warehouse_id)')
         .eq('product_id', selectedProductId)
         .eq('purchase_returns.status', 'posted')
         .eq('organization_id', userOrgId);
@@ -155,7 +185,7 @@ const ItemMovementReport = () => {
       // 5. جلب التسويات المخزنية (Stock Adjustments)
       let adjustmentsQuery = supabase
         .from('stock_adjustment_items')
-        .select('quantity, stock_adjustments!inner(id, adjustment_date, adjustment_number, status, warehouse_id, created_by)')
+        .select('quantity, uom_id, stock_adjustments!inner(id, adjustment_date, adjustment_number, status, warehouse_id, created_by)')
         .eq('product_id', selectedProductId)
         .eq('stock_adjustments.status', 'posted')
         .eq('organization_id', userOrgId);
@@ -166,7 +196,7 @@ const ItemMovementReport = () => {
       // 6. جلب رصيد أول المدة (Opening Inventory)
       let openingQuery = supabase
         .from('opening_inventories')
-        .select('quantity, created_at, warehouse_id, created_by')
+        .select('quantity, uom_id, created_at, warehouse_id, created_by')
         .eq('product_id', selectedProductId)
         .eq('organization_id', userOrgId);
       
@@ -176,7 +206,7 @@ const ItemMovementReport = () => {
       // 7. جلب التحويلات المخزنية (Stock Transfers) - الإصلاح النهائي للـ 400 Bad Request
       let transfersQuery = supabase
         .from('stock_transfer_items')
-        .select('quantity, stock_transfers!inner(id, transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, status)')
+        .select('quantity, uom_id, stock_transfers!inner(id, transfer_date, transfer_number, from_warehouse_id, to_warehouse_id, status)')
         .eq('product_id', selectedProductId)
         .eq('stock_transfers.status', 'posted')
         .eq('organization_id', userOrgId);
@@ -276,7 +306,7 @@ const ItemMovementReport = () => {
       // أ. البيع المباشر للصنف
       const { data: restaurantDirectSales } = await supabase
         .from('order_items')
-        .select('quantity, order_id, orders!inner(created_at, order_number, status, user_id)')
+        .select('quantity, uom_id, order_id, orders!inner(created_at, order_number, status, user_id)')
         .eq('product_id', selectedProductId)
         .in('orders.status', ['COMPLETED', 'PAID']);
 
@@ -314,7 +344,7 @@ const ItemMovementReport = () => {
       let constructionQuery = supabase
         .from('project_material_issue_items')
         .select(`
-          id, quantity, unit_cost,
+          id, quantity, unit_cost, uom_id,
           project_material_issues!inner(id, issue_date, issue_number, status, warehouse_id, projects(name))
         `)
         .eq('product_id', selectedProductId)
@@ -333,6 +363,7 @@ const ItemMovementReport = () => {
               date: item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
               type: 'in',
               quantity: Number(item.quantity),
+              uomId: item.uom_id || null,
               documentType: 'رصيد افتتاحي',
               documentNumber: '-',
               description: `بضاعة أول المدة - ${getWName(item.warehouse_id)}`,
@@ -345,6 +376,7 @@ const ItemMovementReport = () => {
               date: item.invoices.invoice_date,
               type: 'out',
               quantity: item.quantity,
+              uomId: item.uom_id || null,
               documentType: 'فاتورة مبيعات',
               documentNumber: item.invoices.invoice_number,
               userName: getUserName(item.invoices.created_by)
@@ -356,6 +388,7 @@ const ItemMovementReport = () => {
               date: item.purchase_invoices.invoice_date,
               type: 'in',
               quantity: item.quantity,
+              uomId: item.uom_id || null,
               documentType: 'فاتورة مشتريات',
               documentNumber: item.purchase_invoices.invoice_number,
               userName: getUserName(item.purchase_invoices.created_by)
@@ -367,6 +400,7 @@ const ItemMovementReport = () => {
               date: item.receipt_date || (item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
               type: 'in',
               quantity: Number(item.quantity) || 0,
+              uomId: item.uom_id || null,
               documentType: 'توريد اعتماد مستندي',
               documentNumber: item.letters_of_credit?.lc_number || '-',
               description: item.notes || `استلام بضاعة شحنة اعتماد مستندي رقم ${item.letters_of_credit?.lc_number || ''}`,
@@ -379,6 +413,7 @@ const ItemMovementReport = () => {
               date: item.sales_returns.return_date,
               type: 'in',
               quantity: item.quantity,
+              uomId: item.uom_id || null,
               documentType: 'مرتجع مبيعات',
               documentNumber: item.sales_returns.return_number,
               userName: getUserName(item.sales_returns.created_by)
@@ -390,6 +425,7 @@ const ItemMovementReport = () => {
               date: item.purchase_returns.return_date,
               type: 'out',
               quantity: item.quantity,
+              uomId: item.uom_id || null,
               documentType: 'مرتجع مشتريات',
               documentNumber: item.purchase_returns.return_number,
               userName: getUserName(item.purchase_returns.created_by)
@@ -402,6 +438,7 @@ const ItemMovementReport = () => {
               date: item.stock_adjustments.adjustment_date,
               type: qty >= 0 ? 'in' : 'out',
               quantity: Math.abs(qty),
+              uomId: item.uom_id || null,
               documentType: 'تسوية مخزنية',
               documentNumber: item.stock_adjustments.adjustment_number,
               userName: getUserName(item.stock_adjustments.created_by)
@@ -414,6 +451,7 @@ const ItemMovementReport = () => {
               date: item.orders.created_at,
               type: 'out',
               quantity: Number(item.quantity),
+              uomId: item.uom_id || null,
               documentType: 'مبيعات مطعم',
               documentNumber: item.orders.order_number,
               userName: getUserName(item.orders.user_id)
@@ -427,6 +465,7 @@ const ItemMovementReport = () => {
                   date: po.orders.created_at,
                   type: 'out',
                   quantity: Number(po.quantity) * Number(bom.quantity_required),
+                  uomId: null,
                   documentType: 'استهلاك مطعم',
                   documentNumber: po.orders.order_number,
                   description: `استهلاك في وجبة`,
@@ -440,6 +479,7 @@ const ItemMovementReport = () => {
               date: item.hims_billing?.created_at ? item.hims_billing.created_at.split('T')[0] : '',
               type: 'out',
               quantity: Number(item.quantity),
+              uomId: item.uom_id || null,
               documentType: 'صرف مستشفى/صيدلية',
               documentNumber: `HIMS-${item.hims_billing?.visit_id?.substring(0, 8) || ''}`,
               description: `صرف للمريض: ${item.hims_billing?.hims_patients?.full_name || ''}`,
@@ -452,6 +492,7 @@ const ItemMovementReport = () => {
               date: item.project_material_issues?.issue_date,
               type: 'out',
               quantity: Number(item.quantity),
+              uomId: item.uom_id || null,
               documentType: 'إذن صرف موقع/مشروع',
               documentNumber: item.project_material_issues?.issue_number || '-',
               description: `صرف لمشروع: ${item.project_material_issues?.projects?.name || ''}`,
@@ -470,6 +511,7 @@ const ItemMovementReport = () => {
                       date: t.transfer_date,
                       type: 'out',
                       quantity: item.quantity,
+                      uomId: item.uom_id || null,
                       documentType: 'تحويل صادر',
                       documentNumber: t.transfer_number,
                       description: `إلى: ${getWName(t.to_warehouse_id)}`,
@@ -481,6 +523,7 @@ const ItemMovementReport = () => {
                       date: t.transfer_date,
                       type: 'in',
                       quantity: item.quantity,
+                      uomId: item.uom_id || null,
                       documentType: 'تحويل وارد',
                       documentNumber: t.transfer_number,
                       description: `من: ${getWName(t.from_warehouse_id)}`,
@@ -493,6 +536,7 @@ const ItemMovementReport = () => {
                   date: t.transfer_date,
                   type: 'in',
                   quantity: 0,
+                  uomId: item.uom_id || null,
                   documentType: 'تحويل مخزني (داخلي)',
                   documentNumber: t.transfer_number,
                   description: `${getWName(t.from_warehouse_id)} ➔ ${getWName(t.to_warehouse_id)} (كمية: ${item.quantity})`,
@@ -508,6 +552,7 @@ const ItemMovementReport = () => {
               date: wo.end_date || wo.created_at?.split('T')[0],
               type: 'in',
               quantity: Number(wo.quantity_to_produce),
+              uomId: null,
               documentType: 'تصنيع (منتج تام)',
               documentNumber: wo.order_number,
               description: `إنتاج تام - مستودع ${getWName(wo.warehouse_id)}`,
@@ -523,6 +568,7 @@ const ItemMovementReport = () => {
               date: item.created_at?.split('T')[0],
               type: 'out',
               quantity: Number(item.actual_quantity),
+              uomId: item.uom_id || null,
               documentType: 'استهلاك خامات (إنتاج)',
               documentNumber: po.order_number,
               description: 'استهلاك فعلي للمواد بالمرحلة',
@@ -541,6 +587,7 @@ const ItemMovementReport = () => {
               date: item.mfg_material_requests.issue_date || item.mfg_material_requests.created_at?.split('T')[0],
               type: 'out',
               quantity: Number(item.quantity_issued),
+              uomId: item.uom_id || null,
               documentType: 'صرف خامات (إنتاج)',
               documentNumber: item.mfg_material_requests.request_number,
               description: 'استهلاك مواد أولية (طلب صرف)',
@@ -555,6 +602,7 @@ const ItemMovementReport = () => {
               date: item.created_at?.split('T')[0],
               type: 'out',
               quantity: Number(item.quantity),
+              uomId: null,
               documentType: 'تصنيع (هالك)',
               documentNumber: '-',
               description: `هالك صناعي: ${item.reason}`,
@@ -575,32 +623,35 @@ const ItemMovementReport = () => {
           return (typeOrder[a.documentType] ?? 99) - (typeOrder[b.documentType] ?? 99);
       });
 
-      // حساب الرصيد الافتراضي (ما قبل الفترة)
+      // حساب الرصيد الافتراضي (ما قبل الفترة) بالوحدة الأساسية
       let openBal = 0;
-      const periodMovements: Movement[] = [];
+      const periodMovements: any[] = [];
       
       allMovements.forEach(mov => {
           // معالجة التاريخ للمقارنة (خاصة للمطاعم التي تحتوي على توقيت)
           const movDateOnly = mov.date?.includes('T') ? mov.date.split('T')[0] : (mov.date || '');
+          const qtyInBase = convertQty(mov.quantity, mov.uomId, product?.base_uom_id);
           if (movDateOnly < startDate) {
-              if (mov.type === 'in') openBal += mov.quantity;
-              else openBal -= mov.quantity;
+              if (mov.type === 'in') openBal += qtyInBase;
+              else openBal -= qtyInBase;
           } else if (movDateOnly <= endDate) {
-              periodMovements.push(mov);
+              periodMovements.push({ ...mov, qtyInBase });
           }
       });
 
       setOpeningBalance(openBal);
 
-      // حساب الرصيد التراكمي للفترة
+      // حساب الرصيد التراكمي للفترة بالوحدة الأساسية
       let runningBalance = openBal;
       const finalMovements = periodMovements.map((mov, index) => {
-          if (mov.type === 'in') runningBalance += mov.quantity;
-          else runningBalance -= mov.quantity;
+          const qtyInBase = mov.qtyInBase ?? convertQty(mov.quantity, mov.uomId, product?.base_uom_id);
+          if (mov.type === 'in') runningBalance += qtyInBase;
+          else runningBalance -= qtyInBase;
           
           return {
               id: index.toString(),
               ...mov,
+              qtyInBase,
               balanceAfter: runningBalance
           };
       });
@@ -615,23 +666,42 @@ const ItemMovementReport = () => {
     }
   };
 
+  const selectedProduct = useMemo(() => {
+    return products.find(p => p.id === selectedProductId);
+  }, [products, selectedProductId]);
+
+  const processedMovements = useMemo(() => {
+    return movements.map(m => {
+      const displayQty = displayUnit === 'base' ? (m.qtyInBase ?? m.quantity) : m.quantity;
+      const displayUnitName = displayUnit === 'base' 
+        ? (selectedProduct?.unit || 'قطعة') 
+        : (uoms.find(u => u.id === m.uomId)?.name || selectedProduct?.unit || 'قطعة');
+      return {
+        ...m,
+        displayQty,
+        displayUnitName
+      };
+    });
+  }, [movements, displayUnit, uoms, selectedProduct]);
+
   const handleExportExcel = () => {
-    const productName = products.find(p => p.id === selectedProductId)?.name || 'Product';
+    const productName = selectedProduct?.name || 'Product';
     
     const data = [
-        ['تقرير حركة صنف'],
+        ['تقرير حركة صنف تفصيلي'],
         ['الصنف:', productName],
+        ['وحدة العرض:', displayUnit === 'base' ? `الوحدة الأصغر (${selectedProduct?.unit || 'قطعة'})` : 'الوحدة الأصلية للحركة'],
         ['من تاريخ:', startDate, 'إلى تاريخ:', endDate],
         [],
-        ['التاريخ', 'نوع المستند', 'رقم المستند', 'وارد', 'صادر', 'الرصيد'],
-        ['-', 'الرصيد الافتراضي', '-', '-', '-', openingBalance],
-        ...movements.map(m => [
+        ['التاريخ', 'نوع المستند', 'رقم المستند', 'وارد', 'صادر', 'الرصيد', 'المستخدم'],
+        ['-', 'الرصيد الافتراضي', '-', '-', '-', `${openingBalance} ${selectedProduct?.unit || ''}`, '-'],
+        ...processedMovements.map(m => [
             m.date,
             m.documentType,
             m.documentNumber,
-            m.type === 'in' ? m.quantity : 0,
-            m.type === 'out' ? m.quantity : 0,
-            m.balanceAfter,
+            m.type === 'in' ? `${m.displayQty} ${m.displayUnitName}` : 0,
+            m.type === 'out' ? `${m.displayQty} ${m.displayUnitName}` : 0,
+            `${m.balanceAfter} ${selectedProduct?.unit || ''}`,
             m.userName || '-'
         ])
     ];
@@ -642,15 +712,15 @@ const ItemMovementReport = () => {
     XLSX.writeFile(wb, `Item_Movement_${productName}_${startDate}.xlsx`);
   };
 
-  const totalIn = useMemo(() => movements.filter(m => m.type === 'in').reduce((sum, m) => sum + Number(m.quantity), 0), [movements]);
-  const totalOut = useMemo(() => movements.filter(m => m.type === 'out').reduce((sum, m) => sum + Number(m.quantity), 0), [movements]);
+  const totalIn = useMemo(() => processedMovements.filter(m => m.type === 'in').reduce((sum, m) => sum + Number(m.displayQty || 0), 0), [processedMovements]);
+  const totalOut = useMemo(() => processedMovements.filter(m => m.type === 'out').reduce((sum, m) => sum + Number(m.displayQty || 0), 0), [processedMovements]);
 
   // تجهيز بيانات الرسم البياني (إضافة نقطة البداية)
   const chartData = useMemo(() => {
-    if (movements.length === 0) return [];
+    if (processedMovements.length === 0) return [];
     // إضافة الرصيد الافتتاحي كنقطة بداية في الرسم
-    return [{ date: startDate, balanceAfter: openingBalance }, ...movements];
-  }, [movements, openingBalance, startDate]);
+    return [{ date: startDate, balanceAfter: openingBalance }, ...processedMovements];
+  }, [processedMovements, openingBalance, startDate]);
 
   return (
     <div className="space-y-6 animate-in fade-in">
@@ -662,7 +732,7 @@ const ItemMovementReport = () => {
             <p className="text-slate-500">تتبع حركة الوارد والصادر والرصيد لكل صنف</p>
         </div>
         <div className="flex gap-2">
-            <button onClick={handleExportExcel} disabled={movements.length === 0} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 font-bold text-sm shadow-sm disabled:opacity-50">
+            <button onClick={handleExportExcel} disabled={processedMovements.length === 0} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 font-bold text-sm shadow-sm disabled:opacity-50">
                 <Download size={16} /> تصدير Excel
             </button>
             <button onClick={() => window.print()} className="flex items-center gap-2 bg-slate-800 text-white px-4 py-2 rounded-lg hover:bg-slate-700 font-bold text-sm shadow-sm">
@@ -672,7 +742,7 @@ const ItemMovementReport = () => {
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 no-print">
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 items-end">
             <div className="md:col-span-2 relative z-50">
                 <label className="block text-sm font-bold text-slate-700 mb-1">الصنف</label>
                 <ProductSearchSelect
@@ -695,21 +765,32 @@ const ItemMovementReport = () => {
                 </select>
             </div>
             <div>
+                <label className="block text-sm font-bold text-slate-700 mb-1">وحدة عرض الكميات</label>
+                <select 
+                    value={displayUnit} 
+                    onChange={(e) => setDisplayUnit(e.target.value as 'base' | 'original')} 
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 bg-white font-bold text-slate-700"
+                >
+                    <option value="base">الوحدة الأصغر (مثل: قطعة / زجاجة)</option>
+                    <option value="original">الوحدة الأصلية للحركة (كرتونة / علبة / قطعة)</option>
+                </select>
+            </div>
+            <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1">من تاريخ</label>
                 <input 
                     type="date" 
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500"
+                    value={startDate} 
+                    onChange={(e) => setStartDate(e.target.value)} 
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500" 
                 />
             </div>
             <div>
                 <label className="block text-sm font-bold text-slate-700 mb-1">إلى تاريخ</label>
                 <input 
                     type="date" 
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500"
+                    value={endDate} 
+                    onChange={(e) => setEndDate(e.target.value)} 
+                    className="w-full border border-slate-300 rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500" 
                 />
             </div>
         </div>
@@ -726,7 +807,7 @@ const ItemMovementReport = () => {
       </div>
 
       {/* الرسم البياني لتطور الرصيد */}
-      {!loading && movements.length > 0 && (
+      {!loading && processedMovements.length > 0 && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 print:hidden">
             <h3 className="text-lg font-bold text-slate-800 mb-4">تطور رصيد الصنف خلال الفترة</h3>
             <div className="h-80 w-full" dir="ltr">
@@ -743,7 +824,7 @@ const ItemMovementReport = () => {
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
                         <Tooltip 
                             contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
-                            formatter={(value: number) => [value.toLocaleString(), 'الرصيد']}
+                            formatter={(value: number) => [`${value.toLocaleString()} ${selectedProduct?.unit || ''}`, 'الرصيد']}
                             labelFormatter={(label) => `التاريخ: ${label}`}
                         />
                         <Area type="monotone" dataKey="balanceAfter" stroke="#3b82f6" fillOpacity={1} fill="url(#colorBalance)" />
@@ -756,7 +837,7 @@ const ItemMovementReport = () => {
       {/* ترويسة الطباعة */}
       <div className="hidden print:block text-center mb-8 border-b-2 border-slate-800 pb-4">
           <h1 className="text-3xl font-bold mb-2">كشف حركة صنف</h1>
-          <h2 className="text-xl text-slate-600">{products.find(p => p.id === selectedProductId)?.name}</h2>
+          <h2 className="text-xl text-slate-600">{selectedProduct?.name}</h2>
           <p className="text-sm text-slate-500 mt-2">عن الفترة من {startDate} إلى {endDate}</p>
       </div>
 
@@ -781,44 +862,59 @@ const ItemMovementReport = () => {
                     <td className="p-4">الرصيد الافتراضي (ما قبل الفترة)</td>
                     <td className="p-4 text-center">-</td>
                     <td className="p-4 text-center">-</td>
-                    <td className="p-4 text-center font-mono" dir="ltr">{openingBalance}</td>
+                    <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()} {selectedProduct?.unit || ''}</td>
                     <td className="p-4 text-center">-</td>
                 </tr>
 
-                {movements.map((mov) => (
+                {processedMovements.map((mov) => (
                     <tr key={mov.id} className="hover:bg-slate-50 transition-colors">
                         <td className="p-4 whitespace-nowrap">{mov.date}</td>
                         <td className="p-4 font-bold text-slate-600">{mov.documentType}</td>
                         <td className="p-4 font-mono text-slate-500">{mov.documentNumber || '-'}</td>
                         <td className="p-4 text-center font-mono font-bold text-emerald-600 bg-emerald-50/30">
                             {mov.type === 'in' ? (
-                                <span className="flex items-center justify-center gap-1"><ArrowDownLeft size={14} /> {mov.quantity}</span>
+                                <span className="flex items-center justify-center gap-1 font-mono">
+                                    <ArrowDownLeft size={14} /> 
+                                    {mov.displayQty?.toLocaleString()} 
+                                    <span className="text-xs font-normal text-emerald-700 font-sans mr-0.5">{mov.displayUnitName}</span>
+                                </span>
                             ) : '-'}
                         </td>
                         <td className="p-4 text-center font-mono font-bold text-red-600 bg-red-50/30">
                             {mov.type === 'out' ? (
-                                <span className="flex items-center justify-center gap-1"><ArrowUpRight size={14} /> {mov.quantity}</span>
+                                <span className="flex items-center justify-center gap-1 font-mono">
+                                    <ArrowUpRight size={14} /> 
+                                    {mov.displayQty?.toLocaleString()} 
+                                    <span className="text-xs font-normal text-red-700 font-sans mr-0.5">{mov.displayUnitName}</span>
+                                </span>
                             ) : '-'}
                         </td>
-                        <td className="p-4 text-center font-mono font-black text-slate-800" dir="ltr">{mov.balanceAfter}</td>
+                        <td className="p-4 text-center font-mono font-black text-slate-800" dir="ltr">
+                            {mov.balanceAfter?.toLocaleString()} <span className="text-xs font-normal text-slate-500 font-sans">{selectedProduct?.unit || ''}</span>
+                        </td>
                         <td className="p-4 text-center text-xs text-slate-500 flex items-center justify-center gap-1">
                             <User size={12} /> {mov.userName || 'غير معروف'}
                         </td>
                     </tr>
                 ))}
 
-                {movements.length === 0 && !loading && (
+                {processedMovements.length === 0 && !loading && (
                     <tr><td colSpan={7} className="p-8 text-center text-slate-400">لا توجد حركات خلال هذه الفترة</td></tr>
                 )}
             </tbody>
             <tfoot className="bg-slate-100 font-bold text-slate-800 border-t-2 border-slate-300">
                 <tr>
                     <td colSpan={3} className="p-4 text-left">الإجمالي خلال الفترة:</td>
-                    <td className="p-4 text-center text-emerald-700">{totalIn}</td>
-                    <td className="p-4 text-center text-red-700">{totalOut}</td>
-                    <td className="p-4 text-center bg-slate-200 text-lg" dir="ltr">
-                        {movements.length > 0 ? movements[movements.length - 1].balanceAfter : openingBalance}
+                    <td className="p-4 text-center text-emerald-700 font-mono">
+                        {totalIn.toLocaleString()} {displayUnit === 'base' ? (selectedProduct?.unit || '') : ''}
                     </td>
+                    <td className="p-4 text-center text-red-700 font-mono">
+                        {totalOut.toLocaleString()} {displayUnit === 'base' ? (selectedProduct?.unit || '') : ''}
+                    </td>
+                    <td className="p-4 text-center bg-slate-200 text-lg font-mono" dir="ltr">
+                        {(processedMovements.length > 0 ? processedMovements[processedMovements.length - 1].balanceAfter : openingBalance).toLocaleString()} {selectedProduct?.unit || ''}
+                    </td>
+                    <td className="p-4 text-center">-</td>
                 </tr>
             </tfoot>
         </table>

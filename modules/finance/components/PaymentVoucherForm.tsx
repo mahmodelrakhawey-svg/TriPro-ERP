@@ -3,12 +3,13 @@ import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext';
-import { ArrowUpRight, Save, Loader2, User, Wallet, Calendar, FileText, Building2, ArrowRight, ArrowLeft, Plus, Search, Upload, Paperclip, X, CircleDollarSign, Download, Eye, Layers, Printer, MessageCircle, Edit } from 'lucide-react';
+import { ArrowUpRight, Save, Loader2, User, Wallet, Calendar, FileText, Building2, ArrowRight, ArrowLeft, Plus, Search, Upload, Paperclip, X, CircleDollarSign, Download, Eye, Layers, Printer, MessageCircle, Edit, Receipt, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react';
 import { PaymentVoucherPrint } from '../reports/PaymentVoucherPrint';
 import { VoucherSchema } from '../../../utils/schemas';
 import { useNavigate, useLocation } from 'react-router-dom';
 import DocumentAuditTimeline from '../../../components/DocumentAuditTimeline';
 import { logDocumentAction } from '../../../services/auditService';
+import SupplierSearchSelect from '../../../components/SupplierSearchSelect';
 
 const PaymentVoucherForm = () => {
   const navigate = useNavigate();
@@ -41,6 +42,69 @@ const PaymentVoucherForm = () => {
   // إضافة حالة للرصيد اللحظي المباشر من قاعدة البيانات
   const [dynamicBalance, setDynamicBalance] = useState<number | null>(null);
   const [supplierSearchTerm, setSupplierSearchTerm] = useState('');
+
+  // فواتير المشتريات المعلقة للمورد المختار
+  const [unpaidInvoices, setUnpaidInvoices] = useState<any[]>([]);
+  const [loadingInvoices, setLoadingInvoices] = useState(false);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
+  const [showInvoicesPanel, setShowInvoicesPanel] = useState(true);
+
+  // جلب فواتير المشتريات المستحقة للمورد تلقائياً فور اختياره
+  useEffect(() => {
+    const fetchUnpaidInvoices = async () => {
+      if (!formData.supplierId) {
+        setUnpaidInvoices([]);
+        setSelectedInvoiceId(null);
+        return;
+      }
+      const userOrgId = organization?.id;
+      if (!userOrgId) return;
+
+      setLoadingInvoices(true);
+      try {
+        const { data, error } = await supabase
+          .from('purchase_invoices')
+          .select('id, invoice_number, invoice_date, total_amount, paid_amount, status, notes')
+          .eq('supplier_id', formData.supplierId)
+          .eq('organization_id', userOrgId)
+          .neq('status', 'draft')
+          .neq('status', 'cancelled')
+          .neq('status', 'paid')
+          .order('invoice_date', { ascending: false });
+
+        if (!error && data) {
+          const pending = data.filter((inv: any) => {
+            const remaining = Number(inv.total_amount || 0) - Number(inv.paid_amount || 0);
+            return remaining > 0.001;
+          });
+          setUnpaidInvoices(pending);
+        } else {
+          setUnpaidInvoices([]);
+        }
+      } catch (err) {
+        console.error('Error fetching unpaid invoices:', err);
+      } finally {
+        setLoadingInvoices(false);
+      }
+    };
+
+    fetchUnpaidInvoices();
+  }, [formData.supplierId, organization?.id]);
+
+  const handleSelectInvoiceForPayment = (invoice: any) => {
+    if (selectedInvoiceId === invoice.id) {
+      setSelectedInvoiceId(null);
+      return;
+    }
+    setSelectedInvoiceId(invoice.id);
+    const remaining = Math.max(0, Number(invoice.total_amount || 0) - Number(invoice.paid_amount || 0));
+    setFormData(prev => ({
+      ...prev,
+      amount: remaining,
+      notes: `سداد فاتورة مشتريات رقم ${invoice.invoice_number || invoice.id?.slice(0, 8)}`
+    }));
+    showToast(`تم تعيين مبلغ الفاتورة (${remaining.toLocaleString()} ${formData.currency}) وتحديث البيان تلقائياً`, 'info');
+  };
 
   // استخراج معلمات الرابط إن وجدت
   useEffect(() => {
@@ -235,11 +299,14 @@ const PaymentVoucherForm = () => {
       setExistingAttachments(atts || []);
     }
     setSupplierSearchTerm('');
+    setSelectedInvoiceId(null);
   };
 
   const handleNew = () => {
     setIsEditing(false);
     setCurrentVoucherId(null);
+    setSelectedInvoiceId(null);
+    setUnpaidInvoices([]);
     setFormData({
       supplierId: '',
       treasuryId: treasuryAccounts.length > 0 ? treasuryAccounts[0].id : '',
@@ -502,6 +569,28 @@ const PaymentVoucherForm = () => {
             }
         }
 
+        // 1.8. تحديث فاتورة المشتريات المرتبطة بالسداد إن وجدت
+        if (selectedInvoiceId && voucherData) {
+            try {
+                const { data: currentInv } = await supabase
+                    .from('purchase_invoices')
+                    .select('paid_amount, total_amount, status')
+                    .eq('id', selectedInvoiceId)
+                    .maybeSingle();
+
+                if (currentInv) {
+                    const newPaid = Number(currentInv.paid_amount || 0) + Number(formData.amount);
+                    const newStatus = newPaid >= Number(currentInv.total_amount) ? 'paid' : (currentInv.status === 'draft' ? 'draft' : 'posted');
+                    await supabase
+                        .from('purchase_invoices')
+                        .update({ paid_amount: newPaid, status: newStatus })
+                        .eq('id', selectedInvoiceId);
+                }
+            } catch (invErr) {
+                console.error('Failed to update purchase invoice status:', invErr);
+            }
+        }
+
         // 2. إنشاء القيد المحاسبي (محاولة استخدام الدالة الآمنة، ثم البديل اليدوي)
         try {
             const { error: rpcError } = await supabase.rpc('approve_payment_voucher', { p_voucher_id: voucherData.id, p_debit_account_id: supplierAcc.id });
@@ -589,39 +678,112 @@ const PaymentVoucherForm = () => {
       <form onSubmit={handleSave} className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 space-y-6">
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* المورد */}
-            <div>
-                <div className="flex justify-between items-center mb-1">
-                    <label className="block text-sm font-bold text-slate-700">صرف للمورد</label>
-                    {formData.supplierId && (
-                        <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-100 animate-in fade-in slide-in-from-top-1">
-                            الرصيد الحالي: {dynamicBalance !== null ? dynamicBalance.toLocaleString() : 'جاري الحساب...'} {formData.currency}
-                        </span>
-                    )}
-                </div>
-                {/* حقل البحث السريع عن المورد */}
-                <div className="relative mb-2">
-                    <Search className="w-4 h-4 absolute right-3 top-2.5 text-slate-400" />
-                    <input 
-                        type="text"
-                        placeholder="بحث عن مورد بالاسم..."
-                        value={supplierSearchTerm}
-                        onChange={(e) => setSupplierSearchTerm(e.target.value)}
-                        className="w-full border border-slate-300 rounded-lg px-4 py-2 pr-10 focus:ring-2 focus:ring-blue-500 outline-none text-sm bg-slate-50"
-                    />
-                </div>
-                <div className="relative">
-                    <select 
-                        value={formData.supplierId}
-                        onChange={(e) => setFormData({...formData, supplierId: e.target.value})}
-                        className={`w-full border rounded-lg px-4 py-3 focus:outline-none appearance-none ${errors.partyId ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
-                    >
-                        <option value="">اختر المورد...</option>
-                        {filteredSuppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                    <User className="absolute left-3 top-3.5 text-slate-400" size={18} />
-                </div>
-                {errors.partyId && <p className="text-red-500 text-xs mt-1">{errors.partyId}</p>}
+            {/* المورد الذكي الفائق */}
+            <div className="md:col-span-2">
+                <SupplierSearchSelect
+                    value={formData.supplierId}
+                    onChange={(supplierId) => {
+                        setFormData(prev => ({ ...prev, supplierId }));
+                        setSelectedInvoiceId(null);
+                        if (errors.partyId) {
+                            setErrors(prev => {
+                                const next = { ...prev };
+                                delete next.partyId;
+                                return next;
+                            });
+                        }
+                    }}
+                    suppliers={suppliers}
+                    label="صرف للمورد (المستفيد)"
+                    placeholder="ابحث عن مورد بالاسم، الكود، الهاتف، أو الرقم الضريبي..."
+                    required
+                    theme="blue"
+                    showBalance={true}
+                    showQuickAdd={true}
+                    showQuickEdit={true}
+                    showStatementButton={true}
+                />
+                {errors.partyId && <p className="text-red-500 text-xs mt-1 font-bold">{errors.partyId}</p>}
+
+                {/* لوحة فواتير المشتريات المعلقة للمورد المختار */}
+                {formData.supplierId && unpaidInvoices.length > 0 && (
+                    <div className="mt-3 p-4 bg-blue-50/70 border border-blue-200 rounded-2xl animate-in fade-in slide-in-from-top-2">
+                        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <Receipt className="text-blue-600 w-5 h-5" />
+                                <span className="text-xs font-black text-blue-900">
+                                    فواتير المشتريات المستحقة على هذا المورد ({unpaidInvoices.length} فواتير معلقة)
+                                </span>
+                                <span className="text-[11px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full font-mono">
+                                    المتبقي الإجمالي: {unpaidInvoices.reduce((sum, inv) => sum + (Number(inv.total_amount || 0) - Number(inv.paid_amount || 0)), 0).toLocaleString()} {formData.currency}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                {selectedInvoiceId && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedInvoiceId(null)}
+                                        className="text-xs font-bold text-slate-600 hover:text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs transition-colors"
+                                    >
+                                        إلغاء التخصيص (سداد عام على الحساب)
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    onClick={() => setShowInvoicesPanel(!showInvoicesPanel)}
+                                    className="text-blue-600 hover:text-blue-800 p-1"
+                                    title={showInvoicesPanel ? 'طي اللوحة' : 'عرض الفواتير'}
+                                >
+                                    {showInvoicesPanel ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                </button>
+                            </div>
+                        </div>
+
+                        {showInvoicesPanel && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-64 overflow-y-auto pr-1">
+                                {unpaidInvoices.map((inv) => {
+                                    const remaining = Math.max(0, Number(inv.total_amount || 0) - Number(inv.paid_amount || 0));
+                                    const isSelected = selectedInvoiceId === inv.id;
+                                    return (
+                                        <div
+                                            key={inv.id}
+                                            onClick={() => handleSelectInvoiceForPayment(inv)}
+                                            className={`p-3 rounded-xl border-2 cursor-pointer transition-all ${
+                                                isSelected
+                                                    ? 'bg-blue-600 text-white border-blue-700 shadow-md transform scale-[1.02]'
+                                                    : 'bg-white hover:bg-blue-50/50 border-slate-200 hover:border-blue-300'
+                                            }`}
+                                        >
+                                            <div className="flex justify-between items-start mb-1">
+                                                <span className={`font-mono font-black text-xs ${isSelected ? 'text-blue-100' : 'text-slate-800'}`}>
+                                                    #{inv.invoice_number || inv.id?.slice(0, 8)}
+                                                </span>
+                                                <span className={`text-[10px] font-bold ${isSelected ? 'text-blue-100' : 'text-slate-500'}`}>
+                                                    {inv.invoice_date || '-'}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between items-baseline mt-2">
+                                                <span className={`text-xs font-bold ${isSelected ? 'text-blue-100' : 'text-slate-500'}`}>المتبقي:</span>
+                                                <span className={`text-sm font-black font-mono ${isSelected ? 'text-white' : 'text-blue-700'}`}>
+                                                    {remaining.toLocaleString()} {formData.currency}
+                                                </span>
+                                            </div>
+                                            <div className="mt-2 pt-1 border-t border-slate-100/30 flex items-center justify-between text-[11px]">
+                                                <span className={isSelected ? 'text-blue-200' : 'text-slate-400'}>
+                                                    الإجمالي: {Number(inv.total_amount || 0).toLocaleString()}
+                                                </span>
+                                                <span className={`font-bold flex items-center gap-1 ${isSelected ? 'text-yellow-300' : 'text-blue-600'}`}>
+                                                    {isSelected ? <CheckCircle2 size={12} /> : null}
+                                                    {isSelected ? 'محددة للسداد' : 'اضغط للسداد'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* حساب الصرف */}
