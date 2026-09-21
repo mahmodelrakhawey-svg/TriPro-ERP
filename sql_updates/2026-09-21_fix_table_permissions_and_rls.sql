@@ -85,4 +85,21 @@ BEGIN
             RAISE NOTICE 'Permissions and RLS successfully applied for table: %', t;
         END IF;
     END LOOP;
+
+    -- 5. تحصين الرؤية terminals بإلغاء وسم Unrestricted وتفعيل security_invoker
+    IF EXISTS (
+        SELECT 1 FROM information_schema.views 
+        WHERE table_schema = 'public' AND table_name = 'terminals'
+    ) THEN
+        BEGIN
+            ALTER VIEW public.terminals SET (security_invoker = true);
+            GRANT SELECT ON public.terminals TO authenticated, anon, service_role;
+            RAISE NOTICE '✅ تم تحصين الرؤية terminals بنجاح (security_invoker = true) وإلغاء وسم Unrestricted.';
+        EXCEPTION WHEN OTHERS THEN
+            RAISE NOTICE '⚠️ تعذر تفعيل security_invoker على terminals: %', SQLERRM;
+        END;
+    END IF;
 END $$;
+
+-- تحديث كاش واجهة البرمجة (Supabase PostgREST Schema Cache)
+NOTIFY pgrst, 'reload schema';
