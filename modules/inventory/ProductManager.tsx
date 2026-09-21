@@ -17,6 +17,7 @@ import { BulkPriceUpdateModal } from './components/BulkPriceUpdateModal';
 import { BulkOfferModal } from './components/BulkOfferModal';
 import { CategoryModal } from './components/CategoryModal';
 import { AutoCreatedProductsModal } from './components/AutoCreatedProductsModal';
+import { ExpectedConsumptionModal } from './components/ExpectedConsumptionModal';
 
 // تعريف واجهة الصنف بناءً على الجدول الجديد items
 export type Item = {
@@ -344,8 +345,6 @@ const ProductManager = () => {
   const [isRecipeImporting, setIsRecipeImporting] = useState(false);
   const [importWarehouseId, setImportWarehouseId] = useState<string>('');
   const [isConsumptionModalOpen, setIsConsumptionModalOpen] = useState(false);
-  const [consumptionData, setConsumptionData] = useState<any[]>([]);
-  const [consumptionFilterWarehouseId, setConsumptionFilterWarehouseId] = useState<string>('');
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [categoryFormData, setCategoryFormData] = useState({ id: '', name: '', image_url: '', description: '' });
   const [autoCreatedProducts, setAutoCreatedProducts] = useState<any[]>([]);
@@ -400,20 +399,6 @@ const ProductManager = () => {
     };
     fetchReserved();
   }, [currentUser]);
-
-  const fetchExpectedConsumption = async (whId: string = '') => {
-    try {
-        setIsBulkSaving(true); // استخدام لودر موجود
-        const { data, error } = await supabase.rpc('get_expected_raw_material_consumption', { p_warehouse_id: whId || null });
-        if (error) throw error;
-        setConsumptionData(data || []);
-        setIsConsumptionModalOpen(true);
-    } catch (err: any) {
-        showToast('فشل جلب بيانات الاستهلاك: ' + err.message, 'error');
-    } finally {
-        setIsBulkSaving(false);
-    }
-  };
 
   // بيانات النموذج
   const [formData, setFormData] = useState<ProductFormData>({
@@ -2540,7 +2525,7 @@ const ProductManager = () => {
             <Package className="text-emerald-600" /> إدارة الأصناف (المنضبطة)
           </h2>
           <button 
-            onClick={() => fetchExpectedConsumption()}
+            onClick={() => setIsConsumptionModalOpen(true)}
             className="mt-1 text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded-full font-bold flex items-center gap-1 hover:bg-indigo-100 transition-all"
           >
             <Zap size={12} /> عرض الاستهلاك المتوقع من المسودات
@@ -3918,74 +3903,12 @@ const ProductManager = () => {
       )}
 
       {/* Expected Consumption Modal */}
-      {isConsumptionModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" dir="rtl">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95">
-                <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                        <Zap size={20} className="text-indigo-600" /> تقرير الاستهلاك المتوقع (المسودات)
-                    </h3>
-                    <button onClick={() => setIsConsumptionModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
-                </div>
-                <div className="p-6">
-                    <div className="bg-blue-50 text-blue-700 p-3 rounded-lg text-xs mb-4">
-                        هذا التقرير يحلل كافة الفواتير "المسودة" ويحسب المكونات الخام المطلوبة بناءً على الـ BOM الخاص بكل صنف وإضافاته.
-                    </div>
-                    <div className="mb-4 flex items-center gap-3">
-                        <label className="text-sm font-bold text-slate-600">تصفية حسب المستودع:</label>
-                        <select 
-                            value={consumptionFilterWarehouseId} 
-                            onChange={(e) => {
-                                setConsumptionFilterWarehouseId(e.target.value);
-                                fetchExpectedConsumption(e.target.value);
-                            }}
-                            className="border rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                        >
-                            <option value="">جميع المستودعات</option>
-                            {warehouses.map(wh => <option key={wh.id} value={wh.id}>{wh.name}</option>)}
-                        </select>
-                    </div>
-                    <div className="max-h-[400px] overflow-y-auto border rounded-xl overflow-hidden">
-                        <table className="w-full text-right">
-                            <thead className="bg-slate-100 text-slate-600 text-xs font-bold sticky top-0">
-                                <tr>
-                                    <th className="p-3">المادة الخام</th>
-                                    <th className="p-3 text-center">المخزون الحالي</th>
-                                    <th className="p-3 text-center">مطلوب تنفيذه</th>
-                                    <th className="p-3 text-center">الرصيد المتبقي</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y text-sm">
-                                {consumptionData.map((row, idx) => {
-                                    const remaining = row.current_stock - row.expected_quantity;
-                                    return (
-                                        <tr key={idx} className="hover:bg-slate-50">
-                                            <td className="p-3 font-bold text-slate-700">{row.raw_material_name}</td>
-                                            <td className="p-3 text-center font-mono">{row.current_stock}</td>
-                                            <td className="p-3 text-center font-bold text-blue-600">{row.expected_quantity}</td>
-                                            <td className={`p-3 text-center font-black ${remaining < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                                                {remaining}
-                                                {remaining < 0 && <span className="block text-[10px] bg-red-100 px-1 rounded">عجز!</span>}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                                {consumptionData.length === 0 && (
-                                    <tr><td colSpan={4} className="p-8 text-center text-slate-400">لا توجد فواتير مسودة حالياً</td></tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                    <button 
-                        onClick={() => window.print()} 
-                        className="w-full mt-6 bg-slate-800 text-white font-bold py-3 rounded-xl hover:bg-slate-900 transition-all flex items-center justify-center gap-2"
-                    >
-                        <FileSpreadsheet size={20} /> طباعة قائمة الاحتياجات
-                    </button>
-                </div>
-            </div>
-        </div>
-      )}
+      <ExpectedConsumptionModal
+        isOpen={isConsumptionModalOpen}
+        onClose={() => setIsConsumptionModalOpen(false)}
+        warehouses={warehouses}
+        showToast={showToast}
+      />
 
       {recipeTarget && (
         <RecipeManagement 
