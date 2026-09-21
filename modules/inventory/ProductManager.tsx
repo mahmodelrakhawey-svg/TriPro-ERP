@@ -13,10 +13,15 @@ import * as XLSX from 'xlsx';
 import { z } from 'zod';
 import { createProductSchema, bulkOfferSchema, bulkPriceUpdateSchema } from '../../utils/validationSchemas';
 import { getCurrencySymbol } from '../../utils/constants';
-
+import { BulkPriceUpdateModal } from './components/BulkPriceUpdateModal';
+import { BulkOfferModal } from './components/BulkOfferModal';
+import { CategoryModal } from './components/CategoryModal';
+import { AutoCreatedProductsModal } from './components/AutoCreatedProductsModal';
+import { ExpectedConsumptionModal } from './components/ExpectedConsumptionModal';
+import { printOfferBarcode, printBarcode, printBulkBarcodes } from './utils/productBarcodeUtils';
 
 // تعريف واجهة الصنف بناءً على الجدول الجديد items
-type Item = {
+export type Item = {
   id: string;
   name: string;
   sku: string | null;
@@ -336,26 +341,15 @@ const ProductManager = () => {
   const [modifierTarget, setModifierTarget] = useState<{id: string, name: string} | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isBulkOfferModalOpen, setIsBulkOfferModalOpen] = useState(false);
-  const [bulkOfferData, setBulkOfferData] = useState({
-    strategy: 'percentage', // 'percentage' | 'fixed'
-    value: 0,
-    startDate: new Date().toISOString().split('T')[0],
-    endDate: '',
-    maxQty: 0
-  });
   const [isBulkSaving, setIsBulkSaving] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isRecipeImporting, setIsRecipeImporting] = useState(false);
   const [importWarehouseId, setImportWarehouseId] = useState<string>('');
   const [isConsumptionModalOpen, setIsConsumptionModalOpen] = useState(false);
-  const [consumptionData, setConsumptionData] = useState<any[]>([]);
-  const [consumptionFilterWarehouseId, setConsumptionFilterWarehouseId] = useState<string>('');
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
   const [categoryFormData, setCategoryFormData] = useState({ id: '', name: '', image_url: '', description: '' });
-  const [categoryUploading, setCategoryUploading] = useState(false);
   const [autoCreatedProducts, setAutoCreatedProducts] = useState<any[]>([]);
   const [isBulkPriceUpdateModalOpen, setIsBulkPriceUpdateModalOpen] = useState(false);
-  const [bulkPricePercentage, setBulkPricePercentage] = useState(0);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [initialOpeningStock, setInitialOpeningStock] = useState<number>(0);
   const [initialOpeningWarehouseId, setInitialOpeningWarehouseId] = useState<string>('');
@@ -406,20 +400,6 @@ const ProductManager = () => {
     };
     fetchReserved();
   }, [currentUser]);
-
-  const fetchExpectedConsumption = async (whId: string = '') => {
-    try {
-        setIsBulkSaving(true); // استخدام لودر موجود
-        const { data, error } = await supabase.rpc('get_expected_raw_material_consumption', { p_warehouse_id: whId || null });
-        if (error) throw error;
-        setConsumptionData(data || []);
-        setIsConsumptionModalOpen(true);
-    } catch (err: any) {
-        showToast('فشل جلب بيانات الاستهلاك: ' + err.message, 'error');
-    } finally {
-        setIsBulkSaving(false);
-    }
-  };
 
   // بيانات النموذج
   const [formData, setFormData] = useState<ProductFormData>({
@@ -1806,65 +1786,6 @@ const ProductManager = () => {
     setIsCategoryModalOpen(true);
   };
 
-  const handleCategoryImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files || e.target.files.length === 0) return;
-    
-    if (currentUser?.role === 'demo') {
-        showToast('رفع الصور غير متاح في النسخة التجريبية', 'warning');
-        return;
-    }
-
-    const file = e.target.files[0];
-    const fileExt = file.name.split('.').pop();
-    const fileName = `cat-${Date.now()}.${fileExt}`;
-    const filePath = `${fileName}`;
-
-    try {
-      setCategoryUploading(true);
-      const { error: uploadError } = await supabase.storage.from('product-images').upload(filePath, file);
-      if (uploadError) throw uploadError;
-      
-      const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
-      setCategoryFormData(prev => ({ ...prev, image_url: data.publicUrl }));
-    } catch (error: any) {
-      showToast('فشل رفع الصورة: ' + error.message, 'error');
-    } finally {
-      setCategoryUploading(false);
-    }
-  };
-
-  const handleSaveCategory = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!categoryFormData.name) return;
-
-    if (currentUser?.role === 'demo') {
-        showToast('تم حفظ التصنيف بنجاح (محاكاة)', 'success');
-        setIsCategoryModalOpen(false);
-        return;
-    }
-
-    try {
-        const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
-        
-        if (categoryFormData.id) {
-            const { error } = await supabase.from('item_categories')
-                .update({ name: categoryFormData.name, image_url: categoryFormData.image_url, description: categoryFormData.description })
-                .eq('id', categoryFormData.id);
-            if (error) throw error;
-        } else {
-            const { error } = await supabase.from('item_categories')
-                .insert({ name: categoryFormData.name, image_url: categoryFormData.image_url, description: categoryFormData.description, organization_id: orgId });
-            if (error) throw error;
-        }
-        
-        showToast('تم حفظ التصنيف بنجاح', 'success');
-        await refreshData();
-        setIsCategoryModalOpen(false);
-    } catch (error: any) {
-        showToast('فشل حفظ التصنيف: ' + error.message, 'error');
-    }
-  };
-
   const handleDeleteCategory = async () => {
     if (!formData.category_id) return;
 
@@ -2384,172 +2305,11 @@ const ProductManager = () => {
       setIsModalOpen(true);
   };
 
-  const handlePrintOfferBarcode = (item: Item) => {
-    const printWindow = window.open('', '', 'width=600,height=400');
-    if (printWindow) {
-        printWindow.document.write(`
-            <html dir="rtl"> // Use handleError for consistency
-            <head>
-                <title>باركود العرض - ${item.name}</title>
-                <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
-                <style>
-                    body { font-family: 'Tajawal', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f0f0; }
-                    .label { 
-                        width: 300px; 
-                        height: 200px; 
-                        background: white; 
-                        border: 1px solid #ccc; 
-                        padding: 15px; 
-                        text-align: center; 
-                        display: flex; 
-                        flex-direction: column; 
-                        justify-content: center;
-                        align-items: center;
-                        box-sizing: border-box;
-                        border-radius: 8px;
-                    }
-                    .title { font-size: 16px; font-weight: bold; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
-                    .prices { display: flex; justify-content: center; align-items: baseline; gap: 10px; margin: 5px 0; }
-                    .old-price { text-decoration: line-through; color: #666; font-size: 14px; }
-                    .new-price { font-size: 28px; font-weight: 900; color: #000; }
-                    .barcode { font-family: 'Libre Barcode 39 Text', cursive; font-size: 48px; line-height: 1; margin: 5px 0; }
-                    .tag { background: #ef4444; color: #fff; padding: 2px 10px; border-radius: 4px; font-size: 12px; font-weight: bold; display: inline-block; margin-bottom: 5px; }
-                    @media print {
-                        body { background: none; }
-                        .label { border: none; page-break-inside: avoid; }
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="label">
-                    <div class="tag">عرض خاص 🔥</div>
-                    <div class="title">${item.name}</div>
-                    <div class="prices">
-                        <span class="old-price">${item.sales_price.toLocaleString()}</span>
-                        <span class="new-price">${item.offer_price?.toLocaleString()}</span>
-                    </div>
-                    <div class="barcode">*${item.sku || '0000'}*</div>
-                    <div style="font-size: 10px; margin-top: 5px;">${item.sku || ''}</div>
-                </div>
-                <script>window.onload = function() { window.print(); }</script>
-            </body>
-            </html>
-        `);
-        printWindow.document.close();
-    }
-  };
-
-  const handlePrintBarcode = (item: Item) => {
-    const printWindow = window.open('', '', 'width=800,height=600');
-    if (printWindow) {
-        printWindow.document.write(`
-            <html dir="rtl"> // Use handleError for consistency
-            <head>
-                <title>طباعة باركود - ${item.name}</title>
-                <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
-                <style>
-                    body { font-family: 'Tajawal', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f0f0; }
-                    .label { 
-                        width: 50mm; 
-                        height: 30mm; 
-                        background: white; 
-                        border: 1px solid #ccc; 
-                        padding: 2px; 
-                        text-align: center; 
-                        display: flex; 
-                        flex-direction: column; 
-                        justify-content: center;
-                        align-items: center;
-                        box-sizing: border-box;
-                        border-radius: 4px;
-                    }
-                    .title { font-size: 10px; font-weight: bold; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
-                    .price { font-size: 14px; font-weight: 900; color: #000; margin: 2px 0; }
-                    .barcode { font-family: 'Libre Barcode 39 Text', cursive; font-size: 32px; line-height: 1; margin: 2px 0; }
-                    @media print {
-                        body { background: none; }
-                        .label { border: none; page-break-inside: avoid; margin: 0 auto; }
-                        @page { size: 50mm 30mm; margin: 0; }
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="label">
-                    <div class="title">${item.name}</div>
-                    <div class="barcode">*${item.sku || '0000'}*</div>
-                    <div style="font-size: 8px;">${item.sku || ''}</div>
-                    <div class="price">${item.sales_price?.toLocaleString()}</div>
-                </div>
-                <script>window.onload = function() { window.print(); }</script>
-            </body>
-            </html>
-        `);
-        printWindow.document.close();
-    }
-  };
-
+  const handlePrintOfferBarcode = (item: Item) => printOfferBarcode(item);
+  const handlePrintBarcode = (item: Item) => printBarcode(item);
   const handleBulkPrintBarcodes = () => {
     if (selectedIds.size === 0) return;
-    
-    const selectedItems = (items as Item[]).filter(i => selectedIds.has(i.id));
-    
-    const printWindow = window.open('', '', 'width=800,height=600');
-    if (printWindow) {
-        printWindow.document.write(`
-            <html dir="rtl"> // Use handleError for consistency
-            <head>
-                <title>طباعة الباركود</title>
-                <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
-                <style>
-                    body { font-family: 'Tajawal', sans-serif; padding: 20px; background-color: #fff; }
-                    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
-                    .label { 
-                        border: 1px solid #eee; 
-                        padding: 2px; 
-                        text-align: center; 
-                        display: flex; 
-                        flex-direction: column; 
-                        justify-content: center;
-                        align-items: center;
-                        box-sizing: border-box;
-                        border-radius: 4px;
-                        page-break-inside: avoid;
-                        width: 50mm; height: 30mm;
-                        margin: 0 auto;
-                    }
-                    .title { font-size: 10px; font-weight: bold; margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
-                    .price { font-size: 14px; font-weight: 900; color: #000; margin: 2px 0; }
-                    .barcode { font-family: 'Libre Barcode 39 Text', cursive; font-size: 32px; line-height: 1; margin: 2px 0; }
-                    @media print {
-                        .no-print { display: none; }
-                        .grid { display: block; }
-                        .label { 
-                            border: none;
-                            page-break-after: always;
-                        }
-                        @page { size: 50mm 30mm; margin: 0; }
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="no-print" style="margin-bottom: 20px; text-align: center;">
-                    <button onclick="window.print()" style="background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-family: inherit; font-weight: bold; cursor: pointer;">🖨️ طباعة الملصقات (${selectedItems.length})</button>
-                </div>
-                <div class="grid">
-                    ${selectedItems.map(item => `
-                        <div class="label">
-                            <div class="title">${item.name}</div>
-                            <div class="barcode">*${item.sku || '0000'}*</div>
-                            <div style="font-size: 8px;">${item.sku || ''}</div>
-                            <div class="price">${item.sales_price?.toLocaleString()}</div>
-                        </div>
-                    `).join('')}
-                </div>
-            </body>
-            </html>
-        `);
-        printWindow.document.close();
-    }
+    printBulkBarcodes((items as Item[]).filter(i => selectedIds.has(i.id)));
   };
 
 
@@ -2568,125 +2328,6 @@ const ProductManager = () => {
       setSelectedIds(new Set());
     } else {
       setSelectedIds(new Set(items.map(i => i.id)));
-    }
-  };
-
-  const handleBulkOfferSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    const validationResult = bulkOfferSchema.safeParse(bulkOfferData);
-    if (!validationResult.success) {
-        showToast(validationResult.error.issues[0].message, 'warning');
-        return;
-    }
-
-    if (selectedIds.size === 0) {
-        showToast('الرجاء اختيار أصناف لتطبيق العرض عليها', 'warning');
-        return;
-    }
-    
-    if (!can('products', 'update')) {
-        showToast('ليس لديك صلاحية تعديل المنتجات (العروض)', 'error');
-        return;
-    }
-    
-    if (currentUser?.role === 'demo') {
-        showToast(`تم تطبيق العرض على ${selectedIds.size} صنف بنجاح (محاكاة)`, 'success');
-        setIsBulkOfferModalOpen(false);
-        setSelectedIds(new Set());
-        return;
-    }
-
-    setIsBulkSaving(true);
-    try {
-        const updates = Array.from(selectedIds).map(async (id) => {
-            const item = items.find(i => i.id === id);
-            if (!item) return;
-
-            let newOfferPrice = 0;
-            if (bulkOfferData.strategy === 'fixed') {
-                newOfferPrice = bulkOfferData.value;
-            } else {
-                // Percentage discount
-                newOfferPrice = item.sales_price * (1 - (bulkOfferData.value / 100));
-            }
-            
-            // Ensure offer price is not negative and round it
-            newOfferPrice = Math.max(0, Math.round(newOfferPrice * 100) / 100);
-
-            return supabase.from('products').update({
-                offer_price: newOfferPrice,
-                offer_start_date: bulkOfferData.startDate,
-                offer_end_date: bulkOfferData.endDate,
-                offer_max_qty: bulkOfferData.maxQty || null
-            }).eq('id', id);
-        });
-
-        await Promise.all(updates);
-        
-        showToast('تم تطبيق العرض الجماعي بنجاح ✅', 'success');
-        refresh();
-        setIsBulkOfferModalOpen(false);
-        setSelectedIds(new Set());
-    } catch (error: any) {
-        console.error(error);
-        showToast('حدث خطأ: ' + error.message, 'error');
-    } finally {
-        setIsBulkSaving(false);
-    }
-  };
-
-  const handleBulkPriceUpdateSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (selectedIds.size === 0) return;
-
-    const validationResult = bulkPriceUpdateSchema.safeParse({ percentage: bulkPricePercentage });
-    if (!validationResult.success) {
-        showToast(validationResult.error.issues[0].message, 'warning');
-        return;
-    }
-    
-    if (!can('products', 'update')) {
-        showToast('ليس لديك صلاحية تعديل المنتجات', 'error');
-        return;
-    }
-
-    if (currentUser?.role === 'demo') {
-        showToast(`تم تحديث الأسعار بنسبة ${bulkPricePercentage}% لـ ${selectedIds.size} صنف (محاكاة)`, 'success');
-        setIsBulkPriceUpdateModalOpen(false);
-        setSelectedIds(new Set());
-        return;
-    }
-
-    setIsBulkSaving(true);
-    try {
-        const updates = Array.from(selectedIds).map(async (id) => {
-            const item = (items as Item[]).find(i => i.id === id);
-            if (!item) return;
-
-            const multiplier = 1 + (bulkPricePercentage / 100);
-            let newPrice = item.sales_price * multiplier;
-            
-            // تقريب محاسبي لأقرب خانتين عشريتين
-            newPrice = Math.max(0, Math.round(newPrice * 100) / 100);
-
-            return supabase.from('products').update({
-                sales_price: newPrice
-            }).eq('id', id);
-        });
-
-        await Promise.all(updates);
-        
-        showToast(`تم تحديث أسعار ${selectedIds.size} صنف بنجاح ✅`, 'success');
-        refresh();
-        setIsBulkPriceUpdateModalOpen(false);
-        setBulkPricePercentage(0);
-        setSelectedIds(new Set());
-    } catch (error: any) {
-        console.error(error);
-        showToast('حدث خطأ أثناء تحديث الأسعار: ' + error.message, 'error');
-    } finally {
-        setIsBulkSaving(false);
     }
   };
 
@@ -2724,7 +2365,7 @@ const ProductManager = () => {
             <Package className="text-emerald-600" /> إدارة الأصناف (المنضبطة)
           </h2>
           <button 
-            onClick={() => fetchExpectedConsumption()}
+            onClick={() => setIsConsumptionModalOpen(true)}
             className="mt-1 text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded-full font-bold flex items-center gap-1 hover:bg-indigo-100 transition-all"
           >
             <Zap size={12} /> عرض الاستهلاك المتوقع من المسودات
@@ -4102,74 +3743,12 @@ const ProductManager = () => {
       )}
 
       {/* Expected Consumption Modal */}
-      {isConsumptionModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4 backdrop-blur-sm" dir="rtl">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95">
-                <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                        <Zap size={20} className="text-indigo-600" /> تقرير الاستهلاك المتوقع (المسودات)
-                    </h3>
-                    <button onClick={() => setIsConsumptionModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
-                </div>
-                <div className="p-6">
-                    <div className="bg-blue-50 text-blue-700 p-3 rounded-lg text-xs mb-4">
-                        هذا التقرير يحلل كافة الفواتير "المسودة" ويحسب المكونات الخام المطلوبة بناءً على الـ BOM الخاص بكل صنف وإضافاته.
-                    </div>
-                    <div className="mb-4 flex items-center gap-3">
-                        <label className="text-sm font-bold text-slate-600">تصفية حسب المستودع:</label>
-                        <select 
-                            value={consumptionFilterWarehouseId} 
-                            onChange={(e) => {
-                                setConsumptionFilterWarehouseId(e.target.value);
-                                fetchExpectedConsumption(e.target.value);
-                            }}
-                            className="border rounded-lg px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-white"
-                        >
-                            <option value="">جميع المستودعات</option>
-                            {warehouses.map(wh => <option key={wh.id} value={wh.id}>{wh.name}</option>)}
-                        </select>
-                    </div>
-                    <div className="max-h-[400px] overflow-y-auto border rounded-xl overflow-hidden">
-                        <table className="w-full text-right">
-                            <thead className="bg-slate-100 text-slate-600 text-xs font-bold sticky top-0">
-                                <tr>
-                                    <th className="p-3">المادة الخام</th>
-                                    <th className="p-3 text-center">المخزون الحالي</th>
-                                    <th className="p-3 text-center">مطلوب تنفيذه</th>
-                                    <th className="p-3 text-center">الرصيد المتبقي</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y text-sm">
-                                {consumptionData.map((row, idx) => {
-                                    const remaining = row.current_stock - row.expected_quantity;
-                                    return (
-                                        <tr key={idx} className="hover:bg-slate-50">
-                                            <td className="p-3 font-bold text-slate-700">{row.raw_material_name}</td>
-                                            <td className="p-3 text-center font-mono">{row.current_stock}</td>
-                                            <td className="p-3 text-center font-bold text-blue-600">{row.expected_quantity}</td>
-                                            <td className={`p-3 text-center font-black ${remaining < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                                                {remaining}
-                                                {remaining < 0 && <span className="block text-[10px] bg-red-100 px-1 rounded">عجز!</span>}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                                {consumptionData.length === 0 && (
-                                    <tr><td colSpan={4} className="p-8 text-center text-slate-400">لا توجد فواتير مسودة حالياً</td></tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                    <button 
-                        onClick={() => window.print()} 
-                        className="w-full mt-6 bg-slate-800 text-white font-bold py-3 rounded-xl hover:bg-slate-900 transition-all flex items-center justify-center gap-2"
-                    >
-                        <FileSpreadsheet size={20} /> طباعة قائمة الاحتياجات
-                    </button>
-                </div>
-            </div>
-        </div>
-      )}
+      <ExpectedConsumptionModal
+        isOpen={isConsumptionModalOpen}
+        onClose={() => setIsConsumptionModalOpen(false)}
+        warehouses={warehouses}
+        showToast={showToast}
+      />
 
       {recipeTarget && (
         <RecipeManagement 
@@ -4188,178 +3767,48 @@ const ProductManager = () => {
       )}
 
       {/* Bulk Price Update Modal */}
-      {isBulkPriceUpdateModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95">
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                        <Percent size={20} className="text-orange-600" /> تحديث أسعار البيع جماعياً
-                    </h3>
-                    <button onClick={() => setIsBulkPriceUpdateModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
-                </div>
-                <form onSubmit={handleBulkPriceUpdateSubmit} className="space-y-4">
-                    <div className="bg-orange-50 p-3 rounded-lg text-sm text-orange-800 mb-4">
-                        سيتم تعديل سعر البيع لـ <strong>{selectedIds.size}</strong> صنف محدد. 
-                        استخدم قيمة موجبة للزيادة (مثلاً 10 للزيادة 10%) وقيمة سالبة للخصم (مثلاً -5 لخفض السعر 5%).
-                    </div>
-                    
-                    <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-1">نسبة التغيير (%)</label>
-                        <div className="relative">
-                            <input 
-                                type="number" 
-                                required 
-                                step="0.01" 
-                                value={bulkPricePercentage} 
-                                onChange={e => setBulkPricePercentage(parseFloat(e.target.value))} 
-                                className="w-full border rounded-lg p-2.5 pr-10 focus:ring-2 focus:ring-orange-500 outline-none font-bold text-lg text-center" 
-                            />
-                        </div>
-                    </div>
-
-                    <button type="submit" disabled={isBulkSaving} className="w-full bg-orange-600 text-white py-3 rounded-lg font-bold hover:bg-orange-700 mt-2 disabled:opacity-50 shadow-lg">
-                        {isBulkSaving ? 'جاري التحديث...' : 'تحديث الأسعار الآن'}
-                    </button>
-                </form>
-            </div>
-        </div>
-      )}
+      <BulkPriceUpdateModal
+        isOpen={isBulkPriceUpdateModalOpen}
+        onClose={() => setIsBulkPriceUpdateModalOpen(false)}
+        selectedIds={selectedIds}
+        setSelectedIds={setSelectedIds}
+        items={items as Item[]}
+        currentUser={currentUser}
+        can={can}
+        showToast={showToast}
+        refresh={refresh}
+      />
 
       {/* Bulk Offer Modal */}
-      {isBulkOfferModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6 animate-in zoom-in-95">
-                <div className="flex justify-between items-center mb-6">
-                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                        <Tag size={20} className="text-purple-600" /> تطبيق عرض جماعي
-                    </h3>
-                    <button onClick={() => setIsBulkOfferModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
-                </div>
-                <form onSubmit={handleBulkOfferSubmit} className="space-y-4">
-                    <div className="bg-purple-50 p-3 rounded-lg text-sm text-purple-800 mb-4">
-                        سيتم تطبيق هذا العرض على <strong>{selectedIds.size}</strong> صنف محدد.
-                    </div>
-                    
-                    <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-1">نوع الخصم</label>
-                        <div className="flex bg-slate-100 p-1 rounded-lg">
-                            <button type="button" onClick={() => setBulkOfferData({...bulkOfferData, strategy: 'percentage'})} className={`flex-1 py-2 rounded-md text-sm font-bold transition-all ${bulkOfferData.strategy === 'percentage' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500'}`}>نسبة مئوية %</button>
-                            <button type="button" onClick={() => setBulkOfferData({...bulkOfferData, strategy: 'fixed'})} className={`flex-1 py-2 rounded-md text-sm font-bold transition-all ${bulkOfferData.strategy === 'fixed' ? 'bg-white text-purple-600 shadow-sm' : 'text-slate-500'}`}>سعر ثابت</button>
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-1">{bulkOfferData.strategy === 'percentage' ? 'نسبة الخصم (%)' : 'سعر العرض الموحد'}</label>
-                        <input type="number" required min="0" step="0.01" value={bulkOfferData.value} onChange={e => setBulkOfferData({...bulkOfferData, value: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-purple-500 outline-none font-bold text-lg" />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1">تاريخ البداية</label>
-                            <input type="date" required value={bulkOfferData.startDate} onChange={e => setBulkOfferData({...bulkOfferData, startDate: e.target.value})} className="w-full border rounded-lg p-2.5" />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-bold text-slate-700 mb-1">تاريخ النهاية</label>
-                            <input type="date" required value={bulkOfferData.endDate} onChange={e => setBulkOfferData({...bulkOfferData, endDate: e.target.value})} className="w-full border rounded-lg p-2.5" />
-                        </div>
-                    </div>
-
-                    <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-1">الحد الأقصى للعميل (اختياري)</label>
-                        <input type="number" min="0" value={bulkOfferData.maxQty} onChange={e => setBulkOfferData({...bulkOfferData, maxQty: parseFloat(e.target.value)})} className="w-full border rounded-lg p-2.5" placeholder="0 (بلا حد)" />
-                    </div>
-
-                    <button type="submit" disabled={isBulkSaving} className="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 mt-2 disabled:opacity-50">
-                        {isBulkSaving ? 'جاري التطبيق...' : 'تأكيد العرض'}
-                    </button>
-                </form>
-            </div>
-        </div>
-      )}
+      <BulkOfferModal
+        isOpen={isBulkOfferModalOpen}
+        onClose={() => setIsBulkOfferModalOpen(false)}
+        selectedIds={selectedIds}
+        setSelectedIds={setSelectedIds}
+        items={items as Item[]}
+        currentUser={currentUser}
+        can={can}
+        showToast={showToast}
+        refresh={refresh}
+      />
 
       {/* Category Modal */}
-      {isCategoryModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
-                <div className="bg-slate-50 px-6 py-4 border-b flex justify-between items-center">
-                    <h3 className="font-bold text-lg text-slate-800">{categoryFormData.id ? 'تعديل التصنيف' : 'تصنيف جديد'}</h3>
-                    <button onClick={() => setIsCategoryModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
-                </div>
-                <form onSubmit={handleSaveCategory} className="p-6 space-y-4">
-                    <div className="flex justify-center">
-                        <div className="relative group cursor-pointer w-24 h-24 bg-slate-100 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center overflow-hidden">
-                            {categoryFormData.image_url ? (
-                                <img src={categoryFormData.image_url} alt="Preview" className="w-full h-full object-cover" />
-                            ) : (
-                                <ImageIcon className="text-slate-400 w-8 h-8" />
-                            )}
-                            <label className="absolute inset-0 flex items-center justify-center bg-black/50 text-white opacity-0 group-hover:opacity-100 transition-opacity rounded-xl cursor-pointer">
-                                {categoryUploading ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}
-                                <input type="file" accept="image/*" onChange={handleCategoryImageUpload} className="hidden" disabled={categoryUploading} />
-                            </label>
-                        </div>
-                    </div>
-                    <div>
-                        <label className="block text-sm font-bold mb-1 text-slate-700">اسم التصنيف <span className="text-red-500">*</span></label>
-                        <input required type="text" value={categoryFormData.name} onChange={e => setCategoryFormData({...categoryFormData, name: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-purple-500 outline-none" />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-bold mb-1 text-slate-700">الوصف</label>
-                        <textarea rows={3} value={categoryFormData.description} onChange={e => setCategoryFormData({...categoryFormData, description: e.target.value})} className="w-full border rounded-lg p-2 focus:ring-2 focus:ring-purple-500 outline-none" />
-                    </div>
-                    <button type="submit" disabled={categoryUploading} className="w-full bg-purple-600 text-white py-3 rounded-lg font-bold hover:bg-purple-700 mt-2 disabled:opacity-50">
-                        حفظ التصنيف
-                    </button>
-                </form>
-            </div>
-        </div>
-      )}
+      <CategoryModal
+        isOpen={isCategoryModalOpen}
+        onClose={() => setIsCategoryModalOpen(false)}
+        categoryFormData={categoryFormData}
+        setCategoryFormData={setCategoryFormData}
+        currentUser={currentUser}
+        showToast={showToast}
+        refreshData={refreshData}
+      />
 
       {/* Auto-created Products Report Modal */}
-      {isReportModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[80] p-4 backdrop-blur-sm">
-            <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95">
-                <div className="bg-slate-50 px-6 py-4 border-b flex justify-between items-center">
-                    <h3 className="font-bold text-lg text-slate-800 flex items-center gap-2">
-                        <CheckSquare size={20} className="text-emerald-600" /> تقرير المنتجات التي تم إنشاؤها تلقائياً
-                    </h3>
-                    <button onClick={() => setIsReportModalOpen(false)}><X className="text-slate-400 hover:text-red-500" /></button>
-                </div>
-                <div className="p-6 max-h-[60vh] overflow-y-auto">
-                    <div className="bg-emerald-50 text-emerald-800 p-4 rounded-lg mb-4 text-sm font-medium">
-                        تم إنشاء {autoCreatedProducts.length} صنف جديد تلقائياً أثناء استيراد الوصفات لأنها لم تكن موجودة في النظام.
-                    </div>
-                    <table className="w-full text-right text-sm border rounded-lg overflow-hidden">
-                        <thead className="bg-slate-100 font-bold text-slate-700">
-                            <tr>
-                                <th className="p-3">اسم الصنف</th>
-                                <th className="p-3">الكود (SKU)</th>
-                                <th className="p-3">النوع</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y">
-                            {autoCreatedProducts.map((item, idx) => (
-                                <tr key={idx} className="hover:bg-slate-50">
-                                    <td className="p-3 font-bold">{item.name}</td>
-                                    <td className="p-3 font-mono text-slate-500">{item.sku || '-'}</td>
-                                    <td className="p-3">
-                                        <span className={`px-2 py-1 rounded-full text-xs font-bold ${item.type.includes('Meal') ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'}`}>
-                                            {item.type}
-                                        </span>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-                <div className="bg-slate-50 px-6 py-4 border-t flex justify-end">
-                    <button onClick={() => setIsReportModalOpen(false)} className="bg-slate-800 text-white px-6 py-2 rounded-lg font-bold hover:bg-slate-900">
-                        إغلاق
-                    </button>
-                </div>
-            </div>
-        </div>
-      )}
+      <AutoCreatedProductsModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        products={autoCreatedProducts}
+      />
     </div>
   );
 };
