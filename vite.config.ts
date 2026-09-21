@@ -43,8 +43,13 @@ export default defineConfig(({ mode }) => {
                 if (id.includes('lucide-react')) return 'vendor-icons';
                 if (id.includes('@google/genai')) return 'vendor-ai';
 
-                // Core Framework Runtime
-                if (id.includes('react') || id.includes('scheduler')) return 'vendor-react-core';
+                // Core Framework Runtime (dexie included — uses React hooks internally)
+                if (id.includes('react') || id.includes('scheduler') || id.includes('dexie')) return 'vendor-react-core';
+
+                // Utility libraries
+                if (id.includes('date-fns') || id.includes('dayjs')) return 'vendor-dates';
+                if (id.includes('@dnd-kit')) return 'vendor-dnd';
+                if (id.includes('zod') || id.includes('@hookform')) return 'vendor-forms';
 
                 // Unified Application Utilities & Helpers
                 return 'vendor-app';
