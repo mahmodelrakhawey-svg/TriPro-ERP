@@ -27,7 +27,7 @@ export default defineConfig(({ mode }) => {
         }
       },
       build: {
-        chunkSizeWarningLimit: 2500,
+        chunkSizeWarningLimit: 1500,
         rollupOptions: {
           output: {
             manualChunks(id) {
@@ -36,8 +36,17 @@ export default defineConfig(({ mode }) => {
                 if (id.includes('xlsx')) return 'vendor-xlsx';
                 if (id.includes('jspdf') || id.includes('html2canvas')) return 'vendor-pdf';
                 if (id.includes('@supabase')) return 'vendor-supabase';
+                
+                // Heavy UI component and visualization libraries
+                if (id.includes('antd') || id.includes('@ant-design')) return 'vendor-antd';
+                if (id.includes('recharts') || id.includes('d3-') || id.includes('victory-vendor')) return 'vendor-charts';
+                if (id.includes('lucide-react')) return 'vendor-icons';
+                if (id.includes('@google/genai')) return 'vendor-ai';
 
-                // Unified Application Vendor Runtime (Everything else runs unified with React)
+                // Core Framework Runtime
+                if (id.includes('react') || id.includes('scheduler')) return 'vendor-react-core';
+
+                // Unified Application Utilities & Helpers
                 return 'vendor-app';
               }
             },
