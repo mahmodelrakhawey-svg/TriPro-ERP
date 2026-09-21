@@ -548,22 +548,22 @@ const MainLayout = () => {
                 <Route path="/fiscal-year-closing" element={<ModuleGuard module="accounting"><FiscalYearClosing /></ModuleGuard>} />
                 <Route path="/fiscal-periods" element={<ModuleGuard module="accounting"><FiscalPeriodManager /></ModuleGuard>} />
                 {/* 💰 مديول الخزينة والبنوك */}
-                <Route path="/receipt-voucher" element={<ModuleGuard module="accounting"><ReceiptVoucherForm /></ModuleGuard>} />
-                <Route path="/receipt-vouchers-list" element={<ModuleGuard module="accounting"><ReceiptVoucherList /></ModuleGuard>} />
-                <Route path="/payment-voucher" element={<ModuleGuard module="accounting"><PaymentVoucherForm /></ModuleGuard>} />
-                <Route path="/payment-vouchers-list" element={<ModuleGuard module="accounting"><PaymentVoucherList /></ModuleGuard>} />
-                <Route path="/expense-voucher" element={<ModuleGuard module="accounting"><ExpenseVoucherForm /></ModuleGuard>} />
-                <Route path="/transfer" element={<ModuleGuard module="accounting"><TransferForm /></ModuleGuard>} />
-                <Route path="/customer-deposit" element={<ModuleGuard module="accounting"><CustomerDepositForm /></ModuleGuard>} />
-                <Route path="/cheques" element={<ModuleGuard module="accounting"><ChequesPage /></ModuleGuard>} />
-                <Route path="/letters-of-guarantee" element={<ModuleGuard module="accounting"><LettersOfGuaranteePage /></ModuleGuard>} />
-                <Route path="/letters-of-credit" element={<ModuleGuard module="accounting"><LettersOfCreditPage /></ModuleGuard>} />
-                <Route path="/cheque-movement-report" element={<ModuleGuard module="accounting"><ChequeMovementReport /></ModuleGuard>} />
-                <Route path="/returned-cheques-report" element={<ModuleGuard module="accounting"><ReturnedChequesReport /></ModuleGuard>} />
-                <Route path="/bank-reconciliation" element={<ModuleGuard module="accounting"><BankReconciliationForm /></ModuleGuard>} />
-                <Route path="/cash-closing" element={<ModuleGuard module="accounting"><CashClosingForm /></ModuleGuard>} />
-                <Route path="/payment-gateways" element={<ModuleGuard module="accounting"><PaymentGatewaySettings /></ModuleGuard>} />
-                <Route path="/deficit-report" element={<ModuleGuard module="accounting"><DeficitReport /></ModuleGuard>} />
+                <Route path="/receipt-voucher" element={<ModuleGuard module="treasury"><ReceiptVoucherForm /></ModuleGuard>} />
+                <Route path="/receipt-vouchers-list" element={<ModuleGuard module="treasury"><ReceiptVoucherList /></ModuleGuard>} />
+                <Route path="/payment-voucher" element={<ModuleGuard module="treasury"><PaymentVoucherForm /></ModuleGuard>} />
+                <Route path="/payment-vouchers-list" element={<ModuleGuard module="treasury"><PaymentVoucherList /></ModuleGuard>} />
+                <Route path="/expense-voucher" element={<ModuleGuard module="treasury"><ExpenseVoucherForm /></ModuleGuard>} />
+                <Route path="/transfer" element={<ModuleGuard module="treasury"><TransferForm /></ModuleGuard>} />
+                <Route path="/customer-deposit" element={<ModuleGuard module="treasury"><CustomerDepositForm /></ModuleGuard>} />
+                <Route path="/cheques" element={<ModuleGuard module="treasury"><ChequesPage /></ModuleGuard>} />
+                <Route path="/letters-of-guarantee" element={<ModuleGuard module="treasury"><LettersOfGuaranteePage /></ModuleGuard>} />
+                <Route path="/letters-of-credit" element={<ModuleGuard module="treasury"><LettersOfCreditPage /></ModuleGuard>} />
+                <Route path="/cheque-movement-report" element={<ModuleGuard module="treasury"><ChequeMovementReport /></ModuleGuard>} />
+                <Route path="/returned-cheques-report" element={<ModuleGuard module="treasury"><ReturnedChequesReport /></ModuleGuard>} />
+                <Route path="/bank-reconciliation" element={<ModuleGuard module="treasury"><BankReconciliationForm /></ModuleGuard>} />
+                <Route path="/cash-closing" element={<ModuleGuard module="treasury"><CashClosingForm /></ModuleGuard>} />
+                <Route path="/payment-gateways" element={<ModuleGuard module="treasury"><PaymentGatewaySettings /></ModuleGuard>} />
+                <Route path="/deficit-report" element={<ModuleGuard module="treasury"><DeficitReport /></ModuleGuard>} />
                 
                 {/* 🛒 مديول المبيعات والعملاء */}
                 <Route path="/sales-invoice" element={<ModuleGuard module="sales"><SalesInvoiceForm /></ModuleGuard>} />

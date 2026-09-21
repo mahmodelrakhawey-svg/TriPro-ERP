@@ -389,7 +389,7 @@ const PaymentVoucherForm = () => {
         const isAdmin = currentUser?.role === 'admin' || currentUser?.role === 'super_admin';
 
         if (isEditing && currentVoucherId) {
-          if (!isAdmin && !can('treasury', 'update')) {
+          if (!isAdmin && !can('treasury', 'update') && !can('treasury', 'manage')) {
               showToast('ليس لديك صلاحية تعديل سندات الصرف', 'error');
               setLoading(false);
               return;
@@ -433,7 +433,7 @@ const PaymentVoucherForm = () => {
         }
 
 
-        if (!isAdmin && !can('treasury', 'create')) {
+        if (!isAdmin && !can('treasury', 'create') && !can('treasury', 'payment_create')) {
             showToast('ليس لديك صلاحية إنشاء سندات صرف', 'error');
             setLoading(false);
             return;
