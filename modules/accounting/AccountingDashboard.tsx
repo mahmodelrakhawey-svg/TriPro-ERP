@@ -163,11 +163,6 @@ export default function AccountingDashboard() {
   }, [selectedYear, currentUser?.organization_id]);
 
   const { metrics, monthlyData, expenseData, revenueData, weeklyCashData, recentEntries } = useMemo(() => {
-      // Debugging: Check if data is loaded
-      console.log('useMemo running for selectedYear:', selectedYear);
-      console.log('Entries length:', entries.length);
-      console.log('Accounts length:', accounts.length);
-
       // Return default empty data if accounts or entries are not yet loaded
       if (!accounts || accounts.length === 0 || !entries) { // entries can be empty, but not null/undefined
           return {
@@ -209,8 +204,6 @@ export default function AccountingDashboard() {
           (entry.journal_lines || []).forEach(line => {
               const account = accounts.find(a => a.id === line.account_id);
               if (!account) return;
-              // Debugging: Check account details
-              console.log(`  Processing line for account ${account.name} (ID: ${account.id}, Type: ${account.type}, Code: ${account.code})`);
 
               const type = String(account.type || '').toLowerCase();
               const code = String(account.code || ''); // Ensure code is always a string
