@@ -120,8 +120,7 @@ export const DEFAULT_OFFLINE_WAREHOUSES: any[] = [
 
 export const getOfflineTableOrders = (): Record<string, any> => {
   try {
-    const raw = localStorage.getItem('tripro_offline_table_orders');
-    return raw ? JSON.parse(raw) : {};
+    return secureStorage.getItem<Record<string, any>>('tripro_offline_table_orders') || {};
   } catch {
     return {};
   }
@@ -135,7 +134,7 @@ export const setOfflineTableOrder = (tableId: string, orderData: any) => {
     } else {
       all[tableId] = orderData;
     }
-    localStorage.setItem('tripro_offline_table_orders', JSON.stringify(all));
+    secureStorage.setItem('tripro_offline_table_orders', all);
   } catch (e) {
     console.warn('LocalStorage error:', e);
   }
@@ -475,8 +474,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     // استرجاع الوردية المفتوحة محلياً أو إنشاء وردية جاهزة للعمل
     let localShift = null;
     try {
-      const savedShift = localStorage.getItem('tripro_offline_current_shift');
-      if (savedShift) localShift = JSON.parse(savedShift);
+      localShift = secureStorage.getItem<any>('tripro_offline_current_shift');
     } catch (e) {}
 
     if (!localShift) {
@@ -490,7 +488,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         start_time: new Date().toISOString()
       };
       try {
-        localStorage.setItem('tripro_offline_current_shift', JSON.stringify(localShift));
+        secureStorage.setItem('tripro_offline_current_shift', localShift);
       } catch (e) {}
     }
     setCurrentShift(localShift);
@@ -755,8 +753,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         // إذا لم تكن هناك وردية نشطة أونلاين، نحتفظ بالوردية المحلية إن وجدت
         let localShift = null;
         try {
-          const s = localStorage.getItem('tripro_offline_current_shift');
-          if (s) localShift = JSON.parse(s);
+          localShift = secureStorage.getItem<any>('tripro_offline_current_shift');
         } catch (e) {}
         setCurrentShift(localShift || null);
       }
@@ -2305,7 +2302,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       };
       setCurrentShift(newShift);
       try {
-        localStorage.setItem('tripro_offline_current_shift', JSON.stringify(newShift));
+        secureStorage.setItem('tripro_offline_current_shift', newShift);
       } catch (e) {}
       showToast('تم بدء وردية الكاشير بنجاح (محلياً) ✅', 'success');
       return;
