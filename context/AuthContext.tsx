@@ -223,45 +223,84 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         } else if (roleName === 'viewer') {
             setUserPermissions(new Set(['*.view', '*.read', '*.list']));
         } else {
-            if (profile?.role_id) {
-                const { data: rolePerms } = await supabase.from('role_permissions').select('permissions(module, action)').eq('role_id', profile.role_id) as { data: RolePermissionJoin[] | null };
-                const permsSet = new Set(rolePerms?.map((p) => p.permissions && `${p.permissions.module}.${p.permissions.action}`).filter(Boolean) as string[] || []);
+            const permsSet = new Set<string>();
 
-                // دمج الصلاحيات المباشرة للمستخدم (Direct User Permissions)
-                const { data: userPerms } = await supabase
-                  .from('user_permissions')
-                  .select('permissions(module, action)')
-                  .eq('user_id', user.id)
-                  .eq('granted', true) as { data: UserPermissionJoin[] | null };
+            // 1. تحديد معرّف الدور (سواء كان مسجلاً بالبروفايل أو بالبحث عن اسم الدور في جدول roles)
+            let effectiveRoleId = profile?.role_id;
+            if (!effectiveRoleId && roleName) {
+              const { data: matchedRole } = await supabase
+                .from('roles')
+                .select('id')
+                .eq('name', roleName)
+                .maybeSingle();
+              if (matchedRole?.id) {
+                effectiveRoleId = matchedRole.id;
+              }
+            }
 
-                userPerms?.forEach((up) => {
-                  if (up.permissions) {
-                    permsSet.add(`${up.permissions.module}.${up.permissions.action}`);
-                  }
-                });
+            // 2. جلب صلاحيات الدور الأساسي إذا توفر
+            if (effectiveRoleId) {
+              const { data: rolePerms } = await supabase
+                .from('role_permissions')
+                .select('permissions(module, action)')
+                .eq('role_id', effectiveRoleId) as { data: any[] | null };
 
-                setUserPermissions(permsSet);
-            } else {
-                // محاولة جلب الصلاحيات المباشرة فقط (حتى لو لا يوجد دور محدد)
-                const { data: userPerms } = await supabase
-                  .from('user_permissions')
-                  .select('permissions(module, action)')
-                  .eq('user_id', user.id)
-                  .eq('granted', true) as { data: UserPermissionJoin[] | null };
-
-                if (userPerms && userPerms.length > 0) {
-                  const directSet = new Set<string>();
-                  userPerms.forEach((up) => {
-                    if (up.permissions) directSet.add(`${up.permissions.module}.${up.permissions.action}`);
-                  });
-                  setUserPermissions(directSet);
-                } else {
-                  // 🛡️ الأمان الافتراضي: منع الصلاحيات الشاملة لمن ليس له دور محدد (Deny by default)
-                  if (process.env.NODE_ENV === 'development') {
-                      console.warn(`[Security] User ${user.id} has no role_id assigned. Restricting to read-only permissions.`);
-                  }
-                  setUserPermissions(new Set(['*.view', '*.read', '*.list']));
+              rolePerms?.forEach((p) => {
+                const perm = Array.isArray(p.permissions) ? p.permissions[0] : p.permissions;
+                if (perm?.module && perm?.action) {
+                  permsSet.add(`${perm.module}.${perm.action}`);
                 }
+              });
+            }
+
+            // صمام أمان: إذا كان الدور هو HR ومشتقاته، نضمن وجود الصلاحيات الأساسية للـ HR
+            if (roleName === 'hr' || roleName === 'hr_officer' || roleName === 'hr_manager') {
+              permsSet.add('hr.view');
+              permsSet.add('hr.manage_employee');
+              permsSet.add('hr.advances_penalties');
+              permsSet.add('hr.payroll_run');
+              permsSet.add('reports.view');
+            }
+
+            // 3. دمج الصلاحيات المباشرة والخاصة للمستخدم (Direct User Permissions)
+            const { data: userPerms } = await supabase
+              .from('user_permissions')
+              .select('permission_id, permissions(module, action)')
+              .eq('user_id', user.id)
+              .eq('granted', true) as { data: any[] | null };
+
+            const missingPermIds: string[] = [];
+
+            userPerms?.forEach((up) => {
+              const perm = Array.isArray(up.permissions) ? up.permissions[0] : up.permissions;
+              if (perm?.module && perm?.action) {
+                permsSet.add(`${perm.module}.${perm.action}`);
+              } else if (up.permission_id) {
+                missingPermIds.push(up.permission_id);
+              }
+            });
+
+            // استرجاع احتياطي في حال عدم اكتمال PostgREST Join لجدول الصلاحيات
+            if (missingPermIds.length > 0) {
+              const { data: rawPerms } = await supabase
+                .from('permissions')
+                .select('id, module, action')
+                .in('id', missingPermIds);
+              rawPerms?.forEach(p => {
+                if (p?.module && p?.action) {
+                  permsSet.add(`${p.module}.${p.action}`);
+                }
+              });
+            }
+
+            if (permsSet.size > 0) {
+              setUserPermissions(permsSet);
+            } else {
+              // 🛡️ الأمان الافتراضي: منع الصلاحيات الشاملة لمن ليس له دور محدد (Deny by default)
+              if (process.env.NODE_ENV === 'development') {
+                  console.warn(`[Security] User ${user.id} has no role_id assigned. Restricting to read-only permissions.`);
+              }
+              setUserPermissions(new Set(['*.view', '*.read', '*.list']));
             }
         }
 
@@ -576,12 +615,160 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (userPermissions.has(`*.${action}`)) return true;
     if (userPermissions.has(`*.*`)) return true;
 
-    // إذا كان المطلوب هو العرض (view)، وتتوفر لدى المستخدم أي صلاحية إدارة أو إنشاء في الموديول
+    // 🌟 الوراثة التلقائية لصلاحية العرض (Dynamic Module View Inheritance):
+    // إذا كان المطلوب هو العرض (view)، وتتوفر لدى المستخدم أي صلاحية داخل هذا الموديول أو موديول مرتبط به
     if (action === 'view') {
-      if (userPermissions.has(`${module}.manage`) || 
-          userPermissions.has(`${module}.create`) || 
-          userPermissions.has(`${module}.pos`) || 
-          userPermissions.has(`${module}.kitchen`)) {
+      for (const p of userPermissions) {
+        if (p.startsWith(`${module}.`) || p === '*.*' || p === `${module}.*`) {
+          return true;
+        }
+      }
+      // دعم الموديولات المرتبطة والمتكاملة
+      if (module === 'treasury' && (userPermissions.has('accounting.view') || userPermissions.has('accounting.*'))) return true;
+      if (module === 'accounting' && (userPermissions.has('treasury.view') || userPermissions.has('treasury.*'))) return true;
+      if (module === 'sales' && (userPermissions.has('customers.view') || userPermissions.has('customers.*'))) return true;
+      if (module === 'purchases' && (userPermissions.has('suppliers.view') || userPermissions.has('suppliers.*'))) return true;
+      if (module === 'inventory' && (userPermissions.has('products.view') || userPermissions.has('products.*'))) return true;
+    }
+
+    // توافق موديول الخزينة والسندات والتحويلات والشيكات (Treasury & Banking)
+    if (module === 'treasury') {
+      if (action === 'transfer' && (
+        userPermissions.has('treasury.transfer') || 
+        userPermissions.has('treasury.manage') || 
+        userPermissions.has('treasury.*')
+      )) {
+        return true;
+      }
+      if (action === 'manage' && (
+        userPermissions.has('treasury.manage') || 
+        userPermissions.has('treasury.transfer') || 
+        userPermissions.has('treasury.*')
+      )) {
+        return true;
+      }
+      if (action === 'receipt_create' && (
+        userPermissions.has('treasury.receipt_create') || 
+        userPermissions.has('treasury.create') || 
+        userPermissions.has('treasury.manage') || 
+        userPermissions.has('treasury.*')
+      )) {
+        return true;
+      }
+      if (action === 'payment_create' && (
+        userPermissions.has('treasury.payment_create') || 
+        userPermissions.has('treasury.create') || 
+        userPermissions.has('treasury.manage') || 
+        userPermissions.has('treasury.*')
+      )) {
+        return true;
+      }
+      if (action === 'create' && (
+        userPermissions.has('treasury.create') || 
+        userPermissions.has('treasury.receipt_create') || 
+        userPermissions.has('treasury.payment_create') || 
+        userPermissions.has('treasury.manage') || 
+        userPermissions.has('treasury.*')
+      )) {
+        return true;
+      }
+      if (action === 'cheques' || action === 'cheque_manage') {
+        if (
+          userPermissions.has('treasury.cheque_manage') || 
+          userPermissions.has('treasury.cheques') || 
+          userPermissions.has('treasury.cheque_collect') || 
+          userPermissions.has('treasury.manage') || 
+          userPermissions.has('treasury.*')
+        ) {
+          return true;
+        }
+      }
+      if (action === 'bank_reconciliation' || action === 'reconcile') {
+        if (
+          userPermissions.has('treasury.bank_reconciliation') || 
+          userPermissions.has('accounting.reconcile') || 
+          userPermissions.has('treasury.manage') || 
+          userPermissions.has('treasury.*')
+        ) {
+          return true;
+        }
+      }
+      if (action === 'update' && (
+        userPermissions.has('treasury.update') || 
+        userPermissions.has('treasury.manage') || 
+        userPermissions.has('treasury.*')
+      )) {
+        return true;
+      }
+    }
+
+    // توافق موديول المحاسبة والقيود
+    if (module === 'accounting') {
+      if ((action === 'create' || action === 'journal_create') && (
+        userPermissions.has('accounting.journal_create') ||
+        userPermissions.has('accounting.create') ||
+        userPermissions.has('accounting.manage') ||
+        userPermissions.has('accounting.*')
+      )) {
+        return true;
+      }
+      if ((action === 'reconcile' || action === 'bank_reconciliation') && (
+        userPermissions.has('accounting.reconcile') ||
+        userPermissions.has('treasury.bank_reconciliation') ||
+        userPermissions.has('accounting.manage') ||
+        userPermissions.has('accounting.*')
+      )) {
+        return true;
+      }
+    }
+
+    // توافق موديول الموارد البشرية والرواتب
+    if (module === 'hr') {
+      if ((action === 'payroll_process' || action === 'payroll_run' || action === 'manage') && (
+        userPermissions.has('hr.payroll_process') ||
+        userPermissions.has('hr.payroll_run') ||
+        userPermissions.has('hr.manage') ||
+        userPermissions.has('hr.manage_employee') ||
+        userPermissions.has('hr.*')
+      )) {
+        return true;
+      }
+      if ((action === 'advances' || action === 'advances_penalties') && (
+        userPermissions.has('hr.advances_penalties') ||
+        userPermissions.has('hr.advances') ||
+        userPermissions.has('hr.manage') ||
+        userPermissions.has('hr.*')
+      )) {
+        return true;
+      }
+      if (action === 'manage_employee' && (
+        userPermissions.has('hr.manage_employee') ||
+        userPermissions.has('hr.manage') ||
+        userPermissions.has('hr.*')
+      )) {
+        return true;
+      }
+    }
+
+    // توافق المشتريات والمخازن
+    if (module === 'purchases') {
+      if (action === 'return' && (
+        userPermissions.has('purchases.return') ||
+        userPermissions.has('purchases.delete') ||
+        userPermissions.has('purchases.manage') ||
+        userPermissions.has('purchases.*')
+      )) {
+        return true;
+      }
+    }
+
+    if (module === 'inventory') {
+      if (action === 'adjustment' && (
+        userPermissions.has('inventory.adjustment') ||
+        userPermissions.has('inventory.adjustment_approve') ||
+        userPermissions.has('inventory.manage') ||
+        userPermissions.has('inventory.*')
+      )) {
         return true;
       }
     }

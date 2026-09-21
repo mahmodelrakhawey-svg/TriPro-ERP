@@ -178,7 +178,9 @@ export const ModuleGuard = ({ module, children }: { module: string, children: Re
     
     let isAllowedByOrg = true;
     if (Array.isArray(allowedModules) && allowedModules.length > 0) {
-      if (module === 'restaurant' || module === 'pos' || module === 'kitchen') {
+      if (module === 'treasury') {
+        isAllowedByOrg = allowedModules.includes('treasury') || allowedModules.includes('accounting');
+      } else if (module === 'restaurant' || module === 'pos' || module === 'kitchen') {
         isAllowedByOrg = allowedModules.includes('restaurant') || allowedModules.includes('pos');
       } else if (module === 'retail') {
         isAllowedByOrg = allowedModules.includes('retail');
@@ -203,7 +205,14 @@ export const ModuleGuard = ({ module, children }: { module: string, children: Re
       can(normalizedModule, '*') ||
       can(module, 'pos') ||
       can(module, 'kitchen') ||
-      can('accounting', 'view')
+      (module === 'treasury' && (
+        can('treasury', 'receipt_create') || 
+        can('treasury', 'payment_create') || 
+        can('treasury', 'transfer') || 
+        can('treasury', 'create') ||
+        can('accounting', 'view')
+      )) ||
+      (module === 'accounting' && can('accounting', 'view'))
     ) : true;
 
     const isAllowed = isPrivileged || (isAllowedByOrg && hasPermission);

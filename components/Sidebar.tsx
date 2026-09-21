@@ -112,6 +112,9 @@ const Sidebar: React.FC = () => {
     
     // 🛡️ عزل موديولات المنشأة بناءً على اشتراكها في SaaS
     if (Array.isArray(allowedModules) && allowedModules.length > 0) {
+      if (module === 'treasury') {
+        return allowedModules.includes('treasury') || allowedModules.includes('accounting');
+      }
       if (module === 'restaurant') {
         return allowedModules.includes('restaurant') || allowedModules.includes('pos');
       }
@@ -178,7 +181,7 @@ const Sidebar: React.FC = () => {
     { to: '/purchase-order-new', label: 'أمر شراء جديد', icon: Plus, color: 'text-orange-400', module: 'purchases', permission: 'purchases.create' },
     { to: '/purchase-order-list', label: 'سجل أوامر الشراء', icon: ClipboardList, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
     { to: '/purchases/auto-reorder', label: 'أوامر الشراء التلقائية (حد الأمان)', icon: Zap, color: 'text-orange-400', module: 'purchases', permission: 'purchases.create' },
-    { to: '/purchase-return', label: 'مرتجع مشتريات', icon: RotateCw, color: 'text-orange-400', module: 'purchases', permission: 'purchases.delete' },
+    { to: '/purchase-return', label: 'مرتجع مشتريات', icon: RotateCw, color: 'text-orange-400', module: 'purchases', permission: 'purchases.return' },
     { to: '/purchase-returns-list', label: 'سجل مرتجعات المشتريات', icon: List, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
     { to: '/debit-note', label: 'إشعار مدين للمورد', icon: FilePlus, color: 'text-orange-400', module: 'purchases', permission: 'purchases.create' },
     { to: '/debit-notes-list', label: 'سجل الإشعارات المدينة', icon: List, color: 'text-orange-400', module: 'purchases', permission: 'purchases.view' },
@@ -262,22 +265,22 @@ const Sidebar: React.FC = () => {
 
     // الخزينة والبنوك
     { type: 'section', label: 'الخزينة والبنوك' },
-    { to: '/receipt-voucher', label: 'سند قبض جديد', icon: FilePlus, color: 'text-amber-400', module: 'accounting', permission: 'treasury.create' },
-    { to: '/receipt-vouchers-list', label: 'سجل سندات القبض', icon: Wallet, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
-    { to: '/payment-voucher', label: 'سند صرف جديد', icon: FilePlus, color: 'text-amber-400', module: 'accounting', permission: 'treasury.create' },
-    { to: '/payment-vouchers-list', label: 'سجل سندات الصرف', icon: CreditCard, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
-    { to: '/expense-voucher', label: 'صرف مصروفات تشغيلية', icon: Coins, color: 'text-amber-400', module: 'accounting', permission: 'treasury.create' },
-    { to: '/transfer', label: 'تحويل بين الخزائن/البنوك', icon: ArrowLeftRight, color: 'text-amber-400', module: 'accounting', permission: 'treasury.manage' },
-    { to: '/customer-deposit', label: 'سجل تأمينات العملاء', icon: Landmark, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
-    { to: '/cheques', label: 'إدارة الشيكات والبنوك', icon: Landmark, color: 'text-amber-400', module: 'accounting', permission: 'treasury.cheques' },
-    { to: '/letters-of-guarantee', label: 'خطابات الضمان البنكية', icon: ScrollText, color: 'text-amber-400', module: 'accounting', permission: 'treasury.cheques' },
-    { to: '/letters-of-credit', label: 'الاعتمادات المستندية', icon: ArrowLeftRight, color: 'text-amber-400', module: 'accounting', permission: 'treasury.cheques' },
-    { to: '/cheque-movement-report', label: 'تقرير حركة الشيكات', icon: History, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
-    { to: '/returned-cheques-report', label: 'الشيكات المرتجعة', icon: RotateCcw, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
-    { to: '/bank-reconciliation', label: 'تسوية المذكرة البنكية', icon: ShieldCheck, color: 'text-amber-400', module: 'accounting', permission: 'accounting.reconcile' },
-    { to: '/cash-closing', label: 'إقفال الخزينة والصندوق', icon: Lock, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
-    { to: '/deficit-report', label: 'تقرير العجز والزيادة', icon: AlertTriangle, color: 'text-amber-400', module: 'accounting', permission: 'treasury.view' },
-    { to: '/payment-gateways', label: 'بوابات الدفع الإلكتروني', icon: CreditCard, color: 'text-amber-400', module: 'accounting', permission: 'treasury.manage' },
+    { to: '/receipt-voucher', label: 'سند قبض جديد', icon: FilePlus, color: 'text-amber-400', module: 'treasury', permission: 'treasury.receipt_create' },
+    { to: '/receipt-vouchers-list', label: 'سجل سندات القبض', icon: Wallet, color: 'text-amber-400', module: 'treasury', permission: 'treasury.view' },
+    { to: '/payment-voucher', label: 'سند صرف جديد', icon: FilePlus, color: 'text-amber-400', module: 'treasury', permission: 'treasury.payment_create' },
+    { to: '/payment-vouchers-list', label: 'سجل سندات الصرف', icon: CreditCard, color: 'text-amber-400', module: 'treasury', permission: 'treasury.view' },
+    { to: '/expense-voucher', label: 'صرف مصروفات تشغيلية', icon: Coins, color: 'text-amber-400', module: 'treasury', permission: 'treasury.payment_create' },
+    { to: '/transfer', label: 'تحويل بين الخزائن/البنوك', icon: ArrowLeftRight, color: 'text-amber-400', module: 'treasury', permission: 'treasury.transfer' },
+    { to: '/customer-deposit', label: 'سجل تأمينات العملاء', icon: Landmark, color: 'text-amber-400', module: 'treasury', permission: 'treasury.view' },
+    { to: '/cheques', label: 'إدارة الشيكات والبنوك', icon: Landmark, color: 'text-amber-400', module: 'treasury', permission: 'treasury.cheque_manage' },
+    { to: '/letters-of-guarantee', label: 'خطابات الضمان البنكية', icon: ScrollText, color: 'text-amber-400', module: 'treasury', permission: 'treasury.cheque_manage' },
+    { to: '/letters-of-credit', label: 'الاعتمادات المستندية', icon: ArrowLeftRight, color: 'text-amber-400', module: 'treasury', permission: 'treasury.cheque_manage' },
+    { to: '/cheque-movement-report', label: 'تقرير حركة الشيكات', icon: History, color: 'text-amber-400', module: 'treasury', permission: 'treasury.view' },
+    { to: '/returned-cheques-report', label: 'الشيكات المرتجعة', icon: RotateCcw, color: 'text-amber-400', module: 'treasury', permission: 'treasury.view' },
+    { to: '/bank-reconciliation', label: 'تسوية المذكرة البنكية', icon: ShieldCheck, color: 'text-amber-400', module: 'treasury', permission: 'treasury.bank_reconciliation' },
+    { to: '/cash-closing', label: 'إقفال الخزينة والصندوق', icon: Lock, color: 'text-amber-400', module: 'treasury', permission: 'treasury.view' },
+    { to: '/deficit-report', label: 'تقرير العجز والزيادة', icon: AlertTriangle, color: 'text-amber-400', module: 'treasury', permission: 'treasury.view' },
+    { to: '/payment-gateways', label: 'بوابات الدفع الإلكتروني', icon: CreditCard, color: 'text-amber-400', module: 'treasury', permission: 'treasury.view' },
     
     // المحاسبة والتقارير المالية
     { type: 'section', label: 'المحاسبة والتقارير' },
@@ -318,10 +321,10 @@ const Sidebar: React.FC = () => {
     { to: '/hr/shifts', label: 'الورديات ومواعيد العمل', icon: Clock, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
     { to: '/hr/attendance', label: 'سجل الحضور والغياب', icon: UserCheck, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
     { to: '/hr/leaves', label: 'إدارة وأرصدة الإجازات', icon: Calendar, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
-    { to: '/hr/penalties', label: 'الجزاءات والمكافآت ولائحة العمل', icon: ShieldAlert, color: 'text-pink-400', module: 'hr', permission: 'hr.manage' },
-    { to: '/payroll-run', label: 'مسير الرواتب ومفردات المرتب', icon: Play, color: 'text-pink-400', module: 'hr', permission: 'hr.manage' },
-    { to: '/employee-advances', label: 'السلف والعهد الشخصية', icon: Coins, color: 'text-pink-400', module: 'hr', permission: 'hr.advances' },
-    { to: '/hr/end-of-service', label: 'مخالصة ومكافأة نهاية الخدمة', icon: Scale, color: 'text-pink-400', module: 'hr', permission: 'hr.manage' },
+    { to: '/hr/penalties', label: 'الجزاءات والمكافآت ولائحة العمل', icon: ShieldAlert, color: 'text-pink-400', module: 'hr', permission: 'hr.advances_penalties' },
+    { to: '/payroll-run', label: 'مسير الرواتب ومفردات المرتب', icon: Play, color: 'text-pink-400', module: 'hr', permission: 'hr.payroll_process' },
+    { to: '/employee-advances', label: 'السلف والعهد الشخصية', icon: Coins, color: 'text-pink-400', module: 'hr', permission: 'hr.advances_penalties' },
+    { to: '/hr/end-of-service', label: 'مخالصة ومكافأة نهاية الخدمة', icon: Scale, color: 'text-pink-400', module: 'hr', permission: 'hr.manage_employee' },
     { to: '/payroll-report', label: 'سجل مسيرات الرواتب', icon: Banknote, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
     { to: '/employee-statement', label: 'كشف حساب موظف', icon: BookOpen, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
     { to: '/employee-reports', label: 'تقارير الموارد البشرية', icon: PieChart, color: 'text-pink-400', module: 'hr', permission: 'hr.view' },
@@ -431,13 +434,23 @@ const Sidebar: React.FC = () => {
     if (item.superAdminOnly && !isSuperAdmin) return false;
     if (item.adminOnly && !isSuperAdmin && (userRole as string) !== 'admin' && (userRole as string) !== 'manager') return false;
     
+    // 🛡️ فحص اشتراك المنشأة في الموديول على مستوى باقة الـ SaaS
+    if (item.module && !isModuleAllowed(item.module)) return false;
+
+    // 🌟 القاعدة العامة الشاملة (Universal Dynamic RBAC Architecture):
+    // إذا كان للمستخدم أي صلاحية صريحة على هذا العنصر (سواء من صلاحيات المستخدم المباشرة user_permissions أو صلاحيات الدور)،
+    // فيتم إظهار العنصر فوراً دون منعه بأي قيود حصرية للدور!
+    if (item.permission) {
+      const [mod, act] = item.permission.split('.');
+      if (can(mod, act)) {
+        return true;
+      }
+    }
+
     // 🍽️ إحكام عزل شاشات كاشير المطعم ونقاط البيع (Restaurant POS Cashier Lockdown)
     if (userRole === 'restaurant_cashier' || userRole === 'cashier') {
       const allowedCashierPaths = ['/pos', '/retail-pos'];
-      if (!item.to || !allowedCashierPaths.includes(item.to)) {
-        return false;
-      }
-      return true;
+      return Boolean(item.to && allowedCashierPaths.includes(item.to));
     }
 
     // 🛒 مشرف ورئيس الكاشيرية (POS & Retail Supervisor)
@@ -457,10 +470,7 @@ const Sidebar: React.FC = () => {
         '/reports/sales-by-user',
         '/sales-reports'
       ];
-      if (!item.to || !allowedSupervisorPaths.includes(item.to)) {
-        return false;
-      }
-      return true;
+      return Boolean(item.to && allowedSupervisorPaths.includes(item.to));
     }
 
     // 🍽️ كابتن الصالة والويتر المحمول
@@ -502,10 +512,7 @@ const Sidebar: React.FC = () => {
         '/employee-reports',
         '/user-guide'
       ];
-      if (!item.to || !allowedHrPaths.includes(item.to)) {
-        return false;
-      }
-      return true;
+      return Boolean(item.to && allowedHrPaths.includes(item.to));
     }
 
     // 🏟️ تصفية ذكية للأدوار التخصصية لقطاع الاستاد
