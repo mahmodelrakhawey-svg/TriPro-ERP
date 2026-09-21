@@ -33,11 +33,12 @@ interface PaymentVoucher {
 
 const PaymentVoucherList = () => {
   const navigate = useNavigate();
-  const { currentUser, vouchers: contextVouchers, selectedFiscalYear } = useAccounting();
+  const { currentUser, vouchers: contextVouchers, selectedFiscalYear, suppliers } = useAccounting();
   const { showToast } = useToast();
   
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('');
   const [showWithAttachmentsOnly, setShowWithAttachmentsOnly] = useState(false);
 
   const [attachmentModalOpen, setAttachmentModalOpen] = useState(false);
@@ -78,18 +79,21 @@ const PaymentVoucherList = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [showWithAttachmentsOnly]);
+  }, [selectedSupplierFilter, showWithAttachmentsOnly]);
 
   // إعداد استعلام البيانات مع الفلترة
   const queryModifier = useCallback((query: any) => {
     if (debouncedSearch) {
        query = query.or(`voucher_number.ilike.%${debouncedSearch}%,notes.ilike.%${debouncedSearch}%`);
     }
+    if (selectedSupplierFilter) {
+      query = query.eq('supplier_id', selectedSupplierFilter);
+    }
     if (selectedFiscalYear) {
       query = query.gte('payment_date', `${selectedFiscalYear}-01-01`).lte('payment_date', `${selectedFiscalYear}-12-31`);
     }
     return query;
-  }, [debouncedSearch, selectedFiscalYear]);
+  }, [debouncedSearch, selectedSupplierFilter, selectedFiscalYear]);
 
   const selectQuery = showWithAttachmentsOnly 
     ? '*, suppliers(name), payment_voucher_attachments!inner(*)' 
@@ -235,6 +239,21 @@ const PaymentVoucherList = () => {
                 className="w-full border rounded-xl px-12 py-3 outline-none focus:border-blue-500 bg-slate-50 font-bold text-slate-700" 
             />
             </div>
+          </div>
+
+          {/* فلتر المورد */}
+          <div className="w-full md:w-64">
+            <label className="text-xs font-black text-slate-400 block mb-1">تصفية حسب المورد</label>
+            <select
+                value={selectedSupplierFilter}
+                onChange={e => setSelectedSupplierFilter(e.target.value)}
+                className="w-full border rounded-xl px-4 py-3 outline-none focus:border-blue-500 bg-slate-50 font-bold text-slate-700 text-sm"
+            >
+                <option value="">-- كل الموردين --</option>
+                {suppliers?.map(s => (
+                    <option key={s.id} value={s.id}>{s.name} {s.code ? `(#${s.code})` : ''}</option>
+                ))}
+            </select>
           </div>
           
           <div className="flex items-center gap-2 pb-1">
