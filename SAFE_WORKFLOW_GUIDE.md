@@ -1,49 +1,51 @@
-# 🛡️ دليل العمل الآمن وتوزيع البيئات (TriPro ERP Multi-Environment & Deployment Guide)
+# 🛡️ دليل العمل الآمن وتوزيع البيئات المعتمد (TriPro ERP Multi-Environment & Safe Workflow Guide)
 
-تم تسجيل وتثبيت هذا الدليل ليكون المرجع الأساسي المعتمد في جميع عمليات التطوير والرفع دون الحاجة للتذكير المتكرر.
+تم تحديث وتثبيت هذا الدليل ليكون المرجع الأساسي المعتمد لضمان سلامة واستقرار النظام وعدم تعريض بيئة الإنتاج التشغيلية (حلواني لينزا) لأي أخطاء أو توقف مفاجئ.
 
 ---
 
 ## 🏗️ 1. خريطة البيئات وقواعد البيانات:
 
-| البيئة | المجلد المحلي | قاعدة البيانات (Supabase) | النطاق المباشر على Vercel | الغرض والاستخدام |
-| :--- | :--- | :--- | :--- | :--- |
-| **التطوير / حلواني لينزا** | `C:\Users\pc\Desktop\TriPro-ERP` | `jsgmrspnthtlsracbmcq.supabase.co` | [tri-pro-erp-lenza.vercel.app](https://tri-pro-erp-lenza.vercel.app) | بيئة التطوير النشطة، والبيئة التشغيلية لشركة حلواني لينزا |
-| **الإنتاج العام (Master)** | `F:\نسخه منضبطه من البرنامج\نسخه 7 سبتمبر 2026\TriPro-Production` | `pjvphxfschfllpawfewn.supabase.co` | [tri-pro-erp.vercel.app](https://tri-pro-erp.vercel.app) | بيئة الإنتاج العامة للنظام المربوطة بمستودع GitHub الرئيسي |
+| البيئة | المجلد المعتمد للعمل | الفرع (Git Branch) | قاعدة البيانات (Supabase) | النطاق المباشر على Vercel | الغرض والاستخدام |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **الإنتاج الحي والتشغيلي (حلواني لينزا)** | `C:\Users\pc\Desktop\TriPro-ERP` | `main` | `jsgmrspnthtlsracbmcq.supabase.co` | [tri-pro-erp-lenza.vercel.app](https://tri-pro-erp-lenza.vercel.app) | بيئة العمل الحية والتشغيلية المباشرة |
+| **الإنتاج العام / القالب الشامل** | موحد عبر Vercel | `main` | `pjvphxfschfllpawfewn.supabase.co` | [tri-pro-erp.vercel.app](https://tri-pro-erp.vercel.app) | النسخة العامة للنظام |
+| **النسخة الاحتياطية الثابتة (Offline Backup)** | `F:\نسخه منضبطه من البرنامج\...\TriPro-Production` | - | - | - | أرشيف احتياطي ثابت (لا يُعتمد عليه في التطوير اليومي) |
 
 ---
 
-## 🔄 2. آلية العمل والرفع التلقائي (Standard Operating Procedure):
+## 🔄 2. آلية العمل الموحدة والآمنة (Standard Operating Procedure):
 
-نظراً لأن مشروعي Vercel (`tri-pro-erp` و `tri-pro-erp-lenza`) مرتبطان بنفس مستودع GitHub (`mahmodelrakhawey-svg/TriPro-ERP.git`) وكل منهما يستخدم متغيرات البيئة الخاصة بقاعدته:
+للابتعاد عن التشتت وتكرار المجلدات ومخاطر الـ Robocopy:
+**يتم العمل حصرياً من مجلد سطح المكتب (`C:\Users\pc\Desktop\TriPro-ERP`) على الفرع الرسمي `main`.**
 
-1. **مرحلة التطوير والاختبار:**
-   - يتم التطوير وإجراء التعديلات في مجلد: `C:\Users\pc\Desktop\TriPro-ERP`.
-   - يتم اختبار الميزات والتحقق من `npm run build` ومطابقة الأنواع TypeScript.
-   - يتم عمل Commit محلي لحفظ التعديلات في مجلد التطوير.
+### صمامات الأمان الثلاثة قبل أي رفع:
 
-2. **مرحلة المزامنة والرفع (Sync & Deploy):**
-   - عند اكتمال العمل، يتم تشغيل المزامنة إلى مجلد الإنتاج:
-     ```powershell
-     $SourceDir = "C:\Users\pc\Desktop\TriPro-ERP"
-     $TargetDir = "F:\نسخه منضبطه من البرنامج\نسخه 7 سبتمبر 2026\TriPro-Production"
-     $ExcludeFiles = @(".env", ".env.*", "npm-debug.log*")
-     $ExcludeDirs  = @(".git", "node_modules", ".vercel", "dist", "scratch", ".vite")
-     $roboParams = @($SourceDir, $TargetDir, "/E", "/XO", "/FFT", "/XF") + $ExcludeFiles + @("/XD") + $ExcludeDirs + @("/R:1", "/W:1", "/NP")
-     robocopy @roboParams
+1. **صمام البيانات (Data Isolation):**
+   - داخل النظام يوجد نظام تعدد الشركات (Multi-Tenancy).
+   - يتم إجراء أي تجارب أو إدخال بيانات اختبارية على الشركة التجريبية، وتبقى بيانات شركة لينزا معزولة وآمنة تماماً.
+
+2. **صمام فحص الأكواد الآلي (Automated Verification):**
+   - قبل أي رفع، يتم تشغيل الاختبارات الآلية للتأكد من سلامة النظام:
+     ```bash
+     npm test
+     npx tsc --noEmit
      ```
-   - يتم عمل Commit ثم `git push origin main` من مجلد الإنتاج:
-     ```powershell
-     git -C "F:\نسخه منضبطه من البرنامج\نسخه 7 سبتمبر 2026\TriPro-Production" add .
-     git -C "F:\نسخه منضبطه من البرنامج\نسخه 7 سبتمبر 2026\TriPro-Production" commit -m "وصف التحديث"
-     git -C "F:\نسخه منضبطه من البرنامج\نسخه 7 سبتمبر 2026\TriPro-Production" push origin main
+   - يمنع منعاً باتاً رفع أي كود يحتوي على أخطاء ترجمة TypeScript أو أخطاء اختبارات قد تسبب شاشة بيضاء.
+
+3. **صمام النشر والمعاينة (Deploy & Verify):**
+   - الرفع المباشر يتم عبر Git من مجلد العمل الموحد:
+     ```bash
+     git add .
+     git commit -m "feat/fix: وصف دقيق للتحديث"
+     git push origin main
      ```
-   - **النتيجة التلقائية:** يقوم Vercel فوراً ببناء ونشر النسخة الجديدة لكل من:
-     - موقع **حلواني لينزا** (`tri-pro-erp-lenza.vercel.app`).
-     - موقع **الإنتاج العام** (`tri-pro-erp.vercel.app`).
+   - يقوم Vercel فوراً بنشر النسخة المحدثة إلى موقعي العمل تلقائياً.
+   - إذا تطلب الأمر اختبار ميزة كبيرة قبل تفعيلها للعميل، يتم رفعها على فرع تجريبي (`git push origin preview`) للحصول على رابط معاينة تجريبي مستقل تماماً دون لمس موقع لينزا الحي.
 
-3. **تحديثات قاعدة البيانات (Database Migrations):**
-   - أي ملف في `sql_updates/` يتم تطبيقه على:
-     - قاعدة لينزا (`jsgmrspnthtlsracbmcq`) لتفعيل الميزات لدى العميل.
-     - قاعدة الإنتاج (`pjvphxfschfllpawfewn`) لضمان تزامن الجداول.
+---
 
+## 🗄️ 3. تحديثات قاعدة البيانات (Database Migrations):
+- أي تعديل في بنية الجداول أو ملفات SQL في `sql_updates/` أو `services/migrations/`:
+  - يتم تطبيقه على قاعدة لينزا التشغيلية (`jsgmrspnthtlsracbmcq`) لتفعيل الميزة للعميل.
+  - ويتم تطبيقه على قاعدة الإنتاج العام (`pjvphxfschfllpawfewn`) للحفاظ على التزامن التام.
