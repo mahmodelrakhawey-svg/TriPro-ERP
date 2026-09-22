@@ -10,17 +10,18 @@ const http = require('http');
 const fs = require('fs');
 const os = require('os');
 
-// ✅ التأكد من تشغيل نسخة واحدة فقط من التطبيق لمنع تعارض الكاش والملفات
-const gotTheLock = app.requestSingleInstanceLock();
-if (!gotTheLock) {
-  app.quit();
-  process.exit(0);
-}
-
-// ✅ تحديد مجلد userData مخصص وقابل للكتابة
+// ✅ تحديد مجلد userData مخصص وقابل للكتابة أولاً قبل طلب القفل الأحادي
 const userDataPath = path.join(os.homedir(), 'AppData', 'Roaming', 'TriProERP');
 try { fs.mkdirSync(userDataPath, { recursive: true }); } catch (_) {}
 app.setPath('userData', userDataPath);
+
+// ✅ التأكد من تشغيل نسخة واحدة فقط من التطبيق لمنع تعارض الكاش والملفات
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  console.log('[TriPro] نسخة أخرى من التطبيق تعمل بالفعل في الخلفية.');
+  app.quit();
+  process.exit(0);
+}
 
 // ✅ تعطيل GPU disk cache لمنع أخطاء Chromium
 app.commandLine.appendSwitch('disable-gpu-shader-disk-cache');
@@ -35,7 +36,7 @@ const { execSync } = require('child_process');
 // ✅ يقتل أي عملية سابقة عالقة على المنفذ مع حماية العملية الحالية
 function killPort(port) {
   try {
-    const out = execSync(`netstat -ano | findstr :${port}`, { encoding: 'utf8', timeout: 3000 });
+    const out = execSync(`netstat -ano | findstr :${port}`, { encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'ignore'] });
     out.trim().split('\n').forEach(line => {
       const parts = line.trim().split(/\s+/);
       const pid = parts[parts.length - 1];
@@ -69,9 +70,20 @@ function createHttpHandler() {
     let reqPath = req.url.split('?')[0];
     if (reqPath === '/') reqPath = '/index.html';
     let filePath = path.join(distPath, reqPath);
+
+    // إذا لم يكن الملف موجوداً:
     if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+      // إذا كان الطلب لملف استاتيكي مفقود (ملف JS أو CSS أو صورة)، نرجع 404 لمنع إعادة توجيهه لـ index.html وانهيار الجافاسكربت
+      const ext = path.extname(reqPath);
+      if (reqPath.startsWith('/assets/') || ext) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+        res.end('Asset not found');
+        return;
+      }
+      // للمسارات التوجيهية لـ SPA فقط، يتم توجيهها لـ index.html
       filePath = path.join(distPath, 'index.html');
     }
+
     const ext = path.extname(filePath).toLowerCase();
     const contentType = mimeTypes[ext] || 'application/octet-stream';
     fs.readFile(filePath, (err, content) => {
@@ -148,6 +160,21 @@ async function createWindow() {
     if (input.key === 'F12' && input.type === 'keyDown') {
       mainWindow.webContents.toggleDevTools();
       event.preventDefault();
+    }
+  // معالجة أخطاء فشل التحميل وإعادة المحاولة تلقائياً
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+    console.warn(`[TriPro] فشل تحميل الصفحة (${errorCode}: ${errorDescription}) على ${validatedURL}، جاري إعادة المحاولة...`);
+    setTimeout(() => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.loadURL(`http://127.0.0.1:${port}/index.html`).catch(() => {});
+      }
+    }, 1500);
+  });
+
+  mainWindow.webContents.on('render-process-gone', (event, details) => {
+    console.error('[TriPro] توقفت عملية العرض:', details.reason);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.reload();
     }
   });
 

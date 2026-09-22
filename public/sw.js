@@ -3,7 +3,7 @@
 // High-performance Multi-Tier Asset & Offline Caching
 // ==============================================================================
 
-const CACHE_VERSION = 'tripro-pwa-v2.0.0';
+const CACHE_VERSION = 'tripro-pwa-v2.1.0';
 const STATIC_CACHE = `tripro-static-${CACHE_VERSION}`;
 const ASSETS_CACHE = `tripro-assets-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `tripro-runtime-${CACHE_VERSION}`;
