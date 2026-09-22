@@ -19,10 +19,11 @@ import {
   ChevronRight,
   Wrench,
   ShieldCheck, // استيراد الأيقونة المناسبة للمحتجزات
+  FlaskConical,
+  Camera,
 } from 'lucide-react';
 import { useNotifications } from '../utils/useNotifications';
 import { Notification, NotificationType } from '../services/notificationService';
-import { ExperimentOutlined, CameraOutlined } from '@ant-design/icons'; // Import Ant Design icons
 
 interface NotificationCenterProps {
   isOpen: boolean;
@@ -60,9 +61,9 @@ const NotificationCenter: React.FC<NotificationCenterProps> = ({ isOpen, onClose
       case 'retention_release_alert':
         return <ShieldCheck className="w-5 h-5 text-emerald-500" />;
       case 'lab_result_ready':
-        return <ExperimentOutlined className="w-5 h-5 text-blue-500" />;
+        return <FlaskConical className="w-5 h-5 text-blue-500" />;
       case 'radiology_result_ready':
-        return <CameraOutlined className="w-5 h-5 text-purple-500" />;
+        return <Camera className="w-5 h-5 text-purple-500" />;
       case 'success':
         return <CheckCircle className="w-5 h-5 text-green-500" />;
       case 'warning':

@@ -27,14 +27,15 @@ export default defineConfig(({ mode }) => {
         }
       },
       build: {
-        chunkSizeWarningLimit: 1500,
+        chunkSizeWarningLimit: 1000,
         rollupOptions: {
           output: {
             manualChunks(id) {
               if (id.includes('node_modules')) {
-                // 1. Heavy standalone data/export engines (No React runtime dependency)
+                // 1. Heavy standalone data/export engines
                 if (id.includes('xlsx')) return 'vendor-xlsx';
-                if (id.includes('jspdf') || id.includes('html2canvas')) return 'vendor-pdf';
+                if (id.includes('jspdf')) return 'vendor-jspdf';
+                if (id.includes('html2canvas')) return 'vendor-html2canvas';
                 if (id.includes('@supabase')) return 'vendor-supabase';
                 if (id.includes('@google/genai')) return 'vendor-ai';
 
@@ -45,18 +46,26 @@ export default defineConfig(({ mode }) => {
                 if (id.includes('@dnd-kit')) return 'vendor-dnd';
                 if (id.includes('zod') || id.includes('react-hook-form') || id.includes('@hookform')) return 'vendor-forms';
 
-                // 3. Ant Design ecosystem (must include rc-* and @rc-component to avoid circular dependency)
+                // 3. Ant Design Icons (standalone SVG icon set, separate from component logic)
+                if (id.includes('@ant-design/icons')) {
+                  return 'vendor-ant-icons';
+                }
+
+                // 4. Ant Design RC Primitives & Async Validators
                 if (
-                  id.includes('antd') ||
-                  id.includes('@ant-design') ||
                   id.includes('/rc-') ||
                   id.includes('\\rc-') ||
                   id.includes('@rc-component')
                 ) {
+                  return 'vendor-rc';
+                }
+
+                // 5. Ant Design core components & CSS-in-JS
+                if (id.includes('antd') || id.includes('@ant-design')) {
                   return 'vendor-antd';
                 }
 
-                // 4. Core Framework Runtime (React + DOM + Scheduler + Router + TanStack Query + Dexie)
+                // 6. Core Framework Runtime (React + DOM + Scheduler + Router + TanStack Query + Dexie)
                 if (
                   id.includes('react') ||
                   id.includes('scheduler') ||
