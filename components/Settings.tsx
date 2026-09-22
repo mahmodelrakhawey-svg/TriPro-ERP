@@ -280,16 +280,16 @@ const Settings = () => {
                 maxCashDeficitLimit: sData.max_cash_deficit_limit !== undefined ? sData.max_cash_deficit_limit : 500,
                 decimalPlaces: sData.decimal_places !== undefined ? sData.decimal_places : 2,
                 accountMappings: sData.account_mappings || {},
-                defaultWarehouseId: sData.default_warehouse_id || '',
-                defaultTreasuryId: sData.default_treasury_id || '',
+                defaultWarehouseId: sData.default_warehouse_id || sData.account_mappings?.default_warehouse_id || '',
+                defaultTreasuryId: sData.default_treasury_id || sData.account_mappings?.default_treasury_id || '',
                 defaultBankId: sData.default_bank_id || sData.account_mappings?.BANK || '',
-                productionWarehouseId: sData.production_warehouse_id || '',
-                rawMaterialsWarehouseId: sData.raw_material_warehouse_id || '',
-                etaTaxpayerId: sData.eta_taxpayer_id || '',
-                etaClientId: sData.eta_client_id || '',
-                etaClientSecret: sData.eta_client_secret || '',
-                etaEnvironment: sData.eta_environment || 'sandbox',
-                etaIsActive: sData.eta_is_active !== undefined ? sData.eta_is_active : false
+                productionWarehouseId: sData.production_warehouse_id || sData.account_mappings?.production_warehouse_id || '',
+                rawMaterialsWarehouseId: sData.raw_material_warehouse_id || sData.account_mappings?.raw_material_warehouse_id || '',
+                etaTaxpayerId: sData.eta_taxpayer_id || sData.account_mappings?.eta_taxpayer_id || '',
+                etaClientId: sData.eta_client_id || sData.account_mappings?.eta_client_id || '',
+                etaClientSecret: sData.eta_client_secret || sData.account_mappings?.eta_client_secret || '',
+                etaEnvironment: sData.eta_environment || sData.account_mappings?.eta_environment || 'sandbox',
+                etaIsActive: sData.eta_is_active !== undefined ? sData.eta_is_active : (sData.account_mappings?.eta_is_active !== undefined ? sData.account_mappings.eta_is_active : false)
             };
             setFormData(loaded);
             setOriginalSettings(loaded);
@@ -357,27 +357,7 @@ const Settings = () => {
             ...(formData.accountMappings || {}),
             BANK: formData.defaultBankId || (formData.accountMappings as any)?.BANK || null,
             enable_service_charge: formData.enableServiceCharge,
-            service_charge_rate: (Number(formData.serviceChargeRate) || 0) / 100
-        };
-
-        const payload: any = {
-            company_name: formData.companyName,
-            tax_number: formData.taxNumber,
-            phone: formData.phone,
-            address: formData.address,
-            footer_text: formData.footerText,
-            vat_rate: formData.vatRate / 100, // تخزين الضريبة ككسر عشري في قاعدة البيانات
-            currency: formData.currency,
-            logo_url: formData.logoUrl,
-            allow_negative_stock: formData.allowNegativeStock,
-            enable_tax: formData.enableTax,
-            enable_service_charge: formData.enableServiceCharge,
             service_charge_rate: (Number(formData.serviceChargeRate) || 0) / 100,
-            prevent_price_modification: formData.preventPriceModification,
-            max_cash_deficit_limit: formData.maxCashDeficitLimit,
-            decimal_places: formData.decimalPlaces,
-            updated_at: new Date().toISOString(),
-            account_mappings: accountMappingsWithService,
             default_warehouse_id: formData.defaultWarehouseId || null,
             default_treasury_id: formData.defaultTreasuryId || null,
             production_warehouse_id: formData.productionWarehouseId || null,
@@ -389,17 +369,74 @@ const Settings = () => {
             eta_is_active: formData.etaIsActive
         };
 
-        let { error } = settingsId 
-            ? await supabase.from('company_settings').update(payload).eq('id', settingsId)
-            : await supabase.from('company_settings').insert(payload);
+        const payload: any = {
+            company_name: formData.companyName,
+            tax_number: formData.taxNumber,
+            phone: formData.phone,
+            address: formData.address,
+            footer_text: formData.footerText,
+            vat_rate: (Number(formData.vatRate) || 0) / 100, // تخزين الضريبة ككسر عشري في قاعدة البيانات
+            currency: formData.currency || 'EGP',
+            logo_url: formData.logoUrl,
+            allow_negative_stock: Boolean(formData.allowNegativeStock),
+            enable_tax: Boolean(formData.enableTax),
+            enable_service_charge: Boolean(formData.enableServiceCharge),
+            service_charge_rate: (Number(formData.serviceChargeRate) || 0) / 100,
+            prevent_price_modification: Boolean(formData.preventPriceModification),
+            max_cash_deficit_limit: Number(formData.maxCashDeficitLimit) || 0,
+            decimal_places: Number(formData.decimalPlaces) || 2,
+            updated_at: new Date().toISOString(),
+            account_mappings: accountMappingsWithService,
+            default_warehouse_id: formData.defaultWarehouseId || null,
+            default_treasury_id: formData.defaultTreasuryId || null,
+            production_warehouse_id: formData.productionWarehouseId || null,
+            raw_material_warehouse_id: formData.rawMaterialsWarehouseId || null,
+            eta_taxpayer_id: formData.etaTaxpayerId || null,
+            eta_client_id: formData.etaClientId || null,
+            eta_client_secret: formData.etaClientSecret || null,
+            eta_environment: formData.etaEnvironment || 'sandbox',
+            eta_is_active: Boolean(formData.etaIsActive)
+        };
 
-        // Fallback: If dedicated columns don't exist in company_settings table, omit them and save via account_mappings
-        if (error && (error.message?.includes('column') || error.code === 'PGRST204' || (error as any).details?.includes('column'))) {
-            delete payload.enable_service_charge;
-            delete payload.service_charge_rate;
+        let currentPayload = { ...payload };
+        let saveResult = settingsId 
+            ? await supabase.from('company_settings').update(currentPayload).eq('id', settingsId)
+            : await supabase.from('company_settings').insert(currentPayload);
+
+        let error = saveResult.error;
+        let attempts = 0;
+
+        // 🛡️ صمام أمان ذاتي الشفاء: في حال عدم وجود بعض الأعمدة في جدول قاعدة البيانات القديم، يتم حذفها تدريجياً وإعادة الحفظ
+        while (error && attempts < 10 && (
+            error.message?.includes('column') || 
+            error.code === 'PGRST204' || 
+            (error as any).details?.includes('column') ||
+            (error as any).hint?.includes('column')
+        )) {
+            attempts++;
+            const colMatch = error.message?.match(/column ['"]?([a-zA-Z0-9_]+)['"]?/i) 
+                          || (error as any).details?.match(/column ['"]?([a-zA-Z0-9_]+)['"]?/i)
+                          || error.message?.match(/Could not find the '([a-zA-Z0-9_]+)' column/i);
+            
+            if (colMatch && colMatch[1] && colMatch[1] in currentPayload) {
+                delete currentPayload[colMatch[1]];
+            } else {
+                delete currentPayload.enable_service_charge;
+                delete currentPayload.service_charge_rate;
+                delete currentPayload.eta_taxpayer_id;
+                delete currentPayload.eta_client_id;
+                delete currentPayload.eta_client_secret;
+                delete currentPayload.eta_environment;
+                delete currentPayload.eta_is_active;
+                delete currentPayload.production_warehouse_id;
+                delete currentPayload.raw_material_warehouse_id;
+                delete currentPayload.default_warehouse_id;
+                delete currentPayload.default_treasury_id;
+            }
+
             const retry = settingsId 
-                ? await supabase.from('company_settings').update(payload).eq('id', settingsId)
-                : await supabase.from('company_settings').insert(payload);
+                ? await supabase.from('company_settings').update(currentPayload).eq('id', settingsId)
+                : await supabase.from('company_settings').insert(currentPayload);
             error = retry.error;
         }
 
