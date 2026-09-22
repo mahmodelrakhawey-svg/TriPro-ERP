@@ -9,6 +9,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "verify:release": "npm run build && playwright test",
     "demo": "vite --mode demo",
     "preview": "vite preview",
     "desktop:start": "electron desktop/main.cjs",
@@ -48,6 +51,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@testing-library/react": "^16.0.0",
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
