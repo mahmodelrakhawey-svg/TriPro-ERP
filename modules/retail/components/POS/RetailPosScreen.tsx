@@ -629,7 +629,7 @@ export default function RetailPosScreen() {
         await offlineService.seedFallbackProducts(DEFAULT_OFFLINE_PRODUCTS);
       }
 
-      let activeShiftDb = null;
+      let activeShiftDb: any = null;
       const cachedShift = secureStorage.getItem<any>(`tripro_shift_${currentUser.id}`);
       if (cachedShift) {
         const parsed = typeof cachedShift === 'string' ? JSON.parse(cachedShift) : cachedShift;

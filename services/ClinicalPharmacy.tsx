@@ -9,9 +9,9 @@ import { format } from 'date-fns';
 const { Text, Title } = Typography;
 
 export default function ClinicalPharmacy() {
-  const [prescriptions, setPrescriptions] = useState([]);
+  const [prescriptions, setPrescriptions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPresc, setSelectedPresc] = useState(null);
+  const [selectedPresc, setSelectedPresc] = useState<any>(null);
   const [detailsModalVisible, setDetailsModal] = useState(false);
   const [barcodeSearch, setBarcodeSearch] = useState('');
   const { currentUser } = useAccounting();

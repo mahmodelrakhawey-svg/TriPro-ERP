@@ -91,7 +91,7 @@ const InventoryRevaluation = () => {
                          accounts.find(a => a.name?.includes('تقييم') && !a.name?.includes('ضريب'));
 
           if (inventoryAcc && revalAcc) {
-              const lines = [];
+              const lines: any[] = [];
               if (valueDifference > 0) {
                   lines.push({ accountId: inventoryAcc.id, debit: valueDifference, credit: 0, description: 'أرباح إعادة تقييم مخزون' });
                   lines.push({ accountId: revalAcc.id, debit: 0, credit: valueDifference, description: 'زيادة قيمة المخزون الدفتري' });

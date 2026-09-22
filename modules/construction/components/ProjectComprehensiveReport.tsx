@@ -76,7 +76,7 @@ const ProjectComprehensiveReport: React.FC<ProjectComprehensiveReportProps> = ({
       
       const subIds = contractSubs?.map(c => c.subcontractor_id) || [];
 
-      let subPerformance = [];
+      let subPerformance: any[] = [];
       if (subIds.length > 0) {
         const { data: perf, error: subPerformanceError } = await supabase
           .from('v_subcontractor_performance')

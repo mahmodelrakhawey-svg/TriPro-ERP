@@ -88,7 +88,7 @@ describe('🔒 Organization Isolation & RLS Security Tests', () => {
     // 1. محاولة كتابة بيانات لمؤسسة المستخدم (Tenant A) -> يجب أن تنجح
     const allowedInsert = await secureWriteOperation('INSERT', { organization_id: userOrgId });
     expect(allowedInsert.error).toBeNull();
-    expect(allowedInsert.data?.organization_id).toBe(userOrgId);
+    expect((allowedInsert.data as any)?.organization_id).toBe(userOrgId);
 
     // 2. محاولة كتابة بيانات لمؤسسة أخرى (Tenant B) -> يجب أن تفشل وترجع خطأ أمني 42501 (Permission Denied)
     const blockedInsert = await secureWriteOperation('INSERT', { organization_id: otherOrgId });

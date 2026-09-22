@@ -1,4 +1,4 @@
-﻿﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -301,7 +301,7 @@ const StockAdjustmentForm = () => {
             }
 
             if (inventoryAcc && adjustmentAcc) {
-                const lines = [];
+                const lines: any[] = [];
                 if (totalValue > 0) {
                     // زيادة (Gain): من ح/ المخزون إلى ح/ تسويات أو إيرادات متنوعة
                     lines.push({ accountId: inventoryAcc.id, debit: totalValue, credit: 0, description: 'زيادة مخزنية - تسوية' });

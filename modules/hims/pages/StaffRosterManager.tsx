@@ -15,10 +15,10 @@ const StaffRosterManager: React.FC = () => {
     const { showToast } = useToast();
     const { currentUser } = useAuth(); // إضافة currentUser من AuthContext
     const [loading, setLoading] = useState(false);
-    const [rosterData, setRosterData] = useState([]);
-    const [onDutyData, setOnDutyData] = useState([]);
-    const [staffList, setStaffList] = useState([]);
-    const [wards, setWards] = useState([]);
+    const [rosterData, setRosterData] = useState<any[]>([]);
+    const [onDutyData, setOnDutyData] = useState<any[]>([]);
+    const [staffList, setStaffList] = useState<any[]>([]);
+    const [wards, setWards] = useState<any[]>([]);
     const [isModalVisible, setIsModalVisible] = useState(false);
     const [form] = Form.useForm();
 

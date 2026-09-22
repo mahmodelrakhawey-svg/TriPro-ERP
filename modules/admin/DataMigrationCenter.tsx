@@ -250,9 +250,9 @@ const DataMigrationCenter = () => {
           return; // Skip existing account
       }
 
-      let parentId = null;
+      let parentId: string | null = null;
       if (parentCode) {
-          parentId = accountMap.get(parentCode);
+          parentId = accountMap.get(parentCode) || null;
           if (!parentId) {
               const { data: p } = await supabase
                 .from('accounts')

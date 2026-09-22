@@ -225,7 +225,7 @@ const RentalManager: React.FC = () => {
       return;
     }
 
-    let newNextDueDate = parseISO(paymentModalContract.next_due_date);
+    let newNextDueDate = parseISO(paymentModalContract.next_due_date || new Date().toISOString());
     if (paymentModalContract.billing_cycle === 'monthly') {
       newNextDueDate = addMonths(newNextDueDate, 1);
     } else {

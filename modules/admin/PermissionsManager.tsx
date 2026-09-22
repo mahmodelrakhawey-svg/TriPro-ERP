@@ -398,7 +398,7 @@ const PermissionsManager = () => {
         setLoading(true);
         setError('');
 
-        if (currentUser.role === 'demo') {
+        if (currentUser?.role === 'demo') {
           const demoRoles: Role[] = [
             { id: 'demo-admin', name: 'admin', description: 'مدير النظام الكامل', is_system: true },
             { id: 'demo-accountant', name: 'accountant', description: 'محاسب عام', is_system: false },

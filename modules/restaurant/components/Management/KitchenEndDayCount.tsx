@@ -187,7 +187,7 @@ const KitchenEndDayCount = () => {
             }
 
             if (inventoryAcc && adjustmentAcc) {
-                const lines = [];
+                const lines: any[] = [];
                 if (totalAdjustmentValue > 0) {
                     lines.push({ accountId: inventoryAcc.id, debit: totalAdjustmentValue, credit: 0, description: `زيادة جرد مطبخ ${date}` });
                     lines.push({ accountId: adjustmentAcc.id, debit: 0, credit: totalAdjustmentValue, description: 'فروقات جرد (زيادة)' });

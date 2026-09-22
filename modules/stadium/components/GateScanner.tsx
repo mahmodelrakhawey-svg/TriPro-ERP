@@ -557,7 +557,7 @@ export const GateScanner: React.FC = () => {
                     <button
                       key={m.id}
                       type="button"
-                      onClick={() => processAccessCheck(m.national_id)}
+                      onClick={() => processAccessCheck(m.national_id || '')}
                       className="px-2.5 py-1 bg-slate-900 hover:bg-slate-850 border border-slate-800 rounded-lg text-[10px] text-slate-300 font-bold whitespace-nowrap transition-all"
                     >
                       {m.full_name}

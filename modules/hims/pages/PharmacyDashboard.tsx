@@ -116,6 +116,7 @@ export const PharmacyDashboard: React.FC = () => {
 
   // مراجعة الصلاحية والمخزون قبل الصرف
   const handleReviewOrder = async (order: any) => {
+    if (!currentUser) return;
     setLoading(true);
 
     // 🛡️ تحديد orgId أولاً قبل استخدامه في الاستعلامات

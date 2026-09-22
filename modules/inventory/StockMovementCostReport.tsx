@@ -446,8 +446,8 @@ const StockMovementCostReport = () => {
           else runningBalance -= mov.quantity;
           
           return {
-              id: index.toString(),
               ...mov,
+              id: mov.id || index.toString(),
               totalValue: mov.quantity * mov.unitCost,
               balanceAfter: runningBalance
           };

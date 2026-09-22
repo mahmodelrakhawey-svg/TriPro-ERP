@@ -131,7 +131,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
           .limit(1);
 
         if (customerAccError) throw customerAccError;
-        let customerAcc = customerAccounts?.[0] || null;
+        let customerAcc: { id: any } | null = customerAccounts?.[0] || null;
 
         // احتياطي: البحث بالاسم إذا لم يُوجد الكود 1221
         if (!customerAcc?.id) {

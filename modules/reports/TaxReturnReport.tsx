@@ -127,7 +127,7 @@ const TaxReturnReport = () => {
                 }
 
                 const description = `إغلاق الفترة الضريبية من ${startDate} إلى ${endDate}`;
-                const lines = [];
+                const lines: any[] = [];
 
                 // 1. إقفال ضريبة المخرجات (تصفير رصيد الحساب)
                 if (reportData.outputVatAmount > 0) {

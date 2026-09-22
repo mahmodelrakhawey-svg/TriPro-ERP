@@ -146,7 +146,7 @@ const GuestMenuLayout = () => {
 
     const offer = isOfferActive(product);
     const rawPrice = offer ? product.offer_price! : product.sales_price;
-    const hh = happyHourService.evaluateProductPrice(product.id, rawPrice, product.category_id);
+    const hh = happyHourService.evaluateProductPrice(product.id, rawPrice, product.category_id || undefined);
     const price = hh.isHappyHour ? hh.finalPrice : rawPrice;
 
     if (product.has_modifiers) {
@@ -391,7 +391,7 @@ const GuestMenuLayout = () => {
 const MenuItemCard = ({ item, onAddToCart }: { item: Product, onAddToCart: () => void }) => {
   const offer = isOfferActive(item);
   const rawPrice = offer ? item.offer_price! : item.sales_price;
-  const hh = happyHourService.evaluateProductPrice(item.id, rawPrice, item.category_id);
+  const hh = happyHourService.evaluateProductPrice(item.id, rawPrice, item.category_id || undefined);
   const price = hh.isHappyHour ? hh.finalPrice : rawPrice;
   const is86 = (item as any).is_86 || itemAvailabilityGuard.getManual86List().includes(item.id);
 

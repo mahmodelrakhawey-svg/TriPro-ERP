@@ -1,4 +1,4 @@
-﻿﻿﻿﻿import { useMemo } from 'react';
+﻿﻿﻿import { useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Link } from 'react-router-dom';
 import { 
@@ -50,7 +50,7 @@ const ImportantReports = () => {
     const inventoryValue = (products || []).reduce((sum, p) => sum + ((p.stock || 0) * (p.purchase_price || 0)), 0);
 
     // 2. Monthly Trends (Last 6 Months)
-    const monthlyTrends = [];
+    const monthlyTrends: any[] = [];
     for (let i = 5; i >= 0; i--) {
         const d = new Date(currentYear, currentMonth - i, 1);
         const monthName = d.toLocaleDateString('ar-EG', { month: 'short' });

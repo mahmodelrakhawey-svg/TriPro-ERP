@@ -373,7 +373,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setSuppliers([{ id: 'sup-main', name: 'مورد عام معتمد', phone: '01000000000' }]);
 
     // استرجاع الوردية المفتوحة محلياً أو إنشاء وردية جاهزة للعمل
-    let localShift = null;
+    let localShift: any = null;
     try {
       localShift = secureStorage.getItem<any>('tripro_offline_current_shift');
     } catch (e) {}

@@ -333,8 +333,8 @@ export const BinLocationManager: React.FC = () => {
           activeItemForPick.product_id,
           prod?.name || 'صنف',
           pickQuantity,
-          activeItemForPick.batch_number,
-          activeItemForPick.expiry_date
+          activeItemForPick.batch_number || undefined,
+          activeItemForPick.expiry_date || undefined
         );
         const targetBinObj = bins.find(b => b.id === targetBinId);
         showToast(`تم نقل ${pickQuantity} وحدة من الرف (${activeBinForPick.bin_code}) إلى الرف (${targetBinObj?.bin_code || targetBinId}) بنجاح 🔄`, 'success');

@@ -23,7 +23,7 @@ const ManufacturingDashboard = () => {
     highVarianceCount: 0,
     pendingQC: 0
   });
-  const [efficiencyData, setEfficiencyData] = useState([]);
+  const [efficiencyData, setEfficiencyData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];

@@ -189,7 +189,7 @@ const CashClosingForm = () => {
 
         if (adjustmentAccount) {
             const absDiff = Math.abs(difference);
-            const lines = [];
+            const lines: any[] = [];
             
             if (isOverage) {
                 // زيادة: من ح/ الصندوق (مدين) إلى ح/ الإيرادات (دائن)

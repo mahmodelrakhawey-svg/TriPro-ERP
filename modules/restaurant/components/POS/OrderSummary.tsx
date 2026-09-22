@@ -52,7 +52,7 @@ const OrderSummaryComponent: React.FC<OrderSummaryProps> = ({
 
   const customerDetails = useMemo(() => {
       if (!order?.customer) return null;
-      return customers.find(c => c.id === order.customer.id);
+      return customers.find(c => c.id === order.customer?.id);
   }, [order, customers]);
 
   const finalTotals = useMemo(() => {

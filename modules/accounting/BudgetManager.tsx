@@ -238,7 +238,7 @@ const BudgetManager = () => {
   // حفظ الخطة
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    const validItems = items.filter(i => (i.targetId || i.target_id) && (i.plannedAmount > 0 || i.planned_amount > 0));
+    const validItems = items.filter(i => (i.targetId || i.target_id) && (Number(i.plannedAmount || 0) > 0 || Number(i.planned_amount || 0) > 0));
     
     if (validItems.length === 0 && items.length > 0) {
       showToast('يرجى تحديد المستهدف والمبلغ أو الكمية أكبر من 0 قبل الحفظ', 'warning');
@@ -654,7 +654,7 @@ const BudgetManager = () => {
           {/* Footer Save Actions */}
           <div className="pt-6 border-t border-slate-100 flex flex-col sm:flex-row justify-between items-center gap-4">
               <div className="text-xs font-bold text-slate-500">
-                إجمالي العناصر الجاهزة للحفظ: <span className="font-black text-slate-800">{items.filter(i => (i.targetId || i.target_id) && (i.plannedAmount > 0 || i.planned_amount > 0)).length}</span> من أصل <span className="font-black text-slate-800">{items.length}</span>
+                إجمالي العناصر الجاهزة للحفظ: <span className="font-black text-slate-800">{items.filter(i => (i.targetId || i.target_id) && (Number(i.plannedAmount || 0) > 0 || Number(i.planned_amount || 0) > 0)).length}</span> من أصل <span className="font-black text-slate-800">{items.length}</span>
               </div>
 
               <button 

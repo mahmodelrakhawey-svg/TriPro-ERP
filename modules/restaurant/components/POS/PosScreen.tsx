@@ -1535,7 +1535,7 @@ const PosScreen = () => {
       />
 
       {/* Blind Shift Close Modal */}
-      {isBlindCloseOpen && (
+      {isBlindCloseOpen && activeCashShift && (
         <BlindShiftCloseModal
           shift={activeCashShift}
           onClose={() => setIsBlindCloseOpen(false)}

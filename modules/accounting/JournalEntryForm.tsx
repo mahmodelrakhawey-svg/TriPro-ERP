@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 import { analyzeTransactionText } from '../../services/geminiService';
@@ -89,7 +89,7 @@ const JournalEntryForm = () => {
     }
   };
 
-  const totals = lines.reduce(
+  const totals = lines.reduce<{ debit: number; credit: number }>(
     (acc, line) => ({
       debit: acc.debit + (Number(line.debit) || 0),
       credit: acc.credit + (Number(line.credit) || 0),

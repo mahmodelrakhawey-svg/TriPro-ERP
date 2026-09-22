@@ -212,7 +212,7 @@ const Header = () => {
 
             {/* Actions */}
             <div className="flex items-center gap-4">
-                {secureStorage.getItem('admin_original_org_id') && (
+                {Boolean(secureStorage.getItem('admin_original_org_id')) && (
                     <button 
                         onClick={handleReturnToAdmin}
                         disabled={isReturning}

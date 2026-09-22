@@ -165,7 +165,7 @@ export const MemberManager: React.FC = () => {
 
   const onSaveMember = async (data: any) => {
     if (!orgId) return;
-    let photo_url = editingMember?.photo_url;
+    let photo_url: string | null | undefined = editingMember?.photo_url;
     if (photoFile) {
       photo_url = await uploadStadiumImage(photoFile, 'members');
     }

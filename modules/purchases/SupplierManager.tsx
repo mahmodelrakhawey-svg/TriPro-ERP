@@ -575,7 +575,8 @@ const SupplierManager = () => {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const fileInput = e.target;
-    const file = fileInput.files[0];
+    const file = fileInput.files?.[0];
+    if (!file) return;
     setIsImporting(true);
     const reader = new FileReader();
     reader.onload = async (evt) => {

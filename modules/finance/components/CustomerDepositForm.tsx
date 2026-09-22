@@ -257,10 +257,10 @@ const CustomerDepositForm = () => {
       {/* شريط الأدوات */}
       <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6">
          <div className="flex items-center gap-2">
-             <button onClick={handlePrevious} disabled={depositVouchers.length === 0 || (currentVoucherId && depositVouchers.findIndex(v => v.id === currentVoucherId) >= depositVouchers.length - 1)} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 disabled:opacity-30" title="السابق (الأقدم)">
+             <button onClick={handlePrevious} disabled={depositVouchers.length === 0 || Boolean(currentVoucherId && depositVouchers.findIndex(v => v.id === currentVoucherId) >= depositVouchers.length - 1)} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 disabled:opacity-30" title="السابق (الأقدم)">
                 <ArrowRight className="w-5 h-5" />
              </button>
-             <button onClick={handleNext} disabled={depositVouchers.length === 0 || (currentVoucherId && depositVouchers.findIndex(v => v.id === currentVoucherId) <= 0)} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 disabled:opacity-30" title="التالي (الأحدث)">
+             <button onClick={handleNext} disabled={depositVouchers.length === 0 || Boolean(currentVoucherId && depositVouchers.findIndex(v => v.id === currentVoucherId) <= 0)} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 disabled:opacity-30" title="التالي (الأحدث)">
                 <ArrowLeft className="w-5 h-5" />
              </button>
              <div className="h-6 w-px bg-slate-300 mx-2"></div>

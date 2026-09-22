@@ -270,7 +270,7 @@ const OfferBeneficiariesReport = () => {
   }, [reportData]);
 
   const handleExportExcel = () => {
-    let dataToExport = [];
+    let dataToExport: any[] = [];
     if (viewMode === 'detailed') {
       dataToExport = reportData.map(item => ({
         'رقم الفاتورة': item.invoiceNumber,

@@ -301,7 +301,7 @@ export const ChequesPage = () => {
         const notesReceivableAcc = getSystemAccount('NOTES_RECEIVABLE');
         const notesPayableAcc = getSystemAccount('NOTES_PAYABLE');
         
-        let lines = [];
+        let lines: any[] = [];
         let description = `تحويل بنكي للشيك رقم ${selectedCheque.cheque_number} - ${selectedCheque.party_name}`;
 
         if (selectedCheque.type === 'incoming') {

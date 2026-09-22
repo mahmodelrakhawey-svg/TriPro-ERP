@@ -681,11 +681,11 @@ export interface RecurringInvoice {
   organization_id: string;
   subscription_number: string;
   customer_id: string;
-  customer_name?: string;
-  customer_phone?: string;
-  warehouse_id?: string;
-  salesperson_id?: string;
-  cost_center_id?: string;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  warehouse_id?: string | null;
+  salesperson_id?: string | null;
+  cost_center_id?: string | null;
   
   title: string;
   frequency: RecurringFrequency;
@@ -712,13 +712,13 @@ export interface RecurringInvoice {
   total_amount: number;
   currency: string;
   
-  notes?: string;
-  created_by?: string;
+  notes?: string | null;
+  created_by?: string | null;
   created_at?: string;
   updated_at?: string;
   
   items?: RecurringInvoiceItem[];
-  customers?: { id: string; name: string; phone?: string };
+  customers?: { id: string; name: string; phone?: string | null };
 }
 
 export interface RecurringInvoiceLog {
@@ -912,10 +912,10 @@ export interface PurchaseRfq {
   
   status: PurchaseRfqStatus;
   target_warehouse_id?: string | null;
-  target_warehouse_name?: string;
+  target_warehouse_name?: string | null;
   
-  notes?: string;
-  created_by?: string;
+  notes?: string | null;
+  created_by?: string | null;
   awarded_bid_id?: string | null;
   generated_po_id?: string | null;
   

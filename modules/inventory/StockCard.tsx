@@ -1125,7 +1125,7 @@ const StockCard = () => {
         </div>
       </div>
 
-      {selectedProductId && (
+      {selectedProductId && selectedProduct && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
           <div className="p-6 bg-slate-50 border-b flex flex-col md:flex-row justify-between items-center gap-4">
             <div className="flex items-center gap-4">

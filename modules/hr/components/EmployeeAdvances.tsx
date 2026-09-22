@@ -535,14 +535,14 @@ const EmployeeAdvances = () => {
                       onClick={() => setQuickPercentage(25)}
                       className="px-2 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 rounded-lg text-xs font-bold transition-colors"
                     >
-                      25% ({Math.round(selectedEmployee.basic_salary * 0.25).toLocaleString()})
+                      25% ({Math.round((selectedEmployee.basic_salary || 0) * 0.25).toLocaleString()})
                     </button>
                     <button
                       type="button"
                       onClick={() => setQuickPercentage(50)}
                       className="px-2 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 rounded-lg text-xs font-bold transition-colors"
                     >
-                      50% ({Math.round(selectedEmployee.basic_salary * 0.5).toLocaleString()})
+                      50% ({Math.round((selectedEmployee.basic_salary || 0) * 0.5).toLocaleString()})
                     </button>
                     <button
                       type="button"
@@ -569,7 +569,7 @@ const EmployeeAdvances = () => {
                 )}
 
                 {/* تحذير تجاوز الراتب */}
-                {selectedEmployee && (selectedEmployee.basic_salary ?? 0) > 0 && formData.amount > selectedEmployee.basic_salary && (
+                {selectedEmployee && (selectedEmployee.basic_salary ?? 0) > 0 && formData.amount > (selectedEmployee.basic_salary || 0) && (
                   <div className="mt-2 p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2">
                     <AlertTriangle size={15} className="text-rose-600 shrink-0 mt-0.5" />
                     <div>

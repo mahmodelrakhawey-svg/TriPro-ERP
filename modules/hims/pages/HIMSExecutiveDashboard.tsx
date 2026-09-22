@@ -39,7 +39,7 @@ export const HIMSExecutiveDashboard: React.FC = () => {
     setLoading(true);
 
     try {
-      let rpcData = null;
+      let rpcData: any = null;
       try {
         const { data } = await supabase.rpc('get_hims_executive_stats', { p_org_id: currentUser.organization_id });
         rpcData = data;

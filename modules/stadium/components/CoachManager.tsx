@@ -115,7 +115,7 @@ const CoachManager: React.FC = () => {
     e.preventDefault();
     try {
       setUploading(true);
-      let photo_url = selectedCoach?.photo_url;
+      let photo_url: string | null | undefined = selectedCoach?.photo_url;
 
       if (photoFile) {
         photo_url = await uploadStadiumImage(photoFile, 'coaches');

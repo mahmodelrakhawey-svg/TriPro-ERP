@@ -258,7 +258,7 @@ export default function MobilePdaStocktaking() {
           }
 
           if (inventoryAcc && adjustmentAcc) {
-            const lines = [];
+            const lines: any[] = [];
             const absVal = Math.abs(totalDiffValue);
             if (totalDiffValue > 0) {
               // زيادة: من ح/ المخزون إلى ح/ أرباح وفروقات تسوية

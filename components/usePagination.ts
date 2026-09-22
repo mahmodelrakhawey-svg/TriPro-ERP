@@ -104,8 +104,10 @@ export function usePagination<T>(
 
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
-
-      query = query.range(from, to).abortSignal(signal);
+      query = query.range(from, to);
+      if (signal) {
+        query = query.abortSignal(signal);
+      }
 
       const { data: resultData, error: resultError, count } = await query;
 

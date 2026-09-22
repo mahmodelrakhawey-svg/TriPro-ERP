@@ -85,8 +85,8 @@ export const ClinicalNotesForm: React.FC<{ visitId: string }> = ({ visitId }) =>
         message.success('تم تحديث الملاحظات الطبية (SOAP) بنجاح ✅');
       } else {
         if (!navigator.onLine) {
-          let docId = null;
-          let orgId = null;
+          let docId: string | null | undefined = null;
+          let orgId: string | null | undefined = null;
           try {
             const { data: { session } } = await supabase.auth.getSession();
             docId = session?.user?.id;

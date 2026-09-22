@@ -191,7 +191,7 @@ export default function AttendanceManager() {
         }
 
         // Map and insert records
-        const newRecords = [];
+        const newRecords: any[] = [];
         for (const r of rows) {
           const empName = r['الاسم'] || r['Employee'] || r['name'] || '';
           const matchedEmp = employeesList.find(e => e.name.toLowerCase().includes(String(empName).toLowerCase()));

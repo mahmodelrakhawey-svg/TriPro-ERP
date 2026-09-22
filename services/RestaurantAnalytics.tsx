@@ -552,7 +552,7 @@ const RestaurantAnalytics = () => {
                         : (item.total_sales || item.total_revenue || item.total_amount || item.pair_count || item.total_sold || 0);
 
                     // تحديد التصنيف واللون لتبويب ربحية الأصناف
-                    let categoryBadge = null;
+                    let categoryBadge: React.ReactNode = null;
                     let rowClass = "hover:bg-blue-50/30";
                     if (isProfitability) {
                         if (item.total_sold >= avgQty && item.unit_profit >= avgProfit) {

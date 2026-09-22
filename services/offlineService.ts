@@ -121,7 +121,7 @@ export const offlineService = {
             return orgId;
           }
           const { data: prof } = await supabase.from('profiles').select('organization_id').eq('id', authData.user.id).maybeSingle();
-          if (isValidNonNilUUID(prof?.organization_id)) {
+          if (prof && isValidNonNilUUID(prof.organization_id)) {
             this.setLastValidOrgId(prof.organization_id);
             return prof.organization_id;
           }
@@ -170,7 +170,7 @@ export const offlineService = {
       let validUserId: string | null = null;
       try {
         const { data: authData } = await supabase.auth.getUser();
-        if (isValidNonNilUUID(authData?.user?.id)) {
+        if (authData?.user && isValidNonNilUUID(authData.user.id)) {
           validUserId = authData.user.id;
         }
       } catch (e) {}
@@ -224,7 +224,7 @@ export const offlineService = {
     // 6. Items
     const rawItems = sanitized.items || sanitized.p_items || [];
     if (Array.isArray(rawItems)) {
-      const sanitizedItems = [];
+      const sanitizedItems: any[] = [];
       const targetOrg = sanitized.orgId || resolvedOrgId;
       for (const item of rawItems) {
         let pId = item.product_id;

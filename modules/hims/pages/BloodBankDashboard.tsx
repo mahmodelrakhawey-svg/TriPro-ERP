@@ -79,7 +79,7 @@ export const BloodBankDashboard: React.FC = () => {
         selectedDonor.id,
         values.bag_code,
         values.expiry_date.format('YYYY-MM-DD'),
-        currentUser?.organization_id
+        currentUser?.organization_id || ''
       );
       message.success('تم تسجيل كيس التبرع بالدم وتحديث رصيد البنك بنجاح ✅');
       setIsDonationModalVisible(false);

@@ -208,7 +208,7 @@ const BankReconciliationForm = () => {
 
       setSaving(true);
       try {
-          const lines = [];
+          const lines: any[] = [];
           const description = adjDesc || (adjType === 'expense' ? 'مصروفات بنكية - تسوية' : 'فوائد بنكية - تسوية');
 
           if (adjType === 'expense') {

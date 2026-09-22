@@ -116,7 +116,7 @@ export default function StadiumDashboard() {
       ].filter(item => item.value > 0));
 
       // Monthly Revenue for last 6 months
-      const sixMonthsData = [];
+      const sixMonthsData: any[] = [];
       for (let i = 5; i >= 0; i--) {
         const d = subMonths(today, i);
         const sMonth = startOfMonth(d).toISOString();
