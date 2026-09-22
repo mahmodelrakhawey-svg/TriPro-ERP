@@ -133,13 +133,13 @@ const PurchaseOrderForm = () => {
       if (!itemsData || itemsData.length === 0) {
         let itQuery = await supabase
           .from('purchase_order_items')
-          .select('id, product_id, quantity, unit_price, total, uom_id, products(name, sku, purchase_price, base_uom_id)')
+          .select('id, product_id, quantity, unit_price, total, uom_id, products(name, sku, purchase_price, base_uom_id, tax_rate_override)')
           .eq('purchase_order_id', id);
 
         if (itQuery.error && itQuery.error.message?.includes('purchase_order_id')) {
           itQuery = await supabase
             .from('purchase_order_items')
-            .select('id, product_id, quantity, unit_price, total, uom_id, products(name, sku, purchase_price, base_uom_id)')
+            .select('id, product_id, quantity, unit_price, total, uom_id, products(name, sku, purchase_price, base_uom_id, tax_rate_override)')
             .eq('order_id', id);
         }
         if (itQuery.data && itQuery.data.length > 0) {
@@ -147,15 +147,26 @@ const PurchaseOrderForm = () => {
         }
       }
 
-      const formattedItems = (itemsData || []).map((item: any) => ({
-        id: item.id,
-        productId: item.product_id,
-        name: item.products?.name || (products.find(p => p.id === item.product_id)?.name) || 'صنف',
-        quantity: Number(item.quantity) || 0,
-        unitPrice: Number(item.unit_price) || 0,
-        uomId: item.uom_id || item.products?.base_uom_id || '',
-        total: Number(item.total) || (Number(item.quantity) * Number(item.unit_price)) || 0
-      }));
+      const formattedItems = (itemsData || []).map((item: any) => {
+        const prod = item.products || products.find(p => p.id === item.product_id);
+        const pTax = prod?.tax_rate_override;
+        const itemTaxRate = (item.tax_rate !== undefined && item.tax_rate !== null)
+          ? Number(item.tax_rate)
+          : (pTax !== undefined && pTax !== null && pTax !== '' && Number(pTax) > 0)
+            ? Number(pTax)
+            : (settings.enableTax ? (Number(settings.vatRate) || 0) : 0);
+
+        return {
+          id: item.id,
+          productId: item.product_id,
+          name: item.products?.name || prod?.name || 'صنف',
+          quantity: Number(item.quantity) || 0,
+          unitPrice: Number(item.unit_price) || 0,
+          uomId: item.uom_id || item.products?.base_uom_id || '',
+          taxRate: itemTaxRate,
+          total: Number(item.total) || (Number(item.quantity) * Number(item.unit_price)) || 0
+        };
+      });
 
       setItems(formattedItems);
 
@@ -232,6 +243,10 @@ const PurchaseOrderForm = () => {
     const selectedUom = uoms.find(u => u.id === defaultUomId);
     const basePrice = product.purchase_price || product.cost || 0;
     const initialPrice = selectedUom ? Number((basePrice * selectedUom.ratio).toFixed(4)) : basePrice;
+    const productTaxOverride = product.tax_rate_override;
+    const initialTaxRate = (productTaxOverride !== undefined && productTaxOverride !== null && productTaxOverride !== '' && Number(productTaxOverride) > 0)
+        ? Number(productTaxOverride)
+        : (settings.enableTax ? (Number(settings.vatRate) || 0) : 0);
 
     setItems([...items, { 
         productId: product.id, 
@@ -239,6 +254,7 @@ const PurchaseOrderForm = () => {
         quantity: 1, 
         unitPrice: initialPrice,
         uomId: defaultUomId,
+        taxRate: initialTaxRate,
         total: initialPrice
     }]);
     setProductSearch('');
@@ -257,6 +273,10 @@ const PurchaseOrderForm = () => {
         }
     }
 
+    if (field === 'taxRate') {
+      newItems[index].taxRate = Math.max(0, Math.min(100, parseFloat(value) || 0));
+    }
+
     newItems[index].total = (Number(newItems[index].quantity) || 0) * (Number(newItems[index].unitPrice) || 0);
     setItems(newItems);
   };
@@ -268,8 +288,11 @@ const PurchaseOrderForm = () => {
   const calculateTotal = () => items.reduce((sum, item) => sum + (Number(item.quantity || 0) * Number(item.unitPrice || 0)), 0);
 
   const subtotal = calculateTotal();
-  const taxRate = settings.enableTax ? (settings.vatRate ? settings.vatRate / 100 : 0.14) : 0;
-  const taxAmount = subtotal * taxRate;
+  const taxAmount = items.reduce((sum, item) => {
+    const lineSubtotal = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+    const rate = Number(item.taxRate ?? (settings.enableTax ? (settings.vatRate || 0) : 0)) || 0;
+    return sum + (lineSubtotal * (rate / 100));
+  }, 0);
   const totalAmount = subtotal + taxAmount;
 
   const deletePoItems = async (orderId: string) => {
@@ -805,81 +828,111 @@ const PurchaseOrderForm = () => {
 
         {/* Table */}
         <div className="overflow-x-auto">
-          <table className="w-full text-right text-sm">
-            <thead className="bg-slate-50 text-xs font-bold text-slate-600 border-b border-slate-200">
-              <tr>
-                <th className="p-3">الصنف المطلوب</th>
-                <th className="p-3 w-32 text-center">الوحدة</th>
-                <th className="p-3 w-28 text-center">الكمية المطلوبة</th>
-                <th className="p-3 w-32 text-center">السعر التقديري</th>
-                <th className="p-3 w-32 text-center">الإجمالي</th>
-                <th className="p-3 w-12 text-center"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {items.map((item, idx) => (
-                <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
-                  <td className="p-3 font-bold text-slate-800">{item.name}</td>
-                  <td className="p-3">
-                    <select 
-                      value={item.uomId || ''} 
-                      onChange={e => updateItem(idx, 'uomId', e.target.value)}
-                      className="w-full border rounded-lg p-1.5 text-xs bg-white font-bold"
-                    >
-                      {uoms.filter(u => {
-                          const prod = products.find(p => p.id === item.productId);
-                          const baseUom = uoms.find(ux => ux.id === prod?.base_uom_id);
-                          return !baseUom || u.category_id === baseUom.category_id;
-                      }).map(u => (
-                        <option key={u.id} value={u.id}>{u.name}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="p-3">
-                    <input 
-                      type="number" 
-                      step="any" 
-                      min="0.01"
-                      className="w-full border rounded-lg p-1.5 text-center font-mono font-bold text-blue-600 bg-white" 
-                      value={item.quantity} 
-                      onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} 
-                    />
-                  </td>
-                  <td className="p-3">
-                    <input 
-                      type="number" 
-                      step="any" 
-                      min="0"
-                      className="w-full border rounded-lg p-1.5 text-center font-mono font-bold text-slate-800 bg-white" 
-                      value={item.unitPrice} 
-                      onChange={e => updateItem(idx, 'unitPrice', Number(e.target.value))} 
-                    />
-                  </td>
-                  <td className="p-3 text-center font-mono font-black text-slate-900" dir="ltr">
-                    {((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </td>
-                  <td className="p-3 text-center">
-                    <button 
-                      type="button" 
-                      onClick={() => removeItem(idx)} 
-                      className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                      title="حذف الصنف"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {items.length === 0 && (
+            <table className="w-full text-right text-sm">
+              <thead className="bg-slate-50 text-xs font-bold text-slate-600 border-b border-slate-200">
                 <tr>
-                  <td colSpan={6} className="p-8 text-center text-slate-400 font-bold">
-                    لم تتم إضافة أي أصناف بعد. ابحث عن صنف بالأعلى لإضافته.
-                  </td>
+                  <th className="p-3">الصنف</th>
+                  <th className="p-3 w-32 text-center">الوحدة</th>
+                  <th className="p-3 w-24 text-center">الكمية المطلوبة</th>
+                  <th className="p-3 w-28 text-center">السعر التقديري</th>
+                  <th className="p-3 w-24 text-center">ضريبة %</th>
+                  <th className="p-3 w-32 text-center">الإجمالي</th>
+                  <th className="p-3 w-10 text-center"></th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {items.map((item, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="p-3 font-bold text-slate-800">
+                      <div className="flex items-center flex-wrap gap-1.5">
+                        <span>{item.name}</span>
+                        {Number(item.taxRate) > 0 && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                            ضريبة {item.taxRate}%
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-3">
+                      <select 
+                        value={item.uomId || ''} 
+                        onChange={e => updateItem(idx, 'uomId', e.target.value)}
+                        className="w-full border rounded-lg p-1.5 text-xs bg-white font-bold"
+                      >
+                        {uoms.filter(u => {
+                            const prod = products.find(p => p.id === item.productId);
+                            const baseUom = uoms.find(ux => ux.id === prod?.base_uom_id);
+                            return !baseUom || u.category_id === baseUom.category_id;
+                        }).map(u => (
+                          <option key={u.id} value={u.id}>{u.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="p-3">
+                      <input 
+                        type="number" 
+                        step="any" 
+                        min="0.01"
+                        className="w-full border rounded-lg p-1.5 text-center font-mono font-bold text-blue-600 bg-white" 
+                        value={item.quantity} 
+                        onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} 
+                      />
+                    </td>
+                    <td className="p-3">
+                      <input 
+                        type="number" 
+                        step="any" 
+                        min="0" 
+                        className="w-full border rounded-lg p-1.5 text-center font-mono font-bold text-slate-800 bg-white" 
+                        value={item.unitPrice} 
+                        onChange={e => updateItem(idx, 'unitPrice', Number(e.target.value))} 
+                      />
+                    </td>
+                    <td className="p-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <input 
+                          type="number" 
+                          min="0" 
+                          max="100" 
+                          step="any"
+                          value={item.taxRate ?? 0} 
+                          onChange={e => updateItem(idx, 'taxRate', parseFloat(e.target.value) || 0)} 
+                          className="w-16 border rounded-lg p-1.5 text-center font-mono font-bold text-slate-800 bg-white focus:border-blue-500 outline-none" 
+                          title="نسبة الضريبة الخاصة بالبند"
+                        />
+                        <span className="text-xs text-slate-400 font-bold">%</span>
+                      </div>
+                      {Number(item.taxRate) > 0 && (
+                        <span className="text-[10px] text-blue-600 font-mono font-bold block mt-0.5" title="قيمة ضريبة هذا البند">
+                          +{(((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)) * ((Number(item.taxRate) || 0) / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      )}
+                    </td>
+                    <td className="p-3 text-center font-mono font-black text-slate-900" dir="ltr">
+                      {((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                    <td className="p-3 text-center">
+                      <button 
+                        type="button" 
+                        onClick={() => removeItem(idx)} 
+                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="حذف الصنف"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                {items.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-slate-400 font-bold">
+                      لم تتم إضافة أي أصناف بعد. ابحث عن صنف بالأعلى لإضافته.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
 
         {/* Totals Section */}
         <div className="border-t border-slate-200 pt-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -892,10 +945,13 @@ const PurchaseOrderForm = () => {
               <span>الإجمالي قبل الضريبة:</span>
               <span className="font-mono">{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
             </div>
-            {settings.enableTax && (
+            {(taxAmount > 0 || settings.enableTax) && (
               <div className="flex justify-between text-xs font-bold text-slate-600">
-                <span>ضريبة القيمة المضافة ({settings.vatRate || 14}%):</span>
-                <span className="font-mono">{taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
+                <span>
+                  ضريبة القيمة المضافة
+                  {settings.enableTax && !items.some(it => it.taxRate !== undefined && it.taxRate !== settings.vatRate) ? ` (${settings.vatRate || 14}%):` : ':'}
+                </span>
+                <span className="font-mono text-blue-700 font-bold">{taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
               </div>
             )}
             <div className="flex justify-between text-sm font-black text-blue-700 border-t border-slate-200 pt-2">

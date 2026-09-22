@@ -89,7 +89,14 @@ export const PurchaseInvoicePrint: React.FC<PurchaseInvoicePrintProps> = ({ invo
             {items.map((item: any, index: number) => (
                 <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                     <td className="py-2 px-3 text-slate-500 font-bold">{index + 1}</td>
-                    <td className="py-2 px-3 font-bold text-slate-900">{item.productName || item.name || item.products?.name || 'N/A'}</td>
+                    <td className="py-2 px-3 font-bold text-slate-900">
+                      {item.productName || item.name || item.products?.name || 'N/A'}
+                      {Number(item.taxRate || item.tax_rate) > 0 && (
+                        <span className="mr-1.5 text-[10px] text-emerald-700 font-bold border border-emerald-300 bg-emerald-50 px-1.5 py-0.5 rounded">
+                          (ضريبة {item.taxRate || item.tax_rate}%)
+                        </span>
+                      )}
+                    </td>
                     <td className="py-2 px-3 text-center text-slate-600">{item.uomName || item.uoms?.name || '-'}</td>
                     <td className="py-2 px-3 text-center font-bold text-emerald-700 font-mono">{Number(item.quantity || 0).toLocaleString()}</td>
                     <td className="py-2 px-3 text-center font-mono">{Number(item.unitPrice || item.unit_price || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>

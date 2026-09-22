@@ -119,16 +119,23 @@ const PurchaseReturnForm = () => {
       if (error) throw error;
 
       if (invItems && invItems.length > 0) {
-        const mapped = invItems.map((item: any) => {
-          const prod = Array.isArray(item.products) ? item.products[0] : item.products;
+        const inv = { purchase_invoice_items: invItems };
+        const mapped = (inv.purchase_invoice_items || []).map((item: any) => {
+          const prod = products.find(p => p.id === item.product_id);
+          const pTax = (prod as any)?.tax_rate_override;
+          const itemTaxRate = (item.tax_rate !== undefined && item.tax_rate !== null)
+            ? Number(item.tax_rate)
+            : (pTax !== undefined && pTax !== null && pTax !== '' && Number(pTax) > 0)
+              ? Number(pTax)
+              : (settings.enableTax ? (Number(settings.vatRate) || 0) : 0);
+
           return {
-            id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             productId: item.product_id,
-            name: prod?.name || 'صنف',
+            name: item.products?.name || prod?.name || 'صنف',
             quantity: Number(item.quantity) || 1,
-            maxQuantity: Number(item.quantity) || 1,
             price: Number(item.unit_price) || 0,
             uomId: item.uom_id || prod?.base_uom_id || '',
+            taxRate: itemTaxRate,
             total: Number(item.total) || ((Number(item.quantity) || 1) * (Number(item.unit_price) || 0))
           };
         });
@@ -157,7 +164,7 @@ const PurchaseReturnForm = () => {
           suppliers(id, name, phone),
           warehouses(id, name),
           purchase_invoices:original_invoice_id(id, invoice_number),
-          purchase_return_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku, purchase_price, base_uom_id))
+          purchase_return_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku, purchase_price, base_uom_id, tax_rate_override))
         `)
         .eq('id', id)
         .single();
@@ -177,15 +184,26 @@ const PurchaseReturnForm = () => {
         status: ret.status || 'draft'
       });
 
-      const formattedItems = (ret.purchase_return_items || []).map((item: any) => ({
-        id: item.id,
-        productId: item.product_id,
-        name: item.products?.name || 'صنف',
-        quantity: Number(item.quantity) || 0,
-        price: Number(item.unit_price) || 0,
-        uomId: item.uom_id || item.products?.base_uom_id || '',
-        total: Number(item.total) || 0
-      }));
+      const formattedItems = (ret.purchase_return_items || []).map((item: any) => {
+        const prod = item.products || products.find(p => p.id === item.product_id);
+        const pTax = prod?.tax_rate_override;
+        const itemTaxRate = (item.tax_rate !== undefined && item.tax_rate !== null)
+          ? Number(item.tax_rate)
+          : (pTax !== undefined && pTax !== null && pTax !== '' && Number(pTax) > 0)
+            ? Number(pTax)
+            : (settings.enableTax ? (Number(settings.vatRate) || 0) : 0);
+
+        return {
+          id: item.id,
+          productId: item.product_id,
+          name: item.products?.name || prod?.name || 'صنف',
+          quantity: Number(item.quantity) || 0,
+          price: Number(item.unit_price) || 0,
+          uomId: item.uom_id || item.products?.base_uom_id || '',
+          taxRate: itemTaxRate,
+          total: Number(item.total) || 0
+        };
+      });
 
       setItems(formattedItems);
 
@@ -282,6 +300,14 @@ const PurchaseReturnForm = () => {
       newItems[index].price = product?.purchase_price || product?.cost || 0;
       newItems[index].uomId = product?.purchase_uom_id || product?.base_uom_id || '';
       newItems[index].name = product?.name || '';
+      const pTax = (product as any)?.tax_rate_override;
+      newItems[index].taxRate = (pTax !== undefined && pTax !== null && pTax !== '' && Number(pTax) > 0)
+        ? Number(pTax)
+        : (settings.enableTax ? (Number(settings.vatRate) || 0) : 0);
+    }
+
+    if (field === 'taxRate') {
+      newItems[index].taxRate = Math.max(0, Math.min(100, parseFloat(value) || 0));
     }
 
     newItems[index].total = (newItems[index].quantity || 0) * (newItems[index].price || 0);
@@ -289,7 +315,7 @@ const PurchaseReturnForm = () => {
   };
 
   const addItem = () => {
-    setItems([...items, { productId: '', quantity: 1, price: 0, uomId: '', total: 0 }]);
+    setItems([...items, { productId: '', quantity: 1, price: 0, uomId: '', taxRate: 0, total: 0 }]);
   };
 
   const removeItem = (index: number) => {
@@ -297,7 +323,13 @@ const PurchaseReturnForm = () => {
   };
 
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + (Number(item.total) || 0), 0), [items]);
-  const taxAmount = useMemo(() => subtotal * (settings.enableTax ? ((settings.vatRate || 0) / 100) : 0), [subtotal, settings]);
+  const taxAmount = useMemo(() => {
+    return items.reduce((sum, item) => {
+      const lineSubtotal = Number(item.total) || ((Number(item.quantity) || 0) * (Number(item.price) || 0));
+      const rate = Number(item.taxRate ?? (settings.enableTax ? (settings.vatRate || 0) : 0)) || 0;
+      return sum + (lineSubtotal * (rate / 100));
+    }, 0);
+  }, [items, settings]);
   const totalAmount = useMemo(() => subtotal + taxAmount, [subtotal, taxAmount]);
 
   const handleSave = async (e: React.FormEvent) => {
@@ -750,16 +782,17 @@ const PurchaseReturnForm = () => {
           <h3 className="font-bold text-sm text-slate-800">الأصناف المرتجعة</h3>
           
           <div className="grid grid-cols-12 gap-2 pb-2 border-b-2 border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest no-print">
-            <div className="col-span-4 pr-2">بيان الصنف</div>
+            <div className="col-span-3 pr-2">بيان الصنف</div>
             <div className="col-span-2 text-center">الوحدة</div>
             <div className="col-span-2 text-center">الكمية المرتجعة</div>
             <div className="col-span-2 text-center">سعر المرتجع</div>
+            <div className="col-span-1 text-center">ضريبة %</div>
             <div className="col-span-2 text-center">إجمالي القيمة</div>
           </div>
 
           {items.map((item, index) => (
             <div key={index} className="grid grid-cols-12 gap-2 items-center">
-              <div className="col-span-4">
+              <div className="col-span-3">
                 <ProductSearchSelect
                   products={products}
                   value={item.productId || ''}
@@ -767,6 +800,11 @@ const PurchaseReturnForm = () => {
                   warehouseId={formData.warehouseId}
                   placeholder="ابحث أو اختر الصنف المراد إرجاعه..."
                 />
+                {Number(item.taxRate) > 0 && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 mt-1 rounded text-[10px] font-bold bg-orange-50 text-orange-700 border border-orange-200">
+                    ضريبة {item.taxRate}%
+                  </span>
+                )}
               </div>
               <div className="col-span-2">
                   <select 
@@ -786,6 +824,19 @@ const PurchaseReturnForm = () => {
               </div>
               <div className="col-span-2">
                 <input type="number" step="any" min="0" value={item.price} onChange={e => handleItemChange(index, 'price', e.target.value)} className="w-full border rounded-lg p-2 text-center font-mono font-bold text-slate-800 bg-white" placeholder="السعر" />
+              </div>
+              <div className="col-span-1">
+                <input 
+                  type="number" 
+                  step="any" 
+                  min="0" 
+                  max="100" 
+                  value={item.taxRate ?? 0} 
+                  onChange={e => handleItemChange(index, 'taxRate', e.target.value)} 
+                  className="w-full border rounded-lg p-2 text-center font-mono font-bold text-slate-800 bg-white focus:border-orange-500 outline-none" 
+                  title="نسبة الضريبة %" 
+                  placeholder="%" 
+                />
               </div>
               <div className="col-span-2 flex items-center gap-1">
                 <input type="text" readOnly value={(Number(item.total) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="w-full bg-slate-100 border rounded-lg p-2 text-center font-mono font-black" />
@@ -811,10 +862,13 @@ const PurchaseReturnForm = () => {
               <span>الإجمالي قبل الضريبة:</span>
               <span className="font-mono">{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
             </div>
-            {settings.enableTax && (
+            {(taxAmount > 0 || settings.enableTax) && (
               <div className="flex justify-between text-xs font-bold text-slate-600">
-                <span>ضريبة القيمة المضافة ({settings.vatRate || 14}%):</span>
-                <span className="font-mono">{taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
+                <span>
+                  ضريبة القيمة المضافة
+                  {settings.enableTax && !items.some(it => it.taxRate !== undefined && it.taxRate !== settings.vatRate) ? ` (${settings.vatRate || 14}%):` : ':'}
+                </span>
+                <span className="font-mono text-orange-700 font-bold">{taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
               </div>
             )}
             <div className="flex justify-between text-sm font-black text-orange-700 border-t border-slate-200 pt-2">

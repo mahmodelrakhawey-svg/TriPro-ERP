@@ -394,7 +394,7 @@ export const PurchaseInvoiceList = () => {
           *,
           suppliers(id, name, phone, address, tax_number),
           warehouses(id, name),
-          purchase_invoice_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku))
+          purchase_invoice_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku, tax_rate_override))
         `)
         .eq('id', invoice.id)
         .single();

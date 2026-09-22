@@ -220,6 +220,7 @@ export const purchaseInvoiceItemSchema = z.object({
   productName: z.string().optional(),
   quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
   unitPrice: amountSchema,
+  taxRate: z.number().min(0).max(100).optional(),
 });
 
 export const createPurchaseInvoiceSchema = z.object({

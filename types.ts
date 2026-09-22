@@ -331,6 +331,8 @@ export interface Product {
   item_code_type?: 'GS1' | 'EGS';
   egs_code?: string;
   eta_unit_code?: string;
+  // 🏷️ نسبة ضريبة خاصة للصنف (تتجاوز الإعداد العام للشركة)
+  tax_rate_override?: number | null;
 }
 
 export interface InvoiceItem {

@@ -135,7 +135,7 @@ const PurchaseInvoiceForm = () => {
           *,
           suppliers(id, name, phone),
           warehouses(id, name),
-          purchase_invoice_items(id, product_id, quantity, unit_price, total, uom_id, batch_number, expiry_date, products(name, sku, purchase_price, base_uom_id))
+          purchase_invoice_items(id, product_id, quantity, unit_price, total, uom_id, batch_number, expiry_date, products(name, sku, purchase_price, base_uom_id, tax_rate_override))
         `)
         .eq('id', id)
         .single();
@@ -158,18 +158,29 @@ const PurchaseInvoiceForm = () => {
         treasuryAccountId: fullInv.treasury_account_id || '',
       });
 
-      const formattedItems = (fullInv.purchase_invoice_items || []).map((i: any) => ({
-        id: i.id,
-        productId: i.product_id,
-        productName: i.products?.name || 'صنف',
-        productSku: i.products?.sku || '',
-        quantity: Number(i.quantity) || 0,
-        unitPrice: Number(i.unit_price) || 0,
-        uomId: i.uom_id || i.products?.base_uom_id || '',
-        total: Number(i.total) || 0,
-        batchNumber: i.batch_number || '',
-        expiryDate: i.expiry_date || ''
-      }));
+      const formattedItems = (fullInv.purchase_invoice_items || []).map((i: any) => {
+        const itemProd = i.products;
+        const pTax = itemProd?.tax_rate_override;
+        const itemTaxRate = (i.tax_rate !== undefined && i.tax_rate !== null)
+          ? Number(i.tax_rate)
+          : (pTax !== undefined && pTax !== null && pTax !== '' && Number(pTax) > 0)
+            ? Number(pTax)
+            : (settings.enableTax ? (Number(settings.vatRate) || 0) : 0);
+
+        return {
+          id: i.id,
+          productId: i.product_id,
+          productName: i.products?.name || 'صنف',
+          productSku: i.products?.sku || '',
+          quantity: Number(i.quantity) || 0,
+          unitPrice: Number(i.unit_price) || 0,
+          uomId: i.uom_id || i.products?.base_uom_id || '',
+          total: Number(i.total) || 0,
+          taxRate: itemTaxRate,
+          batchNumber: i.batch_number || '',
+          expiryDate: i.expiry_date || ''
+        };
+      });
 
       setItems(formattedItems);
 
@@ -233,7 +244,16 @@ const PurchaseInvoiceForm = () => {
         if (savedDraft) {
           const parsed = typeof savedDraft === 'string' ? JSON.parse(savedDraft) : savedDraft;
           if (parsed.items && parsed.items.length > 0) {
-            setItems(parsed.items);
+            const hydrated = parsed.items.map((it: any) => {
+              if (it.taxRate !== undefined && it.taxRate !== null) return it;
+              const prod = products.find(p => p.id === it.productId);
+              const pTax = prod ? (prod as any).tax_rate_override : undefined;
+              const taxRate = (pTax !== undefined && pTax !== null && pTax !== '' && Number(pTax) > 0)
+                ? Number(pTax)
+                : (settings.enableTax ? (Number(settings.vatRate) || 0) : 0);
+              return { ...it, taxRate };
+            });
+            setItems(hydrated);
             if (parsed.formData) {
               setFormData(prev => ({ ...prev, ...parsed.formData }));
             }
@@ -291,7 +311,13 @@ const PurchaseInvoiceForm = () => {
   };
 
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + (Number(item.total) || 0), 0), [items]);
-  const taxAmount = useMemo(() => subtotal * (settings.enableTax ? ((settings.vatRate || 0) / 100) : 0), [subtotal, settings]);
+  const taxAmount = useMemo(() => {
+    return items.reduce((sum, item) => {
+      const lineSubtotal = Number(item.total) || ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0));
+      const rate = Number(item.taxRate ?? (settings.enableTax ? (settings.vatRate || 0) : 0)) || 0;
+      return sum + (lineSubtotal * (rate / 100));
+    }, 0);
+  }, [items, settings]);
   const totalAmount = useMemo(() => subtotal + taxAmount, [subtotal, taxAmount]);
 
   const filteredProducts = useMemo(() => {
@@ -326,12 +352,20 @@ const PurchaseInvoiceForm = () => {
           ? matchedUomInfo.customPrice
           : (selectedUom ? Number((basePrice * (selectedUom.ratio || 1)).toFixed(4)) : basePrice);
 
+      const productTaxOverride = (product as any).tax_rate_override;
+      const initialTaxRate = (productTaxOverride !== undefined && productTaxOverride !== null && productTaxOverride !== '' && Number(productTaxOverride) > 0)
+          ? Number(productTaxOverride)
+          : (settings.enableTax ? (Number(settings.vatRate) || 0) : 0);
+
       const existingItemIndex = items.findIndex(i => i.productId === product.id && (!defaultUomId || i.uomId === defaultUomId));
 
       if (existingItemIndex > -1) {
           const newItems = [...items];
           newItems[existingItemIndex].quantity += 1;
           newItems[existingItemIndex].total = newItems[existingItemIndex].quantity * (newItems[existingItemIndex].unitPrice || 0);
+          if (newItems[existingItemIndex].taxRate === undefined) {
+              newItems[existingItemIndex].taxRate = initialTaxRate;
+          }
           setItems(newItems);
       } else {
           setItems([...items, {
@@ -343,6 +377,7 @@ const PurchaseInvoiceForm = () => {
               unitPrice: initialPrice,
               uomId: defaultUomId,
               total: initialPrice,
+              taxRate: initialTaxRate,
               batchNumber: '',
               expiryDate: ''
           }]);
@@ -408,7 +443,17 @@ const PurchaseInvoiceForm = () => {
     }));
 
     if (ocrResult.items && ocrResult.items.length > 0) {
-      setItems(ocrResult.items);
+      const itemsWithTax = ocrResult.items.map((it: any) => {
+        const prod = products.find(p => p.id === it.productId || p.name === it.productName);
+        const pTax = prod ? (prod as any).tax_rate_override : undefined;
+        const taxRate = it.taxRate !== undefined
+          ? Number(it.taxRate)
+          : (pTax !== undefined && pTax !== null && pTax !== '' && Number(pTax) > 0)
+            ? Number(pTax)
+            : (settings.enableTax ? (Number(settings.vatRate) || 0) : 0);
+        return { ...it, taxRate };
+      });
+      setItems(itemsWithTax);
       showToast(`تم استيراد ${ocrResult.items.length} صنف من الفاتورة بنجاح عبر الذكاء الاصطناعي 🤖✅`, 'success');
     }
   };
@@ -433,7 +478,15 @@ const PurchaseInvoiceForm = () => {
         newItems[index].unitPrice = product.purchase_price || product.cost || 0;
         newItems[index].uomId = product.purchase_uom_id || product.base_uom_id || '';
         newItems[index].productName = product.name;
+        const pTax = (product as any).tax_rate_override;
+        newItems[index].taxRate = (pTax !== undefined && pTax !== null && pTax !== '' && Number(pTax) > 0)
+          ? Number(pTax)
+          : (settings.enableTax ? (Number(settings.vatRate) || 0) : 0);
       }
+    }
+
+    if (field === 'taxRate') {
+      newItems[index].taxRate = Math.max(0, Math.min(100, parseFloat(value) || 0));
     }
 
     newItems[index].total = (newItems[index].quantity || 0) * (newItems[index].unitPrice || 0);
@@ -451,8 +504,10 @@ const PurchaseInvoiceForm = () => {
         ...formData, 
         items: items.map(i => ({
             productId: i.productId,
+            productName: i.productName,
             quantity: Number(i.quantity),
-            unitPrice: Number(i.unitPrice)
+            unitPrice: Number(i.unitPrice),
+            taxRate: Number(i.taxRate) || 0
         }))
     });
 
@@ -702,6 +757,8 @@ const PurchaseInvoiceForm = () => {
         uomName: uoms.find(u => u.id === item.uomId)?.name || '-',
         quantity: item.quantity,
         unitPrice: item.unitPrice,
+        taxRate: item.taxRate || 0,
+        taxAmount: ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)) * ((Number(item.taxRate) || 0) / 100),
         total: item.total
       }))
     };
@@ -990,17 +1047,25 @@ const PurchaseInvoiceForm = () => {
                 <tr>
                   <th className="p-3">الصنف</th>
                   <th className="p-3 w-32 text-center">الوحدة</th>
-                  <th className="p-3 w-28 text-center">الكمية</th>
-                  <th className="p-3 w-32 text-center">سعر الوحدة</th>
+                  <th className="p-3 w-24 text-center">الكمية</th>
+                  <th className="p-3 w-28 text-center">سعر الوحدة</th>
+                  <th className="p-3 w-24 text-center">ضريبة %</th>
                   <th className="p-3 w-32 text-center">الإجمالي</th>
-                  <th className="p-3 w-12 text-center"></th>
+                  <th className="p-3 w-10 text-center"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {items.map((item, index) => (
                   <tr key={index} className="hover:bg-slate-50/60 transition-colors">
                     <td className="p-3 font-bold text-slate-800">
-                      {item.productName || products.find(p => p.id === item.productId)?.name || 'صنف'}
+                      <div className="flex items-center flex-wrap gap-1.5">
+                        <span>{item.productName || products.find(p => p.id === item.productId)?.name || 'صنف'}</span>
+                        {Number(item.taxRate) > 0 && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                            ضريبة {item.taxRate}%
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="p-3">
                       <select 
@@ -1031,11 +1096,31 @@ const PurchaseInvoiceForm = () => {
                       <input 
                         type="number" 
                         step="any" 
-                        min="0"
+                        min="0" 
                         value={item.unitPrice} 
                         onChange={e => handleItemChange(index, 'unitPrice', parseFloat(e.target.value) || 0)} 
                         className="w-full border rounded-lg p-1.5 text-center font-mono font-bold text-slate-800 bg-white" 
                       />
+                    </td>
+                    <td className="p-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <input 
+                          type="number" 
+                          min="0" 
+                          max="100" 
+                          step="any"
+                          value={item.taxRate ?? 0} 
+                          onChange={e => handleItemChange(index, 'taxRate', parseFloat(e.target.value) || 0)} 
+                          className="w-16 border rounded-lg p-1.5 text-center font-mono font-bold text-slate-800 bg-white focus:border-emerald-500 outline-none" 
+                          title="نسبة الضريبة الخاصة بالبند"
+                        />
+                        <span className="text-xs text-slate-400 font-bold">%</span>
+                      </div>
+                      {Number(item.taxRate) > 0 && (
+                        <span className="text-[10px] text-emerald-600 font-mono font-bold block mt-0.5" title="قيمة ضريبة هذا البند">
+                          +{(((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)) * ((Number(item.taxRate) || 0) / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      )}
                     </td>
                     <td className="p-3 text-center font-mono font-black text-slate-900" dir="ltr">
                       {((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1054,7 +1139,7 @@ const PurchaseInvoiceForm = () => {
                 ))}
                 {items.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="p-8 text-center text-slate-400 font-bold">
+                    <td colSpan={7} className="p-8 text-center text-slate-400 font-bold">
                       لم تتم إضافة أي أصناف بعد. ابحث عن صنف بالأعلى لإضافته.
                     </td>
                   </tr>
@@ -1074,10 +1159,13 @@ const PurchaseInvoiceForm = () => {
                 <span>الإجمالي قبل الضريبة:</span>
                 <span className="font-mono">{subtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
               </div>
-              {settings.enableTax && (
+              {(taxAmount > 0 || settings.enableTax) && (
                 <div className="flex justify-between text-xs font-bold text-slate-600">
-                  <span>ضريبة القيمة المضافة ({settings.vatRate || 14}%):</span>
-                  <span className="font-mono">{taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
+                  <span>
+                    ضريبة القيمة المضافة
+                    {settings.enableTax && !items.some(it => it.taxRate !== undefined && it.taxRate !== settings.vatRate) ? ` (${settings.vatRate || 14}%):` : ':'}
+                  </span>
+                  <span className="font-mono text-emerald-700 font-bold">{taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
                 </div>
               )}
               <div className="flex justify-between text-sm font-black text-emerald-800 border-t border-slate-200 pt-2">
