@@ -393,7 +393,7 @@ const OfferBeneficiariesReport = () => {
                               <Cell fill="#8b5cf6" />
                               <Cell fill="#cbd5e1" />
                           </Pie>
-                          <Tooltip formatter={(value: number) => value.toLocaleString()} />
+                          <Tooltip formatter={(value: any) => Number(value || 0).toLocaleString()} />
                           <Legend verticalAlign="bottom" height={36} iconSize={10}/>
                       </PieChart>
                   </ResponsiveContainer>

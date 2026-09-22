@@ -566,7 +566,7 @@ export const ChequesPage = () => {
                                 <Cell key={`cell-${index}`} fill={entry.color} />
                             ))}
                         </Pie>
-                        <Tooltip formatter={(value: number) => value.toLocaleString()} />
+                        <Tooltip formatter={(value: any) => Number(value || 0).toLocaleString()} />
                         <Legend verticalAlign="middle" align="right" layout="vertical" />
                     </PieChart>
                 </ResponsiveContainer>

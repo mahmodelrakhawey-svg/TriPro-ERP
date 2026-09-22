@@ -79,7 +79,7 @@ export default function CashFlowReport() {
             periodTransactions.push({
               id: `${entry.id}-${index}`, // Unique key using index to avoid duplicates
               date: entryDate,
-              reference: entry.reference,
+              reference: entry.reference || '',
               description: line.description || entry.description,
               accountName: acc ? acc.name : (line.accountName || 'غير معروف'),
               debit: Number(line.debit) || 0,

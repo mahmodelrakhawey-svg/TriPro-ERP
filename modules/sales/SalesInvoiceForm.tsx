@@ -34,7 +34,7 @@ import { InvoiceSummary } from './components/InvoiceSummary';
 
 
 const SalesInvoiceForm = () => { // Removed unused useParams import
-  const { products, warehouses, salespeople, accounts, approveInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice, currentSelectedOrgId, organization } = useAccounting() as any;
+  const { products, warehouses, salespeople, accounts, approveInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice, currentSelectedOrgId, organization } = useAccounting();
   const currentUserRole = (currentUser as any)?.role || '';
   const navigate = useNavigate();
   const location = useLocation();
@@ -854,7 +854,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const selectedCustomer = customers.find(c => c.id === formData.customerId);
   const currentInvoiceDebt = Math.max(0, totalAmount - formData.paidAmount);
   const totalProjectedDebt = customerBalance + currentInvoiceDebt;
-  const isOverLimit = selectedCustomer?.credit_limit > 0 && totalProjectedDebt > selectedCustomer.credit_limit;
+  const isOverLimit = Boolean(selectedCustomer?.credit_limit && selectedCustomer.credit_limit > 0 && totalProjectedDebt > selectedCustomer.credit_limit);
 
   const filteredProducts = useMemo(() => {
       if (!productSearchTerm.trim()) return [];
@@ -1364,7 +1364,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         }
 
         // 🚀 الخطوة الذهبية: إذا كانت الفاتورة مرحلة، نطلب من السيرفر إعادة تحديث القيود والمخزون فوراً
-        if (invoiceData.status === 'posted' || invoiceData.status === 'paid') {
+        if ((invoiceData.status === 'posted' || invoiceData.status === 'paid') && invoiceId) {
             try {
                 await approveInvoice(invoiceId, userOrgId, formData.warehouseId);
                 showToast('تم تحديث الفاتورة والقيود المحاسبية بنجاح ✅', 'success');

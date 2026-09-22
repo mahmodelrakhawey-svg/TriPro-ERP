@@ -21,7 +21,7 @@
     /* Linting */
     // 🔒 SECURITY NOTE: strict mode will be enabled after fixing existing type errors
     // See SECURITY_REMEDIATION.md for details
-    "strict": false,
+    "strict": true,
     "strictNullChecks": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,

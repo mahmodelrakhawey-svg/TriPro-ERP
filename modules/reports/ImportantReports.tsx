@@ -1,4 +1,4 @@
-﻿﻿﻿import { useMemo } from 'react';
+﻿﻿import { useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Link } from 'react-router-dom';
 import { 
@@ -221,7 +221,7 @@ const ImportantReports = () => {
                                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                 ))}
                             </Pie>
-                            <Tooltip formatter={(value: number) => value.toLocaleString()} />
+                            <Tooltip formatter={(value: any) => Number(value || 0).toLocaleString()} />
                             <Legend layout="vertical" verticalAlign="middle" align="right" />
                         </PieChart>
                     </ResponsiveContainer>

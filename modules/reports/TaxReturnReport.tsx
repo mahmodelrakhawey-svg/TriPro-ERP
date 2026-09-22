@@ -126,6 +126,11 @@ const TaxReturnReport = () => {
                     }
                 }
 
+                if (!settlementAcc) {
+                    setClosing(false);
+                    return;
+                }
+
                 const description = `إغلاق الفترة الضريبية من ${startDate} إلى ${endDate}`;
                 const lines: any[] = [];
 

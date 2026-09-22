@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿import React, { useState } from 'react';
+﻿﻿﻿﻿﻿import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Warehouse, Plus, MapPin, Trash2, Edit2, Save, X, User, Phone, Package, DollarSign } from 'lucide-react';
@@ -72,7 +72,7 @@ const WarehouseManager = () => {
           // حساب إحصائيات المستودع الحالية بناءً على بيانات الأصناف المحدثة
           const warehouseStock = products.filter(p => p.warehouse_stock?.[warehouse.id] && Number(p.warehouse_stock[warehouse.id]) !== 0);
           const totalValue = warehouseStock.reduce((sum, p) => 
-            sum + (Number(p.warehouse_stock[warehouse.id]) * (p.cost || p.weighted_average_cost || p.purchase_price || 0)), 0
+            sum + (Number(p.warehouse_stock?.[warehouse.id] || 0) * (p.cost || p.weighted_average_cost || p.purchase_price || 0)), 0
           );
 
           return (

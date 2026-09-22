@@ -56,7 +56,7 @@ const MonthlyRevenueChart = React.memo(({ data }: { data: any[] }) => (
       <CartesianGrid vertical={false} stroke="#f1f5f9" />
       <Tooltip 
         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-        formatter={(value: number) => value.toLocaleString()}
+        formatter={(value: any) => Number(value || 0).toLocaleString()}
       />
       <Area type="monotone" dataKey="revenue" stroke="#10b981" fillOpacity={1} fill="url(#colorRevenue)" name="الإيرادات" strokeWidth={2} />
       <Area type="monotone" dataKey="expense" stroke="#ef4444" fillOpacity={1} fill="url(#colorExpense)" name="المصروفات" strokeWidth={2} />
@@ -80,7 +80,7 @@ const ExpensesBreakdownChart = React.memo(({ data }: { data: any[] }) => (
           <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
         ))}
       </Pie>
-      <Tooltip formatter={(value: number) => value.toLocaleString()} />
+      <Tooltip formatter={(value: any) => Number(value || 0).toLocaleString()} />
       <Legend layout="horizontal" verticalAlign="bottom" align="center" />
     </PieChart>
   </ResponsiveContainer>
@@ -100,7 +100,7 @@ const WeeklyCashFlowChart = React.memo(({ data }: { data: any[] }) => (
       <CartesianGrid vertical={false} stroke="#f1f5f9" />
       <Tooltip 
         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-        formatter={(value: number) => value.toLocaleString('ar-EG', {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+        formatter={(value: any) => Number(value || 0).toLocaleString('ar-EG', {minimumFractionDigits: 0, maximumFractionDigits: 0})}
       />
       <Area type="monotone" dataKey="balance" stroke="#8884d8" fillOpacity={1} fill="url(#colorCash)" name="رصيد النقدية" strokeWidth={2} />
     </AreaChart>

@@ -90,6 +90,7 @@ const ProductManager = () => {
   const queryClient = useQueryClient();
   const { accounts: contextAccounts, getSystemAccount, refreshData, deleteProduct, updateProduct, currentUser, products: contextProducts, warehouses, can, categories, addProduct, addEntry, settings, recalculateStock, currentSelectedOrgId, suppliers } = useAccounting();
   const { showToast } = useToast();
+  const toastFn = useCallback((msg: string, type?: string) => showToast(msg, type as any), [showToast]);
   
   // نقلنا تعريفات الحالة للأعلى لمنع خطأ TS2448 (Used before declaration)
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -904,13 +905,13 @@ const ProductManager = () => {
       targetOrgId,
       categories,
       queryModifier,
-      showToast,
+      showToast: toastFn,
       setIsExporting,
     });
   };
 
   // ⚖️ تصدير ملف الموازين الإلكترونية (Scale PLU Exporter)
-  const handleExportScalePLU = () => exportScalePLUToExcel(showToast);
+  const handleExportScalePLU = () => exportScalePLUToExcel(toastFn);
 
   const handleDownloadRecipeTemplate = () => downloadRecipeTemplate();
 
@@ -924,7 +925,7 @@ const ProductManager = () => {
       refresh,
       setAutoCreatedProducts,
       setIsReportModalOpen,
-      showToast,
+      showToast: toastFn,
       setIsRecipeImporting,
     });
     e.target.value = '';
@@ -945,7 +946,7 @@ const ProductManager = () => {
       addEntry,
       queryClient,
       refreshData,
-      showToast,
+      showToast: toastFn,
       setIsImporting,
     });
     e.target.value = '';

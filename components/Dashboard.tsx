@@ -470,7 +470,7 @@ const Dashboard = () => {
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                 <XAxis dataKey="name" />
                                 <YAxis />
-                                <Tooltip formatter={(value: number) => value.toLocaleString()} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                                <Tooltip formatter={(value: any) => Number(value || 0).toLocaleString()} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                                 <Legend />
                                 <Bar dataKey="sales" name="المبيعات" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                                 <Bar dataKey="purchases" name="المشتريات" fill="#a855f7" radius={[4, 4, 0, 0]} />
@@ -521,7 +521,7 @@ const Dashboard = () => {
                                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                         ))}
                                     </Pie>
-                                    <Tooltip formatter={(value: number) => value.toLocaleString()} />
+                                    <Tooltip formatter={(value: any) => Number(value || 0).toLocaleString()} />
                                     <Legend iconSize={10} />
                                 </PieChart>
                             </ResponsiveContainer>

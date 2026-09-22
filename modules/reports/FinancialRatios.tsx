@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { 
   Gauge, TrendingUp, Activity, Printer, Download, Target, Loader2, RefreshCw, 
@@ -1444,7 +1444,7 @@ const FinancialRatios = () => {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 12 }} />
                   <YAxis tick={{ fill: '#64748b', fontSize: 12 }} tickFormatter={(val) => `${val >= 1000 ? val / 1000 + 'k' : val}`} />
-                  <Tooltip formatter={(value: number) => `${value.toLocaleString()} ج.م`} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                  <Tooltip formatter={(value: any) => `${Number(value || 0).toLocaleString()} ج.م`} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                   <Legend />
                   <Bar dataKey={currentYear} name={`السنة الحالية (${currentYear})`} fill="#4f46e5" radius={[6, 6, 0, 0]} />
                   <Bar dataKey={prevYear} name={`السنة السابقة (${prevYear})`} fill="#94a3b8" radius={[6, 6, 0, 0]} />

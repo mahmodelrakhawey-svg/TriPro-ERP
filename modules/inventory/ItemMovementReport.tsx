@@ -824,7 +824,7 @@ const ItemMovementReport = () => {
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
                         <Tooltip 
                             contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
-                            formatter={(value: number) => [`${value.toLocaleString()} ${selectedProduct?.unit || ''}`, 'الرصيد']}
+                            formatter={(value: any) => [`${Number(value || 0).toLocaleString()} ${selectedProduct?.unit || ''}`, 'الرصيد']}
                             labelFormatter={(label) => `التاريخ: ${label}`}
                         />
                         <Area type="monotone" dataKey="balanceAfter" stroke="#3b82f6" fillOpacity={1} fill="url(#colorBalance)" />

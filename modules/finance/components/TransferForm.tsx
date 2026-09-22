@@ -51,7 +51,7 @@ const TransferForm = () => {
         
         return {
           id: entry.id,
-          date: entry.transaction_date,
+          date: entry.transaction_date || entry.date || '',
           description: entry.description,
           reference: entry.reference,
           amount: sourceLine ? Number(sourceLine.credit) : (destLine ? Number(destLine.debit) : 0),

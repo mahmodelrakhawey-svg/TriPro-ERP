@@ -95,6 +95,8 @@ export interface Account {
   // خصائص إضافية للواجهة (Frontend Compatibility)
   isGroup?: boolean;
   parentAccount?: string | null;
+  parent_id?: string | null;
+  parentId?: string | null;
 }
 
 // سطر القيد المحاسبي
@@ -121,6 +123,7 @@ export interface JournalEntry {
   status: 'posted' | 'draft';
   is_posted: boolean;
   lines: JournalEntryLine[];
+  journal_lines?: any[];
   user_id?: string;
   transaction_date?: string;
   journal_attachments?: any[];
@@ -248,11 +251,12 @@ export interface Customer {
   taxId?: string;
   address?: string;
   email?: string;
-  customer_type?: 'online' | 'store';
+  customer_type?: 'online' | 'store' | 'insurance_provider' | string;
   // خصائص إضافية
-  customerType?: 'online' | 'store';
+  customerType?: 'online' | 'store' | 'insurance_provider' | string;
   credit_limit?: number;
   creditLimit?: number;
+  opening_balance?: number;
 }
 
 export interface Supplier {
@@ -264,6 +268,7 @@ export interface Supplier {
   taxId?: string;
   address?: string;
   email?: string;
+  account_id?: string | null;
   // خصائص إضافية
   tax_number?: string;
   contact_person?: string;
@@ -285,6 +290,7 @@ export interface Category {
   id: string;
   name: string;
   price?: number;
+  default_inventory_account_id?: string | null;
 }
 
 export interface Product {
@@ -319,6 +325,7 @@ export interface Product {
   halfWholesalePrice?: number;
   warehouseStock?: { [warehouseId: string]: number };
   sales_price?: number;
+  sale_price?: number;
   expiry_date?: string;
   offer_price?: number;
   offer_start_date?: string;
@@ -327,6 +334,12 @@ export interface Product {
   station_id?: string | null;
   prep_time_minutes?: number;
   is_86?: boolean;
+  is_active?: boolean;
+  inventory_account_id?: string | null;
+  weighted_average_cost?: number | null;
+  image_url?: string | null;
+  quantity?: number;
+  min_order_quantity?: number;
   // 🏛️ متطلبات الفاتورة الإلكترونية المصرية (ETA e-Invoicing)
   item_code_type?: 'GS1' | 'EGS';
   egs_code?: string;
