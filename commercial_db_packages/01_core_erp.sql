@@ -7243,13 +7243,17 @@ END $$;
 
 -- 🛡️ دالة بدء الوردية (Start Shift) - النسخة الموحدة
 -- تم تحديث التوقيع ليتوافق مع نداء الواجهة الأمامية ويدعم السوبر أدمن والشركات المتعددة
-DROP FUNCTION IF EXISTS public.start_pos_shift CASCADE;
+DROP FUNCTION IF EXISTS public.start_pos_shift(numeric, boolean, uuid, uuid) CASCADE;
+DROP FUNCTION IF EXISTS public.start_pos_shift(numeric, boolean, uuid, uuid, uuid) CASCADE;
+DROP FUNCTION IF EXISTS public.start_pos_shift(numeric, boolean, uuid, uuid, uuid, uuid) CASCADE;
 
 CREATE OR REPLACE FUNCTION public.start_pos_shift(
     p_opening_balance numeric DEFAULT 0, 
     p_resume_existing boolean DEFAULT true, 
     p_treasury_account_id uuid DEFAULT NULL, 
-    p_user_id uuid DEFAULT NULL
+    p_user_id uuid DEFAULT NULL,
+    p_org_id uuid DEFAULT NULL,
+    p_terminal_id uuid DEFAULT NULL
 )
 RETURNS public.shifts 
 LANGUAGE plpgsql 
@@ -7260,34 +7264,49 @@ DECLARE
     v_existing_shift public.shifts; 
     v_new_shift public.shifts;
     v_org_id uuid;
+    v_actual_user_id uuid;
 BEGIN
-    -- جلب منظمة المستخدم (سواء من بروفايله أو من التوكن للسوبر أدمن)
+    v_actual_user_id := COALESCE(p_user_id, auth.uid());
+
+    -- تحديد منظمة المستخدم (الممررة صراحة أو من الجلسة أو من البروفايل)
     v_org_id := COALESCE(
+        p_org_id,
         public.get_my_org(), 
-        (SELECT organization_id FROM public.profiles WHERE id = COALESCE(p_user_id, auth.uid()))
+        (SELECT organization_id FROM public.profiles WHERE id = v_actual_user_id)
     );
     
-    IF v_org_id IS NULL THEN
-        RAISE EXCEPTION 'فشل تحديد المنظمة. تأكد من ضبط المنظمة النشطة للسوبر أدمن.';
+    IF v_org_id IS NULL AND current_setting('app.restore_mode', true) != 'on' THEN
+        RAISE EXCEPTION 'فشل تحديد المنظمة. تأكد من ضبط المنظمة النشطة للسوبر أدمن أو ربط المستخدم بشركة.';
     END IF;
 
-    -- البحث عن وردية مفتوحة
-    SELECT * INTO v_existing_shift 
-    FROM public.shifts 
-    WHERE user_id = COALESCE(p_user_id, auth.uid()) AND end_time IS NULL AND organization_id = v_org_id 
-    LIMIT 1;
+    -- إذا تم توفير معرّف الجهاز، نبحث عن وردية مفتوحة للجهاز أو للمستخدم
+    IF p_terminal_id IS NOT NULL THEN
+        SELECT * INTO v_existing_shift FROM public.shifts 
+        WHERE (user_id = v_actual_user_id OR terminal_id = p_terminal_id) 
+          AND end_time IS NULL AND organization_id = v_org_id 
+        ORDER BY start_time DESC LIMIT 1;
+    ELSE
+        SELECT * INTO v_existing_shift FROM public.shifts 
+        WHERE user_id = v_actual_user_id AND end_time IS NULL AND organization_id = v_org_id 
+        ORDER BY start_time DESC LIMIT 1;
+    END IF;
 
     IF v_existing_shift.id IS NOT NULL AND p_resume_existing THEN 
         RETURN v_existing_shift; 
     END IF;
 
-    IF v_existing_shift.id IS NOT NULL THEN 
-        RAISE EXCEPTION 'يوجد وردية مفتوحة بالفعل لهذا المستخدم. يرجى إغلاقها أولاً.'; 
+    IF p_resume_existing THEN 
+        RETURN NULL; 
     END IF;
 
-    -- إنشاء الوردية الجديدة مع ربط الخزينة المختارة
-    INSERT INTO public.shifts (user_id, start_time, opening_balance, treasury_account_id, organization_id, status)
-    VALUES (COALESCE(p_user_id, auth.uid()), now(), p_opening_balance, p_treasury_account_id, v_org_id, 'OPEN') 
+    -- خاصية التعافي الذاتي لمنع خطأ 400
+    IF v_existing_shift.id IS NOT NULL THEN 
+        RETURN v_existing_shift; 
+    END IF;
+
+    -- إنشاء الوردية الجديدة مع ربط الخزينة ومعرّف الجهاز
+    INSERT INTO public.shifts (user_id, start_time, opening_balance, treasury_account_id, organization_id, status, terminal_id)
+    VALUES (v_actual_user_id, now(), COALESCE(p_opening_balance, 0), p_treasury_account_id, v_org_id, 'OPEN', p_terminal_id) 
     RETURNING * INTO v_new_shift;
 
     RETURN v_new_shift;
@@ -11392,7 +11411,7 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO anon;
 GRANT EXECUTE ON FUNCTION public.recalculate_all_balances(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.recalculate_all_system_balances(uuid) TO authenticated;
 -- تحديث الصلاحيات لتناسب التواقيع الموحدة
-GRANT EXECUTE ON FUNCTION public.start_pos_shift(numeric, boolean, uuid, uuid) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.start_pos_shift(numeric, boolean, uuid, uuid, uuid, uuid) TO authenticated, service_role, anon;
 GRANT EXECUTE ON FUNCTION public.get_active_shift(uuid, uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.get_current_company_settings(uuid) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.close_shift(uuid, numeric, text, uuid) TO authenticated;
@@ -13300,7 +13319,10 @@ ALTER TABLE public.orders
     ADD COLUMN IF NOT EXISTS shift_id uuid REFERENCES public.shifts(id) ON DELETE SET NULL,
     ADD COLUMN IF NOT EXISTS terminal_id uuid REFERENCES public.pos_terminals(id) ON DELETE SET NULL;
 
--- 4. تعديل دالة بدء الوردية لدعم معرّف الجهاز (Terminal ID)
+-- 4. تعديل دالة بدء الوردية لدعم معرّف الجهاز (Terminal ID) والتعافي التلقائي
+DROP FUNCTION IF EXISTS public.start_pos_shift(numeric, boolean, uuid, uuid) CASCADE;
+DROP FUNCTION IF EXISTS public.start_pos_shift(numeric, boolean, uuid, uuid, uuid) CASCADE;
+
 CREATE OR REPLACE FUNCTION public.start_pos_shift(
     p_opening_balance numeric DEFAULT 0, 
     p_resume_existing boolean DEFAULT true, 
@@ -13313,8 +13335,15 @@ DECLARE
     v_existing_shift public.shifts; 
     v_new_shift public.shifts;
     v_org_id uuid;
+    v_actual_user_id uuid;
 BEGIN
-    v_org_id := COALESCE(p_org_id, public.get_my_org());
+    v_actual_user_id := COALESCE(p_user_id, auth.uid());
+
+    v_org_id := COALESCE(
+        p_org_id, 
+        public.get_my_org(),
+        (SELECT organization_id FROM public.profiles WHERE id = v_actual_user_id)
+    );
     IF v_org_id IS NULL AND current_setting('app.restore_mode', true) != 'on' THEN 
         RAISE EXCEPTION 'فشل تحديد المنظمة. يرجى التأكد من ربط حسابك بشركة.'; 
     END IF;
@@ -13322,12 +13351,12 @@ BEGIN
     -- إذا تم توفير معرّف الجهاز، نبحث عن وردية مفتوحة للجهاز أو للمستخدم
     IF p_terminal_id IS NOT NULL THEN
         SELECT * INTO v_existing_shift FROM public.shifts 
-        WHERE (user_id = COALESCE(p_user_id, auth.uid()) OR terminal_id = p_terminal_id) 
+        WHERE (user_id = v_actual_user_id OR terminal_id = p_terminal_id) 
           AND end_time IS NULL AND organization_id = v_org_id 
         ORDER BY start_time DESC LIMIT 1;
     ELSE
         SELECT * INTO v_existing_shift FROM public.shifts 
-        WHERE user_id = COALESCE(p_user_id, auth.uid()) AND end_time IS NULL AND organization_id = v_org_id 
+        WHERE user_id = v_actual_user_id AND end_time IS NULL AND organization_id = v_org_id 
         ORDER BY start_time DESC LIMIT 1;
     END IF;
 
@@ -13339,16 +13368,19 @@ BEGIN
     -- إذا طلب المستخدم الاستئناف ولم نجد، نعيد NULL للتوقف
     IF p_resume_existing THEN RETURN NULL; END IF;
 
+    -- التعافي الذاتي: إعادة الوردية المفتوحة بدلاً من تفجير خطأ
     IF v_existing_shift.id IS NOT NULL THEN 
-        RAISE EXCEPTION 'يوجد وردية مفتوحة بالفعل لهذا المستخدم أو هذا الكاشير. يرجى إغلاقها أولاً.'; 
+        RETURN v_existing_shift; 
     END IF;
 
     INSERT INTO public.shifts (user_id, start_time, opening_balance, treasury_account_id, organization_id, status, terminal_id)
-    VALUES (COALESCE(p_user_id, auth.uid()), now(), p_opening_balance, p_treasury_account_id, v_org_id, 'OPEN', p_terminal_id) 
+    VALUES (v_actual_user_id, now(), COALESCE(p_opening_balance, 0), p_treasury_account_id, v_org_id, 'OPEN', p_terminal_id) 
     RETURNING * INTO v_new_shift;
 
     RETURN v_new_shift;
 END; $$;
+
+GRANT EXECUTE ON FUNCTION public.start_pos_shift(numeric, boolean, uuid, uuid, uuid, uuid) TO authenticated, service_role, anon;
 
 -- 5. تحديث دالة إغلاق الوردية وتوليد القيود المالية (generate_shift_closing_entry)
 -- لحل تداخل المبيعات المتزامنة بدقة

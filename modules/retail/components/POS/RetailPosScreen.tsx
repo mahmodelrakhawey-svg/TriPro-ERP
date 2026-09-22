@@ -63,6 +63,13 @@ export default function RetailPosScreen() {
   const { showToast } = useToast();
 
   const currencySymbol = settings?.currency || 'ج.م';
+  const effectiveOrgId = (currentSelectedOrgId && isValidUUID(currentSelectedOrgId))
+    ? currentSelectedOrgId
+    : ((organization?.id && isValidUUID(organization.id))
+        ? organization.id
+        : ((currentUser?.organization_id && isValidUUID(currentUser.organization_id))
+            ? currentUser.organization_id
+            : null));
 
   // Network Status
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -583,13 +590,15 @@ export default function RetailPosScreen() {
     setIsLoadingTerminals(true);
     try {
       let termData: any[] = [];
-      if (navigator.onLine && currentUser.role !== 'demo') {
+      const targetOrg = effectiveOrgId || (currentUser?.organization_id && isValidUUID(currentUser.organization_id) ? currentUser.organization_id : null);
+
+      if (navigator.onLine && currentUser.role !== 'demo' && targetOrg) {
         try {
           const { data, error: termErr } = await supabase
             .from('pos_terminals')
             .select('*')
             .eq('status', 'ACTIVE')
-            .eq('organization_id', currentUser.organization_id);
+            .eq('organization_id', targetOrg);
           if (!termErr && data) {
             termData = data;
           }
@@ -597,7 +606,7 @@ export default function RetailPosScreen() {
       }
 
       // 🛡️ Auto-provision a default terminal in DB if none exists for this organization and user is online
-      if ((!termData || termData.length === 0) && navigator.onLine && currentUser.role !== 'demo' && isValidUUID(currentUser.organization_id)) {
+      if ((!termData || termData.length === 0) && navigator.onLine && currentUser.role !== 'demo' && targetOrg) {
         try {
           let defaultCashId = settings?.accountMappings?.CASH || settings?.account_mappings?.CASH || null;
           if (!isValidUUID(defaultCashId)) {
@@ -608,7 +617,7 @@ export default function RetailPosScreen() {
             .from('pos_terminals')
             .insert({
               name: 'الكاشير الرئيسي 1',
-              organization_id: currentUser.organization_id,
+              organization_id: targetOrg,
               cash_account_id: defaultCashId,
               status: 'ACTIVE'
             })
@@ -627,16 +636,14 @@ export default function RetailPosScreen() {
       if (!termData || termData.length === 0) {
         const cachedValidOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
           (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
-        const effectiveOrg = (currentUser?.organization_id && currentUser.organization_id !== 'org-default-offline') 
-          ? currentUser.organization_id 
-          : (cachedValidOrg || '00000000-0000-0000-0000-000000000000');
+        const effectiveFallbackOrg = targetOrg || (cachedValidOrg || '00000000-0000-0000-0000-000000000000');
 
         const defaultTerm = {
           id: 'term-offline-1',
           name: 'الكاشير الرئيسي 1',
           status: 'ACTIVE',
           cash_account_id: 'acc-cash',
-          organization_id: effectiveOrg
+          organization_id: effectiveFallbackOrg
         };
         termData = [defaultTerm];
       }
@@ -644,13 +651,9 @@ export default function RetailPosScreen() {
 
       // 2. Sync products locally if online, or seed fallback products
       if (navigator.onLine && currentUser.role !== 'demo') {
-        const cachedValidOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
-          (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
-        const effectiveOrg = (currentUser?.organization_id && currentUser.organization_id !== 'org-default-offline') 
-          ? currentUser.organization_id 
-          : (cachedValidOrg || currentUser?.organization_id);
-        if (effectiveOrg) {
-          await offlineService.syncProductsLocally(effectiveOrg);
+        const syncOrg = targetOrg || currentUser?.organization_id;
+        if (syncOrg) {
+          await offlineService.syncProductsLocally(syncOrg);
         }
       } else {
         await offlineService.seedFallbackProducts(DEFAULT_OFFLINE_PRODUCTS);
@@ -685,12 +688,17 @@ export default function RetailPosScreen() {
       // If not found in localStorage and online, check DB for open shift
       if (!activeShiftDb && navigator.onLine && currentUser.role !== 'demo') {
         try {
-          const { data: dbShift, error: shiftErr } = await supabase
+          let shiftQuery = supabase
             .from('shifts')
             .select('*, pos_terminals(*)')
             .eq('user_id', currentUser.id)
-            .eq('organization_id', currentUser.organization_id)
-            .is('end_time', null)
+            .is('end_time', null);
+
+          if (targetOrg) {
+            shiftQuery = shiftQuery.eq('organization_id', targetOrg);
+          }
+
+          const { data: dbShift, error: shiftErr } = await shiftQuery
             .order('start_time', { ascending: false })
             .limit(1)
             .maybeSingle();
@@ -743,15 +751,46 @@ export default function RetailPosScreen() {
         return;
       }
 
+      const targetOrg = effectiveOrgId || (currentUser?.organization_id && isValidUUID(currentUser.organization_id) ? currentUser.organization_id : null);
+
+      // 🛡️ 1. فحص إذا كان هناك وردية مفتوحة بالفعل في قاعدة البيانات لاستئنافها مباشرة
+      try {
+        let openCheckQuery = supabase
+          .from('shifts')
+          .select('*, pos_terminals(*)')
+          .eq('user_id', currentUser.id)
+          .is('end_time', null);
+
+        if (targetOrg) {
+          openCheckQuery = openCheckQuery.eq('organization_id', targetOrg);
+        }
+
+        const { data: alreadyOpen } = await openCheckQuery
+          .order('start_time', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (alreadyOpen && alreadyOpen.id) {
+          setActiveShift(alreadyOpen);
+          const resolvedTerm = alreadyOpen.pos_terminals || (terminals && terminals.find((t: any) => t.id === alreadyOpen.terminal_id)) || termToUse;
+          setSelectedTerminal(resolvedTerm);
+          secureStorage.setItem(`tripro_shift_${currentUser.id}`, alreadyOpen);
+          showToast('تم العثور على وردية مفتوحة واستئنافها بنجاح ✅', 'success');
+          return;
+        }
+      } catch (checkErr) {
+        console.warn('Check existing shift failed:', checkErr);
+      }
+
       // Resolve treasury account linked to terminal or fetch default
       let treasuryId = selectedTerminal?.cash_account_id;
       if (!treasuryId || !isValidUUID(treasuryId)) {
         treasuryId = settings?.accountMappings?.CASH || settings?.account_mappings?.CASH || null;
-        if (!treasuryId || !isValidUUID(treasuryId)) {
+        if ((!treasuryId || !isValidUUID(treasuryId)) && targetOrg) {
           const { data: mappings } = await supabase
             .from('company_settings')
             .select('account_mappings')
-            .eq('organization_id', currentUser.organization_id)
+            .eq('organization_id', targetOrg)
             .maybeSingle();
           treasuryId = mappings?.account_mappings?.CASH || null;
         }
@@ -759,11 +798,15 @@ export default function RetailPosScreen() {
 
       const validTreasuryId = isValidUUID(treasuryId) ? treasuryId : null;
       const validTerminalId = isValidUUID(termToUse?.id) ? termToUse.id : null;
-      const validOrgId = isValidUUID(currentUser.organization_id) ? currentUser.organization_id : null;
-      const validUserId = isValidUUID(currentUser.id) ? currentUser.id : null;
+      const validOrgId = targetOrg;
+      const validUserId = (currentUser?.id && isValidUUID(currentUser.id)) ? currentUser.id : null;
 
-      // Call start shift rpc
-      const { data: newShift, error } = await supabase.rpc('start_pos_shift', {
+      // 🛡️ 2. استدعاء start_pos_shift مع دعم ذكي لتعدد التواقيع (Overload Ambiguity Resilience)
+      let newShift: any = null;
+      let rpcError: any = null;
+
+      // المحاولة الأولى: تمرير 6 معاملات (النمط الكامل مع معرّف الجهاز والمنظمة)
+      const res6 = await supabase.rpc('start_pos_shift', {
         p_opening_balance: Number(openingBalance) || 0,
         p_resume_existing: false,
         p_treasury_account_id: validTreasuryId,
@@ -772,20 +815,88 @@ export default function RetailPosScreen() {
         p_terminal_id: validTerminalId
       });
 
-      if (error) throw error;
+      if (!res6.error && res6.data) {
+        newShift = res6.data;
+      } else {
+        rpcError = res6.error;
+        console.warn('start_pos_shift (6 params) error:', res6.error);
+
+        // المحاولة الثانية: إذا كان الخطأ بسبب عدم تطابق التوقيع أو تداخل الدوال (PGRST202 / PGRST203)
+        if (res6.error?.code === 'PGRST202' || res6.error?.code === 'PGRST203' || res6.error?.code === '42883' || res6.error?.message?.includes('candidate') || res6.error?.message?.includes('function')) {
+          const res5 = await supabase.rpc('start_pos_shift', {
+            p_opening_balance: Number(openingBalance) || 0,
+            p_resume_existing: false,
+            p_treasury_account_id: validTreasuryId,
+            p_user_id: validUserId,
+            p_org_id: validOrgId
+          });
+
+          if (!res5.error && res5.data) {
+            newShift = res5.data;
+            rpcError = null;
+          } else {
+            rpcError = res5.error;
+            console.warn('start_pos_shift (5 params) error:', res5.error);
+
+            // المحاولة الثالثة: النمط الأساسي 4 معاملات
+            const res4 = await supabase.rpc('start_pos_shift', {
+              p_opening_balance: Number(openingBalance) || 0,
+              p_resume_existing: false,
+              p_treasury_account_id: validTreasuryId,
+              p_user_id: validUserId
+            });
+
+            if (!res4.error && res4.data) {
+              newShift = res4.data;
+              rpcError = null;
+            } else {
+              rpcError = res4.error;
+              console.warn('start_pos_shift (4 params) error:', res4.error);
+            }
+          }
+        }
+      }
+
+      // إذا ردت قاعدة البيانات بأن هناك وردية مفتوحة بالفعل، نستأنفها فوراً
+      if (rpcError) {
+        const errorMsg = String(rpcError.message || rpcError.details || '');
+        if (errorMsg.includes('مفتوحة بالفعل') || errorMsg.includes('already open') || errorMsg.includes('already')) {
+          const { data: dbExistingShift } = await supabase
+            .from('shifts')
+            .select('*, pos_terminals(*)')
+            .eq('user_id', currentUser.id)
+            .is('end_time', null)
+            .order('start_time', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (dbExistingShift && dbExistingShift.id) {
+            setActiveShift(dbExistingShift);
+            secureStorage.setItem(`tripro_shift_${currentUser.id}`, dbExistingShift);
+            showToast('تم العثور على وردية مفتوحة واستئنافها بنجاح ✅', 'success');
+            return;
+          }
+        }
+        throw rpcError;
+      }
 
       if (newShift && newShift.id) {
-        const { data: fullShift } = await supabase
-          .from('shifts')
-          .select('*, pos_terminals(*)')
-          .eq('id', newShift.id)
-          .maybeSingle();
+        let fullShift = newShift;
+        try {
+          const { data: fetchedShift } = await supabase
+            .from('shifts')
+            .select('*, pos_terminals(*)')
+            .eq('id', newShift.id)
+            .maybeSingle();
+          if (fetchedShift) fullShift = fetchedShift;
+        } catch {}
 
         setActiveShift(fullShift);
         secureStorage.setItem(`tripro_shift_${currentUser.id}`, fullShift);
         showToast('تم فتح الوردية بنجاح ✅', 'success');
       }
     } catch (err: any) {
+      console.error('handleOpenShift error:', err);
       // Fallback offline shift
       const termToUse = selectedTerminal || (terminals.length > 0 ? terminals[0] : null);
       const offlineShift = {
@@ -800,7 +911,7 @@ export default function RetailPosScreen() {
       };
       setActiveShift(offlineShift);
       secureStorage.setItem(`tripro_shift_${currentUser.id}`, offlineShift);
-      showToast('تم فتح الوردية محلياً (وضع أوفلاين) ✅', 'success');
+      showToast(`تم فتح الوردية محلياً (وضع أوفلاين) - ${err?.message || 'قاعدة البيانات غير متاحة'}`, 'warning');
     } finally {
       setIsOpeningShift(false);
     }
