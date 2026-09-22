@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { runRestaurantModuleTest } from '../modules/restaurant/utils/runRestaurantFlowTest';
 import ArchiveManager from '../services/ArchiveManager'; // استيراد مدير الأرشفة
 import { etaService } from '../services/etaService';
+import { isValidUUID } from '../services/offlineService';
 
 
 const ACCOUNT_LABELS: Record<string, string> = {
@@ -66,7 +67,7 @@ interface CloudBackup {
 }
 
 const Settings = () => {
-  const { closeFinancialYear, exportData, currentUser, accounts, createMissingSystemAccounts, recalculateAllBalances, purgeDeletedRecords, refreshSaasSchema, warehouses, refreshData } = useAccounting();
+  const { closeFinancialYear, exportData, currentUser, accounts, createMissingSystemAccounts, recalculateAllBalances, purgeDeletedRecords, refreshSaasSchema, warehouses, refreshData, currentSelectedOrgId, organization } = useAccounting();
   const currentUserRole = currentUser?.role || '';
   const [activeTab, setActiveTab] = useState<'general' | 'financial' | 'system' | 'mapping' | 'terminals' | 'demo' | 'eta'>('general');
   const [terminalsList, setTerminalsList] = useState<any[]>([]);
@@ -353,15 +354,29 @@ const Settings = () => {
       }
 
       try {
+        const targetOrg = (currentSelectedOrgId && isValidUUID(currentSelectedOrgId))
+            ? currentSelectedOrgId
+            : ((organization?.id && isValidUUID(organization.id))
+                ? organization.id
+                : ((currentUser?.organization_id && isValidUUID(currentUser.organization_id)) ? currentUser.organization_id : null));
+
+        const validDefaultWarehouseId = isValidUUID(formData.defaultWarehouseId) ? formData.defaultWarehouseId : null;
+        const validDefaultTreasuryId = isValidUUID(formData.defaultTreasuryId) ? formData.defaultTreasuryId : null;
+        const validProdWarehouseId = isValidUUID(formData.productionWarehouseId) ? formData.productionWarehouseId : null;
+        const validRawWarehouseId = isValidUUID(formData.rawMaterialsWarehouseId) ? formData.rawMaterialsWarehouseId : null;
+        const validBankId = isValidUUID(formData.defaultBankId) 
+            ? formData.defaultBankId 
+            : (isValidUUID((formData.accountMappings as any)?.BANK) ? (formData.accountMappings as any)?.BANK : null);
+
         const accountMappingsWithService = {
             ...(formData.accountMappings || {}),
-            BANK: formData.defaultBankId || (formData.accountMappings as any)?.BANK || null,
+            BANK: validBankId,
             enable_service_charge: formData.enableServiceCharge,
             service_charge_rate: (Number(formData.serviceChargeRate) || 0) / 100,
-            default_warehouse_id: formData.defaultWarehouseId || null,
-            default_treasury_id: formData.defaultTreasuryId || null,
-            production_warehouse_id: formData.productionWarehouseId || null,
-            raw_material_warehouse_id: formData.rawMaterialsWarehouseId || null,
+            default_warehouse_id: validDefaultWarehouseId,
+            default_treasury_id: validDefaultTreasuryId,
+            production_warehouse_id: validProdWarehouseId,
+            raw_material_warehouse_id: validRawWarehouseId,
             eta_taxpayer_id: formData.etaTaxpayerId || null,
             eta_client_id: formData.etaClientId || null,
             eta_client_secret: formData.etaClientSecret || null,
@@ -370,6 +385,7 @@ const Settings = () => {
         };
 
         const payload: any = {
+            ...(targetOrg ? { organization_id: targetOrg } : {}),
             company_name: formData.companyName,
             tax_number: formData.taxNumber,
             phone: formData.phone,
@@ -387,10 +403,10 @@ const Settings = () => {
             decimal_places: Number(formData.decimalPlaces) || 2,
             updated_at: new Date().toISOString(),
             account_mappings: accountMappingsWithService,
-            default_warehouse_id: formData.defaultWarehouseId || null,
-            default_treasury_id: formData.defaultTreasuryId || null,
-            production_warehouse_id: formData.productionWarehouseId || null,
-            raw_material_warehouse_id: formData.rawMaterialsWarehouseId || null,
+            default_warehouse_id: validDefaultWarehouseId,
+            default_treasury_id: validDefaultTreasuryId,
+            production_warehouse_id: validProdWarehouseId,
+            raw_material_warehouse_id: validRawWarehouseId,
             eta_taxpayer_id: formData.etaTaxpayerId || null,
             eta_client_id: formData.etaClientId || null,
             eta_client_secret: formData.etaClientSecret || null,
