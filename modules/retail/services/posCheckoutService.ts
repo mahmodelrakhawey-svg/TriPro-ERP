@@ -4,7 +4,7 @@
  */
 
 import { supabase } from '../../../supabaseClient';
-import { offlineService } from '../../../services/offlineService';
+import { offlineService, isValidUUID } from '../../../services/offlineService';
 import { secureStorage } from '../../../utils/securityMiddleware';
 import { couponService, RetailCoupon } from './couponService';
 import type { PosCartItem } from '../hooks/usePosCart';
@@ -118,11 +118,15 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
     let atomicSuccess = false;
 
     // 🚀 Attempt high-speed atomic POS sale RPC (single database roundtrip)
+    const validShiftId = (activeShift?.id && isValidUUID(activeShift.id)) ? activeShift.id : null;
+    const validTerminalId = (selectedTerminal?.id && isValidUUID(selectedTerminal.id)) ? selectedTerminal.id : null;
+
     try {
       let treasuryId = selectedTerminal?.cash_account_id;
-      if (!treasuryId) {
+      if (!treasuryId || !isValidUUID(treasuryId)) {
         treasuryId = settings?.accountMappings?.CASH || settings?.account_mappings?.CASH || null;
       }
+      const validTreasuryId = isValidUUID(treasuryId) ? treasuryId : null;
 
       const { data: atomicData, error: atomicErr } = await supabase.rpc('complete_pos_sale_atomic', {
         p_items: itemsPayload,
@@ -132,11 +136,11 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
         p_customer_id: selectedCustomer?.id || null,
         p_payment_method: effectiveMethod,
         p_payment_amount: total,
-        p_shift_id: activeShift?.id || null,
-        p_terminal_id: selectedTerminal?.id || null,
+        p_shift_id: validShiftId,
+        p_terminal_id: validTerminalId,
         p_total_discount: totalDiscount || 0,
         p_notes: orderData.notes,
-        p_cash_account_id: treasuryId,
+        p_cash_account_id: validTreasuryId,
         p_tax: tax || 0
       });
 
@@ -170,14 +174,14 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
       if (orderId) {
         // Update order with shift_id, terminal_id, total_discount, total_tax and grand_total
         const updatePayload: any = {
-          shift_id: activeShift?.id || null,
+          shift_id: validShiftId,
           total_discount: totalDiscount || 0,
           total_tax: tax || 0,
           subtotal: Math.max(0, (subtotal || 0) - (totalDiscount || 0)),
           grand_total: total
         };
-        if (selectedTerminal?.id) {
-          updatePayload.terminal_id = selectedTerminal.id;
+        if (validTerminalId) {
+          updatePayload.terminal_id = validTerminalId;
         }
 
         await supabase
@@ -187,9 +191,9 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
 
         // 2. Complete order (process payment & stock)
         let treasuryId = selectedTerminal?.cash_account_id;
-        if (!treasuryId) {
+        if (!treasuryId || !isValidUUID(treasuryId)) {
           treasuryId = settings?.accountMappings?.CASH || settings?.account_mappings?.CASH || null;
-          if (!treasuryId) {
+          if (!treasuryId || !isValidUUID(treasuryId)) {
             const { data: mappings } = await supabase
               .from('company_settings')
               .select('account_mappings')
@@ -198,12 +202,13 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
             treasuryId = mappings?.account_mappings?.CASH || null;
           }
         }
+        const validTreasuryId = isValidUUID(treasuryId) ? treasuryId : null;
 
         const { error: payErr } = await supabase.rpc('complete_restaurant_order', {
           p_order_id: orderId,
           p_payment_method: effectiveMethod,
           p_amount: total,
-          p_cash_account_id: treasuryId,
+          p_cash_account_id: validTreasuryId,
           p_org_id: effectiveOrgId,
           p_warehouse_id: effectiveWarehouseId !== '00000000-0000-0000-0000-000000000000' ? effectiveWarehouseId : null
         });

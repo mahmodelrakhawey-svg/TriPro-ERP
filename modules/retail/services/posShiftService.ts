@@ -1,8 +1,9 @@
-﻿/**
+/**
  * TriPro ERP — POS Shift Financials Service
  * منطق معزول ومحكم لحسابات نقدية الوردية، المبيعات النقدية، المرتجعات، والمسحوبات
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { db, isValidUUID } from '../../../services/offlineService';
 
 export interface ShiftFinancialsResult {
   cashSales: number;
@@ -35,6 +36,31 @@ export async function getLiveShiftFinancials(
   let cashSales = 0;
   let cashReturns = 0;
 
+  // 🛡️ إذا كان معرّف الوردية محلي/أوفلاين أو غير صالح كـ UUID، نحسب النقدية من قاعدة البيانات المحلية Dexie
+  if (!shift?.id || !isValidUUID(shift.id)) {
+    try {
+      const queued = await db.queuedOrders.toArray();
+      const shiftOrders = queued.filter(q => q.payload?.shift_id === shift?.id);
+      cashSales = shiftOrders
+        .filter(q => !q.payload?.payment_method || q.payload?.payment_method === 'CASH')
+        .reduce((sum, q) => sum + Number(q.payload?.total || q.payload?.grand_total || 0), 0);
+      const drawerCash = Math.max(0, openingBal + cashSales - cashDropsTotal);
+      return {
+        cashSales,
+        cashReturns: 0,
+        cashDrops: cashDropsTotal,
+        drawerCash
+      };
+    } catch {
+      return {
+        cashSales: 0,
+        cashReturns: 0,
+        cashDrops: cashDropsTotal,
+        drawerCash: Math.max(0, openingBal - cashDropsTotal)
+      };
+    }
+  }
+
   try {
     // 1. محاولة استدعاء الدالة من قاعدة البيانات
     const { data: summary, error: summaryErr } = await supabase.rpc('get_shift_summary', {
@@ -45,7 +71,7 @@ export async function getLiveShiftFinancials(
       cashSales = Number(summary.cash_sales) || 0;
       cashReturns = Number(summary.cash_returns) || 0;
     } else {
-      // Fallback: جلب المبيعات النقدية مباشرة من الطلبات
+      // Fallback: جلب المبيعات النقدية مباشرة من الطلبات فقط إذا كان shift.id صالحاً
       let ordQuery: any = supabase
         .from('orders')
         .select('grand_total, payment_method, status')
@@ -62,7 +88,7 @@ export async function getLiveShiftFinancials(
     }
 
     // 2. التحقق من المرتجعات النقدية بشكل صريح لضمان الدقة
-    if (cashReturns === 0) {
+    if (cashReturns === 0 && userId && isValidUUID(userId)) {
       try {
         let retQuery: any = supabase
           .from('sales_returns')
@@ -119,6 +145,35 @@ export async function calculateClosingShiftSummary(
 ): Promise<{ summary: ShiftSummaryData; calculatedExpectedCash: number }> {
   const openingBal = Number(shift.opening_balance) || 0;
 
+  // 🛡️ إذا كان معرّف الوردية محلي/أوفلاين أو غير صالح كـ UUID، نحسب ملخص الإغلاق من Dexie
+  if (!shift?.id || !isValidUUID(shift.id)) {
+    let cashSales = 0;
+    let cardSales = 0;
+    let totalSales = 0;
+    try {
+      const queued = await db.queuedOrders.toArray();
+      const shiftOrders = queued.filter(q => q.payload?.shift_id === shift?.id);
+      totalSales = shiftOrders.reduce((sum, q) => sum + Number(q.payload?.total || q.payload?.grand_total || 0), 0);
+      cashSales = shiftOrders
+        .filter(q => !q.payload?.payment_method || q.payload?.payment_method === 'CASH')
+        .reduce((sum, q) => sum + Number(q.payload?.total || q.payload?.grand_total || 0), 0);
+      cardSales = totalSales - cashSales;
+    } catch {}
+    const calculatedExpectedCash = Math.max(0, openingBal + cashSales - cashDropsTotal);
+    return {
+      summary: {
+        opening_balance: openingBal,
+        total_sales: totalSales,
+        cash_sales: cashSales,
+        card_sales: cardSales,
+        cash_returns: 0,
+        cash_drops: cashDropsTotal,
+        expected_cash: calculatedExpectedCash
+      },
+      calculatedExpectedCash
+    };
+  }
+
   // 1. استدعاء get_shift_summary
   const { data, error } = await supabase.rpc('get_shift_summary', {
     p_shift_id: shift.id
@@ -126,26 +181,28 @@ export async function calculateClosingShiftSummary(
 
   // 2. التحقق من المرتجعات النقدية
   let detectedCashReturns = Number(data?.cash_returns) || 0;
-  try {
-    let retQuery: any = supabase
-      .from('sales_returns')
-      .select('total_amount, notes, user_id, created_at')
-      .eq('user_id', userId);
+  if (userId && isValidUUID(userId)) {
+    try {
+      let retQuery: any = supabase
+        .from('sales_returns')
+        .select('total_amount, notes, user_id, created_at')
+        .eq('user_id', userId);
 
-    if (shift.start_time) {
-      retQuery = retQuery.gte('created_at', shift.start_time);
+      if (shift.start_time) {
+        retQuery = retQuery.gte('created_at', shift.start_time);
+      }
+
+      const { data: retRows } = await retQuery;
+      const safeRetRows = Array.isArray(retRows) ? retRows : [];
+
+      if (safeRetRows.length > 0) {
+        detectedCashReturns = safeRetRows
+          .filter((r: any) => !r.notes || r.notes.includes('نقدي') || r.notes.includes('CASH'))
+          .reduce((sum: number, r: any) => sum + Number(r.total_amount || 0), 0);
+      }
+    } catch (reErr) {
+      console.warn('Could not query sales_returns for shift close:', reErr);
     }
-
-    const { data: retRows } = await retQuery;
-    const safeRetRows = Array.isArray(retRows) ? retRows : [];
-
-    if (safeRetRows.length > 0) {
-      detectedCashReturns = safeRetRows
-        .filter((r: any) => !r.notes || r.notes.includes('نقدي') || r.notes.includes('CASH'))
-        .reduce((sum: number, r: any) => sum + Number(r.total_amount || 0), 0);
-    }
-  } catch (reErr) {
-    console.warn('Could not query sales_returns for shift close:', reErr);
   }
 
   let calculatedExpectedCash = 0;

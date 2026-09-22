@@ -43,6 +43,7 @@ vi.mock('../../../../services/offlineService', () => {
     },
     queuedOrders: {
       add: vi.fn().mockResolvedValue(1),
+      toArray: vi.fn().mockResolvedValue([]),
     },
   };
 
@@ -53,6 +54,7 @@ vi.mock('../../../../services/offlineService', () => {
       queueOrder: vi.fn().mockResolvedValue(undefined),
       processQueue: vi.fn().mockResolvedValue(undefined),
     },
+    isValidUUID: vi.fn().mockReturnValue(true),
   };
 });
 

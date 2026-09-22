@@ -16,7 +16,7 @@ export interface UserProfile {
 }
 
 
-import { offlineService } from '../services/offlineService';
+import { offlineService, isValidUUID } from '../services/offlineService';
 import {
   SYSTEM_ACCOUNTS,
   DEFAULT_OFFLINE_ORG,
@@ -2230,9 +2230,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const { error } = await supabase.rpc('start_pos_shift', { 
         p_opening_balance: Number(amount) || 0,
         p_resume_existing: false,
-        p_treasury_account_id: treasuryAcc?.id || null,
-        p_user_id: currentUser?.id,
-        p_org_id: targetOrgId,
+        p_treasury_account_id: (treasuryAcc?.id && isValidUUID(treasuryAcc.id)) ? treasuryAcc.id : null,
+        p_user_id: (currentUser?.id && isValidUUID(currentUser.id)) ? currentUser.id : null,
+        p_org_id: (targetOrgId && isValidUUID(targetOrgId)) ? targetOrgId : null,
         p_terminal_id: null
       }); 
       if (error) throw error;
@@ -2254,7 +2254,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const closeCurrentShift = async (actualCash: number, notes: string) => { 
-    if (!navigator.onLine || isDemo) {
+    const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
+    if (!navigator.onLine || isDemo || !isValidUUID(shiftId)) {
       setCurrentShift(null);
       try {
         localStorage.removeItem('tripro_offline_current_shift');
@@ -2262,16 +2263,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       showToast('تم إغلاق الوردية محلياً بنجاح 🔒', 'success');
       return;
     }
-    const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
     if (!shiftId) {
       throw new Error('لا توجد وردية مفتوحة حالياً ليتم إغلاقها');
     }
     try {
+      const effectiveOrgId = (currentSelectedOrgId && isValidUUID(currentSelectedOrgId))
+        ? currentSelectedOrgId
+        : ((currentUser?.organization_id && isValidUUID(currentUser.organization_id)) ? currentUser.organization_id : null);
       const { error } = await supabase.rpc('close_shift', { 
         p_shift_id: shiftId, 
         p_actual_cash: actualCash, 
         p_notes: notes,
-        p_org_id: currentSelectedOrgId || currentUser?.organization_id
+        p_org_id: effectiveOrgId
       }); 
       if (error) throw error;
       setCurrentShift(null);
@@ -2284,7 +2287,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const getCurrentShiftSummary = async () => { 
     const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
     if (!shiftId) return null; 
-    if (!navigator.onLine || isDemo || String(shiftId).startsWith('shift-offline-')) {
+    if (!navigator.onLine || isDemo || !isValidUUID(shiftId) || String(shiftId).startsWith('shift-offline-')) {
       return {
         opening_balance: Number(currentShift?.opening_balance || 0),
         total_sales: 0,

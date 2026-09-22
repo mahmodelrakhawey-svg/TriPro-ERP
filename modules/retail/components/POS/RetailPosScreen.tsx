@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useToast } from '../../../../context/ToastContext';
 import { supabase } from '../../../../supabaseClient';
 import { useAccounting, DEFAULT_OFFLINE_PRODUCTS } from '../../../../context/AccountingContext';
-import { db, offlineService } from '../../../../services/offlineService';
+import { db, offlineService, isValidUUID } from '../../../../services/offlineService';
 import type { CachedProduct } from '../../../../services/offlineService';
 import { secureStorage } from '../../../../utils/securityMiddleware';
 import SupervisorPinModal from './SupervisorPinModal';
@@ -596,7 +596,34 @@ export default function RetailPosScreen() {
         } catch (e) {}
       }
 
-      // Seed a default terminal if none exists (demo or offline purposes)
+      // 🛡️ Auto-provision a default terminal in DB if none exists for this organization and user is online
+      if ((!termData || termData.length === 0) && navigator.onLine && currentUser.role !== 'demo' && isValidUUID(currentUser.organization_id)) {
+        try {
+          let defaultCashId = settings?.accountMappings?.CASH || settings?.account_mappings?.CASH || null;
+          if (!isValidUUID(defaultCashId)) {
+            defaultCashId = null;
+          }
+
+          const { data: insertedTerm, error: insErr } = await supabase
+            .from('pos_terminals')
+            .insert({
+              name: 'الكاشير الرئيسي 1',
+              organization_id: currentUser.organization_id,
+              cash_account_id: defaultCashId,
+              status: 'ACTIVE'
+            })
+            .select('*')
+            .maybeSingle();
+
+          if (!insErr && insertedTerm) {
+            termData = [insertedTerm];
+          }
+        } catch (seedErr) {
+          console.warn('Could not auto-create pos_terminal in database:', seedErr);
+        }
+      }
+
+      // Seed a default terminal fallback if still none exists (demo or offline purposes)
       if (!termData || termData.length === 0) {
         const cachedValidOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
           (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
@@ -633,7 +660,7 @@ export default function RetailPosScreen() {
       const cachedShift = secureStorage.getItem<any>(`tripro_shift_${currentUser.id}`);
       if (cachedShift) {
         const parsed = typeof cachedShift === 'string' ? JSON.parse(cachedShift) : cachedShift;
-        if (navigator.onLine && currentUser.role !== 'demo') {
+        if (navigator.onLine && currentUser.role !== 'demo' && isValidUUID(parsed?.id)) {
           try {
             const { data: dbShift, error: shiftErr } = await supabase
               .from('shifts')
@@ -718,9 +745,9 @@ export default function RetailPosScreen() {
 
       // Resolve treasury account linked to terminal or fetch default
       let treasuryId = selectedTerminal?.cash_account_id;
-      if (!treasuryId) {
+      if (!treasuryId || !isValidUUID(treasuryId)) {
         treasuryId = settings?.accountMappings?.CASH || settings?.account_mappings?.CASH || null;
-        if (!treasuryId) {
+        if (!treasuryId || !isValidUUID(treasuryId)) {
           const { data: mappings } = await supabase
             .from('company_settings')
             .select('account_mappings')
@@ -730,14 +757,19 @@ export default function RetailPosScreen() {
         }
       }
 
+      const validTreasuryId = isValidUUID(treasuryId) ? treasuryId : null;
+      const validTerminalId = isValidUUID(termToUse?.id) ? termToUse.id : null;
+      const validOrgId = isValidUUID(currentUser.organization_id) ? currentUser.organization_id : null;
+      const validUserId = isValidUUID(currentUser.id) ? currentUser.id : null;
+
       // Call start shift rpc
       const { data: newShift, error } = await supabase.rpc('start_pos_shift', {
         p_opening_balance: Number(openingBalance) || 0,
         p_resume_existing: false,
-        p_treasury_account_id: treasuryId,
-        p_user_id: currentUser.id,
-        p_org_id: currentUser.organization_id,
-        p_terminal_id: termToUse.id || null
+        p_treasury_account_id: validTreasuryId,
+        p_user_id: validUserId,
+        p_org_id: validOrgId,
+        p_terminal_id: validTerminalId
       });
 
       if (error) throw error;
@@ -824,7 +856,7 @@ export default function RetailPosScreen() {
 
     setIsClosingShift(true);
     try {
-      if (!navigator.onLine || currentUser?.role === 'demo' || String(activeShift?.id).startsWith('shift-retail-offline-')) {
+      if (!navigator.onLine || currentUser?.role === 'demo' || !isValidUUID(activeShift?.id) || String(activeShift?.id).startsWith('shift-retail-offline-')) {
         showToast('تم إغلاق الوردية وترحيل المبيعات بنجاح 🏁', 'success');
         secureStorage.removeItem(`tripro_shift_${currentUser.id}`);
         setActiveShift(null);
@@ -1695,7 +1727,7 @@ export default function RetailPosScreen() {
           try {
             const { error: dropErr } = await supabase.from('pos_petty_cash_payouts').insert({
               organization_id: currentSelectedOrgId || currentUser?.organization_id,
-              public_shift_id: activeShift?.id,   // UUID من public.shifts
+              public_shift_id: (activeShift?.id && isValidUUID(activeShift.id)) ? activeShift.id : null,   // UUID من public.shifts
               cashier_id: currentUser?.id,
               amount: amt,
               payout_type: payoutType,
