@@ -42,6 +42,7 @@ export interface SupplierSearchSelectProps {
   showQuickAdd?: boolean;
   showQuickEdit?: boolean;
   showStatementButton?: boolean;
+  overrideBalance?: number | null;
 }
 
 // 🚀 دالة تطبيع فائقة السرعة للغة العربية والأرقام
@@ -103,7 +104,8 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
   showBalance = true,
   showQuickAdd = true,
   showQuickEdit = true,
-  showStatementButton = true
+  showStatementButton = true,
+  overrideBalance
 }) => {
   const navigate = useNavigate();
   const { 
@@ -219,8 +221,8 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
     return suppliersList.find(s => String(s.id) === String(value));
   }, [suppliersList, value]);
 
-  // جلب رصيد المورد المختار تلقائياً
-  const loadSupplierBalance = useCallback(async (supplierId: string) => {
+  // جلب رصيد المورد المختار تلقائياً بدقة تشمل قيود اليومية
+  const loadSupplierBalance = useCallback(async (supplierId: string, supplierName?: string) => {
     if (!supplierId) {
       setCurrentBalance(null);
       return;
@@ -230,8 +232,8 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
 
     setIsRefreshingBalance(true);
     try {
-      // 1. محاولة استدعاء الدالة السيرفرية المباشرة
-      const bal = await fetchSingleSupplierBalance(supplierId, orgId);
+      // استدعاء دالة الرصيد المباشرة الفائقة الدقة مع اسم المورد
+      const bal = await fetchSingleSupplierBalance(supplierId, orgId, supplierName);
       setCurrentBalance(bal);
     } catch (err) {
       console.warn('Could not fetch supplier balance:', err);
@@ -242,7 +244,7 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
 
   useEffect(() => {
     if (selectedSupplier) {
-      loadSupplierBalance(selectedSupplier.id);
+      loadSupplierBalance(selectedSupplier.id, selectedSupplier.name);
     } else {
       setCurrentBalance(null);
     }
@@ -532,39 +534,42 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
 
                 {/* الرصيد المالي المباشر والإجراءات */}
                 <div className="flex items-center gap-3 text-xs flex-wrap pt-0.5">
-                  {showBalance && (
-                    <div className="flex items-center gap-1.5 font-bold">
-                      <span className="text-slate-400 text-[11px]">الرصيد:</span>
-                      {isRefreshingBalance ? (
-                        <Loader2 size={12} className={`animate-spin ${themeStyles.primary}`} />
-                      ) : currentBalance !== null ? (
-                        <span className={`font-black font-mono px-2 py-0.5 rounded-md text-[11px] ${
-                          currentBalance > 0.01 
-                            ? 'bg-amber-100 text-amber-800' 
-                            : currentBalance < -0.01 
-                            ? 'bg-emerald-100 text-emerald-800' 
-                            : 'bg-slate-100 text-slate-600'
-                        }`}>
-                          {Math.abs(currentBalance).toLocaleString()} ج.م
-                          <span className="mr-1 text-[10px]">
-                            {currentBalance > 0.01 ? '(مستحق له)' : currentBalance < -0.01 ? '(مدين / عليه)' : '(خالص)'}
+                  {showBalance && (() => {
+                    const displayedBalance = overrideBalance !== undefined ? overrideBalance : currentBalance;
+                    return (
+                      <div className="flex items-center gap-1.5 font-bold">
+                        <span className="text-slate-400 text-[11px]">الرصيد:</span>
+                        {isRefreshingBalance && overrideBalance === undefined ? (
+                          <Loader2 size={12} className={`animate-spin ${themeStyles.primary}`} />
+                        ) : displayedBalance !== null ? (
+                          <span className={`font-black font-mono px-2 py-0.5 rounded-md text-[11px] ${
+                            displayedBalance > 0.01 
+                              ? 'bg-amber-100 text-amber-800' 
+                              : displayedBalance < -0.01 
+                              ? 'bg-emerald-100 text-emerald-800' 
+                              : 'bg-slate-100 text-slate-600'
+                          }`}>
+                            {Math.abs(displayedBalance).toLocaleString()} ج.م
+                            <span className="mr-1 text-[10px]">
+                              {displayedBalance > 0.01 ? '(مستحق له)' : displayedBalance < -0.01 ? '(مدين / عليه)' : '(خالص)'}
+                            </span>
                           </span>
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 text-[11px]">--</span>
-                      )}
+                        ) : (
+                          <span className="text-slate-400 text-[11px]">--</span>
+                        )}
 
-                      <button
-                        type="button"
-                        onClick={() => loadSupplierBalance(selectedSupplier.id)}
-                        disabled={isRefreshingBalance}
-                        className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-all disabled:opacity-50"
-                        title="تحديث الرصيد فورياً"
-                      >
-                        <RefreshCw size={11} className={isRefreshingBalance ? 'animate-spin' : ''} />
-                      </button>
-                    </div>
-                  )}
+                        <button
+                          type="button"
+                          onClick={() => loadSupplierBalance(selectedSupplier.id, selectedSupplier.name)}
+                          disabled={isRefreshingBalance}
+                          className="p-1 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-all disabled:opacity-50"
+                          title="تحديث الرصيد فورياً"
+                        >
+                          <RefreshCw size={11} className={isRefreshingBalance ? 'animate-spin' : ''} />
+                        </button>
+                      </div>
+                    );
+                  })()}
 
                   {showStatementButton && (
                     <button

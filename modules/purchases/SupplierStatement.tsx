@@ -380,6 +380,7 @@ const SupplierStatement = () => {
               theme="emerald"
               showStatementButton={false}
               label="المورد المطلوب لعرض كشف الحساب"
+              overrideBalance={loading ? undefined : closingBalance}
             />
           </div>
           <div>
