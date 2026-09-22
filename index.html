@@ -21,9 +21,72 @@
       /* ✅ خط احتياطي محلي يعمل بدون إنترنت */
       body, * { font-family: 'Tajawal', 'Segoe UI', Tahoma, Arial, sans-serif; }
     </style>
+    <script>
+      // 🛡️ فحص بروتوكول التشغيل: منع الشاشة البيضاء في حال فتح الملف مباشرة من مستكشف ويندوز
+      if (window.location.protocol === 'file:') {
+        window.addEventListener('DOMContentLoaded', () => {
+          document.body.innerHTML = `
+            <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;color:#f8fafc;font-family:'Tajawal',sans-serif;direction:rtl;padding:24px;text-align:center;">
+              <div style="max-width:540px;background:#1e293b;padding:36px;border-radius:16px;border:1px solid #334155;box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);">
+                <div style="font-size:48px;margin-bottom:16px;">⚠️</div>
+                <h1 style="font-size:22px;font-weight:700;color:#f43f5e;margin-bottom:12px;">تنبيه: تم فتح الملف كمسار محلي (file://)</h1>
+                <p style="color:#94a3b8;font-size:15px;line-height:1.7;margin-bottom:24px;">
+                  يتطلب نظام <strong>TriPro ERP</strong> بيئة خادم محلي أو نافذة سطح المكتب ليعمل بالشكل الصحيح.<br>
+                  لا يمكن تشغيل النظام بفتح ملف HTML مباشرة في المتصفح.
+                </p>
+                <div style="background:#0f172a;padding:16px;border-radius:8px;font-size:14px;color:#38bdf8;text-align:right;margin-bottom:20px;border-right:4px solid #38bdf8;">
+                  <strong>طريقة التشغيل الصحيحة:</strong><br>
+                  1. تشغيل نافذة سطح المكتب: انقر نقراً مزدوجاً على ملف <strong>TriPro-ERP.bat</strong><br>
+                  2. أو التشغيل من المتصفح: شغّل <strong>TriPro-Web.bat</strong> ثم افتح الرابط: <strong>http://localhost:3000</strong>
+                </div>
+              </div>
+            </div>
+          `;
+        });
+      }
+
+      // 🛡️ صائد أخطاء مبكر قبل تحميل حزم React لمنع بقاء الشاشة بيضاء
+      window.addEventListener('error', function(e) {
+        const root = document.getElementById('root');
+        if (root && (!root.children.length || root.querySelector('#app-initial-loader'))) {
+          const errMsg = (e && e.message) ? e.message : 'خطأ غير معروف في تحميل حزم النظام';
+          console.error('[TriPro Boot Error]:', e);
+          root.innerHTML = `
+            <div style="min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f172a;color:#f8fafc;font-family:'Tajawal',sans-serif;direction:rtl;padding:20px;text-align:center;">
+              <div style="max-width:500px;background:#1e293b;padding:32px;border-radius:12px;border:1px solid #ef4444;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5);">
+                <h2 style="color:#ef4444;font-size:20px;margin-bottom:12px;">تعذر تحميل واجهة البرنامج</h2>
+                <p style="color:#94a3b8;font-size:14px;margin-bottom:16px;">حدث تعارض أو تلف في الذاكرة المؤقتة للمتصفح:</p>
+                <div style="background:#0f172a;padding:12px;border-radius:6px;color:#fca5a5;font-family:monospace;font-size:12px;margin-bottom:20px;text-align:left;direction:ltr;overflow:auto;max-height:100px;">
+                  ${errMsg}
+                </div>
+                <button onclick="localStorage.clear();sessionStorage.clear();if('caches' in window){caches.keys().then(k=>Promise.all(k.map(n=>caches.delete(n))))};window.location.reload(true);" style="background:#2563eb;color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-weight:bold;font-size:14px;">
+                  مسح الكاش وإعادة التشغيل
+                </button>
+              </div>
+            </div>
+          `;
+        }
+      });
+    </script>
 </head>
-  <body>
-    <div id="root"></div>
+  <body style="margin:0;background-color:#0f172a;">
+    <div id="root">
+      <!-- شاشة تحميل أولية أنيقة تُستبدل تلقائياً فور إقلاع React -->
+      <div id="app-initial-loader" style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background-color:#0f172a;color:#f8fafc;font-family:'Tajawal',sans-serif;direction:rtl;text-align:center;">
+        <div style="position:relative;width:64px;height:64px;margin-bottom:24px;">
+          <div style="position:absolute;inset:0;border:4px solid rgba(255,255,255,0.1);border-radius:50%;"></div>
+          <div style="position:absolute;inset:0;border:4px solid #38bdf8;border-top-color:transparent;border-radius:50%;animation:tripro-spin 1s linear infinite;"></div>
+        </div>
+        <h2 style="font-size:20px;font-weight:700;margin:0 0 8px 0;color:#f8fafc;">TriPro ERP</h2>
+        <p style="font-size:14px;color:#94a3b8;margin:0;">جاري تشغيل النظام وتهيئة البيئة...</p>
+        <style>
+          @keyframes tripro-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+          }
+        </style>
+      </div>
+    </div>
   <script type="module" src="/index.tsx"></script>
   <script>
     // ✅ Electron detection via userAgent (works with contextIsolation:true)

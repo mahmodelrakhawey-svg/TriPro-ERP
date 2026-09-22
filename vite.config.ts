@@ -32,27 +32,40 @@ export default defineConfig(({ mode }) => {
           output: {
             manualChunks(id) {
               if (id.includes('node_modules')) {
-                // Heavy standalone data/export engines (No React runtime dependency)
+                // 1. Heavy standalone data/export engines (No React runtime dependency)
                 if (id.includes('xlsx')) return 'vendor-xlsx';
                 if (id.includes('jspdf') || id.includes('html2canvas')) return 'vendor-pdf';
                 if (id.includes('@supabase')) return 'vendor-supabase';
-                
-                // Heavy UI component and visualization libraries
-                if (id.includes('antd') || id.includes('@ant-design')) return 'vendor-antd';
-                if (id.includes('recharts') || id.includes('d3-') || id.includes('victory-vendor')) return 'vendor-charts';
-                if (id.includes('lucide-react')) return 'vendor-icons';
                 if (id.includes('@google/genai')) return 'vendor-ai';
 
-                // Core Framework Runtime (dexie included — uses React hooks internally)
-                if (id.includes('react') || id.includes('scheduler') || id.includes('dexie')) return 'vendor-react-core';
-
-                // Utility libraries
+                // 2. Data & Utility libraries
+                if (id.includes('recharts') || id.includes('d3-') || id.includes('victory-vendor')) return 'vendor-charts';
+                if (id.includes('lucide-react')) return 'vendor-icons';
                 if (id.includes('date-fns') || id.includes('dayjs')) return 'vendor-dates';
                 if (id.includes('@dnd-kit')) return 'vendor-dnd';
-                if (id.includes('zod') || id.includes('@hookform')) return 'vendor-forms';
+                if (id.includes('zod') || id.includes('react-hook-form') || id.includes('@hookform')) return 'vendor-forms';
 
-                // Unified Application Utilities & Helpers
-                return 'vendor-app';
+                // 3. Ant Design ecosystem (must include rc-* and @rc-component to avoid circular dependency)
+                if (
+                  id.includes('antd') ||
+                  id.includes('@ant-design') ||
+                  id.includes('/rc-') ||
+                  id.includes('\\rc-') ||
+                  id.includes('@rc-component')
+                ) {
+                  return 'vendor-antd';
+                }
+
+                // 4. Core Framework Runtime (React + DOM + Scheduler + Router + TanStack Query + Dexie)
+                if (
+                  id.includes('react') ||
+                  id.includes('scheduler') ||
+                  id.includes('@remix-run') ||
+                  id.includes('@tanstack') ||
+                  id.includes('dexie')
+                ) {
+                  return 'vendor-react-core';
+                }
               }
             },
           },
