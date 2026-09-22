@@ -224,13 +224,13 @@ export const purchaseInvoiceItemSchema = z.object({
 });
 
 export const createPurchaseInvoiceSchema = z.object({
-  supplierId: idSchema,
-  warehouseId: idSchema,
+  supplierId: z.string().min(1, 'يرجى اختيار أو تحديد المورد أولاً'),
+  warehouseId: z.string().min(1, 'يرجى اختيار المستودع لاستلام البضاعة'),
   date: dateSchema,
   items: z.array(purchaseInvoiceItemSchema).min(1, 'يجب إضافة بند واحد على الأقل'),
   paidAmount: amountSchema.optional().default(0),
-  treasuryAccountId: z.string().uuid('معرف غير صالح').optional().nullable().or(z.literal('')),
-}).refine(data => data.paidAmount <= 0 || (data.paidAmount > 0 && data.treasuryAccountId), {
+  treasuryAccountId: z.string().optional().nullable().or(z.literal('')),
+}).refine(data => !data.paidAmount || data.paidAmount <= 0 || (data.paidAmount > 0 && Boolean(data.treasuryAccountId)), {
   message: 'يرجى اختيار الخزينة أو البنك لسداد المبلغ المدفوع',
   path: ['treasuryAccountId']
 });

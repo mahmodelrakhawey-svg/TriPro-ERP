@@ -112,13 +112,11 @@ const PurchaseInvoiceForm = () => {
   }, [accounts]);
 
   useEffect(() => {
-    if (!formData.warehouseId && !editingId) {
-      if (warehouses.length === 1) {
-        setFormData(prev => ({ ...prev, warehouseId: warehouses[0].id }));
-      } else if (settings.defaultWarehouseId) {
-        const preferred = warehouses.find(w => w.id === settings.defaultWarehouseId);
-        if (preferred) setFormData(prev => ({ ...prev, warehouseId: preferred.id }));
-      }
+    if (!formData.warehouseId && !editingId && warehouses.length > 0) {
+      const preferred = settings.defaultWarehouseId 
+        ? warehouses.find(w => w.id === settings.defaultWarehouseId) 
+        : null;
+      setFormData(prev => ({ ...prev, warehouseId: preferred ? preferred.id : warehouses[0].id }));
     }
     if (!formData.currency && settings.currency) {
         setFormData(prev => ({ ...prev, currency: settings.currency }));
@@ -298,7 +296,7 @@ const PurchaseInvoiceForm = () => {
     setFormData({
       supplierId: '',
       invoiceNumber: '',
-      warehouseId: warehouses.length === 1 ? warehouses[0].id : (settings.defaultWarehouseId || ''),
+      warehouseId: settings.defaultWarehouseId || (warehouses.length > 0 ? warehouses[0].id : ''),
       date: new Date().toISOString().split('T')[0],
       notes: '',
       status: 'draft',
@@ -500,6 +498,26 @@ const PurchaseInvoiceForm = () => {
   const handleSave = async (e?: React.FormEvent, post: boolean = false) => {
     if (e) e.preventDefault();
     
+    if (!formData.supplierId) {
+      showToast('يرجى اختيار أو إضافة المورد أولاً ⚠️', 'warning');
+      return;
+    }
+
+    if (!formData.warehouseId) {
+      showToast('يرجى اختيار المستودع لاستلام البضاعة ⚠️', 'warning');
+      return;
+    }
+
+    if (!items || items.length === 0) {
+      showToast('يجب إضافة بند واحد على الأقل في الفاتورة ⚠️', 'warning');
+      return;
+    }
+
+    if (formData.paidAmount > 0 && !formData.treasuryAccountId) {
+      showToast('يرجى اختيار الخزينة أو البنك لسداد المبلغ المدفوع ⚠️', 'warning');
+      return;
+    }
+
     const validationResult = createPurchaseInvoiceSchema.safeParse({ 
         ...formData, 
         items: items.map(i => ({
