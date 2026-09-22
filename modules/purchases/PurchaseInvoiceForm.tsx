@@ -548,11 +548,66 @@ const PurchaseInvoiceForm = () => {
       if (!userOrgId) throw new Error("تعذر تحديد هوية الشركة.");
       const invoiceNumber = formData.invoiceNumber || await getNextDocumentNumber(userOrgId, 'purchase_invoice');
 
+      // 🛡️ صمام أمان محكم: التحقق من صحة معرف المستودع والمورد كـ UUID لمنع أخطاء قاعدة البيانات
+      const isValidUUID = (id?: string | null) => Boolean(id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+
+      let finalWarehouseId = formData.warehouseId;
+      if (!isValidUUID(finalWarehouseId)) {
+        const { data: realWh } = await supabase
+          .from('warehouses')
+          .select('id')
+          .eq('organization_id', userOrgId)
+          .limit(1)
+          .maybeSingle();
+
+        if (realWh?.id) {
+          finalWarehouseId = realWh.id;
+        } else {
+          const { data: newWh, error: whErr } = await supabase
+            .from('warehouses')
+            .insert({ name: 'المستودع الرئيسي', organization_id: userOrgId, is_active: true })
+            .select('id')
+            .single();
+          if (newWh?.id) {
+            finalWarehouseId = newWh.id;
+          } else {
+            throw new Error('يرجى إنشاء مستودع حقيقي للشركة أولاً من إدارة المستودعات: ' + (whErr?.message || ''));
+          }
+        }
+        setFormData(prev => ({ ...prev, warehouseId: finalWarehouseId }));
+      }
+
+      let finalSupplierId = formData.supplierId;
+      if (!isValidUUID(finalSupplierId)) {
+        const { data: realSup } = await supabase
+          .from('suppliers')
+          .select('id')
+          .eq('organization_id', userOrgId)
+          .limit(1)
+          .maybeSingle();
+
+        if (realSup?.id) {
+          finalSupplierId = realSup.id;
+        } else {
+          const { data: newSup, error: supErr } = await supabase
+            .from('suppliers')
+            .insert({ name: 'مورد عام معتمد', organization_id: userOrgId })
+            .select('id')
+            .single();
+          if (newSup?.id) {
+            finalSupplierId = newSup.id;
+          } else {
+            throw new Error('يرجى اختيار أو إضافة مورد حقيقي للفاتورة: ' + (supErr?.message || ''));
+          }
+        }
+        setFormData(prev => ({ ...prev, supplierId: finalSupplierId }));
+      }
+
       const invoiceData = {
         organization_id: userOrgId,
         invoice_number: invoiceNumber,
-        supplier_id: formData.supplierId,
-        warehouse_id: formData.warehouseId,
+        supplier_id: finalSupplierId,
+        warehouse_id: finalWarehouseId,
         invoice_date: formData.date,
         total_amount: totalAmount,
         tax_amount: taxAmount,
@@ -563,7 +618,7 @@ const PurchaseInvoiceForm = () => {
         exchange_rate: formData.exchangeRate,
         user_id: currentUser?.id,
         paid_amount: formData.paidAmount,
-        treasury_account_id: formData.treasuryAccountId || null
+        treasury_account_id: (formData.paidAmount > 0 && isValidUUID(formData.treasuryAccountId)) ? formData.treasuryAccountId : null
       };
 
       // 🚀 ضمان إنشاء الأصناف الجديدة في المخزن تلقائياً إذا لم تكن موجودة مسبقاً
@@ -660,7 +715,7 @@ const PurchaseInvoiceForm = () => {
       }
 
       if (post && invoiceId) {
-        await approvePurchaseInvoice(invoiceId, userOrgId, formData.warehouseId);
+        await approvePurchaseInvoice(invoiceId, userOrgId, finalWarehouseId);
         showToast('تم حفظ وترحيل فاتورة المشتريات وتحديث المخزون بنجاح ✅', 'success');
       } else {
         showToast(editingId ? 'تم تحديث فاتورة المشتريات كمسودة بنجاح ✅' : 'تم حفظ فاتورة المشتريات كمسودة بنجاح ✅', 'success');

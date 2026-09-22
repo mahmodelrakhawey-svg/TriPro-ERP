@@ -638,13 +638,30 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setMenuCategories(loadedCategories);
 
       setUsers(usrs.data || []);
-      setWarehouses((whs.data && whs.data.length > 0) ? whs.data : DEFAULT_OFFLINE_WAREHOUSES);
+
+      let loadedWhs = whs.data || [];
+      // 🛡️ صمام أمان المنظمات الجديدة: إذا كانت المنظمة حقيقية أونلاين ولا يوجد لها أي مستودع، ننشئ لها مستودعاً رئيسياً فوراً بمعرف UUID سليم
+      if (loadedWhs.length === 0 && fetchOrgId && currentUser?.role !== 'demo') {
+        try {
+          const { data: createdWh } = await supabase
+            .from('warehouses')
+            .insert({ name: 'المستودع الرئيسي', organization_id: fetchOrgId, is_active: true })
+            .select('*')
+            .maybeSingle();
+          if (createdWh) {
+            loadedWhs = [createdWh];
+          }
+        } catch (e) {
+          console.warn('Auto-create warehouse fallback:', e);
+        }
+      }
+      setWarehouses(loadedWhs.length > 0 ? loadedWhs : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_WAREHOUSES : []));
 
       const loadedTables = (rTables.data && rTables.data.length > 0) ? rTables.data : DEFAULT_OFFLINE_TABLES;
       setRestaurantTables(loadedTables);
 
-      setCustomers((custs.data && custs.data.length > 0) ? custs.data : [{ id: 'cust-walkin', name: 'عميل نقدي صالة', phone: '0000000000' }]);
-      setSuppliers((sups.data && sups.data.length > 0) ? sups.data : [{ id: 'sup-main', name: 'مورد عام معتمد', phone: '01000000000' }]);
+      setCustomers((custs.data && custs.data.length > 0) ? custs.data : (currentUser?.role === 'demo' ? [{ id: 'cust-walkin', name: 'عميل نقدي صالة', phone: '0000000000' }] : []));
+      setSuppliers((sups.data && sups.data.length > 0) ? sups.data : (currentUser?.role === 'demo' ? [{ id: 'sup-main', name: 'مورد عام معتمد', phone: '01000000000' }] : []));
       setCheques(chqs.data || []);
       
       const activeShiftData = Array.isArray(shift.data) ? shift.data[0] : shift.data;

@@ -1275,12 +1275,56 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         : '';
     const finalNotes = (formData.notes || '') + (formData.notes?.includes('[عروض مطبقة:') ? '' : promoNotes);
 
+        // 🛡️ صمام أمان محكم: التحقق من صحة معرف المستودع والعميل كـ UUID لمنع أخطاء قاعدة البيانات
+        const isValidUUID = (id?: string | null) => Boolean(id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+        let finalWarehouseId = formData.warehouseId;
+        if (!isValidUUID(finalWarehouseId)) {
+            const { data: realWh } = await supabase
+                .from('warehouses')
+                .select('id')
+                .eq('organization_id', userOrgId)
+                .limit(1)
+                .maybeSingle();
+
+            if (realWh?.id) {
+                finalWarehouseId = realWh.id;
+            } else {
+                const { data: newWh } = await supabase
+                    .from('warehouses')
+                    .insert({ name: 'المستودع الرئيسي', organization_id: userOrgId, is_active: true })
+                    .select('id')
+                    .single();
+                if (newWh?.id) finalWarehouseId = newWh.id;
+            }
+        }
+
+        let finalCustomerId = formData.customerId;
+        if (!isValidUUID(finalCustomerId)) {
+            const { data: realCust } = await supabase
+                .from('customers')
+                .select('id')
+                .eq('organization_id', userOrgId)
+                .limit(1)
+                .maybeSingle();
+
+            if (realCust?.id) {
+                finalCustomerId = realCust.id;
+            } else {
+                const { data: newCust } = await supabase
+                    .from('customers')
+                    .insert({ name: 'عميل نقدي عام', organization_id: userOrgId })
+                    .select('id')
+                    .single();
+                if (newCust?.id) finalCustomerId = newCust.id;
+            }
+        }
+
         // Prepare invoice data
         const invoiceData = {
             organization_id: userOrgId,
             invoice_number: invoiceNumber,
-            customer_id: formData.customerId,
-            warehouse_id: formData.warehouseId,
+            customer_id: finalCustomerId,
+            warehouse_id: finalWarehouseId,
             salesperson_id: (formData.salespersonId && formData.salespersonId !== '00000000-0000-0000-0000-000000000000') ? formData.salespersonId : null,
             invoice_date: formData.date ? formData.date : new Date().toISOString().split('T')[0],
             total_amount: Number(totalAmount),
@@ -1366,7 +1410,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         // 🚀 الخطوة الذهبية: إذا كانت الفاتورة مرحلة، نطلب من السيرفر إعادة تحديث القيود والمخزون فوراً
         if ((invoiceData.status === 'posted' || invoiceData.status === 'paid') && invoiceId) {
             try {
-                await approveInvoice(invoiceId, userOrgId, formData.warehouseId);
+                await approveInvoice(invoiceId, userOrgId, finalWarehouseId);
                 showToast('تم تحديث الفاتورة والقيود المحاسبية بنجاح ✅', 'success');
             } catch (postErr: any) {
                 console.error("Error approving sales invoice:", postErr);
