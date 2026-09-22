@@ -3,6 +3,34 @@
 
 ---
 
+## الإصدار 2.5.0 - 2026-09-22
+### 🔴 Major Milestone: ضبط أمان الأنواع الكامل (TypeScript Strict Mode) ومناعة الشركات المتعددة (Multi-Tenant Robustness)
+
+#### 🛡️ 1. أمان الأنواع البرمجية (Full TypeScript Strict Mode 100%):
+- **تفعيل `strictNullChecks` و `strict: true` في `tsconfig.json`**:
+  - معالجة جميع احتمالات الانهيار غير المعرف (`null` و `undefined`) في **51 ملفاً برمجياً**.
+  - استبدال الأنواع الرخوة `any[]` في مصفوفات الدومين المحاسبي (`accounts`, `entries`, `products`, `warehouses`, `customers`, `suppliers`, `salespersons`, `categories`) بكائنات قوية ومحددة الحقول في `AccountingContext.tsx` و `types.ts`.
+  - معالجة توافق دوال التنسيق ومخططات الرسوم البيانية Recharts للتوافق مع معايير contravariance الصارمة.
+  - فحص الكود بالكامل عبر `npx tsc --noEmit` بنتيجة **0 أخطاء (Code 0)**.
+
+#### 🏢 2. مناعة وتوافق الشركات المتعددة (Multi-Tenant Cold-Start Resilience):
+- **التخلص من القيم النصية الوهمية (`wh-main` و `shift-retail-offline-...')**:
+  - استبدال القيمة الافتراضية القديمة `"wh-main"` في فواتير الشراء والمبيعات بفحص صارم لـ UUID عبر `isValidUUID()`.
+  - منع إرسال نصوص عشوائية إلى أعمدة الـ UUID في PostgreSQL لتفادي أخطاء `22P02`.
+- **توحيد دالة الورديات ونقاط البيع (`start_pos_shift`)**:
+  - حل مشكلة تضارب التواقيع البرمجية في PostgreSQL (`PGRST203: Could not choose candidate function`).
+  - إسقاط التواقيع القديمة المتضاربة (4 و 5 و 6 معاملات) وإنشاء دالة موحدة بـ 6 معاملات تدعم `terminal_id` و `organization_id`.
+  - إضافة ميزة التعافي الذاتي (Auto-healing): استئناف الوردية المفتوحة تلقائياً دون رمي استثناءات أو أخطاء 400.
+  - إنشاء ملف ترقية مخصص: `sql_updates/2026-09-22_fix_start_pos_shift_overload.sql`.
+- **تحصين شاشة الإعدادات (`components/Settings.tsx`)**:
+  - تعقيم كافة حقول المعرفات (`default_warehouse_id`, `default_treasury_id`, `production_warehouse_id`, `raw_material_warehouse_id`, `BANK`) لمنع أخطاء `PATCH company_settings 400`.
+  - ربط الإعدادات تلقائياً بمعرف الشركة النشطة الحالية `currentSelectedOrgId`.
+
+#### 🧪 3. السلامة الهندسية والاختبارات الآلية:
+- اجتياز جميع اختبارات الوحدات والتكامل **132 / 132 اختباراً في 25 ملف اختبار بنسبة 100%**.
+
+---
+
 ## الإصدار 2.0.0 - 2024
 ### Major Release: Comprehensive Engineering Overhaul
 
