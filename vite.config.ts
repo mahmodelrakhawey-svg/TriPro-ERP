@@ -27,7 +27,10 @@ export default defineConfig(({ mode }) => {
         }
       },
       build: {
-        chunkSizeWarningLimit: 1000,
+        // vendor-ui (antd + rc + ant-icons) = ~1,561 KB unminified. This is a single merged
+        // chunk intentionally designed to avoid circular dependency warnings from Rollup.
+        // The gzip size is ~484 KB which is acceptable for a production ERP on broadband.
+        chunkSizeWarningLimit: 1700,
         rollupOptions: {
           output: {
             manualChunks(id) {
@@ -46,23 +49,18 @@ export default defineConfig(({ mode }) => {
                 if (id.includes('@dnd-kit')) return 'vendor-dnd';
                 if (id.includes('zod') || id.includes('react-hook-form') || id.includes('@hookform')) return 'vendor-forms';
 
-                // 3. Ant Design Icons (standalone SVG icon set, separate from component logic)
-                if (id.includes('@ant-design/icons')) {
-                  return 'vendor-ant-icons';
-                }
-
-                // 4. Ant Design RC Primitives & Async Validators
+                // 3+4+5. Ant Design ecosystem in ONE chunk to prevent circular dependency:
+                // vendor-rc ↔ vendor-antd ↔ vendor-ant-icons form a circular import graph.
+                // Rollup cannot resolve load order for circular chunks, so we merge them all
+                // into a single "vendor-ui" chunk which eliminates the circularity entirely.
                 if (
+                  id.includes('antd') ||
+                  id.includes('@ant-design') ||
                   id.includes('/rc-') ||
                   id.includes('\\rc-') ||
                   id.includes('@rc-component')
                 ) {
-                  return 'vendor-rc';
-                }
-
-                // 5. Ant Design core components & CSS-in-JS
-                if (id.includes('antd') || id.includes('@ant-design')) {
-                  return 'vendor-antd';
+                  return 'vendor-ui';
                 }
 
                 // 6. Core Framework Runtime (React + DOM + Scheduler + Router + TanStack Query + Dexie)
