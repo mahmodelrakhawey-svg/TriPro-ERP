@@ -161,6 +161,10 @@ async function createWindow() {
       mainWindow.webContents.toggleDevTools();
       event.preventDefault();
     }
+  });
+
+  const port = await startLocalDistServer();
+
   // معالجة أخطاء فشل التحميل وإعادة المحاولة تلقائياً
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
     console.warn(`[TriPro] فشل تحميل الصفحة (${errorCode}: ${errorDescription}) على ${validatedURL}، جاري إعادة المحاولة...`);
@@ -178,7 +182,6 @@ async function createWindow() {
     }
   });
 
-  const port = await startLocalDistServer();
   mainWindow.loadURL(`http://127.0.0.1:${port}/index.html`);
 
   mainWindow.on('closed', () => {

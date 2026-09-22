@@ -1,16 +1,16 @@
 @echo off
+setlocal
 chcp 65001 >nul
 title TriPro ERP - Web Launcher
 cd /d "%~dp0"
+
 echo ========================================================
-echo   جاري تشغيل خادم TriPro ERP للمتصفح...
+echo   Starting TriPro ERP Web...
 echo ========================================================
-echo   الرابط: http://localhost:3000
+echo   URL: http://localhost:5173
 echo ========================================================
 
-REM فتح المتصفح تلقائياً بعد ثانيتين
-start "" cmd /c "timeout /t 2 >nul & start http://localhost:3000"
+start "" http://localhost:5173
 
-REM تشغيل خادم التطوير
 call npm run dev
 pause
