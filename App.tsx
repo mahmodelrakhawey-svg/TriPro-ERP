@@ -311,7 +311,8 @@ import {
   DemoWatermark,
   SuspendedScreen,
   ModuleGuard,
-  LazyLoadingFallback
+  LazyLoadingFallback,
+  ErrorBoundary
 } from './components/AppGuardsAndLayout';
 import { DevEnvironmentBanner } from './components/DevEnvironmentBanner';
 
@@ -429,6 +430,7 @@ const MainLayout = () => {
                 {/* إضافة هوامش للطباعة لتجنب تداخل المحتوى مع الترويسة والتذييل */}
                 <main className="flex-1 p-8 overflow-y-scroll bg-slate-50 print:bg-white print:p-0 print:overflow-visible print:h-auto print:mt-24 print:mb-12">
                     <div className="max-w-7xl mx-auto print:max-w-none print:w-full print:px-4">
+                        <ErrorBoundary fallbackTitle="حدث خطأ غير متوقع أثناء تحميل الصفحة">
                         <Suspense fallback={<LazyLoadingFallback />}>
                         <Routes>
                 {/* المسارات الأساسية */}
@@ -731,6 +733,7 @@ const MainLayout = () => {
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </Suspense>
+            </ErrorBoundary>
           </div>
         </main>
                 <PrintFooter />

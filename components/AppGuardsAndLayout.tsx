@@ -14,6 +14,9 @@ import { Landmark, X, Info } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
+import { ErrorBoundary } from './ErrorBoundary';
+
+export { ErrorBoundary };
 
 export const PrintHeader = () => {
     const { settings } = useAccounting();
@@ -221,7 +224,11 @@ export const ModuleGuard = ({ module, children }: { module: string, children: Re
         return <Navigate to="/" replace />;
     }
 
-    return <>{children}</>;
+    return (
+        <ErrorBoundary moduleName={module}>
+            {children}
+        </ErrorBoundary>
+    );
 };
 
 export const LazyLoadingFallback = () => (
