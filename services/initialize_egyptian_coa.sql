@@ -420,13 +420,16 @@ BEGIN
     FROM public.permissions
     ON CONFLICT DO NOTHING;
 
-    -- 🚀 [تحديث حاسم V50.8] تفعيل كافة الموديولات لضمان ظهورها في القائمة الجانبية ومنع Redirect
+    -- 🚀 [تحديث V51] تفعيل الموديولات الأساسية فقط إذا لم تُحدَّد مسبقاً
+    -- (دالة provision_new_org_complete هي المسؤولة عن تعيين الموديولات حسب الباقة)
+    -- إذا كان السياق مباشراً (إنشاء يدوي بدون provision) نُفعّل الباقة الكاملة كبديل آمن
     UPDATE public.organizations 
     SET allowed_modules = ARRAY[
         'accounting', 'inventory', 'sales', 'purchases', 
-        'hr', 'manufacturing', 'restaurant', 'construction', 'hims'
+        'hr', 'manufacturing', 'restaurant', 'construction', 'hims', 'stadium', 'retail'
     ]::text[]
-    WHERE id = p_org_id;
+    WHERE id = p_org_id
+      AND (allowed_modules IS NULL OR array_length(allowed_modules, 1) = 0);
 
     RETURN '✅ تم تأسيس الدليل المحاسبي وربط الحسابات السيادية بنجاح.';
 
