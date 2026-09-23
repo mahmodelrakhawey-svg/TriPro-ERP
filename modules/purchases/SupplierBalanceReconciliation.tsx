@@ -417,8 +417,6 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
         // القيود الافتتاحية والإقفال
         if (openingEntryIds.has(jeId)) {
-          matchedEntryIds.add(jeId);
-          
           let targetSuppId = (line.journal_entries?.related_document_id || '').toLowerCase();
           if (!targetSuppId && ref.startsWith('OP-SUPP-')) {
             targetSuppId = ref.replace('OP-SUPP-', '').trim().toLowerCase();
@@ -435,11 +433,13 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           }
 
           if (targetSuppId && supplierBreakdown.has(targetSuppId)) {
+            matchedEntryIds.add(jeId);
             const b = supplierBreakdown.get(targetSuppId)!;
             b.totalCredit += credit;
             b.totalDebit += debit;
+            return;
           }
-          return;
+          // إذا لم يطابق مورداً نشطاً، نتركه ليمر إلى معالجة القيود غير المربوطة
         }
 
         // استنتاج المورد من: ID القيد -> مستند الأصل -> المرجع -> الاسم في البيان
@@ -559,14 +559,9 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         const cleanDesc = (desc || '').trim();
 
         if (matchedEntryIds.has(jeId)) return true;
-        if (openingEntryIds.has(jeId)) return true;
 
         if (
-          cleanRef.startsWith('CLOSE-') || cleanRef.startsWith('CLOSING-') ||
-          cleanRef.startsWith('OPENING-') || cleanRef.startsWith('OB-') ||
-          cleanRef.startsWith('OP-') || cleanRef.startsWith('OP-SUP-') ||
-          cleanRef.startsWith('OP-SUPP-') ||
-          cleanDesc.includes('رصيد افتتاحي') || cleanDesc.includes('رصيد أول المدة')
+          cleanRef.startsWith('CLOSE-') || cleanRef.startsWith('CLOSING-')
         ) return true;
 
         // معاملات وصرفيات وصيانة وعهد مديول الاستاد الرياضي (Stadium Module)
