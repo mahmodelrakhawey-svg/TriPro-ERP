@@ -284,6 +284,8 @@ export interface Warehouse {
   manager?: string;
   phone?: string;
   type?: 'branch' | 'warehouse';
+  is_default?: boolean;
+  is_active?: boolean;
 }
 
 export interface Category {
@@ -356,6 +358,10 @@ export interface InvoiceItem {
   quantity: number;
   uom_id?: string;
   unit_price: number;
+  discount?: number;
+  discount_percent?: number;
+  tax_rate?: number;
+  tax_amount?: number;
   total: number;
   // خصائص إضافية
   productName?: string;
@@ -363,6 +369,9 @@ export interface InvoiceItem {
   unitPrice?: number;
   productId?: string;
   uomId?: string;
+  discountPercent?: number;
+  taxRate?: number;
+  taxAmount?: number;
 }
 
 export interface Invoice {
@@ -564,18 +573,27 @@ export interface PurchaseInvoice {
   supplier_id: string;
   warehouse_id?: string;
   date: string;
-  due_date: string;
+  due_date?: string;
   items: InvoiceItem[];
   subtotal: number;
+  discount_amount?: number;
+  discount_type?: 'fixed' | 'percentage';
+  discount_value?: number;
+  items_discount_amount?: number;
   tax_amount: number;
   total_amount: number;
-  status: 'paid' | 'unpaid' | 'draft';
+  status: 'paid' | 'unpaid' | 'draft' | 'posted';
   notes?: string;
   related_journal_entry_id?: string;
+  attachments?: any[];
   // خصائص إضافية
   supplierId?: string;
   invoiceNumber?: string;
   totalAmount?: number;
+  discountAmount?: number;
+  discountType?: 'fixed' | 'percentage';
+  discountValue?: number;
+  itemsDiscountAmount?: number;
 }
 
 export interface SalesReturn {

@@ -3,7 +3,8 @@ import { supabase } from '../../supabaseClient';
 import { 
   FileText, Search, Printer, Loader2, RotateCcw, AlertTriangle, 
   Edit, CheckCircle, DollarSign, X, ChevronLeft, ChevronRight, 
-  Plus, Download, MessageCircle, Trash2, Filter, Warehouse as WarehouseIcon, Clock
+  Plus, Download, MessageCircle, Trash2, Filter, Warehouse as WarehouseIcon, Clock,
+  Paperclip, ExternalLink, Percent, Image as ImageIcon
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
@@ -43,6 +44,7 @@ export const PurchaseInvoiceList = () => {
     totalTax: 0,
     totalPaid: 0,
     totalRemaining: 0,
+    totalDiscount: 0,
     postedCount: 0,
     draftCount: 0,
     count: 0
@@ -53,6 +55,7 @@ export const PurchaseInvoiceList = () => {
   const [companySettings, setCompanySettings] = useState<any>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isImporterOpen, setIsImporterOpen] = useState(false);
+  const [viewingAttachments, setViewingAttachments] = useState<{ invoiceNumber: string; attachments: any[] } | null>(null);
 
   // Payment Modal State
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -106,8 +109,11 @@ export const PurchaseInvoiceList = () => {
           id,
           invoice_number,
           invoice_date,
+          subtotal,
           total_amount,
           tax_amount,
+          discount_amount,
+          items_discount_amount,
           paid_amount,
           status,
           notes,
@@ -115,6 +121,7 @@ export const PurchaseInvoiceList = () => {
           warehouse_id,
           created_at,
           related_journal_entry_id,
+          attachments,
           suppliers(id, name, phone),
           warehouses(id, name)
         `, { count: 'exact' })
@@ -136,7 +143,29 @@ export const PurchaseInvoiceList = () => {
       const to = from + itemsPerPage - 1;
       query = query.range(from, to);
 
-      const { data, count, error } = await query;
+      let { data, count, error }: { data: any[] | null; count: number | null; error: any } = await query;
+      if (error && error.code === '42703') {
+        // Fallback في حال كانت بعض الأعمدة الجديدة غير موجودة بعد
+        let fbQuery = supabase
+          .from('purchase_invoices')
+          .select(`
+            id, invoice_number, invoice_date, total_amount, tax_amount, paid_amount,
+            status, notes, supplier_id, warehouse_id, created_at, related_journal_entry_id,
+            suppliers(id, name, phone), warehouses(id, name)
+          `, { count: 'exact' })
+          .eq('organization_id', userOrgId)
+          .order('invoice_date', { ascending: false })
+          .order('created_at', { ascending: false });
+        if (startDate) fbQuery = fbQuery.gte('invoice_date', startDate);
+        if (endDate) fbQuery = fbQuery.lte('invoice_date', endDate);
+        if (selectedSupplierId) fbQuery = fbQuery.eq('supplier_id', selectedSupplierId);
+        if (selectedWarehouseId) fbQuery = fbQuery.eq('warehouse_id', selectedWarehouseId);
+        if (filterStatus !== 'all') fbQuery = fbQuery.eq('status', filterStatus);
+        const fbRes = await fbQuery.range(from, to);
+        data = fbRes.data;
+        count = fbRes.count;
+        error = fbRes.error;
+      }
       if (error) throw error;
 
       setInvoices(data || []);
@@ -145,7 +174,7 @@ export const PurchaseInvoiceList = () => {
       // 2. استعلام إحصائي فائق السرعة لحساب إجماليات KPIs للفترة المحددة
       let summaryQuery = supabase
         .from('purchase_invoices')
-        .select('total_amount, tax_amount, paid_amount, status')
+        .select('total_amount, tax_amount, paid_amount, discount_amount, status')
         .eq('organization_id', userOrgId);
 
       if (startDate) summaryQuery = summaryQuery.gte('invoice_date', startDate);
@@ -158,11 +187,20 @@ export const PurchaseInvoiceList = () => {
         summaryQuery = summaryQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
       }
 
-      const { data: sumRows } = await summaryQuery;
+      let { data: sumRows, error: sumErr }: { data: any[] | null; error: any } = await summaryQuery;
+      if (sumErr && sumErr.code === '42703') {
+        const fbSum = await supabase
+          .from('purchase_invoices')
+          .select('total_amount, tax_amount, paid_amount, status')
+          .eq('organization_id', userOrgId);
+        sumRows = fbSum.data;
+      }
+
       if (sumRows) {
         let tAmount = 0;
         let tTax = 0;
         let tPaid = 0;
+        let tDiscount = 0;
         let postedC = 0;
         let draftC = 0;
 
@@ -170,6 +208,7 @@ export const PurchaseInvoiceList = () => {
           tAmount += Number(row.total_amount || 0);
           tTax += Number(row.tax_amount || 0);
           tPaid += Number(row.paid_amount || 0);
+          tDiscount += Number((row as any).discount_amount || 0);
           if (row.status === 'posted' || row.status === 'paid') postedC++;
           else if (row.status === 'draft') draftC++;
         }
@@ -179,6 +218,7 @@ export const PurchaseInvoiceList = () => {
           totalTax: tTax,
           totalPaid: tPaid,
           totalRemaining: tAmount - tPaid,
+          totalDiscount: tDiscount,
           postedCount: postedC,
           draftCount: draftC,
           count: sumRows.length
@@ -433,11 +473,15 @@ export const PurchaseInvoiceList = () => {
         .select(`
           invoice_number,
           invoice_date,
+          subtotal,
           total_amount,
           tax_amount,
+          discount_amount,
+          items_discount_amount,
           paid_amount,
           status,
           notes,
+          attachments,
           suppliers(name),
           warehouses(name)
         `)
@@ -454,7 +498,25 @@ export const PurchaseInvoiceList = () => {
         expQuery = expQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
       }
 
-      const { data: exportRows, error } = await expQuery;
+      let { data: exportRows, error }: { data: any[] | null; error: any } = await expQuery;
+      if (error && error.code === '42703') {
+        let fbExp = supabase
+          .from('purchase_invoices')
+          .select(`
+            invoice_number, invoice_date, total_amount, tax_amount, paid_amount,
+            status, notes, suppliers(name), warehouses(name)
+          `)
+          .eq('organization_id', userOrgId)
+          .order('invoice_date', { ascending: false });
+        if (startDate) fbExp = fbExp.gte('invoice_date', startDate);
+        if (endDate) fbExp = fbExp.lte('invoice_date', endDate);
+        if (selectedSupplierId) fbExp = fbExp.eq('supplier_id', selectedSupplierId);
+        if (selectedWarehouseId) fbExp = fbExp.eq('warehouse_id', selectedWarehouseId);
+        if (filterStatus !== 'all') fbExp = fbExp.eq('status', filterStatus);
+        const fbRes = await fbExp;
+        exportRows = fbRes.data;
+        error = fbRes.error;
+      }
       if (error) throw error;
 
       if (!exportRows || exportRows.length === 0) {
@@ -462,19 +524,37 @@ export const PurchaseInvoiceList = () => {
         return;
       }
 
-      const dataToExport = exportRows.map((inv: any, idx: number) => ({
-        '#': idx + 1,
-        'رقم الفاتورة': inv.invoice_number || '-',
-        'التاريخ': inv.invoice_date,
-        'المورد': (inv.suppliers as any)?.name || 'مورد عام',
-        'المستودع': (inv.warehouses as any)?.name || '-',
-        'الإجمالي': inv.total_amount,
-        'الضريبة': inv.tax_amount,
-        'المسدد': inv.paid_amount || 0,
-        'المتبقي': (inv.total_amount || 0) - (inv.paid_amount || 0),
-        'الحالة': inv.status === 'posted' ? 'مرحلة' : inv.status === 'paid' ? 'مسددة' : 'مسودة',
-        'ملاحظات': inv.notes || ''
-      }));
+      const dataToExport = exportRows.map((inv: any, idx: number) => {
+        const itemDisc = Number(inv.items_discount_amount || 0);
+        const invDisc = Number(inv.discount_amount || 0);
+        const totalDisc = itemDisc + invDisc;
+        const totalAmt = Number(inv.total_amount || 0);
+        const taxAmt = Number(inv.tax_amount || 0);
+        const sub = Number(inv.subtotal || (totalAmt - taxAmt + totalDisc));
+        const taxableBase = Math.max(0, totalAmt - taxAmt);
+        const paid = Number(inv.paid_amount || 0);
+        const attCount = Array.isArray(inv.attachments) ? inv.attachments.length : 0;
+
+        return {
+          '#': idx + 1,
+          'رقم الفاتورة': inv.invoice_number || '-',
+          'التاريخ': inv.invoice_date,
+          'المورد': (inv.suppliers as any)?.name || 'مورد عام',
+          'المستودع': (inv.warehouses as any)?.name || '-',
+          'قيمة البضاعة (قبل الخصم)': sub,
+          'خصم الأصناف': itemDisc,
+          'خصم إجمالي الفاتورة': invDisc,
+          'إجمالي الخصومات المكتسبة': totalDisc,
+          'الوعاء الخاضع للضريبة (الصافي)': taxableBase,
+          'ضريبة القيمة المضافة': taxAmt,
+          'إجمالي الفاتورة النهائي': totalAmt,
+          'المسدد': paid,
+          'المتبقي للمورد': Math.max(0, totalAmt - paid),
+          'عدد المرفقات': attCount,
+          'الحالة': inv.status === 'posted' ? 'مرحلة' : inv.status === 'paid' ? 'مسددة' : 'مسودة',
+          'ملاحظات': inv.notes || ''
+        };
+      });
 
       const ws = XLSX.utils.json_to_sheet(dataToExport);
       const wb = XLSX.utils.book_new();
@@ -709,8 +789,10 @@ export const PurchaseInvoiceList = () => {
                   <th className="p-3.5">المورد</th>
                   <th className="p-3.5">المستودع</th>
                   <th className="p-3.5 text-center">الإجمالي</th>
+                  <th className="p-3.5 text-center">الخصم</th>
                   <th className="p-3.5 text-center">المسدد</th>
                   <th className="p-3.5 text-center">المتبقي</th>
+                  <th className="p-3.5 text-center">المرفقات</th>
                   <th className="p-3.5 text-center">الحالة</th>
                   <th className="p-3.5 text-center">إجراءات</th>
                 </tr>
@@ -720,6 +802,11 @@ export const PurchaseInvoiceList = () => {
                   const total = Number(inv.total_amount || 0);
                   const paid = Number(inv.paid_amount || 0);
                   const remaining = total - paid;
+                  const itemDisc = Number(inv.items_discount_amount || 0);
+                  const invDisc = Number(inv.discount_amount || 0);
+                  const totalDisc = itemDisc + invDisc;
+                  const atts = Array.isArray(inv.attachments) ? inv.attachments : [];
+                  const attCount = atts.length;
 
                   return (
                     <tr key={inv.id} className="hover:bg-slate-50/60 transition-colors">
@@ -730,11 +817,40 @@ export const PurchaseInvoiceList = () => {
                       <td className="p-3.5 text-center font-mono font-black text-slate-900" dir="ltr">
                         {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
+                      <td className="p-3.5 text-center font-mono text-xs" dir="ltr">
+                        {totalDisc > 0 ? (
+                          <span 
+                            className="inline-flex items-center gap-0.5 text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded-md border border-rose-100" 
+                            title={`خصم أصناف: ${itemDisc.toFixed(2)} | خصم فاتورة: ${invDisc.toFixed(2)}`}
+                          >
+                            -{totalDisc.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        ) : (
+                          <span className="text-slate-300">-</span>
+                        )}
+                      </td>
                       <td className="p-3.5 text-center font-mono font-bold text-emerald-600" dir="ltr">
                         {paid.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="p-3.5 text-center font-mono font-bold text-red-600" dir="ltr">
                         {remaining.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="p-3.5 text-center">
+                        {attCount > 0 ? (
+                          <button
+                            onClick={() => setViewingAttachments({
+                              invoiceNumber: inv.invoice_number,
+                              attachments: atts
+                            })}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-700 text-xs font-bold transition-all border border-blue-200 shadow-xs cursor-pointer"
+                            title={`عرض مرفقات الفاتورة (${attCount})`}
+                          >
+                            <Paperclip size={13} className="text-blue-600" />
+                            <span>{attCount}</span>
+                          </button>
+                        ) : (
+                          <span className="text-slate-300 text-xs">-</span>
+                        )}
                       </td>
                       <td className="p-3.5 text-center">
                         <span className={`text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1 ${
@@ -831,7 +947,7 @@ export const PurchaseInvoiceList = () => {
 
                 {filteredInvoices.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="p-12 text-center text-slate-400 font-bold">
+                    <td colSpan={11} className="p-12 text-center text-slate-400 font-bold">
                       لا توجد فواتير مشتريات مطابقة للبحث أو الفلترة.
                     </td>
                   </tr>
@@ -975,6 +1091,107 @@ export const PurchaseInvoiceList = () => {
           setIsImporterOpen(false);
         }}
       />
+
+      {/* 📎 نافذة استعراض مرفقات الفاتورة */}
+      {viewingAttachments && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-white rounded-3xl p-6 max-w-lg w-full shadow-2xl border border-slate-100">
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <div className="p-2 bg-blue-50 text-blue-600 rounded-xl">
+                  <Paperclip size={20} />
+                </div>
+                <div>
+                  <h3 className="text-base font-black text-slate-800">
+                    مرفقات فاتورة المشتريات
+                  </h3>
+                  <p className="text-xs text-slate-500 font-mono">
+                    رقم الفاتورة: {viewingAttachments.invoiceNumber} ({viewingAttachments.attachments.length} مرفق)
+                  </p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setViewingAttachments(null)} 
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {viewingAttachments.attachments.length === 0 ? (
+              <div className="p-8 text-center text-slate-400 text-sm">
+                لا توجد مرفقات محفوظة لهذه الفاتورة
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                {viewingAttachments.attachments.map((att: any, idx: number) => {
+                  const isImage = (att.file_type || '').toLowerCase().includes('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(att.file_name || '');
+                  const isPdf = (att.file_type || '').toLowerCase().includes('pdf') || (att.file_name || '').toLowerCase().endsWith('.pdf');
+                  const isSheet = /\.(xlsx|xls|csv)$/i.test(att.file_name || '');
+
+                  return (
+                    <div key={idx} className="flex items-center justify-between p-3 rounded-xl border border-slate-100 hover:border-blue-200 bg-slate-50/60 hover:bg-blue-50/30 transition-all">
+                      <div className="flex items-center gap-3 overflow-hidden">
+                        <div className="p-2 bg-white rounded-lg border border-slate-200 shrink-0">
+                          {isImage ? <ImageIcon className="text-emerald-600" size={18} /> :
+                           isPdf ? <FileText className="text-red-600" size={18} /> :
+                           isSheet ? <FileSpreadsheet className="text-teal-600" size={18} /> :
+                           <FileText className="text-slate-600" size={18} />}
+                        </div>
+                        <div className="truncate">
+                          <p className="text-xs font-bold text-slate-800 truncate" title={att.file_name || 'ملف بدون اسم'}>
+                            {att.file_name || 'ملف بدون اسم'}
+                          </p>
+                          {att.file_size ? (
+                            <span className="text-[10px] text-slate-400 font-mono">
+                              {(att.file_size / 1024).toFixed(1)} KB
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={async () => {
+                            let fileUrl = att.url;
+                            if (!fileUrl && att.file_path) {
+                              const { data: pubData } = supabase.storage.from('finance_docs').getPublicUrl(att.file_path);
+                              fileUrl = pubData?.publicUrl;
+                              if (!fileUrl) {
+                                const { data: signedData } = await supabase.storage.from('finance_docs').createSignedUrl(att.file_path, 3600);
+                                fileUrl = signedData?.signedUrl;
+                              }
+                            }
+                            if (fileUrl) {
+                              window.open(fileUrl, '_blank');
+                            } else {
+                              showToast('تعذر فتح رابط الملف', 'error');
+                            }
+                          }}
+                          className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition-colors cursor-pointer"
+                          title="فتح ومعاينة الملف"
+                        >
+                          <ExternalLink size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <div className="flex justify-end pt-4 mt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setViewingAttachments(null)}
+                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -107,4 +107,113 @@ describe('Purchase Invoice VAT Calculation with Item Overrides', () => {
     const parsed = purchaseInvoiceItemSchema.safeParse(invalidItem);
     expect(parsed.success).toBe(false);
   });
+
+  it('validates purchaseInvoiceItemSchema allows discount and discountPercent', () => {
+    const validWithDiscount = {
+      productId: 'p-1',
+      quantity: 10,
+      unitPrice: 100,
+      discount: 50,
+      discountPercent: 5,
+      taxRate: 14
+    };
+
+    const parsed = purchaseInvoiceItemSchema.safeParse(validWithDiscount);
+    expect(parsed.success).toBe(true);
+    if (parsed.success) {
+      expect(parsed.data.discount).toBe(50);
+      expect(parsed.data.discountPercent).toBe(5);
+    }
+  });
 });
+
+describe('Advanced Purchase Invoice Discounts & Tax Compliance (ETA)', () => {
+  it('should accurately calculate item-level discounts and tax', async () => {
+    const { calculatePurchaseInvoiceTotals } = await import('../../modules/purchases/purchaseInvoiceUtils');
+    
+    // 2 items:
+    // Item 1: 10 units @ 100 = 1000, discount 100 -> net 900, tax 14% = 126
+    // Item 2: 5 units @ 200 = 1000, discountPercent 10% (100) -> net 900, tax 14% = 126
+    const items = [
+      { quantity: 10, unitPrice: 100, discount: 100, taxRate: 14 },
+      { quantity: 5, unitPrice: 200, discountPercent: 10, taxRate: 14 }
+    ];
+
+    const result = calculatePurchaseInvoiceTotals(items, {
+      discountType: 'fixed',
+      discountValue: 0,
+      enableTax: true,
+      globalVatRate: 14
+    });
+
+    expect(result.grossTotal).toBe(2000);
+    expect(result.itemsDiscountTotal).toBe(200);
+    expect(result.subtotalBeforeInvoiceDiscount).toBe(1800);
+    expect(result.invoiceDiscountAmount).toBe(0);
+    expect(result.taxableBase).toBe(1800);
+    expect(result.taxAmount).toBe(252);
+    expect(result.totalAmount).toBe(2052);
+  });
+
+  it('should accurately apply invoice-level discount and adjust tax base accordingly', async () => {
+    const { calculatePurchaseInvoiceTotals } = await import('../../modules/purchases/purchaseInvoiceUtils');
+    
+    // 1 item: 10 units @ 100 = 1000, no item discount.
+    // Invoice-level discount: 200 (fixed)
+    // Net taxable base = 800
+    // Tax 14% on 800 = 112
+    // Total = 912
+    const items = [
+      { quantity: 10, unitPrice: 100, taxRate: 14 }
+    ];
+
+    const result = calculatePurchaseInvoiceTotals(items, {
+      discountType: 'fixed',
+      discountValue: 200,
+      enableTax: true,
+      globalVatRate: 14
+    });
+
+    expect(result.grossTotal).toBe(1000);
+    expect(result.subtotalBeforeInvoiceDiscount).toBe(1000);
+    expect(result.invoiceDiscountAmount).toBe(200);
+    expect(result.taxableBase).toBe(800);
+    expect(result.taxAmount).toBe(112);
+    expect(result.totalAmount).toBe(912);
+    expect(result.totalDiscount).toBe(200);
+  });
+
+  it('should support percentage invoice-level discount combined with item discounts', async () => {
+    const { calculatePurchaseInvoiceTotals } = await import('../../modules/purchases/purchaseInvoiceUtils');
+    
+    // Item 1: 10 @ 100 = 1000, item discount 200 -> net 800
+    // Item 2: 2 @ 100 = 200, item discount 0 -> net 200
+    // Net before invoice discount = 1000
+    // Invoice discount 10% -> 100
+    // Taxable base = 900
+    // Tax 14% on 900 = 126
+    // Grand total = 1026
+    // Total discounts = 200 + 100 = 300
+    const items = [
+      { quantity: 10, unitPrice: 100, discount: 200, taxRate: 14 },
+      { quantity: 2, unitPrice: 100, discount: 0, taxRate: 14 }
+    ];
+
+    const result = calculatePurchaseInvoiceTotals(items, {
+      discountType: 'percentage',
+      discountValue: 10,
+      enableTax: true,
+      globalVatRate: 14
+    });
+
+    expect(result.grossTotal).toBe(1200);
+    expect(result.itemsDiscountTotal).toBe(200);
+    expect(result.subtotalBeforeInvoiceDiscount).toBe(1000);
+    expect(result.invoiceDiscountAmount).toBe(100);
+    expect(result.taxableBase).toBe(900);
+    expect(result.taxAmount).toBe(126);
+    expect(result.totalAmount).toBe(1026);
+    expect(result.totalDiscount).toBe(300);
+  });
+});
+

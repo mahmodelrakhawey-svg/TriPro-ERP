@@ -9,7 +9,7 @@ interface Attachment {
   filePath: string;
   fileType: string;
   fileSize: number;
-  sourceType: 'journal' | 'receipt' | 'payment';
+  sourceType: 'journal' | 'receipt' | 'payment' | 'purchase';
   sourceId: string;
   sourceReference?: string;
   date?: string;
@@ -43,6 +43,17 @@ const AttachmentsReport = () => {
       const { data: paymentAtts } = await supabase
         .from('payment_voucher_attachments')
         .select('*, payment_vouchers(voucher_number, payment_date)');
+
+      // Fetch Purchase Invoice Attachments
+      let purchaseAtts: any[] | null = null;
+      try {
+        const { data } = await supabase
+          .from('purchase_invoice_attachments')
+          .select('*, purchase_invoices(invoice_number, invoice_date)');
+        purchaseAtts = data;
+      } catch (pErr) {
+        console.warn('Purchase attachments query:', pErr);
+      }
 
       const normalized: Attachment[] = [];
 
@@ -94,6 +105,22 @@ const AttachmentsReport = () => {
         });
       }
 
+      if (purchaseAtts) {
+        purchaseAtts.forEach((att: any) => {
+          normalized.push({
+            id: att.id,
+            fileName: att.file_name,
+            filePath: att.file_path,
+            fileType: att.file_type,
+            fileSize: att.file_size,
+            sourceType: 'purchase',
+            sourceId: att.invoice_id || att.purchase_invoice_id,
+            sourceReference: att.purchase_invoices?.invoice_number,
+            date: att.purchase_invoices?.invoice_date
+          });
+        });
+      }
+
       // Sort by date descending (if available) or ID
       normalized.sort((a, b) => {
         const dateA = a.date ? new Date(a.date).getTime() : 0;
@@ -111,9 +138,12 @@ const AttachmentsReport = () => {
 
   const downloadAttachment = async (path: string, fileName: string) => {
     try {
-      const { data, error } = await supabase.storage.from('documents').download(path);
-      if (error) throw error;
-      const url = URL.createObjectURL(data);
+      let res = await supabase.storage.from('finance_docs').download(path);
+      if (res.error) {
+        res = await supabase.storage.from('documents').download(path);
+      }
+      if (res.error) throw res.error;
+      const url = URL.createObjectURL(res.data);
       const a = document.createElement('a');
       a.href = url;
       a.download = fileName;
@@ -125,10 +155,19 @@ const AttachmentsReport = () => {
     }
   };
 
-  const previewAttachment = (path: string) => {
-    const { data } = supabase.storage.from('documents').getPublicUrl(path);
-    if (data.publicUrl) {
+  const previewAttachment = async (path: string) => {
+    try {
+      const { data: pubData } = supabase.storage.from('finance_docs').getPublicUrl(path);
+      if (pubData?.publicUrl) {
+        window.open(pubData.publicUrl, '_blank');
+        return;
+      }
+      const { data } = supabase.storage.from('documents').getPublicUrl(path);
+      if (data?.publicUrl) {
         window.open(data.publicUrl, '_blank');
+      }
+    } catch (err) {
+      console.error('Error previewing attachment:', err);
     }
   };
 
@@ -152,6 +191,7 @@ const AttachmentsReport = () => {
       case 'journal': return 'قيد يومية';
       case 'receipt': return 'سند قبض';
       case 'payment': return 'سند صرف';
+      case 'purchase': return 'فاتورة مشتريات';
       default: return type;
     }
   };
@@ -186,6 +226,7 @@ const AttachmentsReport = () => {
                 <option value="journal">قيود يومية</option>
                 <option value="receipt">سندات قبض</option>
                 <option value="payment">سندات صرف</option>
+                <option value="purchase">فواتير مشتريات</option>
             </select>
         </div>
       </div>
@@ -223,6 +264,7 @@ const AttachmentsReport = () => {
                                     <span className={`px-2 py-1 rounded-full text-xs font-bold ${
                                         att.sourceType === 'journal' ? 'bg-purple-100 text-purple-700' :
                                         att.sourceType === 'receipt' ? 'bg-green-100 text-green-700' :
+                                        att.sourceType === 'purchase' ? 'bg-blue-100 text-blue-700' :
                                         'bg-orange-100 text-orange-700'
                                     }`}>
                                         {getSourceLabel(att.sourceType)}

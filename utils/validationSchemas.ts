@@ -220,6 +220,8 @@ export const purchaseInvoiceItemSchema = z.object({
   productName: z.string().optional(),
   quantity: z.number().min(0.01, 'الكمية يجب أن تكون أكبر من 0'),
   unitPrice: amountSchema,
+  discount: z.number().min(0, 'الخصم لا يمكن أن يكون سالباً').optional().default(0),
+  discountPercent: z.number().min(0).max(100, 'نسبة الخصم يجب ألا تتجاوز 100%').optional().default(0),
   taxRate: z.number().min(0).max(100).optional(),
 });
 
@@ -230,6 +232,11 @@ export const createPurchaseInvoiceSchema = z.object({
   items: z.array(purchaseInvoiceItemSchema).min(1, 'يجب إضافة بند واحد على الأقل'),
   paidAmount: amountSchema.optional().default(0),
   treasuryAccountId: z.string().optional().nullable().or(z.literal('')),
+  discountType: z.enum(['fixed', 'percentage']).optional().default('fixed'),
+  discountValue: z.number().min(0, 'قيمة الخصم لا يمكن أن تكون سالبة').optional().default(0),
+  discountAmount: amountSchema.optional().default(0),
+  itemsDiscountAmount: amountSchema.optional().default(0),
+  attachments: z.array(z.any()).optional().default([]),
 }).refine(data => !data.paidAmount || data.paidAmount <= 0 || (data.paidAmount > 0 && Boolean(data.treasuryAccountId)), {
   message: 'يرجى اختيار الخزينة أو البنك لسداد المبلغ المدفوع',
   path: ['treasuryAccountId']

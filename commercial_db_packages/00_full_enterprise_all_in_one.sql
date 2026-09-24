@@ -2138,6 +2138,7 @@ CREATE TABLE IF NOT EXISTS public.warehouses (
     manager text,
     phone text,
     is_active boolean DEFAULT true, -- 🛡️ تم إضافة هذا العمود لإصلاح خطأ 42703 في دالة تأسيس الشركات
+    is_default boolean DEFAULT false,
     type text DEFAULT 'warehouse',
      organization_id uuid NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE DEFAULT public.get_my_org(),
     deleted_at timestamptz,

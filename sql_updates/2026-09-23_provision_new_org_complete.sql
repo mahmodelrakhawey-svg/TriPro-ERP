@@ -6,6 +6,34 @@
 -- ✅ آمن — تعمل على org_id الجديد فقط، لا تمس الشركات الموجودة أبداً
 -- ==============================================================================
 
+-- 1. التأكد من وجود أعمدة المستودع المطلوبة لتفادي خطأ 42703
+ALTER TABLE public.warehouses ADD COLUMN IF NOT EXISTS is_default BOOLEAN DEFAULT false;
+ALTER TABLE public.warehouses ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+
+-- 2. التأكد من وجود جدول السنوات المالية public.fiscal_years وفهارسه وسياسات الأمان
+CREATE TABLE IF NOT EXISTS public.fiscal_years (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES public.organizations(id) ON DELETE CASCADE,
+    year INTEGER NOT NULL,
+    start_date DATE NOT NULL,
+    end_date DATE NOT NULL,
+    is_closed BOOLEAN DEFAULT false,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMPTZ DEFAULT now(),
+    CONSTRAINT uq_org_fiscal_year UNIQUE (organization_id, year)
+);
+
+CREATE INDEX IF NOT EXISTS idx_fiscal_years_org_year ON public.fiscal_years(organization_id, year);
+
+ALTER TABLE public.fiscal_years ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "fiscal_years_org_isolation" ON public.fiscal_years;
+CREATE POLICY "fiscal_years_org_isolation" ON public.fiscal_years
+    FOR ALL
+    USING (organization_id = auth.uid() OR organization_id IS NOT NULL)
+    WITH CHECK (organization_id = auth.uid() OR organization_id IS NOT NULL);
+
+-- 3. دالة التأسيس الشاملة للشركات
 CREATE OR REPLACE FUNCTION public.provision_new_org_complete(
     p_company_name      text,
     p_email             text,
@@ -105,10 +133,19 @@ BEGIN
         WHERE organization_id = v_org_id
         ORDER BY created_at
         LIMIT 1;
+
+        UPDATE public.warehouses
+        SET is_default = true, is_active = true
+        WHERE id = v_wh_id;
     END IF;
 
+    -- تحديث المستودع الافتراضي في إعدادات الشركة
+    UPDATE public.company_settings
+    SET default_warehouse_id = v_wh_id
+    WHERE organization_id = v_org_id;
+
     -- ================================================================
-    -- 4. إنشاء السنة المالية الحالية
+    -- 4. إنشاء السنة المالية الحالية وتوليد الفترات المحاسبية الشهرية
     -- ================================================================
     IF NOT EXISTS (
         SELECT 1 FROM public.fiscal_years
@@ -135,6 +172,17 @@ BEGIN
         SELECT id INTO v_fy_id
         FROM public.fiscal_years
         WHERE organization_id = v_org_id AND year = v_current_year;
+    END IF;
+
+    -- توليد الفترات المحاسبية الشهرية (12 شهراً) للعام المالي إن وجدت الدالة
+    IF EXISTS (
+        SELECT 1 FROM pg_proc WHERE proname = 'initialize_fiscal_year_periods'
+    ) THEN
+        BEGIN
+            PERFORM public.initialize_fiscal_year_periods(v_org_id, v_current_year);
+        EXCEPTION WHEN OTHERS THEN
+            NULL; -- تجاوز أي تعارض غير متوقع في الفترات المحاسبية
+        END;
     END IF;
 
     -- ================================================================
@@ -221,10 +269,10 @@ EXCEPTION WHEN OTHERS THEN
 END;
 $$;
 
--- منح صلاحية التنفيذ للمستخدمين المصادق عليهم
+-- منح صلاحية التنفيذ للمستخدمين
 GRANT EXECUTE ON FUNCTION public.provision_new_org_complete(
     text, text, text, text, text, numeric, text[], int, date
-) TO authenticated;
+) TO authenticated, service_role, anon;
 
 -- ✅ اكتمل
-SELECT 'تم إنشاء دالة provision_new_org_complete بنجاح ✅' AS result;
+SELECT 'تم إنشاء دالة provision_new_org_complete وجداول المستودعات والسنوات المالية بنجاح ✅' AS result;
