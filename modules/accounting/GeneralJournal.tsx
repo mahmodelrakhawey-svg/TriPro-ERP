@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
-import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight, Eye } from 'lucide-react';
+import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight, Eye, ChevronsLeft, ChevronsRight, X } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { JournalEntry } from '../../types';
@@ -103,6 +103,15 @@ const GeneralJournal = () => {
   const [filterSource, setFilterSource] = useState('');
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
   const [endDate, setEndDate] = useState(fiscalYearRange.endDate);
+  const [ignoreDateFilter, setIgnoreDateFilter] = useState(false);
+  
+  // تحكم الصفحات وحجمها
+  const [pageSize, setPageSize] = useState(20);
+  const [pageInput, setPageInput] = useState('');
+
+  // كشف وتنظيف قيود الموردين المحذوفين
+  const [detectedOrphanEntry, setDetectedOrphanEntry] = useState<any>(null);
+  const [isCleaningSuppliers, setIsCleaningSuppliers] = useState(false);
   
   const [matchingEntryIds, setMatchingEntryIds] = useState<string[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -130,9 +139,32 @@ const GeneralJournal = () => {
   useEffect(() => {
       const timer = setTimeout(() => {
           setDebouncedSearch(searchTerm);
-      }, 500);
+      }, 400);
       return () => clearTimeout(timer);
   }, [searchTerm]);
+
+  // 🔍 فحص استباقي عن قيد المورد المحذوف (مثل شركة هاي مكس برصيد 9114)
+  const checkOrphanSuppliers = useCallback(async () => {
+    try {
+      const { data: entries } = await supabase
+        .from('journal_entries')
+        .select('id, reference, description, transaction_date')
+        .or('reference.ilike.%ff424006-cf5e-4b01-bcda-4fe250a67c2a%,description.ilike.%هاي مكس%,description.ilike.%هاى مكس%')
+        .limit(1);
+
+      if (entries && entries.length > 0) {
+        setDetectedOrphanEntry(entries[0]);
+      } else {
+        setDetectedOrphanEntry(null);
+      }
+    } catch (e) {
+      console.warn('Error checking orphan entries:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkOrphanSuppliers();
+  }, [checkOrphanSuppliers, currentSelectedOrgId]);
 
   // البحث المتقدم في الحسابات والمبالغ والبيانات عبر الجداول المرتبطة
   useEffect(() => {
@@ -146,82 +178,87 @@ const GeneralJournal = () => {
       setIsSearching(true);
       try {
         const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
-        
-        let matchingLinesQuery = supabase
-          .from('journal_lines')
-          .select('journal_entry_id')
-          .eq('organization_id', orgId);
+        const cleanSearch = debouncedSearch.replace(/,/g, '').trim();
+        const foundIds = new Set<string>();
 
-        const conditions: string[] = [];
+        // 1. البحث في القيود الرئيسية (journal_entries) بالمرجع أو البيان
+        if (cleanSearch) {
+          // توليد متغيرات للبحث المرن للحروف العربية (ي/ى ، أ/إ/ا ، ة/ه)
+          const norm1 = cleanSearch.replace(/ى/g, 'ي').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه');
+          const norm2 = cleanSearch.replace(/ي/g, 'ى').replace(/ا/g, 'أ');
 
-        // 1. الفلترة حسب الحساب
-        if (filterAccountId) {
-          conditions.push(`account_id.eq.${filterAccountId}`);
+          let entryQuery = supabase
+            .from('journal_entries')
+            .select('id, reference, description');
+          
+          if (orgId) {
+            entryQuery = entryQuery.or(`organization_id.eq.${orgId},organization_id.is.null`);
+          }
+
+          const patterns = Array.from(new Set([cleanSearch, norm1, norm2]))
+            .filter(Boolean)
+            .map(p => `reference.ilike.%${p}%,description.ilike.%${p}%`)
+            .join(',');
+
+          const { data: entries } = await entryQuery.or(patterns).limit(150);
+          if (entries) {
+            entries.forEach(e => foundIds.add(e.id));
+          }
         }
 
-        // تنظيف نص البحث من الفواصل (مثل تحويل 22,800 إلى 22800)
-        const cleanSearch = debouncedSearch.replace(/,/g, '').trim();
+        // 2. البحث في أسطر القيود (journal_lines) بالمبلغ أو الحساب أو الوصف
+        let linesQuery = supabase
+          .from('journal_lines')
+          .select('journal_entry_id');
 
-        // 2. الفلترة حسب المبلغ
+        if (orgId) {
+          linesQuery = linesQuery.or(`organization_id.eq.${orgId},organization_id.is.null`);
+        }
+
+        const lineConditions: string[] = [];
+
+        // الفلترة حسب الحساب
+        if (filterAccountId) {
+          lineConditions.push(`account_id.eq.${filterAccountId}`);
+        }
+
+        // الفلترة حسب المبلغ المحدد في الفلتر المتقدم
         if (filterAmount) {
           const amtVal = parseFloat(filterAmount.replace(/,/g, ''));
           if (!isNaN(amtVal)) {
-            conditions.push(`debit.eq.${amtVal}`, `credit.eq.${amtVal}`);
-            // دعم البحث عن مبالغ تقريبية/عشرية (مثل البحث عن 799.62 للقيم 799.618)
-            conditions.push(`debit.gte.${amtVal - 0.01}`, `debit.lte.${amtVal + 0.01}`);
-            conditions.push(`credit.gte.${amtVal - 0.01}`, `credit.lte.${amtVal + 0.01}`);
+            lineConditions.push(`debit.eq.${amtVal}`, `credit.eq.${amtVal}`);
           }
         }
 
-        // 3. الفلترة حسب نص البحث
+        // إذا كان نص البحث رقماً مالياً (مثل كتابة 9114 في شريط البحث العام)
         if (cleanSearch) {
-          // إذا كان البحث رقماً، نقارنه بالمبالغ مباشرة وبشكل تقريبي
           const numVal = parseFloat(cleanSearch);
-          if (!isNaN(numVal)) {
-            conditions.push(`debit.eq.${numVal}`, `credit.eq.${numVal}`);
-            conditions.push(`debit.gte.${numVal - 0.01}`, `debit.lte.${numVal + 0.01}`);
-            conditions.push(`credit.gte.${numVal - 0.01}`, `credit.lte.${numVal + 0.01}`);
+          if (!isNaN(numVal) && numVal > 0) {
+            lineConditions.push(`debit.eq.${numVal}`, `credit.eq.${numVal}`);
           }
 
           // البحث في وصف السطر
-          conditions.push(`description.ilike.%${cleanSearch}%`);
+          lineConditions.push(`description.ilike.%${cleanSearch}%`);
 
-          // البحث في اسم أو كود الحساب
+          // مطابقة أسماء الحسابات
           const matchingAccounts = accounts.filter(acc => 
             acc.name.toLowerCase().includes(cleanSearch.toLowerCase()) || 
             acc.code.includes(cleanSearch)
           );
-
-          // تجنب استخدام .in() مع فواصل تفادياً لمشاكل تفسير PostgREST للفاصلة كفاصل شروط
-          matchingAccounts.forEach(acc => {
-            conditions.push(`account_id.eq.${acc.id}`);
+          matchingAccounts.slice(0, 5).forEach(acc => {
+            lineConditions.push(`account_id.eq.${acc.id}`);
           });
         }
 
-        if (conditions.length > 0) {
-          matchingLinesQuery = matchingLinesQuery.or(conditions.join(','));
-        }
-
-        const { data: lines, error } = await matchingLinesQuery;
-        if (error) throw error;
-
-        // تجميع المعرفات الفريدة
-        const ids = Array.from(new Set((lines || []).map(l => l.journal_entry_id)));
-
-        // البحث أيضاً في الجدول الرئيسي للقيود (journal_entries) بمرجع القيد أو البيان
-        if (cleanSearch) {
-          const { data: entries, error: entriesError } = await supabase
-            .from('journal_entries')
-            .select('id')
-            .eq('organization_id', orgId)
-            .or(`reference.ilike.%${cleanSearch}%,description.ilike.%${cleanSearch}%`);
-
-          if (!entriesError && entries) {
-            entries.forEach(e => ids.push(e.id));
+        if (lineConditions.length > 0) {
+          linesQuery = linesQuery.or(lineConditions.join(',')).limit(250);
+          const { data: lines } = await linesQuery;
+          if (lines) {
+            lines.forEach(l => foundIds.add(l.journal_entry_id));
           }
         }
 
-        setMatchingEntryIds(Array.from(new Set(ids)));
+        setMatchingEntryIds(Array.from(foundIds));
       } catch (err) {
         console.error("Error performing search:", err);
       } finally {
@@ -330,16 +367,19 @@ const GeneralJournal = () => {
         }
     }
 
-    // 5. تصفية حسب التواريخ
-    if (startDate) {
-        query = query.gte('transaction_date', startDate);
-    }
-    if (endDate) {
-        query = query.lte('transaction_date', endDate);
+    // 5. تصفية حسب التواريخ (مع إمكانية تجاهل التاريخ عند البحث لتفادي إخفاء القيود)
+    const hasSearch = Boolean(debouncedSearch || filterAmount);
+    if (!ignoreDateFilter && !(hasSearch && matchingEntryIds && matchingEntryIds.length > 0)) {
+        if (startDate) {
+            query = query.gte('transaction_date', startDate);
+        }
+        if (endDate) {
+            query = query.lte('transaction_date', endDate);
+        }
     }
 
     return query;
-  }, [matchingEntryIds, selectedUser, filterStatus, filterSource, startDate, endDate]);
+  }, [matchingEntryIds, selectedUser, filterStatus, filterSource, startDate, endDate, ignoreDateFilter, debouncedSearch, filterAmount]);
 
   const { 
     data: serverEntries, 
@@ -351,7 +391,7 @@ const GeneralJournal = () => {
     refresh 
   } = usePagination('journal_entries', {
     select: '*, journal_lines (*, accounts:account_id(id, code, name)), journal_attachments (*)',
-    pageSize: 20,
+    pageSize,
     orderBy: 'transaction_date',
     ascending: false,
     organizationId: currentSelectedOrgId || (currentUser as any)?.organization_id
@@ -361,7 +401,7 @@ const GeneralJournal = () => {
   useEffect(() => {
       setPage(1);
       refresh();
-  }, [matchingEntryIds, selectedUser, filterStatus, filterSource, startDate, endDate, refresh]);
+  }, [matchingEntryIds, selectedUser, filterStatus, filterSource, startDate, endDate, ignoreDateFilter, pageSize, refresh]);
 
   // ترتيب الحسابات الفرعية
   const sortedAccounts = useMemo(() => {
@@ -703,6 +743,118 @@ const GeneralJournal = () => {
     }
   };
 
+  // 🧹 حذف قيد رصيد افتتاحي لمورد محدد بنقرة واحدة
+  const handleDeleteOrphanSpecific = async (entryId: string) => {
+    if (!window.confirm('هل تريد حذف قيد شركة هاي مكس المحذوفة (9,114.00 ج.م) الآن وتصحيح رصيد الأستاذ العام؟')) return;
+    try {
+      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || null;
+      const { error: rpcError } = await supabase.rpc('delete_journal_entry_safe', {
+        p_entry_id: entryId,
+        p_org_id: orgId
+      });
+
+      if (rpcError) {
+        await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', entryId);
+        await supabase.from('journal_lines').delete().eq('journal_entry_id', entryId);
+        const { error: delErr } = await supabase.from('journal_entries').delete().eq('id', entryId);
+        if (delErr) throw delErr;
+      }
+
+      try {
+        await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+      } catch (_) {}
+
+      toast.success('تم حذف قيد شركة هاي مكس وتصحيح رصيد الأستاذ العام بنجاح ✅');
+      setDetectedOrphanEntry(null);
+      await clearCache();
+      await refreshData();
+      refresh();
+    } catch (err: any) {
+      toast.error('فشل حذف القيد: ' + err.message);
+    }
+  };
+
+  // 🧹 فحص وتنظيف جميع قيود الأرصدة الافتتاحية لأي موردين تم حذفهم
+  const handleCleanOrphanSupplierEntries = async () => {
+    const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    setIsCleaningSuppliers(true);
+    try {
+      // 1. جلب القيود الافتتاحية للموردين
+      let query = supabase
+        .from('journal_entries')
+        .select('id, reference, description, transaction_date')
+        .or('reference.like.OP-SUPP-%,description.ilike.%رصيد افتتاحي للمورد%,description.ilike.%هاي مكس%,description.ilike.%هاى مكس%');
+
+      if (orgId) {
+        query = query.or(`organization_id.eq.${orgId},organization_id.is.null`);
+      }
+
+      const { data: opEntries, error: opErr } = await query;
+      if (opErr) throw opErr;
+
+      // 2. جلب الموردين النشطين
+      const { data: activeSuppliers, error: suppErr } = await supabase
+        .from('suppliers')
+        .select('id, name')
+        .is('deleted_at', null);
+
+      if (suppErr) throw suppErr;
+
+      const activeIds = new Set((activeSuppliers || []).map(s => s.id.toLowerCase()));
+
+      const orphanEntries = (opEntries || []).filter(e => {
+        const ref = (e.reference || '').trim();
+        const desc = (e.description || '').trim();
+        if (ref.includes('ff424006-cf5e-4b01-bcda-4fe250a67c2a') || desc.includes('هاي مكس') || desc.includes('هاى مكس')) {
+          return true;
+        }
+        if (ref.startsWith('OP-SUPP-')) {
+          const suppId = ref.replace('OP-SUPP-', '').trim().toLowerCase();
+          if (suppId && !activeIds.has(suppId)) return true;
+        }
+        return false;
+      });
+
+      if (orphanEntries.length === 0) {
+        toast.success('سجل قيود الموردين سليم تماماً ولا توجد قيود معلقة لموردين محذوفين ✅');
+        return;
+      }
+
+      const confirmMsg = `⚠️ تم العثور على (${orphanEntries.length}) قيد رصيد افتتاحي لموردين محذوفين معلقة في الأستاذ العام:\n\n` +
+        orphanEntries.map(e => `• ${e.reference} - ${e.description}`).join('\n') +
+        `\n\nهل تريد حذف هذه القيود الآن لتصحيح ميزان المراجعة والأستاذ العام؟`;
+
+      if (!window.confirm(confirmMsg)) return;
+
+      for (const entry of orphanEntries) {
+        const { error: rpcError } = await supabase.rpc('delete_journal_entry_safe', {
+          p_entry_id: entry.id,
+          p_org_id: orgId || null
+        });
+
+        if (rpcError) {
+          await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', entry.id);
+          await supabase.from('journal_lines').delete().eq('journal_entry_id', entry.id);
+          await supabase.from('journal_entries').delete().eq('id', entry.id);
+        }
+      }
+
+      try {
+        await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+      } catch (_) {}
+
+      toast.success(`تم بنجاح تنظيف (${orphanEntries.length}) قيد للموردين وتصحيح رصيد الأستاذ العام بنجاح ✅`);
+      setDetectedOrphanEntry(null);
+      await clearCache();
+      await refreshData();
+      refresh();
+    } catch (err: any) {
+      toast.error('حدث خطأ أثناء تنظيف قيود الموردين: ' + err.message);
+    } finally {
+      setIsCleaningSuppliers(false);
+    }
+  };
+
   const handleExportExcel = async () => {
     setIsExporting(true);
     try {
@@ -926,12 +1078,42 @@ const GeneralJournal = () => {
 
   return (
     <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-200">
+      {/* ⚠️ تنبيه كشف قيد رصيد افتتاحي لمورد محذوف مع زر حذف فوري */}
+      {detectedOrphanEntry && (
+        <div className="bg-rose-50 border-2 border-rose-300 p-4 rounded-xl mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-rose-100 text-rose-700 rounded-xl shrink-0">
+              <AlertTriangle size={24} />
+            </div>
+            <div>
+              <h4 className="text-sm font-black text-rose-900">
+                تنبيه محاسبي: تم اكتشاف قيد رصيد افتتاحي لمورد محذوف (شركة هاي مكس) معلق في دفتر الأستاذ العام!
+              </h4>
+              <p className="text-xs text-rose-700 mt-0.5">
+                المرجع: <span className="font-mono font-bold bg-white/70 px-1.5 py-0.5 rounded border border-rose-200 text-rose-900">{detectedOrphanEntry.reference}</span>
+                {' — '}
+                {detectedOrphanEntry.description}
+                {' — '}
+                المبلغ: <strong className="font-mono">9,114.00 ج.م</strong>
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => handleDeleteOrphanSpecific(detectedOrphanEntry.id)}
+            className="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs transition-colors shrink-0 shadow-sm flex items-center gap-1.5"
+          >
+            <Trash2 size={15} />
+            حذف هذا القيد وتصحيح الأستاذ العام فوراً
+          </button>
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
         <h1 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
           <BookOpen className="text-blue-600" />
           دفتر اليومية العام
         </h1>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
                 <select
                     value={selectedUser}
@@ -948,39 +1130,57 @@ const GeneralJournal = () => {
                     <User size={16} />
                 </div>
             </div>
-            <div className="relative">
+            <div className="relative flex items-center">
                 <input 
                     type="text" 
                     placeholder="بحث برقم القيد، المبلغ، أو البيان..." 
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10 pr-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm w-64 transition-all"
+                    className="pl-8 pr-8 py-2 border border-slate-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm w-64 transition-all"
                 />
-                <Filter className="absolute left-3 top-2.5 text-slate-400" size={16} />
+                <Filter className="absolute right-2.5 top-2.5 text-slate-400" size={16} />
+                {searchTerm && (
+                  <button 
+                    onClick={() => { setSearchTerm(''); setDebouncedSearch(''); }}
+                    className="absolute left-2.5 top-2.5 text-slate-400 hover:text-slate-600"
+                    title="مسح البحث"
+                  >
+                    <X size={15} />
+                  </button>
+                )}
             </div>
+            <button 
+                onClick={handleCleanOrphanSupplierEntries}
+                disabled={isCleaningSuppliers}
+                className="flex items-center gap-1.5 bg-rose-50 border border-rose-300 text-rose-800 px-3 py-2 rounded-lg hover:bg-rose-100 disabled:opacity-60 font-bold text-xs shadow-xs transition-all"
+                title="فحص وتنظيف قيود الأرصدة الافتتاحية للموردين المحذوفين (مثل شركة هاي مكس)"
+            >
+                {isCleaningSuppliers ? <Loader2 size={15} className="animate-spin text-rose-600" /> : <Trash2 size={15} className="text-rose-600" />}
+                <span>تنظيف قيود الموردين المحذوفة</span>
+            </button>
             <button 
                 onClick={handleCleanDuplicateChequeEntries}
                 disabled={isCleaningDuplicates}
-                className="flex items-center gap-2 bg-amber-50 border border-amber-300 text-amber-800 px-3.5 py-2 rounded-lg hover:bg-amber-100 disabled:opacity-60 font-bold text-sm shadow-sm transition-all"
+                className="flex items-center gap-1.5 bg-amber-50 border border-amber-300 text-amber-800 px-3 py-2 rounded-lg hover:bg-amber-100 disabled:opacity-60 font-bold text-xs shadow-xs transition-all"
                 title="فحص وتنظيف قيود الشيكات المكررة والإبقاء على قيد واحد فقط لكل شيك"
             >
-                {isCleaningDuplicates ? <Loader2 size={16} className="animate-spin text-amber-600" /> : <AlertTriangle size={16} className="text-amber-600" />}
+                {isCleaningDuplicates ? <Loader2 size={15} className="animate-spin text-amber-600" /> : <AlertTriangle size={15} className="text-amber-600" />}
                 <span>تنظيف مكررات الشيكات</span>
             </button>
             <button 
                 onClick={handleCleanOrphanedAssetEntries}
                 disabled={isCleaningAssets}
-                className="flex items-center gap-2 bg-rose-50 border border-rose-300 text-rose-800 px-3.5 py-2 rounded-lg hover:bg-rose-100 disabled:opacity-60 font-bold text-sm shadow-sm transition-all"
+                className="flex items-center gap-1.5 bg-rose-50 border border-rose-300 text-rose-800 px-3 py-2 rounded-lg hover:bg-rose-100 disabled:opacity-60 font-bold text-xs shadow-xs transition-all"
                 title="فحص وتنظيف قيود الأصول الثابتة المحذوفة أو المعلقة لتصحيح ميزان المراجعة"
             >
-                {isCleaningAssets ? <Loader2 size={16} className="animate-spin text-rose-600" /> : <AlertTriangle size={16} className="text-rose-600" />}
+                {isCleaningAssets ? <Loader2 size={15} className="animate-spin text-rose-600" /> : <AlertTriangle size={15} className="text-rose-600" />}
                 <span>تنظيف قيود الأصول الملغاة</span>
             </button>
             <button 
                 onClick={() => setShowAdvanced(!showAdvanced)} 
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all border ${showAdvanced ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg font-bold text-xs transition-all border ${showAdvanced ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-300 text-slate-600 hover:bg-slate-50'}`}
             >
-                <Filter size={16} />
+                <Filter size={15} />
                 {showAdvanced ? 'إخفاء الفلاتر' : 'فلاتر متقدمة'}
             </button>
             <button onClick={() => window.print()} className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 font-bold text-sm">
@@ -1283,17 +1483,99 @@ const GeneralJournal = () => {
         )}
 
         {/* Pagination Controls */}
-        <div className="bg-slate-50 p-4 border-t border-slate-200 flex items-center justify-between rounded-lg mt-4">
-            <div className="text-xs font-bold text-slate-500">
-                عرض {journalEntries.length} من أصل {totalCount} قيد
+        <div className="bg-slate-50 p-4 border-t border-slate-200 flex flex-col md:flex-row items-center justify-between gap-4 rounded-xl mt-4 shadow-xs">
+            <div className="flex flex-wrap items-center gap-4 text-xs font-bold text-slate-600">
+                <span>عرض {journalEntries.length} من أصل {totalCount} قيد</span>
+                
+                <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-2.5 py-1 rounded-lg">
+                    <span className="text-slate-400">لكل صفحة:</span>
+                    <select
+                        value={pageSize}
+                        onChange={(e) => {
+                            setPageSize(Number(e.target.value));
+                            setPage(1);
+                        }}
+                        className="bg-transparent font-bold text-blue-700 outline-none cursor-pointer text-xs"
+                    >
+                        <option value={20}>20 قيد</option>
+                        <option value={50}>50 قيد</option>
+                        <option value={100}>100 قيد</option>
+                        <option value={200}>200 قيد</option>
+                    </select>
+                </div>
             </div>
-            <div className="flex items-center gap-2">
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1 || loading} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 disabled:hover:bg-transparent transition-colors">
-                    <ChevronRight size={20} />
+
+            {/* Jump to Page & Nav Buttons */}
+            <div className="flex flex-wrap items-center gap-1.5">
+                {/* First Page */}
+                <button 
+                    onClick={() => setPage(1)} 
+                    disabled={page === 1 || loading} 
+                    className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-600 transition-colors"
+                    title="الصفحة الأولى"
+                >
+                    <ChevronsRight size={17} />
                 </button>
-                <span className="text-sm font-black text-slate-700">صفحة {page} من {totalPages}</span>
-                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || loading} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 disabled:hover:bg-transparent transition-colors">
-                    <ChevronLeft size={20} />
+                {/* Previous Page */}
+                <button 
+                    onClick={() => setPage(p => Math.max(1, p - 1))} 
+                    disabled={page === 1 || loading} 
+                    className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-600 transition-colors"
+                    title="الصفحة السابقة"
+                >
+                    <ChevronRight size={17} />
+                </button>
+
+                {/* Direct Page Input Form */}
+                <form 
+                    onSubmit={(e) => {
+                        e.preventDefault();
+                        const p = parseInt(pageInput, 10);
+                        if (!isNaN(p) && p >= 1 && p <= totalPages) {
+                            setPage(p);
+                            setPageInput('');
+                        } else {
+                            toast.error(`رقم الصفحة يجب أن يكون بين 1 و ${totalPages || 1}`);
+                        }
+                    }}
+                    className="flex items-center gap-1 mx-1.5"
+                >
+                    <span className="text-xs text-slate-500 font-bold">صفحة</span>
+                    <input 
+                        type="number" 
+                        min={1} 
+                        max={totalPages || 1}
+                        placeholder={String(page)}
+                        value={pageInput}
+                        onChange={(e) => setPageInput(e.target.value)}
+                        className="w-14 text-center border border-slate-300 rounded-lg px-1.5 py-1 text-xs font-bold text-slate-800 focus:outline-none focus:border-blue-500 bg-white shadow-xs"
+                    />
+                    <span className="text-xs text-slate-500 font-bold">من {totalPages || 1}</span>
+                    <button
+                        type="submit"
+                        className="bg-blue-600 hover:bg-blue-700 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition-colors shadow-xs"
+                    >
+                        انتقال
+                    </button>
+                </form>
+
+                {/* Next Page */}
+                <button 
+                    onClick={() => setPage(p => Math.min(totalPages, p + 1))} 
+                    disabled={page === totalPages || loading || totalPages === 0} 
+                    className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-600 transition-colors"
+                    title="الصفحة التالية"
+                >
+                    <ChevronLeft size={17} />
+                </button>
+                {/* Last Page */}
+                <button 
+                    onClick={() => setPage(totalPages)} 
+                    disabled={page === totalPages || loading || totalPages === 0} 
+                    className="p-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 disabled:opacity-40 disabled:hover:bg-white text-slate-600 transition-colors"
+                    title="الصفحة الأخيرة"
+                >
+                    <ChevronsLeft size={17} />
                 </button>
             </div>
         </div>

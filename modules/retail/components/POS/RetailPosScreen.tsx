@@ -1011,7 +1011,7 @@ export default function RetailPosScreen() {
     playBeep();
 
     try {
-      const { matchedProduct, matchedUomInfo, weight, multiplier, cleanCode } = await resolveScannedBarcode(
+      const { matchedProduct, matchedUomInfo, weight, multiplier, cleanCode, parsedGS1 } = await resolveScannedBarcode(
         rawCode,
         currentUser?.organization_id
       );
@@ -1025,6 +1025,9 @@ export default function RetailPosScreen() {
           matchedUomInfo?.customPrice,
           matchedUomInfo?.uom_id
         );
+        if (parsedGS1?.isGS1 && (parsedGS1.batchNumber || parsedGS1.expiryDate)) {
+          showToast(`تم مسح باركود دوائي (GS1): تشغيلة ${parsedGS1.batchNumber || '-'} | صلاحية ${parsedGS1.expiryDate || '-'}`, 'info');
+        }
       } else {
         showToast(`لم يتم العثور على صنف بالرمز: ${cleanCode || rawCode}`, 'error');
       }

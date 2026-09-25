@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { db } from '../../../services/offlineService';
 import dayjs from 'dayjs';
 import { secureStorage } from '../../../utils/securityMiddleware';
+import { parseGS1Barcode } from '../../../utils/gs1BarcodeParser';
 
 export const PharmacyDashboard: React.FC = () => {
   const { currentUser } = useAuth();
@@ -230,22 +231,40 @@ export const PharmacyDashboard: React.FC = () => {
     }
   };
 
-  // 🚀 دالة معالجة مسح الباركود
+  // 🚀 دالة معالجة مسح الباركود (تدعم الباركود العادي وكود GS1 DataMatrix الدوائي التتبعي)
   const handleBarcodeScan = async () => {
     if (!barcodeInput) return;
     setLoading(true);
     try {
-      // 1. البحث عن المنتج بالباركود
-      const { data: product, error: productError } = await supabase
-        .from('products')
-        .select('id, name, stock, sales_price, expiry_date')
-        .eq('barcode', barcodeInput)
-        .single();
+      const parsedGS1 = parseGS1Barcode(barcodeInput);
+      const searchTerms = parsedGS1.isGS1 && parsedGS1.candidateCodes.length > 0
+        ? parsedGS1.candidateCodes
+        : [barcodeInput.trim()];
 
-      if (productError || !product) {
-        messageApi.error('لم يتم العثور على دواء بهذا الباركود.');
+      let orgId = (currentUser as any)?.organization_id;
+      if (!orgId && currentUser?.id) {
+        const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser.id).single();
+        orgId = profile?.organization_id;
+      }
+
+      // 1. البحث عن المنتج بالباركود العادي أو كود GTIN العالمي
+      const orConditions = searchTerms.map(term => `barcode.eq.${term},sku.eq.${term},barcode2.eq.${term}`).join(',');
+      let query = supabase
+        .from('products')
+        .select('id, name, stock, sales_price, expiry_date, barcode, sku');
+
+      if (orgId) {
+        query = query.eq('organization_id', orgId);
+      }
+
+      const { data: products, error: productError } = await query.or(orConditions);
+
+      if (productError || !products || products.length === 0) {
+        messageApi.error(`لم يتم العثور على دواء بالكود: "${parsedGS1.gtin || barcodeInput}"`);
         return;
       }
+
+      const product = products[0];
 
       // 2. التحقق مما إذا كان الدواء ضمن الروشتة الحالية
       const existingMedIndex = checkedMeds.findIndex(med => med.product_id === product.id);
@@ -254,18 +273,30 @@ export const PharmacyDashboard: React.FC = () => {
         return;
       }
 
-      // 3. تحديث حالة الدواء في قائمة الصرف (تم مسحه)
+      // 3. تحديث حالة الدواء في قائمة الصرف (تم مسحه وتوثيق بيانات GS1 إن وجدت)
       const updatedMeds = [...checkedMeds];
+      const currentMed = updatedMeds[existingMedIndex];
+
       updatedMeds[existingMedIndex] = {
-        ...updatedMeds[existingMedIndex],
+        ...currentMed,
         is_scanned: true,
         current_stock: product.stock,
-        expiry_date: product.expiry_date
+        expiry_date: product.expiry_date,
+        scanned_gs1: parsedGS1.isGS1 ? parsedGS1 : undefined
       };
       setCheckedMeds(updatedMeds);
-      messageApi.success(`تم مسح الدواء "${product.name}" بنجاح.`);
-    } catch (error: any) { messageApi.error('خطأ في مسح الباركود: ' + error.message); }
-    finally { setLoading(false); setBarcodeInput(''); }
+
+      if (parsedGS1.isGS1 && parsedGS1.batchNumber) {
+        messageApi.success(`تم مسح الدواء "${product.name}" بنجاح عبر GS1 (تشغيلة: ${parsedGS1.batchNumber}${parsedGS1.expiryDate ? ' | صلاحية: ' + parsedGS1.expiryDate : ''}) ✅`);
+      } else {
+        messageApi.success(`تم مسح الدواء "${product.name}" بنجاح ✅`);
+      }
+    } catch (error: any) { 
+      messageApi.error('خطأ في مسح الباركود: ' + error.message); 
+    } finally { 
+      setLoading(false); 
+      setBarcodeInput(''); 
+    }
   };
 
   const columns = [
@@ -446,7 +477,7 @@ export const PharmacyDashboard: React.FC = () => {
             
             {/* 🚀 حقل مسح الباركود */}
             <Input 
-              placeholder="امسح باركود الدواء هنا..." 
+              placeholder="امسح باركود الدواء أو كود GS1 DataMatrix (GTIN / التشغيلة / الصلاحية)..." 
               prefix={<BarcodeOutlined />} 
               value={barcodeInput}
               onChange={(e) => setBarcodeInput(e.target.value)}
@@ -467,7 +498,7 @@ export const PharmacyDashboard: React.FC = () => {
                 { 
                   title: 'التشغيلات والصلاحية (FEFO)', 
                   dataIndex: 'batches', 
-                  render: (batchesList: any[]) => {
+                  render: (batchesList: any[], r: any) => {
                     if (!batchesList || batchesList.length === 0) {
                       return <Tag color="red">لا توجد تشغيلات متوفرة!</Tag>;
                     }
@@ -476,10 +507,15 @@ export const PharmacyDashboard: React.FC = () => {
                         {batchesList.map((b, idx) => {
                           const isExpired = dayjs(b.expiry_date).isBefore(dayjs(), 'day');
                           const isNearExpiry = dayjs(b.expiry_date).isBefore(dayjs().add(3, 'month'), 'day');
+                          const isMatchedGS1 = r.scanned_gs1?.batchNumber && r.scanned_gs1.batchNumber === b.batch_number;
+
                           return (
                             <div key={idx} style={{ fontSize: '11px' }}>
-                              <Tag color={isExpired ? 'red' : isNearExpiry ? 'orange' : 'blue'} style={{ margin: 0 }}>
-                                {b.batch_number} ({b.quantity} وحدة) - {dayjs(b.expiry_date).format('YYYY-MM-DD')}
+                              <Tag 
+                                color={isMatchedGS1 ? 'success' : isExpired ? 'red' : isNearExpiry ? 'orange' : 'blue'} 
+                                style={{ margin: 0, fontWeight: isMatchedGS1 ? 'bold' : 'normal', border: isMatchedGS1 ? '2px solid #52c41a' : undefined }}
+                              >
+                                {isMatchedGS1 ? '🎯 ' : ''}{b.batch_number} ({b.quantity} وحدة) - {dayjs(b.expiry_date).format('YYYY-MM-DD')}
                               </Tag>
                             </div>
                           );
@@ -488,12 +524,26 @@ export const PharmacyDashboard: React.FC = () => {
                     );
                   }
                 },
-                { title: 'الحالة', render: (_, r) => ( // ✅ حالة المسح
-                  r.is_scanned ? <Tag color="blue" icon={<CheckCircleOutlined />}>تم المسح</Tag> : <Tag>بانتظار المسح</Tag>
-                )},
+                { 
+                  title: 'الحالة', 
+                  render: (_, r: any) => {
+                    if (!r.is_scanned) return <Tag>بانتظار المسح</Tag>;
+                    if (r.scanned_gs1) {
+                      return (
+                        <div className="flex flex-col gap-1 items-start">
+                          <Tag color="green" icon={<CheckCircleOutlined />}>GS1 DataMatrix</Tag>
+                          {r.scanned_gs1.batchNumber && (
+                            <span className="text-[10px] text-emerald-700 font-mono font-bold">
+                              تشغيلة: {r.scanned_gs1.batchNumber}
+                            </span>
+                          )}
+                        </div>
+                      );
+                    }
+                    return <Tag color="blue" icon={<CheckCircleOutlined />}>تم المسح</Tag>;
+                  }
+                },
                 { title: 'الإجمالي', render: (_, r) => <Typography.Text strong>{(r.qty * r.price).toLocaleString()} EGP</Typography.Text> }
-                // ✅ يمكن إضافة عمود للتحقق من أن كل الأدوية المطلوبة تم مسحها قبل تفعيل زر الصرف
-                // disabled={checkedMeds.some(med => !med.is_scanned)}
               ]}
             />
             <Divider />

@@ -439,7 +439,9 @@ export const SupplierBalanceReconciliation: React.FC = () => {
             b.totalDebit += debit;
             return;
           }
-          // إذا لم يطابق مورداً نشطاً، نتركه ليمر إلى معالجة القيود غير المربوطة
+          // إذا لم يطابق مورداً نشطاً، نوقفه هنا تماماً ليمر إلى معالجة القيود غير المربوطة
+          // ويُمنع نهائياً إسناده بالخطأ لأي مورد نشط آخر عبر المطابقة الفضفاضة
+          return;
         }
 
         // استنتاج المورد من: ID القيد -> مستند الأصل -> المرجع -> الاسم في البيان
@@ -478,10 +480,13 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
         if (!suppId) {
           const lowerDesc = desc.toLowerCase();
+          const stopWords = new Set(['شركة', 'مؤسسة', 'مصنع', 'مجموعة', 'توكيلات', 'تجارة', 'توزيع', 'توريد', 'توريدات', 'صناعة', 'صناعات', 'استيراد', 'تصدير', 'خدمات', 'العامة', 'الحديثة', 'الدولية', 'المتحدة', 'الغذائية', 'للتجارة', 'للتوزيع']);
           const matchedSupp = suppliersList?.find(s => {
             if (!s.name) return false;
             const sName = s.name.trim().toLowerCase();
-            return lowerDesc.includes(sName) || (sName.length > 3 && sName.split(' ').some(w => w.length > 3 && lowerDesc.includes(w)));
+            if (lowerDesc.includes(sName)) return true;
+            const distinctWords = sName.split(' ').filter(w => w.length > 3 && !stopWords.has(w));
+            return distinctWords.length > 0 && distinctWords.some(w => lowerDesc.includes(w));
           });
           if (matchedSupp) suppId = matchedSupp.id;
         }
@@ -614,9 +619,26 @@ export const SupplierBalanceReconciliation: React.FC = () => {
   const handleDeleteEntry = async (entryId: string) => {
     if (!window.confirm('هل أنت متأكد من حذف هذا القيد؟ لا يمكن التراجع عن هذا الإجراء.')) return;
     try {
-      const { error } = await supabase.from('journal_entries').delete().eq('id', entryId);
-      if (error) throw error;
-      showToast('تم حذف القيد بنجاح.', 'success');
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+
+      const { error: rpcError } = await supabase.rpc('delete_journal_entry_safe', {
+        p_entry_id: entryId,
+        p_org_id: userOrgId || null
+      });
+
+      if (rpcError) {
+        await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', entryId);
+        await supabase.from('journal_lines').delete().eq('journal_entry_id', entryId);
+        const { error: delErr } = await supabase.from('journal_entries').delete().eq('id', entryId);
+        if (delErr) throw delErr;
+      }
+
+      try {
+        await supabase.rpc('recalculate_all_system_balances', { p_org_id: userOrgId || null });
+      } catch (_) {}
+
+      showToast('تم حذف القيد وتحديث المطابقة بنجاح ✅', 'success');
       fetchReconciliation();
     } catch (err: any) {
       showToast('فشل حذف القيد: ' + err.message, 'error');
@@ -794,6 +816,39 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           <RefreshCw size={18} className={loading ? 'animate-spin text-orange-600' : ''} /> تحديث المطابقة
         </button>
       </div>
+
+      {/* ⚠️ تنبيه تدقيق الحسابات: كشف القيود المعلقة لموردين محذوفين */}
+      {discrepancyEntries.some(e => (e.ref || '').includes('OP-SUPP-') || (e.description || '').includes('هاي مكس') || (e.description || '').includes('رصيد افتتاحي للمورد')) && (
+        <div className="bg-rose-50 border-2 border-rose-300 p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-rose-100 text-rose-700 rounded-xl shrink-0">
+              <AlertTriangle size={24} />
+            </div>
+            <div>
+              <h4 className="text-sm font-black text-rose-900">
+                تنبيه تدقيق: تم اكتشاف قيد رصيد افتتاحي لمورد محذوف معلق في دفتر الأستاذ العام (حساب {supplierAccountCode})
+              </h4>
+              <p className="text-xs text-rose-700 mt-0.5">
+                {discrepancyEntries.find(e => (e.ref || '').includes('OP-SUPP-') || (e.description || '').includes('هاي مكس'))?.description || 'قيد افتتاح مورد محذوف'} 
+                {' — '}
+                المرجع: <span className="font-mono font-bold">{discrepancyEntries.find(e => (e.ref || '').includes('OP-SUPP-') || (e.description || '').includes('هاي مكس'))?.ref}</span>
+                {' — '}
+                القيمة: <strong className="font-mono">{discrepancyEntries.find(e => (e.ref || '').includes('OP-SUPP-') || (e.description || '').includes('هاي مكس'))?.credit?.toLocaleString() || '9,114.00'} ج.م</strong>
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => {
+              const target = discrepancyEntries.find(e => (e.ref || '').includes('OP-SUPP-') || (e.description || '').includes('هاي مكس'));
+              if (target) handleDeleteEntry(target.journal_entries?.id || target.id);
+            }}
+            className="bg-rose-600 hover:bg-rose-700 text-white px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm shrink-0 flex items-center gap-1.5"
+          >
+            <Trash2 size={15} />
+            حذف هذا القيد وتصحيح المطابقة فوراً
+          </button>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">

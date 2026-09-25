@@ -1025,6 +1025,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     refreshData(); 
   };
   const deleteSupplier = async (id: string, reason?: string) => { 
+    // حذف قيد الرصيد الافتتاحي المرتبط بالمورد إن وجد لتفادي بقائه معلقاً في الأستاذ العام
+    try {
+      const { data: opEntries } = await supabase
+        .from('journal_entries')
+        .select('id')
+        .or(`reference.eq.OP-SUPP-${id},reference.ilike.%${id}%`);
+
+      if (opEntries && opEntries.length > 0) {
+        for (const opEntry of opEntries) {
+          await supabase.rpc('delete_journal_entry_safe', { p_entry_id: opEntry.id, p_org_id: null });
+        }
+      }
+    } catch (e) {
+      console.warn('Could not auto-clean opening balance entry for supplier:', e);
+    }
+
     const { error } = await supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
     if (error) throw error;
     refreshData(); 

@@ -1,10 +1,13 @@
-﻿/**
+/**
  * TriPro ERP — POS Product & Barcode Resolver Service
  * خدمة معزولة لمسح وفك تشفير الباركودات والموازين وتحديد المنتجات والوحدات
  */
 import { db } from '../../../services/offlineService';
 import type { CachedProduct } from '../../../services/offlineService';
 import { supabase } from '../../../supabaseClient';
+import { parseGS1Barcode, type ParsedGS1Data } from '../../../utils/gs1BarcodeParser';
+
+export { parseGS1Barcode, type ParsedGS1Data };
 
 export interface ScannedUomInfo {
   uom_name?: string;
@@ -18,6 +21,7 @@ export interface ResolvedScannedProduct {
   weight?: number;
   multiplier: number;
   cleanCode: string;
+  parsedGS1?: ParsedGS1Data;
 }
 
 /**
@@ -110,22 +114,36 @@ export async function resolveScannedBarcode(
     }
     weight = parsedWeight;
   } else {
-    // 2. البحث بالباركود العادي أو SKU أو barcode2
-    const cleanCode = code.trim().toLowerCase();
+    // 2. البحث بالباركود العادي أو كود GTIN / GS1 الدوائي أو SKU أو barcode2
+    const parsedGS1 = parseGS1Barcode(code);
+    const searchCodes = [code.trim().toLowerCase()];
+    if (parsedGS1.isGS1 && parsedGS1.candidateCodes.length > 0) {
+      for (const c of parsedGS1.candidateCodes) {
+        const lower = c.trim().toLowerCase();
+        if (!searchCodes.includes(lower)) {
+          searchCodes.push(lower);
+        }
+      }
+    }
+
     const allCached = await db.products.toArray();
 
-    // 2a. تطابق مباشر في الكاش المحلي
-    matchedProduct = allCached.find(p =>
-      (p.barcode && p.barcode.trim().toLowerCase() === cleanCode) ||
-      (p.sku && p.sku.trim().toLowerCase() === cleanCode) ||
-      (p.barcode2 && p.barcode2.trim().toLowerCase() === cleanCode)
-    );
+    // 2a. تطابق مباشر في الكاش المحلي (يدعم GTIN والباركود والوحدات)
+    matchedProduct = allCached.find(p => {
+      const pBarcode = (p.barcode || '').trim().toLowerCase();
+      const pSku = (p.sku || '').trim().toLowerCase();
+      const pBarcode2 = (p.barcode2 || '').trim().toLowerCase();
+      return searchCodes.some(sc => sc === pBarcode || sc === pSku || sc === pBarcode2);
+    });
 
     // 2b. البحث في باركودات الوحدات المتعددة (unit_barcodes) محلياً
     if (!matchedProduct) {
       for (const p of allCached) {
         if (Array.isArray((p as any).unit_barcodes)) {
-          const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
+          const foundUom = (p as any).unit_barcodes.find((ub: any) => {
+            const ubCode = (ub.barcode || '').trim().toLowerCase();
+            return searchCodes.includes(ubCode);
+          });
           if (foundUom) {
             matchedProduct = p;
             matchedUomInfo = {
@@ -138,7 +156,10 @@ export async function resolveScannedBarcode(
         }
       }
     } else if (Array.isArray((matchedProduct as any).unit_barcodes)) {
-      const foundUom = (matchedProduct as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
+      const foundUom = (matchedProduct as any).unit_barcodes.find((ub: any) => {
+        const ubCode = (ub.barcode || '').trim().toLowerCase();
+        return searchCodes.includes(ubCode);
+      });
       if (foundUom) {
         matchedUomInfo = {
           uom_name: foundUom.uom_name,
@@ -150,12 +171,13 @@ export async function resolveScannedBarcode(
 
     // 2c. Fallback أونلاين في Supabase
     if (!matchedProduct && organizationId) {
+      const orConditions = searchCodes.map(sc => `barcode.ilike.${sc},sku.ilike.${sc},barcode2.ilike.${sc}`).join(',');
       const { data: onlineList } = await supabase
         .from('products')
         .select('*')
         .eq('organization_id', organizationId)
         .eq('is_active', true)
-        .or(`barcode.ilike.${cleanCode},sku.ilike.${cleanCode},barcode2.ilike.${cleanCode}`);
+        .or(orConditions);
 
       if (onlineList && onlineList.length > 0) {
         matchedProduct = onlineList[0] as any;
@@ -172,7 +194,10 @@ export async function resolveScannedBarcode(
         if (allOnline && allOnline.length > 0) {
           for (const p of allOnline) {
             if (Array.isArray(p.unit_barcodes)) {
-              const foundUom = p.unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
+              const foundUom = p.unit_barcodes.find((ub: any) => {
+                const ubCode = (ub.barcode || '').trim().toLowerCase();
+                return searchCodes.includes(ubCode);
+              });
               if (foundUom) {
                 matchedProduct = p as any;
                 matchedUomInfo = {
@@ -190,11 +215,14 @@ export async function resolveScannedBarcode(
     }
   }
 
+  const parsed = parseGS1Barcode(code);
+
   return {
     matchedProduct,
     matchedUomInfo,
     weight,
     multiplier,
-    cleanCode: code
+    cleanCode: parsed.isGS1 && parsed.gtin ? parsed.gtin : code,
+    parsedGS1: parsed.isGS1 ? parsed : undefined
   };
 }
