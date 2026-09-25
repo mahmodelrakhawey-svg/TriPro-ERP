@@ -910,7 +910,7 @@ const ReceiptVoucherList = () => {
               >
                   <option value="">-- كل العملاء --</option>
                   {customers?.map(c => (
-                      <option key={c.id} value={c.id}>{c.name} {c.code ? `(#${c.code})` : ''}</option>
+                      <option key={c.id} value={c.id}>{c.name} {(c as any).code ? `(#${(c as any).code})` : ''}</option>
                   ))}
               </select>
             </div>
