@@ -11,9 +11,11 @@ export const ReceiptVoucherPrint: React.FC<ReceiptVoucherPrintProps> = ({ vouche
   // Handling different naming conventions between the Form and the List data structures
   const voucherNo = voucher.voucher_number || voucher.voucherNumber;
   const date = voucher.receipt_date || voucher.date;
-  const customerName = voucher.customers?.name || voucher.partyName || '---';
-  const notes = voucher.notes || voucher.description || 'قبض نقدية';
-  const currency = voucher.currency || 'EGP';
+  const isCustomer = Boolean(voucher.customer_id || voucher.party_id || voucher.subType === 'customer');
+  const partyName = voucher.customers?.name || voucher.recipient_name || voucher.partyName || (isCustomer ? '---' : 'مقبوضات عامة');
+  const notes = voucher.notes || voucher.description || (isCustomer ? 'تحصيل من عميل' : 'قبض نقدية');
+  const currency = voucher.currency || companySettings?.currency || 'EGP';
+  const voucherTitle = isCustomer ? 'سند قبض من عميل' : 'سند قبض نقدية عام';
 
   return (
     <div className="hidden print:block p-8 bg-white text-black rtl w-full" dir="rtl">
@@ -31,7 +33,7 @@ export const ReceiptVoucherPrint: React.FC<ReceiptVoucherPrintProps> = ({ vouche
 
       <div className="text-center mb-8">
         <h2 className="text-xl font-bold border-2 border-slate-800 inline-block px-6 py-1 rounded-full">
-          سند قبض نقدية
+          {voucherTitle}
         </h2>
       </div>
 
@@ -40,9 +42,11 @@ export const ReceiptVoucherPrint: React.FC<ReceiptVoucherPrintProps> = ({ vouche
         <div className="space-y-3">
           <p><span className="font-bold ml-2">رقم السند:</span> <span className="font-mono">{voucherNo}</span></p>
           <p><span className="font-bold ml-2">التاريخ:</span> {date}</p>
+          <p><span className="font-bold ml-2">طريقة الدفع:</span> <span>{voucher.payment_method === 'cash' ? 'نقداً' : voucher.payment_method === 'cheque' ? 'شيك' : voucher.payment_method === 'transfer' ? 'تحويل بنكي' : 'أخرى'}</span></p>
         </div>
         <div className="space-y-3 text-left">
-          <p><span className="font-bold mr-2">المبلغ:</span> <span className="text-2xl font-black">{Number(voucher.amount).toLocaleString()} {currency}</span></p>
+          <p><span className="font-bold mr-2">المبلغ:</span> <span className="text-2xl font-black">{Number(voucher.amount || 0).toLocaleString()} {currency}</span></p>
+          <p><span className="font-bold mr-2">نوع السند:</span> <span className="text-sm font-semibold">{voucherTitle}</span></p>
         </div>
       </div>
 
@@ -50,11 +54,11 @@ export const ReceiptVoucherPrint: React.FC<ReceiptVoucherPrintProps> = ({ vouche
         <div className="space-y-6">
           <div className="flex items-center gap-2">
             <span className="font-bold whitespace-nowrap">استلمنا من السيد/ة:</span>
-            <span className="border-b border-dotted border-slate-400 flex-1 px-2">{customerName}</span>
+            <span className="border-b border-dotted border-slate-400 flex-1 px-2 font-medium">{partyName}</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="font-bold whitespace-nowrap">مبلغاً وقدره:</span>
-            <span className="border-b border-dotted border-slate-400 flex-1 px-2">{Number(voucher.amount).toLocaleString()} {currency} فقط لا غير</span>
+            <span className="border-b border-dotted border-slate-400 flex-1 px-2 font-bold">{Number(voucher.amount || 0).toLocaleString()} {currency} فقط لا غير</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="font-bold whitespace-nowrap">وذلك عن:</span>
