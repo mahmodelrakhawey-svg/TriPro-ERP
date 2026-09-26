@@ -162,7 +162,7 @@ const SupplierStatement = () => {
                 date: inv.invoice_date, 
                 type: 'invoice', 
                 ref: inv.invoice_number, 
-                desc: 'فاتورة مشتريات', 
+                desc: inv.notes?.trim() || 'فاتورة مشتريات', 
                 credit: Number(inv.total_amount || 0), 
                 debit: immediatePaidAtCheckout, 
                 paid_amount: Number(inv.paid_amount || 0)
@@ -182,17 +182,17 @@ const SupplierStatement = () => {
         });
 
         returns?.forEach(ret => allTrans.push({
-            date: ret.return_date, type: 'return', ref: ret.return_number, desc: 'مرتجع مشتريات', 
+            date: ret.return_date, type: 'return', ref: ret.return_number, desc: ret.notes?.trim() || 'مرتجع مشتريات', 
             credit: 0, debit: ret.total_amount 
         }));
 
         payments?.forEach(pay => allTrans.push({
-            date: pay.payment_date, type: 'payment', ref: pay.voucher_number, desc: pay.notes || 'سند صرف', 
+            date: pay.payment_date, type: 'payment', ref: pay.voucher_number, desc: pay.notes?.trim() || 'سند صرف', 
             credit: 0, debit: pay.amount 
         }));
 
         debitNotes?.forEach(dn => allTrans.push({
-            date: dn.note_date, type: 'debit_note', ref: dn.debit_note_number, desc: 'إشعار مدين', 
+            date: dn.note_date, type: 'debit_note', ref: dn.debit_note_number, desc: dn.notes?.trim() || 'إشعار مدين', 
             credit: 0, debit: dn.total_amount 
         }));
 
@@ -435,7 +435,7 @@ const SupplierStatement = () => {
                                   <td className="p-4 font-mono font-bold text-emerald-600">
                                       {t.reference?.startsWith('OP-SUPP') ? 'رصيد افتتاحي' : t.reference?.replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '')}
                                   </td>
-                                  <td className="p-4 text-slate-700">{t.description}</td>
+                                  <td className="p-4 text-slate-700 whitespace-pre-line">{t.description}</td>
                                   <td className="p-4 text-center font-bold text-red-600">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
                                   <td className="p-4 text-center font-bold text-emerald-600">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
                                   <td className="p-4 text-center font-bold text-blue-600">{(t.paid_amount || 0) > 0 ? t.paid_amount.toLocaleString() : '-'}</td>
