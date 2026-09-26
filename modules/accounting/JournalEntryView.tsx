@@ -3,7 +3,7 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { JournalEntry } from '../../types';
 import { useToast } from '../../context/ToastContext';
-import { Loader2, ArrowLeft, ArrowRight, Printer, Edit, Calendar, AlertTriangle, CheckSquare, Paperclip, Download } from 'lucide-react';
+import { Loader2, ArrowLeft, ArrowRight, Printer, Edit, Calendar, AlertTriangle, CheckSquare, Paperclip, Download, Copy } from 'lucide-react';
 
 // دالة مساعدة لتحديد مصدر القيد بناءً على المرجع ونص البيان
 const getEntrySource = (reference: string = '', description: string = '') => {
@@ -175,6 +175,11 @@ const JournalEntryView = () => {
     navigate('/journal', { state: { entryToEdit: entry } });
   };
 
+  const handleDuplicate = () => {
+    if (!entry) return;
+    navigate('/journal', { state: { entryToDuplicate: entry } });
+  };
+
   if (loading) {
     return <div className="flex justify-center items-center h-96"><Loader2 className="animate-spin text-blue-600" size={48} /></div>;
   }
@@ -324,11 +329,14 @@ const JournalEntryView = () => {
 
       {/* Action Buttons */}
       <div className="flex justify-end gap-2 print:hidden">
-        <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-100 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-200 font-bold">
+        <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-100 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-200 font-bold transition-colors">
           <Printer size={16} /> طباعة
         </button>
+        <button onClick={handleDuplicate} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 font-bold transition-colors shadow-sm" title="تكرار وإنشاء قيد جديد بناءً على هذا القيد">
+          <Copy size={16} /> تكرار القيد
+        </button>
         {source.label === 'قيد يدوي' && (
-            <button onClick={handleEdit} className="flex items-center gap-2 bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 font-bold">
+            <button onClick={handleEdit} className="flex items-center gap-2 bg-amber-500 text-white px-4 py-2 rounded-lg hover:bg-amber-600 font-bold transition-colors">
                 <Edit size={16} /> تعديل
             </button>
         )}

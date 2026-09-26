@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
-import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight, Eye, ChevronsLeft, ChevronsRight, X } from 'lucide-react';
+import { BookOpen, Calendar, Filter, Loader2, Printer, CheckSquare, Edit, Trash2, Paperclip, Download, RefreshCw, AlertTriangle, User, ChevronLeft, ChevronRight, Eye, ChevronsLeft, ChevronsRight, X, Copy } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { JournalEntry } from '../../types';
@@ -1070,6 +1070,10 @@ const GeneralJournal = () => {
     navigate('/journal', { state: { entryToEdit: entry } });
   };
 
+  const handleDuplicateEntry = (entry: JournalEntry) => {
+    navigate('/journal', { state: { entryToDuplicate: entry } });
+  };
+
   const handleViewEntry = (entryId: string) => {
     const entryIds = journalEntries.map(e => e.id);
     navigate(`/journal-entry/${entryId}`, { state: { ids: entryIds, page, searchTerm, selectedUser } });
@@ -1411,6 +1415,9 @@ const GeneralJournal = () => {
                     </button>
                     <button onClick={() => handlePrint(entry)} className="p-2 text-slate-400 hover:text-blue-600 rounded-full hover:bg-slate-100 transition-colors" title="طباعة السند">
                         <Printer size={16} />
+                    </button>
+                    <button onClick={() => handleDuplicateEntry(entry)} className="p-2 text-slate-400 hover:text-emerald-600 rounded-full hover:bg-slate-100 transition-colors" title="تكرار / استنساخ هذا القيد">
+                        <Copy size={16} />
                     </button>
                     {source.label === 'قيد يدوي' ? (
                         <button onClick={() => handleEditEntry(entry)} className="p-2 text-slate-400 hover:text-amber-600 rounded-full hover:bg-slate-100 transition-colors" title="تعديل القيد">

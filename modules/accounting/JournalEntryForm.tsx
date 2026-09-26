@@ -1,5 +1,5 @@
-﻿﻿﻿﻿﻿﻿import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X } from 'lucide-react';
+﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X, Copy, Search } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 import { analyzeTransactionText } from '../../services/geminiService';
 import SearchableSelect from '../../components/SearchableSelect';
@@ -27,6 +27,12 @@ const JournalEntryForm = () => {
   const [errors, setErrors] = useState<any>({});
   const toast = useToastNotification();
 
+  const [duplicatedFromRef, setDuplicatedFromRef] = useState<string | null>(null);
+  const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
+  const [templateSearchTerm, setTemplateSearchTerm] = useState('');
+  const [recentEntries, setRecentEntries] = useState<any[]>([]);
+  const [loadingRecent, setLoadingRecent] = useState(false);
+
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -35,7 +41,7 @@ const JournalEntryForm = () => {
     return [...accounts].sort((a, b) => a.code.localeCompare(b.code));
   }, [accounts]);
 
-  // التحقق من وجود قيد للتعديل
+  // التحقق من وجود قيد للتعديل أو للتكرار
   useEffect(() => {
     if (location.state?.entryToEdit) {
       const { entryToEdit } = location.state;
@@ -43,6 +49,7 @@ const JournalEntryForm = () => {
       setDate(entryToEdit.date);
       setDescription(entryToEdit.description);
       setReference(entryToEdit.reference || '');
+      setDuplicatedFromRef(null);
       
       // إصلاح: التحقق من وجود الأسطر والتعامل مع التسميات المختلفة للحقول
       const linesData = entryToEdit.lines || [];
@@ -53,8 +60,98 @@ const JournalEntryForm = () => {
         cost_center_id: line.costCenterId || line.cost_center_id || ''
       }));
       setLines(formattedLines);
+    } else if (location.state?.entryToDuplicate) {
+      const { entryToDuplicate } = location.state;
+      setEditingId(null);
+      setDate(new Date().toISOString().split('T')[0]);
+      setDescription(entryToDuplicate.description || '');
+      setReference('');
+      setDuplicatedFromRef(entryToDuplicate.reference || 'قيد سابق');
+      
+      const linesData = entryToDuplicate.lines || [];
+      const formattedLines = linesData.map((line: any) => ({
+        account_id: line.accountId || line.account_id || '',
+        debit: line.debit || 0,
+        credit: line.credit || 0,
+        cost_center_id: line.costCenterId || line.cost_center_id || ''
+      }));
+      if (formattedLines.length > 0) {
+        setLines(formattedLines);
+      }
+      toast.info(`تم استنساخ أطراف القيد (${entryToDuplicate.reference || ''}) بنجاح. يمكنك الآن تعديل الأرقام والبيان.`);
     }
   }, [location.state]);
+
+  const fetchRecentEntries = async (queryText: string = '') => {
+    setLoadingRecent(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const orgId = sessionData?.session?.user?.user_metadata?.org_id;
+
+      let q = supabase
+        .from('journal_entries')
+        .select(`
+          id,
+          reference,
+          description,
+          transaction_date,
+          status,
+          journal_lines (
+            id,
+            account_id,
+            debit,
+            credit,
+            cost_center_id
+          )
+        `)
+        .order('transaction_date', { ascending: false })
+        .limit(25);
+
+      if (orgId) {
+        q = q.or(`organization_id.eq.${orgId},organization_id.is.null`);
+      }
+
+      if (queryText.trim()) {
+        q = q.or(`reference.ilike.%${queryText.trim()}%,description.ilike.%${queryText.trim()}%`);
+      }
+
+      const { data, error } = await q;
+      if (error) throw error;
+      setRecentEntries(data || []);
+    } catch (err: any) {
+      console.error(err);
+      toast.error('حدث خطأ أثناء تحميل القيود السابقة');
+    } finally {
+      setLoadingRecent(false);
+    }
+  };
+
+  const handleOpenTemplateModal = () => {
+    setIsTemplateModalOpen(true);
+    fetchRecentEntries(templateSearchTerm);
+  };
+
+  const handleSelectTemplate = (ent: any) => {
+    setEditingId(null);
+    setDate(new Date().toISOString().split('T')[0]);
+    setDescription(ent.description || '');
+    setReference('');
+    setDuplicatedFromRef(ent.reference || 'قيد سابق');
+
+    const linesData = ent.journal_lines || [];
+    const formattedLines = linesData.map((line: any) => ({
+      account_id: line.account_id || '',
+      debit: line.debit || 0,
+      credit: line.credit || 0,
+      cost_center_id: line.cost_center_id || ''
+    }));
+
+    if (formattedLines.length > 0) {
+      setLines(formattedLines);
+    }
+    setIsTemplateModalOpen(false);
+    toast.success(`تم استنساخ أطراف القيد (${ent.reference || ''}) بنجاح. يمكنك الآن تعديل الأرقام والبيان.`);
+  };
 
   const handleLineChange = (index: number, field: keyof JournalEntryLine, value: any) => {
     const newLines = [...lines];
@@ -237,18 +334,64 @@ const JournalEntryForm = () => {
     <div className="max-w-5xl mx-auto space-y-6">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">قيد يومية جديد</h2>
-          <p className="text-slate-500">إدخال العمليات المالية يدوياً أو بمساعدة الذكاء الاصطناعي</p>
+          <h2 className="text-2xl font-bold text-slate-800">
+            {editingId ? 'تعديل قيد يومية' : duplicatedFromRef ? 'تكرار قيد يومية (قيد جديد)' : 'قيد يومية جديد'}
+          </h2>
+          <p className="text-slate-500">
+            {duplicatedFromRef 
+              ? `تم نسخ أطراف القيد من (${duplicatedFromRef}) - يرجى تعديل الأرقام والبيان ثم الحفظ` 
+              : 'إدخال العمليات المالية يدوياً أو بمساعدة الذكاء الاصطناعي'}
+          </p>
         </div>
-        <button
-            type="button"
-            onClick={() => setIsAccountModalOpen(true)}
-            className="flex items-center gap-2 text-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-lg font-medium transition-colors border border-blue-200"
-        >
-            <BookPlus size={18} />
-            <span>حساب جديد</span>
-        </button>
+        <div className="flex items-center gap-2">
+            {!editingId && (
+              <button
+                type="button"
+                onClick={handleOpenTemplateModal}
+                className="flex items-center gap-2 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 px-4 py-2 rounded-lg font-medium transition-colors border border-emerald-200 shadow-sm"
+                title="اختيار قيد سابق ونسخ أطرافه وحساباته لتكراره وتعديل مبالغه"
+              >
+                <Copy size={18} />
+                <span>تكرار من قيد سابق</span>
+              </button>
+            )}
+            <button
+                type="button"
+                onClick={() => setIsAccountModalOpen(true)}
+                className="flex items-center gap-2 text-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-lg font-medium transition-colors border border-blue-200"
+            >
+                <BookPlus size={18} />
+                <span>حساب جديد</span>
+            </button>
+        </div>
       </div>
+
+      {/* تنبيه تكرار قيد */}
+      {duplicatedFromRef && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl flex items-center justify-between shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-emerald-100 text-emerald-700 rounded-lg shrink-0">
+              <Copy size={20} />
+            </div>
+            <div>
+              <p className="text-sm font-bold">
+                وضع تكرار القيد: تم استنساخ الحسابات والأطراف من القيد ({duplicatedFromRef})
+              </p>
+              <p className="text-xs text-emerald-600 mt-0.5">
+                تاريخ القيد اليوم تم تعيينه تلقائياً، ورقم القيد سيتم إنشاؤه جديداً عند الحفظ. يمكنك تعديل أرقام المدين والدائن والبيان بحرية.
+              </p>
+            </div>
+          </div>
+          <button 
+            type="button" 
+            onClick={() => setDuplicatedFromRef(null)} 
+            className="text-emerald-500 hover:text-emerald-700 p-1 rounded-lg"
+            title="إخفاء التنبيه"
+          >
+            <X size={18} />
+          </button>
+        </div>
+      )}
 
       <AddAccountModal 
         isOpen={isAccountModalOpen} 
@@ -469,6 +612,104 @@ const JournalEntryForm = () => {
           </button>
         </div>
       </form>
+
+      {/* نافذة اختيار قيد سابق لتكراره */}
+      {isTemplateModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 max-h-[85vh] flex flex-col animate-in fade-in zoom-in-95">
+            <div className="flex justify-between items-center pb-4 border-b border-slate-100">
+              <div className="flex items-center gap-2 text-emerald-700 font-bold text-lg">
+                <Copy size={22} />
+                <h3>اختيار قيد سابق لتكراره</h3>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setIsTemplateModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 p-1 rounded-lg"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="my-4">
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="ابحث برقم القيد (مثال: MAN-386945) أو نص البيان..."
+                  value={templateSearchTerm}
+                  onChange={(e) => {
+                    setTemplateSearchTerm(e.target.value);
+                    fetchRecentEntries(e.target.value);
+                  }}
+                  className="w-full pr-10 pl-4 py-2.5 border border-slate-300 rounded-xl focus:outline-none focus:border-emerald-500 text-sm"
+                  autoFocus
+                />
+                <Search className="absolute right-3 top-3 text-slate-400" size={18} />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 divide-y divide-slate-100 min-h-[200px]">
+              {loadingRecent ? (
+                <div className="py-12 text-center text-slate-400">
+                  <Loader2 className="animate-spin mx-auto text-emerald-600 mb-2" size={28} />
+                  <span>جارٍ جلب القيود السابقة...</span>
+                </div>
+              ) : recentEntries.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 text-sm">
+                  لم يتم العثور على قيود مطابقة.
+                </div>
+              ) : (
+                recentEntries.map((ent: any) => {
+                  const total = (ent.journal_lines || []).reduce((sum: number, l: any) => sum + (Number(l.debit) || 0), 0);
+                  const linesCount = ent.journal_lines?.length || 0;
+                  return (
+                    <div 
+                      key={ent.id}
+                      onClick={() => handleSelectTemplate(ent)}
+                      className="p-3.5 hover:bg-emerald-50/60 rounded-xl cursor-pointer transition-colors border border-transparent hover:border-emerald-200 flex justify-between items-center group pt-3"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-bold text-slate-800 text-sm group-hover:text-emerald-700">
+                            {ent.reference || 'بدون رقم'}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            {ent.transaction_date}
+                          </span>
+                          <span className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">
+                            {linesCount} أطراف
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-600 max-w-md truncate">
+                          {ent.description || 'بدون بيان'}
+                        </p>
+                      </div>
+                      <div className="text-left">
+                        <span className="font-mono font-bold text-emerald-600 text-sm block" dir="ltr">
+                          {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                        <span className="text-[11px] text-emerald-700 font-bold bg-emerald-100/70 px-2 py-0.5 rounded-md inline-block mt-1 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                          نسخ واستخدام
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setIsTemplateModalOpen(false)}
+                className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg font-medium"
+              >
+                إلغاء
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

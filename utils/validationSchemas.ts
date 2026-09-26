@@ -278,6 +278,19 @@ export const payrollRunSchema = z.object({
   }),
 });
 
+export const payrollAccrualSchema = z.object({
+  month: z.number().min(1).max(12),
+  year: z.number().min(2020),
+  hasData: z.boolean().refine(val => val === true, {
+    message: 'لا يوجد موظفون في المسير لتشغيله',
+  }),
+});
+
+export const payrollDisbursementSchema = z.object({
+  treasuryId: z.string().uuid('يرجى تحديد حساب الخزينة أو البنك لصرف الرواتب'),
+  paymentDate: z.string().min(1, 'تاريخ الصرف مطلوب'),
+});
+
 export const payrollItemSchema = z.object({
   employee_id: idSchema,
   full_name: z.string().min(1, 'اسم الموظف مطلوب'),

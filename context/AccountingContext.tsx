@@ -141,6 +141,8 @@ interface AccountingContextType {
   updateEmployee: (id: string, updates: any) => Promise<void>;
   deleteEmployee: (id: string, reason?: string) => Promise<void>;
   runPayroll: (month: number, year: number, date: string, treasuryId: string, data: any[], orgId?: string) => Promise<void>;
+  runPayrollAccrual: (month: number, year: number, date: string, data: any[], orgId?: string) => Promise<any>;
+  payAccruedPayroll: (params: { payrollId?: string; month?: number; year?: number; paymentDate: string; treasuryId: string; orgId?: string }) => Promise<any>;
   // --- دوال المطاعم ---
   finalizeProductionOrder: (id: string, status: string, notes: string) => Promise<any>;
   openTableSession: (tableId: string) => Promise<string | null>;
@@ -1886,6 +1888,43 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await refreshData();
   };
 
+  const runPayrollAccrual = async (month: number, year: number, date: string, data: any[], orgId?: string) => {
+    const { data: resData, error } = await supabase.rpc('run_payroll_accrual_rpc', {
+      p_month: month,
+      p_year: year,
+      p_date: date,
+      p_items: data,
+      p_org_id: orgId || currentSelectedOrgId || null
+    });
+    
+    if (error) {
+      if (process.env.NODE_ENV === 'development') console.error("Payroll Accrual RPC Error:", error);
+      throw new Error(error.message || 'حدث خطأ أثناء تنفيذ قيد استحقاق الرواتب');
+    }
+    
+    await refreshData();
+    return resData;
+  };
+
+  const payAccruedPayroll = async (params: { payrollId?: string; month?: number; year?: number; paymentDate: string; treasuryId: string; orgId?: string }) => {
+    const { data: resData, error } = await supabase.rpc('pay_accrued_payroll_rpc', {
+      p_payroll_id: params.payrollId || null,
+      p_month: params.month || null,
+      p_year: params.year || null,
+      p_payment_date: params.paymentDate,
+      p_treasury_acc: params.treasuryId,
+      p_org_id: params.orgId || currentSelectedOrgId || null
+    });
+
+    if (error) {
+      if (process.env.NODE_ENV === 'development') console.error("Pay Accrued Payroll RPC Error:", error);
+      throw new Error(error.message || 'حدث خطأ أثناء صرف الرواتب وترحيل قيد النقدية');
+    }
+
+    await refreshData();
+    return resData;
+  };
+
   // --- Demo Stubs ---
   const addDemoEntry = (e: any) => console.log('Demo Entry:', e);
   const addDemoPaymentVoucher = (v: any) => console.log('Demo Payment:', v);
@@ -2570,7 +2609,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, addCheque, updateCheque, deleteCheque, updateChequeStatus, addTransfer, updateTransfer, deleteTransfer,
     restoreItem, permanentDeleteItem, exportJournalToCSV,
     // HR
-    addEmployee, updateEmployee, deleteEmployee, runPayroll,
+    addEmployee, updateEmployee, deleteEmployee, runPayroll, runPayrollAccrual, payAccruedPayroll,
     // Restaurant
     finalizeProductionOrder, openTableSession, reserveTable, cancelReservation,
     transferTableSession, mergeTableSessions, createRestaurantOrder, getOpenTableOrder,
