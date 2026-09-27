@@ -34,6 +34,8 @@ type RoleInfo = {
 
 // ─── Module Labels ─────────────────────────────────────────────────────────────
 const moduleLabels: Record<string, string> = {
+  dashboard: 'لوحة القيادة والمؤشرات الرئيسية',
+  mobile: 'تطبيق الموبايل الميداني (PWA)',
   sales: 'المبيعات والفواتير',
   customers: 'إدارة العملاء والديون',
   purchases: 'المشتريات وأوامر الشراء',

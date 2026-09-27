@@ -16,7 +16,22 @@ import { useToast } from '../context/ToastContext';
 import { DashboardAlerts } from './DashboardAlerts';
 
 const Dashboard = () => {
-  const { currentUser, settings, getSystemAccount, getFinancialSummary, products: demoProducts, invoices: demoInvoices, purchaseInvoices: demoPurchaseInvoices, customers: demoCustomers, entries, accounts, currentSelectedOrgId } = useAccounting();
+  const { 
+    currentUser, 
+    organization,
+    organizations,
+    currentSelectedOrgId, 
+    setCurrentSelectedOrgId,
+    settings, 
+    getSystemAccount, 
+    getFinancialSummary, 
+    products: demoProducts, 
+    invoices: demoInvoices, 
+    purchaseInvoices: demoPurchaseInvoices, 
+    customers: demoCustomers, 
+    entries, 
+    accounts 
+  } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -53,8 +68,20 @@ const Dashboard = () => {
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [newSalesTarget, setNewSalesTarget] = useState('');
 
-  // 🛡️ تحديد معرف الشركة النشط ليتم استخدامه في الاستعلامات والـ JSX لضمان عزل البيانات (SaaS Isolation)
-  const orgId = currentUser?.role === 'super_admin' ? currentSelectedOrgId : (currentUser as any)?.organization_id;
+  // 🛡️ تحديد معرف الشركة الفعّال بذكاء: يدعم السوبر أدمن واليوزر العادي بدون انقطاع
+  const isSuperAdmin = currentUser?.role === 'super_admin' || currentUser?.role === 'owner';
+  const effectiveOrgId = currentSelectedOrgId || 
+    (currentUser as any)?.organization_id || 
+    organization?.id || 
+    (organizations && organizations.length > 0 ? organizations[0]?.id : null);
+  const orgId = effectiveOrgId;
+
+  // ⚡ تعيين تلقائي للشركة الأولى للسوبر أدمن إذا لم تكن محددة مسبقاً لمزامنة كل الشاشات
+  useEffect(() => {
+    if (isSuperAdmin && !currentSelectedOrgId && effectiveOrgId) {
+      setCurrentSelectedOrgId(effectiveOrgId);
+    }
+  }, [isSuperAdmin, currentSelectedOrgId, effectiveOrgId, setCurrentSelectedOrgId]);
 
   const COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#64748b'];
 
@@ -63,10 +90,9 @@ const Dashboard = () => {
     // Effect for non-demo (real) users, relies on RPC
     const fetchRealData = async () => {
       if (currentUser && currentUser.role !== 'demo') {
-        //  صمام أمان: إذا لم يتم تحديد شركة بعد (حالة السوبر أدمن عند الدخول الأول)، لا تحاول جلب البيانات
+        // إذا لم توجد أي شركة في النظام نهائياً
         if (!orgId) {
             setLoading(false);
-            // تصفير الإحصائيات لعدم عرض بيانات قديمة من شركة أخرى لضمان النزاهة
             setStats(prev => ({...prev, monthSales: 0, receivables: 0, payables: 0}));
             setRecentInvoices([]);
             setChartData([]);
@@ -149,7 +175,7 @@ const Dashboard = () => {
       }
     };
     fetchRealData();
-  }, [currentUser, settings, currentSelectedOrgId]); // 🔄 إضافة currentSelectedOrgId للتبعيات لتحديث البيانات عند تبديل الشركة
+  }, [currentUser, settings, currentSelectedOrgId, orgId]); // 🔄 تحديث البيانات فوراً عند تبديل الشركة أو السوبر أدمن
 
   useEffect(() => {
     // Effect for demo users, relies on context data
@@ -219,11 +245,13 @@ const Dashboard = () => {
     }
 
     try {
-        const { data: settingsData, error: settingsError } = await supabase
+        let query = supabase
             .from('company_settings')
-            .select('id')
-            .limit(1)
-            .single();
+            .select('id');
+        if (orgId) {
+            query = query.eq('organization_id', orgId);
+        }
+        const { data: settingsData, error: settingsError } = await query.limit(1).maybeSingle();
 
         if (settingsError || !settingsData) {
             showToast('لا يمكن العثور على إعدادات الشركة لتحديث الهدف', 'error');
@@ -381,6 +409,38 @@ const Dashboard = () => {
             <span className="text-xs font-bold text-slate-600">آخر تحديث: {new Date().toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit'})}</span>
         </div>
       </div>
+
+      {/* 👑 شريط التحكم المخصص للمدير العام (Super Admin Company Selector) */}
+      {isSuperAdmin && organizations && organizations.length > 0 && (
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-4 rounded-2xl border border-indigo-500/30 shadow-lg flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-600/30 border border-indigo-400/30 flex items-center justify-center">
+              <Building2 className="text-sky-400" size={22} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-black tracking-wide text-white">الشركة المعروضة بلوحة القيادة</span>
+                <span className="bg-indigo-500/30 text-indigo-300 text-[10px] font-black px-2 py-0.5 rounded-full border border-indigo-400/30">سوبر أدمن ⚡</span>
+              </div>
+              <p className="text-xs text-slate-300">يتم عرض الأرقام والإحصائيات للشركة المحددة أدناه</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-sky-300">تبديل الشركة:</span>
+            <select
+              value={currentSelectedOrgId || effectiveOrgId || ''}
+              onChange={(e) => setCurrentSelectedOrgId(e.target.value || null)}
+              className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-3 py-2 rounded-xl border border-white/20 focus:outline-none focus:ring-2 focus:ring-sky-400 transition-all cursor-pointer min-w-[220px]"
+            >
+              {organizations.map((org: any) => (
+                <option key={org.id} value={org.id} className="bg-slate-900 text-white">
+                  🏢 {org.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Column */}

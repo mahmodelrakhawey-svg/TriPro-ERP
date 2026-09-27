@@ -29,6 +29,8 @@ type Permission = {
 
 // تسميات وترتيب الموديولات بالعربية
 const moduleMetadata: Record<string, { label: string; group: string; iconColor: string }> = {
+  dashboard: { label: 'لوحة القيادة والمؤشرات الرئيسية (Dashboard)', group: 'reports', iconColor: 'text-blue-600 bg-blue-50' },
+  mobile: { label: 'تطبيق الموبايل الميداني (PWA)', group: 'sales', iconColor: 'text-indigo-600 bg-indigo-50' },
   sales: { label: 'المبيعات والفواتير', group: 'sales', iconColor: 'text-emerald-600 bg-emerald-50' },
   customers: { label: 'إدارة العملاء والديون', group: 'sales', iconColor: 'text-emerald-600 bg-emerald-50' },
   purchases: { label: 'المشتريات وأوامر الشراء', group: 'purchases', iconColor: 'text-blue-600 bg-blue-50' },

@@ -13,6 +13,8 @@ export interface UserProfile {
   is_active: boolean;
   avatar_url?: string;
   hr_scope?: HrScope;
+  can_view_dashboard?: boolean;
+  can_access_mobile?: boolean;
 }
 
 

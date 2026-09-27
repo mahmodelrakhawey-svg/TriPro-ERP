@@ -571,6 +571,9 @@ export const createUserManagerUserSchema = z.object({
   password: z.string().min(6, 'كلمة المرور يجب أن تكون 6 أحرف على الأقل'),
   fullName: nameSchema,
   role: z.string().min(1, 'يرجى اختيار الدور أو الصلاحية للمستخدم'),
+  hr_scope: z.enum(['all', 'factory', 'branches']).optional(),
+  can_view_dashboard: z.boolean().optional(),
+  can_access_mobile: z.boolean().optional(),
 });
 
 export const resetPasswordSchema = z.object({

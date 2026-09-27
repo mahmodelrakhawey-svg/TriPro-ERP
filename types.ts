@@ -237,6 +237,8 @@ export interface User {
   is_active: boolean;
   organization_id?: string;
   hr_scope?: HrScope;
+  can_view_dashboard?: boolean;
+  can_access_mobile?: boolean;
 }
 
 export interface Salesperson {

@@ -15,6 +15,8 @@ interface Profile {
   is_active?: boolean | null;
   organization_id?: string | null;
   role_id?: string | null;
+  can_view_dashboard?: boolean | null;
+  can_access_mobile?: boolean | null;
 }
 
 interface RolePermissionJoin {
@@ -177,8 +179,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // تحديد الدور: الديمو أولاً، ثم البيانات الوصفية، ثم البروفايل، وأخيراً admin كافتراضي للمنشئ
         // تحديد الدور: الديمو أولاً، ثم البروفايل من قاعدة البيانات (لضمان فورية التعديلات)، ثم البيانات الوصفية، وأخيراً admin
         const roleName = isDemoUser ? 'demo' : (profile?.role || user.user_metadata?.role || user.user_metadata?.app_role || 'admin');
-        const hrScope = (profile as any)?.hr_scope || (user.user_metadata?.hr_scope as any) || 'all';
-        
+        const hrScope = (profile as any)?.hr_scope || user.user_metadata?.hr_scope || 'all';
+        const canViewDashboard = (profile as any)?.can_view_dashboard !== undefined && (profile as any)?.can_view_dashboard !== null
+          ? Boolean((profile as any)?.can_view_dashboard)
+          : true;
+        const canAccessMobile = (profile as any)?.can_access_mobile !== undefined && (profile as any)?.can_access_mobile !== null
+          ? Boolean((profile as any)?.can_access_mobile)
+          : (roleName === 'van_sales' || roleName === 'admin' || roleName === 'super_admin');
+
         const profileData = profile ? {
           id: user.id,
           name: profile.full_name || user.email || '',
@@ -186,7 +194,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           role: roleName as UserRole,
           is_active: profile.is_active ?? true,
           organization_id: profile.organization_id || user.user_metadata?.org_id || undefined,
-          hr_scope: hrScope
+          hr_scope: hrScope,
+          can_view_dashboard: canViewDashboard,
+          can_access_mobile: canAccessMobile
         } : {
           id: user.id,
           name: (user.user_metadata?.full_name as string) || user.email || '',
@@ -194,7 +204,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           role: roleName as UserRole,
           is_active: true,
           organization_id: (user.user_metadata?.org_id as string) || undefined,
-          hr_scope: hrScope
+          hr_scope: hrScope,
+          can_view_dashboard: canViewDashboard,
+          can_access_mobile: canAccessMobile
         };
 
         setCurrentUser(profileData);
@@ -609,6 +621,29 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return true; // مسموح باقي العمليات (إنشاء، عرض، طباعة)
     }
     
+    // 📊 1. التحكم الدقيق في ظهور لوحة القيادة (Dashboard Visibility Guard)
+    if (module === 'dashboard') {
+      if (userRole === 'super_admin' || userRole === 'admin' || userRole === 'demo') return true;
+      if (currentUser?.can_view_dashboard === false) return false;
+      if (userPermissions.has('dashboard.deny')) return false;
+      if (currentUser?.can_view_dashboard === true) return true;
+      if (userPermissions.has('dashboard.view') || userPermissions.has('dashboard.*')) return true;
+      if (userPermissions.has('*.*')) return true;
+      return false;
+    }
+
+    // 📱 2. التحكم الدقيق في ظهور تطبيق الموبايل الميداني (PWA Mobile Access Guard)
+    if (module === 'mobile') {
+      if (userRole === 'super_admin' || userRole === 'admin') return true;
+      if (userRole === 'van_sales') return true;
+      if (currentUser?.can_access_mobile === false) return false;
+      if (userPermissions.has('mobile.deny')) return false;
+      if (currentUser?.can_access_mobile === true) return true;
+      if (userPermissions.has('mobile.view') || userPermissions.has('mobile.access') || userPermissions.has('mobile.*')) return true;
+      if (userPermissions.has('*.*')) return true;
+      return false;
+    }
+
     // ✅ دعم الرموز الشاملة (Wildcards) والتحقق الموسع
     if (userPermissions.has(`${module}.${action}`)) return true;
     if (userPermissions.has(`${module}.*`)) return true;

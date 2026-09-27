@@ -30,6 +30,7 @@ const routeTitles: Record<string, string> = {
 const Header = () => {
     const location = useLocation();
     const { lastUpdated, refreshData, clearCache, settings, isLoading, selectedFiscalYear, setSelectedFiscalYear } = useAccounting();
+    const { can } = useAuth();
     const navigate = useNavigate();
     const [currentUser, setCurrentUser] = useState<any>(null);
     const [isReturning, setIsReturning] = useState(false);
@@ -317,16 +318,18 @@ const Header = () => {
                     <span className="hidden md:inline">{showTabsBar ? "شريط التبويبات" : "التبويبات معطلة"}</span>
                 </button>
 
-                {/* 📱 زر وضع الموبايل الميداني (PWA Mobile Companion) */}
-                <button
-                    type="button"
-                    onClick={() => navigate('/mobile')}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-all shadow-xs"
-                    title="فتح تطبيق الموبايل الميداني (ماسح الباركود بالكاميرا، فواتير المندوب، ولوحة تحكم المدير)"
-                >
-                    <Smartphone size={15} className="text-indigo-600" />
-                    <span className="hidden sm:inline">تطبيق الموبايل</span>
-                </button>
+                {/* 📱 زر وضع الموبايل الميداني (PWA Mobile Companion) - يظهر فقط لمن لديه الصلاحية */}
+                {can('mobile', 'view') && (
+                    <button
+                        type="button"
+                        onClick={() => navigate('/mobile')}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-all shadow-xs"
+                        title="فتح تطبيق الموبايل الميداني (ماسح الباركود بالكاميرا، فواتير المندوب، ولوحة تحكم المدير)"
+                    >
+                        <Smartphone size={15} className="text-indigo-600" />
+                        <span className="hidden sm:inline">تطبيق الموبايل</span>
+                    </button>
+                )}
 
                 {/* Smart Notification Bell */}
                 <div className="relative">

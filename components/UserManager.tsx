@@ -19,6 +19,8 @@ type UserProfile = {
   organizations?: { name: string }; // إضافة اسم المنظمة للنوع
   last_activity?: string;
   hr_scope?: 'all' | 'factory' | 'branches';
+  can_view_dashboard?: boolean;
+  can_access_mobile?: boolean;
 };
 
 
@@ -35,7 +37,9 @@ const UserManager = () => {
     password: '',
     fullName: '',
     role: 'admin', // تغيير الافتراضي إلى admin لتقليل أخطاء التأسيس
-    hr_scope: 'all' as 'all' | 'factory' | 'branches'
+    hr_scope: 'all' as 'all' | 'factory' | 'branches',
+    can_view_dashboard: true,
+    can_access_mobile: false
   });
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -207,6 +211,60 @@ const UserManager = () => {
     else fetchUsers();
   };
 
+  // تفعيل / تعطيل ظهور لوحة القيادة للمستخدم
+  const toggleUserDashboardAccess = async (userId: string, currentVal?: boolean) => {
+    const nextVal = currentVal === false ? true : false;
+    if (currentUserRole === 'demo') {
+      showToast(`تم ${nextVal ? 'تفعيل' : 'تعطيل'} لوحة القيادة للمستخدم (محاكاة)`, 'success');
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, can_view_dashboard: nextVal } : u));
+      return;
+    }
+    if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
+      showToast('عذراً، هذه الصلاحية للمدراء فقط', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ can_view_dashboard: nextVal })
+        .eq('id', userId);
+
+      if (error) throw error;
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, can_view_dashboard: nextVal } : u));
+      showToast(`تم ${nextVal ? 'السماح بـ' : 'حجب'} لوحة القيادة للمستخدم بنجاح`, 'success');
+    } catch (err: any) {
+      showToast('فشل تعديل صلاحية لوحة القيادة: ' + err.message, 'error');
+    }
+  };
+
+  // تفعيل / تعطيل ظهور تطبيق الموبايل للمستخدم
+  const toggleUserMobileAccess = async (userId: string, currentVal?: boolean) => {
+    const nextVal = currentVal === true ? false : true;
+    if (currentUserRole === 'demo') {
+      showToast(`تم ${nextVal ? 'تفعيل' : 'تعطيل'} تطبيق الموبايل للمستخدم (محاكاة)`, 'success');
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, can_access_mobile: nextVal } : u));
+      return;
+    }
+    if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
+      showToast('عذراً، هذه الصلاحية للمدراء فقط', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ can_access_mobile: nextVal })
+        .eq('id', userId);
+
+      if (error) throw error;
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, can_access_mobile: nextVal } : u));
+      showToast(`تم ${nextVal ? 'تفعيل' : 'تعطيل'} تطبيق الموبايل للمستخدم بنجاح`, 'success');
+    } catch (err: any) {
+      showToast('فشل تعديل صلاحية تطبيق الموبايل: ' + err.message, 'error');
+    }
+  };
+
   // تحديث اسم المستخدم
   const handleNameUpdate = async (userId: string) => {
     if (currentUserRole === 'demo') {
@@ -252,7 +310,7 @@ const UserManager = () => {
             const fakeUser: UserProfile = { id: `new-demo-${Date.now()}`, email: newUserData.email, full_name: newUserData.fullName, role: newUserData.role as any, is_active: true, created_at: new Date().toISOString() };
             setUsers(prev => [fakeUser, ...prev]);
             setIsAddModalOpen(false);
-            setNewUserData({ email: '', password: '', fullName: '', role: 'viewer', hr_scope: 'all' });
+            setNewUserData({ email: '', password: '', fullName: '', role: 'viewer', hr_scope: 'all', can_view_dashboard: true, can_access_mobile: false });
             setCreating(false);
         }, 1000);
         return;
@@ -308,6 +366,8 @@ const UserManager = () => {
           role: newUserData.role,
           organization_id: targetOrgId,
           hr_scope: newUserData.hr_scope,
+          can_view_dashboard: newUserData.can_view_dashboard,
+          can_access_mobile: newUserData.can_access_mobile,
         });
         if (profileInsertError) {
           if (profileInsertError.message?.includes('violates foreign key constraint') || profileInsertError.code === '23503') {
@@ -324,13 +384,15 @@ const UserManager = () => {
           full_name: newUserData.fullName.trim(),
           role: newUserData.role,
           hr_scope: newUserData.hr_scope,
-          organization_id: targetOrgId
+          organization_id: targetOrgId,
+          can_view_dashboard: newUserData.can_view_dashboard,
+          can_access_mobile: newUserData.can_access_mobile,
         })
         .eq('id', authData.user.id);
 
       showToast('تم إنشاء المستخدم بنجاح! ✅ سيتمكن المستخدم من تسجيل الدخول فوراً.', 'success');
       setIsAddModalOpen(false);
-      setNewUserData({ email: '', password: '', fullName: '', role: 'viewer', hr_scope: 'all' });
+      setNewUserData({ email: '', password: '', fullName: '', role: 'viewer', hr_scope: 'all', can_view_dashboard: true, can_access_mobile: false });
       fetchUsers(); // تحديث القائمة
     } catch (err: any) {
       if (process.env.NODE_ENV === 'development') console.error('Error creating user:', err);
@@ -493,6 +555,12 @@ const UserManager = () => {
               <th className="px-4 py-4 text-center bg-amber-100/70 text-amber-900 border-x border-amber-200 font-black">
                 👥 نطاق الإشراف (HR)
               </th>
+              <th className="px-4 py-4 text-center bg-blue-50 text-blue-900 font-black border-l border-blue-100">
+                📊 لوحة القيادة
+              </th>
+              <th className="px-4 py-4 text-center bg-indigo-50 text-indigo-900 font-black border-l border-indigo-100">
+                📱 تطبيق الموبايل
+              </th>
               <th className="px-6 py-4 text-center">الحالة</th>
               <th className="px-6 py-4 text-center">آخر نشاط</th>
               <th className="px-6 py-4 text-center">إجراءات</th>
@@ -615,6 +683,42 @@ const UserManager = () => {
                     <option value="factory">🏭 موظفو المصنع فقط</option>
                     <option value="branches">🏪 موظفو الفروع فقط</option>
                   </select>
+                </td>
+
+                {/* 📊 التحكم في ظهور لوحة القيادة لهذا المستخدم */}
+                <td className="px-4 py-4 text-center bg-blue-50/30 border-l border-blue-100">
+                  <button
+                    type="button"
+                    onClick={() => toggleUserDashboardAccess(user.id, user.can_view_dashboard)}
+                    disabled={currentUserRole !== 'super_admin' && currentUserRole !== 'admin'}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all shadow-2xs border cursor-pointer ${
+                      user.can_view_dashboard !== false
+                        ? 'bg-blue-100 text-blue-800 border-blue-300 hover:bg-blue-200'
+                        : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200 hover:text-slate-700'
+                    }`}
+                    title={user.can_view_dashboard !== false ? "لوحة القيادة تظهر لهذا المستخدم (انقر للتعطيل)" : "لوحة القيادة محجوبة عن هذا المستخدم (انقر للتفعيل)"}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${user.can_view_dashboard !== false ? 'bg-blue-600 animate-pulse' : 'bg-slate-400'}`}></span>
+                    <span>{user.can_view_dashboard !== false ? 'مفعلة 👁️' : 'معطلة 🚫'}</span>
+                  </button>
+                </td>
+
+                {/* 📱 التحكم في ظهور تطبيق الموبايل لهذا المستخدم */}
+                <td className="px-4 py-4 text-center bg-indigo-50/30 border-l border-indigo-100">
+                  <button
+                    type="button"
+                    onClick={() => toggleUserMobileAccess(user.id, user.can_access_mobile)}
+                    disabled={currentUserRole !== 'super_admin' && currentUserRole !== 'admin'}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-black transition-all shadow-2xs border cursor-pointer ${
+                      user.can_access_mobile === true
+                        ? 'bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200'
+                        : 'bg-slate-100 text-slate-400 border-slate-300 hover:bg-slate-200 hover:text-slate-700'
+                    }`}
+                    title={user.can_access_mobile === true ? "تطبيق الموبايل متاح لهذا المستخدم (انقر للتعطيل)" : "تطبيق الموبايل محجوب عن هذا المستخدم (انقر للتفعيل)"}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${user.can_access_mobile === true ? 'bg-indigo-600 animate-pulse' : 'bg-slate-400'}`}></span>
+                    <span>{user.can_access_mobile === true ? 'متاح 📱' : 'معطل 🚫'}</span>
+                  </button>
                 </td>
                 <td className="px-6 py-4 text-center">
                   <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black
@@ -822,6 +926,32 @@ const UserManager = () => {
                             <option value="branches">🏪 طاقم وموظفو الفروع والمعارض فقط</option>
                         </select>
                         <p className="text-xs text-slate-400 mt-1">يحدد أي موظفين ومسيرات رواتب تظهر لهذا المستخدم عند فتح صفحات الـ HR.</p>
+                    </div>
+
+                    {/* صلاحيات الظهور السريع: لوحة القيادة وتطبيق الموبايل */}
+                    <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-2.5">
+                        <span className="block text-xs font-bold text-slate-700">التحكم في وصول الشاشات الرئيسية:</span>
+                        <div className="flex flex-col sm:flex-row gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700 font-medium select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={newUserData.can_view_dashboard}
+                                    onChange={(e) => setNewUserData({...newUserData, can_view_dashboard: e.target.checked})}
+                                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                                />
+                                <span>📊 إتاحة لوحة القيادة (Dashboard)</span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700 font-medium select-none">
+                                <input
+                                    type="checkbox"
+                                    checked={newUserData.can_access_mobile}
+                                    onChange={(e) => setNewUserData({...newUserData, can_access_mobile: e.target.checked})}
+                                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-slate-300"
+                                />
+                                <span>📱 إتاحة تطبيق الموبايل (PWA)</span>
+                            </label>
+                        </div>
+                        <p className="text-[11px] text-slate-400">يمكنك تعديل هذه الإتاحة لاحقاً بنقرة واحدة من جدول المستخدمين أو إدارة الصلاحيات.</p>
                     </div>
 
                     <div className="pt-4 flex gap-3 border-t border-slate-100 mt-4">

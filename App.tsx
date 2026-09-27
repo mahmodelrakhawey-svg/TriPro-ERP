@@ -381,6 +381,7 @@ const COMPATIBILITY_REDIRECTS: [string, string][] = [
 
 const MainLayout = () => {
     const { currentUser } = useAccounting();
+    const { can } = useAuth();
     const location = useLocation();
 
     useEffect(() => {
@@ -405,6 +406,9 @@ const MainLayout = () => {
 
     // إذا كان المستخدم في وضع الموبايل الميداني (Mobile Companion)، يتم عرضه بملء الشاشة مخصصاً للهواتف
     if (location.pathname === '/mobile') {
+        if (!isVanSales && !can('mobile', 'view')) {
+            return <Navigate to="/" replace />;
+        }
         return (
             <Suspense fallback={<LazyLoadingFallback />}>
                 <MobileApp />
@@ -434,7 +438,8 @@ const MainLayout = () => {
                         <Suspense fallback={<LazyLoadingFallback />}>
                         <Routes>
                 {/* المسارات الأساسية */}
-                <Route path="/mobile" element={<MobileApp />} />
+                <Route path="/mobile" element={(!isVanSales && !can('mobile', 'view')) ? <Navigate to="/" replace /> : <MobileApp />} />
+                <Route path="/dashboard" element={can('dashboard', 'view') ? <Dashboard /> : <Navigate to="/" replace />} />
                 <Route
                   path="/"
                   element={
@@ -448,7 +453,9 @@ const MainLayout = () => {
                       ? <Navigate to="/restaurant/driver-dispatch" replace />
                       : (currentUser?.role as string) === 'van_sales'
                       ? <Navigate to="/mobile" replace />
-                      : <Dashboard />
+                      : can('dashboard', 'view')
+                      ? <Dashboard />
+                      : <Navigate to={can('sales', 'view') ? "/invoices-list" : can('inventory', 'view') ? "/products" : can('accounting', 'view') ? "/general-journal" : "/profile"} replace />
                   }
                 />
 

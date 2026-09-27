@@ -146,8 +146,8 @@ const Sidebar: React.FC = () => {
 
   // تعريف عناصر القائمة
   const navItems = [
-    { to: '/dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, color: 'text-blue-400', permission: 'reports.view' },
-    { to: '/mobile', label: 'تطبيق الموبايل الميداني (PWA)', icon: Smartphone, color: 'text-indigo-400', permission: 'reports.view' },
+    { to: '/dashboard', label: 'لوحة التحكم', icon: LayoutDashboard, color: 'text-blue-400', permission: 'dashboard.view' },
+    { to: '/mobile', label: 'تطبيق الموبايل الميداني (PWA)', icon: Smartphone, color: 'text-indigo-400', permission: 'mobile.view' },
     
     // موديول المبيعات
     { type: 'section', label: 'المبيعات والعملاء' },
@@ -678,7 +678,7 @@ const Sidebar: React.FC = () => {
               الشركة النشطة (تحكم عالمي)
             </label>
             <select
-              value={currentSelectedOrgId || ''}
+              value={currentSelectedOrgId || (organizations && organizations.length > 0 ? organizations[0]?.id : '')}
               onChange={(e) => setCurrentSelectedOrgId(e.target.value || null)}
               className="w-full bg-[#1c2541] border border-white/10 text-white text-xs p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
             >
