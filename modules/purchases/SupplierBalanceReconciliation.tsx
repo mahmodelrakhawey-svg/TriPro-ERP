@@ -12,7 +12,7 @@ import * as XLSX from 'xlsx';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
 
 export const SupplierBalanceReconciliation: React.FC = () => {
-  const { accounts, suppliers, getSystemAccount, settings, currentUser } = useAccounting();
+  const { accounts, suppliers, getSystemAccount, settings, currentUser, currentSelectedOrgId, organization } = useAccounting();
   const navigate = useNavigate();
   const { showToast } = useToast();
   
@@ -53,7 +53,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
       // ============================================================
       // الجزء الأول: رصيد الأستاذ العام (GL) لحساب الموردين
       // ============================================================
@@ -66,10 +66,14 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       let accountIds = supplierAccounts.map(a => a.id);
 
       if (accountIds.length === 0) {
-        const { data: dbAccs } = await supabase
+        let accQuery = supabase
           .from('accounts')
           .select('id, code, name')
           .or(`code.eq.${supplierAccountCode},code.eq.201,code.eq.2101`);
+        if (userOrgId) {
+          accQuery = accQuery.eq('organization_id', userOrgId);
+        }
+        const { data: dbAccs } = await accQuery;
         if (dbAccs && dbAccs.length > 0) {
           accountIds = dbAccs.map(a => a.id);
         }
@@ -81,11 +85,17 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         return;
       }
 
-      const { data: glLines, error: glError } = await supabase
+      let glQuery = supabase
         .from('journal_lines')
         .select('id, debit, credit, description, account_id, journal_entries!inner(id, reference, transaction_date, description, status, related_document_id, related_document_type)')
         .in('account_id', accountIds)
         .eq('journal_entries.status', 'posted');
+
+      if (userOrgId) {
+        glQuery = glQuery.eq('journal_entries.organization_id', userOrgId);
+      }
+
+      const { data: glLines, error: glError } = await glQuery;
 
       if (glError) throw glError;
 
@@ -140,19 +150,78 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
       // ============================================================
       // جلب المديولات المسموحة للمنظمة من جدول organizations
-      const { data: orgData } = await supabase
-        .from('organizations')
-        .select('allowed_modules')
-        .eq('id', userOrgId)
-        .maybeSingle();
+      const { data: orgData } = userOrgId
+        ? await supabase
+            .from('organizations')
+            .select('allowed_modules')
+            .eq('id', userOrgId)
+            .maybeSingle()
+        : { data: null };
       const allowedModules: string[] | undefined = orgData?.allowed_modules || undefined;
 
-      const { data: suppliersList } = await supabase
+      let suppQuery = supabase
         .from('suppliers')
         .select('id, name, phone, opening_balance')
         .is('deleted_at', null);
 
+      if (userOrgId) {
+        suppQuery = suppQuery.eq('organization_id', userOrgId);
+      }
+
+      const { data: suppliersList } = await suppQuery;
+
       // جلب المستندات الأساسية + المستندات الموديلية من مجمع الأستاذ المساعد
+      let piQuery = supabase
+        .from('purchase_invoices')
+        .select('id, supplier_id, invoice_number, total_amount, paid_amount, treasury_account_id, related_journal_entry_id, status')
+        .not('status', 'in', '("draft","cancelled")');
+
+      let prQuery = supabase
+        .from('purchase_returns')
+        .select('id, supplier_id, return_number, total_amount, related_journal_entry_id, status')
+        .not('status', 'in', '("draft","cancelled")');
+
+      let dnQuery = supabase
+        .from('debit_notes')
+        .select('id, supplier_id, debit_note_number, total_amount, related_journal_entry_id, status')
+        .eq('status', 'posted');
+
+      let pvQuery = supabase
+        .from('payment_vouchers')
+        .select('id, supplier_id, voucher_number, amount, payment_method, related_journal_entry_id')
+        .not('supplier_id', 'is', null);
+
+      let chqQuery = supabase
+        .from('cheques')
+        .select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id')
+        .eq('type', 'outgoing');
+
+      let subBillQuery = supabase
+        .from('subcontractor_billings')
+        .select(`
+          id,
+          billing_number,
+          net_amount,
+          gross_amount,
+          status,
+          billing_date,
+          related_journal_entry_id,
+          subcontractor_contracts (
+            subcontractor_id,
+            subcontractors ( id, name, supplier_id )
+          )
+        `)
+        .not('status', 'in', '("draft","cancelled")');
+
+      if (userOrgId) {
+        piQuery = piQuery.eq('organization_id', userOrgId);
+        prQuery = prQuery.eq('organization_id', userOrgId);
+        dnQuery = dnQuery.eq('organization_id', userOrgId);
+        pvQuery = pvQuery.eq('organization_id', userOrgId);
+        chqQuery = chqQuery.eq('organization_id', userOrgId);
+        subBillQuery = subBillQuery.eq('organization_id', userOrgId);
+      }
+
       const [
         invRes,       // فواتير المشتريات
         retRes,       // مرتجعات المشتريات
@@ -162,49 +231,12 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         subBillRes,   // مستخلصات مقاولي الباطن (للعرض في التبويب)
         modularSupplierDocs // المستندات الموديلية المفعلة
       ] = await Promise.all([
-        supabase
-          .from('purchase_invoices')
-          .select('id, supplier_id, invoice_number, total_amount, paid_amount, treasury_account_id, related_journal_entry_id, status')
-          .not('status', 'in', '("draft","cancelled")'),
-
-        supabase
-          .from('purchase_returns')
-          .select('id, supplier_id, return_number, total_amount, related_journal_entry_id, status')
-          .not('status', 'in', '("draft","cancelled")'),
-
-        supabase
-          .from('debit_notes')
-          .select('id, supplier_id, debit_note_number, total_amount, related_journal_entry_id, status')
-          .eq('status', 'posted'),
-
-        supabase
-          .from('payment_vouchers')
-          .select('id, supplier_id, voucher_number, amount, payment_method, related_journal_entry_id')
-          .not('supplier_id', 'is', null),
-
-        supabase
-          .from('cheques')
-          .select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id')
-          .eq('type', 'outgoing'),
-
-        // مستخلصات مقاولي الباطن للتبويب المنفصل
-        supabase
-          .from('subcontractor_billings')
-          .select(`
-            id,
-            billing_number,
-            net_amount,
-            gross_amount,
-            status,
-            billing_date,
-            related_journal_entry_id,
-            subcontractor_contracts (
-              subcontractor_id,
-              subcontractors ( id, name, supplier_id )
-            )
-          `)
-          .not('status', 'in', '("draft","cancelled")'),
-
+        piQuery,
+        prQuery,
+        dnQuery,
+        pvQuery,
+        chqQuery,
+        subBillQuery,
         SubledgerRegistry.fetchSupplierDocs(userOrgId, allowedModules)
       ]);
 
@@ -223,7 +255,9 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
       // بناء خريطة الربط بين مقاولي الباطن والموردين
       (chqRes as any); // Type safety
-      const subcontractorsList = (subBillRes as any).data ? (await supabase.from('subcontractors').select('id, name, supplier_id')).data : [];
+      let subQuery = supabase.from('subcontractors').select('id, name, supplier_id');
+      if (userOrgId) subQuery = subQuery.eq('organization_id', userOrgId);
+      const subcontractorsList = (subBillRes as any).data ? (await subQuery).data : [];
       
       subcontractorsList?.forEach((sub: any) => {
         if (sub.supplier_id) {
@@ -263,10 +297,12 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           };
         });
       } else {
-        const { data: basicBillings } = await supabase
+        let basicBillQ = supabase
           .from('subcontractor_billings')
           .select('id, billing_number, net_amount, gross_amount, status, billing_date, related_journal_entry_id')
           .not('status', 'in', '("draft","cancelled")');
+        if (userOrgId) basicBillQ = basicBillQ.eq('organization_id', userOrgId);
+        const { data: basicBillings } = await basicBillQ;
         if (basicBillings) {
           subBillingsNormalized = basicBillings.map((sb: any) => ({
             id:                       sb.id,
@@ -668,7 +704,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
 
       // 1. إنشاء المورد الجديد
       const { data: newSupp, error: suppErr } = await supabase
@@ -697,6 +733,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         }
       } else {
         await supabase.from('payment_vouchers').insert({
+          organization_id: userOrgId,
           voucher_number: entryToFix.ref || `PV-FIX-${Date.now().toString().slice(-6)}`,
           payment_date: entryToFix.date,
           amount: entryToFix.debit || entryToFix.credit,
@@ -725,6 +762,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       return;
     }
     try {
+      const userOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id;
       const isPayment = entryToFix.debit > 0;
       const amount    = isPayment ? entryToFix.debit : entryToFix.credit;
       const jeId      = entryToFix.journal_entries?.id || entryToFix.id;
@@ -742,6 +780,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           showToast('تم ربط الشيك بالمورد بنجاح ومطابقة الأستاذ المساعد ✅', 'success');
         } else {
           const { error } = await supabase.from('payment_vouchers').insert({
+            organization_id:     userOrgId,
             voucher_number:      entryToFix.ref || `PV-FIX-${Date.now().toString().slice(-6)}`,
             payment_date:        entryToFix.date,
             amount,
@@ -785,7 +824,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
     XLSX.writeFile(workbook, `Supplier_Balances_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  useEffect(() => { fetchReconciliation(); }, [accounts]);
+  useEffect(() => { fetchReconciliation(); }, [accounts, currentSelectedOrgId]);
 
   const difference   = glBalance - subLedgerBalance;
   const isBalanced   = Math.abs(difference) < 1;

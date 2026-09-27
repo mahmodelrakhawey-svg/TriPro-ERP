@@ -19,6 +19,7 @@ import { AutoCreatedProductsModal } from './components/AutoCreatedProductsModal'
 import { ExpectedConsumptionModal } from './components/ExpectedConsumptionModal';
 import { ProductFormModal, ProductFormData } from './components/ProductFormModal';
 export type { ProductFormData };
+import { ExcelPriceUpdateModal } from './components/ExcelPriceUpdateModal';
 import { printOfferBarcode, printBarcode, printBulkBarcodes } from './utils/productBarcodeUtils';
 import { 
   downloadProductsTemplate, 
@@ -307,6 +308,7 @@ const ProductManager = () => {
   const [categoryFormData, setCategoryFormData] = useState({ id: '', name: '', image_url: '', description: '' });
   const [autoCreatedProducts, setAutoCreatedProducts] = useState<any[]>([]);
   const [isBulkPriceUpdateModalOpen, setIsBulkPriceUpdateModalOpen] = useState(false);
+  const [isExcelPriceUpdateModalOpen, setIsExcelPriceUpdateModalOpen] = useState(false);
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [initialOpeningStock, setInitialOpeningStock] = useState<number>(0);
   const [initialOpeningWarehouseId, setInitialOpeningWarehouseId] = useState<string>('');
@@ -1769,6 +1771,14 @@ const ProductManager = () => {
                     استيراد Excel
                 </button>
             </div>
+            <button
+              onClick={() => setIsExcelPriceUpdateModalOpen(true)}
+              className="bg-amber-50 border border-amber-300 text-amber-800 px-3.5 py-2 rounded-lg flex items-center gap-2 hover:bg-amber-100 text-sm font-bold shadow-sm transition-all"
+              title="تحديث أسعار البيع من ملف Excel دون تكرار الأصناف ودون المساس بالمخزون"
+            >
+              <Tag size={16} className="text-amber-600" />
+              <span>تحديث الأسعار Excel</span>
+            </button>
             <div className="relative">
                 <input
                     type="file"
@@ -2310,6 +2320,18 @@ const ProductManager = () => {
         isOpen={isReportModalOpen}
         onClose={() => setIsReportModalOpen(false)}
         products={autoCreatedProducts}
+      />
+
+      {/* Excel Price Update Modal */}
+      <ExcelPriceUpdateModal
+        isOpen={isExcelPriceUpdateModalOpen}
+        onClose={() => setIsExcelPriceUpdateModalOpen(false)}
+        targetOrgId={targetOrgId}
+        currentUser={currentUser}
+        queryClient={queryClient}
+        refreshData={refreshData}
+        refresh={refresh}
+        showToast={toastFn}
       />
     </div>
   );

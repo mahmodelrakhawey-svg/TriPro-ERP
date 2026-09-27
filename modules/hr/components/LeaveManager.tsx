@@ -301,9 +301,20 @@ export default function LeaveManager() {
     }));
 
     const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 6 },  // #
+      { wch: 25 }, // الموظف
+      { wch: 18 }, // نوع الإجازة
+      { wch: 14 }, // من تاريخ
+      { wch: 14 }, // إلى تاريخ
+      { wch: 12 }, // عدد الأيام
+      { wch: 14 }, // مدفوعة الأجر
+      { wch: 14 }, // الحالة
+      { wch: 30 }  // السبب
+    ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'سجل الإجازات');
-    XLSX.writeFile(wb, `Leaves_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
+    XLSX.writeFile(wb, `سجل_إجازات_الموظفين_${new Date().toISOString().split('T')[0]}.xlsx`);
     showToast('تم تصدير سجل الإجازات إلى Excel ✅', 'success');
   };
 

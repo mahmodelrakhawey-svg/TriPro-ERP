@@ -290,9 +290,20 @@ export default function AttendanceManager() {
     }));
 
     const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 6 },  // #
+      { wch: 25 }, // الموظف
+      { wch: 14 }, // التاريخ
+      { wch: 14 }, // وقت الحضور
+      { wch: 14 }, // وقت الانصراف
+      { wch: 16 }, // التأخير (دقيقة)
+      { wch: 20 }, // العمل الإضافي (ساعة)
+      { wch: 12 }, // الحالة
+      { wch: 15 }  // المصدر
+    ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'سجل الحضور');
-    XLSX.writeFile(wb, `Attendance_Report_${selectedDate}.xlsx`);
+    XLSX.writeFile(wb, `سجل_الحضور_والانصراف_${selectedDate}.xlsx`);
     showToast('تم تصدير سجل الحضور إلى Excel ✅', 'success');
   };
 

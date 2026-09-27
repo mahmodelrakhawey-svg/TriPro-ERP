@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -6,7 +7,7 @@ import {
   Users, Plus, Search, Edit, Trash2, Save, X, Phone, Mail, 
   Briefcase, Calendar, DollarSign, Loader2, Filter, Building2, 
   LayoutGrid, List, RotateCcw, CheckCircle2, XCircle, Printer,
-  UserCheck, MapPin, Sparkles
+  UserCheck, MapPin, Sparkles, FileSpreadsheet
 } from 'lucide-react';
 import { createEmployeeSchema } from '../../../utils/validationSchemas';
 import { FACTORY_EMPLOYEES_LIST } from '../data/factoryEmployees';
@@ -265,6 +266,62 @@ const EmployeeManager = () => {
     }
   };
 
+  // تصدير دليل وبيانات الموظفين إلى Excel
+  const handleExportExcel = () => {
+    if (filteredEmployees.length === 0) {
+      showToast('لا توجد بيانات موظفين مطابقة للتصدير', 'warning');
+      return;
+    }
+
+    const rows = filteredEmployees.map((emp, idx) => ({
+      'م': idx + 1,
+      'اسم الموظف': emp.full_name || emp.name || 'موظف',
+      'القسم / الفرع': emp.department || 'بدون قسم',
+      'المسمى الوظيفي': emp.position || '-',
+      'الراتب الأساسي (ج.م)': Number(emp.basic_salary) || 0,
+      'تاريخ التعيين': emp.hire_date || '-',
+      'رقم الهاتف': emp.phone || '-',
+      'البريد الإلكتروني': emp.email || '-',
+      'الحالة': emp.status === 'active' ? 'نشط' : emp.status === 'on_leave' ? 'في إجازة' : emp.status === 'terminated' ? 'منهي خدمته' : emp.status || 'نشط',
+      'ملاحظات': emp.notes || '-'
+    }));
+
+    // إضافة صف إحصائي ختامي
+    const totalSalaries = filteredEmployees.reduce((sum, e) => sum + (Number(e.basic_salary) || 0), 0);
+    rows.push({
+      'م': '' as any,
+      'اسم الموظف': `إجمالي الموظفين: ${filteredEmployees.length}`,
+      'القسم / الفرع': '',
+      'المسمى الوظيفي': '',
+      'الراتب الأساسي (ج.م)': totalSalaries,
+      'تاريخ التعيين': '',
+      'رقم الهاتف': '',
+      'البريد الإلكتروني': '',
+      'الحالة': '',
+      'ملاحظات': ''
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+
+    ws['!cols'] = [
+      { wch: 6 },  // م
+      { wch: 25 }, // اسم الموظف
+      { wch: 20 }, // القسم
+      { wch: 20 }, // المسمى الوظيفي
+      { wch: 18 }, // الراتب الأساسي
+      { wch: 16 }, // تاريخ التعيين
+      { wch: 16 }, // رقم الهاتف
+      { wch: 25 }, // البريد الإلكتروني
+      { wch: 15 }, // الحالة
+      { wch: 30 }  // ملاحظات
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'دليل الموظفين');
+    XLSX.writeFile(wb, `دليل_الموظفين_${new Date().toISOString().split('T')[0]}.xlsx`);
+    showToast(`تم تصدير ${filteredEmployees.length} موظف إلى Excel بنجاح ✅`, 'success');
+  };
+
   // حماية الصفحة من مستخدم الديمو
   if (currentUser?.role === 'demo') {
       return (
@@ -326,6 +383,14 @@ const EmployeeManager = () => {
                   )}
               </button>
             )}
+            <button 
+                onClick={handleExportExcel}
+                title="تصدير كشف الموظفين إلى Excel"
+                className="px-3.5 py-2.5 bg-emerald-600 text-white hover:bg-emerald-700 rounded-xl font-bold text-sm flex items-center gap-2 transition-all shadow-md shadow-emerald-600/20 active:scale-95"
+            >
+                <FileSpreadsheet size={17} />
+                <span className="hidden sm:inline">تصدير Excel</span>
+            </button>
             <button 
                 onClick={() => window.print()}
                 title="طباعة الدليل"

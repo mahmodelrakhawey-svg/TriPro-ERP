@@ -680,3 +680,329 @@ export const importProductsFromExcel = async ({
   };
   reader.readAsBinaryString(file);
 };
+
+/**
+ * 🏷️ تصدير قائمة أسعار الأصناف الحالية في ملف Excel لتعديل أسعار البيع
+ */
+export const exportPriceListForUpdate = async ({
+  targetOrgId,
+  showToast,
+  setIsExporting,
+}: {
+  targetOrgId?: string | null;
+  showToast: (msg: string, type?: string) => void;
+  setIsExporting?: (val: boolean) => void;
+}) => {
+  if (setIsExporting) setIsExporting(true);
+  showToast('جاري تصدير قائمة أسعار الأصناف لتعديلها...', 'info');
+  try {
+    const CHUNK_SIZE = 1000;
+    let allItems: any[] = [];
+    let from = 0;
+
+    while (true) {
+      let query = supabase
+        .from('products')
+        .select('id, name, sku, barcode, sales_price, purchase_price, unit, item_categories(name)')
+        .is('deleted_at', null)
+        .order('name', { ascending: true })
+        .range(from, from + CHUNK_SIZE - 1);
+
+      if (targetOrgId) {
+        query = query.eq('organization_id', targetOrgId);
+      }
+
+      const { data, error } = await query;
+      if (error) throw error;
+      if (!data || data.length === 0) break;
+      allItems = allItems.concat(data);
+      if (data.length < CHUNK_SIZE) break;
+      from += CHUNK_SIZE;
+    }
+
+    if (allItems.length === 0) {
+      showToast('لا توجد أصناف مسجلة لهذه المنشأة لتصدير أسعارها.', 'warning');
+      return;
+    }
+
+    const rows = allItems.map(item => ({
+      'الكود (SKU)': item.sku || '',
+      'الباركود': item.barcode || '',
+      'اسم الصنف': item.name,
+      'التصنيف': (item.item_categories as any)?.name || '-',
+      'الوحدة': item.unit || '-',
+      'سعر التكلفة / الشراء': Number(item.purchase_price || 0),
+      'سعر البيع الحالي': Number(item.sales_price || 0),
+      'سعر البيع الجديد': Number(item.sales_price || 0)
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "تحديث أسعار البيع");
+    XLSX.writeFile(wb, `Price_Update_Sheet_${new Date().toISOString().split('T')[0]}.xlsx`);
+    showToast(`تم تصدير شيت الأسعار بنجاح (${allItems.length} صنف) ✅ قم بتعديل عمود "سعر البيع الجديد" ثم ارفعه.`, 'success');
+  } catch (err: any) {
+    showToast('فشل تصدير شيت الأسعار: ' + err.message, 'error');
+  } finally {
+    if (setIsExporting) setIsExporting(false);
+  }
+};
+
+/**
+ * 📥 تحميل نموذج Excel فارغ لتعديل أسعار البيع
+ */
+export const downloadPriceUpdateTemplate = () => {
+  const headers = [
+    {
+      'الكود (SKU)': 'SKU-1001',
+      'الباركود': '6221234567890',
+      'اسم الصنف': 'صنف تجريبي 1',
+      'سعر البيع الجديد': 25.50
+    },
+    {
+      'الكود (SKU)': 'SKU-1002',
+      'الباركود': '6221234567891',
+      'اسم الصنف': 'صنف تجريبي 2',
+      'سعر البيع الجديد': 40.00
+    }
+  ];
+  const ws = XLSX.utils.json_to_sheet(headers);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "نموذج تعديل الأسعار");
+  XLSX.writeFile(wb, "Price_Update_Template.xlsx");
+};
+
+export interface PriceUpdateResult {
+  totalRows: number;
+  matchedCount: number;
+  updatedCount: number;
+  unchangedCount: number;
+  unmatched: Array<{ sku?: string; barcode?: string; name?: string }>;
+}
+
+/**
+ * ⚡ تحديث أسعار البيع فقط للأصناف الحالية من Excel دون تكرار أي صنف ودون المساس بالمخزون
+ */
+export const updateProductPricesFromExcel = async ({
+  file,
+  currentUser,
+  currentSelectedOrgId,
+  queryClient,
+  refreshData,
+  refresh,
+  showToast,
+  setIsUpdating,
+}: {
+  file: File;
+  currentUser: any;
+  currentSelectedOrgId: string | null;
+  queryClient: any;
+  refreshData: () => Promise<void>;
+  refresh?: () => Promise<void> | void;
+  showToast: (msg: string, type?: string) => void;
+  setIsUpdating: (val: boolean) => void;
+}): Promise<PriceUpdateResult | null> => {
+  setIsUpdating(true);
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const content = evt.target?.result;
+        let data: any[] = [];
+
+        if (file.name.toLowerCase().endsWith('.json')) {
+          data = JSON.parse(content as string);
+        } else {
+          const wb = XLSX.read(content, { type: 'binary' });
+          const wsname = wb.SheetNames[0];
+          const ws = wb.Sheets[wsname];
+          data = XLSX.utils.sheet_to_json(ws);
+        }
+
+        if (!data || data.length === 0) {
+          showToast('الملف المرفوع فارغ ولا يحتوي على بيانات!', 'warning');
+          setIsUpdating(false);
+          resolve(null);
+          return;
+        }
+
+        const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+
+        // جلب جميع أصناف المؤسسة لمطابقتها في الذاكرة بسرعة فائقة
+        const CHUNK_SIZE = 1000;
+        let existingProducts: any[] = [];
+        let from = 0;
+
+        while (true) {
+          let q = supabase
+            .from('products')
+            .select('id, name, sku, barcode, sales_price')
+            .is('deleted_at', null)
+            .range(from, from + CHUNK_SIZE - 1);
+
+          if (orgId) {
+            q = q.eq('organization_id', orgId);
+          }
+
+          const { data: chunk, error: fetchErr } = await q;
+          if (fetchErr) throw fetchErr;
+          if (!chunk || chunk.length === 0) break;
+          existingProducts = existingProducts.concat(chunk);
+          if (chunk.length < CHUNK_SIZE) break;
+          from += CHUNK_SIZE;
+        }
+
+        const normalizeText = (t: string) => 
+          (t || '').trim().toLowerCase()
+            .replace(/ى/g, 'ي')
+            .replace(/أ|إ|آ/g, 'ا')
+            .replace(/ة/g, 'ه')
+            .replace(/\s+/g, ' ');
+
+        const skuMap = new Map<string, any>();
+        const barcodeMap = new Map<string, any>();
+        const nameMap = new Map<string, any>();
+
+        existingProducts.forEach(prod => {
+          if (prod.sku) {
+            skuMap.set(String(prod.sku).trim().toLowerCase(), prod);
+          }
+          if (prod.barcode) {
+            barcodeMap.set(String(prod.barcode).trim(), prod);
+          }
+          if (prod.name) {
+            nameMap.set(normalizeText(prod.name), prod);
+          }
+        });
+
+        const toUpdate: Array<{ id: string; name: string; oldPrice: number; newPrice: number }> = [];
+        const unmatched: Array<{ sku?: string; barcode?: string; name?: string }> = [];
+
+        for (const rawRow of data) {
+          const row: any = {};
+          Object.keys(rawRow).forEach(k => {
+            row[k.trim()] = rawRow[k];
+          });
+
+          const sku = row['الكود (SKU)'] || row['الكود'] || row['كود الصنف'] || row['SKU'] || row['sku'] || row['code'] || row['Code'];
+          const barcode = row['الباركود'] || row['باركود'] || row['Barcode'] || row['barcode'];
+          const name = row['اسم الصنف'] || row['اسم المنتج'] || row['الاسم'] || row['الصنف'] || row['Name'] || row['name'] || row['item_name'];
+
+          const rawPrice = 
+            row['سعر البيع الجديد'] ?? 
+            row['سعر البيع'] ?? 
+            row['السعر الجديد'] ?? 
+            row['السعر'] ?? 
+            row['البيع'] ?? 
+            row['New Price'] ?? 
+            row['new_price'] ?? 
+            row['Sales Price'] ?? 
+            row['sales_price'] ?? 
+            row['Price'] ?? 
+            row['price'];
+
+          if (rawPrice === undefined || rawPrice === null || rawPrice === '') {
+            continue; // سطر بدون سعر محدد
+          }
+
+          const cleanPriceStr = String(rawPrice).replace(/[^0-9.-]/g, '');
+          const newPrice = Number(cleanPriceStr);
+
+          if (isNaN(newPrice) || newPrice < 0) {
+            continue;
+          }
+
+          // مطابقة الصنف (الكود أولاً ثم الباركود ثم الاسم)
+          let matched: any = null;
+          if (sku && skuMap.has(String(sku).trim().toLowerCase())) {
+            matched = skuMap.get(String(sku).trim().toLowerCase());
+          } else if (barcode && barcodeMap.has(String(barcode).trim())) {
+            matched = barcodeMap.get(String(barcode).trim());
+          } else if (name && nameMap.has(normalizeText(String(name)))) {
+            matched = nameMap.get(normalizeText(String(name)));
+          }
+
+          if (matched) {
+            toUpdate.push({
+              id: matched.id,
+              name: matched.name,
+              oldPrice: Number(matched.sales_price || 0),
+              newPrice: Math.round(newPrice * 100) / 100
+            });
+          } else {
+            unmatched.push({
+              sku: sku ? String(sku) : undefined,
+              barcode: barcode ? String(barcode) : undefined,
+              name: name ? String(name) : undefined
+            });
+          }
+        }
+
+        if (toUpdate.length === 0) {
+          showToast('لم يتم العثور على أي صنف مطابق من ملف الإكسيل في أصناف النظام الحالية!', 'warning');
+          setIsUpdating(false);
+          resolve({
+            totalRows: data.length,
+            matchedCount: 0,
+            updatedCount: 0,
+            unchangedCount: 0,
+            unmatched
+          });
+          return;
+        }
+
+        // تنفيذ التحديث في مجموعات متزامنة سريعة (Batches of 25)
+        let updatedCount = 0;
+        let unchangedCount = 0;
+        const BATCH_SIZE = 25;
+
+        for (let i = 0; i < toUpdate.length; i += BATCH_SIZE) {
+          const batch = toUpdate.slice(i, i + BATCH_SIZE);
+          await Promise.all(batch.map(async (item) => {
+            if (item.oldPrice === item.newPrice) {
+              unchangedCount++;
+              return;
+            }
+            const { error: updErr } = await supabase
+              .from('products')
+              .update({ sales_price: item.newPrice })
+              .eq('id', item.id);
+
+            if (!updErr) {
+              updatedCount++;
+            }
+          }));
+        }
+
+        // تحديث الكاش والواجهة
+        queryClient.invalidateQueries({ queryKey: ['products'] });
+        await refreshData();
+        if (refresh) await refresh();
+
+        const result: PriceUpdateResult = {
+          totalRows: data.length,
+          matchedCount: toUpdate.length,
+          updatedCount,
+          unchangedCount,
+          unmatched
+        };
+
+        showToast(
+          `تم الانتهاء بنجاح! ✅\n` +
+          `• تم تحديث سعر: ${updatedCount} صنف\n` +
+          (unchangedCount > 0 ? `• بدون تغيير (نفس السعر): ${unchangedCount} صنف\n` : '') +
+          (unmatched.length > 0 ? `• غير موجود بالنظام: ${unmatched.length} سطر` : ''),
+          'success'
+        );
+
+        setIsUpdating(false);
+        resolve(result);
+      } catch (err: any) {
+        showToast('حدث خطأ أثناء معالجة ملف الأسعار: ' + err.message, 'error');
+        setIsUpdating(false);
+        resolve(null);
+      }
+    };
+    reader.readAsBinaryString(file);
+  });
+};

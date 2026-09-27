@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { 
   Banknote, Plus, CheckCircle, Loader2, AlertTriangle, 
   AlertCircle, Sparkles, Building2, Briefcase, Calendar, 
-  DollarSign, Wallet, X, Percent, UserCheck
+  DollarSign, Wallet, X, Percent, UserCheck, FileSpreadsheet, Search, Filter
 } from 'lucide-react';
 import { createEmployeeAdvanceSchema } from '../../../utils/validationSchemas';
 import EmployeeSearchSelect, { EmployeeOption } from '../../../components/EmployeeSearchSelect';
@@ -19,6 +20,8 @@ const EmployeeAdvances = () => {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'deducted'>('all');
 
   const [formData, setFormData] = useState({
     employeeId: '',
@@ -183,6 +186,79 @@ const EmployeeAdvances = () => {
     setFormData(prev => ({ ...prev, amount: amt }));
   };
 
+  // تصفية السلف بناءً على البحث وحالة السلفة
+  const filteredAdvances = useMemo(() => {
+    return advances.filter(adv => {
+      const empName = adv.employees?.full_name?.toLowerCase() || '';
+      const dept = adv.employees?.department?.toLowerCase() || '';
+      const pos = adv.employees?.position?.toLowerCase() || '';
+      const notes = adv.notes?.toLowerCase() || '';
+      const term = searchTerm.toLowerCase().trim();
+
+      const matchesSearch = !term || empName.includes(term) || dept.includes(term) || pos.includes(term) || notes.includes(term);
+      const matchesStatus = statusFilter === 'all' || adv.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+  }, [advances, searchTerm, statusFilter]);
+
+  // تصدير سجل السلف إلى ملف Excel منسق واحترافي
+  const handleExportExcel = () => {
+    if (filteredAdvances.length === 0) {
+      showToast('لا توجد سلف مطابقة للتصدير', 'warning');
+      return;
+    }
+
+    const rows = filteredAdvances.map((adv, idx) => {
+      const emp = adv.employees;
+      const statusLabel = adv.status === 'paid' ? 'تم الصرف (قائمة)' : adv.status === 'deducted' ? 'تم الخصم من الراتب' : adv.status || '-';
+      return {
+        'م': idx + 1,
+        'اسم الموظف': emp?.full_name || 'موظف غير معرف',
+        'القسم / الفرع': emp?.department || '-',
+        'المسمى الوظيفي': emp?.position || '-',
+        'الراتب الأساسي (ج.م)': Number(emp?.basic_salary) || 0,
+        'مبلغ السلفة (ج.م)': Number(adv.amount) || 0,
+        'تاريخ السلفة': adv.request_date || adv.advance_date || adv.created_at?.split('T')[0] || '-',
+        'حالة السلفة': statusLabel,
+        'ملاحظات / البيان': adv.notes || '-'
+      };
+    });
+
+    // إضافة صف الإجمالي في نهاية الشيت
+    const totalAmount = filteredAdvances.reduce((sum, adv) => sum + Number(adv.amount || 0), 0);
+    rows.push({
+      'م': '' as any,
+      'اسم الموظف': 'الإجمالي العام للسلف المحددة',
+      'القسم / الفرع': '',
+      'المسمى الوظيفي': '',
+      'الراتب الأساسي (ج.م)': '' as any,
+      'مبلغ السلفة (ج.م)': totalAmount,
+      'تاريخ السلفة': '',
+      'حالة السلفة': `عدد السلف: ${filteredAdvances.length}`,
+      'ملاحظات / البيان': ''
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+
+    ws['!cols'] = [
+      { wch: 6 },  // م
+      { wch: 25 }, // اسم الموظف
+      { wch: 18 }, // القسم
+      { wch: 18 }, // المسمى الوظيفي
+      { wch: 18 }, // الراتب الأساسي
+      { wch: 18 }, // مبلغ السلفة
+      { wch: 16 }, // تاريخ السلفة
+      { wch: 20 }, // حالة السلفة
+      { wch: 30 }  // ملاحظات
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'سلف الموظفين');
+    XLSX.writeFile(wb, `سجل_سلف_الموظفين_${new Date().toISOString().split('T')[0]}.xlsx`);
+    showToast(`تم تصدير ${filteredAdvances.length} سلفة إلى Excel بنجاح ✅`, 'success');
+  };
+
   const handleOpenModal = () => {
     setFormData({
       employeeId: '',
@@ -308,12 +384,58 @@ const EmployeeAdvances = () => {
             إدارة السلف الشخصية، صرف النقدية، والمتابعة والخصم من الرواتب
           </p>
         </div>
-        <button 
-          onClick={handleOpenModal} 
-          className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 shadow-sm hover:shadow transition-all duration-150"
-        >
-          <Plus size={18} /> تسجيل سلفة جديدة
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button 
+            onClick={handleExportExcel}
+            className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-emerald-700 shadow-sm active:scale-95 transition-all"
+            title="تصدير السلف إلى ملف Excel"
+          >
+            <FileSpreadsheet size={17} />
+            <span>تصدير Excel</span>
+          </button>
+          <button 
+            onClick={handleOpenModal} 
+            className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-blue-700 shadow-sm active:scale-95 transition-all"
+          >
+            <Plus size={18} /> تسجيل سلفة جديدة
+          </button>
+        </div>
+      </div>
+
+      {/* شريط البحث وفلترة الحالة */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">
+        <div className="relative flex-1 w-full">
+          <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            placeholder="البحث باسم الموظف، القسم، الوظيفة، أو الملاحظات..."
+            className="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
+          />
+        </div>
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-600 w-full md:w-auto justify-center">
+            <button
+              onClick={() => setStatusFilter('all')}
+              className={`px-3 py-1.5 rounded-lg transition-all ${statusFilter === 'all' ? 'bg-white text-blue-600 shadow-xs font-black' : 'hover:text-slate-800'}`}
+            >
+              الكل ({advances.length})
+            </button>
+            <button
+              onClick={() => setStatusFilter('paid')}
+              className={`px-3 py-1.5 rounded-lg transition-all ${statusFilter === 'paid' ? 'bg-white text-emerald-600 shadow-xs font-black' : 'hover:text-slate-800'}`}
+            >
+              قائمة ({advances.filter(a => a.status === 'paid').length})
+            </button>
+            <button
+              onClick={() => setStatusFilter('deducted')}
+              className={`px-3 py-1.5 rounded-lg transition-all ${statusFilter === 'deducted' ? 'bg-white text-blue-700 shadow-xs font-black' : 'hover:text-slate-800'}`}
+            >
+              مخصومة ({advances.filter(a => a.status === 'deducted').length})
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* جدول السلف المسجلة */}
@@ -331,7 +453,7 @@ const EmployeeAdvances = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
-              {advances.map(adv => (
+              {filteredAdvances.map(adv => (
                 <tr key={adv.id} className="hover:bg-slate-50/80 transition-colors">
                   <td className="p-4">
                     <div className="font-bold text-slate-800 flex items-center gap-2">
@@ -370,12 +492,12 @@ const EmployeeAdvances = () => {
                   <td className="p-4 text-slate-500 text-xs max-w-xs truncate">{adv.notes || '-'}</td>
                 </tr>
               ))}
-              {advances.length === 0 && !loading && (
+              {filteredAdvances.length === 0 && !loading && (
                 <tr>
                   <td colSpan={6} className="p-12 text-center text-slate-400">
                     <Banknote size={40} className="mx-auto mb-2 text-slate-300" />
-                    <p className="font-bold">لا توجد سلف مسجلة حالياً</p>
-                    <p className="text-xs text-slate-400 mt-1">اضغط على "تسجيل سلفة جديدة" للبدء</p>
+                    <p className="font-bold">لا توجد سلف مطابقة للبحث أو التصفية الحالية</p>
+                    <p className="text-xs text-slate-400 mt-1">جرّب تغيير عبارة البحث أو اختيار حالة سلف مختلفة</p>
                   </td>
                 </tr>
               )}

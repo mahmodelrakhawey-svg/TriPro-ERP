@@ -12,7 +12,7 @@ import * as XLSX from 'xlsx';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
 
 export const CustomerBalanceReconciliation: React.FC = () => {
-  const { accounts, customers, getSystemAccount, settings, currentUser } = useAccounting();
+  const { accounts, customers, getSystemAccount, settings, currentUser, currentSelectedOrgId, organization } = useAccounting();
   const navigate = useNavigate();
   const { showToast } = useToast();
   
@@ -52,7 +52,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
       // ============================================================
       // الجزء الأول: رصيد الأستاذ العام (GL)
       // نأخذ فقط حساب العملاء المحدد (وليس كل الحسابات الفرعية)
@@ -66,10 +66,14 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       let accountIds = customerAccounts.map(a => a.id);
 
       if (accountIds.length === 0) {
-        const { data: dbAccs } = await supabase
+        let accQuery = supabase
           .from('accounts')
           .select('id, code, name')
           .eq('code', customerAccountCode);
+        if (userOrgId) {
+          accQuery = accQuery.eq('organization_id', userOrgId);
+        }
+        const { data: dbAccs } = await accQuery;
         if (dbAccs && dbAccs.length > 0) {
           accountIds = dbAccs.map(a => a.id);
         }
@@ -81,11 +85,17 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         return;
       }
 
-      const { data: glLines, error: glError } = await supabase
+      let glQuery = supabase
         .from('journal_lines')
         .select('id, debit, credit, description, account_id, journal_entries!inner(id, reference, transaction_date, description, status, related_document_id, related_document_type)')
         .in('account_id', accountIds)
         .eq('journal_entries.status', 'posted');
+
+      if (userOrgId) {
+        glQuery = glQuery.eq('journal_entries.organization_id', userOrgId);
+      }
+
+      const { data: glLines, error: glError } = await glQuery;
 
       if (glError) throw glError;
 
@@ -146,19 +156,43 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       // ============================================================
       // الجزء الثاني: رصيد الأستاذ المساعد (Sub-ledger)
       // جلب المديولات المسموحة للمنظمة من جدول organizations
-      const { data: orgData } = await supabase
-        .from('organizations')
-        .select('allowed_modules')
-        .eq('id', userOrgId)
-        .maybeSingle();
+      const { data: orgData } = userOrgId
+        ? await supabase
+            .from('organizations')
+            .select('allowed_modules')
+            .eq('id', userOrgId)
+            .maybeSingle()
+        : { data: null };
       const allowedModules: string[] | undefined = orgData?.allowed_modules || undefined;
 
-      const { data: customersList } = await supabase
+      let custQuery = supabase
         .from('customers')
         .select('id, name, phone, opening_balance')
         .is('deleted_at', null);
 
+      if (userOrgId) {
+        custQuery = custQuery.eq('organization_id', userOrgId);
+      }
+
+      const { data: customersList } = await custQuery;
+
       // جلب المستندات الأساسية + المستندات الموديلية من مجمع الأستاذ المساعد
+      let invQuery = supabase.from('invoices').select('id, customer_id, invoice_number, total_amount, paid_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")');
+      let recQuery = supabase.from('receipt_vouchers').select('id, customer_id, voucher_number, amount, related_journal_entry_id');
+      let retQuery = supabase.from('sales_returns').select('id, customer_id, return_number, total_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")');
+      let cnQuery = supabase.from('credit_notes').select('id, customer_id, credit_note_number, total_amount, related_journal_entry_id').eq('status', 'posted');
+      let chqQuery = supabase.from('cheques').select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id').eq('type', 'incoming');
+      let ordQuery = supabase.from('orders').select('id, customer_id, order_number, related_journal_entry_id').not('status', 'eq', 'CANCELLED');
+
+      if (userOrgId) {
+        invQuery = invQuery.eq('organization_id', userOrgId);
+        recQuery = recQuery.eq('organization_id', userOrgId);
+        retQuery = retQuery.eq('organization_id', userOrgId);
+        cnQuery = cnQuery.eq('organization_id', userOrgId);
+        chqQuery = chqQuery.eq('organization_id', userOrgId);
+        ordQuery = ordQuery.eq('organization_id', userOrgId);
+      }
+
       const [
         invRes,
         recRes,
@@ -168,12 +202,12 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         ordRes,
         modularCustomerDocs
       ] = await Promise.all([
-        supabase.from('invoices').select('id, customer_id, invoice_number, total_amount, paid_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")'),
-        supabase.from('receipt_vouchers').select('id, customer_id, voucher_number, amount, related_journal_entry_id'),
-        supabase.from('sales_returns').select('id, customer_id, return_number, total_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")'),
-        supabase.from('credit_notes').select('id, customer_id, credit_note_number, total_amount, related_journal_entry_id').eq('status', 'posted'),
-        supabase.from('cheques').select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id').eq('type', 'incoming'),
-        supabase.from('orders').select('id, customer_id, order_number, related_journal_entry_id').not('status', 'eq', 'CANCELLED'),
+        invQuery,
+        recQuery,
+        retQuery,
+        cnQuery,
+        chqQuery,
+        ordQuery,
         SubledgerRegistry.fetchCustomerDocs(userOrgId, allowedModules)
       ]);
 
@@ -601,6 +635,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         }
       } else {
         await supabase.from('receipt_vouchers').insert({
+          organization_id: userOrgId,
           voucher_number: entryToFix.ref || `RV-FIX-${Date.now().toString().slice(-6)}`,
           voucher_date: entryToFix.date,
           amount: entryToFix.credit || entryToFix.debit,
@@ -629,6 +664,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       return;
     }
     try {
+      const userOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id;
       const isReceipt = entryToFix.credit > 0;
       const amount    = isReceipt ? entryToFix.credit : entryToFix.debit;
       const jeId      = entryToFix.journal_entries?.id || entryToFix.id;
@@ -646,6 +682,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           showToast('تم ربط الشيك بالعميل بنجاح ومطابقة الأستاذ المساعد ✅', 'success');
         } else {
           const { error } = await supabase.from('receipt_vouchers').insert({
+            organization_id:      userOrgId,
             voucher_number:       entryToFix.ref || `RV-FIX-${Date.now().toString().slice(-6)}`,
             voucher_date:         entryToFix.date,
             amount,
@@ -689,7 +726,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
     XLSX.writeFile(workbook, `Customer_Balances_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  useEffect(() => { fetchReconciliation(); }, [accounts]);
+  useEffect(() => { fetchReconciliation(); }, [accounts, currentSelectedOrgId]);
 
   const difference   = glBalance - subLedgerBalance;
   const isBalanced   = Math.abs(difference) < 1;

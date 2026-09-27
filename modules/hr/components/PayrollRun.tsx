@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -18,7 +19,8 @@ import {
   Info,
   Printer,
   ShieldAlert,
-  Award
+  Award,
+  FileSpreadsheet
 } from 'lucide-react';
 import {
   payrollRunSchema,
@@ -588,6 +590,67 @@ const PayrollRun = () => {
     );
   }, [payrollData]);
 
+  // تصدير كشف مسير الرواتب إلى Excel بدقة متناهية وتنسيق احترافي
+  const handleExportExcel = () => {
+    if (payrollData.length === 0) {
+      showToast('لا توجد بيانات مسير للتصدير، يرجى تجهيز المسير أولاً', 'warning');
+      return;
+    }
+
+    const rows = payrollData.map((item, idx) => ({
+      'م': idx + 1,
+      'اسم الموظف': item.full_name,
+      'الراتب الأساسي (ج.م)': Number(item.gross_salary) || 0,
+      'ساعات الإضافي': Number(item.overtime_hours) || 0,
+      'قيمة الإضافي والمكافآت (ج.م)': Number(item.additions) || 0,
+      'أيام إجازة بدون راتب': Number(item.unpaid_leave_days) || 0,
+      'خصم إجازات بدون راتب (ج.م)': Number(item.unpaid_leave_deduction) || 0,
+      'أيام الغياب': Number(item.absence_days) || 0,
+      'خصومات أخرى وجزاءات (ج.م)': Number(item.other_deductions) || 0,
+      'السلف المخصومة (ج.م)': Number(item.advances_deducted) || 0,
+      'ضريبة كسب العمل (ج.م)': Number(item.payroll_tax) || 0,
+      'صافي الراتب المستحق (ج.م)': Number(item.net_salary) || 0
+    }));
+
+    // إضافة صف الإجمالي
+    rows.push({
+      'م': '' as any,
+      'اسم الموظف': `الإجمالي العام (${payrollData.length} موظف)`,
+      'الراتب الأساسي (ج.م)': totals.gross,
+      'ساعات الإضافي': payrollData.reduce((s, i) => s + (Number(i.overtime_hours) || 0), 0),
+      'قيمة الإضافي والمكافآت (ج.م)': totals.additions,
+      'أيام إجازة بدون راتب': payrollData.reduce((s, i) => s + (Number(i.unpaid_leave_days) || 0), 0),
+      'خصم إجازات بدون راتب (ج.م)': payrollData.reduce((s, i) => s + (Number(i.unpaid_leave_deduction) || 0), 0),
+      'أيام الغياب': payrollData.reduce((s, i) => s + (Number(i.absence_days) || 0), 0),
+      'خصومات أخرى وجزاءات (ج.م)': totals.deductions,
+      'السلف المخصومة (ج.م)': totals.advances,
+      'ضريبة كسب العمل (ج.م)': totals.taxes,
+      'صافي الراتب المستحق (ج.م)': totals.net
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+
+    ws['!cols'] = [
+      { wch: 6 },  // م
+      { wch: 26 }, // اسم الموظف
+      { wch: 18 }, // الراتب الأساسي
+      { wch: 14 }, // ساعات الإضافي
+      { wch: 22 }, // قيمة الإضافي والمكافآت
+      { wch: 18 }, // أيام إجازة بدون راتب
+      { wch: 22 }, // خصم إجازات بدون راتب
+      { wch: 12 }, // أيام الغياب
+      { wch: 22 }, // خصومات أخرى وجزاءات
+      { wch: 18 }, // السلف المخصومة
+      { wch: 18 }, // ضريبة كسب العمل
+      { wch: 22 }  // صافي الراتب المستحق
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `مسير_${selectedMonth}_${selectedYear}`);
+    XLSX.writeFile(wb, `مسير_رواتب_شهر_${selectedMonth}_سنة_${selectedYear}.xlsx`);
+    showToast(`تم تصدير مسير رواتب شهر ${selectedMonth}/${selectedYear} لعدد ${payrollData.length} موظف إلى Excel بنجاح ✅`, 'success');
+  };
+
   if (currentUser?.role === 'demo') {
     return (
       <div className="flex flex-col items-center justify-center h-96 text-slate-500 bg-white rounded-3xl border border-slate-200 shadow-sm">
@@ -721,14 +784,27 @@ const PayrollRun = () => {
             )}
           </div>
 
-          <button
-            onClick={preparePayroll}
-            disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-md shadow-blue-600/20 transition"
-          >
-            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {existingPayroll ? 'إعادة احتساب وتجهيز المسير' : 'تجهيز واحتساب المسير'}
-          </button>
+          <div className="flex items-center gap-2">
+            {payrollData.length > 0 && (
+              <button
+                type="button"
+                onClick={handleExportExcel}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition active:scale-95"
+                title="تصدير مسير الرواتب إلى Excel"
+              >
+                <FileSpreadsheet className="w-4 h-4" />
+                <span>تصدير المسير Excel</span>
+              </button>
+            )}
+            <button
+              onClick={preparePayroll}
+              disabled={loading}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-md shadow-blue-600/20 transition active:scale-95"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+              {existingPayroll ? 'إعادة احتساب وتجهيز المسير' : 'تجهيز واحتساب المسير'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -963,6 +1039,15 @@ const PayrollRun = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition active:scale-95"
+              title="تصدير مسير الرواتب إلى Excel"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>تصدير Excel</span>
+            </button>
             {existingPayroll?.status === 'paid' ? (
               <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 border border-emerald-200 px-5 py-2.5 rounded-xl text-xs font-bold">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />

@@ -2,7 +2,7 @@
  * سجل سندات القبض المطور - يشمل إحصائيات تحصيلات العملاء والمقبوضات العامة وفلاتر ذكية ومعاينة شاملة
  * المسار: modules/finance/reports/ReceiptVoucherList.tsx
  */
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { supabase } from '../../../supabaseClient';
@@ -10,7 +10,8 @@ import {
     Search, Printer, FileText, RotateCcw, AlertTriangle, Trash2, Edit,
     ChevronLeft, ChevronRight, FileSpreadsheet, Loader2, Plus, ArrowDownLeft, 
     Eye, X, Paperclip, Users, Wallet, CircleDollarSign, 
-    Calendar, Filter, XCircle, Landmark, CreditCard, ArrowDownRight, Layers
+    Calendar, Filter, XCircle, Landmark, CreditCard, ArrowDownRight, Layers,
+    ChevronDown
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
@@ -75,10 +76,25 @@ const ReceiptVoucherList = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
-  // Modals State
   const [attachmentModalOpen, setAttachmentModalOpen] = useState(false);
   const [selectedAttachments, setSelectedAttachments] = useState<any[]>([]);
   const [viewingVoucher, setViewingVoucher] = useState<ReceiptVoucher | null>(null);
+
+  // Export State
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close export dropdown menu on click outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Stats State
   const [statsRefreshKey, setStatsRefreshKey] = useState(0);
@@ -453,32 +469,161 @@ const ReceiptVoucherList = () => {
     ? (stats.totalAllReceipts / stats.totalCount).toFixed(0) 
     : '0';
 
-  const handleExportExcel = () => {
-    const exportData = vouchers.map(v => {
-      const isCustomer = Boolean(v.customer_id);
-      const partyName = isCustomer 
-        ? (v.customers?.name || 'عميل غير محدد')
-        : (v.recipient_name || v.notes?.slice(0, 30) || 'مقبوضات عامة');
-      const treasuryName = accounts.find(a => a.id === v.treasury_account_id)?.name || 'الخزينة / الحساب';
-      const costCenterName = costCenters.find(c => c.id === v.cost_center_id)?.name || '-';
+  const fetchAllMatchingVouchers = async (): Promise<ReceiptVoucher[]> => {
+    if (isDemo) {
+      return vouchersFromContext;
+    }
 
-      return {
-        'نوع السند': isCustomer ? 'تحصيل عميل' : 'قبض عام / أخرى',
-        'رقم السند': v.voucher_number || '-',
-        'التاريخ': v.receipt_date,
-        'العميل / المستلم منه': partyName,
-        'حساب الإيداع': treasuryName,
-        'مركز التكلفة': costCenterName,
-        'المبلغ (ج.م)': v.amount,
-        'طريقة الدفع': v.payment_method === 'cash' ? 'نقدي' : v.payment_method === 'cheque' ? 'شيك' : v.payment_method === 'transfer' ? 'تحويل بنكي' : 'أخرى',
-        'البيان': v.notes || '-'
-      };
-    });
+    const { data: { session } } = await supabase.auth.getSession();
+    let userOrgId = organization?.id || session?.user?.user_metadata?.org_id;
 
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "سندات القبض");
-    XLSX.writeFile(wb, `سجل_سندات_القبض_${new Date().toISOString().split('T')[0]}.xlsx`);
+    if (!userOrgId && session?.user?.id) {
+      const { data: profileData } = await supabase
+        .from('profiles')
+        .select('organization_id')
+        .eq('id', session.user.id)
+        .maybeSingle();
+      if (profileData) {
+        userOrgId = profileData.organization_id;
+      }
+    }
+
+    const allData: any[] = [];
+    const chunkSize = 1000;
+    let from = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      let q = supabase
+        .from('receipt_vouchers')
+        .select(
+          showWithAttachmentsOnly
+            ? 'id, voucher_number, receipt_date, amount, notes, payment_method, customer_id, recipient_name, treasury_account_id, cost_center_id, customers(name), receipt_voucher_attachments!inner(id)'
+            : 'id, voucher_number, receipt_date, amount, notes, payment_method, customer_id, recipient_name, treasury_account_id, cost_center_id, customers(name)'
+        )
+        .order('receipt_date', { ascending: false });
+
+      if (userOrgId) {
+        q = q.eq('organization_id', userOrgId);
+      }
+      if (debouncedSearch) {
+        q = q.or(`voucher_number.ilike.%${debouncedSearch}%,notes.ilike.%${debouncedSearch}%`);
+      }
+      if (voucherTypeFilter === 'customer') {
+        q = q.not('customer_id', 'is', null);
+      } else if (voucherTypeFilter === 'other') {
+        q = q.is('customer_id', null);
+      }
+      if (selectedCustomerFilter) {
+        q = q.eq('customer_id', selectedCustomerFilter);
+      }
+      if (paymentMethodFilter && paymentMethodFilter !== 'all') {
+        q = q.eq('payment_method', paymentMethodFilter);
+      }
+      if (startDate) {
+        q = q.gte('receipt_date', startDate);
+      }
+      if (endDate) {
+        q = q.lte('receipt_date', endDate);
+      }
+      if (!startDate && !endDate && selectedFiscalYear) {
+        q = q.gte('receipt_date', `${selectedFiscalYear}-01-01`).lte('receipt_date', `${selectedFiscalYear}-12-31`);
+      }
+
+      q = q.range(from, from + chunkSize - 1);
+
+      const { data, error } = await q;
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        allData.push(...data);
+        if (data.length < chunkSize) {
+          hasMore = false;
+        } else {
+          from += chunkSize;
+        }
+      } else {
+        hasMore = false;
+      }
+    }
+
+    return allData;
+  };
+
+  const handleExportExcel = async (exportMode: 'all' | 'page' = 'all') => {
+    try {
+      setIsExporting(true);
+      setExportMenuOpen(false);
+
+      let dataToExport: any[] = [];
+
+      if (exportMode === 'page') {
+        if (!vouchers || vouchers.length === 0) {
+          showToast('لا توجد بيانات في الصفحة الحالية للتصدير', 'warning');
+          return;
+        }
+        dataToExport = vouchers;
+        showToast(`جاري تصدير بيانات الصفحة الحالية (${dataToExport.length} سند)...`, 'info');
+      } else {
+        showToast('جاري تجهيز وتصدير كافة سندات القبض المطابقة...', 'info');
+        dataToExport = await fetchAllMatchingVouchers();
+        if (!dataToExport || dataToExport.length === 0) {
+          showToast('لا توجد بيانات مطابقة للتصدير', 'warning');
+          return;
+        }
+      }
+
+      const rows = dataToExport.map((v, index) => {
+        const isCustomer = Boolean(v.customer_id);
+        const partyName = isCustomer 
+          ? ((Array.isArray(v.customers) ? v.customers[0]?.name : v.customers?.name) || 'عميل غير محدد')
+          : (v.recipient_name || v.notes?.slice(0, 30) || 'مقبوضات عامة');
+        const treasuryName = accounts.find(a => a.id === v.treasury_account_id)?.name || 'الخزينة / الحساب';
+        const costCenterName = costCenters.find(c => c.id === v.cost_center_id)?.name || '-';
+
+        return {
+          'م': index + 1,
+          'نوع السند': isCustomer ? 'تحصيل عميل' : 'قبض عام / أخرى',
+          'رقم السند': v.voucher_number || '-',
+          'التاريخ': v.receipt_date || '-',
+          'العميل / المستلم منه': partyName,
+          'حساب الإيداع': treasuryName,
+          'مركز التكلفة': costCenterName,
+          'المبلغ (ج.م)': Number(v.amount) || 0,
+          'طريقة الدفع': v.payment_method === 'cash' ? 'نقدي' : (v.payment_method === 'cheque' || v.payment_method === 'check') ? 'شيك' : v.payment_method === 'transfer' ? 'تحويل بنكي' : 'أخرى',
+          'البيان': v.notes || '-'
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+
+      // ضبط أبعاد الأعمدة تلقائياً لتكون القراءة مريحة
+      ws['!cols'] = [
+        { wch: 6 },  // م
+        { wch: 14 }, // نوع السند
+        { wch: 18 }, // رقم السند
+        { wch: 14 }, // التاريخ
+        { wch: 28 }, // العميل / المستلم منه
+        { wch: 22 }, // حساب الإيداع
+        { wch: 18 }, // مركز التكلفة
+        { wch: 16 }, // المبلغ (ج.م)
+        { wch: 14 }, // طريقة الدفع
+        { wch: 35 }  // البيان
+      ];
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "سندات القبض");
+      
+      const fileNameSuffix = exportMode === 'page' ? `صفحة_${page}` : 'كافة_السجلات';
+      XLSX.writeFile(wb, `سجل_سندات_القبض_${fileNameSuffix}_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+      showToast(`تم تصدير ${rows.length} سند قبض إلى إكسيل بنجاح ✅`, 'success');
+    } catch (err: any) {
+      console.error('فشل تصدير الإكسيل:', err);
+      showToast('حدث خطأ أثناء تصدير ملف الإكسيل: ' + (err.message || 'خطأ غير معروف'), 'error');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handlePreviewAttachment = (attachment: any) => {
@@ -574,14 +719,74 @@ const ReceiptVoucherList = () => {
               <RotateCcw size={16} />
               <span className="hidden sm:inline">تحديث</span>
             </button>
-            <button 
-              onClick={handleExportExcel} 
-              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-teal-600 text-white rounded-xl font-bold text-sm hover:bg-teal-700 transition-all shadow-md shadow-teal-600/20 active:scale-95"
-              title="تصدير جدول البيانات إلى Excel"
-            >
-              <FileSpreadsheet size={16} />
-              <span>تصدير Excel</span>
-            </button>
+            {/* Split Export Button */}
+            <div className="relative inline-flex items-stretch shadow-md shadow-teal-600/20 rounded-xl" ref={exportMenuRef}>
+              <button 
+                onClick={() => handleExportExcel('all')} 
+                disabled={isExporting}
+                className="flex items-center gap-1.5 px-3.5 py-2.5 bg-teal-600 text-white rounded-r-xl font-bold text-sm hover:bg-teal-700 transition-all active:scale-95 disabled:opacity-60"
+                title="تصدير كافة السجلات المطابقة إلى Excel"
+              >
+                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <FileSpreadsheet size={16} />}
+                <span>{isExporting ? 'جاري التصدير...' : 'تصدير Excel (الكل)'}</span>
+              </button>
+              
+              <button
+                type="button"
+                onClick={() => setExportMenuOpen(prev => !prev)}
+                disabled={isExporting}
+                className="px-2.5 py-2.5 bg-teal-700 text-white rounded-l-xl font-bold hover:bg-teal-800 border-r border-teal-500/50 transition-all active:scale-95 disabled:opacity-60 flex items-center justify-center"
+                title="خيارات إضافية لتصدير Excel"
+              >
+                <ChevronDown size={14} className={`transition-transform duration-200 ${exportMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {exportMenuOpen && (
+                <div className="absolute left-0 top-full mt-2 w-72 bg-white rounded-2xl shadow-2xl border border-slate-200 py-2 z-40 animate-in fade-in zoom-in-95">
+                  <div className="px-4 py-2 border-b border-slate-100 text-[11px] font-black text-slate-400 uppercase tracking-wider">
+                    خيارات تصدير Excel
+                  </div>
+                  
+                  <button
+                    type="button"
+                    onClick={() => handleExportExcel('all')}
+                    className="w-full text-right px-4 py-3 hover:bg-teal-50/80 text-slate-700 hover:text-teal-700 font-bold text-xs flex items-center justify-between transition-colors group"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-1.5 rounded-lg bg-teal-100 text-teal-700 group-hover:bg-teal-600 group-hover:text-white transition-colors">
+                        <FileSpreadsheet size={15} />
+                      </div>
+                      <div>
+                        <div className="font-black text-slate-800 group-hover:text-teal-800">تصدير كافة السجلات</div>
+                        <div className="text-[10px] text-slate-400 font-normal">جميع السجلات المطابقة للفلاتر والبحث</div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] bg-teal-100 text-teal-800 px-2.5 py-0.5 rounded-full font-black">
+                      {isDemo ? vouchersFromContext.length : totalCount}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => handleExportExcel('page')}
+                    className="w-full text-right px-4 py-3 hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center justify-between transition-colors group border-t border-slate-100"
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-1.5 rounded-lg bg-slate-100 text-slate-600 group-hover:bg-slate-700 group-hover:text-white transition-colors">
+                        <FileText size={15} />
+                      </div>
+                      <div>
+                        <div className="font-black text-slate-800">تصدير الصفحة الحالية فقط</div>
+                        <div className="text-[10px] text-slate-400 font-normal">صفحة {page} ({vouchers.length} سطر)</div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] bg-slate-100 text-slate-600 px-2.5 py-0.5 rounded-full font-black">
+                      {vouchers.length}
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

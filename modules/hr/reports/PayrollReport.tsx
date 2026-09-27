@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
-import { FileText, Printer, Search, Loader2, Receipt } from 'lucide-react';
+import { FileText, Printer, Search, Loader2, Receipt, FileSpreadsheet } from 'lucide-react';
 import { PayslipModal, PayslipData } from '../components/PayslipModal';
 
 const PayrollReport = () => {
@@ -115,6 +116,62 @@ const PayrollReport = () => {
     });
   };
 
+  // تصدير كشف الرواتب إلى Excel
+  const handleExportExcel = () => {
+    if (!payrollData || payrollData.length === 0) {
+      showToast('لا توجد بيانات رواتب للتصدير في هذا الشهر', 'warning');
+      return;
+    }
+
+    const rows = payrollData.map((item, idx) => ({
+      'م': idx + 1,
+      'اسم الموظف': item.employees?.full_name || 'موظف',
+      'القسم / الفرع': item.employees?.department || '-',
+      'المسمى الوظيفي': item.employees?.position || '-',
+      'الراتب الأساسي (ج.م)': Number(item.gross_salary) || 0,
+      'الإضافي والبدلات (ج.م)': Number(item.additions) || 0,
+      'السلف المخصومة (ج.م)': Number(item.advances_deducted) || 0,
+      'ضريبة كسب العمل (ج.م)': Number(item.payroll_tax) || 0,
+      'استقطاعات أخرى (ج.م)': Number(item.other_deductions) || 0,
+      'صافي الراتب المستحق (ج.م)': Number(item.net_salary) || 0
+    }));
+
+    if (payrollSummary) {
+      rows.push({
+        'م': '' as any,
+        'اسم الموظف': `الإجمالي العام (${payrollData.length} موظف)`,
+        'القسم / الفرع': '',
+        'المسمى الوظيفي': '',
+        'الراتب الأساسي (ج.م)': payrollSummary.total_gross_salary,
+        'الإضافي والبدلات (ج.م)': payrollSummary.total_additions,
+        'السلف المخصومة (ج.م)': payrollData.reduce((s, i) => s + Number(i.advances_deducted || 0), 0),
+        'ضريبة كسب العمل (ج.م)': payrollSummary.total_payroll_tax,
+        'استقطاعات أخرى (ج.م)': payrollData.reduce((s, i) => s + Number(i.other_deductions || 0), 0),
+        'صافي الراتب المستحق (ج.م)': payrollSummary.total_net_salary
+      });
+    }
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+
+    ws['!cols'] = [
+      { wch: 6 },  // م
+      { wch: 25 }, // اسم الموظف
+      { wch: 18 }, // القسم
+      { wch: 18 }, // المسمى الوظيفي
+      { wch: 18 }, // الراتب الأساسي
+      { wch: 20 }, // الإضافي والبدلات
+      { wch: 18 }, // السلف المخصومة
+      { wch: 18 }, // ضريبة كسب العمل
+      { wch: 18 }, // استقطاعات أخرى
+      { wch: 22 }  // صافي الراتب المستحق
+    ];
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `كشف_رواتب_${selectedMonth}_${selectedYear}`);
+    XLSX.writeFile(wb, `كشف_رواتب_شهر_${selectedMonth}_سنة_${selectedYear}.xlsx`);
+    showToast(`تم تصدير كشف رواتب شهر ${selectedMonth}/${selectedYear} إلى Excel بنجاح ✅`, 'success');
+  };
+
   // حماية الصفحة من مستخدم الديمو
   if (currentUser?.role === 'demo') {
       return (
@@ -143,9 +200,19 @@ const PayrollReport = () => {
             </span>
           )}
         </div>
-        <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-700">
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={handleExportExcel} 
+            disabled={loading || payrollData.length === 0}
+            className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-700 disabled:opacity-50 transition shadow-sm font-bold text-sm"
+            title="تصدير كشف الرواتب إلى Excel"
+          >
+            <FileSpreadsheet size={18} /> تصدير Excel
+          </button>
+          <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-700 font-bold text-sm">
             <Printer size={18} /> طباعة الكشف
-        </button>
+          </button>
+        </div>
       </div>
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-end gap-4 print:hidden">
