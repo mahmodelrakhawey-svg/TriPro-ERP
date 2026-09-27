@@ -16,6 +16,8 @@ import {
   createServiceClient,
   createCleanupTracker,
   testId,
+  SUPABASE_URL,
+  ANON_KEY,
   ADMIN_EMAIL,
   ADMIN_PASSWORD
 } from './helpers/supabaseIntegrationClient';
@@ -63,8 +65,7 @@ describe('🔒 [Integration] Multi-Tenancy & RLS Isolation — قاعدة بيا
   // TEST 1: المستخدم غير المصادق عليه لا يرى أي بيانات
   // ─────────────────────────────────────────────────────
   runIf('1. مستخدم غير مُصادَق لا يستطيع قراءة جدول products (RLS يحجب)', async () => {
-    const { INT_SUPABASE_URL, ANON_KEY } = await import('./helpers/supabaseIntegrationClient');
-    const anonClient = createClient(INT_SUPABASE_URL!, ANON_KEY!, {
+    const anonClient = createClient(SUPABASE_URL!, ANON_KEY!, {
       auth: { persistSession: false, autoRefreshToken: false }
     });
 
