@@ -38,3 +38,7 @@ playwright-report/
 # Scratch
 scratch/
 .vercel
+
+# Integration test secrets
+.env.integration
+
