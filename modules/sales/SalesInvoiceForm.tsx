@@ -1423,8 +1423,9 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         if (convertedQuotationId) {
             try {
                 await supabase.from('quotations').update({ status: 'converted' }).eq('id', convertedQuotationId);
-            } catch (qErr) {
+            } catch (qErr: any) {
                 console.error("Error updating quotation status:", qErr);
+                showToast('تم حفظ الفاتورة ولكن تعذر تحديث حالة عرض السعر: ' + (qErr?.message || ''), 'warning');
             }
         }
 
@@ -1641,8 +1642,9 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         if (convertedQuotationId) {
             try {
                 await supabase.from('quotations').update({ status: 'posted' }).eq('id', convertedQuotationId);
-            } catch (qErr) {
+            } catch (qErr: any) {
                 console.error("Error updating quotation status:", qErr);
+                showToast('تم ترحيل الفاتورة ولكن تعذر تحديث حالة عرض السعر: ' + (qErr?.message || ''), 'warning');
             }
         }
 

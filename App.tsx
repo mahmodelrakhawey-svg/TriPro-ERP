@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { Landmark, X, Info } from 'lucide-react';
 import { ToastProvider } from './context/ToastContext';
+import { notifyUserError } from './utils/errorHandler';
 import NotificationScheduler from './services/NotificationScheduler';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -771,6 +772,41 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 const AppContent = () => {
   const [session, setSession] = useState<any>(null);
   const { isLoading: authLoading, currentUser, authInitialized } = useAuth();
+
+  // 🛡️ صمام أمان عام: التقاط أي أخطاء غير معالجة أو وعود متوقفة في الواجهة وعرضها كإشعار فوري للمستخدم
+  useEffect(() => {
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event?.reason;
+      const message = String(reason?.message || reason || '');
+      if (
+        message.includes('ResizeObserver') ||
+        message.includes('AbortError') ||
+        message.includes('canceled')
+      ) {
+        return;
+      }
+      if (import.meta.env.DEV) {
+        console.error('Unhandled Promise Rejection:', reason);
+      }
+      notifyUserError(reason, 'حدث خطأ غير متوقع أثناء معالجة العملية');
+    };
+
+    const handleWindowError = (event: ErrorEvent) => {
+      if (event?.message?.includes('ResizeObserver')) return;
+      if (import.meta.env.DEV) {
+        console.error('Uncaught Window Error:', event.error || event.message);
+      }
+      notifyUserError(event.error || event.message, 'حدث خطأ غير متوقع في واجهة النظام');
+    };
+
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    window.addEventListener('error', handleWindowError);
+
+    return () => {
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      window.removeEventListener('error', handleWindowError);
+    };
+  }, []);
 
   // Check for maintenance mode
   const isMaintenanceMode = import.meta.env.VITE_MAINTENANCE_MODE === 'true';

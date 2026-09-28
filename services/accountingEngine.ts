@@ -11,41 +11,85 @@
 
 import { supabase } from '../supabaseClient';
 
+/**
+ * سطر طرف القيد المحاسبي الفردي (طرف مدين أو دائن)
+ */
 export interface JournalLineItem {
+  /** معرف الحساب المالي في دليل الحسابات (UUID) */
   accountId: string;
+  /** المبلغ المدين بالعملة المحلية (>= 0) */
   debit: number;
+  /** المبلغ الدائن بالعملة المحلية (>= 0) */
   credit: number;
+  /** بيان توضيحي لسطر القيد (اختياري، يرث بيان القيد الرئيسي إذا لم يُحدد) */
   description?: string;
+  /** معرف مركز التكلفة المرتبط بهذا الطرف المحاسبي (اختياري) */
   costCenterId?: string | null;
+  /** رمز العملة في حال التعامل متعدد العملات (مثل: USD, EUR, SAR) */
   currency?: string;
+  /** سعر صرف العملة الأجنبية مقابل العملة المحلية وقت المعاملة */
   exchangeRate?: number;
 }
 
+/**
+ * معلمات إنشاء قيد اليومية في المحرك المحاسبي المركزي
+ */
 export interface CreateJournalEntryParams {
+  /** معرف المنظمة أو الفرع لضمان عزل البيانات (Multi-Tenancy) - إلزامي */
   organizationId: string;
+  /** تاريخ المعاملة بصيغة YYYY-MM-DD (افتراضياً تاريخ اليوم الحالي) */
   transactionDate?: string;
+  /** المرجع الفريد للقيد (مثل: JE-2026-001) - يُنشأ تلقائياً إذا تُرك فارغاً */
   reference?: string;
+  /** الشرح والبيان العام للقيد المحاسبي */
   description: string;
+  /** قائمة أطراف القيد (يجب أن يحتوي على طرفين على الأقل وأن يتساوى مجموع المدين مع الدائن) */
   lines: JournalLineItem[];
+  /** معرف المستند الأصلي المرتبط بالقيد (فاتورة، سند، إهلاك، أجور) إن وجد */
   relatedDocumentId?: string | null;
+  /** نوع المستند الأصلي (مثل: sales_invoice, purchase_invoice, receipt_voucher, payroll) */
   relatedDocumentType?: string | null;
+  /** حالة القيد: 'posted' معتمد ومرحل إلى دفتر الأستاذ، أو 'draft' مسودة غير مرحلة */
   status?: 'posted' | 'draft';
+  /** علم الترحيل التلقائي الفوري */
   autoPost?: boolean;
+  /** معرف مركز التكلفة العام للقيد */
   costCenterId?: string | null;
 }
 
+/**
+ * نتيجة تنفيذ عملية إنشاء أو ترحيل القيد المحاسبي
+ */
 export interface AccountingEngineResult {
+  /** مؤشر نجاح العملية بالكامل */
   success: boolean;
+  /** معرف قيد اليومية المنشأ في جدول journal_entries */
   journalEntryId?: string;
+  /** الرقم المرجعي للقيد */
   reference?: string;
+  /** إجمالي المبلغ المدين للقيد المحسوب */
   totalDebit: number;
+  /** إجمالي المبلغ الدائن للقيد المحسوب */
   totalCredit: number;
+  /** رسالة الخطأ التوضيحية في حال تعذر الترحيل أو عدم التوازن */
   error?: string;
 }
 
+/**
+ * المحرك المحاسبي المركزي الموحد (Unified Accounting Engine)
+ * المسؤول الوحيد عن إنشاء قيود اليومية لجميع المديولات مع فرض قواعد القيد المزدوج:
+ * 1. عزل المنشآت (Multi-Tenant Isolation via organizationId)
+ * 2. توازن القيد الصارم (Debit == Credit مع هامش خطأ مسموح <= 0.005)
+ * 3. منع المبالغ السالبة في أطراف القيد
+ * 4. ترحيل متسق ذري (Atomic Transaction Lifecycle)
+ */
 class UnifiedAccountingEngine {
   /**
    * إنشاء قيد يومية متوازن وموثق بالكامل في دفتر الأستاذ العام
+   *
+   * @param params معلمات القيد المحاسبي
+   * @returns وعد يحتوي على كائن AccountingEngineResult يوضح حالة النجاح والأرقام المرجعية
+   * @throws لا تُرمى استثناءات غير معالجة بل تُعاد النتيجة مع تفاصيل الخطأ في الحقل error
    */
   public async createJournalEntry(params: CreateJournalEntryParams): Promise<AccountingEngineResult> {
     const {
@@ -196,7 +240,23 @@ class UnifiedAccountingEngine {
   // ============================================================================
 
   /**
-   * إنشاء قيد سند قبض (Receipt Voucher): من الخزينة/البنك إلى العميل أو الإيراد
+   * إنشاء وتوثيق قيد سند قبض (Receipt Voucher Entry)
+   * يمثل تحصيل نقدية أو إيداع بنكي من عميل أو إيراد مباشر:
+   * - الطرف المدين: حساب الخزينة أو البنك (زيادة أصول نقدية)
+   * - الطرف الدائن: حساب العميل المدين (نقص مديونية) أو حساب الإيراد المباشر
+   *
+   * @param params معلمات سند القبض
+   * @param params.organizationId معرف المنظمة لعزل البيانات
+   * @param params.voucherId معرف سند القبض الأصلي
+   * @param params.voucherNumber رقم سند القبض (مثل: RV-1001)
+   * @param params.amount المبلغ المحصل بالعملة المحلية
+   * @param params.treasuryAccountId حساب الخزينة أو البنك المستلم
+   * @param params.customerAccountId حساب العميل في حال سداد مديونية (اختياري)
+   * @param params.revenueAccountId حساب الإيراد في حال التحصيل المباشر بدون عميل (اختياري)
+   * @param params.customerName اسم العميل للبيان المحاسبي
+   * @param params.date تاريخ السند
+   * @param params.notes ملاحظات وبيان السند
+   * @returns وعد بنتيجة القيد المحاسبي المنشأ
    */
   public async createReceiptVoucherEntry(params: {
     organizationId: string;
@@ -245,7 +305,21 @@ class UnifiedAccountingEngine {
   }
 
   /**
-   * إنشاء قيد استلام شيك وارد (Incoming Cheque): من أوراق القبض (1222) إلى العميل أو الإيراد
+   * إنشاء وتوثيق قيد استلام شيك وارد (Incoming Cheque Entry)
+   * يسجل الشيك في حساب أوراق القبض (1222) حتى موعد تحصيله الفعلي:
+   * - الطرف المدين: أوراق قبض (1222)
+   * - الطرف الدائن: حساب العميل أو الإيراد
+   *
+   * @param params معلمات استلام الشيك
+   * @param params.organizationId معرف المنظمة لعزل الحسابات
+   * @param params.chequeId معرف سجل الشيك الأصلي
+   * @param params.chequeNumber رقم الشيك الورقي أو المصرفي
+   * @param params.amount قيمة الشيك المالية
+   * @param params.notesReceivableAccountId معرف حساب أوراق القبض (الافتراضي 1222)
+   * @param params.creditAccountId معرف حساب العميل أو الإيراد المستحق
+   * @param params.partyName اسم الساحب أو العميل
+   * @param params.date تاريخ استحقاق أو تحرير الشيك
+   * @returns وعد بنتيجة القيد المحاسبي المولد
    */
   public async createIncomingChequeEntry(params: {
     organizationId: string;
@@ -286,7 +360,13 @@ class UnifiedAccountingEngine {
 }
 
 /**
- * دالة التحقق من توازن القيد المحاسبي (Double Entry Validation)
+ * دالة التحقق الرياضي المسبق من توازن القيد المحاسبي (Double Entry Validation)
+ * تفحص سلامة أطراف القيد وتساوي مجموع المدين مع الدائن قبل الإرسال لقاعدة البيانات:
+ * - ترفض القيود التي تحتوي على أقل من طرفين
+ * - تقارن الفرق المطلق بمستوى سماحية رقمي EPSILON = 0.0001
+ *
+ * @param entry كائن القيد المحتوي على مصفوفة lines
+ * @returns كائن يوضح هل القيد صالح { isValid: true } أو نص الخطأ { isValid: false, error }
  */
 export function validateJournalEntry(entry: { lines?: Array<{ debit?: number; credit?: number }> }): { isValid: boolean; error?: string } {
   if (!entry.lines || entry.lines.length < 2) {

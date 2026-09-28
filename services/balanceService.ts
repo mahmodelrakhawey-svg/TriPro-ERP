@@ -42,7 +42,12 @@ export interface AgingLedgerRow {
 
 /**
  * أداة استعلام تجلب جميع السجلات دفعة واحدة بأمان متجاوزة سقف الـ 1000 الافتراضي في Supabase
+ * تقوم بتنفيذ الاستعلام على شكل أجزاء متتابعة (Chunks) بحجم 1000 سجل لكل استدعاء.
  * (تُستخدم كاحتياطي أمان Fallback في حال تعذر تشغيل RPC السيرفر)
+ *
+ * @template T نوع البيانات المرتجعة لكل صف
+ * @param buildQuery دالة منشئ الاستعلام تستلم مدى الصفوف (from, to)
+ * @returns وعد بمصفوفة كاملة تحتوي على كافة السجلات المجمعة
  */
 export async function fetchCompleteDataset<T = any>(
   buildQuery: (from: number, to: number) => Promise<{ data: T[] | null; error: any }>
@@ -67,9 +72,13 @@ export async function fetchCompleteDataset<T = any>(
 }
 
 /**
- * جلب أرصدة الموردين بالكامل (Map: supplierId -> balance)
- * الأولوية 1: استدعاء دالة قاعدة البيانات السريعة get_all_supplier_balances_fast (زمن استجابة < 20ms)
- * الأولوية 2: تجميع المتصفح كاحتياطي أمان (Fallback)
+ * جلب أرصدة الموردين بالكامل لمنشأة محددة (خريطة: معرف المورد -> الرصيد القائم)
+ * آلية العمل الهجينة:
+ * 1. الأولوية الأولى: استدعاء دالة قاعدة البيانات السريعة `get_all_supplier_balances_fast` (زمن استجابة < 20ms)
+ * 2. الأولوية الثانية (الاحتياطي Fallback): تجميع حركات الفواتير، السندات، الشيكات، المرتجعات، وقيود اليومية محلياً.
+ *
+ * @param orgId معرف المنظمة أو المؤسسة لعزل الحسابات (Multi-Tenancy)
+ * @returns وعد بخريطة Map مفتاحها supplierId وقيمتها الرصيد المالي الحالي
  */
 export async function fetchAllSupplierBalances(orgId: string): Promise<Map<string, number>> {
   const balances = new Map<string, number>();

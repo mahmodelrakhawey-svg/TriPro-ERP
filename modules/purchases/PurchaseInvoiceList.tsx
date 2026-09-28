@@ -248,7 +248,8 @@ export const PurchaseInvoiceList = () => {
       await approvePurchaseInvoice(id);
       fetchInvoices();
     } catch (err: any) {
-      console.error(err);
+      console.error('Error approving purchase invoice:', err);
+      showToast('فشل ترحيل فاتورة المشتريات: ' + (err?.message || 'حدث خطأ أثناء الترحيل'), 'error');
     }
   };
 

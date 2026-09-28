@@ -1,24 +1,41 @@
 /**
- * TriPro ERP — GS1 Barcode & DataMatrix Parser
- * محلل أكواد GS1 ومصفوفة البيانات ثنائية الأبعاد (2D DataMatrix) الخاصة بالصيدليات والمستلزمات الطبية
- * يدعم معايير GS1 الدولية وهيئات الدواء (EDA / SFDA / FDA)
+ * البيانات المستخرجة من تحليل باركود GS1 أو كود Matrix ثنائي الأبعاد
  */
-
 export interface ParsedGS1Data {
+  /** هل تم التعرف على الكود كمعيار GS1 صحيح */
   isGS1: boolean;
-  gtin?: string;               // GTIN المكون من 14 رقماً
-  candidateCodes: string[];    // قائمة الأكواد المحتملة للمطابقة (GTIN-14, GTIN-13/EAN-13 بدون الصفر الرائد، إلخ)
-  expiryDate?: string;         // تاريخ الصلاحية بصيغة YYYY-MM-DD
-  expiryDateRaw?: string;      // تاريخ الصلاحية الأصلي YYMMDD
-  batchNumber?: string;        // رقم التشغيلة / الوجبة (Batch / Lot)
-  serialNumber?: string;       // الرقم التسلسلي للعبوة (Serial Number)
-  productionDate?: string;     // تاريخ الإنتاج YYYY-MM-DD (AI 11)
+  /** كود التعريف التجاري العالمي المكون من 14 رقماً (AI 01) */
+  gtin?: string;
+  /** قائمة الأكواد المرشحة للمطابقة مع دليل الأصناف (GTIN-14, GTIN-13/EAN-13 بدون الصفر الأولي، إلخ) */
+  candidateCodes: string[];
+  /** تاريخ انتهاء الصلاحية المحول بصيغة YYYY-MM-DD */
+  expiryDate?: string;
+  /** تاريخ انتهاء الصلاحية الخام بصيغة YYMMDD كما ورد في الماسح */
+  expiryDateRaw?: string;
+  /** رقم التشغيلة أو الوجبة الدوائية/الإنتاجية (Batch / Lot Number - AI 10) */
+  batchNumber?: string;
+  /** الرقم التسلسلي الفريد للوحدة (Serial Number - AI 21) */
+  serialNumber?: string;
+  /** تاريخ الإنتاج المحول بصيغة YYYY-MM-DD (AI 11) */
+  productionDate?: string;
+  /** النص المدخل الأصلي كما تم قراءته من الماسح الضوئي */
   rawInput: string;
 }
 
 /**
- * تحويل تاريخ GS1 المكون من 6 أرقام (YYMMDD) إلى صيغة YYYY-MM-DD
- * معالجة حالة اليوم 00 (حسب معيار GS1: يعني آخر يوم في ذلك الشهر)
+ * تحويل تاريخ GS1 المكون من 6 أرقام (YYMMDD) إلى صيغة التقويم القياسية YYYY-MM-DD
+ * يراعي معيار GS1 الدولي:
+ * - الأرقام 00 لليوم تعني افتراضياً اليوم الأخير من ذلك الشهر (Last Day of Month)
+ * - القرن الافتراضي هو القرن الحادي والعشرون (2000 - 2099)
+ *
+ * @param yymmdd السلسلة الرقمية المكونة من 6 أرقام
+ * @returns التاريخ المحول بصيغة YYYY-MM-DD أو undefined إذا كان التنسيق غير صالح
+ *
+ * @example
+ * ```ts
+ * formatGS1Date('261231'); // '2026-12-31'
+ * formatGS1Date('260200'); // '2026-02-28' (اليوم الأخير لشهر فبراير)
+ * ```
  */
 export function formatGS1Date(yymmdd: string): string | undefined {
   if (!yymmdd || yymmdd.length !== 6 || !/^\d{6}$/.test(yymmdd)) {
@@ -46,8 +63,14 @@ export function formatGS1Date(yymmdd: string): string | undefined {
 }
 
 /**
- * إزالة بادئات ماسح الباركود المعيارية (AIM Symbology Identifiers)
- * مثل: ]d2 (GS1 DataMatrix), ]C1 (GS1-128), ]e0 (GS1 DataBar), etc.
+ * إزالة بادئات ماسحات الباركود القياسية (AIM Symbology Identifiers)
+ * مثل:
+ * - `]d2` لكود GS1 DataMatrix المستخدم في الأدوية
+ * - `]C1` لكود GS1-128
+ * - `]e0` لكود GS1 DataBar
+ *
+ * @param raw النص المقروء من الماسح الضوئي
+ * @returns النص بعد تجريده من بادئة AIM
  */
 export function stripAimPrefix(raw: string): string {
   let cleaned = raw.trim();
@@ -60,7 +83,13 @@ export function stripAimPrefix(raw: string): string {
 }
 
 /**
- * تحليل باركود GS1 سواء بتنسيق الأقواس (01)...(17)... أو التنسيق الخام بفاصل الفئات (GS / FNC1 = ASCII 29 / \x1d)
+ * تحليل وتفكيك شفرات باركود ومصفوفات GS1 (GS1-128 & GS1 DataMatrix)
+ * يدعم كلا التنسيقين:
+ * 1. تنسيق الأقواس البشري: `(01)06221001000018(17)261231(10)LOT123`
+ * 2. التنسيق الخام لماسحات 2D Barcode المحتوي على فواصل المجموعة ASCII 29 / FNC1 (`\x1d`)
+ *
+ * @param input النص المدخل من الماسح أو المستخدم
+ * @returns كائن ParsedGS1Data المحتوي على الـ GTIN والتشغيلة وتاريخ الصلاحية وقائمة الأكواد المرشحة
  */
 export function parseGS1Barcode(input: string): ParsedGS1Data {
   const result: ParsedGS1Data = {

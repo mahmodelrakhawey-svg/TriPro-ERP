@@ -9,48 +9,7 @@ import { describe, it, expect } from 'vitest';
  * في القيود المزدوجة، التسويات الضريبية، عجز وزيادة الورديات، وتكرار المزامنة.
  */
 
-interface JournalLine {
-  accountId: string;
-  accountCode: string;
-  accountName: string;
-  debit: number;
-  credit: number;
-  currency?: string;
-  exchangeRate?: number;
-  amountForeign?: number;
-}
-
-interface JournalEntry {
-  reference: string;
-  date: string;
-  lines: JournalLine[];
-}
-
-function validateEntryBalance(entry: JournalEntry): {
-  isBalanced: boolean;
-  totalDebit: number;
-  totalCredit: number;
-  difference: number;
-} {
-  let totalDebit = 0;
-  let totalCredit = 0;
-
-  for (const line of entry.lines) {
-    totalDebit += Number(line.debit || 0);
-    totalCredit += Number(line.credit || 0);
-  }
-
-  totalDebit = Math.round(totalDebit * 100) / 100;
-  totalCredit = Math.round(totalCredit * 100) / 100;
-  const difference = Math.round(Math.abs(totalDebit - totalCredit) * 100) / 100;
-
-  return {
-    isBalanced: difference < 0.001,
-    totalDebit,
-    totalCredit,
-    difference
-  };
-}
+import { validateEntryBalance, FinancialJournalLine as JournalLine, FinancialJournalEntry as JournalEntry } from '../../utils/financialSafety';
 
 describe('💰 Enterprise Financial Safety Net & Ledger Invariants', () => {
 

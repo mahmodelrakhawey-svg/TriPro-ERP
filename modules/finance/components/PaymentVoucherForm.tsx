@@ -81,8 +81,9 @@ const PaymentVoucherForm = () => {
         } else {
           setUnpaidInvoices([]);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error('Error fetching unpaid invoices:', err);
+        showToast('تعذر جلب فواتير المورد غير المسددة: ' + (err?.message || ''), 'warning');
       } finally {
         setLoadingInvoices(false);
       }
@@ -586,8 +587,9 @@ const PaymentVoucherForm = () => {
                         .update({ paid_amount: newPaid, status: newStatus })
                         .eq('id', selectedInvoiceId);
                 }
-            } catch (invErr) {
+            } catch (invErr: any) {
                 console.error('Failed to update purchase invoice status:', invErr);
+                showToast('تم حفظ السند ولكن تعذر تحديث حالة سداد فاتورة المشتريات: ' + (invErr?.message || ''), 'warning');
             }
         }
 

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * ==============================================================================
  * TriPro ERP — Unified Stock Movement Service
  * services/stockMovementService.ts
@@ -11,44 +11,84 @@
 
 import { supabase } from '../supabaseClient';
 
+/**
+ * حركة مخزنية فردية موحدة من أي موديول في النظام
+ */
 export interface UnifiedStockMovement {
+  /** معرف الحركة الفريد */
   id: string;
+  /** تاريخ الحركة الفعلي بصيغة YYYY-MM-DD */
   date: string;
+  /** اتجاه الحركة: 'IN' وارد للمخزن، 'OUT' منصرف من المخزن */
   type: 'IN' | 'OUT';
+  /** الكمية المتحركة بوحدة القياس المحددة */
   quantity: number;
+  /** معرف وحدة القياس (UOM) */
   uomId?: string | null;
+  /** نوع المستند المنشئ للحركة (فاتورة مبيعات، أمر تصنيع، إذن صرف، إتلاف) */
   documentType: string;
+  /** رقم المستند المرجعي */
   documentNumber: string;
+  /** معرف المستودع الذي تمت فيه الحركة */
   warehouseId?: string | null;
+  /** اسم المستودع */
   warehouseName?: string;
+  /** توقيت إنشاء السجل في النظام */
   createdAt?: string;
+  /** ملاحظات وبيان الحركة */
   notes?: string;
+  /** سعر البيع للوحدة في حال المبيعات */
   unitPrice?: number;
+  /** تكلفة الشراء أو الإنتاج للوحدة */
   unitCost?: number;
+  /** اسم الصنف */
   productName?: string;
+  /** معرف الصنف */
   productId?: string;
 }
 
+/**
+ * معلمات استعلام وتصفية حركات الصنف
+ */
 export interface FetchStockMovementsParams {
+  /** معرف الصنف المراد جلب بطاقته وحركاته */
   productId: string;
+  /** معرف المنظمة لضمان العزل التام للمخازن */
   organizationId: string;
+  /** فلتر المستودع المحدد (اختياري، إن تم إغفاله تُجلب حركات كافة المستودعات) */
   warehouseId?: string | null;
+  /** تاريخ بداية الفترة المطلوبة بصيغة YYYY-MM-DD */
   startDate?: string;
+  /** تاريخ نهاية الفترة المطلوبة بصيغة YYYY-MM-DD */
   endDate?: string;
 }
 
+/**
+ * النتيجة المجمعة لبطاقة حركة المخزون
+ */
 export interface StockMovementsResult {
+  /** الرصيد الافتتاحي في بداية الفترة المحددة */
   openingBalance: number;
+  /** قائمة الحركات التفصيلية مرتبة زمنياً */
   movements: UnifiedStockMovement[];
+  /** إجمالي الكميات الواردة خلال الفترة */
   totalIn: number;
+  /** إجمالي الكميات الصادرة خلال الفترة */
   totalOut: number;
+  /** صافي الحركة (الوارد - الصادر) */
   netMovement: number;
+  /** الرصيد الختامي في نهاية الفترة (الافتتاحي + الصافي) */
   closingBalance: number;
 }
 
 export class StockMovementService {
   /**
-   * جلب الرصيد الافتتاحي لصنف محدد (والمستودع إذا تم تحديده)
+   * جلب الرصيد الافتتاحي لصنف محدد (ولمستودع معين إذا تم تحديده)
+   *
+   * @param productId معرف الصنف
+   * @param organizationId معرف المنشأة
+   * @param warehouseId معرف المستودع (اختياري)
+   * @returns وعد بالكمية الافتتاحية المسجلة
    */
   public static async fetchOpeningBalance(
     productId: string,
@@ -80,7 +120,16 @@ export class StockMovementService {
   }
 
   /**
-   * جلب كافة حركات الصنف الموحدة عبر جميع المديولات (مبيعات، مشتريات، تصنيع، مطاعم، مشاريع، الخ)
+   * جلب وتوحيد كافة حركات الصنف المخزنية عبر جميع أقسام النظام:
+   * 1. المبيعات ومرتجعات المبيعات (Sales & Sales Returns)
+   * 2. المشتريات ومرتجع المشتريات (Purchases & Purchase Returns)
+   * 3. أوامر التصنيع والإنتاج (Manufacturing Work Orders)
+   * 4. مبيعات المطاعم ونقاط البيع السريعة (Restaurant POS)
+   * 5. التحويلات بين المستودعات (Inter-Warehouse Transfers)
+   * 6. التسويات الجردية والعجز والإتلاف (Adjustments & Wastage)
+   *
+   * @param params معلمات التصفية والفترة والمستودع
+   * @returns وعد بنتيجة حركات المخزون والرصيد الافتتاحي والختامي المتطابق
    */
   public static async fetchProductMovements(
     params: FetchStockMovementsParams

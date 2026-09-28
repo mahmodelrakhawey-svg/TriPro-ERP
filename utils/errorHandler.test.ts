@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AppError, handleError, handleSupabaseError, validateAmount, validateDate, validateRequired } from './errorHandler';
+import { AppError, handleError, handleSupabaseError, notifyUserError, validateAmount, validateDate, validateRequired } from './errorHandler';
+import { registerGlobalToastListener } from '../context/ToastContext';
 
 describe('Error Handler Utils', () => {
   describe('AppError Class', () => {
@@ -49,6 +50,52 @@ describe('Error Handler Utils', () => {
     it('should handle foreign key constraint errors', () => {
       const error = { message: 'violates foreign key constraint' };
       expect(handleSupabaseError(error, 'delete')).toContain('لا يمكن حذف هذا السجل لأنه مرتبط ببيانات أخرى');
+    });
+    it('should handle RLS permission errors', () => {
+      const error = { code: '42501', message: 'row-level security policy violation' };
+      expect(handleSupabaseError(error, 'تعديل السعر')).toContain('ليس لديك الصلاحيات الكافية');
+    });
+
+    it('should handle network disconnection errors', () => {
+      const error = { message: 'Failed to fetch' };
+      expect(handleSupabaseError(error, 'المزامنة')).toContain('تعذر الاتصال بالخادم');
+    });
+  });
+
+  describe('Toast Notification Integration & notifyUserError', () => {
+    it('handleError should automatically notify user via toastNotify if no custom showNotification is provided', () => {
+      let dispatchedMessage = '';
+      let dispatchedType = '';
+
+      registerGlobalToastListener((msg, type) => {
+        dispatchedMessage = msg;
+        dispatchedType = type;
+      });
+
+      handleError('خطأ تجريبي عام', { logToConsole: false });
+
+      expect(dispatchedMessage).toBe('خطأ تجريبي عام');
+      expect(dispatchedType).toBe('error');
+
+      registerGlobalToastListener(null);
+    });
+
+    it('notifyUserError should format error message and dispatch to user toast', () => {
+      let dispatchedMessage = '';
+      let dispatchedType = '';
+
+      registerGlobalToastListener((msg, type) => {
+        dispatchedMessage = msg;
+        dispatchedType = type;
+      });
+
+      const err = new Error('duplicate key value violates unique constraint');
+      notifyUserError(err, 'حفظ الفاتورة');
+
+      expect(dispatchedMessage).toContain('هذا السجل موجود بالفعل في حفظ الفاتورة');
+      expect(dispatchedType).toBe('error');
+
+      registerGlobalToastListener(null);
     });
   });
 

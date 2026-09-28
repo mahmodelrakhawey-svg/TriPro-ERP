@@ -1290,7 +1290,10 @@ const ProductManager = () => {
                         cost: Number(formData.purchase_price) || 0,
                         organization_id: orgId
                     });
-                    if (opInvErr) console.error("Error creating opening inventory record:", opInvErr);
+                    if (opInvErr) {
+                        console.error("Error creating opening inventory record:", opInvErr);
+                        showToast('تعذر تسجيل سجل الرصيد الافتتاحي للصنف في المستودع: ' + opInvErr.message, 'warning');
+                    }
                 }
 
                 // إنشاء القيد المحاسبي
@@ -1433,7 +1436,10 @@ const ProductManager = () => {
                     cost: Number(formData.purchase_price) || 0,
                     organization_id: orgId
                 });
-                if (opInvErr) console.error("Error creating opening inventory record:", opInvErr);
+                if (opInvErr) {
+                    console.error("Error creating opening inventory record:", opInvErr);
+                    showToast('تعذر تسجيل سجل الرصيد الافتتاحي للصنف في المستودع: ' + opInvErr.message, 'warning');
+                }
             }
             
             // إنشاء القيد المحاسبي لضمان ظهوره في دفتر اليومية وميزان المراجعة

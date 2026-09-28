@@ -1294,8 +1294,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }
             entryCreated = true;
           }
-        } catch (directErr) {
+        } catch (directErr: any) {
           console.error('Direct journal entry insert error:', directErr);
+          showToast('تعذر إنشاء القيد المحاسبي المباشر للسند: ' + (directErr?.message || ''), 'warning');
         }
       }
     }
@@ -1317,8 +1318,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             .update({ paid_amount: newPaid, status: newStatus })
             .eq('id', data.invoiceId);
         }
-      } catch (invErr) {
+      } catch (invErr: any) {
         console.error('Failed to update purchase invoice paid_amount:', invErr);
+        showToast('تعذر تحديث المبلغ المسدد في فاتورة المشتريات: ' + (invErr?.message || ''), 'warning');
       }
     }
 
@@ -1695,6 +1697,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await refreshData();
     } catch (error: any) {
       console.error('Error updating transfer:', error);
+      showToast('فشل تعديل التحويل المالي: ' + (error?.message || ''), 'error');
       throw error;
     }
   };
@@ -1731,6 +1734,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await refreshData();
     } catch (error: any) {
       console.error('Error deleting transfer:', error);
+      showToast('فشل حذف التحويل المالي: ' + (error?.message || ''), 'error');
       throw error;
     }
   };
