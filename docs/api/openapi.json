@@ -1,0 +1,673 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "TriPro Enterprise ERP - Database & RPC API",
+    "version": "2.5.0",
+    "description": "Comprehensive OpenAPI documentation for TriPro Enterprise ERP core PostgreSQL Remote Procedure Calls (RPCs), subledgers, offline synchronization, and multi-tenant services.",
+    "contact": {
+      "name": "TriPro Engineering Team & Lenza Group IT",
+      "email": "it@lenzagroup.com"
+    }
+  },
+  "servers": [
+    {
+      "url": "https://{tenant-ref}.supabase.co/rest/v1",
+      "description": "Tenant Supabase PostgreSQL REST & RPC Gateway",
+      "variables": {
+        "tenant-ref": {
+          "default": "api-lenza",
+          "description": "Supabase project reference ID"
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    },
+    {
+      "apiKeyAuth": []
+    }
+  ],
+  "paths": {
+    "/rpc/complete_pos_sale_atomic": {
+      "post": {
+        "summary": "Complete POS Sale Atomic Transaction",
+        "description": "Executes an enterprise atomic retail transaction with row-level pessimistic locking (`FOR UPDATE`) on product stock, deducts multi-warehouse quantities, persists the sale, generates the continuous receipt sequence, and auto-posts the journal entry if configured.",
+        "operationId": "completePosSaleAtomic",
+        "tags": ["Retail POS & Sales"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompletePosSaleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Transaction completed successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompletePosSaleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Validation error or insufficient inventory stock",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized token or missing tenant session"
+          }
+        }
+      }
+    },
+    "/rpc/sync_offline_pos_order": {
+      "post": {
+        "summary": "Sync Single Offline POS Order",
+        "description": "Syncs an order generated during offline mode with idempotency protection via `offline_ref_id`. Resolves stock conflicts gracefully and links cashier shift.",
+        "operationId": "syncOfflinePosOrder",
+        "tags": ["Offline Synchronization"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p_order": {
+                    "$ref": "#/components/schemas/OfflineOrderPayload"
+                  }
+                },
+                "required": ["p_order"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Offline order synced successfully or skipped if already processed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "order_id": { "type": "string", "format": "uuid" },
+                    "order_number": { "type": "string" },
+                    "action": { "type": "string", "enum": ["inserted", "already_synced", "stock_adjusted"] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rpc/sync_offline_pos_orders_batch": {
+      "post": {
+        "summary": "Batch Sync Multiple Offline POS Orders",
+        "description": "Transfers a collection of offline cached orders in a single database round-trip within an isolated transaction.",
+        "operationId": "syncOfflinePosOrdersBatch",
+        "tags": ["Offline Synchronization"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p_orders": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/OfflineOrderPayload"
+                    }
+                  }
+                },
+                "required": ["p_orders"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Batch synchronization result summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "total_received": { "type": "integer" },
+                    "synced_count": { "type": "integer" },
+                    "skipped_duplicate_count": { "type": "integer" },
+                    "failed_count": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rpc/start_pos_shift": {
+      "post": {
+        "summary": "Open Cashier POS Shift",
+        "description": "Registers opening of a new shift for the cashier, locking terminal and recording opening drawer balance.",
+        "operationId": "startPosShift",
+        "tags": ["Retail POS & Sales"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p_opening_balance": { "type": "number", "example": 500.00 },
+                  "p_terminal_id": { "type": "string", "format": "uuid" },
+                  "p_org_id": { "type": "string", "format": "uuid" },
+                  "p_notes": { "type": "string" }
+                },
+                "required": ["p_opening_balance", "p_org_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Shift opened successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "shift_id": { "type": "string", "format": "uuid" },
+                    "status": { "type": "string", "example": "open" },
+                    "opened_at": { "type": "string", "format": "date-time" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rpc/close_shift": {
+      "post": {
+        "summary": "Close Cashier POS Shift",
+        "description": "Closes an active cashier shift, computes variances between system cash calculations and declared physical cash.",
+        "operationId": "closeShift",
+        "tags": ["Retail POS & Sales"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p_shift_id": { "type": "string", "format": "uuid" },
+                  "p_closing_balance": { "type": "number" },
+                  "p_notes": { "type": "string" }
+                },
+                "required": ["p_shift_id", "p_closing_balance"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Shift closed and variance recorded"
+          }
+        }
+      }
+    },
+    "/rpc/get_shift_summary": {
+      "post": {
+        "summary": "Get Shift Financial Summary",
+        "description": "Summarizes total sales, refunds, payment method breakdown (cash, card, on-account), and customer counts for a shift.",
+        "operationId": "getShiftSummary",
+        "tags": ["Retail POS & Sales"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p_shift_id": { "type": "string", "format": "uuid" }
+                },
+                "required": ["p_shift_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Detailed shift breakdown",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShiftSummaryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rpc/run_payroll_accrual_rpc": {
+      "post": {
+        "summary": "Post Monthly Payroll Accrual Entry",
+        "description": "Calculates and posts the end-of-month accrual journal entry for all eligible employees. Debits Salaries (531) & Bonuses (5312) while crediting Employee Advances (1223), Deductions (422), Payroll Taxes (2233), and Accrued Salaries Payable (2251).",
+        "operationId": "runPayrollAccrual",
+        "tags": ["Payroll & HR"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p_month": { "type": "integer", "example": 9 },
+                  "p_year": { "type": "integer", "example": 2026 },
+                  "p_date": { "type": "string", "format": "date", "example": "2026-09-30" },
+                  "p_items": {
+                    "type": "array",
+                    "items": { "$ref": "#/components/schemas/PayrollEmployeeItem" }
+                  },
+                  "p_org_id": { "type": "string", "format": "uuid" }
+                },
+                "required": ["p_month", "p_year", "p_date", "p_items"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Payroll accrued and balanced journal entry created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "payroll_id": { "type": "string", "format": "uuid" },
+                    "journal_entry_id": { "type": "string", "format": "uuid" },
+                    "total_gross": { "type": "number" },
+                    "total_net": { "type": "number" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rpc/pay_accrued_payroll_rpc": {
+      "post": {
+        "summary": "Disburse Accrued Payroll",
+        "description": "Disburses wages from designated treasury or bank account, debiting Accrued Salaries (2251) and crediting Treasury/Bank (1201/1202).",
+        "operationId": "payAccruedPayroll",
+        "tags": ["Payroll & HR"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p_payroll_id": { "type": "string", "format": "uuid" },
+                  "p_treasury_account_id": { "type": "string", "format": "uuid" },
+                  "p_payment_date": { "type": "string", "format": "date" }
+                },
+                "required": ["p_payroll_id", "p_treasury_account_id", "p_payment_date"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Payment journal entry created and payroll marked as paid"
+          }
+        }
+      }
+    },
+    "/rpc/post_sales_invoice": {
+      "post": {
+        "summary": "Post Sales Invoice to General Ledger",
+        "description": "Transitions a draft sales invoice to 'posted' status, generating balanced double-entry accounting records (Accounts Receivable Dr, Sales Revenue Cr, VAT Cr, COGS Dr, Inventory Cr).",
+        "operationId": "postSalesInvoice",
+        "tags": ["Accounting & Finance"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p_invoice_id": { "type": "string", "format": "uuid" }
+                },
+                "required": ["p_invoice_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Invoice posted with generated journal_entry_id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "journal_entry_id": { "type": "string", "format": "uuid" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rpc/get_current_company_settings": {
+      "post": {
+        "summary": "Get Tenant Organization Settings",
+        "description": "Fetches current organization configuration, including tax IDs, legal name, currency, enabled modules, and fiscal year state.",
+        "operationId": "getCurrentCompanySettings",
+        "tags": ["System & Configuration"],
+        "responses": {
+          "200": {
+            "description": "Organization settings profile",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanySettingsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rpc/get_next_document_number": {
+      "post": {
+        "summary": "Generate Next Continuous Sequential Document Number",
+        "description": "Atomically increments and formats continuous sequential reference numbers (e.g., INV-2026-0045, PO-2026-0012) using PostgreSQL row lock.",
+        "operationId": "getNextDocumentNumber",
+        "tags": ["System & Configuration"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p_doc_type": { "type": "string", "example": "sales_invoice" },
+                  "p_org_id": { "type": "string", "format": "uuid" }
+                },
+                "required": ["p_doc_type", "p_org_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Generated formatted document number",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string",
+                  "example": "INV-2026-00142"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/rpc/close_financial_year": {
+      "post": {
+        "summary": "Close Financial Year & Transfer P&L",
+        "description": "Closes fiscal period, locks accounting entries against modifications, and generates the closing entry transferring profit/loss to retained earnings.",
+        "operationId": "closeFinancialYear",
+        "tags": ["Accounting & Finance"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p_fiscal_year_id": { "type": "string", "format": "uuid" }
+                },
+                "required": ["p_fiscal_year_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Fiscal year closed and balance carried forward"
+          }
+        }
+      }
+    },
+    "/rpc/hims_dispense_prescription": {
+      "post": {
+        "summary": "Dispense Hospital Prescription with Batch Tracking",
+        "description": "Dispensary RPC for hospital pharmacy module: deducts medicine lots, validates batch expiry dates, and bills patient/insurance subledger.",
+        "operationId": "himsDispensePrescription",
+        "tags": ["Hospital HIMS"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p_prescription_id": { "type": "string", "format": "uuid" },
+                  "p_pharmacist_id": { "type": "string", "format": "uuid" }
+                },
+                "required": ["p_prescription_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Prescription successfully dispensed and stock deducted"
+          }
+        }
+      }
+    },
+    "/rpc/create_organization_backup": {
+      "post": {
+        "summary": "Create Organization Tenant Backup Snapshot",
+        "description": "Generates a full point-in-time JSON snapshot of tenant master data, accounting charts, transactions, and audit records with SHA256 checksum.",
+        "operationId": "createOrganizationBackup",
+        "tags": ["Disaster Recovery & Backup"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "p_org_id": { "type": "string", "format": "uuid" }
+                },
+                "required": ["p_org_id"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Backup ID and status created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "backup_id": { "type": "string", "format": "uuid" },
+                    "status": { "type": "string", "example": "completed" },
+                    "size_bytes": { "type": "integer" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Supabase Auth JWT Token"
+      },
+      "apiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "apikey",
+        "description": "Supabase Anon / Service Role Key"
+      }
+    },
+    "schemas": {
+      "CompletePosSaleRequest": {
+        "type": "object",
+        "properties": {
+          "p_order_id": { "type": "string", "format": "uuid" },
+          "p_order_number": { "type": "string" },
+          "p_org_id": { "type": "string", "format": "uuid" },
+          "p_user_id": { "type": "string", "format": "uuid" },
+          "p_warehouse_id": { "type": "string", "format": "uuid" },
+          "p_customer_id": { "type": "string", "format": "uuid" },
+          "p_shift_id": { "type": "string", "format": "uuid" },
+          "p_terminal_id": { "type": "string", "format": "uuid" },
+          "p_notes": { "type": "string" },
+          "p_items": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PosOrderItem" }
+          },
+          "p_subtotal": { "type": "number" },
+          "p_total_discount": { "type": "number" },
+          "p_tax": { "type": "number" },
+          "p_total": { "type": "number" },
+          "p_payment_method": { "type": "string", "enum": ["cash", "card", "split", "on_account"] },
+          "p_payments": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/PosPaymentItem" }
+          }
+        },
+        "required": ["p_org_id", "p_items", "p_total", "p_payment_method"]
+      },
+      "PosOrderItem": {
+        "type": "object",
+        "properties": {
+          "product_id": { "type": "string", "format": "uuid" },
+          "quantity": { "type": "number" },
+          "unit_price": { "type": "number" },
+          "uom_id": { "type": "string", "format": "uuid" },
+          "cost_price": { "type": "number" },
+          "discount_amount": { "type": "number" },
+          "tax_amount": { "type": "number" }
+        },
+        "required": ["product_id", "quantity", "unit_price"]
+      },
+      "PosPaymentItem": {
+        "type": "object",
+        "properties": {
+          "payment_method": { "type": "string" },
+          "amount": { "type": "number" },
+          "reference_number": { "type": "string" }
+        },
+        "required": ["payment_method", "amount"]
+      },
+      "CompletePosSaleResponse": {
+        "type": "object",
+        "properties": {
+          "order_id": { "type": "string", "format": "uuid" },
+          "order_number": { "type": "string" },
+          "status": { "type": "string", "example": "completed" },
+          "inventory_deducted": { "type": "boolean" },
+          "journal_entry_id": { "type": "string", "format": "uuid" }
+        }
+      },
+      "OfflineOrderPayload": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "offline_ref_id": { "type": "string" },
+          "order_number": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "items": { "type": "array", "items": { "$ref": "#/components/schemas/PosOrderItem" } },
+          "total_amount": { "type": "number" },
+          "payment_method": { "type": "string" },
+          "shift_id": { "type": "string", "format": "uuid" }
+        },
+        "required": ["offline_ref_id", "items", "total_amount"]
+      },
+      "PayrollEmployeeItem": {
+        "type": "object",
+        "properties": {
+          "employee_id": { "type": "string", "format": "uuid" },
+          "basic_salary": { "type": "number" },
+          "bonuses": { "type": "number" },
+          "advances": { "type": "number" },
+          "deductions": { "type": "number" },
+          "payroll_tax": { "type": "number" },
+          "net_salary": { "type": "number" }
+        },
+        "required": ["employee_id", "net_salary"]
+      },
+      "ShiftSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "shift_id": { "type": "string", "format": "uuid" },
+          "opening_balance": { "type": "number" },
+          "total_cash_sales": { "type": "number" },
+          "total_card_sales": { "type": "number" },
+          "total_refunds": { "type": "number" },
+          "net_cash_expected": { "type": "number" },
+          "total_orders_count": { "type": "integer" }
+        }
+      },
+      "CompanySettingsResponse": {
+        "type": "object",
+        "properties": {
+          "organization_id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "tax_number": { "type": "string" },
+          "commercial_register": { "type": "string" },
+          "currency": { "type": "string", "example": "EGP" },
+          "allowed_modules": {
+            "type": "array",
+            "items": { "type": "string" },
+            "example": ["retail", "restaurant", "manufacturing", "construction", "accounting", "hr", "hims", "stadium"]
+          }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "details": { "type": "string" }
+        }
+      }
+    }
+  }
+}
