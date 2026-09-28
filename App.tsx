@@ -417,6 +417,30 @@ const MainLayout = () => {
         );
     }
 
+    // 🛒 وضع الكاشير المستقل بملء الشاشة (Dedicated Fullscreen POS Kiosk Mode)
+    // عزل واجهة الكاشير تماماً عن القوائم الإدارية والسايدبار لتكون شاشة كاشير احترافية خالصة
+    if (location.pathname === '/retail-pos') {
+        return (
+            <Suspense fallback={<LazyLoadingFallback />}>
+                <div className="min-h-screen bg-slate-950 text-slate-100 font-sans" dir="rtl">
+                    <OfflineSyncProvider />
+                    <RetailPosScreen />
+                </div>
+            </Suspense>
+        );
+    }
+
+    if (location.pathname === '/pos') {
+        return (
+            <Suspense fallback={<LazyLoadingFallback />}>
+                <div className="min-h-screen bg-slate-100 font-sans" dir="rtl">
+                    <OfflineSyncProvider />
+                    <PosScreen />
+                </div>
+            </Suspense>
+        );
+    }
+
     return (
         <div className="flex min-h-screen bg-slate-50 font-sans text-right print:block print:h-auto" dir="rtl">
             <Sidebar />

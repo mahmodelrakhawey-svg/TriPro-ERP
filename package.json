@@ -19,6 +19,7 @@
     "demo": "vite --mode demo",
     "preview": "vite preview",
     "desktop:start": "electron desktop/main.cjs",
+    "pos:start": "electron desktop/main.cjs --pos",
     "desktop:portable": "node scripts/build-portable-desktop.mjs",
     "desktop:dist": "npm run build && electron-builder --win",
     "desktop:pack": "npm run build && electron-builder --win --dir",

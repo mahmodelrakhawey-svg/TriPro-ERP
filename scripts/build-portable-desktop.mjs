@@ -42,12 +42,18 @@ fs.mkdirSync(releaseDir, { recursive: true });
 console.log('📦 Copying Electron runtime binaries...');
 fs.cpSync(electronDistDir, releaseDir, { recursive: true });
 
-// 4. Rename executable to TriPro-ERP.exe
+// 4. Create executables:
+// - TriPro-POS.exe (Dedicated Fullscreen POS Cashier)
+// - TriPro-ERP.exe (Full Enterprise ERP System)
 const srcExe = path.join(releaseDir, 'electron.exe');
-const targetExe = path.join(releaseDir, 'TriPro-ERP.exe');
+const targetPosExe = path.join(releaseDir, 'TriPro-POS.exe');
+const targetErpExe = path.join(releaseDir, 'TriPro-ERP.exe');
+
 if (fs.existsSync(srcExe)) {
-  fs.renameSync(srcExe, targetExe);
-  console.log('✅ Renamed executable to TriPro-ERP.exe');
+  fs.copyFileSync(srcExe, targetPosExe);
+  fs.renameSync(srcExe, targetErpExe);
+  console.log('✅ Created dedicated Cashier executable: TriPro-POS.exe');
+  console.log('✅ Created full ERP executable: TriPro-ERP.exe');
 }
 
 // 5. Remove default_app.asar to allow custom app loading
@@ -75,11 +81,20 @@ const appPackageJson = {
 };
 fs.writeFileSync(path.join(appDir, 'package.json'), JSON.stringify(appPackageJson, null, 2), 'utf8');
 
-// 9. Create a convenient launcher script for the user
-const launcherBat = `@echo off
+// 9. Create convenient launcher scripts for the user
+const posBat = `@echo off
+chcp 65001 >nul
+title TriPro POS - Retail Cashier
+start "" "%~dp0TriPro-POS.exe" --pos
+`;
+fs.writeFileSync(path.join(releaseDir, 'Launch-Cashier-POS.bat'), posBat, 'utf8');
+
+const erpBat = `@echo off
+chcp 65001 >nul
+title TriPro ERP - Enterprise Client
 start "" "%~dp0TriPro-ERP.exe"
 `;
-fs.writeFileSync(path.join(releaseDir, 'Launch-TriPro.bat'), launcherBat, 'utf8');
+fs.writeFileSync(path.join(releaseDir, 'Launch-Full-ERP.bat'), erpBat, 'utf8');
 
 console.log('============================================================');
 console.log('🎉 TriPro ERP Portable Desktop Build Completed Successfully!');

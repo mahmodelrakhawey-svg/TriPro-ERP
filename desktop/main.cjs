@@ -150,6 +150,15 @@ function startLocalDistServer() {
 
 
 async function createWindow() {
+  const args = process.argv.slice(1);
+  const exeName = path.basename(process.execPath).toLowerCase();
+  
+  // هل يعمل التطبيق في وضع الكاشير المستقل؟
+  // يُفعل تلقائياً إذا كان اسم الملف التنفيذي يحتوي على pos (مثل TriPro-POS.exe)
+  // أو تم تمرير المعامل --pos أو --retail-pos
+  const isPos = args.some(arg => arg.toLowerCase().includes('pos')) || 
+                exeName.includes('pos');
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -157,7 +166,7 @@ async function createWindow() {
     minHeight: 700,
     show: true,
     backgroundColor: '#0f172a',
-    title: 'TriPro ERP - نظام إدارة وتخطيط المؤسسات المتكامل',
+    title: isPos ? 'TriPro POS - نقطة بيع التجزئة السريعة والكاشير' : 'TriPro ERP - نظام إدارة وتخطيط المؤسسات المتكامل',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -165,6 +174,10 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.cjs')
     }
   });
+
+  if (isPos) {
+    mainWindow.maximize();
+  }
 
   Menu.setApplicationMenu(null);
 
@@ -177,13 +190,16 @@ async function createWindow() {
   });
 
   const port = await startLocalDistServer();
+  const initialUrl = isPos 
+    ? `http://127.0.0.1:${port}/index.html#/retail-pos` 
+    : `http://127.0.0.1:${port}/index.html`;
 
   // معالجة أخطاء فشل التحميل وإعادة المحاولة تلقائياً
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
     console.warn(`[TriPro] فشل تحميل الصفحة (${errorCode}: ${errorDescription}) على ${validatedURL}، جاري إعادة المحاولة...`);
     setTimeout(() => {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.loadURL(`http://127.0.0.1:${port}/index.html`).catch(() => {});
+        mainWindow.loadURL(initialUrl).catch(() => {});
       }
     }, 1500);
   });
@@ -195,7 +211,7 @@ async function createWindow() {
     }
   });
 
-  mainWindow.loadURL(`http://127.0.0.1:${port}/index.html`);
+  mainWindow.loadURL(initialUrl);
 
   mainWindow.on('closed', () => {
     mainWindow = null;

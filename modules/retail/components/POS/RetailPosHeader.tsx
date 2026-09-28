@@ -183,6 +183,17 @@ export const RetailPosHeader: React.FC<RetailPosHeaderProps> = ({
             >
               <Lock size={12} /> إغلاق
             </button>
+
+            {/* 🏢 العودة للنظام العام للمشرفين والمدراء */}
+            {['admin', 'manager', 'owner', 'super_admin', 'accountant', 'cfo'].includes(currentUser?.role || '') && (
+              <button 
+                onClick={() => { window.location.hash = '#/dashboard'; }}
+                className="text-xs bg-slate-800 border border-slate-700 hover:bg-slate-700 text-slate-300 px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
+                title="العودة للوحة الإدارة العامة ERP"
+              >
+                <span>لوحة الإدارة</span>
+              </button>
+            )}
           </div>
         )}
       </div>
