@@ -16,6 +16,7 @@ import { JournalActionBar } from './components/GeneralJournal/JournalActionBar';
 import { JournalEntryCard } from './components/GeneralJournal/JournalEntryCard';
 import { JournalPagination } from './components/GeneralJournal/JournalPagination';
 import { JournalOrphanAlert } from './components/GeneralJournal/JournalOrphanAlert';
+import { CurrencyRevaluationModal } from './components/CurrencyRevaluationModal';
 
 const GeneralJournal: React.FC = () => {
   const { 
@@ -56,6 +57,7 @@ const GeneralJournal: React.FC = () => {
   const [isCleaningSuppliers, setIsCleaningSuppliers] = useState(false);
   const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false);
   const [isCleaningAssets, setIsCleaningAssets] = useState(false);
+  const [showCurrencyRevaluation, setShowCurrencyRevaluation] = useState(false);
   
   const [matchingEntryIds, setMatchingEntryIds] = useState<string[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -822,6 +824,7 @@ const GeneralJournal: React.FC = () => {
         })}
         isRefreshing={isRefreshing}
         onRefresh={handleRefresh}
+        onOpenCurrencyRevaluation={() => setShowCurrencyRevaluation(true)}
       />
 
       {/* لوحة الفلاتر المتقدمة القابلة للطي */}
@@ -890,6 +893,15 @@ const GeneralJournal: React.FC = () => {
           toast={toast}
         />
       </div>
+
+      {/* 💱 معالج إعادة تقييم فروق أسعار صرف العملات الأجنبية */}
+      <CurrencyRevaluationModal 
+        isOpen={showCurrencyRevaluation}
+        onClose={() => setShowCurrencyRevaluation(false)}
+        organizationId={currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id || ''}
+        accounts={accounts}
+        onSuccess={refreshData}
+      />
     </div>
   );
 };

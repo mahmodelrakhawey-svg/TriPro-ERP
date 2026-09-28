@@ -1,5 +1,5 @@
 import React from 'react';
-import { BookOpen, User, Filter, X, Trash2, AlertTriangle, Loader2, Printer, Download, RefreshCw } from 'lucide-react';
+import { BookOpen, User, Filter, X, Trash2, AlertTriangle, Loader2, Printer, Download, RefreshCw, ArrowRightLeft } from 'lucide-react';
 
 export interface JournalActionBarProps {
   users: Array<{ id: string; name: string }>;
@@ -21,6 +21,7 @@ export interface JournalActionBarProps {
   onExportExcel: () => void;
   isRefreshing: boolean;
   onRefresh: () => void;
+  onOpenCurrencyRevaluation?: () => void;
 }
 
 export const JournalActionBar: React.FC<JournalActionBarProps> = ({
@@ -42,7 +43,8 @@ export const JournalActionBar: React.FC<JournalActionBarProps> = ({
   isExporting,
   onExportExcel,
   isRefreshing,
-  onRefresh
+  onRefresh,
+  onOpenCurrencyRevaluation
 }) => {
   return (
     <div className="flex justify-between items-center mb-6 border-b border-slate-100 pb-4">
@@ -122,6 +124,18 @@ export const JournalActionBar: React.FC<JournalActionBarProps> = ({
           {isCleaningAssets ? <Loader2 size={15} className="animate-spin text-rose-600" /> : <AlertTriangle size={15} className="text-rose-600" />}
           <span>تنظيف قيود الأصول الملغاة</span>
         </button>
+
+        {/* Currency Revaluation (EAS 13) */}
+        {onOpenCurrencyRevaluation && (
+          <button 
+            onClick={onOpenCurrencyRevaluation}
+            className="flex items-center gap-1.5 bg-indigo-50 border border-indigo-300 text-indigo-800 px-3.5 py-2 rounded-lg hover:bg-indigo-100 font-bold text-xs shadow-xs transition-all"
+            title="معالج إعادة تقييم فروق أسعار صرف العملات الأجنبية وفق معيار المحاسبة المصري EAS 13"
+          >
+            <ArrowRightLeft size={15} className="text-indigo-600" />
+            <span>إعادة تقييم فروق العملة (EAS 13)</span>
+          </button>
+        )}
 
         {/* Advanced Filters Toggle */}
         <button 
