@@ -6,65 +6,23 @@ import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
 import { secureStorage } from '../utils/securityMiddleware';
 import * as XLSX from 'xlsx';
-import { Save, AlertTriangle, Download, Upload, RotateCcw, Building2, CreditCard, ShieldCheck, Archive, ToggleLeft, ToggleRight, ChevronDown, Link as LinkIcon, Landmark, Database, Trash2, FileSpreadsheet, Users, Truck, Package, MonitorSmartphone, PlayCircle, Wrench, Zap, RefreshCw, Info, Calculator, Layers, Loader2, Usb, CheckCircle2, XCircle } from 'lucide-react';
-import SearchableSelect from './SearchableSelect';
+import { Building2, CreditCard, ShieldCheck, Link as LinkIcon, Landmark, RotateCcw, MonitorSmartphone } from 'lucide-react';
 import { z } from 'zod';
 import { runRestaurantModuleTest } from '../modules/restaurant/utils/runRestaurantFlowTest';
-import ArchiveManager from '../services/ArchiveManager'; // استيراد مدير الأرشفة
 import { etaService } from '../services/etaService';
 import { isValidUUID } from '../services/offlineService';
+import {
+  SettingsFormData,
+  CloudBackup,
+  GeneralSettingsTab,
+  FinancialSettingsTab,
+  SystemMaintenanceTab,
+  AccountMappingTab,
+  TerminalsSettingsTab,
+  EtaIntegrationTab,
+  DemoModeTab,
+} from './settings/index';
 
-
-const ACCOUNT_LABELS: Record<string, string> = {
-  CASH: 'النقدية (الصندوق الرئيسي)',
-  CUSTOMERS: 'العملاء',
-  NOTES_RECEIVABLE: 'أوراق القبض (شيكات واردة)',
-  INVENTORY: 'المخزون العام',
-  INVENTORY_RAW_MATERIALS: 'مخزون المواد الخام',
-  INVENTORY_WIP: 'مخزون إنتاج تحت التشغيل (WIP)',
-  INVENTORY_FINISHED_GOODS: 'مخزون المنتج التام',
-  ACCUMULATED_DEPRECIATION: 'مجمع الإهلاك',
-  SUPPLIERS: 'الموردين',
-  VAT: 'ضريبة القيمة المضافة (مخرجات)',
-  VAT_INPUT: 'ضريبة القيمة المضافة (مدخلات)',
-  SECURITY_DEPOSIT_ACCOUNT: 'تأمينات ودفعات مقدمة من العملاء (226)',
-  NOTES_PAYABLE: 'أوراق الدفع (شيكات صادرة)',
-  SALES_REVENUE: 'إيراد المبيعات',
-  OTHER_REVENUE: 'إيرادات أخرى',
-  SALES_DISCOUNT: 'خصم مسموح به',
-  COGS: 'تكلفة البضاعة المباعة',
-  SALARIES_EXPENSE: 'مصروف الرواتب والأجور',
-  DEPRECIATION_EXPENSE: 'مصروف الإهلاك',
-  INVENTORY_ADJUSTMENTS: 'تسويات المخزون (عجز/زيادة)',
-  RETAINED_EARNINGS: 'الأرباح المبقاة',
-  EMPLOYEE_BONUSES: 'مكافآت الموظفين',
-  EMPLOYEE_DEDUCTIONS: 'جزاءات وخصومات الموظفين',
-  BANK_CHARGES: 'مصروفات بنكية',
-  BANK_INTEREST_INCOME: 'فوائد بنكية (دائنة)',
-  TAX_AUTHORITY: 'مصلحة الضرائب',
-  SOCIAL_INSURANCE: 'التأمينات الاجتماعية',
-  WITHHOLDING_TAX: 'ضريبة الخصم والتحصيل',
-  EMPLOYEE_ADVANCES: 'سلف الموظفين',
-  CASH_SHORTAGE: 'عجز الخزينة (فروقات جرد)',
-  CASH_SURPLUS_ACC: 'زيادة الصندوق (إيرادات متنوعة)',
-  LABOR_COST_ALLOCATED: 'تكاليف العمالة الصناعية المحملة',
-  RETENTION_CUSTOMER: 'محتجز ضمان لدى الغير (عملاء) (1249)',
-  RETENTION_SUBCONTRACTOR: 'محتجز ضمان لمقاولي الباطن (2229)',
-  EQUIPMENT_INTERNAL_REVENUE: 'إيراد تشغيل معدات داخلي (425)',
-  CONSTRUCTION_REVENUE: 'إيراد عقود ومشاريع / مستخلصات (41103)',
-  SERVICE_CHARGE_REVENUE: 'إيرادات رسوم الخدمة (المطاعم) (41104)',
-  LETTER_OF_GUARANTEE_MARGIN: 'غطاء خطابات ضمان لدى البنوك (1248)',
-  LETTER_OF_CREDIT_GOODS: 'اعتمادات مستندية لشراء بضائع (1246)',
-};
-
-interface CloudBackup {
-  id: string;
-  organization_id: string;
-  backup_date: string;
-  backup_data?: any;
-  file_size_kb: number;
-  notes: string;
-}
 
 const Settings = () => {
   const { closeFinancialYear, exportData, currentUser, accounts, createMissingSystemAccounts, recalculateAllBalances, purgeDeletedRecords, refreshSaasSchema, warehouses, refreshData, currentSelectedOrgId, organization } = useAccounting();
@@ -156,7 +114,7 @@ const Settings = () => {
     }
   };
 
-  const [formData, setFormData] = useState({ 
+  const [formData, setFormData] = useState<SettingsFormData>({ 
       companyName: '', taxNumber: '', phone: '', address: '', footerText: '', vatRate: 0.14, currency: '', logoUrl: '', 
       enableTax: true, allowNegativeStock: false, preventPriceModification: false, maxCashDeficitLimit: 500, decimalPlaces: 2,
       enableServiceCharge: false, serviceChargeRate: 12,
@@ -178,20 +136,6 @@ const Settings = () => {
   const { showToast } = useToast();
   const [settingsId, setSettingsId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const currencies = [
-    { code: 'EGP', label: 'جنيه مصري (EGP)' },
-    { code: 'SAR', label: 'ريال سعودي (SAR)' },
-    { code: 'USD', label: 'دولار أمريكي (USD)' },
-    { code: 'AED', label: 'درهم إماراتي (AED)' },
-    { code: 'KWD', label: 'دينار كويتي (KWD)' },
-    { code: 'QAR', label: 'ريال قطري (QAR)' },
-    { code: 'OMR', label: 'ريال عماني (OMR)' },
-    { code: 'BHD', label: 'دينار بحريني (BHD)' },
-    { code: 'JOD', label: 'دينار أردني (JOD)' },
-    { code: 'EUR', label: 'يورو (EUR)' },
-    { code: 'GBP', label: 'جنيه إسترليني (GBP)' },
-  ];
   const [enableWorkspaceTabs, setEnableWorkspaceTabs] = useState<boolean>(() => {
     try {
       const saved = secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled');
@@ -1189,986 +1133,94 @@ const Settings = () => {
 
           <div className="p-8">
               {activeTab === 'general' && (
-                  <form onSubmit={handleSave} className="space-y-6 max-w-2xl animate-in fade-in">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div className="md:col-span-2">
-                              <label className="block text-sm font-medium text-slate-700 mb-2">شعار المنشأة</label>
-                              <div className="flex items-center gap-6 bg-slate-50 p-4 rounded-lg border border-slate-200">
-                                  {formData.logoUrl ? (
-                                      <img src={formData.logoUrl} alt="Logo" className="w-20 h-20 object-contain bg-white rounded-lg border border-slate-200 p-1" />
-                                  ) : (
-                                      <div className="w-20 h-20 bg-slate-200 rounded-lg flex items-center justify-center text-slate-400">
-                                          <Landmark size={32} />
-                                      </div>
-                                  )}
-                                  <div className="flex-1">
-                                      <input 
-                                        type="file" 
-                                        accept="image/*"
-                                        onChange={handleLogoUpload}
-                                        className="block w-full text-sm text-slate-500
-                                          file:mr-4 file:py-2 file:px-4
-                                          file:rounded-full file:border-0
-                                          file:text-sm file:font-bold
-                                          file:bg-blue-50 file:text-blue-900
-                                          hover:file:bg-blue-200
-                                          cursor-pointer
-                                        "
-                                      />
-                                      <p className="text-xs text-slate-500 mt-2">يفضل استخدام صورة بخلفية شفافة (PNG) وحجم مربع.</p>
-                                  </div>
-                              </div>
-                          </div>
-                          <div className="md:col-span-2">
-                              <label className="block text-sm font-medium text-slate-700 mb-1">اسم المنشأة</label>
-                              <input 
-                                type="text" 
-                                required
-                                value={formData.companyName}
-                                onChange={(e) => setFormData({...formData, companyName: e.target.value})}
-                                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-900 outline-none"
-                              />
-                          </div>
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">الرقم الضريبي</label>
-                              <input 
-                                type="text" 
-                                value={formData.taxNumber}
-                                onChange={(e) => setFormData({...formData, taxNumber: e.target.value})}
-                                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-900 outline-none"
-                              />
-                          </div>
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">رقم الهاتف</label>
-                              <input 
-                                type="text" 
-                                value={formData.phone}
-                                onChange={(e) => setFormData({...formData, phone: e.target.value})}
-                                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-900 outline-none"
-                              />
-                          </div>
-                          <div className="md:col-span-2">
-                              <label className="block text-sm font-medium text-slate-700 mb-1">العنوان</label>
-                              <input 
-                                type="text" 
-                                value={formData.address}
-                                onChange={(e) => setFormData({...formData, address: e.target.value})}
-                                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-900 outline-none"
-                              />
-                          </div>
-                          <div className="md:col-span-2">
-                              <label className="block text-sm font-medium text-slate-700 mb-1">تذييل الفاتورة (Footer Text)</label>
-                              <textarea 
-                                rows={2}
-                                value={formData.footerText}
-                                onChange={(e) => setFormData({...formData, footerText: e.target.value})}
-                                className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-900 outline-none"
-                                placeholder="نص يظهر أسفل الفواتير والسندات..."
-                              ></textarea>
-                          </div>
-
-                          {/* خيار تفعيل/تعطيل شريط تبويبات الشاشات المفتوحة */}
-                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 hover:bg-slate-100/80 p-4 rounded-xl border border-slate-200 transition-colors">
-                              <div className="flex items-center gap-3">
-                                  <div className={`p-2.5 rounded-xl ${enableWorkspaceTabs ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-500'}`}>
-                                      <Layers size={20} />
-                                  </div>
-                                  <div>
-                                      <label className="block text-sm font-bold text-slate-800">
-                                          شريط تبويبات الشاشات المفتوحة (Workspace Tabs Bar)
-                                      </label>
-                                      <p className="text-xs text-slate-500 mt-0.5">
-                                          إظهار شريط علوي أعلى الصفحات لتجميع الشاشات التي تفتحها والتنقل والتبديل السريع بينها أو إغلاقها.
-                                      </p>
-                                  </div>
-                              </div>
-                              <button 
-                                  type="button" 
-                                  onClick={() => handleToggleWorkspaceTabs(!enableWorkspaceTabs)}
-                                  className={`text-3xl transition-colors focus:outline-none ${enableWorkspaceTabs ? 'text-emerald-600' : 'text-slate-300'}`}
-                                  title={enableWorkspaceTabs ? 'انقر لتعطيل الشريط' : 'انقر لتفعيل الشريط'}
-                              >
-                                  {enableWorkspaceTabs ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
-                              </button>
-                          </div>
-                      </div>
-                      <div className="pt-4 text-left">
-                          <button type="submit" className="bg-blue-900 text-white px-8 py-2.5 rounded-lg hover:bg-blue-800 font-bold shadow-md">
-                              حفظ التغييرات
-                          </button>
-                      </div>
-                  </form>
+                  <GeneralSettingsTab
+                      formData={formData}
+                      setFormData={setFormData}
+                      handleSave={handleSave}
+                      handleLogoUpload={handleLogoUpload}
+                      enableWorkspaceTabs={enableWorkspaceTabs}
+                      handleToggleWorkspaceTabs={handleToggleWorkspaceTabs}
+                  />
               )}
 
               {activeTab === 'financial' && (
-                  <form onSubmit={handleSave} className="space-y-6 max-w-2xl animate-in fade-in">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
-                              <div>
-                                  <label className="block text-sm font-bold text-slate-700">تفعيل ضريبة القيمة المضافة</label>
-                                  <p className="text-xs text-slate-500 mt-1">تفعيل أو تعطيل حساب الضريبة في الفواتير</p>
-                              </div>
-                              <button 
-                                  type="button" 
-                                  onClick={() => setFormData({...formData, enableTax: !formData.enableTax})}
-                                  className={`text-3xl transition-colors ${formData.enableTax ? 'text-emerald-600' : 'text-slate-300'}`}
-                              >
-                                  {formData.enableTax ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
-                              </button>
-                          </div>
-
-                          <div className={`transition-opacity duration-200 ${!formData.enableTax ? 'opacity-50 pointer-events-none' : ''}`}>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">نسبة ضريبة القيمة المضافة (VAT)</label>
-                              <div className="relative">
-                                  <input 
-                                    type="text" 
-                                    inputMode="decimal"
-                                    min="0"
-                                    max="100"
-                                    value={formData.vatRate || ''}
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                            setFormData({...formData, vatRate: val as any});
-                                        }
-                                    }}
-                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none text-left"
-                                    placeholder="15"
-                                    disabled={!formData.enableTax}
-                                  />
-                                  <span className="absolute left-3 top-2.5 text-slate-400 text-sm">%</span>
-                              </div>
-                              <p className="text-xs text-slate-500 mt-1">أدخل 14 لنسبة 14% أو 15 لنسبة 15%</p>
-                          </div>
-
-                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
-                              <div>
-                                  <label className="block text-sm font-bold text-slate-700">تفعيل رسوم الخدمة (للمطاعم والكافيهات)</label>
-                                  <p className="text-xs text-slate-500 mt-1">تطبيق نسبة خدمة على طلبات المطاعم مع إمكانية إلغائها أو تفعيلها لكل طلب</p>
-                              </div>
-                              <button 
-                                  type="button" 
-                                  onClick={() => setFormData({...formData, enableServiceCharge: !formData.enableServiceCharge})}
-                                  className={`text-3xl transition-colors ${formData.enableServiceCharge ? 'text-emerald-600' : 'text-slate-300'}`}
-                              >
-                                  {formData.enableServiceCharge ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
-                              </button>
-                          </div>
-
-                          <div className={`transition-opacity duration-200 ${!formData.enableServiceCharge ? 'opacity-50 pointer-events-none' : ''}`}>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">نسبة رسوم الخدمة (%)</label>
-                              <div className="relative">
-                                  <input 
-                                    type="text" 
-                                    inputMode="decimal"
-                                    min="0"
-                                    max="100"
-                                    value={formData.serviceChargeRate || ''}
-                                    onChange={(e) => {
-                                        const val = e.target.value;
-                                        if (val === '' || /^\d*\.?\d*$/.test(val)) {
-                                            setFormData({...formData, serviceChargeRate: val as any});
-                                        }
-                                    }}
-                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none text-left"
-                                    placeholder="12"
-                                    disabled={!formData.enableServiceCharge}
-                                  />
-                                  <span className="absolute left-3 top-2.5 text-slate-400 text-sm">%</span>
-                              </div>
-                              <p className="text-xs text-slate-500 mt-1">أدخل 12 لنسبة خدمة 12%</p>
-                          </div>
-
-                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
-                              <div>
-                                  <label className="block text-sm font-bold text-slate-700">السماح بالبيع بدون رصيد</label>
-                                  <p className="text-xs text-slate-500 mt-1">يسمح بإنشاء فواتير حتى لو كانت الكمية غير متوفرة (غير مستحسن)</p>
-                              </div>
-                              <button 
-                                  type="button" 
-                                  onClick={() => setFormData({...formData, allowNegativeStock: !formData.allowNegativeStock})}
-                                  className={`text-3xl transition-colors ${formData.allowNegativeStock ? 'text-red-600' : 'text-slate-300'}`}
-                              >
-                                  {formData.allowNegativeStock ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
-                              </button>
-                          </div>
-
-                          <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
-                              <div>
-                                  <label className="block text-sm font-bold text-slate-700">منع تعديل الأسعار في الفاتورة</label>
-                                  <p className="text-xs text-slate-500 mt-1">عند التفعيل، لن يتمكن البائعون من تغيير سعر بيع الصنف المحدد مسبقاً</p>
-                              </div>
-                              <button 
-                                  type="button" 
-                                  onClick={() => setFormData({...formData, preventPriceModification: !formData.preventPriceModification})}
-                                  className={`text-3xl transition-colors ${formData.preventPriceModification ? 'text-emerald-600' : 'text-slate-300'}`}
-                              >
-                                  {formData.preventPriceModification ? <ToggleRight size={40} /> : <ToggleLeft size={40} />}
-                              </button>
-                          </div>
-
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">الحد الأقصى للعجز المسموح به (للموظفين)</label>
-                              <div className="relative">
-                                  <input 
-                                    type="number" 
-                                    min="0"
-                                    value={formData.maxCashDeficitLimit || ''}
-                                    onChange={(e) => setFormData({...formData, maxCashDeficitLimit: e.target.value as any})}
-                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none"
-                                  />
-                              </div>
-                              <p className="text-xs text-slate-500 mt-1">لن يتمكن الموظف من إقفال الصندوق إذا تجاوز العجز هذا المبلغ.</p>
-                          </div>
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">العملة الافتراضية</label>
-                              <div className="relative">
-                                <select 
-                                    value={formData.currency}
-                                    onChange={(e) => setFormData({...formData, currency: e.target.value})}
-                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none appearance-none bg-white"
-                                >
-                                    <option value="">اختر العملة...</option>
-                                    {currencies.map(c => (
-                                        <option key={c.code} value={c.code}>{c.label}</option>
-                                    ))}
-                                    {!currencies.some(c => c.code === formData.currency) && formData.currency && (
-                                        <option value={formData.currency}>{formData.currency}</option>
-                                    )}
-                                </select>
-                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
-                                    <ChevronDown size={16} />
-                                </div>
-                              </div>
-                          </div>
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">عدد الكسور العشرية</label>
-                              <div className="relative">
-                                  <input 
-                                    type="number" 
-                                    min="0"
-                                    max="4"
-                                    value={formData.decimalPlaces || ''}
-                                    onChange={(e) => setFormData({...formData, decimalPlaces: e.target.value as any})}
-                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none"
-                                  />
-                              </div>
-                              <p className="text-xs text-slate-500 mt-1">عدد الأرقام بعد العلامة العشرية (مثال: 2 لـ 10.50)</p>
-                          </div>
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">المستودع الافتراضي للنظام</label>
-                              <div className="relative">
-                                <select 
-                                    value={formData.defaultWarehouseId}
-                                    onChange={(e) => setFormData({...formData, defaultWarehouseId: e.target.value})}
-                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none appearance-none bg-white font-bold"
-                                >
-                                    <option value="">-- اختر المستودع الافتراضي --</option>
-                                    {warehouses.map(w => (
-                                        <option key={w.id} value={w.id}>{w.name}</option>
-                                    ))}
-                                </select>
-                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
-                                    <ChevronDown size={16} />
-                                </div>
-                              </div>
-                              <p className="text-xs text-slate-500 mt-1">المستودع الذي سيتم اختياره تلقائياً في فواتير البيع والشراء.</p>
-                          </div>
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">مستودع الإنتاج الافتراضي (WIP)</label>
-                              <div className="relative">
-                                <select 
-                                    value={formData.productionWarehouseId}
-                                    onChange={(e) => setFormData({...formData, productionWarehouseId: e.target.value})}
-                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-purple-500 outline-none appearance-none bg-white font-bold"
-                                >
-                                    <option value="">-- اختر مستودع الإنتاج --</option>
-                                    {warehouses.map(w => (
-                                        <option key={w.id} value={w.id}>{w.name}</option>
-                                    ))}
-                                </select>
-                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
-                                    <ChevronDown size={16} />
-                                </div>
-                              </div>
-                              <p className="text-xs text-slate-500 mt-1">المستودع الذي ستُحول إليه التكاليف أثناء عملية التصنيع.</p>
-                          </div>
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">مستودع الخامات الافتراضي</label>
-                              <div className="relative">
-                                <select 
-                                    value={formData.rawMaterialsWarehouseId}
-                                    onChange={(e) => setFormData({...formData, rawMaterialsWarehouseId: e.target.value})}
-                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-orange-500 outline-none appearance-none bg-white font-bold"
-                                >
-                                    <option value="">-- اختر مستودع الخامات --</option>
-                                    {warehouses.map(w => (
-                                        <option key={w.id} value={w.id}>{w.name}</option>
-                                    ))}
-                                </select>
-                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
-                                    <ChevronDown size={16} />
-                                </div>
-                              </div>
-                              <p className="text-xs text-slate-500 mt-1">المستودع الذي يتم سحب المواد الأولية منه تلقائياً.</p>
-                          </div>
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">الخزينة الافتراضية للنظام</label>
-                              <div className="relative">
-                                <select 
-                                    value={formData.defaultTreasuryId}
-                                    onChange={(e) => setFormData({...formData, defaultTreasuryId: e.target.value})}
-                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-emerald-500 outline-none appearance-none bg-white font-bold"
-                                >
-                                    <option value="">-- اختر الخزينة الافتراضية --</option>
-                                    {accounts
-                                      .filter(a => !a.isGroup && (a.code.startsWith('123') || a.name.includes('خزينة') || a.name.includes('صندوق') || a.name.includes('بنك')))
-                                      .map(acc => (
-                                        <option key={acc.id} value={acc.id}>{acc.name} ({acc.code})</option>
-                                      ))
-                                    }
-                                </select>
-                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
-                                    <ChevronDown size={16} />
-                                </div>
-                              </div>
-                              <p className="text-xs text-slate-500 mt-1">الحساب المالي الذي سيتم اختياره تلقائياً للتحصيل والدفع النقدي.</p>
-                          </div>
-                          <div>
-                              <label className="block text-sm font-medium text-slate-700 mb-1">البنك الافتراضي للنظام (مبيعات الفيزا والشبكة)</label>
-                              <div className="relative">
-                                <select 
-                                    value={formData.defaultBankId}
-                                    onChange={(e) => setFormData({...formData, defaultBankId: e.target.value})}
-                                    className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:border-blue-500 outline-none appearance-none bg-white font-bold"
-                                >
-                                    <option value="">-- اختر البنك الافتراضي / وسيط الفيزا --</option>
-                                    {accounts
-                                      .filter(a => !a.isGroup && (
-                                        a.code.startsWith('1232') || 
-                                        a.code.startsWith('1102') || 
-                                        a.name.includes('بنك') || 
-                                        a.name.includes('فيزا') || 
-                                        a.name.includes('شبكة') || 
-                                        a.name.toLowerCase().includes('bank') ||
-                                        (a.code.startsWith('123') && !a.name.includes('خزينة') && !a.name.includes('صندوق'))
-                                      ))
-                                      .map(acc => (
-                                        <option key={acc.id} value={acc.id}>{acc.name} ({acc.code})</option>
-                                      ))
-                                    }
-                                </select>
-                                <div className="absolute left-3 top-3 pointer-events-none text-slate-400">
-                                    <ChevronDown size={16} />
-                                </div>
-                              </div>
-                              <p className="text-xs text-slate-500 mt-1">الحساب البنكي الذي يتم توجيه مدفوعات البطاقات والفيزا والشبكة إليه تلقائياً في الكاشير.</p>
-                          </div>
-                      </div>
-                      <div className="pt-4 text-left">
-                          <button type="submit" className="bg-emerald-600 text-white px-8 py-2.5 rounded-lg hover:bg-emerald-700 font-bold shadow-md">
-                              حفظ الإعدادات المالية
-                          </button>
-                      </div>
-                  </form>
+                  <FinancialSettingsTab
+                      formData={formData}
+                      setFormData={setFormData}
+                      handleSave={handleSave}
+                      warehouses={warehouses}
+                      accounts={accounts}
+                  />
               )}
 
               {activeTab === 'system' && (
-                  <div className="space-y-8 animate-in fade-in">
-                      {/* Close Year Section */}
-                      <div className="bg-amber-50 border border-amber-100 rounded-xl p-6 relative overflow-hidden">
-                          <div className="absolute top-0 right-0 w-16 h-16 bg-amber-100 rounded-bl-full -mr-8 -mt-8"></div>
-                          <h3 className="text-lg font-bold text-amber-800 mb-4 flex items-center gap-2 relative z-10">
-                              <Archive size={20} /> إقفال السنة المالية
-                          </h3>
-                          <p className="text-sm text-amber-800 mb-6 max-w-2xl leading-relaxed">
-                              تستخدم هذه الميزة عند انتهاء السنة المالية. سيقوم النظام بحساب الأرباح والخسائر، ترحيلها لحقوق الملكية، وإنشاء قيد إقفال لتصفير حسابات النتيجة (الإيرادات والمصروفات).
-                          </p>
-                          <button 
-                            onClick={handleCloseYear}
-                            className="flex items-center gap-2 bg-amber-600 text-white px-6 py-3 rounded-lg hover:bg-amber-700 font-bold shadow-md transition-all"
-                          >
-                              <Archive size={18} /> إقفال السنة وفتح سنة جديدة
-                          </button>
-                      </div>
-
-                      {/* قسم أرشفة البيانات القانونية */}
-                      <div className="mt-8">
-                          <ArchiveManager supabase={supabase} showToast={showToast} currentUser={currentUser} />
-                      </div>
-
-                      {/* أدوات الصيانة والربط (SaaS Maintenance) - تم نقله هنا لسهولة الوصول */}
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 shadow-sm">
-                          <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-                              <Wrench size={20} className="text-orange-600" /> أدوات الصيانة والربط (SaaS)
-                          </h3>
-                          <p className="text-sm text-slate-600 mb-6 leading-relaxed">
-                              استخدم هذه الأدوات لإصلاح تضارب البيانات الناتج عن التحديثات، أو لإعادة مطابقة أرصدة العميل مع دفتر الأستاذ وتحديث كاش النظام.
-                          </p>
-                          <div className="flex flex-wrap gap-3">
-                              <button 
-                                onClick={recalculateAllBalances}
-                                className="flex items-center gap-2 bg-white text-blue-700 border border-blue-200 px-4 py-3 rounded-lg hover:bg-blue-100 font-bold shadow-sm transition-all"
-                              >
-                                  <RotateCcw size={18} /> إعادة مطابقة الأرصدة
-                              </button>
-                              <button 
-                                onClick={refreshSaasSchema}
-                                className="flex items-center gap-2 bg-white text-purple-700 border border-purple-200 px-4 py-3 rounded-lg hover:bg-purple-100 font-bold shadow-sm transition-all"
-                              >
-                                  <Zap size={18} /> تحديث كاش النظام
-                              </button>
-                              <button 
-                                onClick={purgeDeletedRecords}
-                                className="flex items-center gap-2 bg-white text-red-700 border border-red-200 px-4 py-3 rounded-lg hover:bg-red-100 font-bold shadow-sm transition-all"
-                              >
-                                  <Trash2 size={18} /> تنظيف قاعدة البيانات
-                              </button>
-                              <button 
-                                onClick={handleRecalculateWac}
-                                disabled={recalculatingWac}
-                                className="flex items-center gap-2 bg-white text-orange-700 border border-orange-200 px-4 py-3 rounded-lg hover:bg-orange-100 font-bold shadow-sm transition-all disabled:opacity-50"
-                              >
-                                  <Calculator size={18} /> {recalculatingWac ? 'جاري الحساب...' : 'إعادة احتساب تكاليف المخزون (WAC)'}
-                              </button>
-                          </div>
-                      </div>
-
-                      {/* System Health Section */}
-                      <div className="bg-indigo-50 border border-indigo-100 rounded-xl p-6">
-                          <h3 className="text-lg font-bold text-indigo-800 mb-4 flex items-center gap-2">
-                              <ShieldCheck size={20} /> فحص وإصلاح حسابات النظام
-                          </h3>
-                          <p className="text-sm text-indigo-700 mb-6">
-                              يقوم هذا الإجراء بفحص دليل الحسابات للتأكد من وجود جميع الحسابات الأساسية اللازمة لعمل النظام (مثل النقدية، المبيعات، الضريبة، إلخ) وإنشائها تلقائياً في حال فقدانها.
-                          </p>
-                          <div className="flex flex-wrap gap-3">
-                              <button 
-                                onClick={handleCreateMissingAccounts}
-                                className="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-lg hover:bg-indigo-700 font-bold shadow-md transition-all"
-                              >
-                                  <RotateCcw size={18} /> فحص وإنشاء الحسابات المفقودة
-                              </button>
-                              <button 
-                                onClick={handleFixDatabaseSchema}
-                                className="flex items-center gap-2 bg-teal-600 text-white px-6 py-3 rounded-lg hover:bg-teal-700 font-bold shadow-md transition-all"
-                              >
-                                  <Database size={18} /> صيانة وإصلاح قاعدة البيانات
-                              </button>
-                              <button 
-                                onClick={handleCleanOrphanedOpeningEntries}
-                                className="flex items-center gap-2 bg-rose-600 text-white px-6 py-3 rounded-lg hover:bg-rose-700 font-bold shadow-md transition-all"
-                              >
-                                  <Trash2 size={18} /> تنظيف قيود الأصناف المحذوفة
-                              </button>
-                          </div>
-                      </div>
-
-
-
-                      {/* Clear Demo Data Section */}
-                      <div className="bg-orange-50 border border-orange-100 rounded-xl p-6">
-                          <h3 className="text-lg font-bold text-orange-800 mb-4 flex items-center gap-2">
-                              <RotateCcw size={20} /> تنظيف البيانات التجريبية (بدء التشغيل)
-                          </h3>
-                          <p className="text-sm text-orange-700 mb-6">
-                              استخدم هذا الخيار عند الانتهاء من تجربة النظام والرغبة في البدء الفعلي. سيتم حذف جميع الفواتير، المنتجات، والعملاء، مع الاحتفاظ بالإعدادات ودليل الحسابات.
-                          </p>
-                          <button 
-                            onClick={handleClearDemoData}
-                            className="flex items-center gap-2 bg-orange-600 text-white px-6 py-3 rounded-lg hover:bg-orange-700 font-bold shadow-md transition-all"
-                          >
-                              <Trash2 size={18} /> حذف البيانات التجريبية
-                          </button>
-                      </div>
-
-                      {/* Export Lists Section */}
-                      <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-6">
-                          <h3 className="text-lg font-bold text-emerald-800 mb-4 flex items-center gap-2">
-                              <FileSpreadsheet size={20} /> تصدير القوائم (Excel)
-                          </h3>
-                          <p className="text-sm text-emerald-700 mb-6">
-                              تصدير بيانات العملاء، الموردين، والأصناف إلى ملفات Excel للاستخدام الخارجي.
-                          </p>
-                          <div className="flex flex-wrap gap-3">
-                              <button 
-                                onClick={() => handleExportList('customers')}
-                                className="flex items-center gap-2 bg-white text-emerald-700 border border-emerald-200 px-4 py-2 rounded-lg hover:bg-emerald-100 font-bold shadow-sm transition-all"
-                              >
-                                  <Users size={18} /> تصدير العملاء
-                              </button>
-                              <button 
-                                onClick={() => handleExportList('suppliers')}
-                                className="flex items-center gap-2 bg-white text-emerald-700 border border-emerald-200 px-4 py-2 rounded-lg hover:bg-emerald-100 font-bold shadow-sm transition-all"
-                              >
-                                  <Truck size={18} /> تصدير الموردين
-                              </button>
-                              <button 
-                                onClick={() => handleExportList('products')}
-                                className="flex items-center gap-2 bg-white text-emerald-700 border border-emerald-200 px-4 py-2 rounded-lg hover:bg-emerald-100 font-bold shadow-sm transition-all"
-                              >
-                                  <Package size={18} /> تصدير الأصناف
-                              </button>
-                          </div>
-                      </div>
-
-                      {/* Data Backup Section */}
-                      <div className="bg-blue-50 border border-blue-100 rounded-xl p-6">
-                          <h3 className="text-lg font-bold text-blue-800 mb-4 flex items-center gap-2">
-                              <Download size={20} /> النسخ الاحتياطي واستعادة البيانات
-                          </h3>
-                          <p className="text-sm text-blue-600 mb-6">
-                              حفاظاً على حقوقك وملكية البيانات، يمكنك تحميل نسخة كاملة من قاعدة البيانات بصيغة JSON والاحتفاظ بها على جهازك الشخصي، أو استعادتها عند الحاجة.
-                          </p>
-                          
-                          <div className="flex gap-4">
-                              <button 
-                                onClick={handleCreateCloudBackup}
-                                className="flex items-center gap-2 bg-emerald-600 text-white px-6 py-3 rounded-lg hover:bg-emerald-700 font-bold shadow-md transition-all"
-                              >
-                                  <Database size={18} /> إنشاء نسخة سحابية
-                              </button>
-
-                              <button 
-                                onClick={exportData}
-                                className="flex items-center gap-2 bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 font-bold shadow-md transition-all"
-                              >
-                                  <Download size={18} /> تصدير قاعدة البيانات
-                              </button>
-                              
-                              {cloudBackups.length > 0 && (
-                                  <div className="mt-4 w-full border-t border-blue-100 pt-4">
-                                      <h4 className="font-bold text-blue-800 mb-3 text-sm">آخر النسخ السحابية المتوفرة:</h4>
-                                      <div className="space-y-2">
-                                          {cloudBackups.map(b => (
-                                              <div key={b.id} className="flex items-center justify-between bg-white p-3 rounded-lg border border-blue-100 shadow-sm">
-                                                  <div>
-                                                      <div className="font-bold text-xs text-slate-700">{new Date(b.backup_date).toLocaleString('ar-EG')}</div>
-                                                      <div className="text-[10px] text-slate-400">الحجم: {b.file_size_kb.toFixed(2)} KB</div>
-                                                  </div>
-                                                  <div className="flex gap-2">
-                                                      <button 
-                                                          onClick={() => handleRestoreCloudBackup(b)}
-                                                          className="px-3 py-1 bg-orange-50 text-orange-600 border border-orange-200 rounded-md text-[10px] font-black hover:bg-orange-100 transition-colors"
-                                                      >
-                                                          استعادة النسخة
-                                                      </button>
-                                                      <button 
-                                                          onClick={() => {
-                                                              const blob = new Blob([JSON.stringify(b.backup_data)], { type: 'application/json' });
-                                                              const url = URL.createObjectURL(blob);
-                                                              const a = document.createElement('a');
-                                                              a.href = url;
-                                                              a.download = `backup_${new Date(b.backup_date).toISOString()}.json`;
-                                                              a.click();
-                                                          }}
-                                                          className="p-1.5 text-slate-400 hover:text-blue-600 transition-colors"
-                                                          title="تحميل الملف"
-                                                      >
-                                                          <Download size={14} />
-                                                      </button>
-                                                  </div>
-                                              </div>
-                                          ))}
-                                      </div>
-                                  </div>
-                              )}
-
-                              <div className="relative">
-                                  <input 
-                                    type="file" 
-                                    ref={fileInputRef}
-                                    accept=".json"
-                                    onChange={handleImport}
-                                    className="hidden"
-                                  />
-                                  <button 
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="flex items-center gap-2 bg-white text-blue-700 border border-blue-300 px-6 py-3 rounded-lg hover:bg-blue-50 font-bold shadow-sm transition-all"
-                                >
-                                      <Upload size={18} /> استيراد نسخة احتياطية
-                                </button>
-                              </div>
-                          </div>
-                      </div>
-
-                      {/* Danger Zone */}
-                      <div className="bg-red-50 border border-red-100 rounded-xl p-6">
-                          <h3 className="text-lg font-bold text-red-800 mb-4 flex items-center gap-2">
-                              <AlertTriangle size={20} /> منطقة الخطر (إعادة ضبط المصنع)
-                          </h3>
-                          <p className="text-sm text-red-600 mb-6">
-                              هذا الإجراء سيقوم بمسح جميع البيانات (العملاء، الموردين، الفواتير، الحسابات) وإعادة النظام إلى حالته الأولية. لا يمكن التراجع عن هذا الإجراء.
-                          </p>
-                          
-                          <button 
-                            onClick={handleFactoryReset}
-                            className="flex items-center gap-2 bg-red-600 text-white px-6 py-3 rounded-lg hover:bg-red-700 font-bold shadow-md transition-all"
-                          >
-                              <RotateCcw size={18} /> إعادة ضبط المصنع (مسح الكل)
-                          </button>
-                      </div>
-                  </div>
+                  <SystemMaintenanceTab
+                      handleCloseYear={handleCloseYear}
+                      supabase={supabase}
+                      showToast={showToast}
+                      currentUser={currentUser}
+                      recalculateAllBalances={recalculateAllBalances}
+                      refreshSaasSchema={refreshSaasSchema}
+                      purgeDeletedRecords={purgeDeletedRecords}
+                      handleRecalculateWac={handleRecalculateWac}
+                      recalculatingWac={recalculatingWac}
+                      handleCreateMissingAccounts={handleCreateMissingAccounts}
+                      handleFixDatabaseSchema={handleFixDatabaseSchema}
+                      handleCleanOrphanedOpeningEntries={handleCleanOrphanedOpeningEntries}
+                      handleClearDemoData={handleClearDemoData}
+                      handleExportList={handleExportList}
+                      handleCreateCloudBackup={handleCreateCloudBackup}
+                      exportData={exportData}
+                      cloudBackups={cloudBackups}
+                      handleRestoreCloudBackup={handleRestoreCloudBackup}
+                      fileInputRef={fileInputRef}
+                      handleImport={handleImport}
+                      handleFactoryReset={handleFactoryReset}
+                  />
               )}
 
               {activeTab === 'mapping' && (
-                  <form onSubmit={handleSave} className="space-y-6 max-w-3xl animate-in fade-in">
-                      <div className="bg-purple-50 border border-purple-100 rounded-xl p-4 mb-6 flex flex-col md:flex-row justify-between items-center gap-4">
-                          <div>
-                              <h3 className="font-bold text-purple-800 mb-2">توجيه الحسابات الآلي</h3>
-                              <p className="text-sm text-purple-700">
-                                  هنا يمكنك تحديد الحسابات التي سيستخدمها النظام تلقائياً عند إنشاء الفواتير والسندات. 
-                                  إذا لم يتم تحديد حساب، سيستخدم النظام الكود الافتراضي.
-                              </p>
-                          </div>
-                          <button 
-                            type="button"
-                            onClick={handleAutoMapping}
-                            className="bg-white text-purple-600 border-2 border-purple-200 px-4 py-2 rounded-xl font-black text-xs hover:bg-purple-50 transition-all flex items-center gap-2 shrink-0 shadow-sm"
-                            title="البحث عن الحسابات بالأكواد الافتراضية وربطها بضغطة واحدة"
-                          >
-                            <RefreshCw size={16} />
-                            ربط تلقائي
-                          </button>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                          {Object.entries({
-                              ...SYSTEM_ACCOUNTS, 
-                              CASH_SHORTAGE: '541',
-                              CASH_SURPLUS_ACC: '441',
-                              INVENTORY_RAW_MATERIALS: '10301',
-                              INVENTORY_WIP: '10303',
-                              INVENTORY_FINISHED_GOODS: '10302',
-                              LABOR_COST_ALLOCATED: '513',
-                              WASTAGE_EXPENSE: '5121',
-                              RETENTION_CUSTOMER: '1249',
-                              RETENTION_SUBCONTRACTOR: '2229',
-                              ADVANCE_PAYMENT_SUBCONTRACTOR: '1245',
-                              EQUIPMENT_INTERNAL_REVENUE: '425'
-                          }).map(([key, defaultCode]) => {
-                              const isUnmapped = !formData.accountMappings[key];
-                              return (
-                                <div key={key}>
-                                  <SearchableSelect
-                                      label={
-                                          <span className="flex items-center justify-between w-full">
-                                              <span>{ACCOUNT_LABELS[key] || key.replace(/_/g, ' ')} ({String(defaultCode)})</span>
-                                              {isUnmapped && (
-                                                  <span className="text-amber-600 flex items-center gap-1 text-[10px] animate-pulse" title="هذا الحساب غير مربوط يدوياً - سيتم استخدام الكود الافتراضي">
-                                                      <AlertTriangle size={12} />
-                                                      غير مربوط ⚠️
-                                                  </span>
-                                              )}
-                                          </span>
-                                      }
-                                      options={accounts
-                                          .filter(acc => !acc.isGroup)
-                                          .sort((a, b) => a.code.localeCompare(b.code))
-                                          .map(acc => ({ id: acc.id, name: acc.name, code: acc.code }))}
-                                      value={formData.accountMappings[key] || ''}
-                                      onChange={value => handleMappingChange(key, value)}
-                                      placeholder={`-- الافتراضي (${defaultCode}) --`}
-                                      className="w-full"
-                                  />
-                                </div>
-                              );
-                          })}
-                      </div>
-                      <div className="pt-4 text-left">
-                          <button type="submit" className="bg-purple-600 text-white px-8 py-2.5 rounded-lg hover:bg-purple-700 font-bold shadow-md">
-                              حفظ التعيينات
-                          </button>
-                      </div>
-                  </form>
+                  <AccountMappingTab
+                      formData={formData}
+                      handleSave={handleSave}
+                      handleAutoMapping={handleAutoMapping}
+                      handleMappingChange={handleMappingChange}
+                      accounts={accounts}
+                  />
               )}
 
               {activeTab === 'terminals' && (
-                  <div className="space-y-8 animate-in fade-in">
-                      {/* Form to add terminal */}
-                      <form onSubmit={handleAddTerminal} className="bg-slate-50 border border-slate-200 rounded-xl p-6 space-y-4">
-                          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                              <MonitorSmartphone size={20} className="text-indigo-600" /> إضافة جهاز كاشير جديد
-                          </h3>
-                          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                              <div>
-                                  <label className="block text-xs font-bold text-slate-700 mb-2">اسم الكاشير (الممر)</label>
-                                  <input 
-                                    type="text" 
-                                    value={newTerminalData.name}
-                                    onChange={e => setNewTerminalData(prev => ({ ...prev, name: e.target.value }))}
-                                    placeholder="مثال: كاشير 1"
-                                    className="w-full border border-slate-300 rounded-lg p-2 text-sm focus:border-indigo-500 outline-none bg-white text-slate-800"
-                                    required
-                                  />
-                              </div>
-                              <div>
-                                  <label className="block text-xs font-bold text-slate-700 mb-2">المستودع المرتبط بخصم البضاعة</label>
-                                  <select 
-                                    value={newTerminalData.warehouseId}
-                                    onChange={e => setNewTerminalData(prev => ({ ...prev, warehouseId: e.target.value }))}
-                                    className="w-full border border-slate-300 bg-white rounded-lg p-2.5 text-sm focus:border-indigo-500 outline-none text-slate-800"
-                                  >
-                                      <option value="">-- اختر المستودع --</option>
-                                      {warehouses.map(w => (
-                                          <option key={w.id} value={w.id}>{w.name}</option>
-                                      ))}
-                                  </select>
-                              </div>
-                              <div>
-                                  <label className="block text-xs font-bold text-slate-700 mb-2">الخزينة المرتبطة بعهدة الكاشير</label>
-                                  <select 
-                                    value={newTerminalData.cashAccountId}
-                                    onChange={e => setNewTerminalData(prev => ({ ...prev, cashAccountId: e.target.value }))}
-                                    className="w-full border border-slate-300 bg-white rounded-lg p-2.5 text-sm focus:border-indigo-500 outline-none text-slate-800"
-                                  >
-                                      <option value="">-- اختر حساب الخزينة --</option>
-                                      {accounts
-                                        .filter(acc => !acc.isGroup && acc.code?.startsWith('123'))
-                                        .map(acc => (
-                                          <option key={acc.id} value={acc.id}>[{acc.code}] - {acc.name}</option>
-                                      ))}
-                                  </select>
-                              </div>
-                          </div>
-                          <div className="pt-2 text-left">
-                              <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-2.5 rounded-lg shadow-md transition-all">
-                                  إضافة الجهاز
-                              </button>
-                          </div>
-                      </form>
-
-                      {/* Terminals list table */}
-                      <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
-                              <h3 className="font-bold text-slate-800">الأجهزة المسجلة حالياً</h3>
-                              <button type="button" onClick={fetchTerminals} className="text-xs text-indigo-600 hover:text-indigo-700 font-bold flex items-center gap-1">
-                                  <RefreshCw size={12} /> تحديث القائمة
-                              </button>
-                          </div>
-                          {isTerminalsLoading ? (
-                              <div className="flex justify-center p-8">
-                                  <RefreshCw className="animate-spin text-indigo-500" size={32} />
-                              </div>
-                          ) : terminalsList.length === 0 ? (
-                              <div className="p-8 text-center text-slate-500 text-sm">
-                                  لا توجد أجهزة كاشير مسجلة حالياً.
-                              </div>
-                          ) : (
-                              <table className="w-full text-right border-collapse text-sm">
-                                  <thead>
-                                      <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold">
-                                          <th className="p-4">اسم الكاشير</th>
-                                          <th className="p-4">المستودع الافتراضي</th>
-                                          <th className="p-4">حساب الخزينة</th>
-                                          <th className="p-4">الحالة</th>
-                                          <th className="p-4 text-center">إجراءات</th>
-                                      </tr>
-                                  </thead>
-                                  <tbody>
-                                      {terminalsList.map(term => {
-                                          const wh = warehouses.find(w => w.id === term.warehouse_id);
-                                          const acc = accounts.find(a => a.id === term.cash_account_id);
-                                          return (
-                                              <tr key={term.id} className="border-b border-slate-150 hover:bg-slate-50/50">
-                                                  <td className="p-4 font-bold text-slate-850">{term.name}</td>
-                                                  <td className="p-4 text-slate-600">{wh?.name || 'غير محدد'}</td>
-                                                  <td className="p-4 text-slate-600">{acc ? `[${acc.code}] ${acc.name}` : 'غير محدد'}</td>
-                                                  <td className="p-4">
-                                                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                                                          term.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'
-                                                      }`}>
-                                                          {term.status === 'ACTIVE' ? 'نشط' : 'معطل'}
-                                                      </span>
-                                                  </td>
-                                                  <td className="p-4 text-center">
-                                                      <button 
-                                                        onClick={() => handleDeleteTerminal(term.id)}
-                                                        className="text-red-650 hover:text-red-750 hover:bg-red-50 p-1.5 rounded transition-all"
-                                                        title="حذف الجهاز"
-                                                      >
-                                                          <Trash2 size={16} />
-                                                      </button>
-                                                  </td>
-                                              </tr>
-                                          );
-                                      })}
-                                  </tbody>
-                              </table>
-                          )}
-                      </div>
-                  </div>
+                  <TerminalsSettingsTab
+                      handleAddTerminal={handleAddTerminal}
+                      newTerminalData={newTerminalData}
+                      setNewTerminalData={setNewTerminalData}
+                      warehouses={warehouses}
+                      accounts={accounts}
+                      fetchTerminals={fetchTerminals}
+                      isTerminalsLoading={isTerminalsLoading}
+                      terminalsList={terminalsList}
+                      handleDeleteTerminal={handleDeleteTerminal}
+                  />
               )}
 
               {activeTab === 'eta' && (
-                  <form onSubmit={handleSave} className="space-y-6 max-w-2xl animate-in fade-in">
-                      <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 space-y-6">
-                          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 border-b pb-3">
-                              <Landmark size={20} className="text-cyan-600" /> إعدادات منظومة الفاتورة الإلكترونية (ETA)
-                          </h3>
-                          
-                          <div className="flex items-center justify-between bg-white p-4 rounded-lg border border-slate-150">
-                              <div>
-                                  <label className="block text-sm font-bold text-slate-800">تفعيل الربط الإلكتروني</label>
-                                  <span className="text-xs text-slate-500">تمكين إرسال الفواتير تلقائياً لمصلحة الضرائب المصرية</span>
-                              </div>
-                              <button
-                                  type="button"
-                                  onClick={() => setFormData(prev => ({ ...prev, etaIsActive: !prev.etaIsActive }))}
-                                  className="text-cyan-600 transition-colors bg-transparent border-0 cursor-pointer"
-                              >
-                                  {formData.etaIsActive ? <ToggleRight size={44} className="text-cyan-600" /> : <ToggleLeft size={44} className="text-slate-400" />}
-                              </button>
-                          </div>
-
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                              <div>
-                                  <label className="block text-sm font-medium text-slate-700 mb-2">رقم التسجيل الضريبي للمنشأة (Taxpayer ID)</label>
-                                  <input
-                                      type="text"
-                                      disabled={!formData.etaIsActive}
-                                      value={formData.etaTaxpayerId}
-                                      onChange={e => setFormData(prev => ({ ...prev, etaTaxpayerId: e.target.value }))}
-                                      placeholder="مثال: 123456789"
-                                      className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-100 disabled:text-slate-400"
-                                      maxLength={9}
-                                  />
-                              </div>
-
-                              <div>
-                                  <label className="block text-sm font-medium text-slate-700 mb-2">بيئة التشغيل (Environment)</label>
-                                  <select
-                                      disabled={!formData.etaIsActive}
-                                      value={formData.etaEnvironment}
-                                      onChange={e => setFormData(prev => ({ ...prev, etaEnvironment: e.target.value as 'sandbox' | 'production' }))}
-                                      className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-100"
-                                  >
-                                      <option value="sandbox">البيئة التجريبية (Sandbox)</option>
-                                      <option value="production">البيئة الفعلية (Production)</option>
-                                  </select>
-                              </div>
-
-                              <div className="md:col-span-2">
-                                  <label className="block text-sm font-medium text-slate-700 mb-2">معرف العميل للمنظومة (Client ID)</label>
-                                  <input
-                                      type="text"
-                                      disabled={!formData.etaIsActive}
-                                      value={formData.etaClientId}
-                                      onChange={e => setFormData(prev => ({ ...prev, etaClientId: e.target.value }))}
-                                      placeholder="أدخل الـ Client ID من حساب الممول بالمصلحة"
-                                      className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-100 disabled:text-slate-400"
-                                  />
-                              </div>
-
-                              <div className="md:col-span-2">
-                                  <label className="block text-sm font-medium text-slate-700 mb-2">المفتاح السري للعميل (Client Secret)</label>
-                                  <input
-                                      type="password"
-                                      disabled={!formData.etaIsActive}
-                                      value={formData.etaClientSecret}
-                                      onChange={e => setFormData(prev => ({ ...prev, etaClientSecret: e.target.value }))}
-                                      placeholder="أدخل الـ Client Secret"
-                                      className="w-full p-2.5 border rounded-lg focus:ring-2 focus:ring-cyan-500 disabled:bg-slate-100 disabled:text-slate-400"
-                                  />
-                              </div>
-                          </div>
-
-                          <div className="bg-cyan-50/70 border border-cyan-200 rounded-xl p-4 text-xs text-cyan-900 space-y-3">
-                              <div className="flex items-center justify-between flex-wrap gap-2">
-                                  <div className="flex items-center gap-2">
-                                      <Usb size={18} className="text-cyan-700" />
-                                      <span className="font-bold text-sm text-cyan-900">برنامج المساعد المحلي للتوقيع (Local Signer - Port 8500)</span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                      {localSignerStatus && (
-                                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold ${
-                                              localSignerStatus.online ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                                          }`}>
-                                              {localSignerStatus.online ? <CheckCircle2 size={13} /> : <XCircle size={13} />}
-                                              {localSignerStatus.online ? 'المساعد متصل وجاهز' : 'غير متصل'}
-                                          </span>
-                                      )}
-                                      <button
-                                          type="button"
-                                          onClick={handleCheckLocalSigner}
-                                          disabled={checkingSigner}
-                                          className="bg-white hover:bg-cyan-100 text-cyan-800 border border-cyan-300 font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1.5 text-xs shadow-sm disabled:opacity-50"
-                                      >
-                                          {checkingSigner ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
-                                          <span>فحص المساعد المحلي</span>
-                                      </button>
-                                  </div>
-                              </div>
-
-                              {localSignerStatus && (
-                                  <div className={`p-2.5 rounded-lg font-mono text-[11px] ${
-                                      localSignerStatus.online ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' : 'bg-amber-50 text-amber-900 border border-amber-200'
-                                  }`}>
-                                      {localSignerStatus.message}
-                                  </div>
-                              )}
-
-                              <ul className="list-disc list-inside space-y-1 text-cyan-800/90 pr-1">
-                                  <li>لتشغيل التوقيع الحي، شغّل أداة <code className="bg-white/80 px-1 py-0.5 rounded text-cyan-900 font-mono text-[11px] font-bold">tools/eta-local-signer/start-signer.bat</code> على جهاز المحاسب الموصول به فلاشة التوقيع (USB Token).</li>
-                                  <li>في البيئة التجريبية (Sandbox)، يولد النظام توقيعاً رقمياً معيارياً تلقائياً لتسهيل فحص وتجربة دورة العمل الكاملة.</li>
-                              </ul>
-                          </div>
-
-                          <div className="flex flex-col sm:flex-row justify-between items-center gap-3 pt-4 border-t">
-                              <button
-                                  type="button"
-                                  onClick={handleTestEta}
-                                  disabled={testingEta || !formData.etaIsActive}
-                                  className="w-full sm:w-auto bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold px-4 py-2.5 rounded-lg transition-colors flex items-center justify-center gap-2 border border-slate-300 disabled:opacity-50 text-xs"
-                              >
-                                  {testingEta ? <Loader2 size={16} className="animate-spin" /> : <Landmark size={16} className="text-cyan-600" />}
-                                  <span>{testingEta ? 'جاري اختبار الاتصال...' : 'اختبار الاتصال ببوابة الضرائب (OAuth2)'}</span>
-                              </button>
-
-
-                              <button
-                                  type="submit"
-                                  className="w-full sm:w-auto bg-cyan-600 text-white font-bold px-6 py-2.5 rounded-lg hover:bg-cyan-700 transition-colors flex items-center justify-center gap-2"
-                              >
-                                  <Save size={18} /> حفظ إعدادات الضرائب
-                              </button>
-                          </div>
-                      </div>
-                  </form>
+                  <EtaIntegrationTab
+                      formData={formData}
+                      setFormData={setFormData}
+                      handleSave={handleSave}
+                      localSignerStatus={localSignerStatus}
+                      checkingSigner={checkingSigner}
+                      handleCheckLocalSigner={handleCheckLocalSigner}
+                      testingEta={testingEta}
+                      handleTestEta={handleTestEta}
+                  />
               )}
 
               {activeTab === 'demo' && (
-                  <div className="space-y-6 animate-in fade-in">
-                      <div className="bg-amber-50 border border-amber-100 rounded-xl p-6">
-                          <h3 className="text-lg font-bold text-amber-800 mb-4 flex items-center gap-2">
-                              <RotateCcw size={20} /> إعادة ضبط بيانات الديمو
-                          </h3>
-                          <p className="text-sm text-amber-700 mb-6">
-                              استخدم هذا الزر لإعادة قاعدة البيانات إلى حالتها الافتراضية (حذف جميع الفواتير والقيود والعملاء الجدد) مع الاحتفاظ بالإعدادات الأساسية. مفيد لتنظيف النسخة التجريبية.
-                          </p>
-                          <button 
-                            onClick={handleResetDemoData}
-                            className="bg-amber-600 text-white px-6 py-3 rounded-lg hover:bg-amber-700 font-bold shadow-md transition-all flex items-center gap-2"
-                          >
-                              <RotateCcw size={18} /> تنفيذ إعادة الضبط الآن
-                          </button>
-                      </div>
-
-                      {/* Demo Test Section */}
-                      <div className="bg-teal-50 border border-teal-100 rounded-xl p-6">
-                          <h3 className="text-lg font-bold text-teal-800 mb-4 flex items-center gap-2">
-                              <PlayCircle size={20} /> اختبار آلي للموديولات
-                          </h3>
-                          <p className="text-sm text-teal-700 mb-6">
-                              قم بتشغيل اختبارات شاملة للتأكد من أن جميع أجزاء النظام تعمل بشكل صحيح. ستظهر النتائج في لوحة التحكم (Console).
-                          </p>
-                          <button 
-                            onClick={runRestaurantModuleTest}
-                            className="flex items-center gap-2 bg-teal-600 text-white px-6 py-3 rounded-lg hover:bg-teal-700 font-bold shadow-md transition-all">
-                              <PlayCircle size={18} /> تشغيل اختبار موديول المطاعم
-                          </button>
-                      </div>
-                  </div>
+                  <DemoModeTab
+                      handleResetDemoData={handleResetDemoData}
+                      runRestaurantModuleTest={runRestaurantModuleTest}
+                  />
               )}
           </div>
       </div>

@@ -19,6 +19,8 @@ export interface UserProfile {
 
 
 import { offlineService, isValidUUID } from '../services/offlineService';
+import { closeFinancialYearEngine, reopenFinancialYearEngine } from '../services/financialYearService';
+import { deleteOrganizationSafe } from '../services/organizationService';
 import {
   SYSTEM_ACCOUNTS,
   DEFAULT_OFFLINE_ORG,
@@ -2382,217 +2384,43 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const refreshSaasSchema = async () => { await supabase.rpc('refresh_saas_schema'); showToast('جاري تحديث هيكل النظام...', 'info'); setTimeout(() => window.location.reload(), 1500); };
   const closeFinancialYear = async (year: number, date: string) => {
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    if (!targetOrgId) {
-      showToast('تعذر تحديد معرف المؤسسة.', 'error');
-      return false;
-    }
-
-    try {
-      // 1. فحص وتصحيح حساب الأرباح المبقاة (32) ليكون حساباً فرعياً قابلاً للترحيل
-      const { data: retAccounts } = await supabase
-        .from('accounts')
-        .select('id, code, is_group')
-        .eq('organization_id', targetOrgId)
-        .eq('code', '32');
-
-      if (retAccounts && retAccounts.length > 0) {
-        if (retAccounts[0].is_group) {
-          await supabase
-            .from('accounts')
-            .update({ is_group: false })
-            .eq('id', retAccounts[0].id);
-        }
-      } else {
-        const { data: parent3 } = await supabase
-          .from('accounts')
-          .select('id')
-          .eq('organization_id', targetOrgId)
-          .eq('code', '3')
-          .maybeSingle();
-
-        await supabase.from('accounts').insert({
-          organization_id: targetOrgId,
-          code: '32',
-          name: 'الأرباح المبقاة / المرحلة',
-          type: 'EQUITY',
-          is_group: false,
-          is_active: true,
-          parent_id: parent3?.id || null
-        });
-      }
-
-      // 2. تصحيح أي حسابات إيرادات أو مصروفات (4/5) معلّمة بالخطأ كـ is_group ولها قيود مرحلة
-      const { data: groupIncomeAccounts } = await supabase
-        .from('accounts')
-        .select('id, code, is_group')
-        .eq('organization_id', targetOrgId)
-        .eq('is_group', true)
-        .or('code.like.4%,code.like.5%');
-
-      if (groupIncomeAccounts && groupIncomeAccounts.length > 0) {
-        for (const gAcc of groupIncomeAccounts) {
-          const { data: hasLines } = await supabase
-            .from('journal_lines')
-            .select('id')
-            .eq('account_id', gAcc.id)
-            .limit(1);
-
-          if (hasLines && hasLines.length > 0) {
-            await supabase
-              .from('accounts')
-              .update({ is_group: false })
-              .eq('id', gAcc.id);
-          }
-        }
-      }
-
-      // 3. استدعاء محرك الإقفال السنوي
-      const { data, error } = await supabase.rpc('close_financial_year', { 
-        p_year: year, 
-        p_closing_date: date,
-        p_org_id: targetOrgId
-      });
-
-      if (error) { 
-        showToast('فشل إقفال السنة: ' + error.message, 'error'); 
-        return false; 
-      }
-
-      showToast(typeof data === 'string' ? data : `تم إقفال السنة المالية ${year} بنجاح ✅`, 'success');
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || '';
+    const res = await closeFinancialYearEngine({ supabase, year, closingDate: date, targetOrgId });
+    if (res.success) {
+      showToast(res.message, 'success');
       await refreshData();
       return true;
-    } catch (err: any) {
-      console.error('Error during closeFinancialYear:', err);
-      showToast('فشل إقفال السنة: ' + err.message, 'error');
+    } else {
+      showToast(res.message, 'error');
       return false;
     }
   };
 
   const reopenFinancialYear = async (year: number) => {
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { data, error } = await supabase.rpc('reopen_financial_year', { 
-      p_year: year,
-      p_org_id: targetOrgId || null
-    });
-    if (error) { 
-      showToast('فشل إعادة فتح السنة: ' + error.message, 'error'); 
-      return false; 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || '';
+    const res = await reopenFinancialYearEngine({ supabase, year, targetOrgId });
+    if (res.success) {
+      showToast(res.message, 'success');
+      await refreshData();
+      return true;
+    } else {
+      showToast(res.message, 'error');
+      return false;
     }
-    showToast(typeof data === 'string' ? data : `تم فتح السنة المالية ${year} بنجاح 🔓`, 'success');
-    await refreshData();
-    return true;
   };
   const exportData = async () => { /* Logic to export JSON */ };
 
   const deleteOrganization = useCallback(async (orgId: string) => {
-    if (currentUser?.role !== 'super_admin' && currentUser?.role !== 'admin') {
-      showToast('ليس لديك صلاحية لحذف الشركات.', 'error');
-      return { success: false, message: 'ليس لديك صلاحية لحذف الشركات.' };
-    }
-
-    if (!window.confirm('⚠️ تحذير: سيتم حذف هذه الشركة وجميع بياناتها (الحسابات، الفواتير، المخزون...) بشكل نهائي.\n\nلا يمكن التراجع عن هذا الإجراء.\n\nهل أنت متأكد تماماً؟')) {
-      return { success: false, message: 'تم إلغاء عملية الحذف.' };
-    }
-
-    try {
-      // 1. استدعاء دالة الحذف الآمنة التي تتجاوز الحماية السيادية في قاعدة البيانات
-      let deleteResult = await supabase.rpc('fn_delete_organization_safe', { p_org_id: orgId });
-
-      // 2. إذا حدث خطأ قيود مرجعية نقوم بتفكيك القيود برمجياً وإعادة المحاولة
-      if (deleteResult.error) {
-        console.warn('RPC delete failed in context, initiating cascade cleanup...', deleteResult.error);
-        try {
-          await supabase.from('profiles').update({ organization_id: null }).eq('organization_id', orgId);
-          await supabase.from('role_permissions').delete().eq('organization_id', orgId);
-          await supabase.from('roles').delete().eq('organization_id', orgId);
-
-          // استخراج معرفات الأصناف التابعة للمنظمة لفك أي قيود معلقة عليها
-          const { data: orgProducts } = await supabase.from('products').select('id').eq('organization_id', orgId);
-          const prodIds = (orgProducts || []).map((p: any) => p.id).filter(Boolean);
-
-          // 1. تفكيك موديول التشفية والذبائح (Butchering Module)
-          try {
-            if (prodIds.length > 0) {
-              await supabase.from('butchering_order_items').delete().in('output_product_id', prodIds);
-              await supabase.from('butchering_template_items').delete().in('output_product_id', prodIds);
-              await supabase.from('butchering_orders').delete().in('source_product_id', prodIds);
-              await supabase.from('butchering_templates').delete().in('source_product_id', prodIds);
-            }
-            await supabase.from('butchering_orders').delete().eq('organization_id', orgId);
-            await supabase.from('butchering_templates').delete().eq('organization_id', orgId);
-          } catch (_) {}
-
-          // 2. تفكيك موديول التصنيع (Manufacturing Module)
-          try {
-            if (prodIds.length > 0) {
-              await supabase.from('mfg_actual_material_usage').delete().in('raw_material_id', prodIds);
-              await supabase.from('mfg_scrap_logs').delete().in('product_id', prodIds);
-              await supabase.from('mfg_batch_serials').delete().in('product_id', prodIds);
-              await supabase.from('mfg_step_materials').delete().in('raw_material_id', prodIds);
-              await supabase.from('bill_of_materials').delete().in('product_id', prodIds);
-              await supabase.from('bill_of_materials').delete().in('raw_material_id', prodIds);
-              await supabase.from('mfg_production_orders').delete().in('product_id', prodIds);
-              await supabase.from('mfg_routings').delete().in('product_id', prodIds);
-            }
-          } catch (_) {}
-
-          // 3. تفكيك قيود المطاعم ونقاط البيع (Restaurant & Channel Pricing)
-          try {
-            if (prodIds.length > 0) {
-              await supabase.from('kitchen_ticket_items').delete().in('product_id', prodIds);
-              await supabase.from('product_channel_prices').delete().in('product_id', prodIds);
-              await supabase.from('recipe_items').delete().in('product_id', prodIds);
-              await supabase.from('recipe_items').delete().in('ingredient_id', prodIds);
-              await supabase.from('combo_items').delete().in('product_id', prodIds);
-              await supabase.from('combo_items').delete().in('included_product_id', prodIds);
-            }
-          } catch (_) {}
-
-          const tablesToClean = [
-            'butchering_order_items', 'butchering_orders', 'butchering_template_items', 'butchering_templates',
-            'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_batch_serials', 'mfg_production_variances',
-            'mfg_order_progress', 'mfg_step_materials', 'mfg_step_attachments', 'mfg_routing_steps',
-            'mfg_production_order_materials', 'mfg_production_order_steps',
-            'mfg_scrap_records', 'mfg_qc_inspections', 'mfg_production_orders', 'mfg_routings', 'mfg_work_centers',
-            'order_item_modifiers', 'order_items', 'kitchen_ticket_items', 'kitchen_orders', 'orders',
-            'product_channel_prices', 'recipe_items', 'restaurant_recipes', 'combo_items',
-            'invoice_items', 'purchase_invoice_items', 'sales_return_items', 'purchase_return_items',
-            'stock_adjustment_items', 'journal_lines', 'payroll_variables', 'payroll_items',
-            'delivery_order_items', 'inventory_count_items', 'waste_records', 'transfer_items',
-            'invoices', 'purchase_invoices', 'sales_returns', 'purchase_returns', 'journal_entries',
-            'payments', 'receipt_vouchers', 'payment_vouchers', 'cheques', 'payrolls', 'stock_adjustments',
-            'stock_transfers', 'inventory_counts', 'delivery_orders',
-            'work_orders', 'bill_of_materials', 'credit_notes', 'debit_notes', 'shifts', 'table_sessions',
-            'cashier_shifts', 'pos_petty_cash_payouts', 'waiter_call_requests', 'tips_distribution_records',
-            'restaurant_tables', 'modifiers', 'modifier_groups',
-            'promotions', 'retail_promotions', 'stadium_bookings', 'stadium_subscriptions', 'construction_projects',
-            'products', 'customers', 'suppliers', 'accounts', 'warehouses', 'cost_centers', 'assets',
-            'employees', 'company_settings', 'invitations', 'budgets', 'notification_preferences', 'security_logs', 'audit_logs'
-          ];
-          for (const tbl of tablesToClean) {
-            try { await (supabase.from(tbl as any) as any).delete().eq('organization_id', orgId); } catch (_) {}
-          }
-
-          deleteResult = await supabase.rpc('fn_delete_organization_safe', { p_org_id: orgId });
-
-          if (deleteResult.error) {
-            const directDelete = await supabase.from('organizations').delete().eq('id', orgId);
-            if (directDelete.error) {
-              throw new Error(deleteResult.error.message || directDelete.error.message);
-            }
-          }
-        } catch (cleanupErr: any) {
-          throw new Error(deleteResult.error?.message || cleanupErr.message);
-        }
-      }
-
+    const res = await deleteOrganizationSafe({ supabase, orgId, currentUser });
+    if (res.success) {
       showToast('تم حذف الشركة وجميع بياناتها بنجاح ✅', 'success');
-      await refreshData(); // تحديث القائمة بعد الحذف
+      await refreshData();
       return { success: true };
-    } catch (e: any) {
-      showToast(`حدث خطأ غير متوقع: ${e.message}`, 'error');
-      return { success: false, message: e.message };
+    } else {
+      if (res.message && res.message !== 'تم إلغاء عملية الحذف.') {
+        showToast(res.message, 'error');
+      }
+      return { success: false, message: res.message };
     }
   }, [currentUser, showToast, refreshData]);
 
