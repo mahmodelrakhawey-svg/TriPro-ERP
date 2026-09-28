@@ -417,19 +417,34 @@ const GeneralJournal: React.FC = () => {
   };
 
   const handlePostEntry = async (entryId: string) => {
-    if (!window.confirm('هل أنت متأكد من ترحيل هذا القيد؟ لا يمكن التراجع عن هذه العملية بعد الترحيل.')) {
+    const targetEntry = journalEntries.find(e => e.id === entryId);
+    const totalAmount = (targetEntry?.lines || []).reduce((sum: number, l: any) => sum + (Number(l.debit) || 0), 0);
+    const isHighValue = totalAmount >= 50000;
+
+    let confirmMsg = 'هل أنت متأكد من ترحيل هذا القيد؟ لا يمكن التراجع عن هذه العملية بعد الترحيل.';
+    if (isHighValue) {
+      confirmMsg = `🛡️ [ميثاق الحوكمة المالية وفصل المهام - Maker-Checker]:\n\n` +
+        `هذا القيد ذو قيمة مالية كبرى (${totalAmount.toLocaleString('ar-EG')} ج.م).\n` +
+        `وفقاً للسياسة الرقابية المعتمدة، يُشترط تدقيق المستندات المؤيدة والفواتير قبل الإقرار النهائي.\n\n` +
+        `هل تؤكد بصفتك الإدارية والرقابية اعتماد وترحيل هذا القيد نهائياً لدفتر الأستاذ العام؟`;
+    }
+
+    if (!window.confirm(confirmMsg)) {
       return;
     }
 
     try {
       const { error } = await supabase
         .from('journal_entries')
-        .update({ status: 'posted' })
+        .update({ 
+          status: 'posted',
+          is_posted: true
+        })
         .eq('id', entryId);
 
       if (error) throw error;
 
-      toast.success('تم ترحيل القيد بنجاح.');
+      toast.success(isHighValue ? 'تم اعتماد وترحيل القيد ذو القيمة الكبرى بنجاح.' : 'تم ترحيل القيد بنجاح.');
       refreshData();
       refresh();
     } catch (err: any) {

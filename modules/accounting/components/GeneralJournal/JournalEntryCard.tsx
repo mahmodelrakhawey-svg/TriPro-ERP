@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, CheckSquare, AlertTriangle, Eye, Printer, Copy, Edit, Trash2, Paperclip, Download } from 'lucide-react';
+import { Calendar, CheckSquare, AlertTriangle, Eye, Printer, Copy, Edit, Trash2, Paperclip, Download, ShieldCheck } from 'lucide-react';
 import { getEntrySource } from './journalSourceClassifier';
 
 export interface JournalEntryCardProps {
@@ -43,9 +43,18 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
     <div className="border border-slate-200 rounded-lg overflow-hidden">
       <div className="bg-slate-50 p-3 flex justify-between items-center text-sm gap-4">
         <div className="flex-1">
-          <div className="font-bold text-slate-700 flex items-center gap-2">
+          <div className="font-bold text-slate-700 flex items-center gap-2 flex-wrap">
             <span>قيد رقم: <span className="font-mono">{entry.reference || entry.id.slice(0, 8)}</span></span>
             <span className={`text-[10px] px-2 py-0.5 rounded-full ${source.color}`}>{source.label}</span>
+            {totalDebit >= 50000 && (
+              <span 
+                className="flex items-center gap-1 font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full text-[10px]" 
+                title="قيد ذو أثر مالي جوهري (أكثر من 50,000 ج.م) يخضع لميثاق الاعتماد المالي المزدوج (Maker-Checker)"
+              >
+                <ShieldCheck size={12} className="text-indigo-600" />
+                قيمة كبرى (اعتماد مالي)
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2 text-slate-500 mt-1">
             <Calendar size={14} />
