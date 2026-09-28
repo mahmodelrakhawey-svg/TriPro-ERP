@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { MidnightAuditShieldCard } from './components/MidnightAuditShieldCard';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -641,6 +642,9 @@ export default function AccountingDashboard() {
             </div>
         )}
       </div>
+
+      {/* 🛡️ درع النزاهة والتدقيق المحاسبي الليلي */}
+      <MidnightAuditShieldCard organizationId={currentUser?.organization_id || ''} />
 
       {/* Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
