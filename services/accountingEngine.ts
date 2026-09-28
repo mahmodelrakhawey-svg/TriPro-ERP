@@ -76,6 +76,32 @@ export interface AccountingEngineResult {
 }
 
 /**
+ * حمولة إدراج رأس القيد المحاسبي في جدول journal_entries
+ */
+export interface JournalEntryHeaderPayload {
+  organization_id: string | null;
+  transaction_date: string;
+  reference: string;
+  description: string;
+  status: 'draft' | 'posted';
+  is_posted: boolean;
+  related_document_id?: string | null;
+  related_document_type?: string | null;
+}
+
+/**
+ * حمولة إدراج رأس القيد المحاسبي بالحد الأدنى للأعمدة كإجراء احتياطي
+ */
+export interface MinimalJournalEntryHeaderPayload {
+  organization_id: string;
+  transaction_date: string;
+  reference: string;
+  description: string;
+  status: 'draft' | 'posted';
+  is_posted: boolean;
+}
+
+/**
  * المحرك المحاسبي المركزي الموحد (Unified Accounting Engine)
  * المسؤول الوحيد عن إنشاء قيود اليومية لجميع المديولات مع فرض قواعد القيد المزدوج:
  * 1. عزل المنشآت (Multi-Tenant Isolation via organizationId)
@@ -142,7 +168,7 @@ class UnifiedAccountingEngine {
     try {
       // 3. إنشاء رأس القيد في جدول journal_entries كمسودة أولاً
       const entryRef = reference || `JE-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
-      const entryPayload: any = {
+      const entryPayload: JournalEntryHeaderPayload = {
         organization_id: organizationId || null,
         transaction_date: transactionDate,
         reference: entryRef,
@@ -161,7 +187,7 @@ class UnifiedAccountingEngine {
 
       if (entryError) {
         // Fallback for minimal journal entry columns
-        const minimalPayload: any = {
+        const minimalPayload: MinimalJournalEntryHeaderPayload = {
           organization_id: organizationId,
           transaction_date: transactionDate,
           reference: entryRef,
@@ -224,13 +250,20 @@ class UnifiedAccountingEngine {
         totalDebit,
         totalCredit
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'object' && err !== null && 'message' in err
+          ? String((err as { message: unknown }).message)
+          : 'حدث خطأ أثناء ترحيل القيد المحاسبي';
+
       console.error('[UnifiedAccountingEngine] Error creating journal entry:', err);
       return {
         success: false,
         totalDebit,
         totalCredit,
-        error: err.message || 'حدث خطأ أثناء ترحيل القيد المحاسبي'
+        error: errorMessage
       };
     }
   }

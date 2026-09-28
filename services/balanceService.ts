@@ -40,6 +40,66 @@ export interface AgingLedgerRow {
   total_balance: number;
 }
 
+export interface RawBalanceRpcRow {
+  supplier_id?: string;
+  customer_id?: string;
+  balance?: number | string | null;
+  total_count?: number | string | null;
+}
+
+export interface RawCustomerAgingRpcRow {
+  customer_id: string;
+  customer_name: string;
+  phone: string;
+  range_0_30?: number | string | null;
+  range_31_60?: number | string | null;
+  range_61_90?: number | string | null;
+  range_90_plus?: number | string | null;
+  total_balance?: number | string | null;
+}
+
+export interface RawSupplierAgingRpcRow {
+  supplier_id: string;
+  supplier_name: string;
+  phone: string;
+  range_0_30?: number | string | null;
+  range_31_60?: number | string | null;
+  range_61_90?: number | string | null;
+  range_90_plus?: number | string | null;
+  total_balance?: number | string | null;
+}
+
+export interface SubcontractorRecord {
+  id: string;
+  name?: string | null;
+  supplier_id?: string | null;
+}
+
+export interface JournalEntryRelationMeta {
+  id?: string;
+  transaction_date?: string | null;
+  description?: string | null;
+  reference?: string | null;
+  status?: string | null;
+  related_document_id?: string | null;
+  related_document_type?: string | null;
+}
+
+export interface AccountRelationMeta {
+  code?: string | null;
+  name?: string | null;
+}
+
+export interface JournalLineRecord {
+  debit?: number | string | null;
+  credit?: number | string | null;
+  account_id?: string | null;
+  journal_entries?: JournalEntryRelationMeta | JournalEntryRelationMeta[] | null;
+  accounts?: AccountRelationMeta | AccountRelationMeta[] | null;
+}
+
+type SupabaseRpcCaller = (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
+
 /**
  * أداة استعلام تجلب جميع السجلات دفعة واحدة بأمان متجاوزة سقف الـ 1000 الافتراضي في Supabase
  * تقوم بتنفيذ الاستعلام على شكل أجزاء متتابعة (Chunks) بحجم 1000 سجل لكل استدعاء.
@@ -49,8 +109,8 @@ export interface AgingLedgerRow {
  * @param buildQuery دالة منشئ الاستعلام تستلم مدى الصفوف (from, to)
  * @returns وعد بمصفوفة كاملة تحتوي على كافة السجلات المجمعة
  */
-export async function fetchCompleteDataset<T = any>(
-  buildQuery: (from: number, to: number) => Promise<{ data: T[] | null; error: any }>
+export async function fetchCompleteDataset<T = Record<string, unknown>>(
+  buildQuery: (from: number, to: number) => Promise<{ data: T[] | null; error: unknown }>
 ): Promise<T[]> {
   const CHUNK_SIZE = 1000;
   let allRows: T[] = [];
@@ -86,7 +146,7 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
 
   // 1. محاولة جلب الأرصدة عبر محرك قاعدة البيانات المباشر
   try {
-    const { data: rpcRows, error: rpcError } = await (supabase.rpc as any)('get_all_supplier_balances_fast', {
+    const { data: rpcRows, error: rpcError } = await (supabase.rpc as unknown as SupabaseRpcCaller)('get_all_supplier_balances_fast', {
       p_org_id: orgId,
       p_search: null,
       p_limit: 10000,
@@ -94,8 +154,10 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
     });
 
     if (!rpcError && Array.isArray(rpcRows)) {
-      rpcRows.forEach((row: any) => {
-        balances.set(row.supplier_id, Number(row.balance || 0));
+      (rpcRows as RawBalanceRpcRow[]).forEach((row: RawBalanceRpcRow) => {
+        if (row.supplier_id) {
+          balances.set(row.supplier_id, Number(row.balance || 0));
+        }
       });
       return balances;
     }
@@ -182,9 +244,9 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
 
     // 2. مستخلصات مقاولي الباطن
     let contractorBillings = 0;
-    subs?.forEach(sub => {
+    subs?.forEach((sub: SubcontractorRecord) => {
       const subName = (sub.name || '').trim().toLowerCase();
-      if ((sub as any).supplier_id === supplier.id || sub.id === supplier.id || (subName && (sName === subName || sName.includes(subName) || subName.includes(sName)))) {
+      if (sub.supplier_id === supplier.id || sub.id === supplier.id || (subName && (sName === subName || sName.includes(subName) || subName.includes(sName)))) {
         contractorBillings += (subBillingsTotalBySubId.get(sub.id) || 0);
       }
     });
@@ -208,8 +270,9 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
     // 5. قيود الرصيد الافتتاحي في اليومية
     let hasOpeningInEntries = false;
     let openingEntriesNet = 0;
-    openingJournalLines?.forEach((line: any) => {
-      if (line.journal_entries?.related_document_id === supplier.id) {
+    openingJournalLines?.forEach((line: JournalLineRecord) => {
+      const je = Array.isArray(line.journal_entries) ? line.journal_entries[0] : line.journal_entries;
+      if (je?.related_document_id === supplier.id) {
         hasOpeningInEntries = true;
         openingEntriesNet += (Number(line.credit || 0) - Number(line.debit || 0));
       }
@@ -217,8 +280,8 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
 
     // 6. قيود اليومية اليدوية والتسويات الخاصة بالمورد
     let manualEntriesNet = 0;
-    manualJournalLines?.forEach((line: any) => {
-      const je = line.journal_entries;
+    manualJournalLines?.forEach((line: JournalLineRecord) => {
+      const je = Array.isArray(line.journal_entries) ? line.journal_entries[0] : line.journal_entries;
       if (!je) return;
 
       const jeDesc = (je.description || '').trim();
@@ -356,14 +419,14 @@ export async function fetchSingleSupplierBalance(
     const returns = returnsRes.data || [];
     const debitNotes = debitNotesRes.data || [];
     const cheques = chequesRes.data || [];
-    const manualEntries = (manualEntriesRes as any).data || [];
-    const openingEntries = (openingEntriesRes as any).data || [];
-    const matchedSubs = (subsRes as any).data || [];
+    const manualEntries = (manualEntriesRes.data as JournalLineRecord[] | null) || [];
+    const openingEntries = (openingEntriesRes.data as JournalLineRecord[] | null) || [];
+    const matchedSubs = (subsRes.data as SubcontractorRecord[] | null) || [];
 
     // مستخلصات مقاولي الباطن إن وجدت
     let contractorBillings = 0;
     if (matchedSubs.length > 0) {
-      const subIds = matchedSubs.map((s: any) => s.id);
+      const subIds = matchedSubs.map(s => s.id);
       const { data: contracts } = await supabase.from('subcontractor_contracts')
         .select('id')
         .in('subcontractor_id', subIds)
@@ -403,15 +466,15 @@ export async function fetchSingleSupplierBalance(
 
     const docRefs = new Set<string>();
     invoices.forEach(i => i.invoice_number && docRefs.add(cleanRef(i.invoice_number)));
-    returns.forEach((r: any) => r.return_number && docRefs.add(cleanRef(r.return_number)));
+    returns.forEach((r: { return_number?: string | null }) => r.return_number && docRefs.add(cleanRef(r.return_number)));
     payments.forEach(p => p.voucher_number && docRefs.add(cleanRef(p.voucher_number)));
-    debitNotes.forEach((d: any) => d.debit_note_number && docRefs.add(cleanRef(d.debit_note_number)));
+    debitNotes.forEach((d: { debit_note_number?: string | null }) => d.debit_note_number && docRefs.add(cleanRef(d.debit_note_number)));
     cheques.forEach(c => c.cheque_number && docRefs.add(cleanRef(c.cheque_number)));
 
     // معالجة قيود الرصيد الافتتاحي
     let hasOpeningInEntries = false;
     let openingEntriesNet = 0;
-    openingEntries.forEach((line: any) => {
+    openingEntries.forEach((line: JournalLineRecord) => {
       hasOpeningInEntries = true;
       openingEntriesNet += (Number(line.credit || 0) - Number(line.debit || 0));
     });
@@ -425,8 +488,8 @@ export async function fetchSingleSupplierBalance(
       .toLowerCase();
 
     let manualEntriesNet = 0;
-    manualEntries.forEach((line: any) => {
-      const je = line.journal_entries;
+    manualEntries.forEach((line: JournalLineRecord) => {
+      const je = Array.isArray(line.journal_entries) ? line.journal_entries[0] : line.journal_entries;
       if (!je) return;
 
       const jeDesc = (je.description || '').trim();
@@ -484,7 +547,7 @@ export async function fetchAllCustomerBalances(orgId: string): Promise<Map<strin
 
   // 1. محاولة جلب الأرصدة عبر محرك قاعدة البيانات المباشر
   try {
-    const { data: rpcRows, error: rpcError } = await (supabase.rpc as any)('get_all_customer_balances_fast', {
+    const { data: rpcRows, error: rpcError } = await (supabase.rpc as unknown as SupabaseRpcCaller)('get_all_customer_balances_fast', {
       p_org_id: orgId,
       p_search: null,
       p_limit: 10000,
@@ -492,8 +555,10 @@ export async function fetchAllCustomerBalances(orgId: string): Promise<Map<strin
     });
 
     if (!rpcError && Array.isArray(rpcRows)) {
-      rpcRows.forEach((row: any) => {
-        balances.set(row.customer_id, Number(row.balance || 0));
+      (rpcRows as RawBalanceRpcRow[]).forEach((row: RawBalanceRpcRow) => {
+        if (row.customer_id) {
+          balances.set(row.customer_id, Number(row.balance || 0));
+        }
       });
       return balances;
     }
@@ -554,7 +619,7 @@ export async function fetchPaginatedSupplierBalances(
   const search = options?.search?.trim() || null;
 
   try {
-    const { data, error } = await (supabase.rpc as any)('get_all_supplier_balances_fast', {
+    const { data, error } = await (supabase.rpc as unknown as SupabaseRpcCaller)('get_all_supplier_balances_fast', {
       p_org_id: orgId,
       p_search: search,
       p_limit: pageSize,
@@ -562,9 +627,10 @@ export async function fetchPaginatedSupplierBalances(
     });
 
     if (!error && Array.isArray(data)) {
-      const totalCount = data.length > 0 ? Number(data[0].total_count || 0) : 0;
+      const rows = data as SupplierBalanceSummaryRow[];
+      const totalCount = rows.length > 0 ? Number(rows[0].total_count || 0) : 0;
       return {
-        data: data as SupplierBalanceSummaryRow[],
+        data: rows,
         totalCount
       };
     }
@@ -588,7 +654,7 @@ export async function fetchPaginatedCustomerBalances(
   const search = options?.search?.trim() || null;
 
   try {
-    const { data, error } = await (supabase.rpc as any)('get_all_customer_balances_fast', {
+    const { data, error } = await (supabase.rpc as unknown as SupabaseRpcCaller)('get_all_customer_balances_fast', {
       p_org_id: orgId,
       p_search: search,
       p_limit: pageSize,
@@ -596,9 +662,10 @@ export async function fetchPaginatedCustomerBalances(
     });
 
     if (!error && Array.isArray(data)) {
-      const totalCount = data.length > 0 ? Number(data[0].total_count || 0) : 0;
+      const rows = data as CustomerBalanceSummaryRow[];
+      const totalCount = rows.length > 0 ? Number(rows[0].total_count || 0) : 0;
       return {
-        data: data as CustomerBalanceSummaryRow[],
+        data: rows,
         totalCount
       };
     }
@@ -614,12 +681,12 @@ export async function fetchPaginatedCustomerBalances(
  */
 export async function fetchCustomerAgingLedger(orgId: string): Promise<AgingLedgerRow[]> {
   try {
-    const { data, error } = await (supabase.rpc as any)('get_customer_aging_ledger', {
+    const { data, error } = await (supabase.rpc as unknown as SupabaseRpcCaller)('get_customer_aging_ledger', {
       p_org_id: orgId
     });
 
     if (!error && Array.isArray(data)) {
-      return data.map((row: any) => ({
+      return (data as RawCustomerAgingRpcRow[]).map((row: RawCustomerAgingRpcRow) => ({
         party_id: row.customer_id,
         party_name: row.customer_name,
         phone: row.phone,
@@ -641,12 +708,12 @@ export async function fetchCustomerAgingLedger(orgId: string): Promise<AgingLedg
  */
 export async function fetchSupplierAgingLedger(orgId: string): Promise<AgingLedgerRow[]> {
   try {
-    const { data, error } = await (supabase.rpc as any)('get_supplier_aging_ledger', {
+    const { data, error } = await (supabase.rpc as unknown as SupabaseRpcCaller)('get_supplier_aging_ledger', {
       p_org_id: orgId
     });
 
     if (!error && Array.isArray(data)) {
-      return data.map((row: any) => ({
+      return (data as RawSupplierAgingRpcRow[]).map((row: RawSupplierAgingRpcRow) => ({
         party_id: row.supplier_id,
         party_name: row.supplier_name,
         phone: row.phone,

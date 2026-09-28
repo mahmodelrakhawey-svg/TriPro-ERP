@@ -99,7 +99,7 @@ export interface Account {
   parentId?: string | null;
 }
 
-// سطر القيد المحاسبي
+// سطر القيد المحاسبي في الواجهة
 export interface JournalEntryLine {
   account_id: string;
   description?: string;
@@ -113,6 +113,42 @@ export interface JournalEntryLine {
   accountCode?: string;
 }
 
+// سطر قيد اليومية المخزن في قاعدة البيانات مع العلاقات المرتبطة
+export interface JournalEntryLineItem {
+  id?: string;
+  journal_entry_id?: string;
+  account_id: string;
+  description?: string;
+  debit: number;
+  credit: number;
+  cost_center_id?: string | null;
+  created_at?: string;
+  organization_id?: string;
+  accounts?: {
+    id?: string;
+    code?: string;
+    name?: string;
+    type?: string;
+  } | null;
+  cost_centers?: {
+    id?: string;
+    code?: string;
+    name?: string;
+  } | null;
+}
+
+// مرفق القيد المحاسبي أو المستند المالي
+export interface JournalAttachment {
+  id: string;
+  journal_entry_id?: string;
+  file_name: string;
+  file_path: string;
+  file_type?: string;
+  file_size?: number;
+  created_at?: string;
+  organization_id?: string;
+}
+
 // القيد المحاسبي الكامل
 export interface JournalEntry {
   id: string;
@@ -123,10 +159,10 @@ export interface JournalEntry {
   status: 'posted' | 'draft';
   is_posted: boolean;
   lines: JournalEntryLine[];
-  journal_lines?: any[];
+  journal_lines?: JournalEntryLineItem[];
   user_id?: string;
   transaction_date?: string;
-  journal_attachments?: any[];
+  journal_attachments?: JournalAttachment[];
   createdAt?: string;
 }
 
@@ -587,7 +623,7 @@ export interface PurchaseInvoice {
   status: 'paid' | 'unpaid' | 'draft' | 'posted';
   notes?: string;
   related_journal_entry_id?: string;
-  attachments?: any[];
+  attachments?: JournalAttachment[];
   // خصائص إضافية
   supplierId?: string;
   invoiceNumber?: string;

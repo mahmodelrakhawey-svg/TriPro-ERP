@@ -34,9 +34,9 @@ export interface UnifiedStockMovement {
   /** اسم المستودع */
   warehouseName?: string;
   /** توقيت إنشاء السجل في النظام */
-  createdAt?: string;
+  createdAt?: string | null;
   /** ملاحظات وبيان الحركة */
-  notes?: string;
+  notes?: string | null;
   /** سعر البيع للوحدة في حال المبيعات */
   unitPrice?: number;
   /** تكلفة الشراء أو الإنتاج للوحدة */
@@ -79,6 +79,186 @@ export interface StockMovementsResult {
   netMovement: number;
   /** الرصيد الختامي في نهاية الفترة (الافتتاحي + الصافي) */
   closingBalance: number;
+}
+
+export interface InvoiceRelationMeta {
+  id?: string;
+  invoice_date?: string | null;
+  invoice_number?: string | null;
+  warehouse_id?: string | null;
+  created_at?: string | null;
+  notes?: string | null;
+  status?: string | null;
+  warehouses?: { name?: string | null } | { name?: string | null }[] | null;
+}
+
+export interface SalesInvoiceItemRecord {
+  quantity?: number | string | null;
+  uom_id?: string | null;
+  invoices?: InvoiceRelationMeta | InvoiceRelationMeta[] | null;
+}
+
+export interface PurchaseInvoiceRelationMeta {
+  id?: string;
+  invoice_date?: string | null;
+  invoice_number?: string | null;
+  warehouse_id?: string | null;
+  created_at?: string | null;
+  notes?: string | null;
+  status?: string | null;
+  warehouses?: { name?: string | null } | { name?: string | null }[] | null;
+}
+
+export interface PurchaseInvoiceItemRecord {
+  quantity?: number | string | null;
+  uom_id?: string | null;
+  purchase_invoices?: PurchaseInvoiceRelationMeta | PurchaseInvoiceRelationMeta[] | null;
+}
+
+export interface SalesReturnRelationMeta {
+  id?: string;
+  return_date?: string | null;
+  return_number?: string | null;
+  warehouse_id?: string | null;
+  created_at?: string | null;
+  notes?: string | null;
+  status?: string | null;
+  warehouses?: { name?: string | null } | { name?: string | null }[] | null;
+}
+
+export interface SalesReturnItemRecord {
+  quantity?: number | string | null;
+  uom_id?: string | null;
+  sales_returns?: SalesReturnRelationMeta | SalesReturnRelationMeta[] | null;
+}
+
+export interface PurchaseReturnRelationMeta {
+  id?: string;
+  return_date?: string | null;
+  return_number?: string | null;
+  warehouse_id?: string | null;
+  created_at?: string | null;
+  notes?: string | null;
+  status?: string | null;
+  warehouses?: { name?: string | null } | { name?: string | null }[] | null;
+}
+
+export interface PurchaseReturnItemRecord {
+  quantity?: number | string | null;
+  uom_id?: string | null;
+  purchase_returns?: PurchaseReturnRelationMeta | PurchaseReturnRelationMeta[] | null;
+}
+
+export interface StockAdjustmentRelationMeta {
+  id?: string;
+  adjustment_date?: string | null;
+  adjustment_number?: string | null;
+  warehouse_id?: string | null;
+  created_at?: string | null;
+  reason?: string | null;
+  status?: string | null;
+  warehouses?: { name?: string | null } | { name?: string | null }[] | null;
+}
+
+export interface StockAdjustmentItemRecord {
+  quantity?: number | string | null;
+  uom_id?: string | null;
+  stock_adjustments?: StockAdjustmentRelationMeta | StockAdjustmentRelationMeta[] | null;
+}
+
+export interface StockTransferRelationMeta {
+  id?: string;
+  transfer_date?: string | null;
+  transfer_number?: string | null;
+  from_warehouse_id?: string | null;
+  to_warehouse_id?: string | null;
+  created_at?: string | null;
+  notes?: string | null;
+  status?: string | null;
+}
+
+export interface StockTransferItemRecord {
+  quantity?: number | string | null;
+  uom_id?: string | null;
+  stock_transfers?: StockTransferRelationMeta | StockTransferRelationMeta[] | null;
+}
+
+export interface MfgProductionOrderRecord {
+  id: string;
+  order_number?: string | null;
+  end_date?: string | null;
+  quantity_to_produce?: number | string | null;
+  warehouse_id?: string | null;
+  created_at?: string | null;
+  status?: string | null;
+}
+
+export interface MfgMaterialRequestRelationMeta {
+  request_number?: string | null;
+  issue_date?: string | null;
+  created_at?: string | null;
+  status?: string | null;
+  production_order_id?: string | null;
+  mfg_production_orders?: { warehouse_id?: string | null } | { warehouse_id?: string | null }[] | null;
+}
+
+export interface MfgMaterialRequestItemRecord {
+  quantity_issued?: number | string | null;
+  uom_id?: string | null;
+  mfg_material_requests?: MfgMaterialRequestRelationMeta | MfgMaterialRequestRelationMeta[] | null;
+}
+
+export interface HimsBillingRelationMeta {
+  id?: string;
+  visit_id?: string | null;
+  created_at?: string | null;
+  patient_id?: string | null;
+  organization_id?: string | null;
+  hims_patients?: { full_name?: string | null } | { full_name?: string | null }[] | null;
+}
+
+export interface HimsBillingItemRecord {
+  id: string;
+  quantity?: number | string | null;
+  uom_id?: string | null;
+  warehouse_id?: string | null;
+  created_at?: string | null;
+  hims_billing?: HimsBillingRelationMeta | HimsBillingRelationMeta[] | null;
+}
+
+export interface ProjectMaterialIssueRelationMeta {
+  id?: string;
+  issue_date?: string | null;
+  issue_number?: string | null;
+  warehouse_id?: string | null;
+  created_at?: string | null;
+  status?: string | null;
+  projects?: { name?: string | null } | { name?: string | null }[] | null;
+}
+
+export interface ProjectMaterialIssueItemRecord {
+  id: string;
+  quantity?: number | string | null;
+  uom_id?: string | null;
+  project_material_issues?: ProjectMaterialIssueRelationMeta | ProjectMaterialIssueRelationMeta[] | null;
+}
+
+export interface LcRelationMeta {
+  id?: string;
+  lc_number?: string | null;
+  status?: string | null;
+}
+
+export interface LcReceiptItemRecord {
+  id: string;
+  quantity?: number | string | null;
+  unit_price?: number | string | null;
+  final_unit_cost?: number | string | null;
+  warehouse_id?: string | null;
+  receipt_date?: string | null;
+  notes?: string | null;
+  created_at?: string | null;
+  letters_of_credit?: LcRelationMeta | LcRelationMeta[] | null;
 }
 
 export class StockMovementService {
@@ -295,94 +475,104 @@ export class StockMovementService {
       const movements: UnifiedStockMovement[] = [];
 
       // 1. معالجة المبيعات
-      salesRes.data?.forEach((item: any) => {
+      salesRes.data?.forEach((item: SalesInvoiceItemRecord) => {
+        const inv = Array.isArray(item.invoices) ? item.invoices[0] : item.invoices;
+        const wh = Array.isArray(inv?.warehouses) ? inv?.warehouses[0] : inv?.warehouses;
         movements.push({
-          id: `SALE-${item.invoices?.id || Math.random()}`,
-          date: item.invoices?.invoice_date || '',
+          id: `SALE-${inv?.id || Math.random()}`,
+          date: inv?.invoice_date || '',
           type: 'OUT',
           quantity: Number(item.quantity || 0),
           uomId: item.uom_id,
           documentType: 'فاتورة مبيعات',
-          documentNumber: item.invoices?.invoice_number || '-',
-          warehouseId: item.invoices?.warehouse_id,
-          warehouseName: item.invoices?.warehouses?.name || 'غير محدد',
-          createdAt: item.invoices?.created_at,
-          notes: item.invoices?.notes || ''
+          documentNumber: inv?.invoice_number || '-',
+          warehouseId: inv?.warehouse_id,
+          warehouseName: wh?.name || 'غير محدد',
+          createdAt: inv?.created_at,
+          notes: inv?.notes || ''
         });
       });
 
       // 2. معالجة المشتريات
-      purchasesRes.data?.forEach((item: any) => {
+      purchasesRes.data?.forEach((item: PurchaseInvoiceItemRecord) => {
+        const pinv = Array.isArray(item.purchase_invoices) ? item.purchase_invoices[0] : item.purchase_invoices;
+        const wh = Array.isArray(pinv?.warehouses) ? pinv?.warehouses[0] : pinv?.warehouses;
         movements.push({
-          id: `PURCH-${item.purchase_invoices?.id || Math.random()}`,
-          date: item.purchase_invoices?.invoice_date || '',
+          id: `PURCH-${pinv?.id || Math.random()}`,
+          date: pinv?.invoice_date || '',
           type: 'IN',
           quantity: Number(item.quantity || 0),
           uomId: item.uom_id,
           documentType: 'فاتورة مشتريات',
-          documentNumber: item.purchase_invoices?.invoice_number || '-',
-          warehouseId: item.purchase_invoices?.warehouse_id,
-          warehouseName: item.purchase_invoices?.warehouses?.name || 'غير محدد',
-          createdAt: item.purchase_invoices?.created_at,
-          notes: item.purchase_invoices?.notes || ''
+          documentNumber: pinv?.invoice_number || '-',
+          warehouseId: pinv?.warehouse_id,
+          warehouseName: wh?.name || 'غير محدد',
+          createdAt: pinv?.created_at,
+          notes: pinv?.notes || ''
         });
       });
 
       // 3. مرتجعات المبيعات
-      salesReturnsRes.data?.forEach((item: any) => {
+      salesReturnsRes.data?.forEach((item: SalesReturnItemRecord) => {
+        const sr = Array.isArray(item.sales_returns) ? item.sales_returns[0] : item.sales_returns;
+        const wh = Array.isArray(sr?.warehouses) ? sr?.warehouses[0] : sr?.warehouses;
         movements.push({
-          id: `SR-${item.sales_returns?.id || Math.random()}`,
-          date: item.sales_returns?.return_date || '',
+          id: `SR-${sr?.id || Math.random()}`,
+          date: sr?.return_date || '',
           type: 'IN',
           quantity: Number(item.quantity || 0),
           uomId: item.uom_id,
           documentType: 'مرتجع مبيعات',
-          documentNumber: item.sales_returns?.return_number || '-',
-          warehouseId: item.sales_returns?.warehouse_id,
-          warehouseName: item.sales_returns?.warehouses?.name || 'غير محدد',
-          createdAt: item.sales_returns?.created_at,
-          notes: item.sales_returns?.notes || ''
+          documentNumber: sr?.return_number || '-',
+          warehouseId: sr?.warehouse_id,
+          warehouseName: wh?.name || 'غير محدد',
+          createdAt: sr?.created_at,
+          notes: sr?.notes || ''
         });
       });
 
       // 4. مرتجعات المشتريات
-      purchaseReturnsRes.data?.forEach((item: any) => {
+      purchaseReturnsRes.data?.forEach((item: PurchaseReturnItemRecord) => {
+        const pr = Array.isArray(item.purchase_returns) ? item.purchase_returns[0] : item.purchase_returns;
+        const wh = Array.isArray(pr?.warehouses) ? pr?.warehouses[0] : pr?.warehouses;
         movements.push({
-          id: `PR-${item.purchase_returns?.id || Math.random()}`,
-          date: item.purchase_returns?.return_date || '',
+          id: `PR-${pr?.id || Math.random()}`,
+          date: pr?.return_date || '',
           type: 'OUT',
           quantity: Number(item.quantity || 0),
           uomId: item.uom_id,
           documentType: 'مرتجع مشتريات',
-          documentNumber: item.purchase_returns?.return_number || '-',
-          warehouseId: item.purchase_returns?.warehouse_id,
-          warehouseName: item.purchase_returns?.warehouses?.name || 'غير محدد',
-          createdAt: item.purchase_returns?.created_at,
-          notes: item.purchase_returns?.notes || ''
+          documentNumber: pr?.return_number || '-',
+          warehouseId: pr?.warehouse_id,
+          warehouseName: wh?.name || 'غير محدد',
+          createdAt: pr?.created_at,
+          notes: pr?.notes || ''
         });
       });
 
       // 5. التسويات المخزنية
-      adjustmentsRes.data?.forEach((item: any) => {
+      adjustmentsRes.data?.forEach((item: StockAdjustmentItemRecord) => {
+        const adj = Array.isArray(item.stock_adjustments) ? item.stock_adjustments[0] : item.stock_adjustments;
+        const wh = Array.isArray(adj?.warehouses) ? adj?.warehouses[0] : adj?.warehouses;
         const qty = Number(item.quantity || 0);
         movements.push({
-          id: `ADJ-${item.stock_adjustments?.id || Math.random()}`,
-          date: item.stock_adjustments?.adjustment_date || '',
+          id: `ADJ-${adj?.id || Math.random()}`,
+          date: adj?.adjustment_date || '',
           type: qty >= 0 ? 'IN' : 'OUT',
           quantity: Math.abs(qty),
           uomId: item.uom_id,
           documentType: 'تسوية جردية',
-          documentNumber: item.stock_adjustments?.adjustment_number || '-',
-          warehouseId: item.stock_adjustments?.warehouse_id,
-          warehouseName: item.stock_adjustments?.warehouses?.name || 'غير محدد',
-          createdAt: item.stock_adjustments?.created_at,
-          notes: item.stock_adjustments?.reason || ''
+          documentNumber: adj?.adjustment_number || '-',
+          warehouseId: adj?.warehouse_id,
+          warehouseName: wh?.name || 'غير محدد',
+          createdAt: adj?.created_at,
+          notes: adj?.reason || ''
         });
       });
 
       // 6. التحويلات المخزنية
-      transfersRes.data?.forEach((item: any) => {
-        const transfer = item.stock_transfers;
+      transfersRes.data?.forEach((item: StockTransferItemRecord) => {
+        const transfer = Array.isArray(item.stock_transfers) ? item.stock_transfers[0] : item.stock_transfers;
         const qty = Number(item.quantity || 0);
         if (!warehouseId || warehouseId === transfer?.to_warehouse_id) {
           movements.push({
@@ -415,7 +605,7 @@ export class StockMovementService {
       });
 
       // 7. أوامر الإنتاج التامة
-      mfgFinishedRes.data?.forEach((item: any) => {
+      mfgFinishedRes.data?.forEach((item: MfgProductionOrderRecord) => {
         movements.push({
           id: `MFG-FIN-${item.id}`,
           date: item.end_date || item.created_at?.split('T')[0] || '',
@@ -429,8 +619,9 @@ export class StockMovementService {
       });
 
       // 8. صرف المواد الخام للتصنيع
-      mfgRawRes.data?.forEach((item: any) => {
-        const req = item.mfg_material_requests;
+      mfgRawRes.data?.forEach((item: MfgMaterialRequestItemRecord) => {
+        const req = Array.isArray(item.mfg_material_requests) ? item.mfg_material_requests[0] : item.mfg_material_requests;
+        const mfgOrder = Array.isArray(req?.mfg_production_orders) ? req?.mfg_production_orders[0] : req?.mfg_production_orders;
         movements.push({
           id: `MFG-RAW-${req?.request_number || Math.random()}`,
           date: req?.issue_date || req?.created_at?.split('T')[0] || '',
@@ -439,13 +630,15 @@ export class StockMovementService {
           uomId: item.uom_id,
           documentType: 'صرف مواد تصنيع',
           documentNumber: req?.request_number || '-',
-          warehouseId: req?.mfg_production_orders?.warehouse_id,
+          warehouseId: mfgOrder?.warehouse_id,
           createdAt: req?.created_at
         });
       });
 
       // 9. صرف المستشفيات
-      himsRes.data?.forEach((item: any) => {
+      himsRes.data?.forEach((item: HimsBillingItemRecord) => {
+        const billing = Array.isArray(item.hims_billing) ? item.hims_billing[0] : item.hims_billing;
+        const patient = Array.isArray(billing?.hims_patients) ? billing?.hims_patients[0] : billing?.hims_patients;
         movements.push({
           id: `HIMS-${item.id}`,
           date: item.created_at?.split('T')[0] || '',
@@ -453,16 +646,17 @@ export class StockMovementService {
           quantity: Number(item.quantity || 0),
           uomId: item.uom_id,
           documentType: 'صرف علاج/مستلزمات',
-          documentNumber: item.hims_billing?.visit_id || '-',
+          documentNumber: billing?.visit_id || '-',
           warehouseId: item.warehouse_id,
           createdAt: item.created_at,
-          notes: item.hims_billing?.hims_patients?.full_name || ''
+          notes: patient?.full_name || ''
         });
       });
 
       // 10. صرف مشاريع المقاولات
-      constructionRes.data?.forEach((item: any) => {
-        const issue = item.project_material_issues;
+      constructionRes.data?.forEach((item: ProjectMaterialIssueItemRecord) => {
+        const issue = Array.isArray(item.project_material_issues) ? item.project_material_issues[0] : item.project_material_issues;
+        const project = Array.isArray(issue?.projects) ? issue?.projects[0] : issue?.projects;
         movements.push({
           id: `CONST-${issue?.id || Math.random()}`,
           date: issue?.issue_date || issue?.created_at?.split('T')[0] || '',
@@ -473,12 +667,13 @@ export class StockMovementService {
           documentNumber: issue?.issue_number || '-',
           warehouseId: issue?.warehouse_id,
           createdAt: issue?.created_at,
-          notes: issue?.projects?.name || ''
+          notes: project?.name || ''
         });
       });
 
       // 11. توريد اعتمادات مستندية
-      lcRes.data?.forEach((item: any) => {
+      lcRes.data?.forEach((item: LcReceiptItemRecord) => {
+        const lc = Array.isArray(item.letters_of_credit) ? item.letters_of_credit[0] : item.letters_of_credit;
         movements.push({
           id: `LC-${item.id}`,
           date: item.receipt_date || item.created_at?.split('T')[0] || '',
@@ -487,7 +682,7 @@ export class StockMovementService {
           unitPrice: Number(item.unit_price || 0),
           unitCost: Number(item.final_unit_cost || 0),
           documentType: 'استلام اعتماد مستندي',
-          documentNumber: item.letters_of_credit?.lc_number || '-',
+          documentNumber: lc?.lc_number || '-',
           warehouseId: item.warehouse_id,
           createdAt: item.created_at,
           notes: item.notes || ''
@@ -519,7 +714,7 @@ export class StockMovementService {
         netMovement,
         closingBalance
       };
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('[StockMovementService] Error fetching product movements:', err);
       return {
         openingBalance,
