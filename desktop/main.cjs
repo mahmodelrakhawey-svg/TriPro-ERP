@@ -51,8 +51,21 @@ function killPort(port) {
   } catch (_) {}
 }
 
+function getDistPath() {
+  const candidates = [
+    path.join(__dirname, '../dist'),
+    path.join(app.getAppPath(), 'dist'),
+    path.join(process.resourcesPath || '', 'app.asar', 'dist'),
+    path.join(process.resourcesPath || '', 'dist')
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+  return path.join(__dirname, '../dist');
+}
+
 function createHttpHandler() {
-  const distPath = path.join(__dirname, '../dist');
+  const distPath = getDistPath();
   const mimeTypes = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'text/javascript; charset=utf-8',

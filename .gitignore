@@ -42,3 +42,8 @@ scratch/
 # Integration test secrets
 .env.integration
 
+# Electron Releases & Binaries
+release/
+*.tmp
+
+
