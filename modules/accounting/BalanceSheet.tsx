@@ -81,27 +81,50 @@ const BalanceSheet: React.FC = () => {
       }
 
       // 1. أرصدة التاريخ المحدد
-      const { data, error } = await supabase
-        .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
-        .eq('journal_entries.status', 'posted')
-        .eq('journal_entries.organization_id', userOrgId)
-        .lte('journal_entries.transaction_date', asOfDate);
+      let allLines: any[] = [];
+      let from = 0;
+      const CHUNK_SIZE = 1000;
 
-      if (error) throw error;
-      setLedgerLines(data || []);
-
-      // 2. أرصدة التاريخ المقارن (إذا تم تفعيل العرض المقارن)
-      if (isComparative) {
-        const { data: priorData, error: priorErr } = await supabase
+      while (true) {
+        const { data: chunk, error: chunkErr } = await supabase
           .from('journal_lines')
           .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
           .eq('journal_entries.status', 'posted')
           .eq('journal_entries.organization_id', userOrgId)
-          .lte('journal_entries.transaction_date', priorAsOfDate);
+          .lte('journal_entries.transaction_date', asOfDate)
+          .range(from, from + CHUNK_SIZE - 1);
 
-        if (priorErr) throw priorErr;
-        setPriorLedgerLines(priorData || []);
+        if (chunkErr) throw chunkErr;
+        if (!chunk || chunk.length === 0) break;
+
+        allLines = allLines.concat(chunk);
+        if (chunk.length < CHUNK_SIZE) break;
+        from += CHUNK_SIZE;
+      }
+      setLedgerLines(allLines);
+
+      // 2. أرصدة التاريخ المقارن (إذا تم تفعيل العرض المقارن)
+      if (isComparative) {
+        let allPriorLines: any[] = [];
+        let priorFrom = 0;
+
+        while (true) {
+          const { data: priorChunk, error: priorErr } = await supabase
+            .from('journal_lines')
+            .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+            .eq('journal_entries.status', 'posted')
+            .eq('journal_entries.organization_id', userOrgId)
+            .lte('journal_entries.transaction_date', priorAsOfDate)
+            .range(priorFrom, priorFrom + CHUNK_SIZE - 1);
+
+          if (priorErr) throw priorErr;
+          if (!priorChunk || priorChunk.length === 0) break;
+
+          allPriorLines = allPriorLines.concat(priorChunk);
+          if (priorChunk.length < CHUNK_SIZE) break;
+          priorFrom += CHUNK_SIZE;
+        }
+        setPriorLedgerLines(allPriorLines);
       }
     } catch (err: any) {
       console.error('Error fetching balance sheet data:', err);

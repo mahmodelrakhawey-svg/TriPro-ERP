@@ -96,15 +96,17 @@ export const JournalAdvancedFilters: React.FC<JournalAdvancedFiltersProps> = ({
         </select>
       </div>
       <div>
-        <label className="block text-xs font-bold text-slate-500 mb-1">حالة القيد</label>
+        <label className="block text-xs font-bold text-slate-500 mb-1">حالة القيد والتوازن</label>
         <select
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
           className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500 bg-white"
         >
           <option value="">كل الحالات</option>
-          <option value="posted">مرحّل</option>
-          <option value="draft">مسودة</option>
+          <option value="posted">مرحّل فقط</option>
+          <option value="draft">مسودة فقط</option>
+          <option value="unbalanced">⚠️ غير متوازن (المدين ≠ الدائن)</option>
+          <option value="posted_unbalanced">🚨 مرحّل وغير متوازن (المسبب لفارق الميزان)</option>
         </select>
       </div>
       <div>

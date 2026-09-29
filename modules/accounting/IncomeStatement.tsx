@@ -73,37 +73,60 @@ const IncomeStatement: React.FC = () => {
       }
 
       // 1. استعلام الفترة الحالية
-      let query = supabase
-        .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
-        .eq('journal_entries.status', 'posted')
-        .gte('journal_entries.transaction_date', startDate)
-        .lte('journal_entries.transaction_date', endDate);
+      let allLines: any[] = [];
+      let from = 0;
+      const CHUNK_SIZE = 1000;
 
-      if (userOrgId) {
-        query = query.eq('journal_entries.organization_id', userOrgId);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      setLedgerLines(data || []);
-
-      // 2. استعلام الفترة المقارنة (إذا تم تفعيل العرض المقارن)
-      if (isComparative) {
-        let priorQuery = supabase
+      while (true) {
+        let query = supabase
           .from('journal_lines')
           .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
           .eq('journal_entries.status', 'posted')
-          .gte('journal_entries.transaction_date', priorStartDate)
-          .lte('journal_entries.transaction_date', priorEndDate);
+          .gte('journal_entries.transaction_date', startDate)
+          .lte('journal_entries.transaction_date', endDate)
+          .range(from, from + CHUNK_SIZE - 1);
 
         if (userOrgId) {
-          priorQuery = priorQuery.eq('journal_entries.organization_id', userOrgId);
+          query = query.eq('journal_entries.organization_id', userOrgId);
         }
 
-        const { data: priorData, error: priorErr } = await priorQuery;
-        if (priorErr) throw priorErr;
-        setPriorLedgerLines(priorData || []);
+        const { data: chunk, error: chunkErr } = await query;
+        if (chunkErr) throw chunkErr;
+        if (!chunk || chunk.length === 0) break;
+
+        allLines = allLines.concat(chunk);
+        if (chunk.length < CHUNK_SIZE) break;
+        from += CHUNK_SIZE;
+      }
+      setLedgerLines(allLines);
+
+      // 2. استعلام الفترة المقارنة (إذا تم تفعيل العرض المقارن)
+      if (isComparative) {
+        let allPriorLines: any[] = [];
+        let priorFrom = 0;
+
+        while (true) {
+          let priorQuery = supabase
+            .from('journal_lines')
+            .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
+            .eq('journal_entries.status', 'posted')
+            .gte('journal_entries.transaction_date', priorStartDate)
+            .lte('journal_entries.transaction_date', priorEndDate)
+            .range(priorFrom, priorFrom + CHUNK_SIZE - 1);
+
+          if (userOrgId) {
+            priorQuery = priorQuery.eq('journal_entries.organization_id', userOrgId);
+          }
+
+          const { data: priorChunk, error: priorErr } = await priorQuery;
+          if (priorErr) throw priorErr;
+          if (!priorChunk || priorChunk.length === 0) break;
+
+          allPriorLines = allPriorLines.concat(priorChunk);
+          if (priorChunk.length < CHUNK_SIZE) break;
+          priorFrom += CHUNK_SIZE;
+        }
+        setPriorLedgerLines(allPriorLines);
       }
     } catch (err: any) {
       console.error('Error fetching income statement data:', err);

@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
-import { Loader2 } from 'lucide-react';
+import { Loader2, AlertTriangle, Filter } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { JournalEntry } from '../../types';
 import { useToastNotification } from '../../utils/toastUtils';
 import { usePagination } from '../../components/usePagination';
+import { journalAuditService } from '../../services/journalAuditService';
 
 // المكونات الفرعية المفككة
 import { getEntrySource } from './components/GeneralJournal/journalSourceClassifier';
@@ -29,7 +30,8 @@ const GeneralJournal: React.FC = () => {
     selectedFiscalYear, 
     fiscalYearRange, 
     settings, 
-    currentSelectedOrgId 
+    currentSelectedOrgId,
+    entries: contextEntries 
   } = useAccounting();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -59,6 +61,14 @@ const GeneralJournal: React.FC = () => {
   const [isCleaningAssets, setIsCleaningAssets] = useState(false);
   const [showCurrencyRevaluation, setShowCurrencyRevaluation] = useState(false);
   
+  // كشف القيود غير المتوازنة وتدقيق الأستاذ العام
+  const [unbalancedAudit, setUnbalancedAudit] = useState<{
+    count: number;
+    totalDiff: number;
+    ids: string[];
+  } | null>(null);
+  const [isAuditingBalance, setIsAuditingBalance] = useState(false);
+
   const [matchingEntryIds, setMatchingEntryIds] = useState<string[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
 
@@ -74,8 +84,35 @@ const GeneralJournal: React.FC = () => {
   }, [selectedFiscalYear]);
 
   useEffect(() => {
+    const targetEntryId = location.state?.highlightEntryId || sessionStorage.getItem('tripro_unbalanced_entry_id');
+    if (targetEntryId) {
+      sessionStorage.removeItem('tripro_unbalanced_entry_id');
+      setMatchingEntryIds([targetEntryId]);
+      setShowAdvanced(true);
+      setIgnoreDateFilter(true);
+      if (location.state?.initialSearch) {
+        setSearchTerm(location.state.initialSearch);
+      }
+      return;
+    }
+
     if (location.state?.initialSearch) {
       setSearchTerm(location.state.initialSearch);
+    }
+    try {
+      const sessionFilter = sessionStorage.getItem('tripro_initial_filter_status');
+      if (sessionFilter) {
+        sessionStorage.removeItem('tripro_initial_filter_status');
+        setFilterStatus(sessionFilter);
+        setShowAdvanced(true);
+        setIgnoreDateFilter(true);
+        return;
+      }
+    } catch (_) {}
+    if (location.state?.initialFilterStatus) {
+      setFilterStatus(location.state.initialFilterStatus);
+      setShowAdvanced(true);
+      setIgnoreDateFilter(true);
     }
   }, [location.state]);
 
@@ -106,14 +143,38 @@ const GeneralJournal: React.FC = () => {
     }
   }, []);
 
+  // 🔍 فحص استباقي لكافة القيود غير المتوازنة في الأستاذ العام
+  const checkUnbalancedEntries = useCallback(async () => {
+    try {
+      setIsAuditingBalance(true);
+      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const res = await journalAuditService.findUnbalancedEntries(orgId, 'all');
+      if (res.unbalancedIds.length > 0) {
+        setUnbalancedAudit({
+          count: res.unbalancedIds.length,
+          totalDiff: res.totalDifference,
+          ids: res.unbalancedIds
+        });
+      } else {
+        setUnbalancedAudit(null);
+      }
+    } catch (e) {
+      console.warn('Error auditing journal balance:', e);
+    } finally {
+      setIsAuditingBalance(false);
+    }
+  }, [currentSelectedOrgId, currentUser]);
+
   useEffect(() => {
     checkOrphanSuppliers();
-  }, [checkOrphanSuppliers, currentSelectedOrgId]);
+    checkUnbalancedEntries();
+  }, [checkOrphanSuppliers, checkUnbalancedEntries, currentSelectedOrgId]);
 
-  // البحث المتقدم في الحسابات والمبالغ والبيانات عبر الجداول المرتبطة
+  // البحث المتقدم في الحسابات والمبالغ والبيانات عبر الجداول المرتبطة وفلتر التوازن
   useEffect(() => {
     const performSearch = async () => {
-      if (!debouncedSearch && !filterAccountId && !filterAmount) {
+      const isUnbalancedFilter = filterStatus === 'unbalanced' || filterStatus === 'posted_unbalanced';
+      if (!debouncedSearch && !filterAccountId && !filterAmount && !isUnbalancedFilter) {
         setMatchingEntryIds(null);
         return;
       }
@@ -124,7 +185,18 @@ const GeneralJournal: React.FC = () => {
         const cleanSearch = debouncedSearch.replace(/,/g, '').trim();
         const foundIds = new Set<string>();
 
-        // 1. البحث في القيود الرئيسية (journal_entries) بالمرجع أو البيان
+        // 1. إذا كان الفلتر يطلب القيود غير المتوازنة
+        let unbalancedIdsSet: Set<string> | null = null;
+        if (isUnbalancedFilter) {
+          setIgnoreDateFilter(true);
+          const auditRes = await journalAuditService.findUnbalancedEntries(
+            orgId,
+            filterStatus === 'posted_unbalanced' ? 'posted' : 'all'
+          );
+          unbalancedIdsSet = new Set(auditRes.unbalancedIds);
+        }
+
+        // 2. البحث في القيود الرئيسية (journal_entries) بالمرجع أو البيان
         if (cleanSearch) {
           const norm1 = cleanSearch.replace(/ى/g, 'ي').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه');
           const norm2 = cleanSearch.replace(/ي/g, 'ى').replace(/ا/g, 'أ');
@@ -148,7 +220,7 @@ const GeneralJournal: React.FC = () => {
           }
         }
 
-        // 2. البحث في أسطر القيود (journal_lines) بالمبلغ أو الحساب أو الوصف
+        // 3. البحث في أسطر القيود (journal_lines) بالمبلغ أو الحساب أو الوصف
         let linesQuery = supabase
           .from('journal_lines')
           .select('journal_entry_id');
@@ -195,7 +267,31 @@ const GeneralJournal: React.FC = () => {
           }
         }
 
-        setMatchingEntryIds(Array.from(foundIds));
+        // دمج النتائج مع فلتر القيود غير المتوازنة
+        if (isUnbalancedFilter && unbalancedIdsSet !== null) {
+          if (cleanSearch || filterAccountId || filterAmount) {
+            const intersected = Array.from(foundIds).filter(id => unbalancedIdsSet!.has(id));
+            setMatchingEntryIds(intersected);
+          } else {
+            if (unbalancedIdsSet.size > 0) {
+              setMatchingEntryIds(Array.from(unbalancedIdsSet));
+            } else {
+              // مسار فحص البيانات المحلية كإجراء إضافي
+              const localUnbalanced = (contextEntries || []).filter((e: any) => {
+                const dr = (e.journal_lines || e.lines || []).reduce((s: number, l: any) => s + (Number(l.debit) || 0), 0);
+                const cr = (e.journal_lines || e.lines || []).reduce((s: number, l: any) => s + (Number(l.credit) || 0), 0);
+                return Math.abs(dr - cr) > 0.005;
+              });
+              if (localUnbalanced.length > 0) {
+                setMatchingEntryIds(localUnbalanced.map((e: any) => e.id));
+              } else {
+                setMatchingEntryIds([]);
+              }
+            }
+          }
+        } else {
+          setMatchingEntryIds(Array.from(foundIds));
+        }
       } catch (err) {
         console.error("Error performing search:", err);
       } finally {
@@ -204,7 +300,7 @@ const GeneralJournal: React.FC = () => {
     };
 
     performSearch();
-  }, [debouncedSearch, filterAccountId, filterAmount, accounts, currentUser, currentSelectedOrgId]);
+  }, [debouncedSearch, filterAccountId, filterAmount, filterStatus, accounts, currentUser, currentSelectedOrgId, contextEntries]);
 
   // إعداد استعلام البيانات مع الفلترة
   const queryModifier = useCallback((query: any) => {
@@ -221,7 +317,11 @@ const GeneralJournal: React.FC = () => {
     }
 
     if (filterStatus) {
-      query = query.eq('status', filterStatus);
+      if (filterStatus === 'posted_unbalanced') {
+        query = query.eq('status', 'posted');
+      } else if (filterStatus !== 'unbalanced') {
+        query = query.eq('status', filterStatus);
+      }
     }
 
     if (filterSource) {
@@ -300,8 +400,9 @@ const GeneralJournal: React.FC = () => {
       }
     }
 
-    const hasSearch = Boolean(debouncedSearch || filterAmount);
-    if (!ignoreDateFilter && !(hasSearch && matchingEntryIds && matchingEntryIds.length > 0)) {
+    const isUnbalancedFilter = filterStatus === 'unbalanced' || filterStatus === 'posted_unbalanced';
+    const hasSearch = Boolean(debouncedSearch || filterAmount || isUnbalancedFilter);
+    if (!ignoreDateFilter && !isUnbalancedFilter && !(hasSearch && matchingEntryIds && matchingEntryIds.length > 0)) {
       if (startDate) {
         query = query.gte('transaction_date', startDate);
       }
@@ -790,6 +891,26 @@ const GeneralJournal: React.FC = () => {
     navigate(`/journal-entry/${entryId}`, { state: { ids: entryIds, page, searchTerm, selectedUser } });
   };
 
+  const handleUnpostEntry = async (entryId: string) => {
+    if (!window.confirm('هل تريد فك ترحيل هذا القيد غير المتوازن وتحويله إلى مسودة لتتمكن من تصحيحه أو حذفه؟')) {
+      return;
+    }
+    try {
+      const res = await journalAuditService.unpostEntryForCorrection(entryId);
+      if (res.success) {
+        toast.success(res.message);
+        await clearCache();
+        await refreshData();
+        refresh();
+        checkUnbalancedEntries();
+      } else {
+        toast.error(res.message);
+      }
+    } catch (err: any) {
+      toast.error('حدث خطأ: ' + err.message);
+    }
+  };
+
   const handleResetFilters = () => {
     setFilterAccountId('');
     setFilterAmount('');
@@ -807,6 +928,40 @@ const GeneralJournal: React.FC = () => {
         detectedOrphanEntry={detectedOrphanEntry}
         onDeleteOrphanSpecific={handleDeleteOrphanSpecific}
       />
+
+      {/* ⚠️ تنبيه كشف القيود غير المتوازنة مع زر تصفية فوري */}
+      {unbalancedAudit && unbalancedAudit.count > 0 && (
+        <div className="bg-amber-50 border-2 border-amber-300 p-4 rounded-xl mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in shadow-xs" dir="rtl">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-100 text-amber-800 rounded-xl shrink-0">
+              <AlertTriangle size={24} />
+            </div>
+            <div>
+              <h4 className="text-sm font-black text-amber-900">
+                تنبيه رقابي: تم اكتشاف ({unbalancedAudit.count}) قيد غير متوازن في دفتر اليومية!
+              </h4>
+              <p className="text-xs text-amber-800 mt-0.5">
+                إجمالي الفارق المحاسبي: <strong className="font-mono font-bold text-red-700 bg-white/70 px-1.5 py-0.5 rounded border border-amber-200">{unbalancedAudit.totalDiff.toFixed(2)} ج.م</strong>
+                {' — '}
+                هذا الفارق هو السبب في عدم اتزان ميزان المراجعة ودرع التدقيق الليلي.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => {
+                setShowAdvanced(true);
+                setFilterStatus('unbalanced');
+                setIgnoreDateFilter(true);
+              }}
+              className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl font-bold text-xs transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
+            >
+              <Filter size={15} />
+              عرض القيود غير المتوازنة فقط
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* شريط الإجراءات والبحث العلوي */}
       <JournalActionBar 
@@ -878,7 +1033,25 @@ const GeneralJournal: React.FC = () => {
             <Loader2 className="animate-spin text-blue-600" size={32} />
           </div>
         ) : journalEntries.length === 0 ? (
-          <div className="text-center py-10 text-slate-500">لا توجد قيود مطابقة للبحث.</div>
+          <div className="text-center py-10 text-slate-500">
+            {filterStatus === 'unbalanced' || filterStatus === 'posted_unbalanced' ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 max-w-lg mx-auto text-amber-900 shadow-sm animate-in fade-in">
+                <AlertTriangle className="mx-auto mb-2 text-amber-600" size={32} />
+                <h3 className="font-bold text-base mb-1">لم يتم العثور على قيود غير متوازنة في هذا النطاق</h3>
+                <p className="text-xs text-amber-700 mb-4 leading-relaxed">
+                  إذا كان ميزان المراجعة يظهر فرقاً في التوازن (مثل فارق الـ 100 ج.م)، فإن القيد أو السطر المسبب يتم كشفه مباشرة وبدقة متناهية من شاشة ميزان المراجعة مع إمكانية فك ترحيله بنقرة واحدة.
+                </p>
+                <button
+                  onClick={() => navigate('/trial-balance')}
+                  className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs"
+                >
+                  الانتقال لميزان المراجعة لكشف وتصحيح القيد فوراً
+                </button>
+              </div>
+            ) : (
+              'لا توجد قيود مطابقة للبحث.'
+            )}
+          </div>
         ) : (
           journalEntries.map((entry) => (
             <JournalEntryCard 
@@ -886,6 +1059,7 @@ const GeneralJournal: React.FC = () => {
               entry={entry}
               canPost={Boolean(can('journals', 'post'))}
               onPost={handlePostEntry}
+              onUnpost={handleUnpostEntry}
               onView={handleViewEntry}
               onPrint={printJournalEntry}
               onDuplicate={handleDuplicateEntry}

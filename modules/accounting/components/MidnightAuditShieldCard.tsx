@@ -9,19 +9,35 @@ import {
   ArrowRightLeft, 
   Clock, 
   Sparkles,
-  Layers
+  Layers,
+  Search
 } from 'lucide-react';
 import { auditDaemonService, SystemAuditReport } from '../../../services/auditDaemonService';
 import { toast } from 'react-hot-toast';
 
 export interface MidnightAuditShieldCardProps {
   organizationId: string;
+  onNavigateToJournal?: () => void;
 }
 
-export const MidnightAuditShieldCard: React.FC<MidnightAuditShieldCardProps> = ({ organizationId }) => {
+export const MidnightAuditShieldCard: React.FC<MidnightAuditShieldCardProps> = ({ 
+  organizationId,
+  onNavigateToJournal 
+}) => {
   const [report, setReport] = useState<SystemAuditReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+
+  const handleInspectUnbalanced = () => {
+    if (onNavigateToJournal) {
+      onNavigateToJournal();
+      return;
+    }
+    try {
+      sessionStorage.setItem('tripro_initial_filter_status', 'unbalanced');
+      window.location.hash = '#/general-journal';
+    } catch (_) {}
+  };
 
   const fetchAudit = async () => {
     if (!organizationId) return;
@@ -182,6 +198,17 @@ export const MidnightAuditShieldCard: React.FC<MidnightAuditShieldCardProps> = (
               }`}>
                 {check.notes}
               </div>
+
+              {check.id === 'pillar-gl' && !isPassed && (
+                <button
+                  onClick={handleInspectUnbalanced}
+                  className="mt-2 w-full text-center text-[11px] font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs"
+                  title="الانتقال فوراً لدفتر اليومية العامة وتحديد القيود غير المتوازنة"
+                >
+                  <Search size={13} />
+                  <span>تحديد القيود غير المتوازنة باليومية</span>
+                </button>
+              )}
             </div>
           );
         })}

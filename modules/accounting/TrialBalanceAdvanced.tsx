@@ -3,11 +3,12 @@ import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { useToastNotification } from '../../utils/toastUtils';
-import { FileText, Search, Download, Filter, Printer, Loader2, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { FileText, Search, Download, Filter, Printer, Loader2, CheckCircle, AlertTriangle, RefreshCw, ExternalLink, X, ShieldAlert } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import ReportHeader from '../../components/ReportHeader';
+import { journalAuditService } from '../../services/journalAuditService';
 
 const TrialBalanceAdvanced = () => {
   const { accounts, settings, refreshData, currentUser, entries, selectedFiscalYear, fiscalYearRange } = useAccounting();
@@ -20,6 +21,8 @@ const TrialBalanceAdvanced = () => {
   const [showOpeningOnly, setShowOpeningOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [ledgerLines, setLedgerLines] = useState<any[]>([]);
+  const [showUnbalancedModal, setShowUnbalancedModal] = useState(false);
+  const [isFixingEntry, setIsFixingEntry] = useState(false);
 
   // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
   useEffect(() => {
@@ -66,10 +69,16 @@ const TrialBalanceAdvanced = () => {
                     }
 
                     return {
+                        id: `demo-line-${idx}`,
+                        journal_entry_id: entry.id,
                         account_id: smartAccountId,
                         debit: Number(line.debit) || 0,
                         credit: Number(line.credit) || 0,
+                        description: line.description || entry.description,
                         journal_entries: {
+                            id: entry.id,
+                            reference: entry.reference,
+                            description: entry.description,
                             transaction_date: entry.transaction_date || entry.date,
                             status: entry.status
                         }
@@ -121,15 +130,28 @@ const TrialBalanceAdvanced = () => {
         return;
       }
 
-      const { data, error } = await supabase
-        .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
-        .eq('journal_entries.status', 'posted')
-        .eq('journal_entries.organization_id', userOrgId)
-        .lte('journal_entries.transaction_date', endDate);
+      let allLines: any[] = [];
+      let from = 0;
+      const CHUNK_SIZE = 1000;
 
-      if (error) throw error;
-      setLedgerLines(data || []);
+      while (true) {
+        const { data: chunk, error: chunkErr } = await supabase
+          .from('journal_lines')
+          .select('id, journal_entry_id, account_id, debit, credit, description, journal_entries!inner(id, reference, description, transaction_date, status, organization_id)')
+          .eq('journal_entries.status', 'posted')
+          .eq('journal_entries.organization_id', userOrgId)
+          .lte('journal_entries.transaction_date', endDate)
+          .range(from, from + CHUNK_SIZE - 1);
+
+        if (chunkErr) throw chunkErr;
+        if (!chunk || chunk.length === 0) break;
+
+        allLines = allLines.concat(chunk);
+        if (chunk.length < CHUNK_SIZE) break;
+        from += CHUNK_SIZE;
+      }
+
+      setLedgerLines(allLines);
     } catch (err: any) {
       console.error('Error fetching ledger:', err);
       // تمييز أخطاء الشبكة عن أخطاء البيانات
@@ -313,6 +335,108 @@ const TrialBalanceAdvanced = () => {
       Math.abs(totals.transDr - totals.transCr) < 0.1 &&
       Math.abs(totals.closeDr - totals.closeCr) < 0.1;
 
+  // 🔍 تدقيق وتحديد القيود غير المتوازنة والأسطر المعلقة المسببة للفرق مباشرة من البيانات المحملة
+  const unbalancedAudit = useMemo(() => {
+    if (!ledgerLines || ledgerLines.length === 0) {
+      return { entries: [], orphanLines: [], totalDiff: 0 };
+    }
+
+    const entryMap = new Map<string, {
+      id: string;
+      reference: string;
+      description: string;
+      transaction_date: string;
+      status: string;
+      debit: number;
+      credit: number;
+      difference: number;
+      absDifference: number;
+      lines: any[];
+    }>();
+
+    const orphanLines: any[] = [];
+
+    for (const line of ledgerLines) {
+      const entryId = line.journal_entry_id || (line.journal_entries as any)?.id;
+      if (!entryId) {
+        orphanLines.push(line);
+        continue;
+      }
+
+      if (!entryMap.has(entryId)) {
+        entryMap.set(entryId, {
+          id: entryId,
+          reference: (line.journal_entries as any)?.reference || entryId.slice(0, 8),
+          description: (line.journal_entries as any)?.description || '',
+          transaction_date: (line.journal_entries as any)?.transaction_date || '',
+          status: (line.journal_entries as any)?.status || 'posted',
+          debit: 0,
+          credit: 0,
+          difference: 0,
+          absDifference: 0,
+          lines: []
+        });
+      }
+
+      const item = entryMap.get(entryId)!;
+      item.debit += Number(line.debit) || 0;
+      item.credit += Number(line.credit) || 0;
+      item.lines.push(line);
+    }
+
+    const entries: any[] = [];
+    for (const [_, item] of entryMap.entries()) {
+      const diff = Number((item.debit - item.credit).toFixed(2));
+      const absDiff = Math.abs(diff);
+      if (absDiff > 0.005) {
+        item.difference = diff;
+        item.absDifference = absDiff;
+        item.debit = Number(item.debit.toFixed(2));
+        item.credit = Number(item.credit.toFixed(2));
+        entries.push(item);
+      }
+    }
+
+    entries.sort((a, b) => b.absDifference - a.absDifference);
+    const totalDiff = Number(entries.reduce((sum, e) => sum + e.absDifference, 0).toFixed(2));
+
+    return { entries, orphanLines, totalDiff };
+  }, [ledgerLines]);
+
+  const handleUnpostAndFix = async (entryId: string) => {
+    if (!window.confirm('هل تريد فك ترحيل هذا القيد غير المتوازن وتحويله إلى مسودة؟\n\nبمجرد تحويله لمسودة، سيتم استبعاده فوراً من ميزان المراجعة ليصبح متزناً 100%، ويمكنك مراجعة القيد وتعديله من دفتر اليومية.')) {
+      return;
+    }
+    try {
+      setIsFixingEntry(true);
+      const res = await journalAuditService.unpostEntryForCorrection(entryId);
+      if (res.success) {
+        toast.success(res.message);
+        await refreshData();
+        await fetchLedgerData();
+        setShowUnbalancedModal(false);
+      } else {
+        toast.error(res.message);
+      }
+    } catch (err: any) {
+      toast.error('حدث خطأ أثناء فك الترحيل: ' + err.message);
+    } finally {
+      setIsFixingEntry(false);
+    }
+  };
+
+  const handleNavigateToEntry = (entry: any) => {
+    sessionStorage.setItem('tripro_initial_filter_status', 'unbalanced');
+    sessionStorage.setItem('tripro_unbalanced_entry_id', entry.id);
+    navigate('/general-journal', { 
+      state: { 
+        initialFilterStatus: 'unbalanced',
+        highlightEntryId: entry.id,
+        initialSearch: entry.reference 
+      } 
+    });
+  };
+
   const exportToExcel = () => {
     const data = reportData.map(r => ({
       'الكود': r.code,
@@ -406,12 +530,92 @@ const TrialBalanceAdvanced = () => {
 
       {/* مؤشر التوازن */}
       {!loading && (
-        <div className={`p-4 rounded-xl border flex items-center justify-between ${isBalanced ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-            <div className="flex items-center gap-3 font-bold">
-                {isBalanced ? <CheckCircle size={24} /> : <AlertTriangle size={24} />}
-                <span>{isBalanced ? 'الميزان متزن تماماً (الأرصدة والمجاميع مطابقة)' : 'تنبيه: الميزان غير متزن! يرجى مراجعة القيود.'}</span>
+        <div className={`p-4 rounded-xl border flex flex-col gap-3 ${isBalanced ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3 font-bold">
+                  {isBalanced ? <CheckCircle size={24} /> : <AlertTriangle size={24} />}
+                  <span>{isBalanced ? 'الميزان متزن تماماً (الأرصدة والمجاميع مطابقة)' : 'تنبيه: الميزان غير متزن! يرجى مراجعة القيود.'}</span>
+              </div>
+              {!isBalanced && (
+                <div className="flex items-center gap-3">
+                  <span className="font-mono font-bold bg-white/80 px-2.5 py-1 rounded-lg border border-red-300 text-red-900" dir="ltr">
+                    الفرق: {Math.abs(totals.closeDr - totals.closeCr).toFixed(2)} ج.م
+                  </span>
+                  <button
+                    onClick={() => setShowUnbalancedModal(true)}
+                    className="bg-red-600 hover:bg-red-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer animate-pulse"
+                    title="كشف تفاصيل القيود غير المتوازنة المسببة لهذا الفرق وإمكانية فك ترحيلها فوراً"
+                  >
+                    <Search size={14} />
+                    كشف وتصحيح القيد المسبب للفرق ({unbalancedAudit.entries.length} قيد)
+                  </button>
+                </div>
+              )}
             </div>
-            {!isBalanced && <span className="font-mono font-bold" dir="ltr">الفرق: {Math.abs(totals.closeDr - totals.closeCr).toFixed(2)}</span>}
+
+            {/* بطاقة كشف القيد المسبب فوراً أسفل شريط التحذير مباشرة */}
+            {!isBalanced && unbalancedAudit.entries.length > 0 && (
+              <div className="mt-1 bg-white rounded-xl border-2 border-red-300 p-4 shadow-sm text-slate-800 animate-in fade-in">
+                <div className="flex flex-wrap items-center justify-between border-b border-red-100 pb-2 mb-3 gap-2">
+                  <div className="flex items-center gap-2 text-red-700 font-bold text-sm">
+                    <AlertTriangle size={18} />
+                    <span>تم تحديد القيد المسبب لفرق الـ {unbalancedAudit.entries[0].absDifference.toFixed(2)} ج.م بنجاح:</span>
+                  </div>
+                  <span className="bg-red-100 text-red-800 font-mono text-xs px-2.5 py-1 rounded-md font-bold">
+                    مرجع القيد: {unbalancedAudit.entries[0].reference}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs mb-3 bg-slate-50 p-3 rounded-lg border border-slate-100">
+                  <div>
+                    <span className="text-slate-500 block mb-0.5">البيان:</span>
+                    <span className="font-bold text-slate-800">{unbalancedAudit.entries[0].description || 'بدون بيان'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block mb-0.5">التاريخ:</span>
+                    <span className="font-bold text-slate-800">{unbalancedAudit.entries[0].transaction_date || '-'}</span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block mb-0.5">إجمالي المدين والدائن:</span>
+                    <span className="font-bold text-slate-800 font-mono">
+                      مدين: {unbalancedAudit.entries[0].debit.toLocaleString()} | دائن: {unbalancedAudit.entries[0].credit.toLocaleString()}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-500 block mb-0.5">الفارق غير المتوازن:</span>
+                    <span className="font-bold text-red-600 font-mono">
+                      {unbalancedAudit.entries[0].difference > 0 
+                        ? `زيادة مدين: +${unbalancedAudit.entries[0].absDifference.toFixed(2)} ج.م` 
+                        : `زيادة دائن: +${unbalancedAudit.entries[0].absDifference.toFixed(2)} ج.م`}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    onClick={() => handleUnpostAndFix(unbalancedAudit.entries[0].id)}
+                    disabled={isFixingEntry}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                  >
+                    {isFixingEntry ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                    ⚡ فك الترحيل فوراً (تحويل لمسودة لموازنة الميزان الآن)
+                  </button>
+                  <button
+                    onClick={() => handleNavigateToEntry(unbalancedAudit.entries[0])}
+                    className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <ExternalLink size={14} />
+                    فتح القيد في دفتر اليومية لتعديله
+                  </button>
+                  <button
+                    onClick={() => setShowUnbalancedModal(true)}
+                    className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    عرض تفاصيل أسطر القيد ({unbalancedAudit.entries[0].lines.length} سطر)
+                  </button>
+                </div>
+              </div>
+            )}
         </div>
       )}
 
@@ -489,6 +693,135 @@ const TrialBalanceAdvanced = () => {
             </table>
         </div>
       </div>
+
+      {/* نافذة تفاصيل ومعالجة القيود غير المتوازنة */}
+      {showUnbalancedModal && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* رأس النافذة */}
+            <div className="p-4 bg-red-600 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle size={22} />
+                <h3 className="font-bold text-lg">تدقيق القيود غير المتوازنة المسببة لفرق الميزان</h3>
+              </div>
+              <button 
+                onClick={() => setShowUnbalancedModal(false)}
+                className="text-white/80 hover:text-white p-1 rounded-lg hover:bg-red-700 transition-colors cursor-pointer"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* محتوى النافذة */}
+            <div className="p-6 overflow-y-auto space-y-6">
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-red-900 text-sm flex items-center justify-between">
+                <div>
+                  <span className="font-bold block">إجمالي فارق عدم التوازن: {Math.abs(totals.closeDr - totals.closeCr).toFixed(2)} ج.م</span>
+                  <span className="text-xs text-red-700">تم كشف القيود المرحلة التي تسببت في عدم تساوي المدين والدائن في الأستاذ العام.</span>
+                </div>
+                <span className="bg-red-600 text-white text-xs px-3 py-1 rounded-full font-bold">
+                  {unbalancedAudit.entries.length} قيد غير متوازن
+                </span>
+              </div>
+
+              {unbalancedAudit.entries.map((entry) => (
+                <div key={entry.id} className="border border-slate-200 rounded-xl p-4 bg-white shadow-xs space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono font-bold bg-slate-100 text-slate-800 px-2.5 py-1 rounded text-sm">
+                        {entry.reference}
+                      </span>
+                      <span className="font-bold text-slate-800 text-sm">{entry.description || 'بدون بيان'}</span>
+                      <span className="text-xs text-slate-400">({entry.transaction_date})</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold px-2 py-0.5 rounded bg-red-100 text-red-800">
+                        الفارق: {entry.absDifference.toFixed(2)} ج.م {entry.difference > 0 ? '(مدين أكبر)' : '(دائن أكبر)'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* جدول أسطر هذا القيد */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-right border-collapse">
+                      <thead className="bg-slate-50 text-slate-600 border-y border-slate-200">
+                        <tr>
+                          <th className="p-2">كود الحساب</th>
+                          <th className="p-2">اسم الحساب</th>
+                          <th className="p-2">البيان</th>
+                          <th className="p-2 text-left">مدين</th>
+                          <th className="p-2 text-left">دائن</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {entry.lines.map((l: any, idx: number) => {
+                          const acc = accounts.find(a => a.id === l.account_id);
+                          return (
+                            <tr key={idx} className="hover:bg-slate-50">
+                              <td className="p-2 font-mono text-slate-600">{acc?.code || 'UNKNOWN'}</td>
+                              <td className="p-2 font-bold text-slate-800">{acc?.name || 'حساب غير معروف'}</td>
+                              <td className="p-2 text-slate-500">{l.description || '-'}</td>
+                              <td className="p-2 font-mono text-left text-blue-700">{l.debit > 0 ? Number(l.debit).toLocaleString() : '-'}</td>
+                              <td className="p-2 font-mono text-left text-blue-700">{l.credit > 0 ? Number(l.credit).toLocaleString() : '-'}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot className="bg-slate-100 font-bold border-t border-slate-200">
+                        <tr>
+                          <td colSpan={3} className="p-2 text-center text-slate-700">مجموع القيد</td>
+                          <td className="p-2 font-mono text-left text-blue-900">{entry.debit.toLocaleString()}</td>
+                          <td className="p-2 font-mono text-left text-blue-900">{entry.credit.toLocaleString()}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+
+                  {/* إجراءات سريعة على القيد */}
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+                    <button
+                      onClick={() => handleUnpostAndFix(entry.id)}
+                      disabled={isFixingEntry}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                    >
+                      {isFixingEntry ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                      فك الترحيل فوراً (تحويل لمسودة لموازنة الميزان الآن)
+                    </button>
+                    <button
+                      onClick={() => handleNavigateToEntry(entry)}
+                      className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <ExternalLink size={14} />
+                      تعديل في دفتر اليومية
+                    </button>
+                  </div>
+                </div>
+              ))}
+
+              {/* في حال وجود أسطر معلقة بدون قيد */}
+              {unbalancedAudit.orphanLines.length > 0 && (
+                <div className="border border-amber-300 bg-amber-50 rounded-xl p-4 text-amber-900 text-xs space-y-2">
+                  <div className="font-bold flex items-center gap-1.5 text-sm text-amber-800">
+                    <AlertTriangle size={16} />
+                    <span>تنبيه: تم العثور على {unbalancedAudit.orphanLines.length} أسطر معلقة في جدول الأستاذ العام بدون رأس قيد رئيسي.</span>
+                  </div>
+                  <p>هذه الحركات مسجلة مباشرة في الأستاذ العام وقد تسبب فروقات ميزان. يوصى بمراجعتها وحذفها من خلال تنظيف القيود في دفتر اليومية.</p>
+                </div>
+              )}
+            </div>
+
+            {/* تذييل النافذة */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button
+                onClick={() => setShowUnbalancedModal(false)}
+                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-bold transition-colors cursor-pointer"
+              >
+                إغلاق
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

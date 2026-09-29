@@ -6,6 +6,7 @@ export interface JournalEntryCardProps {
   entry: any;
   canPost: boolean;
   onPost: (id: string) => void;
+  onUnpost?: (id: string) => void;
   onView: (id: string) => void;
   onPrint: (entry: any) => void;
   onDuplicate: (entry: any) => void;
@@ -17,6 +18,7 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
   entry,
   canPost,
   onPost,
+  onUnpost,
   onView,
   onPrint,
   onDuplicate,
@@ -73,11 +75,23 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
           )}
           {!isBalanced && (
             <span 
-              className="flex items-center gap-1.5 font-bold text-red-600 bg-red-100 px-3 py-1.5 rounded-full text-xs" 
-              title={`غير متوازن! الفرق: ${(totalDebit - totalCredit).toFixed(2)}`}
+              className="flex items-center gap-1.5 font-bold text-red-700 bg-red-100 border border-red-200 px-2.5 py-1 rounded-full text-xs shadow-xs" 
+              title={`غير متوازن! مجموع المدين: ${totalDebit.toLocaleString()} | مجموع الدائن: ${totalCredit.toLocaleString()} | الفرق: ${(totalDebit - totalCredit).toFixed(2)}`}
             >
-              <AlertTriangle size={14} /> غير متوازن
+              <AlertTriangle size={14} className="text-red-600" />
+              <span>غير متوازن ({Math.abs(totalDebit - totalCredit).toFixed(2)} ج.م)</span>
             </span>
+          )}
+          
+          {/* زر إلغاء الترحيل للقيود غير المتوازنة لتصحيحها */}
+          {!isBalanced && entry.status === 'posted' && onUnpost && (
+            <button 
+              onClick={() => onUnpost(entry.id)} 
+              className="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-700 transition-colors shadow-xs flex items-center gap-1 cursor-pointer"
+              title="فك ترحيل هذا القيد غير المتوازن لتحويله إلى مسودة وتصحيحه"
+            >
+              فك الترحيل للتصحيح
+            </button>
           )}
           
           {/* زر الترحيل يظهر فقط للمدراء وللقيود غير المرحلة */}
