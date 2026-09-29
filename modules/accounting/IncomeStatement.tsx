@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 interface AccountLine {
   id: string;
@@ -31,7 +32,7 @@ interface AccountLine {
 }
 
 const IncomeStatement: React.FC = () => {
-  const { accounts, settings, currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
+  const { accounts, settings, currentUser, currentSelectedOrgId, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
   const [endDate, setEndDate] = useState(fiscalYearRange.endDate);
@@ -39,6 +40,8 @@ const IncomeStatement: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [ledgerLines, setLedgerLines] = useState<any[]>([]);
   const [priorLedgerLines, setPriorLedgerLines] = useState<any[]>([]);
+  const [rpcSummary, setRpcSummary] = useState<any[] | null>(null);
+  const [priorRpcSummary, setPriorRpcSummary] = useState<any[] | null>(null);
   const [isComparative, setIsComparative] = useState(false);
 
   // حساب تواريخ الفترة المقارنة (السنة السابقة)
@@ -64,69 +67,113 @@ const IncomeStatement: React.FC = () => {
     }
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
-      const userRole = session?.user?.user_metadata?.role;
+      let userOrgId: string | undefined | null =
+        getActiveOrgIdSync(currentSelectedOrgId) ||
+        (currentUser as any)?.organization_id ||
+        (currentUser as any)?.user_metadata?.org_id;
 
-      if (!userOrgId && userRole !== 'super_admin') {
+      if (!userOrgId) {
+        userOrgId = await resolveActiveOrgId(currentSelectedOrgId);
+      }
+
+      if (!userOrgId && (currentUser as any)?.role !== 'super_admin') {
         throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
       }
 
-      // 1. استعلام الفترة الحالية
-      let allLines: any[] = [];
-      let from = 0;
-      const CHUNK_SIZE = 1000;
+      // 🚀 الخطوة 1 (Dual-Engine Fast Path): استعلام دالة قائمة الدخل المجمعة على السيرفر
+      let rpcSuccess = false;
+      try {
+        const { data: summaryData, error: summaryErr } = await supabase.rpc('get_income_statement_summary_rpc', {
+          p_org_id: userOrgId,
+          p_start_date: startDate,
+          p_end_date: endDate
+        });
 
-      while (true) {
-        let query = supabase
-          .from('journal_lines')
-          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
-          .eq('journal_entries.status', 'posted')
-          .gte('journal_entries.transaction_date', startDate)
-          .lte('journal_entries.transaction_date', endDate)
-          .range(from, from + CHUNK_SIZE - 1);
+        if (!summaryErr && Array.isArray(summaryData)) {
+          setRpcSummary(summaryData);
 
-        if (userOrgId) {
-          query = query.eq('journal_entries.organization_id', userOrgId);
+          if (isComparative) {
+            const { data: priorSummaryData, error: priorSummaryErr } = await supabase.rpc('get_income_statement_summary_rpc', {
+              p_org_id: userOrgId,
+              p_start_date: priorStartDate,
+              p_end_date: priorEndDate
+            });
+            if (!priorSummaryErr && Array.isArray(priorSummaryData)) {
+              setPriorRpcSummary(priorSummaryData);
+            }
+          } else {
+            setPriorRpcSummary(null);
+          }
+
+          rpcSuccess = true;
+          setLedgerLines([]);
+          setPriorLedgerLines([]);
         }
-
-        const { data: chunk, error: chunkErr } = await query;
-        if (chunkErr) throw chunkErr;
-        if (!chunk || chunk.length === 0) break;
-
-        allLines = allLines.concat(chunk);
-        if (chunk.length < CHUNK_SIZE) break;
-        from += CHUNK_SIZE;
+      } catch (rpcEx) {
+        console.warn('[IncomeStatement] Server-side RPC failed, falling back to chunked query:', rpcEx);
       }
-      setLedgerLines(allLines);
 
-      // 2. استعلام الفترة المقارنة (إذا تم تفعيل العرض المقارن)
-      if (isComparative) {
-        let allPriorLines: any[] = [];
-        let priorFrom = 0;
+      // 🛡️ الخطوة 2 (Graceful Degradation Fallback): استعلام أسطر اليومية المقسم
+      if (!rpcSuccess) {
+        setRpcSummary(null);
+        setPriorRpcSummary(null);
+
+        // 1. استعلام الفترة الحالية
+        let allLines: any[] = [];
+        let from = 0;
+        const CHUNK_SIZE = 1000;
 
         while (true) {
-          let priorQuery = supabase
+          let query = supabase
             .from('journal_lines')
             .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
             .eq('journal_entries.status', 'posted')
-            .gte('journal_entries.transaction_date', priorStartDate)
-            .lte('journal_entries.transaction_date', priorEndDate)
-            .range(priorFrom, priorFrom + CHUNK_SIZE - 1);
+            .gte('journal_entries.transaction_date', startDate)
+            .lte('journal_entries.transaction_date', endDate)
+            .range(from, from + CHUNK_SIZE - 1);
 
           if (userOrgId) {
-            priorQuery = priorQuery.eq('journal_entries.organization_id', userOrgId);
+            query = query.eq('journal_entries.organization_id', userOrgId);
           }
 
-          const { data: priorChunk, error: priorErr } = await priorQuery;
-          if (priorErr) throw priorErr;
-          if (!priorChunk || priorChunk.length === 0) break;
+          const { data: chunk, error: chunkErr } = await query;
+          if (chunkErr) throw chunkErr;
+          if (!chunk || chunk.length === 0) break;
 
-          allPriorLines = allPriorLines.concat(priorChunk);
-          if (priorChunk.length < CHUNK_SIZE) break;
-          priorFrom += CHUNK_SIZE;
+          allLines = allLines.concat(chunk);
+          if (chunk.length < CHUNK_SIZE) break;
+          from += CHUNK_SIZE;
         }
-        setPriorLedgerLines(allPriorLines);
+        setLedgerLines(allLines);
+
+        // 2. استعلام الفترة المقارنة (إذا تم تفعيل العرض المقارن)
+        if (isComparative) {
+          let allPriorLines: any[] = [];
+          let priorFrom = 0;
+
+          while (true) {
+            let priorQuery = supabase
+              .from('journal_lines')
+              .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
+              .eq('journal_entries.status', 'posted')
+              .gte('journal_entries.transaction_date', priorStartDate)
+              .lte('journal_entries.transaction_date', priorEndDate)
+              .range(priorFrom, priorFrom + CHUNK_SIZE - 1);
+
+            if (userOrgId) {
+              priorQuery = priorQuery.eq('journal_entries.organization_id', userOrgId);
+            }
+
+            const { data: priorChunk, error: priorErr } = await priorQuery;
+            if (priorErr) throw priorErr;
+            if (!priorChunk || priorChunk.length === 0) break;
+
+            allPriorLines = allPriorLines.concat(priorChunk);
+            if (priorChunk.length < CHUNK_SIZE) break;
+            priorFrom += CHUNK_SIZE;
+          }
+          setPriorLedgerLines(allPriorLines);
+        }
       }
     } catch (err: any) {
       console.error('Error fetching income statement data:', err);
@@ -163,7 +210,17 @@ const IncomeStatement: React.FC = () => {
     const accountBalances: Record<string, number> = {};
     const priorAccountBalances: Record<string, number> = {};
     
-    if (currentUser?.role === 'demo') {
+    if (rpcSummary && rpcSummary.length > 0) {
+      // 🚀 تعبئة فورية من إحصائيات الخادم المجمعة فائقة السرعة
+      rpcSummary.forEach((row: any) => {
+        accountBalances[row.account_id] = Number(row.net_movement) || 0;
+      });
+      if (priorRpcSummary && priorRpcSummary.length > 0) {
+        priorRpcSummary.forEach((row: any) => {
+          priorAccountBalances[row.account_id] = Number(row.net_movement) || 0;
+        });
+      }
+    } else if (currentUser?.role === 'demo') {
       accounts.forEach(acc => {
         const type = String(acc.type || '').toLowerCase();
         const isDebitNature = type.includes('asset') || type.includes('expense') || type.includes('أصول') || type.includes('مصروفات') || type.includes('تكلفة');
@@ -458,7 +515,7 @@ const IncomeStatement: React.FC = () => {
       operatingMargin,
       netMargin
     };
-  }, [accounts, ledgerLines, priorLedgerLines, currentUser]);
+  }, [accounts, ledgerLines, priorLedgerLines, rpcSummary, priorRpcSummary, currentUser]);
 
   const handlePrint = () => {
     window.print();

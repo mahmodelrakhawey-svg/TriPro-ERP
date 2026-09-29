@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 type Account = {
   id: string;
@@ -51,6 +52,8 @@ const BalanceSheet: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [ledgerLines, setLedgerLines] = useState<any[]>([]);
   const [priorLedgerLines, setPriorLedgerLines] = useState<any[]>([]);
+  const [rpcSummary, setRpcSummary] = useState<any[] | null>(null);
+  const [priorRpcSummary, setPriorRpcSummary] = useState<any[] | null>(null);
   const [viewMode, setViewMode] = useState<'analytical' | 'classic'>('analytical');
   const [isComparative, setIsComparative] = useState(false);
 
@@ -73,58 +76,108 @@ const BalanceSheet: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      let userOrgId: string | undefined | null =
+        getActiveOrgIdSync(currentSelectedOrgId) ||
+        (currentUser as any)?.organization_id ||
+        (currentUser as any)?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        userOrgId = await resolveActiveOrgId(currentSelectedOrgId);
+      }
 
       if (!userOrgId) {
         setLoading(false);
         return;
       }
 
-      // 1. أرصدة التاريخ المحدد
-      let allLines: any[] = [];
-      let from = 0;
-      const CHUNK_SIZE = 1000;
+      const currentYear = new Date(asOfDate).getFullYear();
+      const currentYearStart = `${currentYear}-01-01`;
+      const priorYearStart = `${currentYear - 1}-01-01`;
 
-      while (true) {
-        const { data: chunk, error: chunkErr } = await supabase
-          .from('journal_lines')
-          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
-          .eq('journal_entries.status', 'posted')
-          .eq('journal_entries.organization_id', userOrgId)
-          .lte('journal_entries.transaction_date', asOfDate)
-          .range(from, from + CHUNK_SIZE - 1);
+      // 🚀 الخطوة 1 (Dual-Engine Fast Path): استعلام دالة التجميع السريعة على مستوى PostgreSQL
+      let rpcSuccess = false;
+      try {
+        const { data: summaryData, error: summaryErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
+          p_org_id: userOrgId,
+          p_start_date: currentYearStart,
+          p_end_date: asOfDate
+        });
 
-        if (chunkErr) throw chunkErr;
-        if (!chunk || chunk.length === 0) break;
+        if (!summaryErr && Array.isArray(summaryData) && summaryData.length > 0) {
+          setRpcSummary(summaryData);
 
-        allLines = allLines.concat(chunk);
-        if (chunk.length < CHUNK_SIZE) break;
-        from += CHUNK_SIZE;
+          if (isComparative) {
+            const { data: priorSummaryData, error: priorSummaryErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
+              p_org_id: userOrgId,
+              p_start_date: priorYearStart,
+              p_end_date: priorAsOfDate
+            });
+            if (!priorSummaryErr && Array.isArray(priorSummaryData)) {
+              setPriorRpcSummary(priorSummaryData);
+            }
+          } else {
+            setPriorRpcSummary(null);
+          }
+
+          rpcSuccess = true;
+          setLedgerLines([]);
+          setPriorLedgerLines([]);
+        }
+      } catch (rpcEx) {
+        console.warn('[BalanceSheet] Server-side RPC failed, falling back to chunked query:', rpcEx);
       }
-      setLedgerLines(allLines);
 
-      // 2. أرصدة التاريخ المقارن (إذا تم تفعيل العرض المقارن)
-      if (isComparative) {
-        let allPriorLines: any[] = [];
-        let priorFrom = 0;
+      // 🛡️ الخطوة 2 (Graceful Degradation Fallback): استعلام أسطر اليومية المقسم
+      if (!rpcSuccess) {
+        setRpcSummary(null);
+        setPriorRpcSummary(null);
+
+        // 1. أرصدة التاريخ المحدد
+        let allLines: any[] = [];
+        let from = 0;
+        const CHUNK_SIZE = 1000;
 
         while (true) {
-          const { data: priorChunk, error: priorErr } = await supabase
+          const { data: chunk, error: chunkErr } = await supabase
             .from('journal_lines')
             .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
             .eq('journal_entries.status', 'posted')
             .eq('journal_entries.organization_id', userOrgId)
-            .lte('journal_entries.transaction_date', priorAsOfDate)
-            .range(priorFrom, priorFrom + CHUNK_SIZE - 1);
+            .lte('journal_entries.transaction_date', asOfDate)
+            .range(from, from + CHUNK_SIZE - 1);
 
-          if (priorErr) throw priorErr;
-          if (!priorChunk || priorChunk.length === 0) break;
+          if (chunkErr) throw chunkErr;
+          if (!chunk || chunk.length === 0) break;
 
-          allPriorLines = allPriorLines.concat(priorChunk);
-          if (priorChunk.length < CHUNK_SIZE) break;
-          priorFrom += CHUNK_SIZE;
+          allLines = allLines.concat(chunk);
+          if (chunk.length < CHUNK_SIZE) break;
+          from += CHUNK_SIZE;
         }
-        setPriorLedgerLines(allPriorLines);
+        setLedgerLines(allLines);
+
+        // 2. أرصدة التاريخ المقارن (إذا تم تفعيل العرض المقارن)
+        if (isComparative) {
+          let allPriorLines: any[] = [];
+          let priorFrom = 0;
+
+          while (true) {
+            const { data: priorChunk, error: priorErr } = await supabase
+              .from('journal_lines')
+              .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+              .eq('journal_entries.status', 'posted')
+              .eq('journal_entries.organization_id', userOrgId)
+              .lte('journal_entries.transaction_date', priorAsOfDate)
+              .range(priorFrom, priorFrom + CHUNK_SIZE - 1);
+
+            if (priorErr) throw priorErr;
+            if (!priorChunk || priorChunk.length === 0) break;
+
+            allPriorLines = allPriorLines.concat(priorChunk);
+            if (priorChunk.length < CHUNK_SIZE) break;
+            priorFrom += CHUNK_SIZE;
+          }
+          setPriorLedgerLines(allPriorLines);
+        }
       }
     } catch (err: any) {
       console.error('Error fetching balance sheet data:', err);
@@ -157,7 +210,49 @@ const BalanceSheet: React.FC = () => {
     const accountMap = new Map<string, any>();
     accounts.forEach(acc => accountMap.set(acc.id, acc));
 
-    if (currentUser?.role === 'demo') {
+    if (rpcSummary && rpcSummary.length > 0) {
+      // 🚀 تعبئة فورية من إحصائيات الخادم المجمعة فائقة السرعة
+      rpcSummary.forEach((row: any) => {
+        const accId = row.account_id;
+        const close = Number(row.closing_balance) || 0;
+        accountBalances[accId] = close;
+
+        const acc = accountMap.get(accId);
+        if (acc) {
+          const type = (acc.type || '').toLowerCase().trim();
+          const code = String(acc.code || '');
+          const isPnl = !code.startsWith('1') && !code.startsWith('2') && !code.startsWith('3') && (
+            code.startsWith('4') || code.startsWith('5') || type.includes('revenue') || type.includes('expense')
+          );
+          if (isPnl) {
+            // رصيد ما قبل بداية العام الحالي هو أرباح/خسائر مرحلة سابقة
+            priorPnlSum += Number(row.opening_balance) || 0;
+            // حركات العام الحالي حتى تاريخ الميزانية هي أرباح/خسائر العام الحالي
+            currentPnlSum += (Number(row.period_debit) || 0) - (Number(row.period_credit) || 0);
+          }
+        }
+      });
+
+      if (priorRpcSummary && priorRpcSummary.length > 0) {
+        priorRpcSummary.forEach((row: any) => {
+          const accId = row.account_id;
+          const close = Number(row.closing_balance) || 0;
+          priorAccountBalances[accId] = close;
+
+          const acc = accountMap.get(accId);
+          if (acc) {
+            const type = (acc.type || '').toLowerCase().trim();
+            const code = String(acc.code || '');
+            const isPnl = !code.startsWith('1') && !code.startsWith('2') && !code.startsWith('3') && (
+              code.startsWith('4') || code.startsWith('5') || type.includes('revenue') || type.includes('expense')
+            );
+            if (isPnl) {
+              priorPeriodPnlSum += (Number(row.period_debit) || 0) - (Number(row.period_credit) || 0);
+            }
+          }
+        });
+      }
+    } else if (currentUser?.role === 'demo') {
       accounts.forEach(acc => {
         const type = (acc.type || '').toLowerCase().trim();
         const balance = acc.balance || 0;
@@ -370,7 +465,7 @@ const BalanceSheet: React.FC = () => {
       isBalanced,
       balanceDifference
     };
-  }, [accounts, ledgerLines, priorLedgerLines, asOfDate, currentUser]);
+  }, [accounts, ledgerLines, priorLedgerLines, rpcSummary, priorRpcSummary, asOfDate, currentUser]);
 
   const handlePrint = () => {
     window.print();
