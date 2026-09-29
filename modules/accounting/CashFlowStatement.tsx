@@ -3,6 +3,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { Banknote, Filter, Printer, Loader2, Download, Info } from 'lucide-react';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 type Account = {
   id: string;
@@ -24,7 +25,7 @@ type NonCashDisclosure = {
 };
 
 const CashFlowStatement = () => {
-  const { currentUser } = useAccounting();
+  const { currentUser, currentSelectedOrgId, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
   const [operatingRows, setOperatingRows] = useState<CashFlowRow[]>([]);
   const [investingRows, setInvestingRows] = useState<CashFlowRow[]>([]);
@@ -34,8 +35,99 @@ const CashFlowStatement = () => {
   const [openingCashBalance, setOpeningCashBalance] = useState(0);
   const [closingCashBalance, setClosingCashBalance] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [startDate, setStartDate] = useState(new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
+  const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
+
+  useEffect(() => {
+    if (selectedFiscalYear) {
+      setStartDate(`${selectedFiscalYear}-01-01`);
+      setEndDate(`${selectedFiscalYear}-12-31`);
+    }
+  }, [selectedFiscalYear]);
+
+  // دوال مساعدة لتصنيف الحسابات بدقة متناهية وفق معايير المحاسبة (IAS 7)
+  const isCashAccount = (acc: any) => {
+    const code = String(acc.code || '').trim();
+    const name = String(acc.name || '').toLowerCase();
+    const type = String(acc.type || '').toLowerCase();
+    if (code.startsWith('2') || code.startsWith('3') || code.startsWith('4') || code.startsWith('5')) return false;
+    return (
+      type.includes('cash') || type.includes('bank') ||
+      name.includes('صندوق') || name.includes('خزينة') || name.includes('خزينه') || 
+      name.includes('نقد') || name.includes('بنك') || name.includes('مصرف') ||
+      name.includes('محفظة') || name.includes('محفظه') || name.includes('فودافون كاش') ||
+      name.includes('اورنج كاش') || name.includes('أورنج كاش') || name.includes('اتصالات كاش') ||
+      name.includes('انستا باي') || name.includes('insta') ||
+      code.startsWith('123') || code.startsWith('101')
+    );
+  };
+
+  // فحص الحسابات الوسيطة للأرصدة الافتتاحية لاستبعادها من التدفقات النقدية (غير نقدية - IAS 7 الفقرة 43)
+  const isNonCashSuspenseAccount = (acc: any) => {
+    const code = String(acc.code || '').trim();
+    const name = String(acc.name || '').toLowerCase();
+    return (
+      code === '3999' ||
+      code.startsWith('39') ||
+      name.includes('أرصدة افتتاحية') ||
+      name.includes('ارصدة افتتاحية') ||
+      name.includes('حساب وسيط') ||
+      name.includes('تسوية افتتاحية')
+    );
+  };
+
+  const isPnlAccount = (acc: any) => {
+    const code = String(acc.code || '').trim();
+    const type = String(acc.type || '').toLowerCase().trim();
+    if (code.startsWith('1') || code.startsWith('2') || code.startsWith('3')) {
+      return false;
+    }
+    return code.startsWith('4') || code.startsWith('5') || 
+           type.includes('revenue') || type.includes('income') || 
+           type.includes('expense') || type.includes('cost') ||
+           type.includes('إيراد') || type.includes('مصروف') || type.includes('تكلفة');
+  };
+
+  const isFixedAssetAccount = (acc: any) => {
+    const code = String(acc.code || '').trim();
+    const name = String(acc.name || '').toLowerCase();
+    const type = String(acc.type || '').toLowerCase();
+
+    if (isCashAccount(acc)) return false;
+
+    // مجمع الإهلاك هو حساب ميزانية مقابل (Contra-Asset) يُعالج ضمن تسويات الإهلاك في الأنشطة التشغيلية
+    if (name.includes('مجمع إهلاك') || name.includes('مجمع الاهلاك') || type.includes('depreciation')) return false;
+
+    // الأصول المتداولة صراحة (تشغيلية)
+    const isExplicitCurrent = (
+      code.startsWith('10') || // مخزون ومشروعات تحت التنفيذ
+      code.startsWith('121') || code.startsWith('122') || code.startsWith('124') || // عملاء، عهد، سلف، ضرائب مدينة، تأمينات
+      name.includes('مخزون') || name.includes('خامات') || name.includes('منتج تام') || 
+      name.includes('مشروع') || name.includes('بضاعة') || name.includes('بضاعه') ||
+      name.includes('عملاء') || name.includes('عميل') || name.includes('ذمم') || name.includes('مدين') ||
+      name.includes('عهد') || name.includes('عهدة') || name.includes('عهده') || name.includes('سلف') || name.includes('سلفة') ||
+      name.includes('ضريبة') || name.includes('ضريبه') || name.includes('محتجز ضمان') || 
+      name.includes('تأمين لدى') || name.includes('تأمينات لدى') ||
+      name.includes('أوراق قبض') || name.includes('شيكات تحت التحصيل') || 
+      name.includes('مصروف مقدم') || name.includes('مدفوع مقدما') ||
+      name.includes('إيراد مستحق') || name.includes('دفعة مقدمة') || name.includes('دفعات مقدمة')
+    );
+
+    if (isExplicitCurrent) return false;
+
+    const fixedAssetKeywords = [
+      'أصول ثابتة', 'أصل ثابت', 'مباني', 'مبنى', 'أراضي', 'أرض', 'عقارات', 'عقار',
+      'سيارات', 'سيارة', 'مركبات', 'شاحنات', 'وسائل النقل', 'آلات', 'معدات', 'أجهزة',
+      'أثاث', 'تجهيزات', 'حاسب', 'كمبيوتر', 'برمجيات', 'مصاريف تأسيس', 'شهرة',
+      'أصول غير ملموسة', 'استثمارات طويلة', 'حفارة', 'حفار', 'معدات ثقيلة', 'أصل',
+      'fixed assets', 'equipment', 'machinery', 'vehicles', 'furniture', 'buildings', 'land'
+    ];
+
+    const hasFixedKeyword = fixedAssetKeywords.some(k => name.includes(k));
+    const isFixedType = type.includes('fixed') || type.includes('non-current') || type.includes('non_current') || type.includes('ثابتة') || type.includes('غير متداولة');
+
+    return isFixedType || hasFixedKeyword || code.startsWith('11');
+  };
 
   const fetchCashFlow = async () => {
     setLoading(true);
@@ -51,8 +143,7 @@ const CashFlowStatement = () => {
     }
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync(currentSelectedOrgId) || (currentUser as any)?.organization_id || await resolveActiveOrgId(currentSelectedOrgId);
 
       if (!userOrgId) {
         throw new Error('تعذر تحديد المنظمة.');
@@ -66,110 +157,129 @@ const CashFlowStatement = () => {
         .order('code');
 
       if (accountsError) throw accountsError;
+      if (!accounts || accounts.length === 0) {
+        setOperatingRows([]);
+        setInvestingRows([]);
+        setInvestingRowsFinancing([]);
+        setNonCashDisclosures([]);
+        setNetCashFlow(0);
+        setOpeningCashBalance(0);
+        setClosingCashBalance(0);
+        setLoading(false);
+        return;
+      }
 
-      // 2. جلب الحركات المرحلة خلال الفترة
-      const { data: lines, error: linesError } = await supabase
-        .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(status, transaction_date, organization_id)')
-        .eq('journal_entries.status', 'posted')
-        .eq('journal_entries.organization_id', userOrgId)
-        .gte('journal_entries.transaction_date', startDate)
-        .lte('journal_entries.transaction_date', endDate);
+      const cashAccountIds = accounts.filter(isCashAccount).map(a => a.id);
+      const cashIdsSet = new Set(cashAccountIds);
 
-      if (linesError) throw linesError;
+      let movements: Record<string, number> = {};
+      let openingCash = 0;
+      let closingCashActual = 0;
+      let rpcSuccess = false;
 
-      // 3. تجميع الحركات لكل حساب (صافي الحركة للفترة)
-      const movements: Record<string, number> = {};
-      lines?.forEach(line => {
-        const current = movements[line.account_id] || 0;
-        // الحركة = مدين - دائن
-        movements[line.account_id] = current + (Number(line.debit) || 0) - (Number(line.credit) || 0);
-      });
+      // 🚀 الخطوة 1 (Dual-Engine Fast Path): استعلام دالة تجميع ميزان المراجعة على مستوى PostgreSQL
+      try {
+        const { data: summaryData, error: summaryErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
+          p_org_id: userOrgId,
+          p_start_date: startDate,
+          p_end_date: endDate
+        });
 
-      // دوال مساعدة لتصنيف الحسابات بدقة متناهية وفق معايير المحاسبة (IAS 7)
-      const isCashAccount = (acc: any) => {
-        const code = String(acc.code || '').trim();
-        const name = String(acc.name || '').toLowerCase();
-        const type = String(acc.type || '').toLowerCase();
-        if (code.startsWith('2') || code.startsWith('3') || code.startsWith('4') || code.startsWith('5')) return false;
-        return (
-          type.includes('cash') || type.includes('bank') ||
-          name.includes('صندوق') || name.includes('خزينة') || name.includes('خزينه') || 
-          name.includes('نقد') || name.includes('بنك') || name.includes('مصرف') ||
-          name.includes('محفظة') || name.includes('محفظه') || name.includes('فودافون كاش') ||
-          name.includes('اورنج كاش') || name.includes('أورنج كاش') || name.includes('اتصالات كاش') ||
-          name.includes('انستا باي') || name.includes('insta') ||
-          code.startsWith('123') || code.startsWith('101')
-        );
-      };
+        if (!summaryErr && Array.isArray(summaryData) && summaryData.length > 0) {
+          summaryData.forEach((row: any) => {
+            const accId = row.account_id;
+            const perDebit = Number(row.period_debit) || 0;
+            const perCredit = Number(row.period_credit) || 0;
+            movements[accId] = perDebit - perCredit;
 
-      // فحص الحسابات الوسيطة للأرصدة الافتتاحية لاستبعادها من التدفقات النقدية (غير نقدية - IAS 7 الفقرة 43)
-      const isNonCashSuspenseAccount = (acc: any) => {
-        const code = String(acc.code || '').trim();
-        const name = String(acc.name || '').toLowerCase();
-        return (
-          code === '3999' ||
-          code.startsWith('39') ||
-          name.includes('أرصدة افتتاحية') ||
-          name.includes('ارصدة افتتاحية') ||
-          name.includes('حساب وسيط') ||
-          name.includes('تسوية افتتاحية')
-        );
-      };
-
-      const isPnlAccount = (acc: any) => {
-        const code = String(acc.code || '').trim();
-        const type = String(acc.type || '').toLowerCase().trim();
-        // الحسابات التي تبدأ بـ 1 أو 2 أو 3 هي ميزانية عمومية وليست أرباح وخسائر
-        if (code.startsWith('1') || code.startsWith('2') || code.startsWith('3')) {
-          return false;
+            if (cashIdsSet.has(accId)) {
+              openingCash += Number(row.opening_balance) || 0;
+              closingCashActual += Number(row.closing_balance) || 0;
+            }
+          });
+          rpcSuccess = true;
         }
-        return code.startsWith('4') || code.startsWith('5') || 
-               type.includes('revenue') || type.includes('income') || 
-               type.includes('expense') || type.includes('cost') ||
-               type.includes('إيراد') || type.includes('مصروف') || type.includes('تكلفة');
-      };
+      } catch (rpcEx) {
+        console.warn('[CashFlowStatement] Server-side RPC failed, falling back to chunked query:', rpcEx);
+      }
 
-      const isFixedAssetAccount = (acc: any) => {
-        const code = String(acc.code || '').trim();
-        const name = String(acc.name || '').toLowerCase();
-        const type = String(acc.type || '').toLowerCase();
+      // 🛡️ الخطوة 2 (Graceful Degradation Fallback): استعلام أسطر اليومية المقسم لتفادي حد الـ 1000 سطر
+      if (!rpcSuccess) {
+        const CHUNK_SIZE = 1000;
+        let from = 0;
+        const fallbackMovements: Record<string, number> = {};
 
-        if (isCashAccount(acc)) return false;
+        while (true) {
+          const { data: lines, error: linesError } = await supabase
+            .from('journal_lines')
+            .select('account_id, debit, credit, journal_entries!inner(status, transaction_date, organization_id)')
+            .eq('journal_entries.status', 'posted')
+            .eq('journal_entries.organization_id', userOrgId)
+            .gte('journal_entries.transaction_date', startDate)
+            .lte('journal_entries.transaction_date', endDate)
+            .range(from, from + CHUNK_SIZE - 1);
 
-        // مجمع الإهلاك هو حساب ميزانية مقابل (Contra-Asset) يُعالج ضمن تسويات الإهلاك في الأنشطة التشغيلية
-        if (name.includes('مجمع إهلاك') || name.includes('مجمع الاهلاك') || type.includes('depreciation')) return false;
+          if (linesError) throw linesError;
+          if (!lines || lines.length === 0) break;
 
-        // الأصول المتداولة صراحة (تشغيلية)
-        const isExplicitCurrent = (
-          code.startsWith('10') || // مخزون ومشروعات تحت التنفيذ
-          code.startsWith('121') || code.startsWith('122') || code.startsWith('124') || // عملاء، عهد، سلف، ضرائب مدينة، تأمينات
-          name.includes('مخزون') || name.includes('خامات') || name.includes('منتج تام') || 
-          name.includes('مشروع') || name.includes('بضاعة') || name.includes('بضاعه') ||
-          name.includes('عملاء') || name.includes('عميل') || name.includes('ذمم') || name.includes('مدين') ||
-          name.includes('عهد') || name.includes('عهدة') || name.includes('عهده') || name.includes('سلف') || name.includes('سلفة') ||
-          name.includes('ضريبة') || name.includes('ضريبه') || name.includes('محتجز ضمان') || 
-          name.includes('تأمين لدى') || name.includes('تأمينات لدى') ||
-          name.includes('أوراق قبض') || name.includes('شيكات تحت التحصيل') || 
-          name.includes('مصروف مقدم') || name.includes('مدفوع مقدما') ||
-          name.includes('إيراد مستحق') || name.includes('دفعة مقدمة') || name.includes('دفعات مقدمة')
-        );
+          lines.forEach((line: any) => {
+            const current = fallbackMovements[line.account_id] || 0;
+            fallbackMovements[line.account_id] = current + (Number(line.debit) || 0) - (Number(line.credit) || 0);
+          });
 
-        if (isExplicitCurrent) return false;
+          if (lines.length < CHUNK_SIZE) break;
+          from += CHUNK_SIZE;
+        }
 
-        const fixedAssetKeywords = [
-          'أصول ثابتة', 'أصل ثابت', 'مباني', 'مبنى', 'أراضي', 'أرض', 'عقارات', 'عقار',
-          'سيارات', 'سيارة', 'مركبات', 'شاحنات', 'وسائل النقل', 'آلات', 'معدات', 'أجهزة',
-          'أثاث', 'تجهيزات', 'حاسب', 'كمبيوتر', 'برمجيات', 'مصاريف تأسيس', 'شهرة',
-          'أصول غير ملموسة', 'استثمارات طويلة', 'حفارة', 'حفار', 'معدات ثقيلة', 'أصل',
-          'fixed assets', 'equipment', 'machinery', 'vehicles', 'furniture', 'buildings', 'land'
-        ];
+        let fallbackOpenCash = 0;
+        let fallbackCloseCash = 0;
 
-        const hasFixedKeyword = fixedAssetKeywords.some(k => name.includes(k));
-        const isFixedType = type.includes('fixed') || type.includes('non-current') || type.includes('non_current') || type.includes('ثابتة') || type.includes('غير متداولة');
+        if (cashAccountIds.length > 0) {
+          let openFrom = 0;
+          while (true) {
+            const { data: openData, error: openErr } = await supabase
+              .from('journal_lines')
+              .select('debit, credit, journal_entries!inner(status, transaction_date, organization_id)')
+              .in('account_id', cashAccountIds)
+              .eq('journal_entries.status', 'posted')
+              .eq('journal_entries.organization_id', userOrgId)
+              .lt('journal_entries.transaction_date', startDate)
+              .range(openFrom, openFrom + CHUNK_SIZE - 1);
 
-        return isFixedType || hasFixedKeyword || code.startsWith('11');
-      };
+            if (openErr) throw openErr;
+            if (!openData || openData.length === 0) break;
+
+            fallbackOpenCash += openData.reduce((sum, line: any) => sum + ((Number(line.debit) || 0) - (Number(line.credit) || 0)), 0);
+
+            if (openData.length < CHUNK_SIZE) break;
+            openFrom += CHUNK_SIZE;
+          }
+
+          let closeFrom = 0;
+          while (true) {
+            const { data: closeData, error: closeErr } = await supabase
+              .from('journal_lines')
+              .select('debit, credit, journal_entries!inner(status, transaction_date, organization_id)')
+              .in('account_id', cashAccountIds)
+              .eq('journal_entries.status', 'posted')
+              .eq('journal_entries.organization_id', userOrgId)
+              .lte('journal_entries.transaction_date', endDate)
+              .range(closeFrom, closeFrom + CHUNK_SIZE - 1);
+
+            if (closeErr) throw closeErr;
+            if (!closeData || closeData.length === 0) break;
+
+            fallbackCloseCash += closeData.reduce((sum, line: any) => sum + ((Number(line.debit) || 0) - (Number(line.credit) || 0)), 0);
+
+            if (closeData.length < CHUNK_SIZE) break;
+            closeFrom += CHUNK_SIZE;
+          }
+        }
+
+        movements = fallbackMovements;
+        openingCash = fallbackOpenCash;
+        closingCashActual = fallbackCloseCash;
+      }
 
       // 4. حساب صافي الدخل (Net Income) مطابقة تامة لقائمة الدخل
       let netIncome = 0;
@@ -265,39 +375,6 @@ const CashFlowStatement = () => {
       setInvestingRowsFinancing(financing);
       setNonCashDisclosures(nonCashList);
 
-      // 6. حساب رصيد النقدية أول المدة وآخر المدة من الحسابات النقدية الفعلية بالدفتر
-      const cashAccountIds = accounts.filter(isCashAccount).map(a => a.id);
-
-      let openingCash = 0;
-      let closingCashActual = 0;
-      if (cashAccountIds.length > 0) {
-        // رصيد النقدية أول المدة
-        const { data: openingData } = await supabase
-          .from('journal_lines')
-          .select('debit, credit, journal_entries!inner(status, transaction_date, organization_id)')
-          .in('account_id', cashAccountIds)
-          .eq('journal_entries.status', 'posted')
-          .eq('journal_entries.organization_id', userOrgId)
-          .lt('journal_entries.transaction_date', startDate);
-        
-        if (openingData) {
-          openingCash = openingData.reduce((sum, line) => sum + ((Number(line.debit) || 0) - (Number(line.credit) || 0)), 0);
-        }
-
-        // رصيد النقدية آخر المدة الفعلي
-        const { data: closingData } = await supabase
-          .from('journal_lines')
-          .select('debit, credit, journal_entries!inner(status, transaction_date, organization_id)')
-          .in('account_id', cashAccountIds)
-          .eq('journal_entries.status', 'posted')
-          .eq('journal_entries.organization_id', userOrgId)
-          .lte('journal_entries.transaction_date', endDate);
-
-        if (closingData) {
-          closingCashActual = closingData.reduce((sum, line) => sum + ((Number(line.debit) || 0) - (Number(line.credit) || 0)), 0);
-        }
-      }
-
       const totalOperating = operating.reduce((sum, r) => sum + r.amount, 0);
       const totalInvesting = investing.reduce((sum, r) => sum + r.amount, 0);
       const totalFinancing = financing.reduce((sum, r) => sum + r.amount, 0);
@@ -316,7 +393,7 @@ const CashFlowStatement = () => {
 
   useEffect(() => {
     fetchCashFlow();
-  }, []);
+  }, [startDate, endDate, currentSelectedOrgId, currentUser]);
 
   const totalOperating = operatingRows.reduce((sum, r) => sum + r.amount, 0);
   const totalInvesting = investingRows.reduce((sum, r) => sum + r.amount, 0);
