@@ -9,9 +9,10 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import ReportHeader from '../../components/ReportHeader';
 import { journalAuditService } from '../../services/journalAuditService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const TrialBalanceAdvanced = () => {
-  const { accounts, settings, refreshData, currentUser, entries, selectedFiscalYear, fiscalYearRange } = useAccounting();
+  const { accounts, settings, refreshData, currentUser, currentSelectedOrgId, entries, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const navigate = useNavigate();
   const toast = useToastNotification();
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
@@ -21,6 +22,7 @@ const TrialBalanceAdvanced = () => {
   const [showOpeningOnly, setShowOpeningOnly] = useState(false);
   const [loading, setLoading] = useState(false);
   const [ledgerLines, setLedgerLines] = useState<any[]>([]);
+  const [rpcSummary, setRpcSummary] = useState<any[] | null>(null);
   const [showUnbalancedModal, setShowUnbalancedModal] = useState(false);
   const [isFixingEntry, setIsFixingEntry] = useState(false);
 
@@ -86,6 +88,7 @@ const TrialBalanceAdvanced = () => {
                 });
             });
             
+        setRpcSummary(null);
         setLedgerLines(demoLines);
         setLoading(false);
         return;
@@ -93,35 +96,14 @@ const TrialBalanceAdvanced = () => {
 
     // 🔒 منطق النسخة الأصلية: جلب البيانات الفعلية من قاعدة البيانات
     try {
-      // ✅ أولوية 1: استخدام currentUser من الـ Context (محلي — لا يحتاج شبكة)
-      let userOrgId: string | undefined =
+      // 🛡️ تحديد هوية المنظمة الموحدة والمحصنة
+      let userOrgId: string | undefined | null =
+        getActiveOrgIdSync(currentSelectedOrgId) ||
         (currentUser as any)?.organization_id ||
         (currentUser as any)?.user_metadata?.org_id;
 
-      // ✅ أولوية 2: جلب الجلسة من الكاش المحلي (getSession لا يطلب الشبكة)
       if (!userOrgId) {
-        const { data: sessionData } = await supabase.auth.getSession();
-        userOrgId =
-          sessionData?.session?.user?.user_metadata?.org_id ||
-          sessionData?.session?.user?.id;
-      }
-
-      if (!userOrgId) {
-        // ✅ أولوية 3: محاولة الجلب من الشبكة كآخر خيار مع timeout
-        try {
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), 5000);
-          const { data: { user } } = await supabase.auth.getUser();
-          clearTimeout(timeoutId);
-          userOrgId = user?.user_metadata?.org_id;
-        } catch (_netErr) {
-          // الشبكة غير متاحة — نستخدم البيانات المحلية في accounts
-          console.warn('الشبكة غير متاحة، سيتم استخدام بيانات الـ Context المحلية.');
-          setLedgerLines([]);
-          toast.error('تعذر الاتصال بالخادم. يرجى التحقق من الاتصال بالإنترنت وإعادة المحاولة.');
-          setLoading(false);
-          return;
-        }
+        userOrgId = await resolveActiveOrgId(currentSelectedOrgId);
       }
 
       if (!userOrgId) {
@@ -130,28 +112,51 @@ const TrialBalanceAdvanced = () => {
         return;
       }
 
-      let allLines: any[] = [];
-      let from = 0;
-      const CHUNK_SIZE = 1000;
+      // 🚀 الخطوة 1 (Dual-Engine Fast Path): استعلام دالة التجميع السريعة على مستوى PostgreSQL
+      let rpcSuccess = false;
+      try {
+        const { data: rpcData, error: rpcErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
+          p_org_id: userOrgId,
+          p_start_date: startDate || '1970-01-01',
+          p_end_date: endDate || new Date().toISOString().split('T')[0]
+        });
 
-      while (true) {
-        const { data: chunk, error: chunkErr } = await supabase
-          .from('journal_lines')
-          .select('id, journal_entry_id, account_id, debit, credit, description, journal_entries!inner(id, reference, description, transaction_date, status, organization_id)')
-          .eq('journal_entries.status', 'posted')
-          .eq('journal_entries.organization_id', userOrgId)
-          .lte('journal_entries.transaction_date', endDate)
-          .range(from, from + CHUNK_SIZE - 1);
-
-        if (chunkErr) throw chunkErr;
-        if (!chunk || chunk.length === 0) break;
-
-        allLines = allLines.concat(chunk);
-        if (chunk.length < CHUNK_SIZE) break;
-        from += CHUNK_SIZE;
+        if (!rpcErr && Array.isArray(rpcData) && rpcData.length > 0) {
+          setRpcSummary(rpcData);
+          rpcSuccess = true;
+          // تصفير أسطر اليومية المحلية لتوفير الذاكرة والشبكة
+          setLedgerLines([]);
+        }
+      } catch (rpcEx) {
+        console.warn('[TrialBalance] Server RPC unavailable, falling back to chunked query:', rpcEx);
       }
 
-      setLedgerLines(allLines);
+      // 🛡️ الخطوة 2 (Graceful Degradation Fallback): جلب السطور مقسمة إذا لم تتوفر دالة الخادم
+      if (!rpcSuccess) {
+        setRpcSummary(null);
+        let allLines: any[] = [];
+        let from = 0;
+        const CHUNK_SIZE = 1000;
+
+        while (true) {
+          const { data: chunk, error: chunkErr } = await supabase
+            .from('journal_lines')
+            .select('id, journal_entry_id, account_id, debit, credit, description, journal_entries!inner(id, reference, description, transaction_date, status, organization_id)')
+            .eq('journal_entries.status', 'posted')
+            .eq('journal_entries.organization_id', userOrgId)
+            .lte('journal_entries.transaction_date', endDate)
+            .range(from, from + CHUNK_SIZE - 1);
+
+          if (chunkErr) throw chunkErr;
+          if (!chunk || chunk.length === 0) break;
+
+          allLines = allLines.concat(chunk);
+          if (chunk.length < CHUNK_SIZE) break;
+          from += CHUNK_SIZE;
+        }
+
+        setLedgerLines(allLines);
+      }
     } catch (err: any) {
       console.error('Error fetching ledger:', err);
       // تمييز أخطاء الشبكة عن أخطاء البيانات
@@ -168,6 +173,54 @@ const TrialBalanceAdvanced = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  // دالة لجلب تفاصيل الأسطر للتدقيق في حال وجود عدم اتزان
+  const handleOpenUnbalancedAudit = async () => {
+    if (ledgerLines.length === 0) {
+      setLoading(true);
+      try {
+        let userOrgId: string | undefined | null =
+          getActiveOrgIdSync(currentSelectedOrgId) ||
+          (currentUser as any)?.organization_id ||
+          (currentUser as any)?.user_metadata?.org_id;
+
+        if (!userOrgId) {
+          userOrgId = await resolveActiveOrgId(currentSelectedOrgId);
+        }
+
+        if (!userOrgId) {
+          toast.error('تعذر تحديد المنظمة.');
+          setLoading(false);
+          return;
+        }
+
+        let allLines: any[] = [];
+        let from = 0;
+        const CHUNK_SIZE = 1000;
+        while (true) {
+          const { data: chunk, error: chunkErr } = await supabase
+            .from('journal_lines')
+            .select('id, journal_entry_id, account_id, debit, credit, description, journal_entries!inner(id, reference, description, transaction_date, status, organization_id)')
+            .eq('journal_entries.status', 'posted')
+            .eq('journal_entries.organization_id', userOrgId)
+            .lte('journal_entries.transaction_date', endDate)
+            .range(from, from + CHUNK_SIZE - 1);
+
+          if (chunkErr) throw chunkErr;
+          if (!chunk || chunk.length === 0) break;
+          allLines = allLines.concat(chunk);
+          if (chunk.length < CHUNK_SIZE) break;
+          from += CHUNK_SIZE;
+        }
+        setLedgerLines(allLines);
+      } catch (err: any) {
+        toast.error('تعذر جلب تفاصيل الأسطر للتدقيق: ' + err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    setShowUnbalancedModal(true);
   };
 
 
@@ -194,52 +247,74 @@ const TrialBalanceAdvanced = () => {
         allAccountsMap.set(a.id, a);
     });
 
-    // حقن حسابات الديمو إذا كنا في وضع الديمو لضمان ظهور الأسماء
-    if (currentUser?.role === 'demo') {
-        const demoAccountsList = [
-            { id: '10101', code: '10101', name: 'النقدية بالصندوق', isGroup: false, parentAccount: '101' },
-            { id: '10201', code: '10201', name: 'العملاء', isGroup: false, parentAccount: '102' },
-            { id: '11101', code: '11101', name: 'الأثاث والتجهيزات', isGroup: false, parentAccount: '111' },
-            { id: '20101', code: '20101', name: 'الموردين', isGroup: false, parentAccount: '201' },
-            { id: '40101', code: '40101', name: 'المبيعات', isGroup: false, parentAccount: '401' },
-            { id: '50101', code: '50101', name: 'المشتريات', isGroup: false, parentAccount: '501' },
-            { id: '50201', code: '50201', name: 'كهرباء ومياه', isGroup: false, parentAccount: '502' },
-            { id: '50301', code: '50301', name: 'مصروفات إدارية', isGroup: false, parentAccount: '503' },
-        ];
-        demoAccountsList.forEach(da => {
-            if (!allAccountsMap.has(da.id)) {
-                allAccountsMap.set(da.id, da);
-                accStats[da.id] = { open: 0, transDr: 0, transCr: 0 };
-            }
-        });
-    }
-
-    // 2. تجميع البيانات من الخطوط المجلوبة من قاعدة البيانات
-    ledgerLines.forEach(line => {
-      // إذا كان الحساب غير موجود في القائمة (محذوف)، نضيفه مؤقتاً للعرض
-      if (!accStats[line.account_id]) {
-          accStats[line.account_id] = { open: 0, transDr: 0, transCr: 0 };
-          allAccountsMap.set(line.account_id, {
-              id: line.account_id,
-              code: 'UNKNOWN',
-              name: 'حساب محذوف/غير معروف',
-              isGroup: false
+    if (rpcSummary && rpcSummary.length > 0) {
+      // 🚀 الخطوة 1: حقن إحصائيات الخادم المجمعة مباشرة
+      rpcSummary.forEach((row: any) => {
+        const accId = row.account_id;
+        accStats[accId] = {
+          open: Number(row.opening_balance) || 0,
+          transDr: Number(row.period_debit) || 0,
+          transCr: Number(row.period_credit) || 0
+        };
+        if (!allAccountsMap.has(accId)) {
+          allAccountsMap.set(accId, {
+            id: accId,
+            code: row.account_code || 'UNKNOWN',
+            name: row.account_name || 'حساب غير معروف',
+            type: row.account_type || 'other',
+            isGroup: Boolean(row.is_group),
+            parent_id: row.parent_id
+          });
+        }
+      });
+    } else {
+      // حقن حسابات الديمو إذا كنا في وضع الديمو لضمان ظهور الأسماء
+      if (currentUser?.role === 'demo') {
+          const demoAccountsList = [
+              { id: '10101', code: '10101', name: 'النقدية بالصندوق', isGroup: false, parentAccount: '101' },
+              { id: '10201', code: '10201', name: 'العملاء', isGroup: false, parentAccount: '102' },
+              { id: '11101', code: '11101', name: 'الأثاث والتجهيزات', isGroup: false, parentAccount: '111' },
+              { id: '20101', code: '20101', name: 'الموردين', isGroup: false, parentAccount: '201' },
+              { id: '40101', code: '40101', name: 'المبيعات', isGroup: false, parentAccount: '401' },
+              { id: '50101', code: '50101', name: 'المشتريات', isGroup: false, parentAccount: '501' },
+              { id: '50201', code: '50201', name: 'كهرباء ومياه', isGroup: false, parentAccount: '502' },
+              { id: '50301', code: '50301', name: 'مصروفات إدارية', isGroup: false, parentAccount: '503' },
+          ];
+          demoAccountsList.forEach(da => {
+              if (!allAccountsMap.has(da.id)) {
+                  allAccountsMap.set(da.id, da);
+                  accStats[da.id] = { open: 0, transDr: 0, transCr: 0 };
+              }
           });
       }
 
-      const date = line.journal_entries.transaction_date;
-      const isBefore = date < startDate;
-      const isWithin = date >= startDate && date <= endDate;
+      // 2. تجميع البيانات من الخطوط المجلوبة من قاعدة البيانات (Fallback)
+      ledgerLines.forEach(line => {
+        // إذا كان الحساب غير موجود في القائمة (محذوف)، نضيفه مؤقتاً للعرض
+        if (!accStats[line.account_id]) {
+            accStats[line.account_id] = { open: 0, transDr: 0, transCr: 0 };
+            allAccountsMap.set(line.account_id, {
+                id: line.account_id,
+                code: 'UNKNOWN',
+                name: 'حساب محذوف/غير معروف',
+                isGroup: false
+            });
+        }
 
-      if (isBefore) {
-          // الرصيد الافتتاحي: المدين موجب والدائن سالب
-          accStats[line.account_id].open += (line.debit - line.credit);
-      } else if (isWithin) {
-          // حركات الفترة
-          accStats[line.account_id].transDr += line.debit;
-          accStats[line.account_id].transCr += line.credit;
-      }
-    });
+        const date = line.journal_entries.transaction_date;
+        const isBefore = date < startDate;
+        const isWithin = date >= startDate && date <= endDate;
+
+        if (isBefore) {
+            // الرصيد الافتتاحي: المدين موجب والدائن سالب
+            accStats[line.account_id].open += (line.debit - line.credit);
+        } else if (isWithin) {
+            // حركات الفترة
+            accStats[line.account_id].transDr += line.debit;
+            accStats[line.account_id].transCr += line.credit;
+        }
+      });
+    }
 
     // 3. دالة تجميعية للحسابات الرئيسية (Recursive)
     const getAccountStats = (accountId: string): { open: number, transDr: number, transCr: number } => {
@@ -295,15 +370,33 @@ const TrialBalanceAdvanced = () => {
     }
 
     return result.sort((a, b) => a.code.localeCompare(b.code));
-  }, [accounts, ledgerLines, startDate, endDate, hideZeroAccounts, searchTerm, showOpeningOnly]);
+  }, [accounts, ledgerLines, rpcSummary, startDate, endDate, hideZeroAccounts, searchTerm, showOpeningOnly]);
 
   // حساب الإجماليات
   const totals = useMemo(() => {
     // حساب الإجماليات من البيانات الخام مباشرة لضمان الدقة وتجنب مشاكل الهيكلية
     const rawTotals = { openDr: 0, openCr: 0, transDr: 0, transCr: 0, closeDr: 0, closeCr: 0 };
+
+    if (rpcSummary && rpcSummary.length > 0) {
+      rpcSummary.forEach((row: any) => {
+        if (!row.is_group) {
+          const open = Number(row.opening_balance) || 0;
+          const transDr = Number(row.period_debit) || 0;
+          const transCr = Number(row.period_credit) || 0;
+          const close = Number(row.closing_balance) !== undefined ? Number(row.closing_balance) : (open + transDr - transCr);
+
+          rawTotals.openDr += open > 0 ? open : 0;
+          rawTotals.openCr += open < 0 ? Math.abs(open) : 0;
+          rawTotals.transDr += transDr;
+          rawTotals.transCr += transCr;
+          rawTotals.closeDr += close > 0 ? close : 0;
+          rawTotals.closeCr += close < 0 ? Math.abs(close) : 0;
+        }
+      });
+      return rawTotals;
+    }
     
-    // نعيد حساب الأرصدة الخام من ledgerLines والحسابات
-    // ملاحظة: نستخدم ledgerLines التي تم جلبها بالفعل
+    // نعيد حساب الأرصدة الخام من ledgerLines والحسابات (Fallback)
     const accStats: Record<string, { open: number, transDr: number, transCr: number }> = {};
     ledgerLines.forEach(line => {
         if (!accStats[line.account_id]) accStats[line.account_id] = { open: 0, transDr: 0, transCr: 0 };
@@ -327,7 +420,7 @@ const TrialBalanceAdvanced = () => {
     });
 
     return rawTotals;
-  }, [ledgerLines, startDate, endDate]);
+  }, [ledgerLines, rpcSummary, startDate, endDate]);
 
   // التحقق من التوازن
   const isBalanced = 
@@ -542,7 +635,7 @@ const TrialBalanceAdvanced = () => {
                     الفرق: {Math.abs(totals.closeDr - totals.closeCr).toFixed(2)} ج.م
                   </span>
                   <button
-                    onClick={() => setShowUnbalancedModal(true)}
+                    onClick={handleOpenUnbalancedAudit}
                     className="bg-red-600 hover:bg-red-700 text-white px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer animate-pulse"
                     title="كشف تفاصيل القيود غير المتوازنة المسببة لهذا الفرق وإمكانية فك ترحيلها فوراً"
                   >
@@ -608,7 +701,7 @@ const TrialBalanceAdvanced = () => {
                     فتح القيد في دفتر اليومية لتعديله
                   </button>
                   <button
-                    onClick={() => setShowUnbalancedModal(true)}
+                    onClick={handleOpenUnbalancedAudit}
                     className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer"
                   >
                     عرض تفاصيل أسطر القيد ({unbalancedAudit.entries[0].lines.length} سطر)

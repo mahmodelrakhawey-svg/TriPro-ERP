@@ -19,6 +19,7 @@ export interface UserProfile {
 
 
 import { offlineService, isValidUUID } from '../services/offlineService';
+import { setActiveOrgId, getActiveOrgIdSync } from '../services/tenantContext';
 import { closeFinancialYearEngine, reopenFinancialYearEngine } from '../services/financialYearService';
 import { deleteOrganizationSafe } from '../services/organizationService';
 import {
@@ -51,6 +52,8 @@ interface AccountingContextType {
   organizations: any[];
   currentSelectedOrgId: string | null;
   setCurrentSelectedOrgId: (id: string | null) => void;
+  effectiveOrgId: string;
+  getEffectiveOrgId: () => string;
   isLoading: boolean;
   settings: any;
   accounts: Account[];
@@ -244,19 +247,29 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const { showToast } = useToast();
   const [organization, setOrganization] = useState<any>(null);
   const [currentSelectedOrgId, setCurrentSelectedOrgIdState] = useState<string | null>(() => {
-    return secureStorage.getItem<string>('tripro_active_org_id') || null;
+    return getActiveOrgIdSync() || secureStorage.getItem<string>('tripro_active_org_id') || null;
   });
 
   const setCurrentSelectedOrgId = useCallback((id: string | null) => {
     setCurrentSelectedOrgIdState(id);
     if (id) {
       secureStorage.setItem('tripro_active_org_id', id);
-      if (id !== 'org-default-offline' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-        secureStorage.setItem('tripro_last_valid_org_id', id);
-        try { window.localStorage?.setItem('tripro_last_valid_org_id', JSON.stringify(id)); } catch (e) {}
+      if (id !== 'org-default-offline' && isValidUUID(id)) {
+        setActiveOrgId(id);
       }
     } else {
-      secureStorage.removeItem('tripro_active_org_id');
+      setActiveOrgId(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleOrgChange = (e: any) => {
+      const newOrgId = e.detail?.orgId || null;
+      setCurrentSelectedOrgIdState(prev => (prev !== newOrgId ? newOrgId : prev));
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('tripro:organization_changed', handleOrgChange);
+      return () => window.removeEventListener('tripro:organization_changed', handleOrgChange);
     }
   }, []);
 
@@ -289,13 +302,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [authUser]);
 
   const getEffectiveOrgId = useCallback(() => {
-    const cachedValidOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
-      (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
+    const tenantActive = getActiveOrgIdSync(currentSelectedOrgId);
+    if (tenantActive) return tenantActive;
     if (currentSelectedOrgId && currentSelectedOrgId !== 'org-default-offline') return currentSelectedOrgId;
     if (currentUser?.organization_id && currentUser.organization_id !== 'org-default-offline') return currentUser.organization_id;
+    const cachedValidOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
+      (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
     if (cachedValidOrg && cachedValidOrg !== 'org-default-offline') return cachedValidOrg;
     return 'org-default-offline';
   }, [currentSelectedOrgId, currentUser?.organization_id]);
+
+  const effectiveOrgId = useMemo(() => getEffectiveOrgId(), [getEffectiveOrgId]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -2425,7 +2442,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [currentUser, showToast, refreshData]);
 
   const value: AccountingContextType = {
-    organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
+    organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, effectiveOrgId, getEffectiveOrgId, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
     fetchEntriesPaged, employees, products, transfers, purchaseInvoices, invoices, salespeople, categories,
     users, warehouses, restaurantTables, menuCategories, customers, suppliers, cheques,
     currentShift, activityLog, refreshData, isDemo, can, clearCache,

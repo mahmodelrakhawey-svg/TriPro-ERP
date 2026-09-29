@@ -1,10 +1,11 @@
-﻿﻿﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { useAccounting } from '../../context/AccountingContext';
 import { Book, Filter, Search, Printer } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import ReportHeader from '../../components/ReportHeader';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 type Account = {
   id: string;
@@ -30,7 +31,7 @@ type LedgerEntry = {
 
 const GeneralLedger = () => {
   const location = useLocation();
-  const { accounts, currentUser, customers, selectedFiscalYear, fiscalYearRange } = useAccounting(); // إضافة العملاء من السياق
+  const { accounts, currentUser, currentSelectedOrgId, customers, selectedFiscalYear, fiscalYearRange } = useAccounting(); // إضافة العملاء من السياق
   const { showToast } = useToast();
   const [selectedAccount, setSelectedAccount] = useState<string>('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
@@ -123,8 +124,15 @@ const GeneralLedger = () => {
       // تحديد الحسابات المستهدفة (الحساب المختار + أبنائه)
       const targetAccountIds = getAccountAndChildrenIds(selectedAccount, accounts as unknown as Account[]);
       
-      const { data: sessionData } = await supabase.auth.getSession();
-      const userOrgId = sessionData?.session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+      // 🛡️ تحديد هوية المنظمة الموحدة والمحصنة
+      let userOrgId: string | undefined | null =
+        getActiveOrgIdSync(currentSelectedOrgId) ||
+        (currentUser as any)?.organization_id ||
+        (currentUser as any)?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        userOrgId = await resolveActiveOrgId(currentSelectedOrgId);
+      }
 
       if (!userOrgId) {
         throw new Error('تعذر تحديد المنظمة التابع لها.');
@@ -163,24 +171,48 @@ const GeneralLedger = () => {
       setSearchParamsState({ ids: targetAccountIds, start: startDate, end: endDate, customerEntryIds });
 
       // 1. حساب رصيد ما قبل الفترة (Opening Balance)
-      let openingQuery = supabase
-        .from('journal_lines')
-        .select('debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
-        .in('account_id', targetAccountIds) // استخدام .in بدلاً من .eq
-        .eq('journal_entries.status', 'posted') // الاعتماد على status='posted' أدق
-        .eq('journal_entries.organization_id', userOrgId)
-        .lt('journal_entries.transaction_date', startDate || '1970-01-01');
+      let openBal = 0;
+      let rpcSucceeded = false;
 
-      if (customerEntryIds) {
-        openingQuery = openingQuery.in('journal_entry_id', customerEntryIds);
+      // 🚀 محاولة استعلام الدالة المجمعة السريعة على الخادم في حال عدم وجود فلتر لعميل معين
+      if (!customerEntryIds) {
+        try {
+          const { data: rpcBal, error: rpcErr } = await supabase.rpc('get_account_opening_balance_rpc', {
+            p_account_ids: targetAccountIds,
+            p_start_date: startDate || '1970-01-01',
+            p_org_id: userOrgId
+          });
+
+          if (!rpcErr && rpcBal !== null && rpcBal !== undefined) {
+            openBal = Number(rpcBal);
+            rpcSucceeded = true;
+          }
+        } catch (rpcEx) {
+          console.warn('[GeneralLedger] RPC opening balance fallback to client query:', rpcEx);
+        }
       }
 
-      const { data: openingData, error: openingError } = await openingQuery;
+      // 🛡️ Graceful Degradation: الرجوع للاستعلام العادي إذا لم تنجح الدالة أو إذا كان هناك فلتر عميل
+      if (!rpcSucceeded) {
+        let openingQuery = supabase
+          .from('journal_lines')
+          .select('debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+          .in('account_id', targetAccountIds) // استخدام .in بدلاً من .eq
+          .eq('journal_entries.status', 'posted') // الاعتماد على status='posted' أدق
+          .eq('journal_entries.organization_id', userOrgId)
+          .lt('journal_entries.transaction_date', startDate || '1970-01-01');
 
-      if (openingError) throw openingError;
+        if (customerEntryIds) {
+          openingQuery = openingQuery.in('journal_entry_id', customerEntryIds);
+        }
 
-      // الرصيد الافتتاحي = مجموع المدين - مجموع الدائن (للفترة السابقة)
-      const openBal = openingData?.reduce((sum, line) => sum + (line.debit - line.credit), 0) || 0;
+        const { data: openingData, error: openingError } = await openingQuery;
+        if (openingError) throw openingError;
+
+        // الرصيد الافتتاحي = مجموع المدين - مجموع الدائن (للفترة السابقة)
+        openBal = openingData?.reduce((sum, line) => sum + (line.debit - line.credit), 0) || 0;
+      }
+
       setOpeningBalance(openBal);
 
       // 2. جلب الصفحة الأولى من البيانات
@@ -199,8 +231,14 @@ const GeneralLedger = () => {
       const from = pageIndex * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const userOrgId = sessionData?.session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+      let userOrgId: string | undefined | null =
+        getActiveOrgIdSync(currentSelectedOrgId) ||
+        (currentUser as any)?.organization_id ||
+        (currentUser as any)?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        userOrgId = await resolveActiveOrgId(currentSelectedOrgId);
+      }
 
       if (!userOrgId) {
         throw new Error('تعذر تحديد المنظمة.');
