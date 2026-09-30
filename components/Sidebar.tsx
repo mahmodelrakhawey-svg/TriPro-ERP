@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
-import { ROUTE_TITLES } from '../utils/routeTitles';
+import { getRouteTitle } from '../utils/routeTitles';
 import { 
   Activity, 
   Settings, 
@@ -123,8 +123,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }
   // تحديث سجل الوصول السريع عند التنقل
   React.useEffect(() => {
     const path = location.pathname;
-    const title = ROUTE_TITLES[path];
-    if (title && path !== '/' && path !== '/dashboard' && path !== '/mobile') {
+    const title = getRouteTitle(path);
+    if (title && title !== 'نظام TriPro ERP المؤسسي المتكامل' && path !== '/' && path !== '/dashboard' && path !== '/mobile') {
       setRecentRoutes(prev => {
         const filtered = prev.filter(r => r.path !== path);
         const updated = [{ path, label: title }, ...filtered].slice(0, 4);
