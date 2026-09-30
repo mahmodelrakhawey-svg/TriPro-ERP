@@ -668,6 +668,66 @@ class NotificationService {
   }
 
   /**
+   * 🛡️ فحص سلامة الأركان المالية الأربعة دورياً
+   * يقوم بتدقيق توازن الأستاذ العام ومطابقة العملاء والموردين وتقييم المخزون
+   */
+  static async checkFinancialIntegrityPillars(organizationId?: string): Promise<void> {
+    try {
+      let orgId = organizationId;
+      if (!orgId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        orgId = user?.user_metadata?.org_id;
+      }
+      if (!orgId) return;
+
+      // لتجنب تكرار الإشعار عدة مرات في نفس اليوم، نقرأ آخر وقت فحص
+      const cacheKey = `tripro_last_financial_audit_${orgId}`;
+      const lastAudit = typeof window !== 'undefined' ? localStorage.getItem(cacheKey) : null;
+      const now = Date.now();
+      // تشغيل مرة كل 6 ساعات كحد أقصى لتفادي الإزعاج
+      if (lastAudit && (now - parseInt(lastAudit, 10)) < 6 * 60 * 60 * 1000) {
+        return;
+      }
+
+      const { auditDaemonService } = await import('./auditDaemonService');
+      const report = await auditDaemonService.runSystemAudit(orgId);
+
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(cacheKey, now.toString());
+      }
+
+      if (report.overallStatus === 'failed' || report.overallStatus === 'warning') {
+        const failedChecks = report.checks.filter(c => c.status === 'failed' || c.status === 'warning');
+        const issuePillars = failedChecks.map(c => c.title).join('، ');
+
+        // جلب معرفات المدراء والمحاسبين
+        const { data: managers } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('organization_id', orgId)
+          .in('role', ['admin', 'super_admin', 'owner', 'accountant']);
+
+        if (managers && managers.length > 0) {
+          for (const manager of managers) {
+            await this.createNotification(
+              manager.id,
+              orgId,
+              report.overallStatus === 'failed' ? '🚨 خلل في توازن النظام المالي' : '⚠️ تنبيه رقابي محاسبي',
+              `تم اكتشاف عدم تطابق في: ${issuePillars}. يرجى زيارة مركز الرقابة والحوكمة للفحص وإعادة التسوية.`,
+              'system_alert',
+              report.overallStatus === 'failed' ? 'high' : 'medium',
+              undefined,
+              '/admin/audit-logs'
+            );
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('Notice checking financial integrity pillars:', err);
+    }
+  }
+
+  /**
    * تشغيل جميع الفحوصات الدورية
    * يجب استدعاؤها بشكل دوري (مثلاً كل ساعة أو كل يوم)
    */
@@ -684,6 +744,7 @@ class NotificationService {
         this.checkProjectPerformanceThresholds(), // 🏗️ جديد: إضافة فحص أداء المشاريع
         this.checkUpcomingRetentionReleases(),    // 🏗️ جديد: فحص محتجزات الضمان
         this.checkDueRecurringInvoices(),         // 🔁 جديد: فحص وإصدار الفواتير الدورية والاشتراكات آلياً
+        this.checkFinancialIntegrityPillars(),    // 🛡️ جديد: فحص سلامة الأركان المالية الأربعة
       ]);
       console.log('✅ Notification checks completed');
     } catch (err) {

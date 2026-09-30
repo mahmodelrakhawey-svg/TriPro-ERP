@@ -137,4 +137,49 @@ describe('🛡️ Midnight Financial Integrity & Audit Daemon Service', () => {
       p_org_id: testOrgId,
     });
   });
+
+  it('يعتمد على نتائج RPC المباشرة get_financial_audit_summary عند توافرها بقاعدة البيانات', async () => {
+    const mockRpcReport = {
+      success: true,
+      overall_status: 'passed',
+      timestamp: '2026-09-30T12:00:00Z',
+      checks: [
+        {
+          id: 'pillar-gl',
+          pillar: 'gl_balance',
+          title: 'توازن الأستاذ العام',
+          expected: 50000,
+          actual: 50000,
+          variance: 0,
+          status: 'passed',
+          notes: 'متوازن',
+        },
+        {
+          id: 'pillar-ar',
+          pillar: 'ar_subledger',
+          title: 'مطابقة العملاء',
+          expected: 20000,
+          actual: 20000,
+          variance: 0,
+          status: 'passed',
+          notes: 'متطابق',
+        },
+      ],
+    };
+
+    (supabase.rpc as any).mockResolvedValueOnce({
+      data: mockRpcReport,
+      error: null,
+    });
+
+    const report = await auditDaemonService.runSystemAudit(testOrgId);
+
+    expect(supabase.rpc).toHaveBeenCalledWith('get_financial_audit_summary', {
+      p_org_id: testOrgId,
+    });
+    expect(report.overallStatus).toBe('passed');
+    expect(report.checks).toHaveLength(2);
+    expect(report.summary.passedCount).toBe(2);
+  });
 });
+

@@ -44,6 +44,31 @@ class AuditDaemonService {
    * تنفيذ التدقيق المالي الشامل على الأركان الأربعة
    */
   public async runSystemAudit(orgId: string): Promise<SystemAuditReport> {
+    // المحاولة الأولى الفائقة: عبر دالة RPC المباشرة بقاعدة البيانات
+    try {
+      const { data, error } = await supabase.rpc('get_financial_audit_summary', {
+        p_org_id: orgId
+      });
+
+      if (!error && data?.success && Array.isArray(data.checks)) {
+        const passedCount = data.checks.filter((c: any) => c.status === 'passed').length;
+        const failedCount = data.checks.filter((c: any) => c.status === 'failed' || c.status === 'warning').length;
+        return {
+          organizationId: orgId,
+          timestamp: data.timestamp || new Date().toISOString(),
+          overallStatus: (data.overall_status as 'passed' | 'warning' | 'failed') || 'passed',
+          checks: data.checks as AuditCheckItem[],
+          summary: {
+            totalChecks: data.checks.length,
+            passedCount,
+            failedCount
+          }
+        };
+      }
+    } catch (_) {
+      // الاستمرار إلى التدقيق الاحتياطي عبر العميل
+    }
+
     const checks: AuditCheckItem[] = [];
 
     // 1. الركن الأول: توازن دفتر الأستاذ العام (General Ledger Balance)
