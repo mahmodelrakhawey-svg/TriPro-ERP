@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
+import { ROUTE_TITLES } from '../utils/routeTitles';
 import { 
   Activity, 
   Settings, 
@@ -108,6 +109,32 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }
   const location = useLocation();
   const [openSection, setOpenSection] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // ⚡ سجل الوصول السريع للشاشات الأكثر استخداماً
+  const [recentRoutes, setRecentRoutes] = useState<{ path: string; label: string }[]>(() => {
+    try {
+      const saved = localStorage.getItem('tripro_recent_routes');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  // تحديث سجل الوصول السريع عند التنقل
+  React.useEffect(() => {
+    const path = location.pathname;
+    const title = ROUTE_TITLES[path];
+    if (title && path !== '/' && path !== '/dashboard' && path !== '/mobile') {
+      setRecentRoutes(prev => {
+        const filtered = prev.filter(r => r.path !== path);
+        const updated = [{ path, label: title }, ...filtered].slice(0, 4);
+        try {
+          localStorage.setItem('tripro_recent_routes', JSON.stringify(updated));
+        } catch (_) {}
+        return updated;
+      });
+    }
+  }, [location.pathname]);
 
   // 📱 إغلاق الشريط الجانبي في شاشات الموبايل تلقائياً عند النقر على أي رابط والتنقل
   React.useEffect(() => {
@@ -688,6 +715,47 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }
           </button>
         )}
       </div>
+
+      {/* ⚡ الوصول السريع للشاشات الأخيرة */}
+      {!searchTerm && recentRoutes.length > 0 && (
+        <div className="mb-3 px-1 shrink-0">
+          <div className="flex items-center justify-between text-[10px] font-black text-slate-400 mb-1.5 px-1 uppercase tracking-wider">
+            <span className="flex items-center gap-1 text-sky-400">
+              <Sparkles size={11} /> وصول سريع
+            </span>
+            <button 
+              onClick={() => {
+                setRecentRoutes([]);
+                try { localStorage.removeItem('tripro_recent_routes'); } catch (_) {}
+              }}
+              className="text-[9px] text-slate-500 hover:text-slate-300 transition-colors"
+              title="مسح سجل الوصول السريع"
+            >
+              مسح
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {recentRoutes.map(item => {
+              const isActive = location.pathname === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-bold truncate transition-all ${
+                    isActive 
+                      ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30' 
+                      : 'bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white border border-white/5'
+                  }`}
+                  title={item.label}
+                >
+                  <History size={11} className="shrink-0 text-sky-400" />
+                  <span className="truncate">{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
       
       <nav className="flex-1">
         <ul className="space-y-1">

@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { Landmark, X, Info } from 'lucide-react';
 import { ToastProvider } from './context/ToastContext';
+import { Toaster as HotToaster } from 'react-hot-toast';
 import { notifyUserError } from './utils/errorHandler';
 import NotificationScheduler from './services/NotificationScheduler';
 import Sidebar from './components/Sidebar';
@@ -919,6 +920,20 @@ const App = () => {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <ToastProvider>
+            <HotToaster 
+              position="top-center" 
+              reverseOrder={false} 
+              toastOptions={{ 
+                duration: 4000, 
+                style: { 
+                  fontFamily: "'Tajawal', sans-serif", 
+                  borderRadius: '12px', 
+                  fontSize: '13px', 
+                  fontWeight: 'bold',
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)'
+                } 
+              }} 
+            />
             <AccountingProvider>
               <AppContent />
             </AccountingProvider>
