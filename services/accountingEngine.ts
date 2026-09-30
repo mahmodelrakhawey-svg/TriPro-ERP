@@ -166,8 +166,78 @@ class UnifiedAccountingEngine {
     }
 
     try {
-      // 3. إنشاء رأس القيد في جدول journal_entries كمسودة أولاً
+      // 🚀 المسار الرئيسي: استخدام RPC أتومية لضمان ACID Compliance
+      // دالة create_journal_entry_atomic تنفذ كل العملية داخل Transaction واحد
       const entryRef = reference || `JE-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2,6).toUpperCase()}`;
+
+      const linesPayload = lines.map(line => ({
+        account_id: line.accountId,
+        debit: Number(line.debit || 0),
+        credit: Number(line.credit || 0),
+        description: (line.description || description).trim(),
+        cost_center_id: line.costCenterId || costCenterId || null
+      }));
+
+      let rpcResult: any = null;
+      let rpcError: any = null;
+
+      if (typeof (supabase as any)?.rpc === 'function') {
+        try {
+          const res = await supabase.rpc(
+            'create_journal_entry_atomic',
+            {
+              p_organization_id:  organizationId,
+              p_transaction_date: transactionDate,
+              p_reference:        entryRef,
+              p_description:      description.trim(),
+              p_status:           status,
+              p_related_doc_id:   relatedDocumentId || null,
+              p_related_doc_type: relatedDocumentType || null,
+              p_cost_center_id:   costCenterId || null,
+              p_lines:            linesPayload
+            }
+          );
+          rpcResult = res.data;
+          rpcError = res.error;
+        } catch (callEx: any) {
+          rpcError = callEx;
+        }
+      } else {
+        rpcError = { message: 'supabase.rpc function is not configured' };
+      }
+
+      // إذا نجح RPC الأتومي — نعود بالنتيجة مباشرةً
+      if (!rpcError && rpcResult?.success) {
+        return {
+          success:        true,
+          journalEntryId: rpcResult.journal_entry_id,
+          reference:      rpcResult.reference,
+          totalDebit,
+          totalCredit
+        };
+      }
+
+      // إذا فشل RPC (ربما لأنه لم يُطبَّق بعد على قاعدة البيانات)
+      // نسقط إلى المسار الاحتياطي الكلاسيكي مع تسجيل التحذير
+      if (rpcError) {
+        console.warn('[AccountingEngine] Atomic RPC unavailable, using fallback:', rpcError.message);
+      } else if (rpcResult && !rpcResult.success) {
+        // الـ RPC موجود ورفض العملية (خطأ منطقي مثل فترة مقفلة أو عدم التوازن)
+        return {
+          success: false,
+          totalDebit,
+          totalCredit,
+          error: rpcResult.error || 'فشل إنشاء القيد'
+        };
+      }
+
+      // ======================================================================
+      // 🔁 المسار الاحتياطي: إنشاء القيد بالخطوات الكلاسيكية
+      // يُستخدم فقط عندما لا يكون RPC الأتومي متاحاً بعد في قاعدة البيانات
+      // ======================================================================
+      console.warn('[AccountingEngine] ⚠️ Using non-atomic fallback — apply critical_security_fixes.sql to upgrade');
+
+      // 3. إنشاء رأس القيد في جدول journal_entries كمسودة أولاً
       const entryPayload: JournalEntryHeaderPayload = {
         organization_id: organizationId || null,
         transaction_date: transactionDate,
@@ -224,7 +294,12 @@ class UnifiedAccountingEngine {
         .insert(linesToInsert);
 
       if (linesError) {
-        await supabase.from('journal_entries').delete().eq('id', entry.id);
+        // محاولة تنظيف الـ header اليتيم — قد تفشل في حالة انقطاع الشبكة
+        try {
+          await supabase.from('journal_entries').delete().eq('id', entry.id);
+        } catch (cleanupErr) {
+          console.error('[AccountingEngine] Orphan header cleanup failed:', cleanupErr);
+        }
         throw new Error(linesError.message);
       }
 
@@ -232,10 +307,7 @@ class UnifiedAccountingEngine {
       if (status === 'posted') {
         const { error: postError } = await supabase
           .from('journal_entries')
-          .update({
-            status: 'posted',
-            is_posted: true
-          })
+          .update({ status: 'posted', is_posted: true })
           .eq('id', entry.id);
 
         if (postError) {

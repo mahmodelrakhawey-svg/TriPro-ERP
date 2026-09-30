@@ -60,6 +60,7 @@ import {
   CalendarRange,
   Microscope,
   Search,
+  X,
   BarChart,
   Calculator,
   PieChart,
@@ -101,6 +102,7 @@ const Sidebar: React.FC = () => {
   const { organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, can } = useAccounting();
   const location = useLocation();
   const [openSection, setOpenSection] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
 
   const userRole = currentUser?.role;
   const isSuperAdmin = userRole === 'super_admin' || userRole === 'owner';
@@ -578,6 +580,29 @@ const Sidebar: React.FC = () => {
     return groups.filter(g => g.type !== 'section' || (Array.isArray(g.children) && g.children.length > 0));
   }, [visibleItems]);
 
+  // فلترة العناصر والأقسام بناءً على كلمة البحث السريع
+  const displayedGroups = React.useMemo(() => {
+    if (!searchTerm.trim()) return groupedItems;
+    const term = searchTerm.trim().toLowerCase();
+
+    return groupedItems
+      .map(group => {
+        if (group.type === 'section') {
+          const matchingChildren = group.children?.filter((child: any) =>
+            child.label?.toLowerCase().includes(term) ||
+            group.label?.toLowerCase().includes(term)
+          );
+          if (matchingChildren && matchingChildren.length > 0) {
+            return { ...group, children: matchingChildren };
+          }
+          return null;
+        } else {
+          return group.label?.toLowerCase().includes(term) ? group : null;
+        }
+      })
+      .filter(Boolean);
+  }, [groupedItems, searchTerm]);
+
   const toggleSection = (label: string) => {
     setOpenSection(openSection === label ? null : label);
   };
@@ -585,7 +610,7 @@ const Sidebar: React.FC = () => {
   return (
     <div className="w-64 bg-[#0b132b] text-slate-200 flex flex-col p-4 h-screen shadow-2xl sticky top-0 overflow-y-auto custom-scrollbar shrink-0 border-l border-white/5" dir="rtl">
       {/* 🌟 هوية وشعار TriPro ERP المحدثة */}
-      <div className="flex items-center gap-3 mb-6 px-2 shrink-0">
+      <div className="flex items-center gap-3 mb-4 px-2 shrink-0">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 via-indigo-600 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/30 ring-1 ring-white/20 shrink-0">
           <Layers className="text-white w-5 h-5" />
         </div>
@@ -599,13 +624,41 @@ const Sidebar: React.FC = () => {
           </span>
         </div>
       </div>
+
+      {/* 🔍 حقل البحث السريع في الشاشات والقوائم */}
+      <div className="relative mb-3 px-1 shrink-0">
+        <input
+          type="text"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          placeholder="بحث في الشاشات (مثال: قيود، فواتير)..."
+          className="w-full bg-slate-900/80 border border-slate-700/60 rounded-xl py-2 pr-8 pl-7 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all"
+        />
+        <Search size={14} className="absolute right-3 top-2.5 text-slate-400 pointer-events-none" />
+        {searchTerm && (
+          <button
+            onClick={() => setSearchTerm('')}
+            className="absolute left-2.5 top-2 text-slate-400 hover:text-white p-0.5 rounded-full"
+            title="مسح البحث"
+          >
+            <X size={13} />
+          </button>
+        )}
+      </div>
       
       <nav className="flex-1">
         <ul className="space-y-1">
-          {groupedItems.map((item, index) => {
-            if (item.type === 'section') {
-              const isOpen = openSection === item.label;
-              const hasActiveChild = item.children?.some((child: any) => location.pathname === child.to);
+          {displayedGroups.length === 0 ? (
+            <div className="text-center py-8 px-2 text-slate-500">
+              <Search className="w-8 h-8 mx-auto mb-2 opacity-30 text-sky-400" />
+              <p className="text-xs font-bold text-slate-400">لا توجد شاشات مطابقة</p>
+              <p className="text-[10px] text-slate-500 mt-1">جرّب البحث بكلمة أخرى</p>
+            </div>
+          ) : (
+            displayedGroups.map((item, index) => {
+              if (item.type === 'section') {
+                const isOpen = Boolean(searchTerm.trim()) || openSection === item.label;
+                const hasActiveChild = item.children?.some((child: any) => location.pathname === child.to);
               
               return (
                 <li key={`section-${index}`} className="pt-2">
@@ -666,7 +719,7 @@ const Sidebar: React.FC = () => {
                 </Link>
               </li>
             );
-          })}
+          }))}
         </ul>
       </nav>
 

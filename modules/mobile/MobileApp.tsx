@@ -649,8 +649,12 @@ export default function MobileApp() {
     });
   };
 
+  // ✅ احتساب الضريبة ديناميكياً بناءً على إعدادات الشركة (مع افتراض 14% في حال عدم التحديد)
+  const taxRatePercent = companySettings?.tax_rate !== undefined && companySettings?.tax_rate !== null 
+    ? Number(companySettings.tax_rate) 
+    : 14;
   const cartSubtotal = cart.reduce((sum, it) => sum + it.price * it.qty, 0);
-  const cartTax = cartSubtotal * 0.14;
+  const cartTax = cartSubtotal * (taxRatePercent / 100);
   const cartTotal = cartSubtotal + cartTax;
 
   const handleCreateFieldInvoice = async () => {

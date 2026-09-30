@@ -8,24 +8,7 @@ import { supabase } from '../supabaseClient';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../utils/useNotifications';
 
-// خريطة بسيطة لأسماء الصفحات بناءً على المسار
-const routeTitles: Record<string, string> = {
-    '/': 'لوحة القيادة الرئيسية',
-    '/financial-ratios': 'التحليل المالي والنسب',
-    '/sales-invoice': 'فاتورة مبيعات جديدة',
-    '/general-journal': 'دفتر اليومية العام',
-    '/products': 'إدارة الأصناف',
-    '/accounts': 'دليل الحسابات',
-    '/ledger': 'دفتر الأستاذ العام',
-    '/trial-balance': 'ميزان المراجعة',
-    '/income-statement': 'قائمة الدخل الشامل (IFRS 18)',
-    '/balance-sheet': 'قائمة المركز المالي',
-    '/changes-in-equity': 'قائمة التغير في حقوق الملكية',
-    '/annual-report': 'كتاب التقرير المالي السنوي الموحد (IAS 1)',
-    '/cfo-dashboard': 'لوحة قيادة المدير المالي (CFO)',
-    '/about': 'حول البرنامج',
-    // ... يمكن إضافة باقي المسارات هنا
-};
+import { getRouteTitle } from '../utils/routeTitles';
 
 const Header = () => {
     const location = useLocation();
@@ -72,7 +55,7 @@ const Header = () => {
         } catch (e) {}
     };
 
-    const pageTitle = routeTitles[location.pathname] || 'TriPro ERP';
+    const pageTitle = getRouteTitle(location.pathname);
 
     // Fetch user data
     useEffect(() => {

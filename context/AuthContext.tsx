@@ -392,36 +392,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       finalPassword = validation.data!.password;
     }
 
-    // فحص المستخدم المخزن محلياً في حال انقطاع النت التام
+    // 🔐 فحص المستخدم المخزن محلياً في حال انقطاع النت التام
+    // الأمان الصارم: يُسمح بالدخول فقط لمستخدم مُخزن مسبقاً وبكلمة مرور صحيحة مطابقة للـ hash
     if (isOffline) {
-      const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
-      if (cachedUser && cachedUser.username.toLowerCase() === sanitizedEmailRaw.toLowerCase()) {
-        setCurrentUser(cachedUser);
-        setUserRole(cachedUser.role);
-        setUserPermissions(new Set(['*.*']));
+      if (sanitizedEmailRaw === DEMO_EMAIL) {
+        const demoUser: User = {
+          id: DEMO_USER_ID,
+          name: 'مستخدم تجريبي (وضع تجريبي)',
+          username: DEMO_EMAIL,
+          role: 'demo',
+          is_active: true,
+          organization_id: '00000000-0000-0000-0000-000000000000'
+        };
+        setCurrentUser(demoUser);
+        setUserRole('demo');
+        setUserPermissions(new Set(['dashboard.view', 'reports.view', 'pos.view']));
         setAuthInitialized(true);
         return { success: true };
       }
-      // إذا لم يكن مخزناً وكان الجهاز بدون إنترنت، نسمح بالدخول المباشر كمسؤول محلي أوفلاين
-      const cachedLastOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
-        (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
-      const effectiveOfflineOrg = (cachedLastOrg && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cachedLastOrg))
-        ? cachedLastOrg
-        : '00000000-0000-0000-0000-000000000000';
 
-      const offlineFallbackUser: User = {
-        id: ADMIN_USER_ID,
-        name: sanitizedEmailRaw.split('@')[0] || 'مدير النظام (أوفلاين)',
-        username: sanitizedEmailRaw,
-        role: 'admin',
-        is_active: true,
-        organization_id: effectiveOfflineOrg
-      };
-      setCurrentUser(offlineFallbackUser);
-      setUserRole('admin');
-      setUserPermissions(new Set(['*.*']));
-      setAuthInitialized(true);
-      return { success: true };
+      const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
+      const cachedPasswordHash = secureStorage.getItem<string>('tripro_offline_pw_hash');
+
+      if (cachedUser && cachedUser.username.toLowerCase() === sanitizedEmailRaw.toLowerCase() && cachedPasswordHash) {
+        try {
+          const msgBuffer = new TextEncoder().encode(finalPassword + cachedUser.id);
+          const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+          const inputHashHex = Array.from(new Uint8Array(hashBuffer))
+            .map(b => b.toString(16).padStart(2, '0')).join('');
+
+          if (inputHashHex === cachedPasswordHash) {
+            setCurrentUser(cachedUser);
+            setUserRole(cachedUser.role);
+            const cachedPermissions = secureStorage.getItem<string[]>('tripro_offline_permissions') || [];
+            setUserPermissions(new Set(cachedPermissions.length > 0 ? cachedPermissions : [cachedUser.role + '.*']));
+            setAuthInitialized(true);
+            return { success: true };
+          } else {
+            return { success: false, message: 'كلمة المرور غير صحيحة في وضع عدم الاتصال' };
+          }
+        } catch (e) {
+          console.error('[Offline Auth] Hash verification failed:', e);
+          return { success: false, message: 'فشل التحقق من كلمة المرور في وضع عدم الاتصال' };
+        }
+      }
+
+      return { success: false, message: 'أنت غير متصل بالإنترنت. يجب تسجيل الدخول لمرة واحدة على الأقل أثناء الاتصال.' };
     }
 
     try {
@@ -431,70 +447,108 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
       
       if (error) {
-        // إذا كان الجهاز غير متصل بالإنترنت وفشل الاتصال، نتحقق من الكاش المحلي للمستخدم
+        // إذا كان الجهاز غير متصل بالإنترنت وفشل الاتصال، نتحقق من الكاش المحلي للمستخدم بكلمة المرور
         if (!navigator.onLine || error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')) {
-          const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
-          if (cachedUser && (cachedUser.username.toLowerCase() === finalEmail.toLowerCase() || finalEmail === DEMO_EMAIL)) {
-            setCurrentUser(cachedUser);
-            setUserRole(cachedUser.role);
-            setUserPermissions(new Set(['*.*']));
+          if (finalEmail === DEMO_EMAIL) {
+            const demoUser: User = {
+              id: DEMO_USER_ID,
+              name: 'مستخدم تجريبي (وضع تجريبي)',
+              username: DEMO_EMAIL,
+              role: 'demo',
+              is_active: true,
+              organization_id: '00000000-0000-0000-0000-000000000000'
+            };
+            setCurrentUser(demoUser);
+            setUserRole('demo');
+            setUserPermissions(new Set(['dashboard.view', 'reports.view', 'pos.view']));
             setAuthInitialized(true);
             return { success: true };
           }
-          const cachedLastOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
-            (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
-          const effectiveOfflineOrg = (cachedLastOrg && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cachedLastOrg))
-            ? cachedLastOrg
-            : '00000000-0000-0000-0000-000000000000';
 
-          const offlineUser: User = {
-            id: finalEmail === DEMO_EMAIL ? DEMO_USER_ID : ADMIN_USER_ID,
-            name: finalEmail === DEMO_EMAIL ? 'مستخدم تجريبي (وضع غير متصل)' : (finalEmail.split('@')[0] || 'مدير النظام'),
-            username: finalEmail,
-            role: finalEmail === DEMO_EMAIL ? 'demo' : 'admin',
-            is_active: true,
-            organization_id: effectiveOfflineOrg
-          };
-          setCurrentUser(offlineUser);
-          setUserRole(offlineUser.role);
-          setUserPermissions(new Set(['*.*']));
-          setAuthInitialized(true);
-          return { success: true };
+          const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
+          const cachedPasswordHash = secureStorage.getItem<string>('tripro_offline_pw_hash');
+
+          if (cachedUser && cachedUser.username.toLowerCase() === finalEmail.toLowerCase() && cachedPasswordHash) {
+            try {
+              const msgBuffer = new TextEncoder().encode(finalPassword + cachedUser.id);
+              const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+              const inputHashHex = Array.from(new Uint8Array(hashBuffer))
+                .map(b => b.toString(16).padStart(2, '0')).join('');
+
+              if (inputHashHex === cachedPasswordHash) {
+                setCurrentUser(cachedUser);
+                setUserRole(cachedUser.role);
+                const cachedPermissions = secureStorage.getItem<string[]>('tripro_offline_permissions') || [];
+                setUserPermissions(new Set(cachedPermissions.length > 0 ? cachedPermissions : [cachedUser.role + '.*']));
+                setAuthInitialized(true);
+                return { success: true };
+              }
+            } catch (e) {
+              console.error('[Offline Auth] Hash verification failed:', e);
+            }
+          }
+          return { success: false, message: 'فشل الاتصال بالخادم. يُرجى الاتصال بالإنترنت والمحاولة مجدداً.' };
         }
         console.error('Login error:', error);
         return { success: false, message: error.message || 'بيانات الدخول غير صحيحة' };
       }
+
+      // 🔐 عند نجاح تسجيل الدخول بالإنترنت: حفظ hash كلمة المرور محلياً بأمان
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        const userId = user?.id || finalEmail;
+        const msgBuffer = new TextEncoder().encode(finalPassword + userId);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+        const hashHex = Array.from(new Uint8Array(hashBuffer))
+          .map(b => b.toString(16).padStart(2, '0')).join('');
+        secureStorage.setItem('tripro_offline_pw_hash', hashHex);
+      } catch (hashErr) {
+        console.warn('[Auth] Could not cache offline password hash:', hashErr);
+      }
+
       return { success: true };
     } catch (error: any) {
       // وضع العمل بدون إنترنت عند انقطاع الاتصال التام (Offline Resilience Fallback)
       if (!navigator.onLine || error?.message?.includes('Failed to fetch') || error?.message?.includes('NetworkError')) {
-        const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
-        if (cachedUser && (cachedUser.username.toLowerCase() === finalEmail.toLowerCase() || finalEmail === DEMO_EMAIL)) {
-          setCurrentUser(cachedUser);
-          setUserRole(cachedUser.role);
-          setUserPermissions(new Set(['*.*']));
+        if (finalEmail === DEMO_EMAIL) {
+          const demoUser: User = {
+            id: DEMO_USER_ID,
+            name: 'مستخدم تجريبي (وضع تجريبي)',
+            username: DEMO_EMAIL,
+            role: 'demo',
+            is_active: true,
+            organization_id: '00000000-0000-0000-0000-000000000000'
+          };
+          setCurrentUser(demoUser);
+          setUserRole('demo');
+          setUserPermissions(new Set(['dashboard.view', 'reports.view', 'pos.view']));
           setAuthInitialized(true);
           return { success: true };
         }
-        const cachedLastOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
-          (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
-        const effectiveOfflineOrg = (cachedLastOrg && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(cachedLastOrg))
-          ? cachedLastOrg
-          : '00000000-0000-0000-0000-000000000000';
 
-        const offlineUser: User = {
-          id: finalEmail === DEMO_EMAIL ? DEMO_USER_ID : ADMIN_USER_ID,
-          name: finalEmail === DEMO_EMAIL ? 'مستخدم تجريبي (وضع غير متصل)' : (finalEmail.split('@')[0] || 'مدير النظام'),
-          username: finalEmail,
-          role: finalEmail === DEMO_EMAIL ? 'demo' : 'admin',
-          is_active: true,
-          organization_id: effectiveOfflineOrg
-        };
-        setCurrentUser(offlineUser);
-        setUserRole(offlineUser.role);
-        setUserPermissions(new Set(['*.*']));
-        setAuthInitialized(true);
-        return { success: true };
+        const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
+        const cachedPasswordHash = secureStorage.getItem<string>('tripro_offline_pw_hash');
+
+        if (cachedUser && cachedUser.username.toLowerCase() === finalEmail.toLowerCase() && cachedPasswordHash) {
+          try {
+            const msgBuffer = new TextEncoder().encode(finalPassword + cachedUser.id);
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+            const inputHashHex = Array.from(new Uint8Array(hashBuffer))
+              .map(b => b.toString(16).padStart(2, '0')).join('');
+
+            if (inputHashHex === cachedPasswordHash) {
+              setCurrentUser(cachedUser);
+              setUserRole(cachedUser.role);
+              const cachedPermissions = secureStorage.getItem<string[]>('tripro_offline_permissions') || [];
+              setUserPermissions(new Set(cachedPermissions.length > 0 ? cachedPermissions : [cachedUser.role + '.*']));
+              setAuthInitialized(true);
+              return { success: true };
+            }
+          } catch (hashErr) {
+            console.warn('[Offline Auth] Hash verification failed:', hashErr);
+          }
+        }
+        return { success: false, message: 'فشل الاتصال بالخادم. يُرجى الاتصال بالإنترنت والمحاولة مجدداً.' };
       }
       console.error('Login exception:', error);
       return { success: false, message: error?.message || 'حدث خطأ في الاتصال بنظام تسجيل الدخول' };

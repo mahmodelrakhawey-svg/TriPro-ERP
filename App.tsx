@@ -15,6 +15,7 @@ import Header from './components/Header';
 import WorkspaceTabsBar from './components/WorkspaceTabsBar';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
+import NotFound from './components/NotFound';
 
 // 📱 تطبيق الموبايل الميداني التقدمي (Mobile PWA Companion)
 const MobileApp = lazy(() => import('./modules/mobile/MobileApp'));
@@ -301,8 +302,21 @@ const ProgramProfitReport = lazy(() => import('./modules/stadium/reports/Program
 
 
 
-// إنشاء عميل React Query
-const queryClient = new QueryClient(); // Keep this line
+// إنشاء عميل React Query بإعدادات متقدمة للحفظ المؤقت وإعادة المحاولة
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000,        // 5 دقائق: الحفاظ على البيانات لتجنب جلبها مع كل انتقال
+      gcTime: 10 * 60 * 1000,          // 10 دقائق في الكاش
+      retry: 2,                         // إعادة المحاولة مرتين عند الفشل الشبكي
+      refetchOnWindowFocus: false,      // منع إعادة الجلب غير الضروري عند التبديل بين النوافذ
+      refetchOnReconnect: true,         // إعادة الجلب التلقائي عند استعادة الاتصال
+    },
+    mutations: {
+      retry: 0,                         // منع تكرار العمليات المالية التلقائية
+    },
+  },
+});
 
 import {
   PrintHeader,
@@ -762,7 +776,7 @@ const MainLayout = () => {
                   <Route key={from} path={from} element={<Navigate to={to} replace />} />
                 ))}
                 
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>
             </ErrorBoundary>

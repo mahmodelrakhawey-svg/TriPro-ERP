@@ -50,14 +50,46 @@ export const getAccounts = async () => {
 };
 
 /**
- * دالة لحذف حساب
+ * دالة آمنة لحذف حساب محاسبي مع التحقق من عدم وجود قيود مرتبطة
+ * 🔒 منع حذف الحسابات التي عليها تاريخ محاسبي
  */
 export const deleteAccount = async (id: string) => {
+  // المحاولة الأولى: استخدام الدالة الآمنة في قاعدة البيانات
+  const { data: rpcResult, error: rpcError } = await supabase
+    .rpc('safe_delete_account', { p_account_id: id })
+    .single();
+
+  if (!rpcError && rpcResult) {
+    const result = rpcResult as { success: boolean; error?: string; message?: string };
+    if (!result.success) {
+      throw new Error(result.error || 'فشل حذف الحساب');
+    }
+    return true;
+  }
+
+  // المحاولة الاحتياطية: التحقق يدوياً من journal_lines إذا لم تكن الدالة موجودة بعد
+  const { count: linesCount, error: countError } = await supabase
+    .from('journal_lines')
+    .select('id', { count: 'exact', head: true })
+    .eq('account_id', id);
+
+  if (countError) {
+    throw new Error('خطأ في التحقق من الحساب: ' + countError.message);
+  }
+
+  if (linesCount && linesCount > 0) {
+    throw new Error(
+      `لا يمكن حذف هذا الحساب لأنه يحتوي على ${linesCount} قيد محاسبي مرتبط. ` +
+      'يمكنك إلغاء تفعيل الحساب بدلاً من حذفه.'
+    );
+  }
+
+  // الحذف المباشر إذا لم تكن هناك قيود
   const { error } = await supabase
     .from('accounts')
     .delete()
     .eq('id', id);
 
-  if (error) throw error;
+  if (error) throw new Error('فشل حذف الحساب: ' + error.message);
   return true;
 };
