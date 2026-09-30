@@ -22,6 +22,7 @@ const EmployeeAdvances = () => {
   const [saving, setSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'deducted'>('all');
+  const [treasuryFilter, setTreasuryFilter] = useState<string>('all');
 
   const [formData, setFormData] = useState({
     employeeId: '',
@@ -74,19 +75,22 @@ const EmployeeAdvances = () => {
         setEmployees(filtered);
       }
 
-      // 3. جلب حسابات الخزينة
+      // 3. جلب حسابات الخزينة والبنوك
       const { data: accData } = await supabase
         .from('accounts')
-        .select('id, name')
-        .eq('organization_id', userOrgId)
-        .ilike('type', '%asset%')
-        .or('code.like.123%,code.like.101%,name.ilike.%صندوق%,name.ilike.%خزينة%,name.ilike.%بنك%');
+        .select('id, name, code')
+        .eq('organization_id', userOrgId);
       
       if (accData) {
-        setTreasuryAccounts(accData);
+        const treasuries = accData.filter(a => 
+          (a.code && (a.code.startsWith('123') || a.code.startsWith('101') || a.code.startsWith('121'))) ||
+          (a.name && (a.name.includes('صندوق') || a.name.includes('خزينة') || a.name.includes('خزينه') || a.name.includes('بنك') || a.name.includes('عهدة')))
+        );
+        const finalTreasuries = treasuries.length > 0 ? treasuries : accData;
+        setTreasuryAccounts(finalTreasuries);
         // تعيين الخزينة الافتراضية إذا لم تكن محددة
-        if (accData.length > 0 && !formData.treasuryId) {
-          setFormData(prev => ({ ...prev, treasuryId: prev.treasuryId || accData[0].id }));
+        if (finalTreasuries.length > 0 && !formData.treasuryId) {
+          setFormData(prev => ({ ...prev, treasuryId: prev.treasuryId || finalTreasuries[0].id }));
         }
       }
 
@@ -186,21 +190,51 @@ const EmployeeAdvances = () => {
     setFormData(prev => ({ ...prev, amount: amt }));
   };
 
-  // تصفية السلف بناءً على البحث وحالة السلفة
+  // خريطة الحسابات لربط السلف باسم الخزينة بدقة
+  const accountsMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    (accounts || []).forEach(a => { if (a?.id) map[a.id] = a.name; });
+    (treasuryAccounts || []).forEach(a => { if (a?.id) map[a.id] = a.name; });
+    return map;
+  }, [accounts, treasuryAccounts]);
+
+  // دالة تحديد اسم الخزينة للسلفة
+  const getAdvanceTreasuryName = (adv: any): string => {
+    if (adv.treasury_account_id && accountsMap[adv.treasury_account_id]) {
+      return accountsMap[adv.treasury_account_id];
+    }
+    if (adv.treasury_account?.name) {
+      return adv.treasury_account.name;
+    }
+    // استدلال ذكي من قسم الموظف في حال كانت سلفة سابقة لم يسجل فيها الخزينة
+    const dept = adv.employees?.department || '';
+    if (dept.includes('مصنع') || dept.includes('المصنع')) {
+      const factoryTreasury = treasuryAccounts.find(t => t.name.includes('مصنع') || t.name.includes('المصنع'));
+      if (factoryTreasury) return factoryTreasury.name;
+    }
+    const defaultTreasury = treasuryAccounts[0]?.name || accounts?.find(a => a.name.includes('خزينة') || a.name.includes('صندوق'))?.name;
+    return defaultTreasury || 'الخزينة الرئيسية';
+  };
+
+  // تصفية السلف بناءً على البحث وحالة السلفة والخزينة
   const filteredAdvances = useMemo(() => {
     return advances.filter(adv => {
       const empName = adv.employees?.full_name?.toLowerCase() || '';
       const dept = adv.employees?.department?.toLowerCase() || '';
       const pos = adv.employees?.position?.toLowerCase() || '';
       const notes = adv.notes?.toLowerCase() || '';
+      const treasuryName = getAdvanceTreasuryName(adv).toLowerCase();
       const term = searchTerm.toLowerCase().trim();
 
-      const matchesSearch = !term || empName.includes(term) || dept.includes(term) || pos.includes(term) || notes.includes(term);
+      const matchesSearch = !term || empName.includes(term) || dept.includes(term) || pos.includes(term) || notes.includes(term) || treasuryName.includes(term);
       const matchesStatus = statusFilter === 'all' || adv.status === statusFilter;
+      const matchesTreasury = treasuryFilter === 'all' || 
+        adv.treasury_account_id === treasuryFilter ||
+        (accountsMap[treasuryFilter] && getAdvanceTreasuryName(adv) === accountsMap[treasuryFilter]);
 
-      return matchesSearch && matchesStatus;
+      return matchesSearch && matchesStatus && matchesTreasury;
     });
-  }, [advances, searchTerm, statusFilter]);
+  }, [advances, searchTerm, statusFilter, treasuryFilter, accountsMap, treasuryAccounts]);
 
   // تصدير سجل السلف إلى ملف Excel منسق واحترافي
   const handleExportExcel = () => {
@@ -212,6 +246,7 @@ const EmployeeAdvances = () => {
     const rows = filteredAdvances.map((adv, idx) => {
       const emp = adv.employees;
       const statusLabel = adv.status === 'paid' ? 'تم الصرف (قائمة)' : adv.status === 'deducted' ? 'تم الخصم من الراتب' : adv.status || '-';
+      const treasuryName = getAdvanceTreasuryName(adv);
       return {
         'م': idx + 1,
         'اسم الموظف': emp?.full_name || 'موظف غير معرف',
@@ -219,6 +254,7 @@ const EmployeeAdvances = () => {
         'المسمى الوظيفي': emp?.position || '-',
         'الراتب الأساسي (ج.م)': Number(emp?.basic_salary) || 0,
         'مبلغ السلفة (ج.م)': Number(adv.amount) || 0,
+        'الخزينة المنصرف منها': treasuryName,
         'تاريخ السلفة': adv.request_date || adv.advance_date || adv.created_at?.split('T')[0] || '-',
         'حالة السلفة': statusLabel,
         'ملاحظات / البيان': adv.notes || '-'
@@ -234,6 +270,7 @@ const EmployeeAdvances = () => {
       'المسمى الوظيفي': '',
       'الراتب الأساسي (ج.م)': '' as any,
       'مبلغ السلفة (ج.م)': totalAmount,
+      'الخزينة المنصرف منها': '',
       'تاريخ السلفة': '',
       'حالة السلفة': `عدد السلف: ${filteredAdvances.length}`,
       'ملاحظات / البيان': ''
@@ -248,6 +285,7 @@ const EmployeeAdvances = () => {
       { wch: 18 }, // المسمى الوظيفي
       { wch: 18 }, // الراتب الأساسي
       { wch: 18 }, // مبلغ السلفة
+      { wch: 22 }, // الخزينة المنصرف منها
       { wch: 16 }, // تاريخ السلفة
       { wch: 20 }, // حالة السلفة
       { wch: 30 }  // ملاحظات
@@ -402,7 +440,7 @@ const EmployeeAdvances = () => {
         </div>
       </div>
 
-      {/* شريط البحث وفلترة الحالة */}
+      {/* شريط البحث وفلترة الحالة والخزينة */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">
         <div className="relative flex-1 w-full">
           <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
@@ -410,11 +448,37 @@ const EmployeeAdvances = () => {
             type="text"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            placeholder="البحث باسم الموظف، القسم، الوظيفة، أو الملاحظات..."
+            placeholder="البحث باسم الموظف، القسم، الخزينة، الوظيفة، أو الملاحظات..."
             className="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
           />
         </div>
-        <div className="flex items-center gap-2 w-full md:w-auto">
+        <div className="flex items-center gap-2 w-full md:w-auto flex-wrap">
+          {/* فلتر الخزينة المنصرف منها */}
+          {treasuryAccounts.length > 0 && (
+            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-700">
+              <Wallet size={14} className="text-slate-500 mr-1.5 shrink-0" />
+              <select
+                value={treasuryFilter}
+                onChange={e => setTreasuryFilter(e.target.value)}
+                className="bg-transparent outline-none text-xs font-bold text-slate-700 cursor-pointer pr-1"
+              >
+                <option value="all">كافة الخزن ({advances.length})</option>
+                {treasuryAccounts.map(acc => {
+                  const count = advances.filter(a => 
+                    a.treasury_account_id === acc.id || 
+                    (!a.treasury_account_id && getAdvanceTreasuryName(a) === acc.name)
+                  ).length;
+                  return (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.name} ({count})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          )}
+
+          {/* أزرار فلترة الحالة */}
           <div className="flex items-center bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-600 w-full md:w-auto justify-center">
             <button
               onClick={() => setStatusFilter('all')}
@@ -448,6 +512,7 @@ const EmployeeAdvances = () => {
                 <th className="p-4">القسم / الوظيفة</th>
                 <th className="p-4">تاريخ الطلب</th>
                 <th className="p-4">المبلغ</th>
+                <th className="p-4">الخزينة المنصرف منها</th>
                 <th className="p-4">الحالة</th>
                 <th className="p-4">ملاحظات</th>
               </tr>
@@ -479,6 +544,14 @@ const EmployeeAdvances = () => {
                     {Number(adv.amount).toLocaleString()} ج.م
                   </td>
                   <td className="p-4">
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200/60 text-slate-700 text-xs font-bold">
+                      <Wallet size={13} className="text-emerald-600 shrink-0" />
+                      <span className="truncate max-w-[130px]" title={getAdvanceTreasuryName(adv)}>
+                        {getAdvanceTreasuryName(adv)}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="p-4">
                     <span className={`px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1 ${
                       adv.status === 'paid' 
                         ? 'bg-emerald-100 text-emerald-700' 
@@ -494,10 +567,10 @@ const EmployeeAdvances = () => {
               ))}
               {filteredAdvances.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={6} className="p-12 text-center text-slate-400">
+                  <td colSpan={7} className="p-12 text-center text-slate-400">
                     <Banknote size={40} className="mx-auto mb-2 text-slate-300" />
                     <p className="font-bold">لا توجد سلف مطابقة للبحث أو التصفية الحالية</p>
-                    <p className="text-xs text-slate-400 mt-1">جرّب تغيير عبارة البحث أو اختيار حالة سلف مختلفة</p>
+                    <p className="text-xs text-slate-400 mt-1">جرّب تغيير عبارة البحث أو اختيار خزينة أو حالة سلف مختلفة</p>
                   </td>
                 </tr>
               )}
