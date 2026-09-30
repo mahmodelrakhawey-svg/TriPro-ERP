@@ -11,12 +11,13 @@ import {
 import { etaService } from '../../services/etaService';
 import { SalesInvoicePrint } from './SalesInvoicePrint';
 import { useToast } from '../../context/ToastContext';
+import { logDocumentAction } from '../../services/auditService';
 import * as XLSX from 'xlsx';
 
 export const InvoiceList = () => {
   const { 
     settings, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, currentUser, customers, warehouses, 
-    selectedFiscalYear, fiscalYearRange, currentSelectedOrgId 
+    selectedFiscalYear, fiscalYearRange, currentSelectedOrgId, can 
   } = useAccounting() as any;
   const navigate = useNavigate();
   const { showToast } = useToast();
@@ -224,6 +225,19 @@ export const InvoiceList = () => {
       const success = await approveInvoice(invoice.id, userOrgId, invoice.warehouse_id);
       if (success) {
         showToast('تم ترحيل الفاتورة بنجاح وتوليد القيد المحاسبي ✅', 'success');
+        logDocumentAction({
+          documentType: 'sales_invoice',
+          documentId: String(invoice.id),
+          action: 'posted',
+          details: {
+            invoice_number: invoice.invoice_number,
+            total_amount: invoice.total_amount,
+            note: `اعتماد وترحيل فاتورة المبيعات رقم ${invoice.invoice_number}`
+          },
+          userId: currentUser?.id,
+          userName: (currentUser as any)?.name || (currentUser as any)?.email,
+          organizationId: userOrgId
+        });
         fetchInvoices();
       }
     } catch (err: any) {
@@ -234,6 +248,13 @@ export const InvoiceList = () => {
   };
 
   const handleUnpost = async (invoice: any) => {
+    const userRole = (currentUser as any)?.role || '';
+    const canUnpost = can?.('accounting', 'unpost') || can?.('sales', 'unpost') || can?.('sales', 'delete') || ['admin', 'super_admin', 'owner', 'manager'].includes(userRole);
+    if (!canUnpost) {
+      showToast('عفواً، لا تملك الصلاحية اللازمة لإلغاء ترحيل الفواتير. يرجى مراجعة الإدارة المالية.', 'error');
+      return;
+    }
+
     if (!window.confirm(`هل أنت متأكد من إلغاء ترحيل فاتورة المبيعات رقم (${invoice.invoice_number})؟\n\nسيتم:\n1- عكس حركة المخزون وإعادة الكميات للمستودع.\n2- حذف القيد المحاسبي بالكامل.\n3- تحويل الفاتورة إلى مسودة (Draft) لتتمكن من تعديلها.`)) {
       return;
     }
@@ -247,6 +268,19 @@ export const InvoiceList = () => {
       try {
         await unpostSalesInvoice(invoice.id, userOrgId);
         showToast('تم إلغاء ترحيل الفاتورة بنجاح وتحويلها لمسودة ✅', 'success');
+        logDocumentAction({
+          documentType: 'sales_invoice',
+          documentId: String(invoice.id),
+          action: 'unposted',
+          details: {
+            invoice_number: invoice.invoice_number,
+            total_amount: invoice.total_amount,
+            note: `إلغاء ترحيل فاتورة المبيعات رقم ${invoice.invoice_number} وتحويلها لمسودة`
+          },
+          userId: currentUser?.id,
+          userName: (currentUser as any)?.name || (currentUser as any)?.email,
+          organizationId: userOrgId
+        });
         fetchInvoices();
         return;
       } catch (rpcErr: any) {
@@ -294,6 +328,19 @@ export const InvoiceList = () => {
       if (updateErr) throw updateErr;
 
       showToast('تم إلغاء ترحيل الفاتورة بنجاح وتحويلها لمسودة ✅', 'success');
+      logDocumentAction({
+        documentType: 'sales_invoice',
+        documentId: String(invoice.id),
+        action: 'unposted',
+        details: {
+          invoice_number: invoice.invoice_number,
+          total_amount: invoice.total_amount,
+          note: `إلغاء ترحيل فاتورة المبيعات رقم ${invoice.invoice_number} وتحويلها لمسودة`
+        },
+        userId: currentUser?.id,
+        userName: (currentUser as any)?.name || (currentUser as any)?.email,
+        organizationId: userOrgId
+      });
       fetchInvoices();
 
     } catch (err: any) {
@@ -305,7 +352,13 @@ export const InvoiceList = () => {
   };
 
   const handleDelete = async (invoice: any) => {
-    if (!window.confirm(`هل أنت متأكد من حذف فاتورة المبيعات رقم (${invoice.invoice_number})؟\nسيتم إلغاء أثرها على المخزون والقيد المحاسبي بالكامل.`)) {
+    // 🛡️ صمام أمان عدم القابلية للتغيير (Document Immutability Guard)
+    if (invoice.status === 'posted' || invoice.status === 'paid') {
+      showToast('❌ لا يمكن حذف الفاتورة المرحلة أو المسددة مباشرة حفاظاً على سلامة الحسابات والقيود. يرجى إلغاء الترحيل أولاً لتحويلها إلى مسودة أو إنشاء إشعار دائن.', 'error');
+      return;
+    }
+
+    if (!window.confirm(`هل أنت متأكد من حذف مسودة فاتورة المبيعات رقم (${invoice.invoice_number})؟`)) {
       return;
     }
 
@@ -317,51 +370,44 @@ export const InvoiceList = () => {
       // 🛡️ 1. محاولة الحذف الذري الشامل عبر السيرفر
       try {
         await deleteSalesInvoice(invoice.id, userOrgId);
-        showToast('تم حذف فاتورة المبيعات وعكس الحركات بنجاح ✅', 'success');
+        showToast('تم حذف مسودة فاتورة المبيعات بنجاح ✅', 'success');
+        logDocumentAction({
+          documentType: 'sales_invoice',
+          documentId: String(invoice.id),
+          action: 'deleted',
+          details: {
+            invoice_number: invoice.invoice_number,
+            total_amount: invoice.total_amount,
+            note: `حذف مسودة فاتورة المبيعات رقم ${invoice.invoice_number}`
+          },
+          userId: currentUser?.id,
+          userName: (currentUser as any)?.name || (currentUser as any)?.email,
+          organizationId: userOrgId
+        });
         fetchInvoices();
         return;
       } catch (rpcErr: any) {
         console.warn('Atomic delete RPC unavailable or failed, attempting client fallback:', rpcErr);
       }
 
-      if (invoice.status === 'posted' || invoice.status === 'paid') {
-        let itemsToReverse = invoice.invoice_items;
-        if (!itemsToReverse || itemsToReverse.length === 0) {
-          const { data: itemRows } = await supabase
-            .from('invoice_items')
-            .select('product_id, quantity')
-            .eq('invoice_id', invoice.id);
-          itemsToReverse = itemRows || [];
-        }
-
-        // إعادة إضافة الكميات للمخزون
-        for (const item of itemsToReverse) {
-          if (item.product_id && item.quantity) {
-            const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
-            if (prod) {
-              const newStock = (Number(prod.stock) || 0) + Number(item.quantity);
-              let newWStock = prod.warehouse_stock || {};
-              if (invoice.warehouse_id && newWStock[invoice.warehouse_id] !== undefined) {
-                newWStock[invoice.warehouse_id] = (Number(newWStock[invoice.warehouse_id]) || 0) + Number(item.quantity);
-              }
-              await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', item.product_id);
-            }
-          }
-        }
-
-        // حذف القيد المحاسبي
-        if (invoice.related_journal_entry_id) {
-          await supabase.from('journal_entries').delete().eq('id', invoice.related_journal_entry_id);
-        } else {
-          await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', invoice.invoice_number);
-        }
-      }
-
       await supabase.from('invoice_items').delete().eq('invoice_id', invoice.id);
       const { error: delErr } = await supabase.from('invoices').delete().eq('id', invoice.id);
       if (delErr) throw delErr;
 
-      showToast('تم حذف فاتورة المبيعات وعكس الحركات بنجاح ✅', 'success');
+      showToast('تم حذف مسودة فاتورة المبيعات بنجاح ✅', 'success');
+      logDocumentAction({
+        documentType: 'sales_invoice',
+        documentId: String(invoice.id),
+        action: 'deleted',
+        details: {
+          invoice_number: invoice.invoice_number,
+          total_amount: invoice.total_amount,
+          note: `حذف مسودة فاتورة المبيعات رقم ${invoice.invoice_number}`
+        },
+        userId: currentUser?.id,
+        userName: (currentUser as any)?.name || (currentUser as any)?.email,
+        organizationId: userOrgId
+      });
       fetchInvoices();
 
     } catch (err: any) {
@@ -373,6 +419,19 @@ export const InvoiceList = () => {
   };
 
   const handlePrint = async (invoice: any) => {
+    logDocumentAction({
+      documentType: 'sales_invoice',
+      documentId: String(invoice.id),
+      action: 'printed',
+      details: {
+        invoice_number: invoice.invoice_number,
+        note: `طباعة فاتورة المبيعات رقم ${invoice.invoice_number}`
+      },
+      userId: currentUser?.id,
+      userName: (currentUser as any)?.name || (currentUser as any)?.email,
+      organizationId: currentSelectedOrgId || (currentUser as any)?.organization_id
+    });
+
     if (invoice.invoice_items && invoice.invoice_items.length > 0) {
       setInvoiceToPrint(invoice);
       setTimeout(() => {
@@ -826,8 +885,16 @@ export const InvoiceList = () => {
                           <button 
                             onClick={() => handleDelete(inv)}
                             disabled={deletingId === inv.id}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                            title="حذف الفاتورة"
+                            className={`p-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+                              (inv.status === 'posted' || inv.status === 'paid')
+                                ? 'text-slate-300 hover:text-red-500 hover:bg-red-50/50 cursor-not-allowed'
+                                : 'text-red-500 hover:bg-red-50'
+                            }`}
+                            title={
+                              (inv.status === 'posted' || inv.status === 'paid')
+                                ? 'لا يمكن حذف الفاتورة المرحلة أو المسددة؛ قم بإلغاء الترحيل أولاً'
+                                : 'حذف مسودة الفاتورة'
+                            }
                           >
                             {deletingId === inv.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
                           </button>

@@ -13,13 +13,14 @@ import * as XLSX from 'xlsx';
 import { PurchaseInvoicePrint } from './PurchaseInvoicePrint';
 import SupplierInvoiceExcelImporter from './SupplierInvoiceExcelImporter';
 import { FileSpreadsheet } from 'lucide-react';
+import { logDocumentAction } from '../../services/auditService';
 
 export const PurchaseInvoiceList = () => {
   const navigate = useNavigate();
   const { 
     approvePurchaseInvoice, unpostPurchaseInvoice, deletePurchaseInvoice, addPaymentVoucher, settings, currentUser, 
     accounts, suppliers, warehouses, selectedFiscalYear, fiscalYearRange,
-    currentSelectedOrgId
+    currentSelectedOrgId, can
   } = useAccounting();
   const { showToast } = useToast();
 
@@ -243,9 +244,25 @@ export const PurchaseInvoiceList = () => {
   const summary = summaryData;
 
   const handleApprove = async (id: string) => {
-    if (!window.confirm('هل أنت متأكد من ترحيل فاتورة المشتريات؟ سيتم إنشاء القيد المحاسبي وتحديث أرصدة المخزون.')) return;
+    const inv = invoices.find(i => i.id === id);
+    if (!window.confirm(`هل أنت متأكد من ترحيل فاتورة المشتريات رقم (${inv?.invoice_number || ''})؟ سيتم إنشاء القيد المحاسبي وتحديث أرصدة المخزون.`)) return;
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
       await approvePurchaseInvoice(id);
+      logDocumentAction({
+        documentType: 'purchase_invoice',
+        documentId: String(id),
+        action: 'posted',
+        details: {
+          invoice_number: inv?.invoice_number,
+          total_amount: inv?.total_amount,
+          note: `اعتماد وترحيل فاتورة المشتريات رقم ${inv?.invoice_number || id}`
+        },
+        userId: currentUser?.id,
+        userName: (currentUser as any)?.name || (currentUser as any)?.email,
+        organizationId: userOrgId
+      });
       fetchInvoices();
     } catch (err: any) {
       console.error('Error approving purchase invoice:', err);
@@ -254,6 +271,13 @@ export const PurchaseInvoiceList = () => {
   };
 
   const handleUnpost = async (invoice: any) => {
+    const userRole = (currentUser as any)?.role || '';
+    const canUnpost = can?.('accounting', 'unpost') || can?.('purchases', 'unpost') || can?.('purchases', 'delete') || ['admin', 'super_admin', 'owner', 'manager'].includes(userRole);
+    if (!canUnpost) {
+      showToast('عفواً، لا تملك الصلاحية اللازمة لإلغاء ترحيل فواتير المشتريات. يرجى مراجعة الإدارة المالية.', 'error');
+      return;
+    }
+
     if (!window.confirm(`هل أنت متأكد من إلغاء ترحيل فاتورة المشتريات رقم (${invoice.invoice_number})؟\n\nسيتم:\n1- عكس حركة المخزون وخصم الكميات المضافة.\n2- حذف القيد المحاسبي بالكامل.\n3- تحويل الفاتورة إلى مسودة (Draft) لتتمكن من تعديلها.`)) {
       return;
     }
@@ -267,6 +291,19 @@ export const PurchaseInvoiceList = () => {
       try {
         await unpostPurchaseInvoice(invoice.id, userOrgId);
         showToast('تم إلغاء ترحيل فاتورة المشتريات بنجاح وتحويلها لمسودة ✅', 'success');
+        logDocumentAction({
+          documentType: 'purchase_invoice',
+          documentId: String(invoice.id),
+          action: 'unposted',
+          details: {
+            invoice_number: invoice.invoice_number,
+            total_amount: invoice.total_amount,
+            note: `إلغاء ترحيل فاتورة المشتريات رقم ${invoice.invoice_number} وتحويلها لمسودة`
+          },
+          userId: currentUser?.id,
+          userName: (currentUser as any)?.name || (currentUser as any)?.email,
+          organizationId: userOrgId
+        });
         fetchInvoices();
         return;
       } catch (rpcErr: any) {
@@ -308,6 +345,19 @@ export const PurchaseInvoiceList = () => {
       // تحويل لمسودة
       await supabase.from('purchase_invoices').update({ status: 'draft', related_journal_entry_id: null }).eq('id', invoice.id);
       showToast('تم إلغاء ترحيل فاتورة المشتريات بنجاح وتحويلها لمسودة ✅', 'success');
+      logDocumentAction({
+        documentType: 'purchase_invoice',
+        documentId: String(invoice.id),
+        action: 'unposted',
+        details: {
+          invoice_number: invoice.invoice_number,
+          total_amount: invoice.total_amount,
+          note: `إلغاء ترحيل فاتورة المشتريات رقم ${invoice.invoice_number} وتحويلها لمسودة`
+        },
+        userId: currentUser?.id,
+        userName: (currentUser as any)?.name || (currentUser as any)?.email,
+        organizationId: userOrgId
+      });
       fetchInvoices();
 
     } catch (err: any) {
@@ -319,7 +369,13 @@ export const PurchaseInvoiceList = () => {
   };
 
   const handleDelete = async (invoice: any) => {
-    if (!window.confirm(`هل أنت متأكد من حذف فاتورة المشتريات رقم (${invoice.invoice_number})؟\nسيتم إلغاء أثرها على المخزون والقيد المحاسبي بالكامل.`)) {
+    // 🛡️ صمام أمان عدم القابلية للتغيير (Document Immutability Guard)
+    if (invoice.status === 'posted' || invoice.status === 'paid') {
+      showToast('❌ لا يمكن حذف فاتورة المشتريات المرحلة أو المسددة مباشرة حفاظاً على سلامة المخزون والدفاتر المحاسبية. يرجى إلغاء الترحيل أولاً لتحويلها لمسودة أو إصدار مرتجع مشتريات.', 'error');
+      return;
+    }
+
+    if (!window.confirm(`هل أنت متأكد من حذف مسودة فاتورة المشتريات رقم (${invoice.invoice_number})؟`)) {
       return;
     }
 
@@ -331,52 +387,44 @@ export const PurchaseInvoiceList = () => {
       // 🛡️ 1. محاولة الحذف الذري الشامل أولاً عبر دالة السيرفر
       try {
         await deletePurchaseInvoice(invoice.id, userOrgId);
-        showToast('تم حذف فاتورة المشتريات وعكس الحركات بنجاح ✅', 'success');
+        showToast('تم حذف مسودة فاتورة المشتريات بنجاح ✅', 'success');
+        logDocumentAction({
+          documentType: 'purchase_invoice',
+          documentId: String(invoice.id),
+          action: 'deleted',
+          details: {
+            invoice_number: invoice.invoice_number,
+            total_amount: invoice.total_amount,
+            note: `حذف مسودة فاتورة المشتريات رقم ${invoice.invoice_number}`
+          },
+          userId: currentUser?.id,
+          userName: (currentUser as any)?.name || (currentUser as any)?.email,
+          organizationId: userOrgId
+        });
         fetchInvoices();
         return;
       } catch (rpcErr: any) {
         console.warn('Atomic delete RPC unavailable, attempting client fallback:', rpcErr);
       }
 
-      if (invoice.status === 'posted') {
-        // جلب عناصر الفاتورة عند الطلب فقط لعكس حركة المخزون
-        let itemsToReverse = invoice.purchase_invoice_items;
-        if (!itemsToReverse || itemsToReverse.length === 0) {
-          const { data: itemRows } = await supabase
-            .from('purchase_invoice_items')
-            .select('product_id, quantity')
-            .eq('purchase_invoice_id', invoice.id);
-          itemsToReverse = itemRows || [];
-        }
-
-        // عكس حركة المخزون
-        for (const item of itemsToReverse) {
-          if (item.product_id && item.quantity) {
-            const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
-            if (prod) {
-              const newStock = Math.max(0, (Number(prod.stock) || 0) - Number(item.quantity));
-              let newWStock = prod.warehouse_stock || {};
-              if (invoice.warehouse_id && newWStock[invoice.warehouse_id] !== undefined) {
-                newWStock[invoice.warehouse_id] = Math.max(0, (Number(newWStock[invoice.warehouse_id]) || 0) - Number(item.quantity));
-              }
-              await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', item.product_id);
-            }
-          }
-        }
-
-        // حذف القيد المحاسبي
-        if (invoice.related_journal_entry_id) {
-          await supabase.from('journal_entries').delete().eq('id', invoice.related_journal_entry_id);
-        } else {
-          await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', invoice.invoice_number);
-        }
-      }
-
       await supabase.from('purchase_invoice_items').delete().eq('purchase_invoice_id', invoice.id);
       const { error: delErr } = await supabase.from('purchase_invoices').delete().eq('id', invoice.id);
       if (delErr) throw delErr;
 
-      showToast('تم حذف فاتورة المشتريات وعكس الحركات بنجاح ✅', 'success');
+      showToast('تم حذف مسودة فاتورة المشتريات بنجاح ✅', 'success');
+      logDocumentAction({
+        documentType: 'purchase_invoice',
+        documentId: String(invoice.id),
+        action: 'deleted',
+        details: {
+          invoice_number: invoice.invoice_number,
+          total_amount: invoice.total_amount,
+          note: `حذف مسودة فاتورة المشتريات رقم ${invoice.invoice_number}`
+        },
+        userId: currentUser?.id,
+        userName: (currentUser as any)?.name || (currentUser as any)?.email,
+        organizationId: userOrgId
+      });
       fetchInvoices();
 
     } catch (err: any) {
@@ -427,6 +475,19 @@ export const PurchaseInvoiceList = () => {
   };
 
   const handlePrint = async (invoice: any) => {
+    logDocumentAction({
+      documentType: 'purchase_invoice',
+      documentId: String(invoice.id),
+      action: 'printed',
+      details: {
+        invoice_number: invoice.invoice_number,
+        note: `طباعة فاتورة المشتريات رقم ${invoice.invoice_number}`
+      },
+      userId: currentUser?.id,
+      userName: (currentUser as any)?.name || (currentUser as any)?.email,
+      organizationId: currentSelectedOrgId || currentUser?.organization_id
+    });
+
     try {
       showToast('جاري تجهيز الفاتورة للطباعة...', 'info');
       const { data, error } = await supabase
@@ -935,8 +996,16 @@ export const PurchaseInvoiceList = () => {
                           <button 
                             onClick={() => handleDelete(inv)}
                             disabled={deletingId === inv.id}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                            title="حذف الفاتورة"
+                            className={`p-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+                              (inv.status === 'posted' || inv.status === 'paid')
+                                ? 'text-slate-300 hover:text-red-500 hover:bg-red-50/50 cursor-not-allowed'
+                                : 'text-red-500 hover:bg-red-50'
+                            }`}
+                            title={
+                              (inv.status === 'posted' || inv.status === 'paid')
+                                ? 'لا يمكن حذف فاتورة المشتريات المرحلة أو المسددة؛ قم بإلغاء الترحيل أولاً'
+                                : 'حذف مسودة الفاتورة'
+                            }
                           >
                             {deletingId === inv.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
                           </button>

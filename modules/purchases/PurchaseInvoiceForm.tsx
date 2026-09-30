@@ -5,7 +5,7 @@ import {
     Plus, Trash2, Save, ShoppingCart, Search, AlertCircle,
     Loader2, CheckCircle, Package, Ruler, List, 
     Printer, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft,
-    DollarSign, Activity, FileText, Sparkles, Percent, Tag, Paperclip
+    DollarSign, Activity, FileText, Sparkles, Percent, Tag, Paperclip, Unlock
 } from 'lucide-react';
 import { Product } from '../../types';
 import { supabase } from '../../supabaseClient';
@@ -22,7 +22,9 @@ import { calculatePurchaseInvoiceTotals } from './purchaseInvoiceUtils';
 import PurchaseInvoiceAttachments, { PurchaseAttachmentItem } from './components/PurchaseInvoiceAttachments';
 
 const PurchaseInvoiceForm = () => {
-  const { products, warehouses, suppliers, approvePurchaseInvoice, settings, can, currentUser, addDemoPurchaseInvoice, accounts } = useAccounting();
+  const { products, warehouses, suppliers, approvePurchaseInvoice, unpostPurchaseInvoice, deletePurchaseInvoice, settings, can, currentUser, addDemoPurchaseInvoice, accounts, currentSelectedOrgId } = useAccounting();
+  const currentUserRole = (currentUser as any)?.role || '';
+  const canUnpost = can?.('accounting', 'unpost') || can?.('purchases', 'unpost') || can?.('purchases', 'delete') || ['admin', 'super_admin', 'owner', 'manager'].includes(currentUserRole);
   const { showToast } = useToast();
   const navigate = useNavigate();
   const location = useLocation();
@@ -626,6 +628,12 @@ const PurchaseInvoiceForm = () => {
         return;
     }
 
+    // 🛡️ صمام أمان عدم القابلية للتعديل المباشر للفواتير المرحلة
+    if (editingId && (formData.status === 'posted' || formData.status === 'paid')) {
+      showToast('❌ لا يمكن تعديل فاتورة المشتريات المرحلة أو المسددة مباشرة حفاظاً على سلامة المخزون والدفاتر المحاسبية. يرجى إلغاء الترحيل أولاً لتحويلها إلى مسودة أو إنشاء مرتجع مشتريات.', 'warning');
+      return;
+    }
+
     setSaving(true);
 
     if (currentUser?.role === 'demo') {
@@ -947,46 +955,166 @@ const PurchaseInvoiceForm = () => {
     }
   };
 
+  const handleUnpostInvoice = async () => {
+    if (!editingId) return;
+
+    if (!canUnpost) {
+      showToast('عفواً، لا تملك الصلاحية اللازمة لإلغاء ترحيل فواتير المشتريات. يرجى مراجعة الإدارة المالية.', 'error');
+      return;
+    }
+
+    if (!window.confirm(`هل أنت متأكد من إلغاء ترحيل فاتورة المشتريات رقم (${formData.invoiceNumber})؟\n\nسيتم:\n1- عكس حركة المخزون وخصم الكميات المضافة.\n2- حذف القيد المحاسبي من دفتر اليومية بالكامل.\n3- تحويل الفاتورة إلى مسودة (Draft) لتتمكن من تعديلها بحرية.`)) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
+
+      // 🛡️ 1. محاولة التنفيذ الذري أولاً عبر دالة السيرفر
+      try {
+        await unpostPurchaseInvoice(editingId, userOrgId);
+        setFormData(prev => ({ ...prev, status: 'draft' }));
+        logDocumentAction({
+          documentType: 'purchase_invoice',
+          documentId: String(editingId),
+          action: 'unposted',
+          details: {
+            invoice_number: formData.invoiceNumber,
+            total_amount: invoiceCalculation.totalAmount,
+            note: `إلغاء ترحيل فاتورة المشتريات رقم ${formData.invoiceNumber} وتحويلها لمسودة`
+          },
+          userId: currentUser?.id,
+          userName: (currentUser as any)?.name || (currentUser as any)?.email,
+          organizationId: userOrgId
+        });
+        showToast('تم إلغاء ترحيل فاتورة المشتريات بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
+        return;
+      } catch (rpcErr) {
+        console.warn('Atomic unpost RPC unavailable, attempting client fallback:', rpcErr);
+      }
+
+      // Fallback
+      const { data: oldInv } = await supabase.from('purchase_invoices').select('*, purchase_invoice_items(*)').eq('id', editingId).single();
+      if (oldInv && (oldInv.status === 'posted' || oldInv.status === 'paid')) {
+        for (const oldItem of (oldInv.purchase_invoice_items || [])) {
+          if (oldItem.product_id && oldItem.quantity) {
+            const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', oldItem.product_id).single();
+            if (prod) {
+              const newStock = Math.max(0, (Number(prod.stock) || 0) - Number(oldItem.quantity));
+              let newWStock = prod.warehouse_stock || {};
+              if (oldInv.warehouse_id && newWStock[oldInv.warehouse_id] !== undefined) {
+                newWStock[oldInv.warehouse_id] = Math.max(0, (Number(newWStock[oldInv.warehouse_id]) || 0) - Number(oldItem.quantity));
+              }
+              await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', oldItem.product_id);
+            }
+          }
+        }
+
+        if (oldInv.related_journal_entry_id) {
+          await supabase.from('journal_entries').delete().eq('id', oldInv.related_journal_entry_id);
+        } else {
+          await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', oldInv.invoice_number);
+        }
+      }
+
+      await supabase.from('purchase_invoices').update({ status: 'draft', related_journal_entry_id: null }).eq('id', editingId);
+
+      setFormData(prev => ({ ...prev, status: 'draft' }));
+
+      logDocumentAction({
+        documentType: 'purchase_invoice',
+        documentId: String(editingId),
+        action: 'unposted',
+        details: {
+          invoice_number: formData.invoiceNumber,
+          total_amount: invoiceCalculation.totalAmount,
+          note: `إلغاء ترحيل فاتورة المشتريات رقم ${formData.invoiceNumber} وتحويلها لمسودة`
+        },
+        userId: currentUser?.id,
+        userName: (currentUser as any)?.name || (currentUser as any)?.email,
+        organizationId: userOrgId
+      });
+
+      showToast('تم إلغاء ترحيل فاتورة المشتريات بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
+
+    } catch (err: any) {
+      console.error('Error unposting purchase invoice:', err);
+      showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleDeleteCurrent = async () => {
     if (!editingId) return;
 
-    if (!window.confirm(`هل أنت متأكد من حذف فاتورة المشتريات رقم (${formData.invoiceNumber})؟\nسيتم إلغاء أثرها على المخزون والقيد المحاسبي بالكامل.`)) {
+    // 🛡️ صمام أمان عدم القابلية للتغيير (Document Immutability Guard)
+    if (formData.status === 'posted' || formData.status === 'paid') {
+      showToast('❌ لا يمكن حذف فاتورة المشتريات المرحلة أو المسددة مباشرة حفاظاً على سلامة المخزون والدفاتر المحاسبية. يرجى إلغاء الترحيل أولاً لتحويلها إلى مسودة أو إنشاء مرتجع مشتريات.', 'error');
+      return;
+    }
+
+    if (!window.confirm(`هل أنت متأكد من حذف مسودة فاتورة المشتريات رقم (${formData.invoiceNumber})؟`)) {
       return;
     }
 
     setDeleting(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
 
-      const { data: inv } = await supabase.from('purchase_invoices').select('*, purchase_invoice_items(*)').eq('id', editingId).single();
-      if (inv && inv.status === 'posted') {
-        for (const item of (inv.purchase_invoice_items || [])) {
-          if (item.product_id && item.quantity) {
-            const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
-            if (prod) {
-              const newStock = Math.max(0, (Number(prod.stock) || 0) - Number(item.quantity));
-              let newWStock = prod.warehouse_stock || {};
-              if (inv.warehouse_id && newWStock[inv.warehouse_id] !== undefined) {
-                newWStock[inv.warehouse_id] = Math.max(0, (Number(newWStock[inv.warehouse_id]) || 0) - Number(item.quantity));
-              }
-              await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', item.product_id);
-            }
-          }
-        }
+      // 🛡️ 1. محاولة الحذف الذري الشامل أولاً عبر دالة السيرفر
+      try {
+        await deletePurchaseInvoice(editingId, userOrgId);
+        showToast('تم حذف مسودة فاتورة المشتريات بنجاح ✅', 'success');
+        logDocumentAction({
+          documentType: 'purchase_invoice',
+          documentId: String(editingId),
+          action: 'deleted',
+          details: {
+            invoice_number: formData.invoiceNumber,
+            total_amount: invoiceCalculation.totalAmount,
+            note: `حذف مسودة فاتورة المشتريات رقم ${formData.invoiceNumber}`
+          },
+          userId: currentUser?.id,
+          userName: (currentUser as any)?.name || (currentUser as any)?.email,
+          organizationId: userOrgId
+        });
 
-        if (inv.related_journal_entry_id) {
-          await supabase.from('journal_entries').delete().eq('id', inv.related_journal_entry_id);
+        const newIds = invoiceIds.filter(id => id !== editingId);
+        setInvoiceIds(newIds);
+
+        if (newIds.length > 0) {
+          const nextId = newIds[Math.min(currentIndex, newIds.length - 1)];
+          loadInvoiceById(nextId);
         } else {
-          await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', inv.invoice_number);
+          handleNewInvoice();
         }
+        return;
+      } catch (rpcErr) {
+        console.warn('Atomic delete RPC unavailable, attempting client fallback:', rpcErr);
       }
 
       await supabase.from('purchase_invoice_items').delete().eq('purchase_invoice_id', editingId);
       const { error: delErr } = await supabase.from('purchase_invoices').delete().eq('id', editingId);
       if (delErr) throw delErr;
 
-      showToast('تم حذف فاتورة المشتريات وعكس الحركات بنجاح ✅', 'success');
+      showToast('تم حذف مسودة فاتورة المشتريات بنجاح ✅', 'success');
+      logDocumentAction({
+        documentType: 'purchase_invoice',
+        documentId: String(editingId),
+        action: 'deleted',
+        details: {
+          invoice_number: formData.invoiceNumber,
+          total_amount: invoiceCalculation.totalAmount,
+          note: `حذف مسودة فاتورة المشتريات رقم ${formData.invoiceNumber}`
+        },
+        userId: currentUser?.id,
+        userName: (currentUser as any)?.name || (currentUser as any)?.email,
+        organizationId: userOrgId
+      });
 
       const newIds = invoiceIds.filter(id => id !== editingId);
       setInvoiceIds(newIds);
@@ -1206,27 +1334,82 @@ const PurchaseInvoiceForm = () => {
                 type="button" 
                 onClick={handleDeleteCurrent} 
                 disabled={deleting} 
-                className="bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                title="حذف هذه الفاتورة"
+                className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 ${
+                  (formData.status === 'posted' || formData.status === 'paid')
+                    ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                    : 'bg-red-50 text-red-700 border border-red-200 hover:bg-red-100'
+                }`}
+                title={(formData.status === 'posted' || formData.status === 'paid') ? 'لا يمكن حذف فاتورة المشتريات المرحلة؛ قم بإلغاء الترحيل أولاً' : 'حذف مسودة هذه الفاتورة'}
               >
                 {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />} حذف
               </button>
             </>
           )}
 
-          <button 
-            type="button" 
-            onClick={() => handleSave(undefined, true)} 
-            disabled={saving} 
-            className="bg-emerald-600 text-white px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />} 
-            {editingId ? 'حفظ وتحديث' : 'حفظ وترحيل'}
-          </button>
+          {(formData.status === 'posted' || formData.status === 'paid') ? (
+            canUnpost && (
+              <button 
+                type="button" 
+                onClick={handleUnpostInvoice} 
+                disabled={saving} 
+                className="bg-amber-600 text-white px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-amber-700 transition-colors shadow-sm disabled:opacity-50"
+                title="إلغاء ترحيل الفاتورة وإعادتها لمسودة قابلة للتعديل"
+              >
+                {saving ? <Loader2 className="animate-spin" size={16} /> : <Unlock size={16} />} 
+                إلغاء الترحيل للتعديل 🔓
+              </button>
+            )
+          ) : (
+            <button 
+              type="button" 
+              onClick={() => handleSave(undefined, true)} 
+              disabled={saving} 
+              className="bg-emerald-600 text-white px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />} 
+              {editingId ? 'حفظ وتحديث' : 'حفظ وترحيل'}
+            </button>
+          )}
         </div>
       </div>
 
-      <div className="space-y-6">
+      {/* 🛡️ صمام حماية المستندات المرحلة (Posted Document Shield Banner) */}
+      {(formData.status === 'posted' || formData.status === 'paid') && (
+        <div className="bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border-2 border-amber-300 rounded-3xl p-5 shadow-sm mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in">
+          <div className="flex items-start md:items-center gap-3.5">
+            <div className="p-3 bg-amber-500 text-white rounded-2xl shadow-sm">
+              <AlertCircle size={26} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-black text-slate-900 text-base">فاتورة مشتريات مرحلة محاسبياً (Posted Document)</h4>
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-200 text-amber-900">
+                  مرحلة ومقفلة
+                </span>
+              </div>
+              <p className="text-xs text-amber-900 mt-1 leading-relaxed font-medium">
+                هذه الفاتورة معتمدة ومرحلة في حسابات الموردين ودفتر الأستاذ والمخزون. للتعديل، يرجى إلغاء الترحيل أولاً لتحويلها إلى مسودة (Draft) إذا كانت لديك الصلاحية، أو إصدار مرتجع مشتريات.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+            {canUnpost && (
+              <button
+                type="button"
+                onClick={handleUnpostInvoice}
+                disabled={saving}
+                className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs rounded-xl shadow-md shadow-amber-600/20 transition-all flex items-center gap-2"
+                title="إلغاء الترحيل وتحويل الفاتورة لمسودة قابلة للتعديل"
+              >
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Unlock size={16} />}
+                إلغاء الترحيل للتعديل
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      <fieldset disabled={formData.status === 'posted' || formData.status === 'paid'} className="space-y-6">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="md:col-span-3">
@@ -1608,27 +1791,44 @@ const PurchaseInvoiceForm = () => {
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button 
-              type="button" 
-              onClick={(e) => handleSave(e, false)} 
-              disabled={saving} 
-              className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50"
-            >
-              <Save size={16} /> حفظ كمسودة
-            </button>
-            <button 
-              type="button" 
-              onClick={(e) => handleSave(e, true)} 
-              disabled={saving} 
-              className="bg-emerald-600 text-white hover:bg-emerald-700 px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
-            >
-              {saving ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />} 
-              {editingId ? 'حفظ وتحديث الفاتورة' : 'حفظ وترحيل الفاتورة'}
-            </button>
+            {(formData.status === 'posted' || formData.status === 'paid') ? (
+              canUnpost && (
+                <button 
+                  type="button" 
+                  onClick={handleUnpostInvoice} 
+                  disabled={saving} 
+                  className="bg-amber-600 text-white hover:bg-amber-700 px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+                  title="إلغاء ترحيل الفاتورة وإعادتها لمسودة قابلة للتعديل"
+                >
+                  {saving ? <Loader2 className="animate-spin" size={16} /> : <Unlock size={16} />} 
+                  إلغاء الترحيل للتعديل 🔓
+                </button>
+              )
+            ) : (
+              <>
+                <button 
+                  type="button" 
+                  onClick={(e) => handleSave(e, false)} 
+                  disabled={saving} 
+                  className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                >
+                  <Save size={16} /> حفظ كمسودة
+                </button>
+                <button 
+                  type="button" 
+                  onClick={(e) => handleSave(e, true)} 
+                  disabled={saving} 
+                  className="bg-emerald-600 text-white hover:bg-emerald-700 px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+                >
+                  {saving ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />} 
+                  {editingId ? 'حفظ وتحديث الفاتورة' : 'حفظ وترحيل الفاتورة'}
+                </button>
+              </>
+            )}
           </div>
 
         </div>
-      </div>
+      </fieldset>
 
       {/* 🕒 سجل التدقيق والتتبع الزمني */}
       {editingId && (

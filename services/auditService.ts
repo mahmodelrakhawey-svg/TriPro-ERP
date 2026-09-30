@@ -27,9 +27,9 @@ export const logDocumentAction = async ({
     documentId: string;
     action: DocumentAuditLog['action'];
     details?: any;
-    userId?: string;
-    userName?: string;
-    organizationId?: string;
+    userId?: string | null;
+    userName?: string | null;
+    organizationId?: string | null;
 }) => {
     if (!documentId) return;
 

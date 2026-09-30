@@ -34,7 +34,7 @@ import { InvoiceSummary } from './components/InvoiceSummary';
 
 
 const SalesInvoiceForm = () => { // Removed unused useParams import
-  const { products, warehouses, salespeople, accounts, approveInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice, currentSelectedOrgId, organization } = useAccounting();
+  const { products, warehouses, salespeople, accounts, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice, currentSelectedOrgId, organization } = useAccounting();
   const currentUserRole = (currentUser as any)?.role || '';
   const navigate = useNavigate();
   const location = useLocation();
@@ -668,17 +668,48 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     showToast('تم فتح نموذج فاتورة مبيعات جديدة ➕', 'info');
   };
 
+  const canUnpost = can?.('accounting', 'unpost') || can?.('sales', 'unpost') || can?.('sales', 'delete') || ['admin', 'super_admin', 'owner', 'manager'].includes(currentUserRole);
+
   const handleUnpostInvoice = async () => {
     if (!editingId) return;
 
-    if (!window.confirm(`هل أنت متأكد من إلغاء تترحيل فاتورة المبيعات رقم (${formData.invoiceNumber})؟\n\nسيتم:\n1- عكس حركة المخزون وإعادة الكميات للمستودع.\n2- حذف القيد المحاسبي من دفتر اليومية بالكامل.\n3- تحويل الفاتورة إلى مسودة (Draft) لتتمكن من تعديلها بحرية.`)) {
+    if (!canUnpost) {
+      showToast('عفواً، لا تملك الصلاحية اللازمة لإلغاء ترحيل الفواتير. يرجى مراجعة الإدارة المالية.', 'error');
+      return;
+    }
+
+    if (!window.confirm(`هل أنت متأكد من إلغاء ترحيل فاتورة المبيعات رقم (${formData.invoiceNumber})؟\n\nسيتم:\n1- عكس حركة المخزون وإعادة الكميات للمستودع.\n2- حذف القيد المحاسبي من دفتر اليومية بالكامل.\n3- تحويل الفاتورة إلى مسودة (Draft) لتتمكن من تعديلها بحرية.`)) {
       return;
     }
 
     setSaving(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+
+      // 🛡️ 1. محاولة التنفيذ الذري أولاً عبر RPC
+      try {
+        await unpostSalesInvoice(editingId, userOrgId);
+        setFormData(prev => ({ ...prev, status: 'draft' }));
+        await fetchCustomerBalance();
+        logDocumentAction({
+          documentType: 'sales_invoice',
+          documentId: String(editingId),
+          action: 'unposted',
+          details: {
+            invoice_number: formData.invoiceNumber,
+            total_amount: totalAmount,
+            note: `إلغاء ترحيل فاتورة المبيعات رقم ${formData.invoiceNumber} وتحويلها لمسودة`
+          },
+          userId: currentUser?.id,
+          userName: (currentUser as any)?.name || (currentUser as any)?.email,
+          organizationId: userOrgId
+        });
+        showToast('تم إلغاء ترحيل الفاتورة بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
+        return;
+      } catch (rpcErr) {
+        console.warn('Atomic unpost RPC unavailable or failed, attempting client fallback:', rpcErr);
+      }
 
       // 1. جلب بيانات الفاتورة والأصناف
       const { data: inv, error: invFetchErr } = await supabase.from('invoices').select('*, invoice_items(*)').eq('id', editingId).single();
@@ -725,6 +756,20 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       // تحديث رصيد العميل فوراً
       await fetchCustomerBalance();
 
+      logDocumentAction({
+        documentType: 'sales_invoice',
+        documentId: String(editingId),
+        action: 'unposted',
+        details: {
+          invoice_number: formData.invoiceNumber,
+          total_amount: totalAmount,
+          note: `إلغاء ترحيل فاتورة المبيعات رقم ${formData.invoiceNumber} وتحويلها لمسودة`
+        },
+        userId: currentUser?.id,
+        userName: (currentUser as any)?.name || (currentUser as any)?.email,
+        organizationId: userOrgId
+      });
+
       showToast('تم إلغاء ترحيل الفاتورة بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
 
     } catch (err: any) {
@@ -738,43 +783,71 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const handleDeleteCurrent = async () => {
     if (!editingId) return;
 
-    if (!window.confirm(`هل أنت متأكد من حذف فاتورة المبيعات رقم (${formData.invoiceNumber})؟\nسيتم إلغاء أثرها على المخزون والقيد المحاسبي بالكامل.`)) {
+    // 🛡️ صمام أمان عدم القابلية للتغيير (Document Immutability Guard)
+    if (formData.status === 'posted' || formData.status === 'paid') {
+      showToast('❌ لا يمكن حذف الفاتورة المرحلة أو المسددة مباشرة حفاظاً على سلامة الحسابات والقيود. يرجى إلغاء الترحيل أولاً لتحويلها إلى مسودة أو إنشاء إشعار دائن.', 'error');
+      return;
+    }
+
+    if (!window.confirm(`هل أنت متأكد من حذف مسودة فاتورة المبيعات رقم (${formData.invoiceNumber})؟`)) {
       return;
     }
 
     setDeleting(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
 
-      const { data: inv } = await supabase.from('invoices').select('*, invoice_items(*)').eq('id', editingId).single();
-      if (inv && inv.status === 'posted') {
-        for (const item of (inv.invoice_items || [])) {
-          if (item.product_id && item.quantity) {
-            const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
-            if (prod) {
-              const newStock = (Number(prod.stock) || 0) + Number(item.quantity);
-              let newWStock = prod.warehouse_stock || {};
-              if (inv.warehouse_id && newWStock[inv.warehouse_id] !== undefined) {
-                newWStock[inv.warehouse_id] = (Number(newWStock[inv.warehouse_id]) || 0) + Number(item.quantity);
-              }
-              await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', item.product_id);
-            }
-          }
-        }
+      // 🛡️ 1. محاولة الحذف الذري الشامل عبر دالة السيرفر
+      try {
+        await deleteSalesInvoice(editingId, userOrgId);
+        showToast('تم حذف مسودة فاتورة المبيعات بنجاح ✅', 'success');
+        logDocumentAction({
+          documentType: 'sales_invoice',
+          documentId: String(editingId),
+          action: 'deleted',
+          details: {
+            invoice_number: formData.invoiceNumber,
+            total_amount: totalAmount,
+            note: `حذف مسودة فاتورة المبيعات رقم ${formData.invoiceNumber}`
+          },
+          userId: currentUser?.id,
+          userName: (currentUser as any)?.name || (currentUser as any)?.email,
+          organizationId: userOrgId
+        });
+        
+        const newIds = invoiceIds.filter(id => id !== editingId);
+        setInvoiceIds(newIds);
 
-        if (inv.related_journal_entry_id) {
-          await supabase.from('journal_entries').delete().eq('id', inv.related_journal_entry_id);
+        if (newIds.length > 0) {
+          const nextId = newIds[Math.min(currentIndex, newIds.length - 1)];
+          loadInvoiceById(nextId);
         } else {
-          await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', inv.invoice_number);
+          handleNewInvoice();
         }
+        return;
+      } catch (rpcErr) {
+        console.warn('Atomic delete RPC unavailable, attempting client fallback:', rpcErr);
       }
 
       await supabase.from('invoice_items').delete().eq('invoice_id', editingId);
       const { error: delErr } = await supabase.from('invoices').delete().eq('id', editingId);
       if (delErr) throw delErr;
 
-      showToast('تم حذف فاتورة المبيعات وعكس الحركات بنجاح ✅', 'success');
+      showToast('تم حذف مسودة فاتورة المبيعات بنجاح ✅', 'success');
+      logDocumentAction({
+        documentType: 'sales_invoice',
+        documentId: String(editingId),
+        action: 'deleted',
+        details: {
+          invoice_number: formData.invoiceNumber,
+          total_amount: totalAmount,
+          note: `حذف مسودة فاتورة المبيعات رقم ${formData.invoiceNumber}`
+        },
+        userId: currentUser?.id,
+        userName: (currentUser as any)?.name || (currentUser as any)?.email,
+        organizationId: userOrgId
+      });
 
       const newIds = invoiceIds.filter(id => id !== editingId);
       setInvoiceIds(newIds);
@@ -1153,8 +1226,8 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
     const isPosted = formData.status === 'posted' || formData.status === 'paid';
 
-    if (editingId && isPosted && currentUserRole !== 'admin' && currentUserRole !== 'super_admin' && !can('sales', 'update')) { // Use handleError for consistency
-        showToast('لا تملك صلاحية تعديل الفواتير المرحلة. يرجى إنشاء إشعار دائن', 'warning'); // Use handleError for consistency
+    if (editingId && isPosted) {
+        showToast('❌ لا يمكن تعديل الفاتورة المرحلة أو المسددة مباشرة حفاظاً على سلامة الحسابات والقيود. يرجى إلغاء الترحيل أولاً لتحويلها إلى مسودة أو إنشاء إشعار دائن.', 'warning');
         return;
     }
 
@@ -1927,8 +2000,12 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               type="button" 
               onClick={handleDeleteCurrent} 
               disabled={deleting} 
-              className="bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
-              title="حذف هذه الفاتورة"
+              className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 ${
+                (formData.status === 'posted' || formData.status === 'paid')
+                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                  : 'bg-red-50 text-red-700 border border-red-200 hover:bg-red-100'
+              }`}
+              title={(formData.status === 'posted' || formData.status === 'paid') ? 'لا يمكن حذف الفاتورة المرحلة أو المسددة؛ قم بإلغاء الترحيل أولاً' : 'حذف مسودة الفاتورة'}
             >
               {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />} حذف
             </button>
@@ -1936,10 +2013,53 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         </div>
       </div>
 
+      {/* 🛡️ صمام حماية المستندات المرحلة (Posted Document Shield Banner) */}
+      {(formData.status === 'posted' || formData.status === 'paid') && (
+        <div className="bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border-2 border-amber-300 rounded-3xl p-5 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in">
+          <div className="flex items-start md:items-center gap-3.5">
+            <div className="p-3 bg-amber-500 text-white rounded-2xl shadow-sm">
+              <AlertCircle size={26} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-black text-slate-900 text-base">فاتورة مبيعات مرحلة محاسبياً (Posted Document)</h4>
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-200 text-amber-900">
+                  {formData.status === 'paid' ? 'مرحلة ومسددة' : 'مرحلة ومقفلة'}
+                </span>
+              </div>
+              <p className="text-xs text-amber-900 mt-1 leading-relaxed font-medium">
+                هذه الفاتورة معتمدة في دفتر اليومية وحسابات العملاء والمخزون ولا يمكن تعديلها مباشرة. لإجراء تعديلات، يجب إلغاء الترحيل أولاً لتحويلها إلى مسودة (Draft) إذا كانت لديك الصلاحية، أو إصدار إشعار دائن / مرتجع مبيعات.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+            {canUnpost && (
+              <button
+                type="button"
+                onClick={handleUnpostInvoice}
+                disabled={saving}
+                className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs rounded-xl shadow-md shadow-amber-600/20 transition-all flex items-center gap-2"
+                title="إلغاء الترحيل وتحويل الفاتورة لمسودة قابلة للتعديل"
+              >
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Unlock size={16} />}
+                إلغاء الترحيل للتعديل
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleCreateCreditNote}
+              className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-black text-xs rounded-xl shadow-md shadow-red-600/20 transition-all flex items-center gap-2"
+            >
+              إشعار دائن / مرتجع
+            </button>
+          </div>
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
         
         {/* Main Content Area (Left 8 cols) */}
-        <fieldset disabled={formData.status !== 'draft' && !can('sales', 'update')} className="lg:col-span-8 space-y-6">
+        <fieldset disabled={formData.status !== 'draft'} className="lg:col-span-8 space-y-6">
             
             {/* Customer & Logistics Card */}
             <InvoiceHeader
