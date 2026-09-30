@@ -1,11 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
-import { Printer, FileText, Loader2, Search, Download, MessageCircle, AlertTriangle, ShieldAlert, RefreshCw } from 'lucide-react';
+import { Printer, FileText, Loader2, Search, Download, MessageCircle, AlertTriangle, ShieldAlert, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useToast } from '../../context/ToastContext';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
+
+// 🚀 دالة مساعدة لتجزئة استعلامات المعرفات في Supabase لتجنب تجاوز الحد الأقصى لطول الرابط (HTTP 414 URI Too Long)
+async function fetchInChunks<T>(
+  items: string[],
+  chunkSize: number,
+  fetcher: (chunk: string[]) => Promise<T[]>
+): Promise<T[]> {
+  if (!items || items.length === 0) return [];
+  const results: T[] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    const chunk = items.slice(i, i + chunkSize);
+    const res = await fetcher(chunk);
+    if (res && res.length > 0) {
+      results.push(...res);
+    }
+  }
+  return results;
+}
 
 type Transaction = {
   id: string;
@@ -35,7 +53,14 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
   const [loading, setLoading] = useState(false);
   const [showUnpostedOnly, setShowUnpostedOnly] = useState(false);
   const [unpostedCount, setUnpostedCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number | 'all'>(50);
   const { showToast } = useToast();
+
+  // إعادة التعيين للصفحة الأولى عند تغيير الفلاتر
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedCustomerId, startDate, endDate, showUnpostedOnly]);
 
   // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
   useEffect(() => {
@@ -210,26 +235,31 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         let journalEntries: any[] = [];
 
         if (customerEntryIds.size > 0) {
-            const { data: lines, error: ledgerError } = await supabase
-                .from('journal_lines')
-                .select('id, journal_entry_id, debit, credit, account_id, organization_id')
-                .eq('account_id', targetAccountId)
-                .eq('organization_id', userOrgId)
-                .in('journal_entry_id', Array.from(customerEntryIds));
+            const entryIdList = Array.from(customerEntryIds);
+            ledgerLines = await fetchInChunks(entryIdList, 70, async (chunk) => {
+                const { data: lines, error: ledgerError } = await supabase
+                    .from('journal_lines')
+                    .select('id, journal_entry_id, debit, credit, account_id, organization_id')
+                    .eq('account_id', targetAccountId)
+                    .eq('organization_id', userOrgId)
+                    .in('journal_entry_id', chunk);
 
-            if (ledgerError) throw ledgerError;
-            ledgerLines = lines || [];
+                if (ledgerError) throw ledgerError;
+                return lines || [];
+            });
 
             const journalEntryIds = Array.from(new Set(ledgerLines.map((l) => l.journal_entry_id).filter(Boolean)));
             if (journalEntryIds.length > 0) {
-                const { data: entries, error: journalEntriesError } = await supabase
-                    .from('journal_entries')
-                    .select('id, reference, transaction_date, description, status, related_document_id, related_document_type')
-                    .in('id', journalEntryIds)
-                    .eq('organization_id', userOrgId);
+                journalEntries = await fetchInChunks(journalEntryIds, 70, async (chunk) => {
+                    const { data: entries, error: journalEntriesError } = await supabase
+                        .from('journal_entries')
+                        .select('id, reference, transaction_date, description, status, related_document_id, related_document_type')
+                        .in('id', chunk)
+                        .eq('organization_id', userOrgId);
 
-                if (journalEntriesError) throw journalEntriesError;
-                journalEntries = entries || [];
+                    if (journalEntriesError) throw journalEntriesError;
+                    return entries || [];
+                });
             }
         }
 
@@ -397,6 +427,22 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
       window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
+  // 📄 تصفية وتقطيع الحركات وفق ترقيم الصفحات
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter(t => !showUnpostedOnly || !t.isPosted);
+  }, [transactions, showUnpostedOnly]);
+
+  const totalPages = useMemo(() => {
+    if (pageSize === 'all') return 1;
+    return Math.max(1, Math.ceil(filteredTransactions.length / pageSize));
+  }, [filteredTransactions.length, pageSize]);
+
+  const displayedTransactions = useMemo(() => {
+    if (pageSize === 'all') return filteredTransactions;
+    const start = (currentPage - 1) * pageSize;
+    return filteredTransactions.slice(start, start + pageSize);
+  }, [filteredTransactions, currentPage, pageSize]);
+
   return (
     <div className="space-y-6 animate-in fade-in">
       <div className="flex justify-between items-center print:hidden">
@@ -491,6 +537,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
               {loading ? (
                   <div className="py-12 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" size={32} /></div>
               ) : (
+                <>
                   <table className="w-full text-right text-sm">
                       <thead className="bg-slate-100 border-y border-slate-200 text-slate-500 font-black uppercase">
                           <tr>
@@ -502,37 +549,109 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                               <th className="p-4 text-center">الرصيد</th>
                           </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
-                          <tr className="bg-slate-50 font-bold text-slate-500">
-                              <td colSpan={5} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
-                              <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
-                          </tr>
-                          {transactions.filter(t => !showUnpostedOnly || !t.isPosted).map((t, idx) => (
-                              <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                  <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
-                                  <td className="p-4 font-mono font-bold text-blue-600 flex items-center gap-2">
-                                      {/* إخفاء البادئات عند العرض فقط ليكون المظهر أنيقاً وموحداً */}
-                                      {t.reference.startsWith('OP-CUST-') ? 'رصيد افتتاحي' : t.reference.replace(/^(CHQ-|RV-|INV-|SR-|OB-|OP-CUST-|OP-)/, '')}
-                                      {!t.isPosted && t.type !== 'pos_order' && (
-                                          <span title="هذا المستند ليس له قيد يومية!"><AlertTriangle size={14} className="text-red-500" /></span>
-                                      )}
-                                      {t.type === 'pos_order' && !t.isPosted && (
-                                          <span className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded border border-amber-200 font-bold">
-                                              بانتظار إغلاق الوردية
-                                          </span>
-                                      )}
-                                  </td>
-                                  <td className="p-4 text-slate-700">{t.description}</td>
-                                  <td className="p-4 text-center font-bold text-emerald-600">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
-                                  <td className="p-4 text-center font-bold text-red-600">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
-                                  <td className="p-4 text-center font-mono font-black bg-slate-50/50" dir="ltr">{t.balance.toLocaleString()}</td>
-                              </tr>
-                          ))}
-                          {transactions.length === 0 && (
-                              <tr><td colSpan={6} className="p-8 text-center text-slate-400">لا توجد حركات خلال هذه الفترة</td></tr>
-                          )}
-                      </tbody>
-                  </table>
+                        {/* 🖥️ جدول العرض التفاعلي على الشاشة (يدعم ترقيم الصفحات وسرعة التصفح) */}
+                        <tbody className="divide-y divide-slate-100 print:hidden">
+                            <tr className="bg-slate-50 font-bold text-slate-500">
+                                <td colSpan={5} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
+                                <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
+                            </tr>
+                            {displayedTransactions.map((t, idx) => (
+                                <tr key={t.id || idx} className="hover:bg-slate-50 transition-colors">
+                                    <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
+                                    <td className="p-4 font-mono font-bold text-blue-600 flex items-center gap-2">
+                                        {/* إخفاء البادئات عند العرض فقط ليكون المظهر أنيقاً وموحداً */}
+                                        {t.reference.startsWith('OP-CUST-') ? 'رصيد افتتاحي' : t.reference.replace(/^(CHQ-|RV-|INV-|SR-|OB-|OP-CUST-|OP-)/, '')}
+                                        {!t.isPosted && t.type !== 'pos_order' && (
+                                            <span title="هذا المستند ليس له قيد يومية!"><AlertTriangle size={14} className="text-red-500" /></span>
+                                        )}
+                                        {t.type === 'pos_order' && !t.isPosted && (
+                                            <span className="text-[10px] bg-amber-50 text-amber-600 px-2 py-0.5 rounded border border-amber-200 font-bold">
+                                                بانتظار إغلاق الوردية
+                                            </span>
+                                        )}
+                                    </td>
+                                    <td className="p-4 text-slate-700">{t.description}</td>
+                                    <td className="p-4 text-center font-bold text-emerald-600">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
+                                    <td className="p-4 text-center font-bold text-red-600">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
+                                    <td className="p-4 text-center font-mono font-black bg-slate-50/50" dir="ltr">{t.balance.toLocaleString()}</td>
+                                </tr>
+                            ))}
+                            {displayedTransactions.length === 0 && (
+                                <tr><td colSpan={6} className="p-8 text-center text-slate-400">لا توجد حركات خلال هذه الفترة</td></tr>
+                            )}
+                        </tbody>
+
+                        {/* 🖨️ جدول الطباعة الشامل (يظهر فقط عند أمر الطباعة لطباعة 100% من الحركات) */}
+                        <tbody className="divide-y divide-slate-100 hidden print:table-row-group">
+                            <tr className="bg-slate-50 font-bold text-slate-500">
+                                <td colSpan={5} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
+                                <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
+                            </tr>
+                            {filteredTransactions.map((t, idx) => (
+                                <tr key={t.id || idx}>
+                                    <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
+                                    <td className="p-4 font-mono font-bold text-blue-600">
+                                        {t.reference.startsWith('OP-CUST-') ? 'رصيد افتتاحي' : t.reference.replace(/^(CHQ-|RV-|INV-|SR-|OB-|OP-CUST-|OP-)/, '')}
+                                    </td>
+                                    <td className="p-4 text-slate-700">{t.description}</td>
+                                    <td className="p-4 text-center font-bold text-emerald-600">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
+                                    <td className="p-4 text-center font-bold text-red-600">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
+                                    <td className="p-4 text-center font-mono font-black" dir="ltr">{t.balance.toLocaleString()}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+
+                    {/* 📄 شريط ترقيم صفحات كشف الحساب وتحديد عدد الحركات */}
+                    {filteredTransactions.length > 0 && (
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-6 pt-4 border-t border-slate-200 text-xs text-slate-600 font-bold print:hidden">
+                        <div className="flex items-center gap-3">
+                          <span>عرض</span>
+                          <select
+                            value={pageSize}
+                            onChange={(e) => {
+                              const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                              setPageSize(val);
+                              setCurrentPage(1);
+                            }}
+                            className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value={25}>25 حركة</option>
+                            <option value={50}>50 حركة</option>
+                            <option value={100}>100 حركة</option>
+                            <option value="all">عرض الكل ({filteredTransactions.length})</option>
+                          </select>
+                          <span>
+                            | حركة {pageSize === 'all' ? 1 : (currentPage - 1) * pageSize + 1} إلى {pageSize === 'all' ? filteredTransactions.length : Math.min(currentPage * pageSize, filteredTransactions.length)} من أصل {filteredTransactions.length}
+                          </span>
+                        </div>
+
+                        {pageSize !== 'all' && totalPages > 1 && (
+                          <div className="flex items-center gap-1.5" dir="ltr">
+                            <button
+                              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                              disabled={currentPage === 1}
+                              className="px-2.5 py-1 rounded-lg border border-slate-300 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                            >
+                              <ChevronLeft size={14} />
+                              <span>السابق</span>
+                            </button>
+                            <span className="px-3 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg font-black font-mono">
+                              {currentPage} / {totalPages}
+                            </span>
+                            <button
+                              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                              disabled={currentPage === totalPages}
+                              className="px-2.5 py-1 rounded-lg border border-slate-300 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                            >
+                              <span>التالي</span>
+                              <ChevronRight size={14} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                </>
               )}
               
               <div className="hidden print:block mt-20 pt-8 border-t border-slate-100 text-center text-slate-400 text-xs font-bold">

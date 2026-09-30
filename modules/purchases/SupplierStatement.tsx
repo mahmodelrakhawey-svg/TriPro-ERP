@@ -1,11 +1,28 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
-import { Printer, FileText, Loader2, Search, Download, MessageCircle } from 'lucide-react';
+import { Printer, FileText, Loader2, Search, Download, MessageCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import SupplierSearchSelect from '../../components/SupplierSearchSelect';
+
+// 🚀 أداة استعلام تجلب جميع السجلات بأمان متجاوزة سقف الـ 1000 في Supabase عبر التجزئة التتابعية
+async function fetchCompleteDataset<T>(
+  queryBuilder: (from: number, to: number) => Promise<{ data: T[] | null; error: any }>
+): Promise<T[]> {
+  const CHUNK_SIZE = 1000;
+  let allRows: T[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await queryBuilder(from, from + CHUNK_SIZE - 1);
+    if (error || !data || data.length === 0) break;
+    allRows.push(...data);
+    if (data.length < CHUNK_SIZE) break;
+    from += CHUNK_SIZE;
+  }
+  return allRows;
+}
 
 type Transaction = {
   id: string;
@@ -29,6 +46,13 @@ const SupplierStatement = () => {
   const [openingBalance, setOpeningBalance] = useState(0);
   const [closingBalance, setClosingBalance] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number | 'all'>(50);
+
+  // إعادة التعيين للصفحة الأولى عند تغيير الفلاتر
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedSupplierId, startDate, endDate]);
 
   // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
   useEffect(() => {
@@ -72,37 +96,51 @@ const SupplierStatement = () => {
 
         const filter = { supplier_id: selectedSupplierId, organization_id: userOrgId };
 
-        // 1. جلب الفواتير (دائن - تزيد الرصيد)
-        const { data: invoices } = await supabase.from('purchase_invoices')
-            .select('id, invoice_number, invoice_date, total_amount, notes, paid_amount')
-            .match(filter)
-            .neq('status', 'draft'); // فقط الفواتير المرحلة
+        // 1. جلب الفواتير (دائن - تزيد الرصيد) مع تجاوز سقف الـ 1000 بأمان
+        const invoices = await fetchCompleteDataset(async (from, to) => 
+            supabase.from('purchase_invoices')
+                .select('id, invoice_number, invoice_date, total_amount, notes, paid_amount')
+                .match(filter)
+                .neq('status', 'draft')
+                .range(from, to)
+        );
 
         // 2. جلب المرتجعات (مدين - تنقص الرصيد)
-        const { data: returns } = await supabase.from('purchase_returns')
-            .select('id, return_number, return_date, total_amount, notes')
-            .match(filter)
-            .eq('status', 'posted'); // شرط الترحيل لضمان التطابق مع المحاسبة
+        const returns = await fetchCompleteDataset(async (from, to) =>
+            supabase.from('purchase_returns')
+                .select('id, return_number, return_date, total_amount, notes')
+                .match(filter)
+                .eq('status', 'posted')
+                .range(from, to)
+        );
 
         // 3. جلب سندات الصرف (مدين - تنقص الرصيد)
-        const { data: payments } = await supabase.from('payment_vouchers')
-            .select('id, voucher_number, payment_date, amount, notes')
-            .match(filter)
-            // .eq('status', 'posted'); // يمكن تفعيله إذا كان للسندات حالة
+        const payments = await fetchCompleteDataset(async (from, to) =>
+            supabase.from('payment_vouchers')
+                .select('id, voucher_number, payment_date, amount, notes')
+                .match(filter)
+                .range(from, to)
+        );
 
         // 4. جلب الإشعارات المدينة (مدين - تنقص الرصيد)
-        const { data: debitNotes } = await supabase.from('debit_notes')
-            .select('id, debit_note_number, note_date, total_amount, notes')
-            .match(filter)
-            .eq('status', 'posted');
+        const debitNotes = await fetchCompleteDataset(async (from, to) =>
+            supabase.from('debit_notes')
+                .select('id, debit_note_number, note_date, total_amount, notes')
+                .match(filter)
+                .eq('status', 'posted')
+                .range(from, to)
+        );
 
         // 5. جلب الشيكات الصادرة (مدين - تنقص الرصيد)
-        const { data: cheques } = await supabase.from('cheques')
-            .select('id, cheque_number, due_date, amount, notes, created_at')
-            .eq('party_id', selectedSupplierId)
-            .eq('organization_id', userOrgId)
-            .eq('type', 'outgoing')
-            .neq('status', 'rejected');
+        const cheques = await fetchCompleteDataset(async (from, to) =>
+            supabase.from('cheques')
+                .select('id, cheque_number, due_date, amount, notes, created_at')
+                .eq('party_id', selectedSupplierId)
+                .eq('organization_id', userOrgId)
+                .eq('type', 'outgoing')
+                .neq('status', 'rejected')
+                .range(from, to)
+        );
 
         // 6. جلب مستخلصات مقاولي الباطن المعتمدة (إذا كان المورد مقاول باطن)
         let subBillingsData: any[] = [];
@@ -352,6 +390,18 @@ const SupplierStatement = () => {
       window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
+  // 📄 تصفية وتقطيع الحركات وفق ترقيم الصفحات
+  const totalPages = useMemo(() => {
+    if (pageSize === 'all') return 1;
+    return Math.max(1, Math.ceil(transactions.length / pageSize));
+  }, [transactions.length, pageSize]);
+
+  const displayedTransactions = useMemo(() => {
+    if (pageSize === 'all') return transactions;
+    const start = (currentPage - 1) * pageSize;
+    return transactions.slice(start, start + pageSize);
+  }, [transactions, currentPage, pageSize]);
+
   return (
     <div className="space-y-6 animate-in fade-in">
       <div className="flex justify-between items-center print:hidden">
@@ -412,6 +462,7 @@ const SupplierStatement = () => {
               {loading ? (
                   <div className="py-12 text-center"><Loader2 className="animate-spin mx-auto text-emerald-600" size={32} /></div>
               ) : (
+                <>
                   <table className="w-full text-right text-sm">
                       <thead className="bg-slate-100 border-y border-slate-200 text-slate-500 font-black uppercase">
                           <tr>
@@ -424,29 +475,102 @@ const SupplierStatement = () => {
                               <th className="p-4 text-center">الرصيد</th>
                           </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
-                          <tr className="bg-slate-50 font-bold text-slate-500">
-                              <td colSpan={6} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
-                              <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
-                          </tr>
-                          {transactions.map((t: any, idx) => (
-                              <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                                  <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
-                                  <td className="p-4 font-mono font-bold text-emerald-600">
-                                      {t.reference?.startsWith('OP-SUPP') ? 'رصيد افتتاحي' : t.reference?.replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '')}
-                                  </td>
-                                  <td className="p-4 text-slate-700 whitespace-pre-line">{t.description}</td>
-                                  <td className="p-4 text-center font-bold text-red-600">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
-                                  <td className="p-4 text-center font-bold text-emerald-600">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
-                                  <td className="p-4 text-center font-bold text-blue-600">{(t.paid_amount || 0) > 0 ? t.paid_amount.toLocaleString() : '-'}</td>
-                                  <td className="p-4 text-center font-mono font-black bg-slate-50/50" dir="ltr">{t.balance.toLocaleString()}</td>
-                              </tr>
-                          ))}
-                          {transactions.length === 0 && (
-                              <tr><td colSpan={7} className="p-8 text-center text-slate-400">لا توجد حركات خلال هذه الفترة</td></tr>
-                          )}
-                      </tbody>
-                  </table>
+                        {/* 🖥️ جدول العرض التفاعلي على الشاشة (يدعم ترقيم الصفحات وسرعة التصفح) */}
+                        <tbody className="divide-y divide-slate-100 print:hidden">
+                            <tr className="bg-slate-50 font-bold text-slate-500">
+                                <td colSpan={6} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
+                                <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
+                            </tr>
+                            {displayedTransactions.map((t: any, idx) => (
+                                <tr key={t.id || idx} className="hover:bg-slate-50 transition-colors">
+                                    <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
+                                    <td className="p-4 font-mono font-bold text-emerald-600">
+                                        {t.reference?.startsWith('OP-SUPP') ? 'رصيد افتتاحي' : t.reference?.replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '')}
+                                    </td>
+                                    <td className="p-4 text-slate-700 whitespace-pre-line">{t.description}</td>
+                                    <td className="p-4 text-center font-bold text-red-600">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
+                                    <td className="p-4 text-center font-bold text-emerald-600">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
+                                    <td className="p-4 text-center font-bold text-blue-600">{(t.paid_amount || 0) > 0 ? t.paid_amount.toLocaleString() : '-'}</td>
+                                    <td className="p-4 text-center font-mono font-black bg-slate-50/50" dir="ltr">{t.balance.toLocaleString()}</td>
+                                </tr>
+                            ))}
+                            {displayedTransactions.length === 0 && (
+                                <tr><td colSpan={7} className="p-8 text-center text-slate-400">لا توجد حركات خلال هذه الفترة</td></tr>
+                            )}
+                        </tbody>
+
+                        {/* 🖨️ جدول الطباعة الشامل لكافة الحركات بدون اقتطاع */}
+                        <tbody className="divide-y divide-slate-100 hidden print:table-row-group">
+                            <tr className="bg-slate-50 font-bold text-slate-500">
+                                <td colSpan={6} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
+                                <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
+                            </tr>
+                            {transactions.map((t: any, idx) => (
+                                <tr key={t.id || idx}>
+                                    <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
+                                    <td className="p-4 font-mono font-bold text-emerald-600">
+                                        {t.reference?.startsWith('OP-SUPP') ? 'رصيد افتتاحي' : t.reference?.replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '')}
+                                    </td>
+                                    <td className="p-4 text-slate-700 whitespace-pre-line">{t.description}</td>
+                                    <td className="p-4 text-center font-bold text-red-600">{t.debit > 0 ? t.debit.toLocaleString() : '-'}</td>
+                                    <td className="p-4 text-center font-bold text-emerald-600">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
+                                    <td className="p-4 text-center font-bold text-blue-600">{(t.paid_amount || 0) > 0 ? t.paid_amount.toLocaleString() : '-'}</td>
+                                    <td className="p-4 text-center font-mono font-black" dir="ltr">{t.balance.toLocaleString()}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+
+                    {/* 📄 شريط ترقيم صفحات كشف الحساب وتحديد عدد الحركات */}
+                    {transactions.length > 0 && (
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-6 pt-4 border-t border-slate-200 text-xs text-slate-600 font-bold print:hidden">
+                        <div className="flex items-center gap-3">
+                          <span>عرض</span>
+                          <select
+                            value={pageSize}
+                            onChange={(e) => {
+                              const val = e.target.value === 'all' ? 'all' : Number(e.target.value);
+                              setPageSize(val);
+                              setCurrentPage(1);
+                            }}
+                            className="bg-slate-50 border border-slate-300 rounded-lg px-2.5 py-1 text-slate-800 font-bold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                          >
+                            <option value={25}>25 حركة</option>
+                            <option value={50}>50 حركة</option>
+                            <option value={100}>100 حركة</option>
+                            <option value="all">عرض الكل ({transactions.length})</option>
+                          </select>
+                          <span>
+                            | حركة {pageSize === 'all' ? 1 : (currentPage - 1) * pageSize + 1} إلى {pageSize === 'all' ? transactions.length : Math.min(currentPage * pageSize, transactions.length)} من أصل {transactions.length}
+                          </span>
+                        </div>
+
+                        {pageSize !== 'all' && totalPages > 1 && (
+                          <div className="flex items-center gap-1.5" dir="ltr">
+                            <button
+                              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                              disabled={currentPage === 1}
+                              className="px-2.5 py-1 rounded-lg border border-slate-300 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                            >
+                              <ChevronLeft size={14} />
+                              <span>السابق</span>
+                            </button>
+                            <span className="px-3 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg font-black font-mono">
+                              {currentPage} / {totalPages}
+                            </span>
+                            <button
+                              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                              disabled={currentPage === totalPages}
+                              className="px-2.5 py-1 rounded-lg border border-slate-300 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                            >
+                              <span>التالي</span>
+                              <ChevronRight size={14} />
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                </>
               )}
               
               <div className="hidden print:block mt-20 pt-8 border-t border-slate-100 text-center text-slate-400 text-xs font-bold">
