@@ -424,6 +424,7 @@ const Sidebar: React.FC = () => {
     { to: '/admin/test-dashboard', label: 'مراقبة صحة النظام', icon: Activity, color: 'text-amber-400', superAdminOnly: true, permission: 'admin.logs' },
     { to: '/stress-test', label: 'اختبار كفاءة وتحمل النظام (Stress Test)', icon: Zap, color: 'text-amber-400', superAdminOnly: true, permission: 'admin.manage' },
     { to: '/security-logs', label: 'سجلات الأمان', icon: ScrollText, color: 'text-slate-400', adminOnly: true, permission: 'admin.logs' },
+    { to: '/admin/audit-logs', label: 'سجل الرقابة والتدقيق (Audit Trail)', icon: ShieldCheck, color: 'text-emerald-400', adminOnly: true, permission: 'admin.logs' },
     { to: '/recycle-bin', label: 'سلة المحذوفات', icon: Trash2, color: 'text-slate-400', adminOnly: true, permission: 'admin.manage' },
     { to: '/data-migration', label: 'مركز ترحيل البيانات', icon: Database, color: 'text-slate-400', adminOnly: true, permission: 'admin.manage' },
     { to: '/settings', label: 'إعدادات المنشأة', icon: Settings, color: 'text-slate-400', adminOnly: true, permission: 'admin.manage' },

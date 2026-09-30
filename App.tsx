@@ -22,6 +22,7 @@ const MobileApp = lazy(() => import('./modules/mobile/MobileApp'));
 
 // 📊 لوحات التحكم والأدوات الإدارية (Lazy Loaded)
 const AdminTestDashboard = lazy(() => import('./components/AdminTestDashboard'));
+const AuditTrailViewer = lazy(() => import('./modules/admin/AuditTrailViewer'));
 const Quotations = lazy(() => import('./components/Quotations'));
 const DraftJournalsList = lazy(() => import('./components/DraftJournalsList'));
 
@@ -743,6 +744,7 @@ const MainLayout = () => {
                 <Route path="/data-migration" element={<DataMigrationCenter />} />
                 <Route path="/stress-test" element={<SystemStressTest />} />
                 <Route path="/admin/test-dashboard" element={<ModuleGuard module="admin"><AdminTestDashboard /></ModuleGuard>} />
+                <Route path="/admin/audit-logs" element={<ModuleGuard module="admin"><AuditTrailViewer /></ModuleGuard>} />
                 <Route path="/saas-admin" element={currentUser?.role === 'super_admin' ? <SaasAdmin /> : <Navigate to="/" replace />} />
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/settings" element={<Settings />} />

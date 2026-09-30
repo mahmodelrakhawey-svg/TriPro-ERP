@@ -319,6 +319,42 @@ export class StockMovementService {
     const openingBalance = await this.fetchOpeningBalance(productId, organizationId, warehouseId);
 
     try {
+      // 🚀 المسار السريع: استخدام دالة RPC الخادمة فائقة السرعة إن وجدت
+      if (typeof (supabase as any)?.rpc === 'function') {
+        try {
+          const { data: rpcData, error: rpcError } = await supabase.rpc('get_product_stock_movements_rpc', {
+            p_product_id: productId,
+            p_org_id: organizationId,
+            p_warehouse_id: warehouseId || null,
+            p_start_date: startDate || null,
+            p_end_date: endDate || null
+          });
+
+          if (!rpcError && rpcData?.success && Array.isArray(rpcData.movements)) {
+            const serverMovements: UnifiedStockMovement[] = rpcData.movements;
+            let totalIn = 0;
+            let totalOut = 0;
+            serverMovements.forEach(m => {
+              if (m.type === 'IN') totalIn += Number(m.quantity || 0);
+              else totalOut += Number(m.quantity || 0);
+            });
+            const netMovement = totalIn - totalOut;
+            const closingBalance = openingBalance + netMovement;
+
+            return {
+              openingBalance,
+              movements: serverMovements,
+              totalIn,
+              totalOut,
+              netMovement,
+              closingBalance
+            };
+          }
+        } catch (rpcEx) {
+          // السقوط الآمن التلقائي للمسار الكلاسيكي
+        }
+      }
+
       // 1. المبيعات (فواتير معتمدة وغير ملغاة) - OUT
       let salesQuery = supabase
         .from('invoice_items')

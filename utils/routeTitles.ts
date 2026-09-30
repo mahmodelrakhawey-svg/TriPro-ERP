@@ -243,6 +243,7 @@ export const ROUTE_TITLES: Record<string, string> = {
   '/settings/company': 'بيانات الشركة والترويسة والرقم الضريبي',
   '/settings/accounting': 'التوجيه المحاسبي وربط الحسابات التلقائي',
   '/settings/print': 'تنسيق قوالب وتصميمات الطباعة',
+  '/admin/audit-logs': 'سجل الرقابة والتدقيق الأمني الذاتي',
 };
 
 /**
