@@ -6,9 +6,11 @@ import { useToast } from '../../../context/ToastContext';
 import {
   Factory, Plus, Trash2, Save, Loader2, Edit, X, Layers, Settings,
   Clock, Package, CheckSquare, Square, GripVertical, Info, DollarSign, Paperclip, Download,
-  ChevronDown, ChevronUp, Star
+  ChevronDown, ChevronUp, Star, FileSpreadsheet, Upload
 } from 'lucide-react';
 import SearchableSelect from '../../../components/SearchableSelect';
+import { exportSingleProductBOMToExcel, exportMasterBOMToExcel } from '../utils/bomExportUtils';
+import { BOMImportModal } from './BOMImportModal';
 
 interface WorkCenter {
   id: string;
@@ -74,6 +76,9 @@ const RoutingBOMManager = () => {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [exportingMaster, setExportingMaster] = useState(false);
+  const [exportingSingle, setExportingSingle] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
 
   const [searchParams] = useSearchParams();
   const paramProductId = searchParams.get('productId');
@@ -644,6 +649,103 @@ const RoutingBOMManager = () => {
     }
   };
 
+  // --- Export to Excel Handlers ---
+  const handleExportSingle = async () => {
+    if (!selectedProductId) {
+      showToast('الرجاء اختيار صنف لتصدير مقاديره أولاً', 'warning');
+      return;
+    }
+    setExportingSingle(true);
+    try {
+      const selectedProd = (allProducts as any[]).find(p => p.id === selectedProductId);
+      const isIntermediate = productOptions.find(p => p.id === selectedProductId)?.isIntermediate || false;
+
+      // إذا لم يكن هناك خطوات تفصيلية مسجلة ولكن توجد مقادير في bill_of_materials
+      let fallbackBOM: any[] = [];
+      const hasMaterialsInSteps = (routingSteps || []).some(s => (s.materials || []).length > 0);
+      if (!hasMaterialsInSteps) {
+        const { data: boms } = await supabase
+          .from('bill_of_materials')
+          .select('*, raw_material:products!raw_material_id(id, name, unit, cost, purchase_price, sku, product_type, mfg_type)')
+          .eq('product_id', selectedProductId)
+          .eq('organization_id', orgId);
+        fallbackBOM = boms || [];
+      }
+
+      exportSingleProductBOMToExcel({
+        product: selectedProd,
+        isIntermediate,
+        routing: currentRouting,
+        routingSteps,
+        allProducts: allProducts as any[],
+        organizationName: organization?.name,
+        fallbackBOM
+      });
+
+      showToast('تم تصدير شيت مراجعة مقادير الصنف إلى Excel بنجاح ✅', 'success');
+    } catch (err: any) {
+      console.error(err);
+      showToast('فشل تصدير مقادير الصنف: ' + err.message, 'error');
+    } finally {
+      setExportingSingle(false);
+    }
+  };
+
+  const handleExportMaster = async () => {
+    if (!orgId) return;
+    setExportingMaster(true);
+    try {
+      // 1. جلب كافة المسارات والمراحل والمواد لجميع الأصناف
+      const { data: routingsData, error: rErr } = await supabase
+        .from('mfg_routings')
+        .select(`
+          id,
+          product_id,
+          name,
+          is_default,
+          mfg_routing_steps (
+            id,
+            step_order,
+            operation_name,
+            standard_time_minutes,
+            work_center_id,
+            mfg_work_centers (name),
+            mfg_step_materials (
+              id,
+              raw_material_id,
+              quantity_required
+            )
+          )
+        `)
+        .eq('organization_id', orgId);
+
+      if (rErr) throw rErr;
+
+      // 2. جلب جدول bill_of_materials لتغطية أي أصناف مضافة بقوائم مواد مباشرة
+      const { data: bomsData, error: bErr } = await supabase
+        .from('bill_of_materials')
+        .select('product_id, raw_material_id, quantity_required')
+        .eq('organization_id', orgId);
+
+      if (bErr) throw bErr;
+
+      exportMasterBOMToExcel({
+        organizationName: organization?.name,
+        allProducts: allProducts as any[],
+        productOptions,
+        routingsData: routingsData || [],
+        bomsData: bomsData || []
+      });
+
+      showToast('تم تصدير الشيت الشامل لكافة الوصفات والمقادير إلى Excel بنجاح ✅', 'success');
+    } catch (err: any) {
+      console.error(err);
+      showToast('فشل تصدير الشيت الشامل: ' + err.message, 'error');
+    } finally {
+      setExportingMaster(false);
+    }
+  };
+
   // --- Work Center Modal Component ---
   const WorkCenterModal = ({ isOpen, onClose, wc, onSave }: { isOpen: boolean; onClose: () => void; wc: WorkCenter | null; onSave: (wc: WorkCenter) => void }) => {
     const [name, setName] = useState(wc?.name || '');
@@ -754,15 +856,36 @@ const RoutingBOMManager = () => {
             </h1>
             <p className="text-gray-500 text-sm">تحديد مراحل الإنتاج والمواد الخام لكل منتج مصنع</p>
           </div>
-          <button
-            onClick={() => {
-              setEditingWorkCenter(null);
-              setIsWorkCenterModalOpen(true);
-            }}
-            className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-emerald-700 flex items-center gap-2"
-          >
-            <Plus size={18} /> إضافة مركز عمل
-          </button>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setIsImportModalOpen(true)}
+              className="bg-indigo-600 hover:bg-indigo-700 text-white px-3.5 py-2 rounded-lg font-bold flex items-center gap-2 shadow-sm transition-all text-sm"
+              title="استيراد وتحديث المقادير من شيت Excel بعد مراجعتها واعتمادها"
+            >
+              <Upload size={17} />
+              <span>استيراد وتحديث المقادير (Excel)</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleExportMaster}
+              disabled={exportingMaster || productOptions.length === 0}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-lg font-bold disabled:opacity-50 flex items-center gap-2 shadow-sm transition-all text-sm"
+              title="تصدير شيت إكسيل شامل يحتوي على كافة المنتجات التامة والوسيطة ومقاديرها لمراجعتها مع مسؤول التصنيع"
+            >
+              {exportingMaster ? <Loader2 className="animate-spin" size={17} /> : <FileSpreadsheet size={17} />}
+              <span>تصدير الشيت الشامل لكافة الوصفات (Excel)</span>
+            </button>
+            <button
+              onClick={() => {
+                setEditingWorkCenter(null);
+                setIsWorkCenterModalOpen(true);
+              }}
+              className="bg-blue-600 text-white px-3.5 py-2 rounded-lg font-bold hover:bg-blue-700 flex items-center gap-2 shadow-sm transition-all text-sm"
+            >
+              <Plus size={17} /> إضافة مركز عمل
+            </button>
+          </div>
         </div>
 
         {/* Work Centers List */}
@@ -877,21 +1000,33 @@ const RoutingBOMManager = () => {
 
         {selectedProductId && (
           <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-            <div className="flex justify-between items-center mb-4">
+            <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
               <h2 className="font-bold text-lg text-gray-800 flex items-center gap-2">
-                <Layers size={20} className="text-purple-600" /> مسار الإنتاج لـ{' '}
+                <Layers size={20} className="text-purple-600" /> مسار الإنتاج وقائمة المواد لـ{' '}
                 {productOptions.find(p => p.id === selectedProductId)?.name}
               </h2>
-              {!currentRouting && (
+              <div className="flex items-center gap-2">
                 <button
-                  onClick={handleCreateRouting}
-                  disabled={saving}
-                  className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                  type="button"
+                  onClick={handleExportSingle}
+                  disabled={exportingSingle}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-1.5 rounded-lg text-sm font-bold disabled:opacity-50 flex items-center gap-1.5 shadow-sm transition-all"
+                  title="تصدير بطاقة مراجعة معتمدة ومفصلة لهذا الصنف (تام أو وسيط) لمراجعتها وتوقيعها مع مسؤول التصنيع"
                 >
-                  {saving ? <Loader2 className="animate-spin" /> : <Plus size={18} />}
-                  إنشاء مسار جديد
+                  {exportingSingle ? <Loader2 className="animate-spin" size={16} /> : <FileSpreadsheet size={16} />}
+                  <span>تصدير مقادير هذا الصنف (Excel)</span>
                 </button>
-              )}
+                {!currentRouting && (
+                  <button
+                    onClick={handleCreateRouting}
+                    disabled={saving}
+                    className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {saving ? <Loader2 className="animate-spin" /> : <Plus size={18} />}
+                    إنشاء مسار جديد
+                  </button>
+                )}
+              </div>
             </div>
 
             {loading ? (
@@ -1106,6 +1241,18 @@ const RoutingBOMManager = () => {
         onClose={() => setIsWorkCenterModalOpen(false)}
         wc={editingWorkCenter}
         onSave={handleSaveWorkCenter}
+      />
+
+      <BOMImportModal
+        isOpen={isImportModalOpen}
+        onClose={() => setIsImportModalOpen(false)}
+        orgId={orgId || ''}
+        allProducts={allProducts as any[]}
+        onSuccess={() => {
+          if (selectedProductId) {
+            fetchRoutingData(selectedProductId);
+          }
+        }}
       />
     </div>
   );
