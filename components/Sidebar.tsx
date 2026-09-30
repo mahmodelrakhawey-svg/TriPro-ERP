@@ -98,11 +98,23 @@ import {
 
 
  
-const Sidebar: React.FC = () => {
+export interface SidebarProps {
+  isMobileOpen?: boolean;
+  onCloseMobile?: () => void;
+}
+
+const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }) => {
   const { organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, can } = useAccounting();
   const location = useLocation();
   const [openSection, setOpenSection] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  // 📱 إغلاق الشريط الجانبي في شاشات الموبايل تلقائياً عند النقر على أي رابط والتنقل
+  React.useEffect(() => {
+    if (onCloseMobile) {
+      onCloseMobile();
+    }
+  }, [location.pathname]);
 
   const userRole = currentUser?.role;
   const isSuperAdmin = userRole === 'super_admin' || userRole === 'owner';
@@ -609,22 +621,52 @@ const Sidebar: React.FC = () => {
   };
 
   return (
-    <div className="w-64 bg-[#0b132b] text-slate-200 flex flex-col p-4 h-screen shadow-2xl sticky top-0 overflow-y-auto custom-scrollbar shrink-0 border-l border-white/5" dir="rtl">
-      {/* 🌟 هوية وشعار TriPro ERP المحدثة */}
-      <div className="flex items-center gap-3 mb-4 px-2 shrink-0">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 via-indigo-600 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/30 ring-1 ring-white/20 shrink-0">
-          <Layers className="text-white w-5 h-5" />
-        </div>
-        <div className="flex flex-col">
-          <div className="flex items-center gap-1.5">
-            <span className="text-lg font-black text-white tracking-tight">TriPro</span>
-            <span className="text-lg font-black bg-gradient-to-r from-blue-400 to-sky-300 bg-clip-text text-transparent">ERP</span>
+    <>
+      {/* 📱 الغطاء المعتم الخلفي للأجهزة اللوحية والمحمول (Mobile Backdrop Overlay) */}
+      {isMobileOpen && (
+        <div 
+          className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-40 lg:hidden transition-opacity duration-300 animate-in fade-in"
+          onClick={onCloseMobile}
+          aria-hidden="true"
+        />
+      )}
+
+      {/* 🧭 القائمة الجانبية (ثابتة في سطح المكتب lg ومتحركة كدرج انزلاقي في الموبايل) */}
+      <aside 
+        className={`
+          fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-[#0b132b] text-slate-200 flex flex-col p-4 h-full shadow-2xl overflow-y-auto custom-scrollbar border-l border-white/5 transition-transform duration-300 ease-in-out
+          lg:static lg:w-64 lg:h-screen lg:sticky lg:top-0 lg:translate-x-0 lg:z-auto
+          ${isMobileOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}
+        `} 
+        dir="rtl"
+      >
+        {/* 🌟 هوية وشعار TriPro ERP المحدثة مع زر إغلاق للموبايل */}
+        <div className="flex items-center justify-between mb-4 px-2 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500 via-indigo-600 to-blue-700 flex items-center justify-center shadow-lg shadow-blue-500/30 ring-1 ring-white/20 shrink-0">
+              <Layers className="text-white w-5 h-5" />
+            </div>
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1.5">
+                <span className="text-lg font-black text-white tracking-tight">TriPro</span>
+                <span className="text-lg font-black bg-gradient-to-r from-blue-400 to-sky-300 bg-clip-text text-transparent">ERP</span>
+              </div>
+              <span className="text-[9px] font-black uppercase tracking-widest text-sky-400/80">
+                ENTERPRISE • v7.0
+              </span>
+            </div>
           </div>
-          <span className="text-[9px] font-black uppercase tracking-widest text-sky-400/80">
-            ENTERPRISE • v7.0
-          </span>
+
+          {/* ❌ زر إغلاق القائمة في الموبايل والتابلت */}
+          <button
+            type="button"
+            onClick={onCloseMobile}
+            className="lg:hidden p-2 text-slate-400 hover:text-white rounded-xl hover:bg-white/10 transition-colors"
+            title="إغلاق القائمة الجانبية"
+          >
+            <X size={20} />
+          </button>
         </div>
-      </div>
 
       {/* 🔍 حقل البحث السريع في الشاشات والقوائم */}
       <div className="relative mb-3 px-1 shrink-0">
@@ -765,7 +807,8 @@ const Sidebar: React.FC = () => {
           </div>
         </div>
       </div>
-    </div>
+    </aside>
+    </>
   );
 };
 

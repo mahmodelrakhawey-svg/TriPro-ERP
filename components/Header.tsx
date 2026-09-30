@@ -3,14 +3,18 @@ import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
 import { secureStorage } from '../utils/securityMiddleware';
-import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2, ArrowLeftCircle, Calendar, Layers, Smartphone } from 'lucide-react';
+import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2, ArrowLeftCircle, Calendar, Layers, Smartphone, Menu } from 'lucide-react';
 import { supabase } from '../supabaseClient';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../utils/useNotifications';
 
 import { getRouteTitle } from '../utils/routeTitles';
 
-const Header = () => {
+export interface HeaderProps {
+  onToggleMobileSidebar?: () => void;
+}
+
+const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
     const location = useLocation();
     const { lastUpdated, refreshData, clearCache, settings, isLoading, selectedFiscalYear, setSelectedFiscalYear } = useAccounting();
     const { can } = useAuth();
@@ -184,14 +188,24 @@ const Header = () => {
 
     return (
         <header className="bg-white/95 backdrop-blur-md px-6 py-3 border-b border-slate-200/80 flex justify-between items-center sticky top-0 z-40 print:hidden shadow-xs">
-            {/* Page Title */}
+            {/* Page Title & Mobile Menu Toggle */}
             <div className="flex items-center gap-3">
-                {settings?.logoUrl ? (
-                    <img src={settings.logoUrl} alt="Logo" className="w-9 h-9 object-contain rounded-lg" />
-                ) : (
-                    <img src="/logo.jpg" alt="Logo" className="w-9 h-9 object-contain rounded-lg" />
+                {onToggleMobileSidebar && (
+                    <button
+                        type="button"
+                        onClick={onToggleMobileSidebar}
+                        className="p-2 -mr-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl lg:hidden focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                        title="فتح القائمة الجانبية"
+                    >
+                        <Menu size={22} />
+                    </button>
                 )}
-                <h1 className="text-lg font-black text-slate-800 tracking-tight">{pageTitle}</h1>
+                {settings?.logoUrl ? (
+                    <img src={settings.logoUrl} alt="Logo" className="w-9 h-9 object-contain rounded-lg shrink-0" />
+                ) : (
+                    <img src="/logo.jpg" alt="Logo" className="w-9 h-9 object-contain rounded-lg shrink-0" />
+                )}
+                <h1 className="text-base sm:text-lg font-black text-slate-800 tracking-tight truncate max-w-[180px] sm:max-w-none">{pageTitle}</h1>
             </div>
 
             {/* Actions */}

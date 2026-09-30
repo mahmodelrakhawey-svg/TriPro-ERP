@@ -399,6 +399,7 @@ const MainLayout = () => {
     const { currentUser } = useAccounting();
     const { can } = useAuth();
     const location = useLocation();
+    const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
     useEffect(() => {
         // بدء جدول الإخطارات الذكية
@@ -458,8 +459,11 @@ const MainLayout = () => {
 
     return (
         <div className="flex min-h-screen bg-slate-50 font-sans text-right print:block print:h-auto" dir="rtl">
-            <Sidebar />
-            <div className="flex-1 flex flex-col h-screen print:h-auto print:block print:overflow-visible">
+            <Sidebar 
+                isMobileOpen={isMobileSidebarOpen}
+                onCloseMobile={() => setIsMobileSidebarOpen(false)}
+            />
+            <div className="flex-1 flex flex-col min-w-0 h-screen print:h-auto print:block print:overflow-visible">
                 <DevEnvironmentBanner />
                 <DemoBanner />
                 <DemoWelcomeModal />
@@ -468,11 +472,11 @@ const MainLayout = () => {
                 <OfflineSyncProvider />
                 <PrintHeader />
                 <div className="print:hidden">
-                    <Header />
+                    <Header onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)} />
                     <WorkspaceTabsBar />
                 </div>
                 {/* إضافة هوامش للطباعة لتجنب تداخل المحتوى مع الترويسة والتذييل */}
-                <main className="flex-1 p-8 overflow-y-scroll bg-slate-50 print:bg-white print:p-0 print:overflow-visible print:h-auto print:mt-24 print:mb-12">
+                <main className="flex-1 p-3 sm:p-5 lg:p-8 overflow-y-scroll bg-slate-50 print:bg-white print:p-0 print:overflow-visible print:h-auto print:mt-24 print:mb-12">
                     <div className="max-w-7xl mx-auto print:max-w-none print:w-full print:px-4">
                         <ErrorBoundary fallbackTitle="حدث خطأ غير متوقع أثناء تحميل الصفحة">
                         <Suspense fallback={<LazyLoadingFallback />}>
