@@ -4,7 +4,7 @@ import { supabase } from '../../../supabaseClient';
 export interface ExportSingleBOMParams {
   product: any;
   isIntermediate: boolean;
-  routing: any | null;
+  routing: Record<string, any> | null;
   routingSteps: any[];
   allProducts: any[];
   organizationName?: string;
@@ -39,7 +39,7 @@ function calculateColumnWidths(dataRows: any[][]): Array<{ wch: number }> {
 /**
  * تحديد مسمى وتصنيف المكون (خام، وسيط، تعبئة، صنف مخزني)
  */
-function getMaterialBadge(prod: any): string {
+function getMaterialBadge(prod: Record<string, any>): string {
   if (!prod) return '📦 صنف مخزني';
   const pType = String(prod.product_type || prod.item_type || '').toUpperCase();
   const mType = String(prod.mfg_type || '').toLowerCase();
@@ -139,7 +139,7 @@ export function exportSingleProductBOMToExcel({
       const materials = step.materials || [];
 
       if (materials.length > 0) {
-        materials.forEach((mat: any) => {
+        materials.forEach((mat: Record<string, any>) => {
           hasItems = true;
           const rawProd = allProducts.find(p => p.id === mat.raw_material_id) || mat.products;
           const unitCost = Number(rawProd?.cost || rawProd?.purchase_price || 0);
@@ -190,7 +190,7 @@ export function exportSingleProductBOMToExcel({
     });
   } else if (fallbackBOM && fallbackBOM.length > 0) {
     // في حال عدم وجود مسارات تفصيلية ولكن توجد قائمة مواد مباشرة في bill_of_materials
-    fallbackBOM.forEach((mat: any) => {
+    fallbackBOM.forEach((mat: Record<string, any>) => {
       hasItems = true;
       const rawProd = allProducts.find(p => p.id === mat.raw_material_id) || mat.raw_material;
       const unitCost = Number(rawProd?.cost || rawProd?.purchase_price || 0);
@@ -404,10 +404,10 @@ export function exportMasterBOMToExcel({
     if (routing && routing.mfg_routing_steps && routing.mfg_routing_steps.length > 0) {
       stepCount = routing.mfg_routing_steps.length;
 
-      routing.mfg_routing_steps.forEach((step: any) => {
+      routing.mfg_routing_steps.forEach((step: Record<string, any>) => {
         const materials = step.mfg_step_materials || [];
         if (materials.length > 0) {
-          materials.forEach((mat: any) => {
+          materials.forEach((mat: Record<string, any>) => {
             materialCount++;
             const rawProd = allProducts.find(p => p.id === mat.raw_material_id) || mat.products;
             const unitCost = Number(rawProd?.cost || rawProd?.purchase_price || 0);
@@ -444,7 +444,7 @@ export function exportMasterBOMToExcel({
     } else if (directBOM.length > 0) {
       // توجد مواد مباشرة في bill_of_materials
       stepCount = 1;
-      directBOM.forEach((mat: any) => {
+      directBOM.forEach((mat: Record<string, any>) => {
         materialCount++;
         const rawProd = allProducts.find(p => p.id === mat.raw_material_id);
         const unitCost = Number(rawProd?.cost || rawProd?.purchase_price || 0);
@@ -640,15 +640,15 @@ export async function parseBOMExcelFile(
   });
 
   // فحص ما إذا كان الشيت مخصصاً لصنف واحد (مثل بطاقة الصنف المصدرة)
-  let sheetDefaultProduct: any = null;
+  let sheetDefaultProduct: Record<string, any> | null = null;
   for (let r = 0; r < Math.min(rawAoa.length, 5); r++) {
     const row = rawAoa[r] || [];
-    const nameLabelIdx = row.findIndex((cell: any) => String(cell || '').trim() === 'اسم الصنف:');
+    const nameLabelIdx = row.findIndex((cell: unknown) => String(cell || '').trim() === 'اسم الصنف:');
     if (nameLabelIdx !== -1 && row[nameLabelIdx + 1]) {
       const pName = String(row[nameLabelIdx + 1]).trim();
       sheetDefaultProduct = productByName.get(pName.toLowerCase());
       if (!sheetDefaultProduct) {
-        const skuLabelIdx = row.findIndex((cell: any) => String(cell || '').includes('كود الصنف'));
+        const skuLabelIdx = row.findIndex((cell: unknown) => String(cell || '').includes('كود الصنف'));
         if (skuLabelIdx !== -1 && row[skuLabelIdx + 1]) {
           const pSku = String(row[skuLabelIdx + 1]).trim().toLowerCase();
           sheetDefaultProduct = productBySku.get(pSku);
@@ -661,7 +661,7 @@ export async function parseBOMExcelFile(
   // البحث عن سطر الترويسة الذي يحتوي على مسميات الأعمدة
   let headerRowIdx = -1;
   for (let r = 0; r < Math.min(rawAoa.length, 10); r++) {
-    const row = (rawAoa[r] || []).map((c: any) => String(c || '').trim().toLowerCase());
+    const row = (rawAoa[r] || []).map((c: unknown) => String(c || '').trim().toLowerCase());
     if (row.some(c => c.includes('مكون') || c.includes('مادة خام') || c.includes('خامات') || c.includes('المكونات'))) {
       headerRowIdx = r;
       break;
@@ -672,7 +672,7 @@ export async function parseBOMExcelFile(
     headerRowIdx = 0;
   }
 
-  const headerRow = (rawAoa[headerRowIdx] || []).map((c: any) => String(c || '').trim().toLowerCase());
+  const headerRow = (rawAoa[headerRowIdx] || []).map((c: unknown) => String(c || '').trim().toLowerCase());
 
   const findCol = (terms: string[]) => {
     return headerRow.findIndex(h => terms.some(term => h.includes(term.toLowerCase())));
@@ -699,7 +699,7 @@ export async function parseBOMExcelFile(
 
   for (let r = headerRowIdx + 1; r < rawAoa.length; r++) {
     const row = rawAoa[r] || [];
-    if (!row || row.length === 0 || row.every((c: any) => c === null || c === undefined || c === '')) {
+    if (!row || row.length === 0 || row.every((c: unknown) => c === null || c === undefined || c === '')) {
       continue;
     }
 
@@ -712,7 +712,7 @@ export async function parseBOMExcelFile(
     let pSku = prodSkuCol !== -1 ? String(row[prodSkuCol] || '').trim() : '';
     let pName = prodNameCol !== -1 ? String(row[prodNameCol] || '').trim() : '';
 
-    let matchedProduct: any = sheetDefaultProduct;
+    let matchedProduct: Record<string, any> | null = sheetDefaultProduct;
     if (pSku && pSku !== '-') {
       matchedProduct = productBySku.get(pSku.toLowerCase()) || matchedProduct;
     }
@@ -731,7 +731,7 @@ export async function parseBOMExcelFile(
       continue;
     }
 
-    let matchedMaterial: any = null;
+    let matchedMaterial: Record<string, any> | null = null;
     if (mSku && mSku !== '-') {
       matchedMaterial = productBySku.get(mSku.toLowerCase());
     }
@@ -936,8 +936,8 @@ export async function applyBOMImportUpdates(
       .eq('routing_id', routing.id);
 
     const aggregated = new Map<string, number>();
-    (allStepsWithMaterials || []).forEach((st: any) => {
-      (st.mfg_step_materials || []).forEach((sm: any) => {
+    (allStepsWithMaterials || []).forEach((st: Record<string, any>) => {
+      (st.mfg_step_materials || []).forEach((sm: Record<string, any>) => {
         const prev = aggregated.get(sm.raw_material_id) || 0;
         aggregated.set(sm.raw_material_id, prev + Number(sm.quantity_required || 0));
       });

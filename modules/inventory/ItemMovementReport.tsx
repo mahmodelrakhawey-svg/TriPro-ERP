@@ -250,7 +250,7 @@ const ItemMovementReport = () => {
       const { data: mfgActuals } = await mfgActualQuery;
       
       const ordersWithActualUsage = new Set<string>();
-      mfgActuals?.forEach((item: any) => {
+      mfgActuals?.forEach((item: Record<string, any>) => {
         const po = item.mfg_order_progress?.mfg_production_orders;
         if (po) ordersWithActualUsage.add(po.id);
       });
@@ -359,7 +359,7 @@ const ItemMovementReport = () => {
       let allMovements: any[] = [];
       const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';
 
-      openingInventory?.forEach((item: any) => {
+      openingInventory?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
               type: 'in',
@@ -372,7 +372,7 @@ const ItemMovementReport = () => {
           });
       });
 
-      salesItems?.forEach((item: any) => {
+      salesItems?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.invoices.invoice_date,
               type: 'out',
@@ -384,7 +384,7 @@ const ItemMovementReport = () => {
           });
       });
 
-      purchaseItems?.forEach((item: any) => {
+      purchaseItems?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.purchase_invoices.invoice_date,
               type: 'in',
@@ -396,7 +396,7 @@ const ItemMovementReport = () => {
           });
       });
 
-      lcReceipts?.forEach((item: any) => {
+      lcReceipts?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.receipt_date || (item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
               type: 'in',
@@ -409,7 +409,7 @@ const ItemMovementReport = () => {
           });
       });
 
-      salesReturns?.forEach((item: any) => {
+      salesReturns?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.sales_returns.return_date,
               type: 'in',
@@ -421,7 +421,7 @@ const ItemMovementReport = () => {
           });
       });
 
-      purchaseReturns?.forEach((item: any) => {
+      purchaseReturns?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.purchase_returns.return_date,
               type: 'out',
@@ -433,7 +433,7 @@ const ItemMovementReport = () => {
           });
       });
 
-      adjustments?.forEach((item: any) => {
+      adjustments?.forEach((item: Record<string, any>) => {
           const qty = Number(item.quantity);
           allMovements.push({
               date: item.stock_adjustments.adjustment_date,
@@ -447,7 +447,7 @@ const ItemMovementReport = () => {
       });
 
       // إضافة حركات المطعم
-      restaurantDirectSales?.forEach((item: any) => {
+      restaurantDirectSales?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.orders.created_at,
               type: 'out',
@@ -459,7 +459,7 @@ const ItemMovementReport = () => {
           });
       });
 
-      restaurantConsumption?.forEach((po: any) => {
+      restaurantConsumption?.forEach((po: Record<string, any>) => {
           const bom = restaurantBoms?.find(b => b.product_id === po.product_id);
           if (bom) {
               allMovements.push({
@@ -475,7 +475,7 @@ const ItemMovementReport = () => {
           }
       });
 
-      himsItems?.forEach((item: any) => {
+      himsItems?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.hims_billing?.created_at ? item.hims_billing.created_at.split('T')[0] : '',
               type: 'out',
@@ -488,7 +488,7 @@ const ItemMovementReport = () => {
           });
       });
 
-      constructionIssues?.forEach((item: any) => {
+      constructionIssues?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.project_material_issues?.issue_date,
               type: 'out',
@@ -502,7 +502,7 @@ const ItemMovementReport = () => {
       });
 
       // معالجة التحويلات المخزنية
-      transfers?.forEach((item: any) => {
+      transfers?.forEach((item: Record<string, any>) => {
           const t = item.stock_transfers;
           // إذا تم اختيار مستودع محدد
           if (selectedWarehouseId) {
@@ -548,7 +548,7 @@ const ItemMovementReport = () => {
 
       // معالجة التصنيع
       // 1. المنتج التام (زيادة)
-      mfgFinished?.forEach((wo: any) => {
+      mfgFinished?.forEach((wo: Record<string, any>) => {
           allMovements.push({
               date: wo.end_date || wo.created_at?.split('T')[0],
               type: 'in',
@@ -562,7 +562,7 @@ const ItemMovementReport = () => {
       });
 
       // 2. المواد الخام المستهلكة فعلياً (نقصان)
-      mfgActuals?.forEach((item: any) => {
+      mfgActuals?.forEach((item: Record<string, any>) => {
           const po = item.mfg_order_progress?.mfg_production_orders;
           if (!po) return;
           allMovements.push({
@@ -578,7 +578,7 @@ const ItemMovementReport = () => {
       });
 
       // 3. صرف خامات بطلبات صرف (نقصان)
-      mfgRaws?.forEach((item: any) => {
+      mfgRaws?.forEach((item: Record<string, any>) => {
           const po = item.mfg_material_requests?.mfg_production_orders;
           const poId = item.mfg_material_requests?.production_order_id;
           if (poId && ordersWithActualUsage.has(poId)) {
@@ -597,7 +597,7 @@ const ItemMovementReport = () => {
       });
 
       // 4. الهالك الصناعي (نقصان)
-      mfgScraps?.forEach((item: any) => {
+      mfgScraps?.forEach((item: Record<string, any>) => {
           const po = item.mfg_order_progress?.mfg_production_orders;
           allMovements.push({
               date: item.created_at?.split('T')[0],
@@ -620,7 +620,7 @@ const ItemMovementReport = () => {
           if (a.documentType === 'رصيد افتتاحي') return -1;
           if (b.documentType === 'رصيد افتتاحي') return 1;
           
-          const typeOrder: any = { 'رصيد افتتاحي': 0, 'فاتورة مشتريات': 1, 'مرتجع مبيعات': 2, 'تصنيع (منتج تام)': 3, 'تسوية مخزنية': 4, 'فاتورة مبيعات': 5, 'مرتجع مشتريات': 6 };
+          const typeOrder: Record<string, number> =  { 'رصيد افتتاحي': 0, 'فاتورة مشتريات': 1, 'مرتجع مبيعات': 2, 'تصنيع (منتج تام)': 3, 'تسوية مخزنية': 4, 'فاتورة مبيعات': 5, 'مرتجع مشتريات': 6 };
           return (typeOrder[a.documentType] ?? 99) - (typeOrder[b.documentType] ?? 99);
       });
 
@@ -825,7 +825,7 @@ const ItemMovementReport = () => {
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
                         <Tooltip 
                             contentStyle={{borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)'}}
-                            formatter={(value: any) => [`${Number(value || 0).toLocaleString()} ${selectedProduct?.unit || ''}`, 'الرصيد']}
+                            formatter={(value: unknown) => [`${Number(value || 0).toLocaleString()} ${selectedProduct?.unit || ''}`, 'الرصيد']}
                             labelFormatter={(label) => `التاريخ: ${label}`}
                         />
                         <Area type="monotone" dataKey="balanceAfter" stroke="#3b82f6" fillOpacity={1} fill="url(#colorBalance)" />

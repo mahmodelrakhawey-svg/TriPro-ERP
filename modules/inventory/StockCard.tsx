@@ -204,7 +204,7 @@ const StockCard = () => {
         .select('product_id, quantity_required')
         .eq('raw_material_id', selectedProductId);
       
-      let queryRestConsumption: any = null;
+      let queryRestConsumption: Record<string, any> | null = null;
       if (boms && boms.length > 0) {
           const parentIds = boms.map(b => b.product_id);
           queryRestConsumption = supabase.from('order_items')
@@ -277,7 +277,7 @@ const StockCard = () => {
       const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';
 
       // معالجة الرصيد الافتتاحي
-      opening.data?.forEach((item: any) => {
+      opening.data?.forEach((item: Record<string, any>) => {
         allTxns.push({
           id: `OPEN-${item.id}`,
           date: item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
@@ -293,7 +293,7 @@ const StockCard = () => {
       });
 
       // معالجة المبيعات (صادر)
-      sales.data?.forEach((item: any) => {
+      sales.data?.forEach((item: Record<string, any>) => {
         allTxns.push({
           id: `SALE-${item.invoices.id}`,
           date: item.invoices.invoice_date,
@@ -309,7 +309,7 @@ const StockCard = () => {
       });
 
       // معالجة المشتريات (وارد)
-      purchases.data?.forEach((item: any) => {
+      purchases.data?.forEach((item: Record<string, any>) => {
         allTxns.push({
           id: `PUR-${item.purchase_invoices.id}`,
           date: item.purchase_invoices.invoice_date,
@@ -325,7 +325,7 @@ const StockCard = () => {
       });
 
       // معالجة استلام بضائع الاعتمادات المستندية (وارد)
-      lcReceipts.data?.forEach((item: any) => {
+      lcReceipts.data?.forEach((item: Record<string, any>) => {
         allTxns.push({
           id: `LC-${item.id}`,
           date: item.receipt_date || (item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
@@ -341,7 +341,7 @@ const StockCard = () => {
       });
 
       // معالجة التصنيع - منتج تام وارد
-      mfgFin.data?.forEach((item: any) => {
+      mfgFin.data?.forEach((item: Record<string, any>) => {
         if (selectedWarehouseId && item.warehouse_id !== selectedWarehouseId) {
           return;
         }
@@ -360,7 +360,7 @@ const StockCard = () => {
 
       // معالجة التصنيع - خامات مستهلكة فعلياً (الاستهلاك المباشر بالمرحلة)
       const ordersWithActualUsage = new Set<string>();
-      mfgActual.data?.forEach((item: any) => {
+      mfgActual.data?.forEach((item: Record<string, any>) => {
         const po = item.mfg_order_progress?.mfg_production_orders;
         if (!po) return;
 
@@ -386,7 +386,7 @@ const StockCard = () => {
       });
 
       // معالجة التصنيع - خامات منصرفة بطلب صرف (فقط في حال عدم وجود استهلاك فعلي لنفس الأمر)
-      mfgRaw.data?.forEach((item: any) => {
+      mfgRaw.data?.forEach((item: Record<string, any>) => {
         const po = item.mfg_material_requests?.mfg_production_orders;
         const warehouseId = po?.warehouse_id;
 
@@ -415,7 +415,7 @@ const StockCard = () => {
       });
 
       // معالجة التصنيع - الهالك (صادر)
-      mfgScrap.data?.forEach((item: any) => {
+      mfgScrap.data?.forEach((item: Record<string, any>) => {
         const po = item.mfg_order_progress?.mfg_production_orders;
         const warehouseId = po?.warehouse_id;
 
@@ -438,7 +438,7 @@ const StockCard = () => {
       });
 
       // معالجة مرتجعات المبيعات (وارد)
-      sReturns.data?.forEach((item: any) => {
+      sReturns.data?.forEach((item: Record<string, any>) => {
         allTxns.push({
           id: `SR-${item.sales_returns.id}`,
           date: item.sales_returns.return_date,
@@ -454,7 +454,7 @@ const StockCard = () => {
       });
 
       // معالجة مرتجعات المشتريات (صادر)
-      pReturns.data?.forEach((item: any) => {
+      pReturns.data?.forEach((item: Record<string, any>) => {
         allTxns.push({
           id: `PR-${item.purchase_returns.id}`,
           date: item.purchase_returns.return_date,
@@ -470,7 +470,7 @@ const StockCard = () => {
       });
 
       // معالجة التسويات المخزنية (وارد أو صادر حسب الإشارة)
-      adjustments.data?.forEach((item: any) => {
+      adjustments.data?.forEach((item: Record<string, any>) => {
         allTxns.push({
           id: `ADJ-${item.stock_adjustments.id}`,
           date: item.stock_adjustments.adjustment_date,
@@ -487,7 +487,7 @@ const StockCard = () => {
 
       // معالجة التحويلات المخزنية (تظهر فقط عند اختيار مستودع محدد)
       if (transfers.data) {
-        transfers.data.forEach((item: any) => {
+        transfers.data.forEach((item: Record<string, any>) => {
             const t = item.stock_transfers;
             
             // إذا تم اختيار مستودع محدد، نعرض الحركات الخاصة به فقط
@@ -541,7 +541,7 @@ const StockCard = () => {
       }
 
       // معالجة مبيعات المطعم المباشرة
-      restDirect.data?.forEach((item: any) => {
+      restDirect.data?.forEach((item: Record<string, any>) => {
           allTxns.push({
               id: `REST-SALE-${item.id}`,
               date: item.orders.created_at,
@@ -557,7 +557,7 @@ const StockCard = () => {
       });
 
       // معالجة استهلاك المواد الخام في المطعم
-      restConsumption.data?.forEach((item: any) => {
+      restConsumption.data?.forEach((item: Record<string, any>) => {
           const bom = boms?.find(b => b.product_id === item.product_id);
           if (bom) {
               const consumedQty = item.quantity * bom.quantity_required;
@@ -577,7 +577,7 @@ const StockCard = () => {
       });
 
       // معالجة حركات المستشفى (صادر)
-      hims.data?.forEach((item: any) => {
+      hims.data?.forEach((item: Record<string, any>) => {
         allTxns.push({
           id: `HIMS-${item.id}`,
           date: item.hims_billing?.created_at ? item.hims_billing.created_at.split('T')[0] : '',
@@ -593,7 +593,7 @@ const StockCard = () => {
       });
 
       // معالجة صرف مواد مشاريع المقاولات (صادر)
-      construction.data?.forEach((item: any) => {
+      construction.data?.forEach((item: Record<string, any>) => {
         const issue = item.project_material_issues;
         allTxns.push({
           id: `MAT-${issue?.id || item.id}`,
@@ -866,7 +866,7 @@ const StockCard = () => {
               
           if (error) throw error;
           
-          const priceLogs = data?.filter((log: any) => {
+          const priceLogs = data?.filter((log: Record<string, any>) => {
               const changes = log.metadata?.changes;
               return changes && (changes.sales_price || changes.purchase_price || changes.price || changes.cost);
           }) || [];
@@ -1506,7 +1506,7 @@ const StockCard = () => {
                                 </tr>
                             </thead>
                             <tbody className="divide-y">
-                                {priceHistory.map((log: any) => (
+                                {priceHistory.map((log: Record<string, any>) => (
                                     <tr key={log.id}>
                                         <td className="p-3 text-slate-500" dir="ltr">{new Date(log.created_at).toLocaleString('ar-EG')}</td>
                                         <td className="p-3 font-bold">{users.find(u => u.id === log.performed_by)?.name || 'مستخدم'}</td>

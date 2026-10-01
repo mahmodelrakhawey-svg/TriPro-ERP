@@ -45,12 +45,12 @@ const OfferBeneficiariesReport = () => {
       ]);
 
       const productMap: Record<string, any> = {};
-      (prodRes.data || products || []).forEach((p: any) => {
+      (prodRes.data || products || []).forEach((p: Record<string, any>) => {
         productMap[p.id] = p;
       });
 
       const customerMap: Record<string, any> = {};
-      (custRes.data || customers || []).forEach((c: any) => {
+      (custRes.data || customers || []).forEach((c: Record<string, any>) => {
         customerMap[c.id] = c;
       });
 
@@ -85,7 +85,7 @@ const OfferBeneficiariesReport = () => {
       const allRecords: any[] = [];
 
       if (!invErr && invData) {
-        invData.forEach((inv: any) => {
+        invData.forEach((inv: Record<string, any>) => {
           const cust = customerMap[inv.customer_id];
           allRecords.push({
             id: inv.id,
@@ -95,7 +95,7 @@ const OfferBeneficiariesReport = () => {
             customerName: cust?.name || 'عميل نقدي',
             customerPhone: cust?.phone,
             discountAmount: Number(inv.discount_amount || 0),
-            items: (inv.invoice_items || []).map((i: any) => {
+            items: (inv.invoice_items || []).map((i: Record<string, any>) => {
               const prod = productMap[i.product_id];
               const originalPrice = Number(prod?.sales_price || prod?.price || i.unit_price || 0);
               const offerPrice = Number(prod?.offer_price || 0);
@@ -116,7 +116,7 @@ const OfferBeneficiariesReport = () => {
       }
 
       if (!ordErr && ordData) {
-        ordData.forEach((ord: any) => {
+        ordData.forEach((ord: Record<string, any>) => {
           const cust = customerMap[ord.customer_id];
           allRecords.push({
             id: ord.id,
@@ -164,7 +164,7 @@ const OfferBeneficiariesReport = () => {
     salesRecords.forEach(inv => {
       if (selectedCustomerId !== 'all' && inv.customerId !== selectedCustomerId) return;
 
-      inv.items?.forEach((item: any) => {
+      inv.items?.forEach((item: Record<string, any>) => {
         const originalPrice = item.originalPrice > 0 ? item.originalPrice : item.soldPrice;
         const isOffer = (item.offerPrice > 0 && Math.abs(item.soldPrice - item.offerPrice) < 0.01) || 
                         (item.soldPrice < originalPrice);
@@ -227,7 +227,7 @@ const OfferBeneficiariesReport = () => {
       groups[key].savings += item.savings;
       groups[key].count += 1;
     });
-    return Object.values(groups).sort((a: any, b: any) => b.savings - a.savings);
+    return Object.values(groups).sort((a: Record<string, any>, b: Record<string, any>) => b.savings - a.savings);
   }, [reportData]);
 
   const salesMixData = useMemo(() => {
@@ -285,7 +285,7 @@ const OfferBeneficiariesReport = () => {
         'قيمة التوفير': item.savings
       }));
     } else {
-      dataToExport = groupedData.map((item: any) => ({
+      dataToExport = groupedData.map((item: Record<string, any>) => ({
         'العميل': item.customerName,
         'عدد العمليات': item.count,
         'إجمالي التوفير': item.savings
@@ -394,7 +394,7 @@ const OfferBeneficiariesReport = () => {
                               <Cell fill="#8b5cf6" />
                               <Cell fill="#cbd5e1" />
                           </Pie>
-                          <Tooltip formatter={(value: any) => Number(value || 0).toLocaleString()} />
+                          <Tooltip formatter={(value: unknown) => Number(value || 0).toLocaleString()} />
                           <Legend verticalAlign="bottom" height={36} iconSize={10}/>
                       </PieChart>
                   </ResponsiveContainer>
@@ -473,7 +473,7 @@ const OfferBeneficiariesReport = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {groupedData.map((item: any, idx: number) => (
+              {groupedData.map((item: Record<string, any>, idx: number) => (
                 <tr key={idx} className="hover:bg-slate-50">
                   <td className="p-4 font-bold text-slate-800">{item.customerName}</td>
                   <td className="p-4 text-center font-bold">{item.count}</td>

@@ -165,7 +165,7 @@ SubledgerRegistry.register({
         return [];
       }
 
-      return billingsRes.data.map((pb: any) => {
+      return billingsRes.data.map((pb: Record<string, any>) => {
         const proj = pb.project_id ? projectMap.get(pb.project_id) : null;
         const custId = proj?.customer_id;
         return {
@@ -203,7 +203,7 @@ SubledgerRegistry.register({
       contractsRes.data?.forEach(c => contractMap.set(c.id, c));
 
       if (billingsRes.error || !billingsRes.data) return [];
-      return billingsRes.data.map((sb: any) => {
+      return billingsRes.data.map((sb: Record<string, any>) => {
         const contract = sb.contract_id ? contractMap.get(sb.contract_id) : null;
         const sub = contract?.subcontractor_id ? subMap.get(contract.subcontractor_id) : null;
         const suppId = sub?.supplier_id;
@@ -269,7 +269,7 @@ SubledgerRegistry.register({
 
       const docs: SubledgerCustomerDoc[] = [];
 
-      billsRes.data?.forEach((b: any) => {
+      billsRes.data?.forEach((b: Record<string, any>) => {
         const custId = b.insurance_provider_id || (b.patient_id ? patientToCustomer.get(b.patient_id) : null);
         docs.push({
           docId: b.id,
@@ -282,7 +282,7 @@ SubledgerRegistry.register({
         });
       });
 
-      claimsRes.data?.forEach((c: any) => {
+      claimsRes.data?.forEach((c: Record<string, any>) => {
         docs.push({
           docId: c.id,
           journalEntryId: c.related_journal_entry_id,
@@ -337,7 +337,7 @@ SubledgerRegistry.register({
 
       const docs: SubledgerCustomerDoc[] = [];
 
-      subsRes.data?.forEach((s: any) => {
+      subsRes.data?.forEach((s: Record<string, any>) => {
         docs.push({
           docId: s.id,
           journalEntryId: s.journal_entry_id,
@@ -349,7 +349,7 @@ SubledgerRegistry.register({
         });
       });
 
-      rentalsRes.data?.forEach((r: any) => {
+      rentalsRes.data?.forEach((r: Record<string, any>) => {
         docs.push({
           docId: r.id,
           journalEntryId: r.journal_entry_id,
@@ -361,7 +361,7 @@ SubledgerRegistry.register({
         });
       });
 
-      bookingsRes.data?.forEach((b: any) => {
+      bookingsRes.data?.forEach((b: Record<string, any>) => {
         docs.push({
           docId: b.id,
           journalEntryId: b.journal_entry_id,
@@ -373,7 +373,7 @@ SubledgerRegistry.register({
         });
       });
 
-      programsRes.data?.forEach((p: any) => {
+      programsRes.data?.forEach((p: Record<string, any>) => {
         docs.push({
           docId: p.id,
           journalEntryId: p.journal_entry_id,
@@ -385,7 +385,7 @@ SubledgerRegistry.register({
         });
       });
 
-      tournamentsRes.data?.forEach((t: any) => {
+      tournamentsRes.data?.forEach((t: Record<string, any>) => {
         docs.push({
           docId: t.id,
           journalEntryId: t.journal_entry_id,
@@ -413,7 +413,7 @@ SubledgerRegistry.register({
 
       const docs: SubledgerSupplierDoc[] = [];
 
-      disbRes.data?.forEach((d: any) => {
+      disbRes.data?.forEach((d: Record<string, any>) => {
         docs.push({
           docId: d.id,
           journalEntryId: d.journal_entry_id,
@@ -425,7 +425,7 @@ SubledgerRegistry.register({
         });
       });
 
-      maintRes.data?.forEach((m: any) => {
+      maintRes.data?.forEach((m: Record<string, any>) => {
         docs.push({
           docId: m.id,
           journalEntryId: m.journal_entry_id,
@@ -437,7 +437,7 @@ SubledgerRegistry.register({
         });
       });
 
-      custodyRes.data?.forEach((c: any) => {
+      custodyRes.data?.forEach((c: Record<string, any>) => {
         docs.push({
           docId: c.id,
           journalEntryId: c.journal_entry_id,

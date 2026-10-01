@@ -278,13 +278,13 @@ const GeneralJournal: React.FC = () => {
               setMatchingEntryIds(Array.from(unbalancedIdsSet));
             } else {
               // مسار فحص البيانات المحلية كإجراء إضافي
-              const localUnbalanced = (contextEntries || []).filter((e: any) => {
+              const localUnbalanced = (contextEntries || []).filter((e: Record<string, any>) => {
                 const dr = (e.journal_lines || e.lines || []).reduce((s: number, l: any) => s + (Number(l.debit) || 0), 0);
                 const cr = (e.journal_lines || e.lines || []).reduce((s: number, l: any) => s + (Number(l.credit) || 0), 0);
                 return Math.abs(dr - cr) > 0.005;
               });
               if (localUnbalanced.length > 0) {
-                setMatchingEntryIds(localUnbalanced.map((e: any) => e.id));
+                setMatchingEntryIds(localUnbalanced.map((e: Record<string, any>) => e.id));
               } else {
                 setMatchingEntryIds([]);
               }
@@ -304,7 +304,7 @@ const GeneralJournal: React.FC = () => {
   }, [debouncedSearch, filterAccountId, filterAmount, filterStatus, accounts, currentUser, currentSelectedOrgId, contextEntries]);
 
   // إعداد استعلام البيانات مع الفلترة
-  const queryModifier = useCallback((query: any) => {
+  const queryModifier = useCallback((query: Record<string, any>) => {
     if (matchingEntryIds !== null) {
       if (matchingEntryIds.length > 0) {
         query = query.in('id', matchingEntryIds);
@@ -450,7 +450,7 @@ const GeneralJournal: React.FC = () => {
       ] as any[];
     }
 
-    return serverEntries.map((entry: any) => ({
+    return serverEntries.map((entry: Record<string, any>) => ({
       id: entry.id,
       date: entry.transaction_date || entry.created_at?.split('T')[0],
       description: entry.description,
@@ -461,33 +461,33 @@ const GeneralJournal: React.FC = () => {
       createdAt: entry.created_at,
       userId: entry.user_id,
       attachments: entry.journal_attachments || [],
-      lines: (entry.journal_lines || []).map((line: any) => {
-        let account = accounts.find((a: any) => a.id === line.account_id) || line.accounts;
+      lines: (entry.journal_lines || []).map((line: Record<string, any>) => {
+        let account = accounts.find((a: Record<string, any>) => a.id === line.account_id) || line.accounts;
         
         if (!account && line.description) {
           if (line.description.includes('عمولة') || line.description.includes('تسويق') || line.description.includes('عمولات')) {
-            account = accounts.find((a: any) => 
+            account = accounts.find((a: Record<string, any>) => 
               a.code === '522' || a.code === '5221' || a.code === '5204' || a.code === '52' || a.code === '521'
-            ) || accounts.find((a: any) => 
+            ) || accounts.find((a: Record<string, any>) => 
               (a.type === 'EXPENSE' || (a.type as any) === 'expense' || a.code?.startsWith('5')) && 
               (a.name.includes('عمول') || a.name.includes('تسويق') || a.name.includes('توزيع') || a.name.includes('دعاية')) && 
               !a.name.includes('تكلفة') && !a.name.includes('بضاعة')
-            ) || accounts.find((a: any) => 
+            ) || accounts.find((a: Record<string, any>) => 
               (a.type === 'EXPENSE' || (a.type as any) === 'expense' || a.code?.startsWith('5')) && 
               !a.name.includes('تكلفة')
             );
           } else if (line.description.includes('مستحق') || line.description.includes('صافي') || line.description.includes('منصة') || line.description.includes('عميل')) {
-            account = accounts.find((a: any) => 
+            account = accounts.find((a: Record<string, any>) => 
               a.code === '1221' || a.code === '122' || a.code === '102'
-            ) || accounts.find((a: any) => 
+            ) || accounts.find((a: Record<string, any>) => 
               (a.type === 'ASSET' || (a.type as any) === 'asset' || a.code?.startsWith('1')) && 
               (a.name.includes('عملاء') || a.name.includes('منصات') || a.name.includes('مدين')) && 
               !a.name.includes('مستحقة') && !a.name.includes('أوراق')
             );
           } else if (line.description.includes('إيراد') || line.description.includes('مبيعات') || line.description.includes('إجمالي') || line.credit > 0) {
-            account = accounts.find((a: any) => 
+            account = accounts.find((a: Record<string, any>) => 
               a.code === '411' || a.code === '4101' || a.code === '41101' || a.code === '41' || a.code === '401'
-            ) || accounts.find((a: any) => 
+            ) || accounts.find((a: Record<string, any>) => 
               (a.type === 'REVENUE' || (a.type as any) === 'revenue' || a.code?.startsWith('4')) && 
               !a.code?.startsWith('1') && 
               (a.name.includes('مبيعات') || a.name.includes('نشاط') || a.name.includes('إيراد'))

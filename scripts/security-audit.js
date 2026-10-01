@@ -48,6 +48,11 @@ const SAFE_PATHS = [
   'notificationTestUtils.ts',
   'system_auditor.js',
   'search_tool.js',
+  'create_memory.js',
+  'update-memory.js',
+  'keep-alive.ts',
+  'tools/eta-local-signer',
+  'public/sw.js',
   'utils/logger.ts'
 ];
 

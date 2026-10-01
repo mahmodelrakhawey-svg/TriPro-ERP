@@ -3,12 +3,12 @@ import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { secureStorage } from '../utils/securityMiddleware';
 
-export const isValidUUID = (str: any): boolean => {
+export const isValidUUID = (str: unknown): boolean => {
   if (typeof str !== 'string') return false;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str.trim());
 };
 
-export const isValidNonNilUUID = (str: any): boolean => {
+export const isValidNonNilUUID = (str: unknown): boolean => {
   return isValidUUID(str) && str.trim() !== '00000000-0000-0000-0000-000000000000';
 };
 
@@ -152,7 +152,7 @@ export const offlineService = {
   /**
    * Sanitizes order payload to prevent UUID syntax errors (like 'org-default-offline')
    */
-  async sanitizeOrderPayload(payload: any, resolvedOrgId: string | null): Promise<any> {
+  async sanitizeOrderPayload(payload: Record<string, any>, resolvedOrgId: string | null): Promise<Record<string, any>> {
     const sanitized = { ...payload };
 
     // 1. Organization ID
@@ -262,15 +262,15 @@ export const offlineService = {
    * Resilient fallback to sync a POS order using complete_pos_sale_atomic or direct table insertion
    * (bypasses any legacy schema dependency like public.terminals)
    */
-  async syncViaCompletePosSaleAtomic(sanitizedPayload: any): Promise<{ success: boolean; order_number?: string; error?: string }> {
+  async syncViaCompletePosSaleAtomic(sanitizedPayload: Record<string, any>): Promise<{ success: boolean; order_number?: string; error?: string }> {
     try {
       const rawItems = sanitizedPayload.items || sanitizedPayload.p_items || [];
-      const items = rawItems.map((i: any) => ({
+      const items = rawItems.map((i: Record<string, any>) => ({
         product_id: i.product_id,
         quantity: Number(i.quantity || 1),
         unit_price: Number(i.unit_price || i.price || 0),
         uom_id: i.uom_id || null
-      })).filter((i: any) => i.product_id);
+      })).filter((i: Record<string, any>) => i.product_id);
 
       if (items.length === 0) {
         return { success: false, error: 'لا توجد أصناف صالحة في الطلب' };
@@ -329,7 +329,7 @@ export const offlineService = {
         throw ordErr || new Error('فشل إدراج رأس الطلب في قاعدة البيانات');
       }
 
-      const orderItems = items.map((i: any) => ({
+      const orderItems = items.map((i: Record<string, any>) => ({
         order_id: ord.id,
         product_id: i.product_id,
         quantity: i.quantity,
@@ -360,7 +360,7 @@ export const offlineService = {
   /**
    * Adds a new order to the offline queue.
    */
-  async queueOrder(orderPayload: any): Promise<void> {
+  async queueOrder(orderPayload: Record<string, any>): Promise<void> {
     try {
       // Auto-attach last valid org ID if current orgId is missing or mock offline string
       const lastValidOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
@@ -486,7 +486,7 @@ export const offlineService = {
   /**
    * Queues an offline HIMS patient registration.
    */
-  async queuePatient(patientPayload: any): Promise<void> {
+  async queuePatient(patientPayload: Record<string, any>): Promise<void> {
     try {
       await db.queuedPatients.add({
         payload: patientPayload,
@@ -504,7 +504,7 @@ export const offlineService = {
   /**
    * Queues an offline HIMS clinical visit.
    */
-  async queueVisit(visitPayload: any): Promise<void> {
+  async queueVisit(visitPayload: Record<string, any>): Promise<void> {
     try {
       await db.queuedVisits.add({
         payload: visitPayload,
@@ -522,7 +522,7 @@ export const offlineService = {
   /**
    * Queues an offline HIMS clinical note (SOAP note).
    */
-  async queueClinicalNote(notePayload: any): Promise<void> {
+  async queueClinicalNote(notePayload: Record<string, any>): Promise<void> {
     try {
       await db.queuedClinicalNotes.add({
         payload: notePayload,
@@ -540,7 +540,7 @@ export const offlineService = {
   /**
    * Queues an offline HIMS prescription.
    */
-  async queuePrescription(prescriptionPayload: any): Promise<void> {
+  async queuePrescription(prescriptionPayload: Record<string, any>): Promise<void> {
     try {
       await db.queuedPrescriptions.add({
         payload: prescriptionPayload,
@@ -558,7 +558,7 @@ export const offlineService = {
   /**
    * Queues offline HIMS lab orders.
    */
-  async queueLabOrders(ordersPayload: any): Promise<void> {
+  async queueLabOrders(ordersPayload: Record<string, any>): Promise<void> {
     try {
       await db.queuedLabOrders.add({
         payload: ordersPayload,
@@ -576,7 +576,7 @@ export const offlineService = {
   /**
    * Queues offline HIMS radiology orders.
    */
-  async queueRadiologyOrders(ordersPayload: any): Promise<void> {
+  async queueRadiologyOrders(ordersPayload: Record<string, any>): Promise<void> {
     try {
       await db.queuedRadiologyOrders.add({
         payload: ordersPayload,
@@ -610,7 +610,7 @@ export const offlineService = {
       );
 
       // Sanitize and heal each queued order payload
-      const sanitizedOrdersList: Array<{ orderRecord: QueuedOrder; sanitizedPayload: any }> = [];
+      const sanitizedOrdersList: Array<{ orderRecord: QueuedOrder; sanitizedPayload: Record<string, any> }> = [];
       for (const order of pendingOrders) {
         if (!order.id) continue;
         const sanitizedPayload = await this.sanitizeOrderPayload(order.payload, resolvedOrgId);

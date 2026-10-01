@@ -161,7 +161,7 @@ const StockMovementCostReport = () => {
         .select('product_id, quantity_required')
         .eq('raw_material_id', selectedProductId);
       
-      let queryRestConsumption: any = null;
+      let queryRestConsumption: Record<string, any> | null = null;
       if (restBoms && restBoms.length > 0) {
           const pIds = restBoms.map(b => b.product_id);
           queryRestConsumption = supabase
@@ -212,7 +212,7 @@ const StockMovementCostReport = () => {
       const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';
 
       // إضافة رصيد أول المدة
-      opening.data?.forEach((item: any) => {
+      opening.data?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0],
               type: 'in',
@@ -224,7 +224,7 @@ const StockMovementCostReport = () => {
           });
       });
 
-      sales.data?.forEach((item: any) => {
+      sales.data?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.invoices.invoice_date,
               type: 'out',
@@ -235,7 +235,7 @@ const StockMovementCostReport = () => {
           });
       });
 
-      purchases.data?.forEach((item: any) => {
+      purchases.data?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.purchase_invoices.invoice_date,
               type: 'in',
@@ -246,7 +246,7 @@ const StockMovementCostReport = () => {
           });
       });
 
-      lcReceipts.data?.forEach((item: any) => {
+      lcReceipts.data?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.receipt_date || (item.created_at ? item.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
               type: 'in',
@@ -258,7 +258,7 @@ const StockMovementCostReport = () => {
           });
       });
 
-      sReturns.data?.forEach((item: any) => {
+      sReturns.data?.forEach((item: Record<string, any>) => {
           const product = products.find(p => p.id === selectedProductId) as Product | undefined;
           allMovements.push({
               date: item.sales_returns.return_date,
@@ -270,7 +270,7 @@ const StockMovementCostReport = () => {
           });
       });
 
-      pReturns.data?.forEach((item: any) => {
+      pReturns.data?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.purchase_returns.return_date,
               type: 'out',
@@ -282,7 +282,7 @@ const StockMovementCostReport = () => {
       });
 
       // معالجة التصنيع - منتج تام (وارد)
-      mfgIn.data?.forEach((item: any) => {
+      mfgIn.data?.forEach((item: Record<string, any>) => {
         const product = products.find(p => p.id === selectedProductId) as Product | undefined;
         allMovements.push({
           date: item.end_date,
@@ -295,7 +295,7 @@ const StockMovementCostReport = () => {
       });
 
       // معالجة التصنيع - خامات منصرفة (صادر)
-      mfgOut.data?.forEach((item: any) => {
+      mfgOut.data?.forEach((item: Record<string, any>) => {
         const product = products.find(p => p.id === selectedProductId) as Product | undefined;
         allMovements.push({
           date: item.mfg_material_requests.issue_date || item.mfg_material_requests.created_at.split('T')[0],
@@ -308,7 +308,7 @@ const StockMovementCostReport = () => {
       });
 
       // معالجة التصنيع - الهالك (صادر)
-      mfgScrap.data?.forEach((item: any) => {
+      mfgScrap.data?.forEach((item: Record<string, any>) => {
         const product = products.find(p => p.id === selectedProductId) as Product | undefined;
         allMovements.push({
           date: item.created_at.split('T')[0],
@@ -322,7 +322,7 @@ const StockMovementCostReport = () => {
       });
 
       // إضافة حركات المطعم
-      restDirect.data?.forEach((item: any) => {
+      restDirect.data?.forEach((item: Record<string, any>) => {
           allMovements.push({
               date: item.orders.created_at,
               type: 'out',
@@ -333,7 +333,7 @@ const StockMovementCostReport = () => {
           });
       });
 
-      restConsumption.data?.forEach((po: any) => {
+      restConsumption.data?.forEach((po: Record<string, any>) => {
           const bom = restBoms?.find(b => b.product_id === po.product_id);
           if (bom) {
               const product = products.find(p => p.id === selectedProductId) as Product | undefined; // Raw material
@@ -348,7 +348,7 @@ const StockMovementCostReport = () => {
           }
       });
 
-      hims.data?.forEach((item: any) => {
+      hims.data?.forEach((item: Record<string, any>) => {
         const product = products.find(p => p.id === selectedProductId) as Product | undefined;
         allMovements.push({
           date: item.hims_billing?.created_at ? item.hims_billing.created_at.split('T')[0] : '',
@@ -361,7 +361,7 @@ const StockMovementCostReport = () => {
         });
       });
 
-      construction.data?.forEach((item: any) => {
+      construction.data?.forEach((item: Record<string, any>) => {
         const product = products.find(p => p.id === selectedProductId) as Product | undefined;
         allMovements.push({
           date: item.project_material_issues?.issue_date,
@@ -375,7 +375,7 @@ const StockMovementCostReport = () => {
       });
 
       // معالجة التحويلات المخزنية (إظهارها كحركة توثيقية لضمان اكتمال سجل المراجعة)
-      transfers.data?.forEach((item: any) => {
+      transfers.data?.forEach((item: Record<string, any>) => {
           const t = item.stock_transfers;
           const product = products.find(p => p.id === selectedProductId) as Product | undefined;
           
@@ -391,7 +391,7 @@ const StockMovementCostReport = () => {
           });
       });
 
-      adjustments.data?.forEach((item: any) => {
+      adjustments.data?.forEach((item: Record<string, any>) => {
           const qty = Number(item.quantity);
           const product = products.find(p => p.id === selectedProductId) as Product | undefined;
           allMovements.push({
@@ -414,7 +414,7 @@ const StockMovementCostReport = () => {
           if (b.documentType === 'رصيد افتتاحي') return 1;
           
           // ترتيب الوارد قبل الصادر في نفس اليوم لتجنب الرصيد السالب الوهمي
-          const typeOrder: any = { 
+          const typeOrder: Record<string, number> =  { 
             'رصيد افتتاحي': 0, 'فاتورة مشتريات': 1, 'مرتجع مبيعات': 2, 'تصنيع (منتج تام)': 3, 
             'تسوية مخزنية': 4, 'فاتورة مبيعات': 5, 'مرتجع مشتريات': 6, 'تصنيع (صرف خامات)': 7, 'تصنيع (هالك)': 8 
           };

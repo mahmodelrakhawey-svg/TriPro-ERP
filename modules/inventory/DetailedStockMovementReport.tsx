@@ -104,7 +104,7 @@ const DetailedStockMovementReport = () => {
       if (selectedWarehouse) salesQuery = salesQuery.eq('invoices.warehouse_id', selectedWarehouse);
 
       const { data: sales } = await salesQuery;
-      sales?.forEach((item: any) => {
+      sales?.forEach((item: Record<string, any>) => {
         allMovements.push({
           id: `SALE-${item.invoices.invoice_number}-${item.product_id}`,
           date: item.invoices.invoice_date,
@@ -134,7 +134,7 @@ const DetailedStockMovementReport = () => {
       if (selectedWarehouse) purchaseQuery = purchaseQuery.eq('purchase_invoices.warehouse_id', selectedWarehouse);
 
       const { data: purchases } = await purchaseQuery;
-      purchases?.forEach((item: any) => {
+      purchases?.forEach((item: Record<string, any>) => {
         allMovements.push({
           id: `PUR-${item.purchase_invoices.invoice_number}-${item.product_id}`,
           date: item.purchase_invoices.invoice_date,
@@ -163,7 +163,7 @@ const DetailedStockMovementReport = () => {
       if (selectedWarehouse) lcQuery = lcQuery.eq('warehouse_id', selectedWarehouse);
 
       const { data: lcReceipts } = await lcQuery;
-      lcReceipts?.forEach((item: any) => {
+      lcReceipts?.forEach((item: Record<string, any>) => {
         allMovements.push({
           id: `LC-${item.letters_of_credit?.lc_number}-${item.product_id}`,
           date: item.receipt_date,
@@ -193,7 +193,7 @@ const DetailedStockMovementReport = () => {
       if (selectedWarehouse) salesRetQuery = salesRetQuery.eq('sales_returns.warehouse_id', selectedWarehouse);
 
       const { data: salesReturns } = await salesRetQuery;
-      salesReturns?.forEach((item: any) => {
+      salesReturns?.forEach((item: Record<string, any>) => {
         allMovements.push({
           id: `SR-${item.sales_returns.return_number}-${item.product_id}`,
           date: item.sales_returns.return_date,
@@ -223,7 +223,7 @@ const DetailedStockMovementReport = () => {
       if (selectedWarehouse) purRetQuery = purRetQuery.eq('purchase_returns.warehouse_id', selectedWarehouse);
 
       const { data: purReturns } = await purRetQuery;
-      purReturns?.forEach((item: any) => {
+      purReturns?.forEach((item: Record<string, any>) => {
         allMovements.push({
           id: `PR-${item.purchase_returns.return_number}-${item.product_id}`,
           date: item.purchase_returns.return_date,
@@ -254,7 +254,7 @@ const DetailedStockMovementReport = () => {
       if (selectedWarehouse) productionInQuery = productionInQuery.eq('warehouse_id', selectedWarehouse);
 
       const { data: productionIn } = await productionInQuery;
-      productionIn?.forEach((item: any) => {
+      productionIn?.forEach((item: Record<string, any>) => {
         allMovements.push({
           id: `MFG-IN-${item.id}`,
           date: item.end_date,
@@ -301,7 +301,7 @@ const DetailedStockMovementReport = () => {
       const { data: mfgActuals } = await mfgActualQuery;
       const ordersWithActualUsage = new Set<string>();
       
-      mfgActuals?.forEach((item: any) => {
+      mfgActuals?.forEach((item: Record<string, any>) => {
         const po = item.mfg_order_progress?.mfg_production_orders;
         if (!po) return;
         ordersWithActualUsage.add(po.id);
@@ -352,7 +352,7 @@ const DetailedStockMovementReport = () => {
       if (selectedWarehouse) mfgRawQuery = mfgRawQuery.eq('mfg_material_requests.mfg_production_orders.warehouse_id', selectedWarehouse);
 
       const { data: mfgRaws } = await mfgRawQuery;
-      mfgRaws?.forEach((item: any) => {
+      mfgRaws?.forEach((item: Record<string, any>) => {
         const po = item.mfg_material_requests?.mfg_production_orders;
         const poId = item.mfg_material_requests?.production_order_id;
         if (poId && ordersWithActualUsage.has(poId)) {
@@ -403,7 +403,7 @@ const DetailedStockMovementReport = () => {
       if (selectedWarehouse) mfgScrapQuery = mfgScrapQuery.eq('mfg_order_progress.mfg_production_orders.warehouse_id', selectedWarehouse);
 
       const { data: mfgScraps } = await mfgScrapQuery;
-      mfgScraps?.forEach((item: any) => {
+      mfgScraps?.forEach((item: Record<string, any>) => {
         const po = item.mfg_order_progress?.mfg_production_orders;
         allMovements.push({
           id: `MFG-SCRAP-${item.id}`,
@@ -434,7 +434,7 @@ const DetailedStockMovementReport = () => {
 
       const { data: adjustments } = await adjustmentsQuery;
       
-      adjustments?.forEach((item: any) => {
+      adjustments?.forEach((item: Record<string, any>) => {
         const qty = Number(item.quantity);
         allMovements.push({
           id: `ADJ-${item.stock_adjustments.adjustment_number}-${item.product_id}`,
@@ -466,7 +466,7 @@ const DetailedStockMovementReport = () => {
       const { data: transfers } = await transfersQuery;
       const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';
 
-      transfers?.forEach((item: any) => {
+      transfers?.forEach((item: Record<string, any>) => {
           const t = item.stock_transfers;
           
           // إذا تم تحديد مستودع، نعرض الحركة الخاصة به فقط
@@ -536,7 +536,7 @@ const DetailedStockMovementReport = () => {
 
       const { data: restDirect } = await restDirectQuery;
 
-      restDirect?.forEach((item: any) => {
+      restDirect?.forEach((item: Record<string, any>) => {
           allMovements.push({
               id: `REST-SALE-${item.orders.order_number}-${item.product_id}`,
               date: item.orders.created_at.split('T')[0],
@@ -566,7 +566,7 @@ const DetailedStockMovementReport = () => {
       const { data: boms } = await bomQuery;
 
       if (boms && boms.length > 0) {
-        const parentMealIds = Array.from(new Set(boms.map((b: any) => b.product_id)));
+        const parentMealIds = Array.from(new Set(boms.map((b: Record<string, any>) => b.product_id)));
         let restConsQuery = supabase
           .from('order_items')
           .select('id, product_id, quantity, uom_id, orders!inner(id, order_number, created_at, status, order_type, warehouse_id)')
@@ -581,9 +581,9 @@ const DetailedStockMovementReport = () => {
         }
 
         const { data: restConsData } = await restConsQuery;
-        restConsData?.forEach((item: any) => {
-          const matchingBoms = boms.filter((b: any) => b.product_id === item.product_id && (!selectedProduct || b.raw_material_id === selectedProduct));
-          matchingBoms.forEach((bom: any) => {
+        restConsData?.forEach((item: Record<string, any>) => {
+          const matchingBoms = boms.filter((b: Record<string, any>) => b.product_id === item.product_id && (!selectedProduct || b.raw_material_id === selectedProduct));
+          matchingBoms.forEach((bom: Record<string, any>) => {
             const consumedQty = Number(item.quantity) * Number(bom.quantity_required);
             const rawProd = products.find(p => p.id === bom.raw_material_id);
             allMovements.push({
@@ -618,7 +618,7 @@ const DetailedStockMovementReport = () => {
       if (selectedWarehouse) openingQuery = openingQuery.eq('warehouse_id', selectedWarehouse);
 
       const { data: opening } = await openingQuery;
-      opening?.forEach((item: any) => {
+      opening?.forEach((item: Record<string, any>) => {
           allMovements.push({
               id: `OPEN-${item.product_id}-${item.created_at}`,
               date: item.created_at.split('T')[0],
@@ -669,7 +669,7 @@ const DetailedStockMovementReport = () => {
       if (selectedWarehouse) constructionQuery = constructionQuery.eq('project_material_issues.warehouse_id', selectedWarehouse);
 
       const { data: constructionIssues } = await constructionQuery;
-      constructionIssues?.forEach((item: any) => {
+      constructionIssues?.forEach((item: Record<string, any>) => {
         const issue = item.project_material_issues;
         allMovements.push({
           id: `MAT-${issue?.id || item.id}-${item.product_id}`,

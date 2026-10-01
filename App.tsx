@@ -10,6 +10,7 @@ import { Landmark, X, Info } from 'lucide-react';
 import { ToastProvider } from './context/ToastContext';
 import { Toaster as HotToaster } from 'react-hot-toast';
 import { notifyUserError } from './utils/errorHandler';
+import { logger } from './utils/logger';
 import NotificationScheduler from './services/NotificationScheduler';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
@@ -830,17 +831,13 @@ const AppContent = () => {
       ) {
         return;
       }
-      if (import.meta.env.DEV) {
-        console.error('Unhandled Promise Rejection:', reason);
-      }
+      logger.error('Unhandled Promise Rejection:', reason);
       notifyUserError(reason, 'حدث خطأ غير متوقع أثناء معالجة العملية');
     };
 
     const handleWindowError = (event: ErrorEvent) => {
       if (event?.message?.includes('ResizeObserver')) return;
-      if (import.meta.env.DEV) {
-        console.error('Uncaught Window Error:', event.error || event.message);
-      }
+      logger.error('Uncaught Window Error:', event.error || event.message);
       notifyUserError(event.error || event.message, 'حدث خطأ غير متوقع في واجهة النظام');
     };
 
