@@ -88,7 +88,7 @@ const WastageAnalysisReport = () => {
       const reasonMap: Record<string, { count: number; qty: number; cost: number }> = {};
 
       if (adjData && !adjError) {
-        adjData.forEach((adj: any) => {
+        adjData.forEach((adj: Record<string, any>) => {
           const reasonKey = (adj.reason || adj.notes || 'هالك عام').trim();
           if (!reasonMap[reasonKey]) {
             reasonMap[reasonKey] = { count: 0, qty: 0, cost: 0 };
@@ -96,7 +96,7 @@ const WastageAnalysisReport = () => {
           reasonMap[reasonKey].count += 1;
 
           const items = adj.stock_adjustment_items || [];
-          items.forEach((it: any) => {
+          items.forEach((it: Record<string, any>) => {
             const qty = Math.abs(Number(it.quantity) || 0);
             const unitCost = Number(it.products?.purchase_price || it.products?.weighted_average_cost || it.products?.cost || 0);
             reasonMap[reasonKey].qty += qty;

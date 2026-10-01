@@ -180,7 +180,7 @@ const CustomerAgingReport = () => {
       );
 
       // القيود اليومية والتسويات اليدوية باسم أو معرف العميل
-      journalEntriesRes?.forEach((je: any) => {
+      journalEntriesRes?.forEach((je: Record<string, any>) => {
         const desc = (je.description || '').toLowerCase();
         const ref = (je.reference || '').toLowerCase();
         const docId = je.related_document_id;
@@ -224,7 +224,7 @@ const CustomerAgingReport = () => {
 
       // التحقق من وجود قيد افتتاحي
       const customersWithOpeningEntry = new Set<string>();
-      journalEntriesRes?.forEach((je: any) => {
+      journalEntriesRes?.forEach((je: Record<string, any>) => {
         const desc = (je.description || '').toLowerCase();
         const ref = (je.reference || '').toLowerCase();
         const isOpening = je.related_document_type === 'opening_balance' || ref.startsWith('op-cust-') || ref.startsWith('ob-') || desc.includes('رصيد افتتاحي');

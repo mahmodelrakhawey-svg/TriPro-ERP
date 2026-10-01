@@ -74,7 +74,7 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
       }
 
       if (data) {
-        const formatted = data.map((item: any) => ({
+        const formatted = data.map((item: Record<string, any>) => ({
           raw_material_id: item.raw_material_id,
           name: item.raw_material.name,
           quantity_required: item.quantity_required,
@@ -95,7 +95,7 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
     }
   };
 
-  const handleAddIngredient = (product: any) => {
+  const handleAddIngredient = (product: Record<string, any>) => {
     if (ingredients.some(i => i.raw_material_id === product.id)) {
       showToast('هذا المكون مضاف بالفعل', 'warning');
       return;

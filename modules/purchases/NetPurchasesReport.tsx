@@ -100,11 +100,11 @@ const NetPurchasesReport = () => {
       });
 
       // حساب الصافي وتحويله لمصفوفة
-      const data = Object.values(supplierMap).map((s: any) => ({
+      const data = Object.values(supplierMap).map((s: Record<string, any>) => ({
         ...s,
         netPurchases: s.totalPurchases - s.totalReturns
-      })).filter((s: any) => s.totalPurchases > 0 || s.totalReturns > 0) // استبعاد الموردين بدون حركة
-      .sort((a: any, b: any) => b.netPurchases - a.netPurchases);
+      })).filter((s: Record<string, any>) => s.totalPurchases > 0 || s.totalReturns > 0) // استبعاد الموردين بدون حركة
+      .sort((a: Record<string, any>, b: Record<string, any>) => b.netPurchases - a.netPurchases);
 
       setReportData(data);
 

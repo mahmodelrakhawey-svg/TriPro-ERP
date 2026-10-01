@@ -157,7 +157,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
           .limit(1);
 
         if (customerAccError) throw customerAccError;
-        let customerAcc: { id: any } | null = customerAccounts?.[0] || null;
+        let customerAcc: { id: string } | null = customerAccounts?.[0] || null;
 
         // احتياطي: البحث بالاسم إذا لم يُوجد الكود 1221
         if (!customerAcc?.id) {
@@ -276,7 +276,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
 
             // تحديد نوع المستند من الوصف أو المرجع
             let type: Transaction['type'] = 'invoice';
-            const jeAny: any = je;
+            const jeAny: Record<string, any> = je;
             let ref = jeAny.reference || jeAny.id;
             let desc = jeAny.description || 'قيد يومية';
             let isPosted = jeAny.status === 'posted';

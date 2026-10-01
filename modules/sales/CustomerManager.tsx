@@ -96,7 +96,7 @@ const CustomerManager = () => {
           const statsMap: Record<string, any> = {};
           let count = 0;
 
-          rpcData.forEach((row: any) => {
+          rpcData.forEach((row: Record<string, any>) => {
             count = Number(row.total_count || 0);
             list.push({
               id: row.customer_id,
@@ -359,7 +359,7 @@ const CustomerManager = () => {
         const data = XLSX.utils.sheet_to_json(ws);
 
         const successRecords: any[] = [];
-        const failedRecords: { row: any, error: string }[] = [];
+        const failedRecords: { row: Record<string, any>, error: string }[] = [];
 
         for (const row of data as any[]) {
           const name = row['اسم العميل'] || row['Name'];

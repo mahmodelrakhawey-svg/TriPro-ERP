@@ -404,7 +404,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       suppliersList?.forEach(supp => {
         if (!supp.name) return;
         const suppName = supp.name.trim().toLowerCase();
-        glLines?.forEach((line: any) => {
+        glLines?.forEach((line: Record<string, any>) => {
           const jeId = line.journal_entries?.id;
           if (!jeId || entryIdToSupplierId.has(jeId)) return;
           const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`.toLowerCase();
@@ -444,7 +444,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
       const matchedEntryIds = new Set<string>();
 
-      glLines?.forEach((line: any) => {
+      glLines?.forEach((line: Record<string, any>) => {
         const jeId = line.journal_entries?.id;
         const docId = line.journal_entries?.related_document_id;
         const debit = Number(line.debit || 0);

@@ -45,12 +45,12 @@ const SupplierBalancesReport = () => {
       });
 
       if (!rpcError && Array.isArray(rpcData)) {
-        const balances = rpcData.map((row: any) => ({
+        const balances = rpcData.map((row: Record<string, any>) => ({
           id: row.supplier_id,
           name: row.supplier_name,
           phone: row.phone,
           balance: Number(row.balance || 0)
-        })).sort((a: any, b: any) => b.balance - a.balance);
+        })).sort((a: Record<string, any>, b: Record<string, any>) => b.balance - a.balance);
         setReportData(balances);
         return;
       }

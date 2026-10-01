@@ -1,3 +1,4 @@
+type DynamicParam = any;
 import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
@@ -197,7 +198,7 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
   }, [accounts, getSystemAccount]);
 
   // دالة جلب سعر شراء الكيلو آلياً (من بطاقة الصنف أو من أحدث فاتورة مشتريات)
-  const fetchProductCost = async (productId: string, prodObj?: any) => {
+  const fetchProductCost = async (productId: string, prodObj?: Record<string, any>) => {
     const prod = prodObj || products.find(p => p.id === productId);
     let resolvedPrice = Number(prod?.purchase_price || prod?.cost || 0);
 
@@ -351,7 +352,7 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
     setOutputItems(prev => prev.filter((_, i) => i !== index));
   };
 
-  const handleUpdateItem = (index: number, field: string, value: any) => {
+  const handleUpdateItem = (index: number, field: string, value: DynamicParam) => {
     setOutputItems(prev => {
       const copy = [...prev];
       copy[index] = { ...copy[index], [field]: value };

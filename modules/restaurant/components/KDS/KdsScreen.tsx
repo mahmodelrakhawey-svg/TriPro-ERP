@@ -254,14 +254,14 @@ const KdsScreen = () => {
 
       const groupedByOrder: { [key: string]: KitchenOrderTicket } = {};
 
-      (data || []).forEach((order: any) => {
+      (data || []).forEach((order: Record<string, any>) => {
         const orderId = order.id;
         const sessionObj = Array.isArray(order.table_sessions) ? order.table_sessions[0] : order.table_sessions;
         const tableName = sessionObj?.restaurant_tables?.name || (order.order_type === 'TAKEAWAY' ? 'سفري' : order.order_type === 'DELIVERY' ? 'توصيل' : 'طاولة صالة');
 
         const activeItems: KitchenOrderItem[] = [];
 
-        (order.order_items || []).forEach((oi: any) => {
+        (order.order_items || []).forEach((oi: Record<string, any>) => {
           const koStatus = (oi.kitchen_orders?.[0]?.status || kitchenStationService.getSavedStatus(oi.id) || 'NEW').toUpperCase();
           // الأطباق التي تم تسليمها للطاولة (SERVED) تخرج من شاشة تحضير المطبخ
           if (koStatus === 'SERVED') return;

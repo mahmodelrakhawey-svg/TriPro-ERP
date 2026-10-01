@@ -16,9 +16,9 @@ export const modifierService = {
 
     if (error) throw error;
 
-    return (data || []).map((group: any) => ({
+    return (data || []).map((group: Record<string, any>) => ({
       ...group,
-      modifiers: group.modifiers.sort((a: any, b: any) => a.display_order - b.display_order),
+      modifiers: group.modifiers.sort((a: Record<string, any>, b: Record<string, any>) => a.display_order - b.display_order),
     })) as ModifierGroup[];
   },
 

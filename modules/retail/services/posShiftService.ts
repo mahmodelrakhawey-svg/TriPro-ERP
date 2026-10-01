@@ -1,3 +1,4 @@
+type DynamicQuery = any;
 /**
  * TriPro ERP — POS Shift Financials Service
  * منطق معزول ومحكم لحسابات نقدية الوردية، المبيعات النقدية، المرتجعات، والمسحوبات
@@ -184,7 +185,7 @@ export async function calculateClosingShiftSummary(
   let detectedCashReturns = Number(data?.cash_returns) || 0;
   if (userId && isValidUUID(userId)) {
     try {
-      let retQuery: any = supabase
+      let retQuery: DynamicQuery = supabase
         .from('sales_returns')
         .select('total_amount, notes, user_id, created_at')
         .eq('user_id', userId);
@@ -199,7 +200,7 @@ export async function calculateClosingShiftSummary(
       if (safeRetRows.length > 0) {
         detectedCashReturns = safeRetRows
           .filter((r: Record<string, any>) => !r.notes || r.notes.includes('نقدي') || r.notes.includes('CASH'))
-          .reduce((sum: number, r: any) => sum + Number(r.total_amount || 0), 0);
+          .reduce((sum: number, r: Record<string, any>) => sum + Number(r.total_amount || 0), 0);
       }
     } catch (reErr) {
       logger.warn('Could not query sales_returns for shift close:', reErr);

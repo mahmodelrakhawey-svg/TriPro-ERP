@@ -20,12 +20,12 @@ interface MobileScannerTabProps {
   onSearchQueryChange: (query: string) => void;
   onLookupBarcode: (query: string) => void;
   selectedProduct: any;
-  getProductStockInWarehouse: (product: any, warehouseId: string) => number;
+  getProductStockInWarehouse: (product: Record<string, any>, warehouseId: string) => number;
   newStockCount: string;
   onNewStockCountChange: (count: string) => void;
   handleSaveStockAdjustment: () => void;
   adjustingStock: boolean;
-  onAddToCart: (product: any) => void;
+  onAddToCart: (product: Record<string, any>) => void;
   onNavigateToSales: () => void;
 }
 

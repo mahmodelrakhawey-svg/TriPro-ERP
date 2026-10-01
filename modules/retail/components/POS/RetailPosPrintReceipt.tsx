@@ -55,7 +55,7 @@ export const RetailPosPrintReceipt: React.FC<RetailPosPrintReceiptProps> = ({
               </tr>
             </thead>
             <tbody>
-              {receiptOrder.items.map((item: any, idx: number) => (
+              {receiptOrder.items.map((item: Record<string, any>, idx: number) => (
                 <tr key={idx} style={{ borderBottom: '1px dashed #eee' }}>
                   <td className="py-1">{item.name}</td>
                   <td className="py-1 text-center">{item.quantity}</td>
@@ -81,7 +81,7 @@ export const RetailPosPrintReceipt: React.FC<RetailPosPrintReceiptProps> = ({
 
             {receiptOrder.appliedPromotions && receiptOrder.appliedPromotions.length > 0 && (
               <div className="space-y-0.5 pr-2 my-0.5">
-                {receiptOrder.appliedPromotions.map((p: any, idx: number) => (
+                {receiptOrder.appliedPromotions.map((p: Record<string, any>, idx: number) => (
                   <div key={idx} className="flex justify-between text-[10px]" style={{ color: '#333' }}>
                     <span>• {p.promoName || 'عرض خاص'}:</span>
                     <span>-{Number(p.discountAmount).toFixed(2)} {currencySymbol}</span>

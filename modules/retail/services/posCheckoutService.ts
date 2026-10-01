@@ -1,3 +1,4 @@
+type ProductParam = any;
 /**
  * TriPro ERP — POS Checkout Service
  * تنفيذ عمليات الدفع، إغلاق الأوردر، وإرسال البيانات لقاعدة البيانات أو طابور الأوفلاين
@@ -32,8 +33,8 @@ export interface PosCheckoutParams {
   settings: any;
   warehouses: any[];
   isOnline: boolean;
-  getItemEffectivePrice: (product: any, customPrice?: number) => number;
-  isItemOfferActive: (product: any) => boolean;
+  getItemEffectivePrice: (product: ProductParam, customPrice?: number) => number;
+  isItemOfferActive: (product: ProductParam) => boolean;
 }
 
 export interface PosCheckoutResult {
@@ -174,7 +175,7 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
 
       if (orderId) {
         // Update order with shift_id, terminal_id, total_discount, total_tax and grand_total
-        const updatePayload: any = {
+        const updatePayload: Record<string, any> = {
           shift_id: validShiftId,
           total_discount: totalDiscount || 0,
           total_tax: tax || 0,
