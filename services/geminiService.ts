@@ -1,4 +1,5 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import { logger } from '../utils/logger';
 import { Account } from "../types";
 import { secureStorage } from '../utils/securityMiddleware';
 
@@ -14,14 +15,14 @@ const generateWithFallback = async (
   let lastError: any = null;
   for (const model of modelList) {
     try {
-      console.log(`Attempting generateContent with model: ${model}`);
+      logger.log(`Attempting generateContent with model: ${model}`);
       const response = await ai.models.generateContent({
         model: model,
         ...params
       });
       return response;
     } catch (error: any) {
-      console.warn(`Model ${model} failed:`, error);
+      logger.warn(`Model ${model} failed:`, error);
       lastError = error;
     }
   }
@@ -51,7 +52,7 @@ export const analyzeTransactionText = async (text: string, accounts: Account[]) 
       }
     }
   } catch (serverErr: any) {
-    console.warn("Server API Route /api/analyze-transaction unreachable, trying local client fallback...", serverErr);
+    logger.warn("Server API Route /api/analyze-transaction unreachable, trying local client fallback...", serverErr);
     if (serverErr?.message) lastServerErrorMessage = serverErr.message;
   }
 
@@ -121,7 +122,7 @@ export const analyzeTransactionText = async (text: string, accounts: Account[]) 
 
     return JSON.parse(response.text || '{}');
   } catch (error) {
-    console.error("Gemini API Error:", error);
+    logger.error("Gemini API Error:", error);
     throw error;
   }
 };
@@ -147,7 +148,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
 
   // المحاولة الأولى: عبر المكتبة الرسمية لشركة جوجل SDK
   try {
-    console.log("[callGeminiRestDirect] Attempting official GoogleGenAI SDK with key prefix:", cleanKey.substring(0, 8) + '...');
+    logger.log("[callGeminiRestDirect] Attempting official GoogleGenAI SDK with key prefix:", cleanKey.substring(0, 8) + '...');
     const ai = new GoogleGenAI({ apiKey: cleanKey });
     const response = await ai.models.generateContent({
       model: 'gemini-3.5-flash',
@@ -175,7 +176,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
     }
   } catch (sdkErr: any) {
     const sdkMsg = sdkErr?.message || String(sdkErr);
-    console.warn("[callGeminiRestDirect] SDK call failed:", sdkMsg, "| status:", sdkErr?.status);
+    logger.warn("[callGeminiRestDirect] SDK call failed:", sdkMsg, "| status:", sdkErr?.status);
     // فقط أرمي خطأ "مفتاح غير صالح" إذا تأكدنا من Google أنها مشكلة مفتاح
     if (sdkMsg.toLowerCase().includes('api_key_invalid') || sdkMsg.toLowerCase().includes('api key not valid')) {
       throw new Error(`مفتاح Gemini API غير صالح. سبب Google: ${sdkMsg}`);
@@ -195,7 +196,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
 
   for (const endpoint of endpointsToTry) {
     try {
-      console.log(`[callGeminiRestDirect] Posting to: ${endpoint.split('?')[0]}`);
+      logger.log(`[callGeminiRestDirect] Posting to: ${endpoint.split('?')[0]}`);
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -213,7 +214,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
       });
 
       const data = await res.json();
-      console.log(`[callGeminiRestDirect] Response ${res.status} from ${endpoint.split('?')[0]}:`, data?.error || '✅ success');
+      logger.log(`[callGeminiRestDirect] Response ${res.status} from ${endpoint.split('?')[0]}:`, data?.error || '✅ success');
       if (res.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
         const rawText = data.candidates[0].content.parts[0].text;
         const cleanJson = rawText.replace(/```json/gi, '').replace(/```/g, '').trim();
@@ -221,7 +222,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
       }
 
       const errMsg = data?.error?.message || `HTTP ${res.status}`;
-      console.warn(`[callGeminiRestDirect] Endpoint failed (${res.status}):`, errMsg);
+      logger.warn(`[callGeminiRestDirect] Endpoint failed (${res.status}):`, errMsg);
 
       if (res.status === 401 || res.status === 403 || (res.status === 400 && (errMsg.includes('API_KEY_INVALID') || errMsg.includes('API key not valid')))) {
         throw new Error(`مفتاح Gemini غير صالح (${res.status}): ${errMsg}`);
@@ -242,7 +243,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
         throw err;
       }
       lastErrorMsg = err?.message || String(err);
-      console.warn(`[callGeminiRestDirect] Exception for endpoint:`, lastErrorMsg);
+      logger.warn(`[callGeminiRestDirect] Exception for endpoint:`, lastErrorMsg);
     }
   }
 
@@ -271,7 +272,7 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
     ? (secureStorage.getItem<string>('user_gemini_api_key')) 
     : null;
   if (clientStoredKey && isValidApiKey(clientStoredKey)) {
-    console.log("استخدام مفتاح Gemini API المباشر المحفوظ في المتصفح...");
+    logger.log("استخدام مفتاح Gemini API المباشر المحفوظ في المتصفح...");
     return await callGeminiRestDirect(base64Data, mimeType, clientStoredKey);
   } else if (clientStoredKey && !isValidApiKey(clientStoredKey)) {
     // مسح المفتاح غير الصالح تلقائياً
@@ -389,7 +390,7 @@ const callGeminiInvoiceRestDirect = async (base64Data: string, mimeType: string,
           }
         }
       } catch (subErr: any) {
-        console.warn(`[callGeminiInvoiceRestDirect] SDK model ${modelName} attempt:`, subErr?.message);
+        logger.warn(`[callGeminiInvoiceRestDirect] SDK model ${modelName} attempt:`, subErr?.message);
         if (subErr?.message?.toLowerCase().includes('api_key_invalid') || subErr?.message?.toLowerCase().includes('api key not valid')) {
           throw new Error(`مفتاح Gemini API غير صالح: ${subErr.message}`);
         }
@@ -399,7 +400,7 @@ const callGeminiInvoiceRestDirect = async (base64Data: string, mimeType: string,
     if (sdkErr?.message?.includes('مفتاح Gemini API غير صالح')) {
       throw sdkErr;
     }
-    console.warn("[callGeminiInvoiceRestDirect] GoogleGenAI SDK fallback to REST:", sdkErr);
+    logger.warn("[callGeminiInvoiceRestDirect] GoogleGenAI SDK fallback to REST:", sdkErr);
   }
 
   // المحاولة الثانية: عبر REST API المباشر بنماذج v1 الرسمية
@@ -473,7 +474,7 @@ export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: strin
     ? (secureStorage.getItem<string>('user_gemini_api_key')) 
     : null;
   if (clientStoredKey && isValidApiKey(clientStoredKey)) {
-    console.log("[scanPurchaseInvoiceOCR] استخدام مفتاح Gemini API المباشر المحفوظ في المتصفح...");
+    logger.log("[scanPurchaseInvoiceOCR] استخدام مفتاح Gemini API المباشر المحفوظ في المتصفح...");
     return await callGeminiInvoiceRestDirect(cleanBase64, mimeType, clientStoredKey);
   } else if (clientStoredKey && !isValidApiKey(clientStoredKey)) {
     // مسح المفتاح غير الصالح تلقائياً

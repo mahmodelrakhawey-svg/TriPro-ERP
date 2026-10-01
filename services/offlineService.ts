@@ -1,4 +1,5 @@
 import Dexie, { Table } from 'dexie';
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { secureStorage } from '../utils/securityMiddleware';
 
@@ -133,7 +134,7 @@ export const offlineService = {
           return firstOrg.id;
         }
       } catch (e) {
-        console.warn('Failed to resolve online organization UUID:', e);
+        logger.warn('Failed to resolve online organization UUID:', e);
       }
     }
     return null;
@@ -300,10 +301,10 @@ export const offlineService = {
           return { success: true, order_number: atomicData.order_number };
         }
         if (atomicErr) {
-          console.warn('complete_pos_sale_atomic error in offline fallback:', atomicErr.message);
+          logger.warn('complete_pos_sale_atomic error in offline fallback:', atomicErr.message);
         }
       } catch (atomicException: any) {
-        console.warn('complete_pos_sale_atomic exception in offline fallback:', atomicException);
+        logger.warn('complete_pos_sale_atomic exception in offline fallback:', atomicException);
       }
 
       // 2. Direct Table Insertion Fallback (Absolute Safety Net)
@@ -346,7 +347,7 @@ export const offlineService = {
           organization_id: targetOrg
         });
       } catch (pErr) {
-        console.warn('Payment insert warning:', pErr);
+        logger.warn('Payment insert warning:', pErr);
       }
 
       return { success: true, order_number: ord.order_number };
@@ -377,9 +378,9 @@ export const offlineService = {
         status: 'pending',
         attempts: 0,
       });
-      console.log('Order queued for offline sync.');
+      logger.log('Order queued for offline sync.');
     } catch (error) {
-      console.error('Failed to queue order:', error);
+      logger.error('Failed to queue order:', error);
       throw new Error('Failed to save order locally.');
     }
   },
@@ -452,10 +453,10 @@ export const offlineService = {
           warehouse_stock: p.warehouse_stock || null,
         }));
         await db.products.bulkAdd(productsToCache);
-        console.log(`Synced ${productsToCache.length} products locally.`);
+        logger.log(`Synced ${productsToCache.length} products locally.`);
       }
     } catch (error) {
-      console.error('Failed to sync products locally:', error);
+      logger.error('Failed to sync products locally:', error);
     }
   },
 
@@ -475,10 +476,10 @@ export const offlineService = {
       if (data) {
         await db.himsPatients.clear();
         await db.himsPatients.bulkAdd(data);
-        console.log(`Synced ${data.length} patients locally for HIMS.`);
+        logger.log(`Synced ${data.length} patients locally for HIMS.`);
       }
     } catch (error) {
-      console.error('Failed to sync HIMS patients locally:', error);
+      logger.error('Failed to sync HIMS patients locally:', error);
     }
   },
 
@@ -493,9 +494,9 @@ export const offlineService = {
         status: 'pending',
         attempts: 0,
       });
-      console.log('Patient registration queued for offline sync.');
+      logger.log('Patient registration queued for offline sync.');
     } catch (error) {
-      console.error('Failed to queue patient:', error);
+      logger.error('Failed to queue patient:', error);
       throw new Error('Failed to save patient locally.');
     }
   },
@@ -511,9 +512,9 @@ export const offlineService = {
         status: 'pending',
         attempts: 0,
       });
-      console.log('HIMS Visit queued for offline sync.');
+      logger.log('HIMS Visit queued for offline sync.');
     } catch (error) {
-      console.error('Failed to queue HIMS visit:', error);
+      logger.error('Failed to queue HIMS visit:', error);
       throw new Error('Failed to save visit locally.');
     }
   },
@@ -529,9 +530,9 @@ export const offlineService = {
         status: 'pending',
         attempts: 0,
       });
-      console.log('Clinical SOAP note queued for offline sync.');
+      logger.log('Clinical SOAP note queued for offline sync.');
     } catch (error) {
-      console.error('Failed to queue HIMS clinical note:', error);
+      logger.error('Failed to queue HIMS clinical note:', error);
       throw new Error('Failed to save clinical note locally.');
     }
   },
@@ -547,9 +548,9 @@ export const offlineService = {
         status: 'pending',
         attempts: 0,
       });
-      console.log('HIMS Prescription queued for offline sync.');
+      logger.log('HIMS Prescription queued for offline sync.');
     } catch (error) {
-      console.error('Failed to queue HIMS prescription:', error);
+      logger.error('Failed to queue HIMS prescription:', error);
       throw new Error('Failed to save prescription locally.');
     }
   },
@@ -565,9 +566,9 @@ export const offlineService = {
         status: 'pending',
         attempts: 0,
       });
-      console.log('HIMS Lab orders queued for offline sync.');
+      logger.log('HIMS Lab orders queued for offline sync.');
     } catch (error) {
-      console.error('Failed to queue HIMS lab orders:', error);
+      logger.error('Failed to queue HIMS lab orders:', error);
       throw new Error('Failed to save lab orders locally.');
     }
   },
@@ -583,9 +584,9 @@ export const offlineService = {
         status: 'pending',
         attempts: 0,
       });
-      console.log('HIMS Radiology orders queued for offline sync.');
+      logger.log('HIMS Radiology orders queued for offline sync.');
     } catch (error) {
-      console.error('Failed to queue HIMS radiology orders:', error);
+      logger.error('Failed to queue HIMS radiology orders:', error);
       throw new Error('Failed to save radiology orders locally.');
     }
   },
@@ -601,7 +602,7 @@ export const offlineService = {
     // 1. Sync POS Orders (Atomic Offline Batch Sync with Conflict Resolution)
     const pendingOrders = await db.queuedOrders.where('status').anyOf('pending', 'failed').limit(20).toArray();
     if (pendingOrders.length > 0) {
-      console.log(`Processing ${pendingOrders.length} queued POS orders via conflict-resilient sync...`);
+      logger.log(`Processing ${pendingOrders.length} queued POS orders via conflict-resilient sync...`);
 
       // Resolve real organization UUID before sync
       const resolvedOrgId = await this.resolveActiveOrganizationId(
@@ -643,15 +644,15 @@ export const offlineService = {
             if (matchedItem && matchedItem.orderRecord.id) {
               if (res.success) {
                 await db.queuedOrders.delete(matchedItem.orderRecord.id);
-                console.log(`Order ${matchedItem.orderRecord.id} synced successfully (DB: ${res.order_number}).`);
+                logger.log(`Order ${matchedItem.orderRecord.id} synced successfully (DB: ${res.order_number}).`);
               } else {
-                console.warn(`Order ${matchedItem.orderRecord.id} failed in batch (${res.error}), attempting resilient fallback sync...`);
+                logger.warn(`Order ${matchedItem.orderRecord.id} failed in batch (${res.error}), attempting resilient fallback sync...`);
                 const fallbackRes = await this.syncViaCompletePosSaleAtomic(matchedItem.sanitizedPayload);
                 if (fallbackRes.success) {
                   await db.queuedOrders.delete(matchedItem.orderRecord.id);
-                  console.log(`Order ${matchedItem.orderRecord.id} synced successfully via resilient fallback (DB: ${fallbackRes.order_number}).`);
+                  logger.log(`Order ${matchedItem.orderRecord.id} synced successfully via resilient fallback (DB: ${fallbackRes.order_number}).`);
                 } else {
-                  console.error(`Order ${matchedItem.orderRecord.id} failed in batch and fallback:`, fallbackRes.error || res.error);
+                  logger.error(`Order ${matchedItem.orderRecord.id} failed in batch and fallback:`, fallbackRes.error || res.error);
                   await db.queuedOrders.update(matchedItem.orderRecord.id, {
                     status: 'failed',
                     error: fallbackRes.error || res.error,
@@ -668,25 +669,25 @@ export const offlineService = {
             const fallbackRes = await this.syncViaCompletePosSaleAtomic(sanitizedPayload);
             if (fallbackRes.success) {
               await db.queuedOrders.delete(orderRecord.id);
-              console.log(`Order ${orderRecord.id} synced individually via resilient fallback (DB: ${fallbackRes.order_number}).`);
+              logger.log(`Order ${orderRecord.id} synced individually via resilient fallback (DB: ${fallbackRes.order_number}).`);
             } else {
-              console.error(`Failed to sync order ${orderRecord.id}:`, fallbackRes.error);
+              logger.error(`Failed to sync order ${orderRecord.id}:`, fallbackRes.error);
               await db.queuedOrders.update(orderRecord.id, { status: 'failed', error: fallbackRes.error || 'فشلت المزامنة' });
             }
           }
         }
       } catch (globalErr: any) {
-        console.warn('Notice in POS offline sync batch, executing resilient fallback for pending orders:', globalErr);
+        logger.warn('Notice in POS offline sync batch, executing resilient fallback for pending orders:', globalErr);
         for (const { orderRecord, sanitizedPayload } of sanitizedOrdersList) {
           if (!orderRecord.id) continue;
           try {
             const fallbackRes = await this.syncViaCompletePosSaleAtomic(sanitizedPayload);
             if (fallbackRes.success) {
               await db.queuedOrders.delete(orderRecord.id);
-              console.log(`Order ${orderRecord.id} recovered and synced successfully.`);
+              logger.log(`Order ${orderRecord.id} recovered and synced successfully.`);
             }
           } catch (recoveryErr) {
-            console.error(`Recovery failed for order ${orderRecord.id}:`, recoveryErr);
+            logger.error(`Recovery failed for order ${orderRecord.id}:`, recoveryErr);
           }
         }
       }
@@ -695,7 +696,7 @@ export const offlineService = {
     // 2. Sync HIMS Patients
     const pendingPatients = await db.queuedPatients.where('status').anyOf('pending', 'failed').limit(10).toArray();
     if (pendingPatients.length > 0) {
-      console.log(`Processing ${pendingPatients.length} queued medical patients...`);
+      logger.log(`Processing ${pendingPatients.length} queued medical patients...`);
       for (const patient of pendingPatients) {
         if (!patient.id) continue;
         await db.queuedPatients.update(patient.id, { status: 'syncing', attempts: patient.attempts + 1, lastAttempt: new Date() });
@@ -721,9 +722,9 @@ export const offlineService = {
           }
 
           await db.queuedPatients.delete(patient.id);
-          console.log(`Patient ${patient.id} synced successfully. Mapped to ${realPatientId}`);
+          logger.log(`Patient ${patient.id} synced successfully. Mapped to ${realPatientId}`);
         } catch (error: any) {
-          console.error(`Failed to sync patient ${patient.id}:`, error);
+          logger.error(`Failed to sync patient ${patient.id}:`, error);
           await db.queuedPatients.update(patient.id, { status: 'failed', error: error.message });
         }
       }
@@ -732,7 +733,7 @@ export const offlineService = {
     // 3. Sync HIMS Visits
     const pendingVisits = await db.queuedVisits.where('status').anyOf('pending', 'failed').limit(10).toArray();
     if (pendingVisits.length > 0) {
-      console.log(`Processing ${pendingVisits.length} queued medical visits...`);
+      logger.log(`Processing ${pendingVisits.length} queued medical visits...`);
       for (const visit of pendingVisits) {
         if (!visit.id) continue;
         await db.queuedVisits.update(visit.id, { status: 'syncing', attempts: visit.attempts + 1, lastAttempt: new Date() });
@@ -828,9 +829,9 @@ export const offlineService = {
           }
 
           await db.queuedVisits.delete(visit.id);
-          console.log(`Visit ${visit.id} synced successfully. Mapped to ${realVisitId}`);
+          logger.log(`Visit ${visit.id} synced successfully. Mapped to ${realVisitId}`);
         } catch (error: any) {
-          console.error(`Failed to sync visit ${visit.id}:`, error);
+          logger.error(`Failed to sync visit ${visit.id}:`, error);
           await db.queuedVisits.update(visit.id, { status: 'failed', error: error.message });
         }
       }
@@ -839,7 +840,7 @@ export const offlineService = {
     // 4. Sync HIMS Clinical Notes
     const pendingNotes = await db.queuedClinicalNotes.where('status').anyOf('pending', 'failed').limit(10).toArray();
     if (pendingNotes.length > 0) {
-      console.log(`Processing ${pendingNotes.length} queued clinical notes...`);
+      logger.log(`Processing ${pendingNotes.length} queued clinical notes...`);
       for (const note of pendingNotes) {
         if (!note.id) continue;
         await db.queuedClinicalNotes.update(note.id, { status: 'syncing', attempts: note.attempts + 1, lastAttempt: new Date() });
@@ -857,9 +858,9 @@ export const offlineService = {
           const { error } = await supabase.from('hims_clinical_notes').insert(note.payload);
           if (error) throw error;
           await db.queuedClinicalNotes.delete(note.id);
-          console.log(`Clinical note ${note.id} synced successfully.`);
+          logger.log(`Clinical note ${note.id} synced successfully.`);
         } catch (error: any) {
-          console.error(`Failed to sync clinical note ${note.id}:`, error);
+          logger.error(`Failed to sync clinical note ${note.id}:`, error);
           await db.queuedClinicalNotes.update(note.id, { status: 'failed', error: error.message });
         }
       }
@@ -868,7 +869,7 @@ export const offlineService = {
     // 5. Sync HIMS Prescriptions
     const pendingPrescriptions = await db.queuedPrescriptions.where('status').anyOf('pending', 'failed').limit(10).toArray();
     if (pendingPrescriptions.length > 0) {
-      console.log(`Processing ${pendingPrescriptions.length} queued medical prescriptions...`);
+      logger.log(`Processing ${pendingPrescriptions.length} queued medical prescriptions...`);
       for (const pres of pendingPrescriptions) {
         if (!pres.id) continue;
         await db.queuedPrescriptions.update(pres.id, { status: 'syncing', attempts: pres.attempts + 1, lastAttempt: new Date() });
@@ -886,9 +887,9 @@ export const offlineService = {
           const { error } = await supabase.from('hims_prescriptions').insert(pres.payload);
           if (error) throw error;
           await db.queuedPrescriptions.delete(pres.id);
-          console.log(`Prescription ${pres.id} synced successfully.`);
+          logger.log(`Prescription ${pres.id} synced successfully.`);
         } catch (error: any) {
-          console.error(`Failed to sync prescription ${pres.id}:`, error);
+          logger.error(`Failed to sync prescription ${pres.id}:`, error);
           await db.queuedPrescriptions.update(pres.id, { status: 'failed', error: error.message });
         }
       }
@@ -897,7 +898,7 @@ export const offlineService = {
     // 6. Sync HIMS Lab Orders
     const pendingLabOrders = await db.queuedLabOrders.where('status').anyOf('pending', 'failed').limit(10).toArray();
     if (pendingLabOrders.length > 0) {
-      console.log(`Processing ${pendingLabOrders.length} queued medical lab orders...`);
+      logger.log(`Processing ${pendingLabOrders.length} queued medical lab orders...`);
       for (const order of pendingLabOrders) {
         if (!order.id) continue;
         await db.queuedLabOrders.update(order.id, { status: 'syncing', attempts: order.attempts + 1, lastAttempt: new Date() });
@@ -954,9 +955,9 @@ export const offlineService = {
           const { error } = await supabase.from('hims_lab_orders').insert(order.payload);
           if (error) throw error;
           await db.queuedLabOrders.delete(order.id);
-          console.log(`Lab order batch ${order.id} synced successfully.`);
+          logger.log(`Lab order batch ${order.id} synced successfully.`);
         } catch (error: any) {
-          console.error(`Failed to sync lab order batch ${order.id}:`, error);
+          logger.error(`Failed to sync lab order batch ${order.id}:`, error);
           await db.queuedLabOrders.update(order.id, { status: 'failed', error: error.message });
         }
       }
@@ -965,7 +966,7 @@ export const offlineService = {
     // 7. Sync HIMS Radiology Orders
     const pendingRadOrders = await db.queuedRadiologyOrders.where('status').anyOf('pending', 'failed').limit(10).toArray();
     if (pendingRadOrders.length > 0) {
-      console.log(`Processing ${pendingRadOrders.length} queued medical radiology orders...`);
+      logger.log(`Processing ${pendingRadOrders.length} queued medical radiology orders...`);
       for (const order of pendingRadOrders) {
         if (!order.id) continue;
         await db.queuedRadiologyOrders.update(order.id, { status: 'syncing', attempts: order.attempts + 1, lastAttempt: new Date() });
@@ -973,9 +974,9 @@ export const offlineService = {
           const { error } = await supabase.from('hims_radiology_orders').insert(order.payload);
           if (error) throw error;
           await db.queuedRadiologyOrders.delete(order.id);
-          console.log(`Radiology order batch ${order.id} synced successfully.`);
+          logger.log(`Radiology order batch ${order.id} synced successfully.`);
         } catch (error: any) {
-          console.error(`Failed to sync radiology order batch ${order.id}:`, error);
+          logger.error(`Failed to sync radiology order batch ${order.id}:`, error);
           await db.queuedRadiologyOrders.update(order.id, { status: 'failed', error: error.message });
         }
       }
@@ -1016,10 +1017,10 @@ export const offlineService = {
           warehouse_stock: null,
         }));
         await db.products.bulkPut(toCache);
-        console.log(`Seeded ${toCache.length} fallback products into IndexedDB for offline POS.`);
+        logger.log(`Seeded ${toCache.length} fallback products into IndexedDB for offline POS.`);
       }
     } catch (e) {
-      console.warn('Failed to seed fallback products:', e);
+      logger.warn('Failed to seed fallback products:', e);
     }
   }
 };

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { logger } from '../../utils/logger';
 import { supabase } from '../../supabaseClient';
 import { 
   FileText, Search, Printer, Loader2, RotateCcw, AlertTriangle, 
@@ -227,7 +228,7 @@ export const PurchaseInvoiceList = () => {
       }
 
     } catch (err: any) {
-      console.error('Error fetching purchase invoices:', err);
+      logger.error('Error fetching purchase invoices:', err);
       showToast('فشل تحميل سجل فواتير المشتريات: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -265,7 +266,7 @@ export const PurchaseInvoiceList = () => {
       });
       fetchInvoices();
     } catch (err: any) {
-      console.error('Error approving purchase invoice:', err);
+      logger.error('Error approving purchase invoice:', err);
       showToast('فشل ترحيل فاتورة المشتريات: ' + (err?.message || 'حدث خطأ أثناء الترحيل'), 'error');
     }
   };
@@ -307,7 +308,7 @@ export const PurchaseInvoiceList = () => {
         fetchInvoices();
         return;
       } catch (rpcErr: any) {
-        console.warn('Atomic unpost RPC unavailable, attempting client fallback:', rpcErr);
+        logger.warn('Atomic unpost RPC unavailable, attempting client fallback:', rpcErr);
       }
 
       // جلب عناصر الفاتورة عند الطلب فقط لعكس حركة المخزون (Fallback)
@@ -361,7 +362,7 @@ export const PurchaseInvoiceList = () => {
       fetchInvoices();
 
     } catch (err: any) {
-      console.error('Error unposting purchase invoice:', err);
+      logger.error('Error unposting purchase invoice:', err);
       showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
     } finally {
       setDeletingId(null);
@@ -404,7 +405,7 @@ export const PurchaseInvoiceList = () => {
         fetchInvoices();
         return;
       } catch (rpcErr: any) {
-        console.warn('Atomic delete RPC unavailable, attempting client fallback:', rpcErr);
+        logger.warn('Atomic delete RPC unavailable, attempting client fallback:', rpcErr);
       }
 
       await supabase.from('purchase_invoice_items').delete().eq('purchase_invoice_id', invoice.id);
@@ -428,7 +429,7 @@ export const PurchaseInvoiceList = () => {
       fetchInvoices();
 
     } catch (err: any) {
-      console.error('Error deleting purchase invoice:', err);
+      logger.error('Error deleting purchase invoice:', err);
       showToast('فشل حذف الفاتورة: ' + err.message, 'error');
     } finally {
       setDeletingId(null);
@@ -469,7 +470,7 @@ export const PurchaseInvoiceList = () => {
       setIsPaymentModalOpen(false);
       fetchInvoices();
     } catch (err: any) {
-      console.error(err);
+      logger.error(err);
       showToast('حدث خطأ: ' + err.message, 'error');
     }
   };
@@ -508,7 +509,7 @@ export const PurchaseInvoiceList = () => {
         setInvoiceToPrint(null);
       }, 250);
     } catch (err: any) {
-      console.error('Error preparing print data:', err);
+      logger.error('Error preparing print data:', err);
       showToast('فشل تجهيز بيانات الطباعة: ' + err.message, 'error');
     }
   };
@@ -624,7 +625,7 @@ export const PurchaseInvoiceList = () => {
       XLSX.writeFile(wb, `سجل_فواتير_المشتريات_${new Date().toISOString().split('T')[0]}.xlsx`);
       showToast('تم تصدير سجل المشتريات إلى إكسيل بنجاح ✅', 'success');
     } catch (err: any) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل تصدير البيانات إلى إكسيل', 'error');
     }
   };

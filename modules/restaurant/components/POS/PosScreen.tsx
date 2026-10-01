@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { logger } from '../../../../utils/logger';
 import type { Key } from 'react';
 import { useToast } from '../../../../context/ToastContext';
 import { supabase } from '../../../../supabaseClient';
@@ -208,7 +209,7 @@ const PosScreen = () => {
             if (error) throw error;
             setOpenExternalOrders(data || []);
         } catch (err) {
-            console.error("Error fetching external orders:", err);
+            logger.error("Error fetching external orders:", err);
         }
     };
 
@@ -272,7 +273,7 @@ const PosScreen = () => {
         secureStorage.removeItem('tripro-customer-display-order');
       }
     } catch (e) {
-      console.error("Could not write to localStorage for customer display", e);
+      logger.error("Could not write to localStorage for customer display", e);
     }
   }, [activeOrder]);
 
@@ -327,7 +328,7 @@ const PosScreen = () => {
 
         return { orderId: order.id, items };
     } catch (error) {
-        console.error("Error fetching order by ID:", error);
+        logger.error("Error fetching order by ID:", error);
         return null;
     }
   };
@@ -693,7 +694,7 @@ const PosScreen = () => {
            notes: it.notes,
            selectedModifiers: it.selectedModifiers
          }))
-       }).catch(err => console.warn('Thermal printer dispatch notice:', err));
+       }).catch(err => logger.warn('Thermal printer dispatch notice:', err));
 
        // Optimistic UI Update
        setKitchenOrderToPrint({
@@ -714,7 +715,7 @@ const PosScreen = () => {
        });
  
       } catch (error: any) {
-        console.error('POS order send error:', error);
+        logger.error('POS order send error:', error);
         
         // 📴 المرونة في وضع عدم الاتصال (Offline Queue Fallback)
         try {
@@ -770,7 +771,7 @@ const PosScreen = () => {
             setActiveOrder(null);
             setIsMergeModalOpen(false);
           }
-      } catch (e) { console.error(e); }
+      } catch (e) { logger.error(e); }
     };
 
     const handleConfirmPayment = async (paidItems: OrderItem[], method: 'CASH' | 'CARD') => {
@@ -860,7 +861,7 @@ const PosScreen = () => {
                 orderTotal: total
               });
             } catch (lErr) {
-              console.warn('Loyalty points notice:', lErr);
+              logger.warn('Loyalty points notice:', lErr);
             }
           }
 
@@ -872,7 +873,7 @@ const PosScreen = () => {
                   showToast(`تم اعتماد الإيصال بمصلحة الضرائب (ETA): ${etaRes.uuid?.slice(0, 10)}... 🏛️`, 'info');
                 }
               })
-              .catch(eErr => console.warn('ETA submission notice:', eErr));
+              .catch(eErr => logger.warn('ETA submission notice:', eErr));
           }
 
           // 📲 إرسال الإيصال الإلكتروني عبر واتساب
@@ -893,7 +894,7 @@ const PosScreen = () => {
               };
               whatsappService.sendReceiptViaWhatsApp(activeOrder.customer.phone, receiptData);
             } catch (wErr) {
-              console.warn('WhatsApp receipt notice:', wErr);
+              logger.warn('WhatsApp receipt notice:', wErr);
             }
           }
 
@@ -1123,7 +1124,7 @@ const PosScreen = () => {
       // إخفاء من قائمة الطلبات الخارجية فوراً في حالة الدفع الآجل أيضاً
       setOpenExternalOrders(prev => prev.filter(o => o.id !== activeOrder.orderId));
     } catch (error: any) {
-      console.error(error);
+      logger.error(error);
       showToast('حدث خطأ أثناء تسجيل الدفع الآجل: ' + error.message, 'error');
     } finally {
       setIsSubmitting(false);

@@ -1,4 +1,5 @@
 import { supabase } from '../supabaseClient';
+import { logger } from '../utils/logger';
 
 export interface PaginatedBalanceResult<T> {
   data: T[];
@@ -119,7 +120,7 @@ export async function fetchCompleteDataset<T = Record<string, unknown>>(
   while (true) {
     const { data, error } = await buildQuery(currentStart, currentStart + CHUNK_SIZE - 1);
     if (error) {
-      console.error('[balanceService] Error fetching chunk:', error);
+      logger.error('[balanceService] Error fetching chunk:', error);
       break;
     }
     if (!data || data.length === 0) break;
@@ -162,7 +163,7 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
       return balances;
     }
   } catch (rpcEx) {
-    console.warn('[balanceService] Fast RPC failed, falling back to dataset calculation:', rpcEx);
+    logger.warn('[balanceService] Fast RPC failed, falling back to dataset calculation:', rpcEx);
   }
 
   // 2. الاحتياطي: التجميع بالمتصفح
@@ -530,7 +531,7 @@ export async function fetchSingleSupplierBalance(
 
     return Math.round(finalBalance * 100) / 100;
   } catch (err) {
-    console.warn('[balanceService] fetchSingleSupplierBalance calculation error, falling back:', err);
+    logger.warn('[balanceService] fetchSingleSupplierBalance calculation error, falling back:', err);
     const balances = await fetchAllSupplierBalances(orgId);
     return balances.get(supplierId) || 0;
   }
@@ -563,7 +564,7 @@ export async function fetchAllCustomerBalances(orgId: string): Promise<Map<strin
       return balances;
     }
   } catch (rpcEx) {
-    console.warn('[balanceService] Fast customer RPC failed, falling back to dataset calculation:', rpcEx);
+    logger.warn('[balanceService] Fast customer RPC failed, falling back to dataset calculation:', rpcEx);
   }
 
   // 2. الاحتياطي: التجميع بالمتصفح
@@ -635,7 +636,7 @@ export async function fetchPaginatedSupplierBalances(
       };
     }
   } catch (err) {
-    console.warn('[balanceService] Error in fetchPaginatedSupplierBalances:', err);
+    logger.warn('[balanceService] Error in fetchPaginatedSupplierBalances:', err);
   }
 
   return { data: [], totalCount: 0 };
@@ -670,7 +671,7 @@ export async function fetchPaginatedCustomerBalances(
       };
     }
   } catch (err) {
-    console.warn('[balanceService] Error in fetchPaginatedCustomerBalances:', err);
+    logger.warn('[balanceService] Error in fetchPaginatedCustomerBalances:', err);
   }
 
   return { data: [], totalCount: 0 };
@@ -698,7 +699,7 @@ export async function fetchCustomerAgingLedger(orgId: string): Promise<AgingLedg
       }));
     }
   } catch (err) {
-    console.warn('[balanceService] Error in fetchCustomerAgingLedger:', err);
+    logger.warn('[balanceService] Error in fetchCustomerAgingLedger:', err);
   }
   return [];
 }
@@ -725,7 +726,7 @@ export async function fetchSupplierAgingLedger(orgId: string): Promise<AgingLedg
       }));
     }
   } catch (err) {
-    console.warn('[balanceService] Error in fetchSupplierAgingLedger:', err);
+    logger.warn('[balanceService] Error in fetchSupplierAgingLedger:', err);
   }
   return [];
 }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { logger } from '../../utils/logger';
 import { useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -167,7 +168,7 @@ export default function MobileApp() {
         pendingPOsCount: pos?.length || 0
       });
     } catch (err) {
-      console.error('Mobile Dashboard Load Error:', err);
+      logger.error('Mobile Dashboard Load Error:', err);
     } finally {
       setLoadingStats(false);
     }
@@ -243,7 +244,7 @@ export default function MobileApp() {
       setCameraActive(true);
       scanFrame();
     } catch (err: any) {
-      console.error('Camera access error:', err);
+      logger.error('Camera access error:', err);
       setCameraError('تعذر تشغيل الكاميرا. يرجى منح الإذن أو إدخال الباركود يدوياً.');
       setCameraActive(false);
     }
@@ -301,7 +302,7 @@ export default function MobileApp() {
         return;
       }
     } catch (dexErr) {
-      console.warn('Local dexie search failed:', dexErr);
+      logger.warn('Local dexie search failed:', dexErr);
     }
 
     // 2. Try Supabase if online
@@ -322,7 +323,7 @@ export default function MobileApp() {
           return;
         }
       } catch (supErr) {
-        console.warn('Online product search error:', supErr);
+        logger.warn('Online product search error:', supErr);
       }
     }
 
@@ -549,7 +550,7 @@ export default function MobileApp() {
         }
       }
     } catch (e) {
-      console.warn('Catalog load warning:', e);
+      logger.warn('Catalog load warning:', e);
     } finally {
       setLoadingCatalog(false);
     }
@@ -794,13 +795,13 @@ export default function MobileApp() {
                   }
                 }
               } catch (autoFixErr) {
-                console.warn('Auto-repair cash entry warning:', autoFixErr);
+                logger.warn('Auto-repair cash entry warning:', autoFixErr);
               }
             }
 
             showToast(`تم حفظ وترحيل الفاتورة #${invoiceNumber} وتوليد القيد المحاسبي بالخزينة بنجاح ✅`, 'success');
           } else {
-            console.warn('post_sales_invoice notice:', postErr);
+            logger.warn('post_sales_invoice notice:', postErr);
             const errMsg = postErr.message || '';
             if (errMsg.includes('عجز مخزون') || errMsg.includes('الرصيد')) {
               showToast(`⚠️ حُفظت الفاتورة كمسودة: ${errMsg} (يلزم تحويل بضاعة للمخزن أو تفعيل البيع بالسالب)`, 'warning');
@@ -809,7 +810,7 @@ export default function MobileApp() {
             }
           }
         } catch (postEx: any) {
-          console.warn('post_sales_invoice exception:', postEx);
+          logger.warn('post_sales_invoice exception:', postEx);
           showToast(`تم حفظ الفاتورة #${invoiceNumber} كمسودة`, 'info');
         }
 

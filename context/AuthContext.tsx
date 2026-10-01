@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { logger } from '../utils/logger';
 import { supabase } from '../services/supabaseClient';
 import { User, UserRole } from '../types';
 import { User as SupabaseUser } from '@supabase/supabase-js';
@@ -73,7 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       if (error) {
         if (process.env.NODE_ENV === 'development') {
-          console.error('Error fetching profiles:', error);
+          logger.error('Error fetching profiles:', error);
         }
         return;
       }
@@ -102,7 +103,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
-        console.error("Error fetching users:", error);
+        logger.error("Error fetching users:", error);
       }
       // Fail silently in production
     }
@@ -129,7 +130,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       keysToRemove.forEach(k => localStorage.removeItem(k));
     } catch (e) {
-      console.warn('localStorage cleanup error:', e);
+      logger.warn('localStorage cleanup error:', e);
     }
 
     try {
@@ -151,7 +152,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     if (isTokenError) {
       if (process.env.NODE_ENV === 'development') {
-        console.warn("TriPro-ERP Safety: اكتشاف جلسة تالفة، يتم تنظيف البيانات وإعادة التوجيه...");
+        logger.warn("TriPro-ERP Safety: اكتشاف جلسة تالفة، يتم تنظيف البيانات وإعادة التوجيه...");
       }
 
       // 1. مسح شامل لكافة التوكنات والجلسات من الذاكرة المحلية والجلسة
@@ -221,7 +222,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         // تحسين أمان SaaS: منع الدخول إذا لم تكن المنظمة موجودة (إلا للديمو والمسؤول العام)
         if (roleName !== 'super_admin' && roleName !== 'demo' && !profile?.organization_id && !user.user_metadata?.org_id && user.email !== 'admin') {
-            if (process.env.NODE_ENV === 'development') console.error("Critical Security: User has no assigned organization_id");
+            if (process.env.NODE_ENV === 'development') logger.error("Critical Security: User has no assigned organization_id");
             setAuthInitialized(true);
             setIsLoading(false);
             return;
@@ -311,7 +312,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             } else {
               // 🛡️ الأمان الافتراضي: منع الصلاحيات الشاملة لمن ليس له دور محدد (Deny by default)
               if (process.env.NODE_ENV === 'development') {
-                  console.warn(`[Security] User ${user.id} has no role_id assigned. Restricting to read-only permissions.`);
+                  logger.warn(`[Security] User ${user.id} has no role_id assigned. Restricting to read-only permissions.`);
               }
               setUserPermissions(new Set(['*.view', '*.read', '*.list']));
             }
@@ -319,7 +320,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         await fetchUsers();
       } catch (error: unknown) {
-        if (process.env.NODE_ENV === 'development') console.error("Error handling auth change:", error);
+        if (process.env.NODE_ENV === 'development') logger.error("Error handling auth change:", error);
         setCurrentUser(null);
       }
     } else {
@@ -433,7 +434,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             return { success: false, message: 'كلمة المرور غير صحيحة في وضع عدم الاتصال' };
           }
         } catch (e) {
-          console.error('[Offline Auth] Hash verification failed:', e);
+          logger.error('[Offline Auth] Hash verification failed:', e);
           return { success: false, message: 'فشل التحقق من كلمة المرور في وضع عدم الاتصال' };
         }
       }
@@ -485,12 +486,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 return { success: true };
               }
             } catch (e) {
-              console.error('[Offline Auth] Hash verification failed:', e);
+              logger.error('[Offline Auth] Hash verification failed:', e);
             }
           }
           return { success: false, message: 'فشل الاتصال بالخادم. يُرجى الاتصال بالإنترنت والمحاولة مجدداً.' };
         }
-        console.error('Login error:', error);
+        logger.error('Login error:', error);
         return { success: false, message: error.message || 'بيانات الدخول غير صحيحة' };
       }
 
@@ -504,7 +505,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .map(b => b.toString(16).padStart(2, '0')).join('');
         secureStorage.setItem('tripro_offline_pw_hash', hashHex);
       } catch (hashErr) {
-        console.warn('[Auth] Could not cache offline password hash:', hashErr);
+        logger.warn('[Auth] Could not cache offline password hash:', hashErr);
       }
 
       return { success: true };
@@ -546,12 +547,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               return { success: true };
             }
           } catch (hashErr) {
-            console.warn('[Offline Auth] Hash verification failed:', hashErr);
+            logger.warn('[Offline Auth] Hash verification failed:', hashErr);
           }
         }
         return { success: false, message: 'فشل الاتصال بالخادم. يُرجى الاتصال بالإنترنت والمحاولة مجدداً.' };
       }
-      console.error('Login exception:', error);
+      logger.error('Login exception:', error);
       return { success: false, message: error?.message || 'حدث خطأ في الاتصال بنظام تسجيل الدخول' };
     }
   };
@@ -582,7 +583,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           })
         );
       } catch (e) {
-        console.warn('Cache clearing warning:', e);
+        logger.warn('Cache clearing warning:', e);
       }
     }
 
@@ -603,7 +604,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       try {
         await supabase.functions.invoke('reset-demo');
       } catch (error) {
-        console.error('Failed to reset demo data:', error);
+        logger.error('Failed to reset demo data:', error);
       }
     }
 

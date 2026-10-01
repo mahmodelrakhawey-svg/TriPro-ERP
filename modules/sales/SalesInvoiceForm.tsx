@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { logger } from '../../utils/logger';
 import { useAccounting } from '../../context/AccountingContext';
 import { 
     Plus, Trash2, Save, User, Calendar, ShoppingCart, Warehouse,
@@ -103,7 +104,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     // 🛡️ استخدام RPC هو الحل الوحيد لتجنب خطأ 406 في جميع الشاشات المالية
     supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
       if (error) { // Use handleError for consistency
-        console.error("فشل جلب إعدادات الشركة عبر RPC:", error);
+        logger.error("فشل جلب إعدادات الشركة عبر RPC:", error);
         showToast('تعذر تحميل إعدادات الشركة، قد تظهر بعض البيانات بشكل غير صحيح', 'warning');
       } else {
         setCompanySettings(data);
@@ -297,7 +298,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           }
 
           if (!targetAccountId) {
-              console.error("Customer A/R account not found for balance calculation.");
+              logger.error("Customer A/R account not found for balance calculation.");
               setCustomerBalance(0);
               return;
           }
@@ -420,7 +421,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               }, 500);
           }
       } catch (error: any) {
-          console.error("Error calculating customer balance:", error);
+          logger.error("Error calculating customer balance:", error);
           handleError(error, { showNotification: showToast, context: { customerId: formData.customerId } });
       }
   };
@@ -453,7 +454,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       const ids = (data || []).map(inv => inv.id);
       setInvoiceIds(ids);
     } catch (err) {
-      console.error('Error fetching invoice IDs:', err);
+      logger.error('Error fetching invoice IDs:', err);
     }
   };
 
@@ -528,7 +529,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       if (idx !== -1) setCurrentIndex(idx);
 
     } catch (err: any) {
-      console.error('Error loading invoice:', err);
+      logger.error('Error loading invoice:', err);
       showToast('فشل تحميل الفاتورة: ' + err.message, 'error');
     } finally {
       setLoadingInvoice(false);
@@ -614,7 +615,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           }
         }
       } catch (e) {
-        console.warn('Failed to parse sales draft from secureStorage', e);
+        logger.warn('Failed to parse sales draft from secureStorage', e);
       }
     }
   }, []);
@@ -708,7 +709,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         showToast('تم إلغاء ترحيل الفاتورة بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
         return;
       } catch (rpcErr) {
-        console.warn('Atomic unpost RPC unavailable or failed, attempting client fallback:', rpcErr);
+        logger.warn('Atomic unpost RPC unavailable or failed, attempting client fallback:', rpcErr);
       }
 
       // 1. جلب بيانات الفاتورة والأصناف
@@ -773,7 +774,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       showToast('تم إلغاء ترحيل الفاتورة بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
 
     } catch (err: any) {
-      console.error('Error unposting sales invoice:', err);
+      logger.error('Error unposting sales invoice:', err);
       showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
     } finally {
       setSaving(false);
@@ -827,7 +828,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         }
         return;
       } catch (rpcErr) {
-        console.warn('Atomic delete RPC unavailable, attempting client fallback:', rpcErr);
+        logger.warn('Atomic delete RPC unavailable, attempting client fallback:', rpcErr);
       }
 
       await supabase.from('invoice_items').delete().eq('invoice_id', editingId);
@@ -860,7 +861,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       }
 
     } catch (err: any) {
-      console.error('Error deleting sales invoice:', err);
+      logger.error('Error deleting sales invoice:', err);
       showToast('فشل حذف الفاتورة: ' + err.message, 'error');
     } finally {
       setDeleting(false);
@@ -1174,7 +1175,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               setNewCustomerOpeningBalance('');
               setIsCustomerModalOpen(false);
           } catch (err: any) { 
-              console.error('Error creating customer:', err);
+              logger.error('Error creating customer:', err);
               showToast(err?.message || 'فشل إنشاء العميل', 'error');
           }
       }
@@ -1215,7 +1216,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               setIsEditCustomerModalOpen(false);
               showToast('تم تحديث بيانات العميل بنجاح', 'success');
           } catch (err: any) {
-              console.error('Error updating customer:', err);
+              logger.error('Error updating customer:', err);
               showToast(err?.message || 'فشل تحديث العميل', 'error');
           }
       }
@@ -1486,7 +1487,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                 await approveInvoice(invoiceId, userOrgId, finalWarehouseId);
                 showToast('تم تحديث الفاتورة والقيود المحاسبية بنجاح ✅', 'success');
             } catch (postErr: any) {
-                console.error("Error approving sales invoice:", postErr);
+                logger.error("Error approving sales invoice:", postErr);
                 showToast('تم حفظ الفاتورة ولكن تعذر ترحيل القيود تلقائياً: ' + (postErr.message || ''), 'warning');
             }
         } else {
@@ -1497,7 +1498,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
             try {
                 await supabase.from('quotations').update({ status: 'converted' }).eq('id', convertedQuotationId);
             } catch (qErr: any) {
-                console.error("Error updating quotation status:", qErr);
+                logger.error("Error updating quotation status:", qErr);
                 showToast('تم حفظ الفاتورة ولكن تعذر تحديث حالة عرض السعر: ' + (qErr?.message || ''), 'warning');
             }
         }
@@ -1552,7 +1553,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         if(barcodeInputRef.current) barcodeInputRef.current.focus();
 
     } catch (err: any) {
-        console.error("فشل حفظ الفاتورة", err);
+        logger.error("فشل حفظ الفاتورة", err);
         handleError(err, { showNotification: showToast, context: { operation: 'حفظ الفاتورة' } });
     } finally {
         setSaving(false);
@@ -1716,7 +1717,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
             try {
                 await supabase.from('quotations').update({ status: 'posted' }).eq('id', convertedQuotationId);
             } catch (qErr: any) {
-                console.error("Error updating quotation status:", qErr);
+                logger.error("Error updating quotation status:", qErr);
                 showToast('تم ترحيل الفاتورة ولكن تعذر تحديث حالة عرض السعر: ' + (qErr?.message || ''), 'warning');
             }
         }
@@ -1733,7 +1734,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         if(barcodeInputRef.current) barcodeInputRef.current.focus();
 
     } catch (err: any) {
-        console.error("فشل الحفظ والترحيل", err);
+        logger.error("فشل الحفظ والترحيل", err);
         handleError(err, { showNotification: showToast, context: { operation: 'حفظ وترحيل الفاتورة' } });
     } finally {
         setSaving(false);

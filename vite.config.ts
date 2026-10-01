@@ -26,6 +26,9 @@ export default defineConfig(({ mode }) => {
           '@': path.resolve(__dirname, '.'),
         }
       },
+      esbuild: {
+        drop: mode === 'production' ? ['console', 'debugger'] : [],
+      },
       build: {
         // vendor-ui (antd + rc + ant-icons) = ~1,561 KB unminified. This is a single merged
         // chunk intentionally designed to avoid circular dependency warnings from Rollup.

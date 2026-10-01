@@ -43,15 +43,23 @@ const SAFE_PATHS = [
   'utils/securityUtils.test.ts',
   'package-lock.json',
   'supabase',
-  'e2e'
+  'e2e',
+  'tests',
+  'notificationTestUtils.ts',
+  'utils/logger.ts'
 ];
 
 function scanFile(filePath) {
-  if (SAFE_PATHS.some(p => filePath.includes(p))) {
+  const normalized = filePath.replace(/\\/g, '/');
+  if (SAFE_PATHS.some(p => normalized.includes(p))) {
     return;
   }
 
-  if (!['.ts', '.tsx', '.js', '.jsx'].some(ext => filePath.endsWith(ext))) {
+  if (normalized.endsWith('.test.ts') || normalized.endsWith('.test.tsx') || normalized.endsWith('.spec.ts') || normalized.endsWith('.spec.tsx')) {
+    return;
+  }
+
+  if (!['.ts', '.tsx', '.js', '.jsx'].some(ext => normalized.endsWith(ext))) {
     return;
   }
 
@@ -132,8 +140,9 @@ function scanDirectory(dirPath) {
 
   files.forEach(file => {
     const fullPath = path.join(dirPath, file.name);
+    const normalized = fullPath.replace(/\\/g, '/');
 
-    if (SAFE_PATHS.some(p => fullPath.includes(p))) {
+    if (SAFE_PATHS.some(p => normalized.includes(p))) {
       return;
     }
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { logger } from '../../../../utils/logger';
 import { useToast } from '../../../../context/ToastContext';
 import { supabase } from '../../../../supabaseClient';
 import { useAccounting, DEFAULT_OFFLINE_PRODUCTS } from '../../../../context/AccountingContext';
@@ -337,7 +338,7 @@ export default function RetailPosScreen() {
       oscillator.start();
       oscillator.stop(audioCtx.currentTime + 0.1);
     } catch (e) {
-      console.warn('Audio context blocked or unsupported');
+      logger.warn('Audio context blocked or unsupported');
     }
   };
 
@@ -633,7 +634,7 @@ export default function RetailPosScreen() {
             termData = [insertedTerm];
           }
         } catch (seedErr) {
-          console.warn('Could not auto-create pos_terminal in database:', seedErr);
+          logger.warn('Could not auto-create pos_terminal in database:', seedErr);
         }
       }
 
@@ -723,7 +724,7 @@ export default function RetailPosScreen() {
         setSelectedTerminal(termData[0]);
       }
     } catch (err) {
-      console.error('Error in setup:', err);
+      logger.error('Error in setup:', err);
     } finally {
       setIsLoadingTerminals(false);
     }
@@ -784,7 +785,7 @@ export default function RetailPosScreen() {
           return;
         }
       } catch (checkErr) {
-        console.warn('Check existing shift failed:', checkErr);
+        logger.warn('Check existing shift failed:', checkErr);
       }
 
       // Resolve treasury account linked to terminal or fetch default
@@ -824,7 +825,7 @@ export default function RetailPosScreen() {
         newShift = res6.data;
       } else {
         rpcError = res6.error;
-        console.warn('start_pos_shift (6 params) error:', res6.error);
+        logger.warn('start_pos_shift (6 params) error:', res6.error);
 
         // المحاولة الثانية: إذا كان الخطأ بسبب عدم تطابق التوقيع أو تداخل الدوال (PGRST202 / PGRST203)
         if (res6.error?.code === 'PGRST202' || res6.error?.code === 'PGRST203' || res6.error?.code === '42883' || res6.error?.message?.includes('candidate') || res6.error?.message?.includes('function')) {
@@ -841,7 +842,7 @@ export default function RetailPosScreen() {
             rpcError = null;
           } else {
             rpcError = res5.error;
-            console.warn('start_pos_shift (5 params) error:', res5.error);
+            logger.warn('start_pos_shift (5 params) error:', res5.error);
 
             // المحاولة الثالثة: النمط الأساسي 4 معاملات
             const res4 = await supabase.rpc('start_pos_shift', {
@@ -856,7 +857,7 @@ export default function RetailPosScreen() {
               rpcError = null;
             } else {
               rpcError = res4.error;
-              console.warn('start_pos_shift (4 params) error:', res4.error);
+              logger.warn('start_pos_shift (4 params) error:', res4.error);
             }
           }
         }
@@ -901,7 +902,7 @@ export default function RetailPosScreen() {
         showToast('تم فتح الوردية بنجاح ✅', 'success');
       }
     } catch (err: any) {
-      console.error('handleOpenShift error:', err);
+      logger.error('handleOpenShift error:', err);
       // Fallback offline shift
       const termToUse = selectedTerminal || (terminals.length > 0 ? terminals[0] : null);
       const offlineShift = {
@@ -956,7 +957,7 @@ export default function RetailPosScreen() {
       setActualCash(calculatedExpectedCash);
       setIsCloseModalOpen(true);
     } catch (e) {
-      console.error(e);
+      logger.error(e);
       showToast('خطأ في جلب بيانات الإغلاق', 'error');
     }
   };
@@ -1037,7 +1038,7 @@ export default function RetailPosScreen() {
         showToast(`لم يتم العثور على صنف بالرمز: ${cleanCode || rawCode}`, 'error');
       }
     } catch (err) {
-      console.error('Barcode resolution error:', err);
+      logger.error('Barcode resolution error:', err);
     }
   };
 
@@ -1360,10 +1361,10 @@ export default function RetailPosScreen() {
               custodian_name: payoutType === 'CUSTODIAN' ? receiver : null,
             });
             if (dropErr) {
-              console.warn('Could not persist cash drop to pos_petty_cash_payouts:', dropErr);
+              logger.warn('Could not persist cash drop to pos_petty_cash_payouts:', dropErr);
             }
           } catch (dropErr) {
-            console.warn('Could not persist cash drop to pos_petty_cash_payouts:', dropErr);
+            logger.warn('Could not persist cash drop to pos_petty_cash_payouts:', dropErr);
           }
 
           if (activeShift) {

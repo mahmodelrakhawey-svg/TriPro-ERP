@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { logger } from '../../utils/logger';
 import { supabase } from '../../supabaseClient';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
@@ -190,12 +191,12 @@ export default function AccountingDashboard() {
           String(e.transaction_date || e.date || e.created_at || '').startsWith(String(selectedYear))
       );
       // Debugging: Check filtered entries
-      // console.log('Filtered yearEntries for', selectedYear, ':', yearEntries);
+      // logger.log('Filtered yearEntries for', selectedYear, ':', yearEntries);
 
       yearEntries.forEach(entry => {
           const dateValue = entry.transaction_date || entry.date;
           // Debugging: Check date value
-          // console.log(`Processing entry ${entry.id}: dateValue=${dateValue}`);
+          // logger.log(`Processing entry ${entry.id}: dateValue=${dateValue}`);
           if (!dateValue) return;
           const date = new Date(dateValue);
           if (isNaN(date.getTime())) return;
@@ -219,7 +220,7 @@ export default function AccountingDashboard() {
                   if (amount !== 0) {
                       revenueMap[account.name] = (revenueMap[account.name] || 0) + amount;
                   }
-                  // console.log(`    -> Revenue detected: ${account.name}, Amount: ${amount}`);
+                  // logger.log(`    -> Revenue detected: ${account.name}, Amount: ${amount}`);
               } 
               else if (type.includes('expense') || type.includes('مصروف') || type.includes('cost') || code.startsWith('5')) {
                   const amount = debit - credit;
@@ -230,7 +231,7 @@ export default function AccountingDashboard() {
                   if (amount > 0) {
                       expenseMap[accName] = (expenseMap[accName] || 0) + amount;
                   }
-                  // console.log(`    -> Expense detected: ${account.name}, Amount: ${amount}`);
+                  // logger.log(`    -> Expense detected: ${account.name}, Amount: ${amount}`);
               }
               // تتبع الضرائب (حسابات تبدأ بـ 223 أو تحتوي على كلمة ضريبة)
               if (code.startsWith('223') || String(account.name || '').includes('ضريبة') || String(account.name || '').toLowerCase().includes('tax')) {
@@ -402,7 +403,7 @@ export default function AccountingDashboard() {
               await supabase.from(table).delete().eq('organization_id', orgId);
           } catch (e: any) {
               // Log specific error for debugging, but continue with other tables
-              console.warn(`Table ${table} could not be cleared or does not exist: ${e?.message || e}`);
+              logger.warn(`Table ${table} could not be cleared or does not exist: ${e?.message || e}`);
           }
        }
 
@@ -429,7 +430,7 @@ export default function AccountingDashboard() {
           try {
               await supabase.from(table).delete().eq('organization_id', orgId);
           } catch (e) {
-              console.warn(`Table ${table} could not be cleared or does not exist`);
+              logger.warn(`Table ${table} could not be cleared or does not exist`);
           }
        }
 
@@ -453,7 +454,7 @@ export default function AccountingDashboard() {
           showToast('تم تصفير جميع العمليات والقيود والأرصدة بنجاح.', 'success');
           window.location.reload();
       } catch (e: any) {
-          console.error(e);
+          logger.error(e);
           showToast('حدث خطأ أثناء تصفير العمليات: ' + e.message, 'error');
       } finally {
           setLoading(false);
@@ -503,7 +504,7 @@ export default function AccountingDashboard() {
           showToast('تم تصفير البيانات الأساسية بنجاح.', 'success');
           window.location.reload();
       } catch (e: any) {
-          console.error(e);
+          logger.error(e);
           showToast('حدث خطأ (ربما توجد عمليات مرتبطة): ' + e.message, 'error');
       } finally {
           setLoading(false);
@@ -532,7 +533,7 @@ export default function AccountingDashboard() {
           }
           showToast('تم تفريغ سلة المحذوفات بنجاح.', 'success');
       } catch (e: any) {
-          console.error(e);
+          logger.error(e);
           showToast('حدث خطأ: ' + e.message, 'error');
       } finally {
           setLoading(false);

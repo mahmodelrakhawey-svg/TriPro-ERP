@@ -12,6 +12,7 @@
  */
 
 import { supabase } from '../supabaseClient';
+import { logger } from '../utils/logger';
 import { AccountingEngine } from './accountingEngine';
 import { secureStorage } from '../utils/securityMiddleware';
 
@@ -555,7 +556,7 @@ class ButcheringYieldService {
         return stored;
       }
     } catch (e) {
-      console.warn('Error reading local templates:', e);
+      logger.warn('Error reading local templates:', e);
     }
     return DEFAULT_BUTCHERING_TEMPLATES;
   }
@@ -616,7 +617,7 @@ class ButcheringYieldService {
         if (itemsError && !this.isTableMissingError(itemsError)) throw itemsError;
       }
     } catch (e) {
-      console.warn('Database error while saving template, saving to local storage:', e);
+      logger.warn('Database error while saving template, saving to local storage:', e);
     }
 
     // حفظ في التخزين المحلي دائماً لضمان عدم الضياع
@@ -626,7 +627,7 @@ class ButcheringYieldService {
       const filtered = local.filter(t => t.id !== templateId && t.name !== savedTemplate.name);
       secureStorage.setItem(LOCAL_STORAGE_TEMPLATES_KEY(organizationId), [savedTemplate, ...filtered]);
     } catch (e) {
-      console.error('Failed to save template to secureStorage:', e);
+      logger.error('Failed to save template to secureStorage:', e);
     }
 
     return savedTemplate;
@@ -653,7 +654,7 @@ class ButcheringYieldService {
 
       const { data, error } = await query;
       if (error) {
-        console.warn('Notice loading orders from database, using fallback:', error.message);
+        logger.warn('Notice loading orders from database, using fallback:', error.message);
         return this.getLocalOrders(organizationId);
       }
 
@@ -675,7 +676,7 @@ class ButcheringYieldService {
             });
           }
         } catch (pe) {
-          console.warn('Could not map product names:', pe);
+          logger.warn('Could not map product names:', pe);
         }
       }
 
@@ -706,7 +707,7 @@ class ButcheringYieldService {
         return stored;
       }
     } catch (e) {
-      console.warn('Error reading local orders:', e);
+      logger.warn('Error reading local orders:', e);
     }
     return [];
   }
@@ -798,14 +799,14 @@ class ButcheringYieldService {
           orderErr = res.error;
           // إذا كان الخطأ بسبب تكرار رقم الأمر (unique violation code 23505) نولد رقماً جديداً ونحاول مجدداً
           if (res.error?.code === '23505' || res.error?.message?.includes('duplicate key') || res.error?.message?.includes('violates unique constraint')) {
-            console.warn(`⚠️ تكرار في رقم أمر التشفية (${activeOrderNumber})، جاري توليد رقم فريد جديد وإعادة المحاولة...`);
+            logger.warn(`⚠️ تكرار في رقم أمر التشفية (${activeOrderNumber})، جاري توليد رقم فريد جديد وإعادة المحاولة...`);
             activeOrderNumber = generateButcheringOrderNumber();
             continue;
           } else {
             break;
           }
         } catch (dbErr: any) {
-          console.error('❌ butchering_orders insert exception:', dbErr);
+          logger.error('❌ butchering_orders insert exception:', dbErr);
           break;
         }
       }
@@ -830,12 +831,12 @@ class ButcheringYieldService {
         }));
 
         const { error: itemsErr } = await supabase.from('butchering_order_items').insert(itemsToInsert);
-        if (itemsErr) console.error('❌ butchering_order_items insert error:', itemsErr.message, itemsErr.details, itemsErr.hint);
+        if (itemsErr) logger.error('❌ butchering_order_items insert error:', itemsErr.message, itemsErr.details, itemsErr.hint);
 
       } else if (orderErr) {
-        console.error('❌ butchering_orders POST error — message:', orderErr.message);
-        console.error('❌ butchering_orders POST error — details:', orderErr.details);
-        console.error('❌ butchering_orders POST error — code:', orderErr.code);
+        logger.error('❌ butchering_orders POST error — message:', orderErr.message);
+        logger.error('❌ butchering_orders POST error — details:', orderErr.details);
+        logger.error('❌ butchering_orders POST error — code:', orderErr.code);
       }
 
       // 2. حفظ في التخزين الآمن لضمان وجود السجل فوراً حتى بدون سوبابايز
@@ -850,7 +851,7 @@ class ButcheringYieldService {
         const localOrders = this.getLocalOrders(params.organizationId);
         secureStorage.setItem(LOCAL_STORAGE_ORDERS_KEY(params.organizationId), [fullOrderRecord, ...localOrders]);
       } catch (e) {
-        console.error('Error saving order to secureStorage:', e);
+        logger.error('Error saving order to secureStorage:', e);
       }
 
       // 3. التأثير المخزني الفعلي (تحديث الأرصدة وإدراج تسويات المخزون الرسمية)
@@ -980,7 +981,7 @@ class ButcheringYieldService {
           }
         }
       } catch (adjExc) {
-        console.warn('Stock adjustment creation notice:', adjExc);
+        logger.warn('Stock adjustment creation notice:', adjExc);
       }
 
       // ب) التحديث المباشر لأرصدة جدول products لضمان انعكاس الكميات فوراً
@@ -1078,7 +1079,7 @@ class ButcheringYieldService {
           }
         }
       } catch (pUpdateErr) {
-        console.warn('Direct product quantities update notice:', pUpdateErr);
+        logger.warn('Direct product quantities update notice:', pUpdateErr);
       }
 
 
@@ -1181,7 +1182,7 @@ class ButcheringYieldService {
                   .eq('id', orderId);
               }
             } catch (jErr: any) {
-              console.warn('Journal entry creation notice:', jErr);
+              logger.warn('Journal entry creation notice:', jErr);
               journalError = jErr.message || 'خطأ أثناء ترحيل قيد اليومية';
             }
           }
@@ -1198,7 +1199,7 @@ class ButcheringYieldService {
         addedItemsCount
       };
     } catch (err: any) {
-      console.error('Error creating butchering order:', err);
+      logger.error('Error creating butchering order:', err);
       return {
         success: false,
         orderId: '',
@@ -1216,14 +1217,14 @@ class ButcheringYieldService {
         await supabase.from('butchering_orders').delete().eq('id', orderId);
       }
     } catch (e) {
-      console.warn('Database delete notice:', e);
+      logger.warn('Database delete notice:', e);
     }
 
     try {
       const local = this.getLocalOrders(organizationId).filter(o => o.id !== orderId);
       secureStorage.setItem(LOCAL_STORAGE_ORDERS_KEY(organizationId), local);
     } catch (e) {
-      console.error('Error deleting from secureStorage:', e);
+      logger.error('Error deleting from secureStorage:', e);
     }
   }
 }

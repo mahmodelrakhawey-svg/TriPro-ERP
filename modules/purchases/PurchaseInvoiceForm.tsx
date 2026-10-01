@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { logger } from '../../utils/logger';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { 
@@ -87,7 +88,7 @@ const PurchaseInvoiceForm = () => {
       const ids = (data || []).map(inv => inv.id);
       setInvoiceIds(ids);
     } catch (err) {
-      console.error('Error fetching purchase invoice IDs:', err);
+      logger.error('Error fetching purchase invoice IDs:', err);
     }
   };
 
@@ -221,7 +222,7 @@ const PurchaseInvoiceForm = () => {
           }
         }
       } catch (attErr) {
-        console.warn('Non-blocking attachments fetch:', attErr);
+        logger.warn('Non-blocking attachments fetch:', attErr);
       }
       setAttachments(loadedAtts);
 
@@ -229,7 +230,7 @@ const PurchaseInvoiceForm = () => {
       if (idx !== -1) setCurrentIndex(idx);
 
     } catch (err: any) {
-      console.error('Error loading purchase invoice:', err);
+      logger.error('Error loading purchase invoice:', err);
       showToast('فشل تحميل الفاتورة: ' + err.message, 'error');
     } finally {
       setLoadingInvoice(false);
@@ -302,7 +303,7 @@ const PurchaseInvoiceForm = () => {
           }
         }
       } catch (e) {
-        console.warn('Failed to parse purchase draft from secureStorage', e);
+        logger.warn('Failed to parse purchase draft from secureStorage', e);
       }
     }
   }, []);
@@ -891,11 +892,11 @@ const PurchaseInvoiceForm = () => {
                   }).select('id').maybeSingle();
                   if (dbAtt?.id) item.id = dbAtt.id;
                 } catch (dbAttErr) {
-                  console.warn('Non-blocking db attachment insert:', dbAttErr);
+                  logger.warn('Non-blocking db attachment insert:', dbAttErr);
                 }
               }
             } catch (attErr) {
-              console.warn('Error uploading pending attachment:', attErr);
+              logger.warn('Error uploading pending attachment:', attErr);
             }
           }
         }
@@ -949,7 +950,7 @@ const PurchaseInvoiceForm = () => {
       }
 
     } catch (error: any) {
-      console.error(error);
+      logger.error(error);
       showToast('فشل حفظ الفاتورة: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -993,7 +994,7 @@ const PurchaseInvoiceForm = () => {
         showToast('تم إلغاء ترحيل فاتورة المشتريات بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
         return;
       } catch (rpcErr) {
-        console.warn('Atomic unpost RPC unavailable, attempting client fallback:', rpcErr);
+        logger.warn('Atomic unpost RPC unavailable, attempting client fallback:', rpcErr);
       }
 
       // Fallback
@@ -1041,7 +1042,7 @@ const PurchaseInvoiceForm = () => {
       showToast('تم إلغاء ترحيل فاتورة المشتريات بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
 
     } catch (err: any) {
-      console.error('Error unposting purchase invoice:', err);
+      logger.error('Error unposting purchase invoice:', err);
       showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
     } finally {
       setSaving(false);
@@ -1095,7 +1096,7 @@ const PurchaseInvoiceForm = () => {
         }
         return;
       } catch (rpcErr) {
-        console.warn('Atomic delete RPC unavailable, attempting client fallback:', rpcErr);
+        logger.warn('Atomic delete RPC unavailable, attempting client fallback:', rpcErr);
       }
 
       await supabase.from('purchase_invoice_items').delete().eq('purchase_invoice_id', editingId);
@@ -1128,7 +1129,7 @@ const PurchaseInvoiceForm = () => {
       }
 
     } catch (err: any) {
-      console.error('Error deleting purchase invoice:', err);
+      logger.error('Error deleting purchase invoice:', err);
       showToast('فشل حذف الفاتورة: ' + err.message, 'error');
     } finally {
       setDeleting(false);

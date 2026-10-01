@@ -3,6 +3,14 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 
+// 🛡️ حماية بيئة الإنتاج: كتم سجلات التطوير المزعجة في الإنتاج لحماية الخصوصية وزيادة السرعة
+if (process.env.NODE_ENV === 'production') {
+  const noop = () => {};
+  console.log = noop;
+  console.debug = noop;
+  console.info = noop;
+}
+
 // مكون صائد الأخطاء (Error Boundary) لمنع الشاشة البيضاء
 class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: any}> {
   constructor(props: {children: React.ReactNode}) {

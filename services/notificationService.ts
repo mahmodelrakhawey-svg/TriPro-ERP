@@ -6,6 +6,7 @@
 
 import { supabase } from '../supabaseClient';
 import { secureStorage } from '../utils/securityMiddleware';
+import { logger } from '../utils/logger';
 
 export type NotificationType = 
   | 'radiology_result_ready'
@@ -108,13 +109,13 @@ class NotificationService {
         .single();
 
       if (error) {
-        console.warn('Notice creating notification:', error.message);
+        logger.warn('Notice creating notification:', error.message);
         return null;
       }
 
       return data;
     } catch (err) {
-      console.warn('Notification creation notice:', err);
+      logger.warn('Notification creation notice:', err);
       return null;
     }
   }
@@ -134,13 +135,13 @@ class NotificationService {
         .limit(20);
 
       if (error) {
-        console.error('Error fetching notifications:', error);
+        logger.error('Error fetching notifications:', error);
         return [];
       }
 
       return data || [];
     } catch (err) {
-      console.error('Notification fetch error:', err);
+      logger.error('Notification fetch error:', err);
       return [];
     }
   }
@@ -169,13 +170,13 @@ class NotificationService {
         .range(offset, offset + limit - 1);
 
       if (error) {
-        console.error('Error fetching all notifications:', error);
+        logger.error('Error fetching all notifications:', error);
         return [];
       }
 
       return data || [];
     } catch (err) {
-      console.error('Error fetching all notifications:', err);
+      logger.error('Error fetching all notifications:', err);
       return [];
     }
   }
@@ -191,13 +192,13 @@ class NotificationService {
         .eq('id', notificationId);
 
       if (error) {
-        console.error('Error marking notification as read:', error);
+        logger.error('Error marking notification as read:', error);
         return false;
       }
 
       return true;
     } catch (err) {
-      console.error('Error marking as read:', err);
+      logger.error('Error marking as read:', err);
       return false;
     }
   }
@@ -220,13 +221,13 @@ class NotificationService {
         .eq('is_read', false);
 
       if (error) {
-        console.error('Error marking all as read:', error);
+        logger.error('Error marking all as read:', error);
         return false;
       }
 
       return true;
     } catch (err) {
-      console.error('Error marking all as read:', err);
+      logger.error('Error marking all as read:', err);
       return false;
     }
   }
@@ -242,13 +243,13 @@ class NotificationService {
         .eq('id', notificationId);
 
       if (error) {
-        console.error('Error deleting notification:', error);
+        logger.error('Error deleting notification:', error);
         return false;
       }
 
       return true;
     } catch (err) {
-      console.error('Error deleting notification:', err);
+      logger.error('Error deleting notification:', err);
       return false;
     }
   }
@@ -303,7 +304,7 @@ class NotificationService {
         }
       }
     } catch (err) {
-      console.error('Error checking overdue payments:', err);
+      logger.error('Error checking overdue payments:', err);
     }
   }
 
@@ -370,7 +371,7 @@ class NotificationService {
         }
       }
     } catch (err) {
-      console.error('Error checking low inventory:', err);
+      logger.error('Error checking low inventory:', err);
     }
   }
 
@@ -392,7 +393,7 @@ class NotificationService {
 
       if (error || !customers) {
           if (error && error.code !== '42703' && error.code !== 'PGRST202') {
-            console.warn('Notice in checkHighDebt:', error.message);
+            logger.warn('Notice in checkHighDebt:', error.message);
           }
           return;
       }
@@ -428,7 +429,7 @@ class NotificationService {
         }
       }
     } catch (err) {
-      console.error('Error checking high debt:', err);
+      logger.error('Error checking high debt:', err);
     }
   }
 
@@ -475,7 +476,7 @@ class NotificationService {
         }
       }
     } catch (err) {
-      console.error('Error checking pending approvals:', err);
+      logger.error('Error checking pending approvals:', err);
     }
   }
 
@@ -537,7 +538,7 @@ class NotificationService {
         }
       }
     } catch (err) {
-      console.error('Error checking upcoming due dates:', err);
+      logger.error('Error checking upcoming due dates:', err);
     }
   }
 
@@ -607,7 +608,7 @@ class NotificationService {
         }
       }
     } catch (err) {
-      console.error('Error checking retention releases:', err);
+      logger.error('Error checking retention releases:', err);
     }
   }
 
@@ -633,7 +634,7 @@ class NotificationService {
       if (error) {
         // إذا لم تكن الدالة مثبتة في قاعدة البيانات (مثل القواعد الأساسية بدون مديول المقاولات) يتم التجاوز بهدوء
         if (error.code !== 'PGRST202' && error.code !== '404') {
-          console.warn('Notice checking project performance thresholds:', error.message);
+          logger.warn('Notice checking project performance thresholds:', error.message);
         }
         return;
       }
@@ -664,7 +665,7 @@ class NotificationService {
         }
       }
     } catch (err) {
-      console.error('Error checking project performance thresholds:', err);
+      logger.error('Error checking project performance thresholds:', err);
     }
   }
 
@@ -724,7 +725,7 @@ class NotificationService {
         }
       }
     } catch (err) {
-      console.warn('Notice checking financial integrity pillars:', err);
+      logger.warn('Notice checking financial integrity pillars:', err);
     }
   }
 
@@ -733,7 +734,7 @@ class NotificationService {
    * يجب استدعاؤها بشكل دوري (مثلاً كل ساعة أو كل يوم)
    */
   static async runAllChecks(): Promise<void> {
-    console.log('🔔 Running periodic notification checks...');
+    logger.log('🔔 Running periodic notification checks...');
     try {
       // الوظائف الآن قادرة على جلب orgId بنفسها إذا لم يتم تمريره
       await Promise.all([
@@ -747,9 +748,9 @@ class NotificationService {
         this.checkDueRecurringInvoices(),         // 🔁 جديد: فحص وإصدار الفواتير الدورية والاشتراكات آلياً
         this.checkFinancialIntegrityPillars(),    // 🛡️ جديد: فحص سلامة الأركان المالية الأربعة
       ]);
-      console.log('✅ Notification checks completed');
+      logger.log('✅ Notification checks completed');
     } catch (err) {
-      console.error('Error running notification checks:', err);
+      logger.error('Error running notification checks:', err);
     }
   }
 
@@ -761,7 +762,7 @@ class NotificationService {
       const { RecurringInvoiceService } = await import('./recurringInvoiceService');
       await RecurringInvoiceService.processDueRecurringInvoices();
     } catch (err) {
-      console.error('Error checking and processing due recurring invoices:', err);
+      logger.error('Error checking and processing due recurring invoices:', err);
     }
   }
 
@@ -788,13 +789,13 @@ class NotificationService {
       const { data, error } = await query.limit(100);
 
       if (error) {
-        console.warn('Notice getting unread count:', error.message);
+        logger.warn('Notice getting unread count:', error.message);
         return 0;
       }
 
       return data?.length || 0;
     } catch (err) {
-      console.warn('Error getting unread count:', err);
+      logger.warn('Error getting unread count:', err);
       return 0;
     }
   }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { logger } from '../../utils/logger';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -110,7 +111,7 @@ const StockTransfer = () => {
         const { data } = await query;
         if (data) setSystemUoms(data);
       } catch (err) {
-        console.error('Error fetching system uoms:', err);
+        logger.error('Error fetching system uoms:', err);
       }
     };
     fetchUoms();
@@ -134,7 +135,7 @@ const StockTransfer = () => {
         setHasDraftRestored(true);
       }
     } catch (e) {
-      console.error('Failed to restore draft', e);
+      logger.error('Failed to restore draft', e);
     }
   }, []);
 
@@ -144,7 +145,7 @@ const StockTransfer = () => {
       try {
         secureStorage.setItem(DRAFT_STORAGE_KEY, { formData, items });
       } catch (e) {
-        console.error('Failed to save draft', e);
+        logger.error('Failed to save draft', e);
       }
     }
   }, [formData, items]);
@@ -242,7 +243,7 @@ const StockTransfer = () => {
         });
       }
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
 
     // 3. فحص باركودات الوحدات unit_barcodes
@@ -341,7 +342,7 @@ const StockTransfer = () => {
         setSingleUnitCapacity(1);
       }
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
 
     setIsPackagingModalOpen(true);
@@ -427,7 +428,7 @@ const StockTransfer = () => {
       try {
         secureStorage.setItem(`tripro_pkg_hierarchy_${selectedProductObj.id}`, hierarchyData);
       } catch (e) {
-        console.error(e);
+        logger.error(e);
       }
 
       // تحديد الوحدة المسحوبة بناءً على اختيار المستخدم
@@ -489,7 +490,7 @@ const StockTransfer = () => {
         });
         secureStorage.setItem(key, list);
       } catch (e) {
-        console.error(e);
+        logger.error(e);
       }
 
       const noteText = `1 ${uName} = ${cap} ${base}`;
@@ -830,7 +831,7 @@ const StockTransfer = () => {
       setItems([]);
       showToast(`تم تنفيذ التحويل المخزني رقم (${transferNumber}) بنجاح وترحيل الأرصدة ✅`, 'success');
     } catch (error: any) {
-      console.error(error);
+      logger.error(error);
       showToast(error.message || 'حدث خطأ أثناء معالجة التحويل المخزني', 'error');
     } finally {
       setLoading(false);

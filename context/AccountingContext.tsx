@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization, HrScope, Customer, Supplier, Warehouse, Category, Product, Salesperson } from '../types';
 import { useToast } from '../context/ToastContext';
 import { secureStorage } from '../utils/securityMiddleware';
+import { logger } from '../utils/logger';
 
 export interface UserProfile {
   id: string;
@@ -223,7 +224,7 @@ async function fetchAllTableRecords<T = any>(
     const { data, error } = await query.range(from, from + pageSize - 1);
 
     if (error) {
-      console.error(`Error fetching ${tableName} chunk:`, error);
+      logger.error(`Error fetching ${tableName} chunk:`, error);
       return { data: allData, error };
     }
 
@@ -443,7 +444,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           setCurrentUser(profile);
         }
       } catch (pErr) {
-        console.warn('Could not fetch online profile, using fallback:', pErr);
+        logger.warn('Could not fetch online profile, using fallback:', pErr);
       }
 
       if (!profile) {
@@ -452,14 +453,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       // 🛡️ صمام أمان: جلب كافة الشركات لملء القائمة وضمان وجود منظمة نشطة حتمياً
-      let allOrgs: any[] = [];
+      let allOrgs: Organization[] = [];
       try {
         const { data: orgsData } = await supabase.from('organizations').select('*').order('name');
         if (orgsData && orgsData.length > 0) {
           allOrgs = orgsData;
         }
       } catch (orgErr) {
-        console.warn('Could not fetch organizations from Supabase, using fallback:', orgErr);
+        logger.warn('Could not fetch organizations from Supabase, using fallback:', orgErr);
       }
 
       const validOrgs = allOrgs.length > 0 ? allOrgs : [DEFAULT_OFFLINE_ORG];
@@ -679,7 +680,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             loadedWhs = [createdWh];
           }
         } catch (e) {
-          console.warn('Auto-create warehouse fallback:', e);
+          logger.warn('Auto-create warehouse fallback:', e);
         }
       }
       setWarehouses(loadedWhs.length > 0 ? loadedWhs : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_WAREHOUSES : []));
@@ -708,7 +709,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       offlineService.seedFallbackProducts(loadedProducts).catch(() => {});
 
     } catch (error) {
-      if (import.meta.env.DEV) console.error('Error refreshing accounting data, loading offline fallback:', error);
+      logger.error('Error refreshing accounting data, loading offline fallback:', error);
       await loadOfflineFallbackData();
     } finally {
       setIsLoading(false);
@@ -739,7 +740,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     if (error) {
       if (process.env.NODE_ENV === 'development') {
-        console.error('Error fetching paged entries:', error);
+        logger.error('Error fetching paged entries:', error);
       }
       return { data: [], count: 0 };
     }
@@ -762,7 +763,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }));
 
     if (sanitizedLines.length === 0) {
-      console.warn('addEntry: No valid lines to post journal entry');
+      logger.warn('addEntry: No valid lines to post journal entry');
       return;
     }
 
@@ -1065,7 +1066,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
     } catch (e) {
-      console.warn('Could not auto-clean opening balance entry for supplier:', e);
+      logger.warn('Could not auto-clean opening balance entry for supplier:', e);
     }
 
     const { error } = await supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
@@ -1079,7 +1080,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_warehouse_id: warehouseId
     }); 
     if (error) {
-      console.error('approveInvoice RPC error:', error);
+      logger.error('approveInvoice RPC error:', error);
       throw error;
     }
     refreshData(); 
@@ -1093,7 +1094,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_org_id: targetOrgId
     });
     if (error) {
-      console.warn('RPC unpost_sales_invoice error:', error);
+      logger.warn('RPC unpost_sales_invoice error:', error);
       throw error;
     }
     refreshData();
@@ -1107,7 +1108,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_org_id: targetOrgId
     });
     if (error) {
-      console.warn('RPC delete_sales_invoice error:', error);
+      logger.warn('RPC delete_sales_invoice error:', error);
       throw error;
     }
     refreshData();
@@ -1136,7 +1137,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_org_id: targetOrgId
     });
     if (error) {
-      console.warn('RPC unpost_purchase_invoice error:', error);
+      logger.warn('RPC unpost_purchase_invoice error:', error);
       throw error;
     }
     refreshData();
@@ -1150,7 +1151,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_org_id: targetOrgId
     });
     if (error) {
-      console.warn('RPC delete_purchase_invoice error:', error);
+      logger.warn('RPC delete_purchase_invoice error:', error);
       throw error;
     }
     refreshData();
@@ -1229,7 +1230,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }).select('id').maybeSingle();
 
     if (pvError) {
-      console.warn('payment_vouchers insert warning:', pvError);
+      logger.warn('payment_vouchers insert warning:', pvError);
     }
 
     const voucherId = pvData?.id;
@@ -1247,7 +1248,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           });
           if (!rpcErr) entryCreated = true;
         } catch (rpcEx) {
-          console.warn('approve_payment_voucher RPC failed, falling back to manual entry:', rpcEx);
+          logger.warn('approve_payment_voucher RPC failed, falling back to manual entry:', rpcEx);
         }
       }
 
@@ -1267,7 +1268,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           });
           entryCreated = true;
         } catch (addErr) {
-          console.warn('addEntry RPC failed, falling back to direct table insert:', addErr);
+          logger.warn('addEntry RPC failed, falling back to direct table insert:', addErr);
         }
       }
 
@@ -1318,7 +1319,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             entryCreated = true;
           }
         } catch (directErr: any) {
-          console.error('Direct journal entry insert error:', directErr);
+          logger.error('Direct journal entry insert error:', directErr);
           showToast('تعذر إنشاء القيد المحاسبي المباشر للسند: ' + (directErr?.message || ''), 'warning');
         }
       }
@@ -1342,7 +1343,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             .eq('id', data.invoiceId);
         }
       } catch (invErr: any) {
-        console.error('Failed to update purchase invoice paid_amount:', invErr);
+        logger.error('Failed to update purchase invoice paid_amount:', invErr);
         showToast('تعذر تحديث المبلغ المسدد في فاتورة المشتريات: ' + (invErr?.message || ''), 'warning');
       }
     }
@@ -1352,7 +1353,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
         await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
       } catch (recErr) {
-        console.warn('recalculate balances error:', recErr);
+        logger.warn('recalculate balances error:', recErr);
       }
     }
 
@@ -1414,7 +1415,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           .eq('reference', refCode)
           .eq('organization_id', targetOrgId);
       } catch (jeError) {
-        console.error("Failed to create asset journal entry:", jeError);
+        logger.error("Failed to create asset journal entry:", jeError);
         showToast('تمت إضافة الأصل ولكن فشل إنشاء القيد آلياً، يرجى إنشاؤه يدوياً.', 'warning');
       }
     }
@@ -1445,7 +1446,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
       }
     } catch (e) {
-      console.warn('deleteAsset unpost fallback:', e);
+      logger.warn('deleteAsset unpost fallback:', e);
     }
 
     await refreshData();
@@ -1480,7 +1481,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       await supabase.rpc('post_cheque_journal_entry', { p_cheque_id: id });
     } catch (e) {
-      console.warn('post_cheque_journal_entry fallback:', e);
+      logger.warn('post_cheque_journal_entry fallback:', e);
     }
 
     try {
@@ -1552,10 +1553,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           return;
         }
         if (rpcError) {
-          console.warn('RPC cash_or_collect_cheque fallback to manual:', rpcError);
+          logger.warn('RPC cash_or_collect_cheque fallback to manual:', rpcError);
         }
       } catch (rpcErr) {
-        console.warn('RPC cash_or_collect_cheque fallback:', rpcErr);
+        logger.warn('RPC cash_or_collect_cheque fallback:', rpcErr);
       }
     }
 
@@ -1620,7 +1621,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
     } catch (entryErr) {
-      console.warn('Cheque journal entry creation error:', entryErr);
+      logger.warn('Cheque journal entry creation error:', entryErr);
     }
 
     // 3. التحديث عبر REST مع التراجع الذكي
@@ -1676,7 +1677,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                               error.message?.includes('function') || 
                               error.message?.includes('does not exist');
         if (isFuncMissing) {
-          console.warn("RPC update_treasury_transfer not found, falling back to direct REST updates");
+          logger.warn("RPC update_treasury_transfer not found, falling back to direct REST updates");
           const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
 
           // Update journal entry
@@ -1719,7 +1720,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       await refreshData();
     } catch (error: any) {
-      console.error('Error updating transfer:', error);
+      logger.error('Error updating transfer:', error);
       showToast('فشل تعديل التحويل المالي: ' + (error?.message || ''), 'error');
       throw error;
     }
@@ -1737,7 +1738,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                               error.message?.includes('function') || 
                               error.message?.includes('does not exist');
         if (isFuncMissing) {
-          console.warn("RPC delete_treasury_transfer not found, falling back to direct REST deletion");
+          logger.warn("RPC delete_treasury_transfer not found, falling back to direct REST deletion");
           const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
 
           // Delete journal lines first
@@ -1756,7 +1757,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       await refreshData();
     } catch (error: any) {
-      console.error('Error deleting transfer:', error);
+      logger.error('Error deleting transfer:', error);
       showToast('فشل حذف التحويل المالي: ' + (error?.message || ''), 'error');
       throw error;
     }
@@ -1779,7 +1780,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
         }
       } catch (e) {
-        console.warn('restoreItem asset repost fallback:', e);
+        logger.warn('restoreItem asset repost fallback:', e);
       }
     }
     refreshData(); 
@@ -1818,7 +1819,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
         }
       } catch (e) {
-        console.warn('Error purging asset journal entries during permanent delete:', e);
+        logger.warn('Error purging asset journal entries during permanent delete:', e);
       }
     }
 
@@ -1885,7 +1886,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       XLSX.writeFile(wb, `General_Journal_${new Date().toISOString().split('T')[0]}.xlsx`);
       showToast('تم تصدير القيود المحاسبية بنجاح ✅', 'success');
     } catch (err: any) {
-      console.error('Export CSV error:', err);
+      logger.error('Export CSV error:', err);
       showToast('فشل تصدير القيود: ' + err.message, 'error');
     }
   };
@@ -1910,7 +1911,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
     
     if (error) {
-      if (process.env.NODE_ENV === 'development') console.error("Payroll RPC Error:", error);
+      logger.error("Payroll RPC Error:", error);
       throw new Error(error.message || 'حدث خطأ أثناء تنفيذ مسير الرواتب');
     }
     
@@ -1927,7 +1928,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
     
     if (error) {
-      if (process.env.NODE_ENV === 'development') console.error("Payroll Accrual RPC Error:", error);
+      logger.error("Payroll Accrual RPC Error:", error);
       throw new Error(error.message || 'حدث خطأ أثناء تنفيذ قيد استحقاق الرواتب');
     }
     
@@ -1946,7 +1947,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
 
     if (error) {
-      if (process.env.NODE_ENV === 'development') console.error("Pay Accrued Payroll RPC Error:", error);
+      logger.error("Pay Accrued Payroll RPC Error:", error);
       throw new Error(error.message || 'حدث خطأ أثناء صرف الرواتب وترحيل قيد النقدية');
     }
 
@@ -1955,12 +1956,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   // --- Demo Stubs ---
-  const addDemoEntry = (e: any) => console.log('Demo Entry:', e);
-  const addDemoPaymentVoucher = (v: any) => console.log('Demo Payment:', v);
-  const addDemoReceiptVoucher = (v: any) => console.log('Demo Receipt:', v);
-  const addDemoInvoice = (i: any) => console.log('Demo Invoice:', i);
-  const postDemoSalesInvoice = (inv: any) => console.log('Demo Post Invoice:', inv);
-  const addDemoPurchaseInvoice = (i: any) => console.log('Demo Purchase:', i);
+  const addDemoEntry = (e: any) => logger.log('Demo Entry:', e);
+  const addDemoPaymentVoucher = (v: any) => logger.log('Demo Payment:', v);
+  const addDemoReceiptVoucher = (v: any) => logger.log('Demo Receipt:', v);
+  const addDemoInvoice = (i: any) => logger.log('Demo Invoice:', i);
+  const postDemoSalesInvoice = (inv: any) => logger.log('Demo Post Invoice:', inv);
+  const addDemoPurchaseInvoice = (i: any) => logger.log('Demo Purchase:', i);
 
   // --- Restaurant Functions ---
   const finalizeProductionOrder = async (id: string, status: string, notes: string) => {
@@ -2086,7 +2087,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
         await offlineService.queueOrder({ ...payload, orderId, organization_id: targetOrgId });
       } catch (e) {
-        console.warn('Offline order queue notice:', e);
+        logger.warn('Offline order queue notice:', e);
       }
       return orderId;
     }
@@ -2123,7 +2124,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return data;
       }
     } catch (rpcErr) {
-      console.warn('RPC get_open_table_order notice:', rpcErr);
+      logger.warn('RPC get_open_table_order notice:', rpcErr);
     }
 
     try {
@@ -2175,7 +2176,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return { sessionId: session.id, orderId: null, items: [] };
       }
     } catch (fbErr) {
-      console.warn('Fallback getOpenTableOrder notice:', fbErr);
+      logger.warn('Fallback getOpenTableOrder notice:', fbErr);
     }
 
     const offlineOrders = getOfflineTableOrders();

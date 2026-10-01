@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { logger } from '../../utils/logger';
 import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Scale, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers, PackageOpen, Sparkles } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -150,7 +151,7 @@ const ProductManager = () => {
         setRoutingsMap(map);
       }
     } catch (err) {
-      console.warn('Error fetching routings for products filter:', err);
+      logger.warn('Error fetching routings for products filter:', err);
     }
   }, [currentSelectedOrgId, currentUser]);
 
@@ -354,7 +355,7 @@ const ProductManager = () => {
         });
         setReservedStock(reserved);
       } catch (error) {
-        console.error("Error fetching reserved stock:", error);
+        logger.error("Error fetching reserved stock:", error);
       }
     };
     fetchReserved();
@@ -773,7 +774,7 @@ const ProductManager = () => {
           actualOpeningWarehouseId = opData[0].warehouse_id || warehouses[0]?.id || '';
         }
       } catch (e) {
-        console.warn('Could not fetch existing opening stock:', e);
+        logger.warn('Could not fetch existing opening stock:', e);
       }
 
       setInitialOpeningStock(actualOpeningStock);
@@ -1077,7 +1078,7 @@ const ProductManager = () => {
           try {
             await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
           } catch (e) {
-            console.error('Failed to recalculate balances', e);
+            logger.error('Failed to recalculate balances', e);
           }
         }
         await refreshData();
@@ -1087,7 +1088,7 @@ const ProductManager = () => {
         showToast('جميع الأصناف المسجلة لديها قيود افتتاحية بالفعل، أو أن التكلفة أو الرصيد صفر.', 'info');
       }
     } catch (err: any) {
-      console.error(err);
+      logger.error(err);
       showToast('حدث خطأ أثناء توليد القيود الافتتاحية: ' + err.message, 'error');
     } finally {
       setIsSyncingOpenings(false);
@@ -1291,7 +1292,7 @@ const ProductManager = () => {
                         organization_id: orgId
                     });
                     if (opInvErr) {
-                        console.error("Error creating opening inventory record:", opInvErr);
+                        logger.error("Error creating opening inventory record:", opInvErr);
                         showToast('تعذر تسجيل سجل الرصيد الافتتاحي للصنف في المستودع: ' + opInvErr.message, 'warning');
                     }
                 }
@@ -1338,14 +1339,14 @@ const ProductManager = () => {
             try {
               await recalculateStock(editingId);
             } catch (e) {
-              console.error('Failed to recalculate stock', e);
+              logger.error('Failed to recalculate stock', e);
             }
 
             if (orgId) {
               try {
                 await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
               } catch (e) {
-                console.error('Failed to recalculate balances', e);
+                logger.error('Failed to recalculate balances', e);
               }
             }
 
@@ -1437,7 +1438,7 @@ const ProductManager = () => {
                     organization_id: orgId
                 });
                 if (opInvErr) {
-                    console.error("Error creating opening inventory record:", opInvErr);
+                    logger.error("Error creating opening inventory record:", opInvErr);
                     showToast('تعذر تسجيل سجل الرصيد الافتتاحي للصنف في المستودع: ' + opInvErr.message, 'warning');
                 }
             }
@@ -1483,7 +1484,7 @@ const ProductManager = () => {
             try {
               await recalculateStock(newProduct.id);
             } catch (e) {
-              console.error('Failed to recalculate stock', e);
+              logger.error('Failed to recalculate stock', e);
             }
 
             // إعادة احتساب أرصدة الحسابات الإجمالية للنظام
@@ -1491,7 +1492,7 @@ const ProductManager = () => {
               try {
                 await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
               } catch (e) {
-                console.error('Failed to recalculate balances', e);
+                logger.error('Failed to recalculate balances', e);
               }
             }
 
@@ -1511,7 +1512,7 @@ const ProductManager = () => {
       refresh();
       setIsModalOpen(false);
     } catch (error: any) {
-      console.error(error);
+      logger.error(error);
       showToast('فشل حفظ الصنف: ' + error.message, 'error');
     }
   };
@@ -1541,7 +1542,7 @@ const ProductManager = () => {
       await deleteProduct(id, reason); // Use handleError for consistency
       refresh(); // تحديث القائمة
     } catch (error: any) {
-      console.error(error);
+      logger.error(error);
       showToast('حدث خطأ أثناء الحذف: ' + error.message, 'error');
     }
   };
@@ -1566,7 +1567,7 @@ const ProductManager = () => {
       const { data } = supabase.storage.from('product-images').getPublicUrl(filePath); // Use handleError for consistency
       setFormData(prev => ({ ...prev, image_url: data.publicUrl }));
     } catch (error: any) {
-      console.error(error);
+      logger.error(error);
       showToast('فشل رفع الصورة: ' + error.message, 'error');
     } finally {
       setUploading(false);

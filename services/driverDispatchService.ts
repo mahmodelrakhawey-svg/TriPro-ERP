@@ -8,6 +8,7 @@
 import { supabase } from '../supabaseClient';
 import { AccountingEngine } from './accountingEngine';
 import { secureStorage } from '../utils/securityMiddleware';
+import { logger } from '../utils/logger';
 
 export interface DeliveryDriver {
   id: string;
@@ -223,19 +224,19 @@ class DriverDispatchService {
             .update(dbPayload)
             .eq('id', existing.id);
           if (error) {
-            console.warn('Supabase driver delivery update notice:', error.message);
+            logger.warn('Supabase driver delivery update notice:', error.message);
           }
         } else {
           const { error } = await supabase
             .from('driver_deliveries')
             .insert(dbPayload);
           if (error) {
-            console.warn('Supabase driver delivery insert notice:', error.message);
+            logger.warn('Supabase driver delivery insert notice:', error.message);
           }
         }
       }
     } catch (e) {
-      console.warn('DB delivery insert notice:', e);
+      logger.warn('DB delivery insert notice:', e);
     }
 
     // حفظ وتحديث السجل في التخزين المحلي الآمن فورا
@@ -263,7 +264,7 @@ class DriverDispatchService {
         await supabase.from('driver_deliveries').update(updates).eq('id', deliveryId);
       }
     } catch (e) {
-      console.warn('DB delivery update notice:', e);
+      logger.warn('DB delivery update notice:', e);
     }
 
     const current = this.getLocalDeliveries();
@@ -342,7 +343,7 @@ class DriverDispatchService {
           journalEntryId = journalResult.journalEntryId;
         }
       } catch (jErr) {
-        console.warn('Settlement journal entry notice:', jErr);
+        logger.warn('Settlement journal entry notice:', jErr);
       }
     }
 
@@ -407,10 +408,10 @@ class DriverDispatchService {
             .in('id', orderIds);
         }
       } catch (ordSyncErr) {
-        console.warn('Orders sync in driver settlement notice:', ordSyncErr);
+        logger.warn('Orders sync in driver settlement notice:', ordSyncErr);
       }
     } catch (e) {
-      console.warn('DB settlement insert notice:', e);
+      logger.warn('DB settlement insert notice:', e);
     }
 
     // Update local storage
@@ -450,7 +451,7 @@ class DriverDispatchService {
           .eq('order_id', orderId);
       }
     } catch (e) {
-      console.warn('DB settleDeliveryByOrderId notice:', e);
+      logger.warn('DB settleDeliveryByOrderId notice:', e);
     }
 
     const currentDeliveries = this.getLocalDeliveries();
@@ -486,7 +487,7 @@ class DriverDispatchService {
           .eq('id', orderId);
       }
     } catch (e) {
-      console.warn('DB settleDeliveryDirectly notice:', e);
+      logger.warn('DB settleDeliveryDirectly notice:', e);
     }
 
     // تحديث التخزين المحلي
@@ -559,7 +560,7 @@ class DriverDispatchService {
         if (data && data.id) driverId = data.id;
       }
     } catch (e) {
-      console.warn('DB driver save notice:', e);
+      logger.warn('DB driver save notice:', e);
     }
 
     const savedRecord: DeliveryDriver = {
@@ -581,7 +582,7 @@ class DriverDispatchService {
         await supabase.from('delivery_drivers').update({ is_active: false }).eq('id', driverId);
       }
     } catch (e) {
-      console.warn('DB driver delete notice:', e);
+      logger.warn('DB driver delete notice:', e);
     }
 
     const current = this.getLocalDrivers();

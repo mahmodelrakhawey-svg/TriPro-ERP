@@ -10,6 +10,7 @@
  */
 
 import { supabase } from '@/supabaseClient';
+import { logger } from '../../utils/logger';
 import type {
   JournalEntryResult,
   StadiumAccountingConfig,
@@ -210,7 +211,7 @@ export async function getTreasuryAccounts(orgId: string): Promise<TreasuryAccoun
 
     return filtered.length > 0 ? filtered : data;
   } catch (err) {
-    console.error('Error fetching treasury accounts:', err);
+    logger.error('Error fetching treasury accounts:', err);
     return [];
   }
 }
@@ -438,7 +439,7 @@ async function _resolveAccount(
 
     return created || null;
   } catch (err) {
-    console.error(`[Stadium] Error creating default account ${defaultMeta.code}:`, err);
+    logger.error(`[Stadium] Error creating default account ${defaultMeta.code}:`, err);
     return null;
   }
 }
@@ -486,7 +487,7 @@ async function _createRevenueJournalEntry(
 
 
     if (!debitAccount || !creditAccount) {
-      console.warn(`[Stadium] تعذر إيجاد أو إنشاء الحسابات: ${debitAccountRef} / ${creditAccountRef}`);
+      logger.warn(`[Stadium] تعذر إيجاد أو إنشاء الحسابات: ${debitAccountRef} / ${creditAccountRef}`);
       return {
         success: false,
         error: `يرجى التأكد من توفر الحسابات المحاسبية في المنشأة`,
@@ -526,7 +527,7 @@ async function _createRevenueJournalEntry(
       .single();
 
     if (jeError || !journalEntry) {
-      console.error('[Stadium Journal Entry Error]:', jeError);
+      logger.error('[Stadium Journal Entry Error]:', jeError);
       return { success: false, error: jeError?.message ?? 'فشل إنشاء قيد اليومية' };
     }
 
@@ -557,7 +558,7 @@ async function _createRevenueJournalEntry(
       .insert(linesPayload);
 
     if (linesError) {
-      console.error('[Stadium Journal Lines Error]:', linesError);
+      logger.error('[Stadium Journal Lines Error]:', linesError);
       await supabase.from('journal_entries').delete().eq('id', journalEntry.id);
       return { success: false, error: linesError.message };
     }
@@ -580,13 +581,13 @@ async function _createRevenueJournalEntry(
             related_journal_entry_id: journalEntry.id
           });
       } catch (chqErr) {
-        console.error('[Stadium] Error inserting incoming cheque:', chqErr);
+        logger.error('[Stadium] Error inserting incoming cheque:', chqErr);
       }
     }
 
     return { success: true, journalEntryId: journalEntry.id };
   } catch (err: any) {
-    console.error('[Stadium Journal Error]:', err);
+    logger.error('[Stadium Journal Error]:', err);
     return { success: false, error: err.message ?? 'خطأ غير متوقع' };
   }
 }
@@ -646,7 +647,7 @@ export async function uploadStadiumImage(
     .upload(fileName, file, { cacheControl: '3600', upsert: false });
 
   if (error) {
-    console.error('[Stadium Storage]', error.message);
+    logger.error('[Stadium Storage]', error.message);
     return null;
   }
 
@@ -719,7 +720,7 @@ export async function getExpenseAccounts(orgId: string): Promise<TreasuryAccount
 
     return filtered.length > 0 ? filtered : data;
   } catch (err) {
-    console.error('Error fetching expense accounts:', err);
+    logger.error('Error fetching expense accounts:', err);
     return [];
   }
 }
@@ -875,7 +876,7 @@ export async function processDisbursementPayment(
 
     return { success: true, journalEntryId: journalEntry.id, chequeId: createdChequeId };
   } catch (err: any) {
-    console.error('Error processing disbursement payment:', err);
+    logger.error('Error processing disbursement payment:', err);
     return { success: false, error: err.message };
   }
 }
@@ -983,7 +984,7 @@ export async function createCustodyIssuanceJournalEntry(
 
     return { success: true, journalEntryId: journalEntry.id, chequeId: createdChequeId };
   } catch (err: any) {
-    console.error('Error creating custody issuance entry:', err);
+    logger.error('Error creating custody issuance entry:', err);
     return { success: false, error: err.message };
   }
 }
@@ -1117,7 +1118,7 @@ export async function createCustodySettlementJournalEntry(
 
     return { success: true, journalEntryId: journalEntry.id };
   } catch (err: any) {
-    console.error('Error creating custody settlement entry:', err);
+    logger.error('Error creating custody settlement entry:', err);
     return { success: false, error: err.message };
   }
 }
@@ -1158,7 +1159,7 @@ export async function checkFacilityMaintenanceConflict(
 
     return { hasConflict: false };
   } catch (err) {
-    console.error('Error checking maintenance conflict:', err);
+    logger.error('Error checking maintenance conflict:', err);
     return { hasConflict: false };
   }
 }

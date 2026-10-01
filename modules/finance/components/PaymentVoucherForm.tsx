@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { logger } from '../../../utils/logger';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -83,7 +84,7 @@ const PaymentVoucherForm = () => {
           setUnpaidInvoices([]);
         }
       } catch (err: any) {
-        console.error('Error fetching unpaid invoices:', err);
+        logger.error('Error fetching unpaid invoices:', err);
         showToast('تعذر جلب فواتير المورد غير المسددة: ' + (err?.message || ''), 'warning');
       } finally {
         setLoadingInvoices(false);
@@ -147,7 +148,7 @@ const PaymentVoucherForm = () => {
 
       const supplierAcc = getSystemAccount('SUPPLIERS');
       if (!supplierAcc) {
-          console.error("Supplier account not found for balance calculation.");
+          logger.error("Supplier account not found for balance calculation.");
           setDynamicBalance(null);
           return;
       }
@@ -235,7 +236,7 @@ const PaymentVoucherForm = () => {
   useEffect(() => {
     supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
       if (error) {
-        console.error("فشل جلب إعدادات الشركة عبر RPC:", error);
+        logger.error("فشل جلب إعدادات الشركة عبر RPC:", error);
       } else {
         setCompanySettings(data);
       }
@@ -363,7 +364,7 @@ const PaymentVoucherForm = () => {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Error downloading:', err);
+      logger.error('Error downloading:', err);
       showToast('فشل تحميل الملف', 'error');
     }
   };
@@ -560,7 +561,7 @@ const PaymentVoucherForm = () => {
                     .upload(filePath, file);
 
                 if (uploadError) {
-                    console.error('Upload failed:', uploadError);
+                    logger.error('Upload failed:', uploadError);
                     showToast(`تم حفظ السند ولكن فشل رفع المرفق: ${file.name}. السبب: ${uploadError.message}`, 'warning');
                 } else {
                     // حفظ بيانات المرفق في الجدول الجديد
@@ -593,7 +594,7 @@ const PaymentVoucherForm = () => {
                         .eq('id', selectedInvoiceId);
                 }
             } catch (invErr: any) {
-                console.error('Failed to update purchase invoice status:', invErr);
+                logger.error('Failed to update purchase invoice status:', invErr);
                 showToast('تم حفظ السند ولكن تعذر تحديث حالة سداد فاتورة المشتريات: ' + (invErr?.message || ''), 'warning');
             }
         }
@@ -603,7 +604,7 @@ const PaymentVoucherForm = () => {
             const { error: rpcError } = await supabase.rpc('approve_payment_voucher', { p_voucher_id: voucherData.id, p_debit_account_id: supplierAcc.id });
             if (rpcError) throw rpcError;
         } catch (err: any) {
-            console.warn("RPC failed, falling back to manual entry:", err);
+            logger.warn("RPC failed, falling back to manual entry:", err);
             // في حال فشل الدالة (مثلاً غير موجودة)، نقوم بإنشاء القيد يدوياً لضمان سلامة البيانات
             await addEntry({
                 date: formData.date,
@@ -622,7 +623,7 @@ const PaymentVoucherForm = () => {
         setErrors({});
 
     } catch (error: any) {
-        console.error('Error saving payment voucher:', error);
+        logger.error('Error saving payment voucher:', error);
         showToast(error?.message || 'فشل حفظ سند الصرف', 'error');
     } finally {
         isSubmittingRef.current = false;
