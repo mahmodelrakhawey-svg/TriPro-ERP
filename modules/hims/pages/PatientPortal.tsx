@@ -77,7 +77,7 @@ export default function PatientPortal() {
       });
       if (error) throw error;
       setData(res);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setData({
         error: err.message || 'فشل تحميل بيانات الزيارة الطبية',

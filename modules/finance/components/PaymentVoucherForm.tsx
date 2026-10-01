@@ -83,7 +83,7 @@ const PaymentVoucherForm = () => {
         } else {
           setUnpaidInvoices([]);
         }
-      } catch (err: any) {
+      } catch (err) {
         logger.error('Error fetching unpaid invoices:', err);
         showToast('تعذر جلب فواتير المورد غير المسددة: ' + (err?.message || ''), 'warning');
       } finally {
@@ -593,7 +593,7 @@ const PaymentVoucherForm = () => {
                         .update({ paid_amount: newPaid, status: newStatus })
                         .eq('id', selectedInvoiceId);
                 }
-            } catch (invErr: any) {
+            } catch (invErr) {
                 logger.error('Failed to update purchase invoice status:', invErr);
                 showToast('تم حفظ السند ولكن تعذر تحديث حالة سداد فاتورة المشتريات: ' + (invErr?.message || ''), 'warning');
             }
@@ -603,7 +603,7 @@ const PaymentVoucherForm = () => {
         try {
             const { error: rpcError } = await supabase.rpc('approve_payment_voucher', { p_voucher_id: voucherData.id, p_debit_account_id: supplierAcc.id });
             if (rpcError) throw rpcError;
-        } catch (err: any) {
+        } catch (err) {
             logger.warn("RPC failed, falling back to manual entry:", err);
             // في حال فشل الدالة (مثلاً غير موجودة)، نقوم بإنشاء القيد يدوياً لضمان سلامة البيانات
             await addEntry({
@@ -622,7 +622,7 @@ const PaymentVoucherForm = () => {
         setAttachments([]);
         setErrors({});
 
-    } catch (error: any) {
+    } catch (error) {
         logger.error('Error saving payment voucher:', error);
         showToast(error?.message || 'فشل حفظ سند الصرف', 'error');
     } finally {

@@ -53,7 +53,7 @@ export const AssetFieldScanner: React.FC = () => {
     try {
       const data = await assetEnterpriseService.getAssets(orgId);
       setAssets(data);
-    } catch (e: any) {
+    } catch (e) {
       console.warn('Load assets error:', e);
     } finally {
       setLoading(false);
@@ -132,7 +132,7 @@ export const AssetFieldScanner: React.FC = () => {
       } else {
         showToast(res.message, 'error');
       }
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ: ' + e.message, 'error');
     } finally {
       setSubmitting(false);

@@ -175,7 +175,7 @@ const IncomeStatement: React.FC = () => {
           setPriorLedgerLines(allPriorLines);
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching income statement data:', err);
       showToast('فشل جلب البيانات: ' + err.message, 'error');
     } finally {

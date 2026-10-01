@@ -37,7 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       backupId
     });
 
-  } catch (err: any) {
+  } catch (err) {
     return res.status(500).json({
       success: false,
       error: err.message || 'فشلت عملية النسخ الاحتياطي السحابي'

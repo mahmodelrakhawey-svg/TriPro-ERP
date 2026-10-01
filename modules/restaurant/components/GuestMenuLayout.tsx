@@ -115,7 +115,7 @@ const GuestMenuLayout = () => {
         if (categoriesRes.data && categoriesRes.data.length > 0) {
           setSelectedCategory(categoriesRes.data[0].id);
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error("Menu Loading Error:", err);
         setError(err.message || 'فشل تحميل قائمة الطعام. يرجى استدعاء النادل.');
       } finally {
@@ -246,7 +246,7 @@ const GuestMenuLayout = () => {
       showToast('✅ تم إرسال طلبك بنجاح! سيصلك قريباً.', 'success');
       setCart([]);
       setIsCartOpen(false);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Guest Order Error:", err);
       // عرض تفاصيل الخطأ الفعلية للمساعدة في التشخيص
       let errorMsg = err.message || err.details || 'خطأ غير معروف';

@@ -290,7 +290,7 @@ class HrEnterpriseService {
         processedCount: simulatedPunches.length,
         message: `تم سحب ${simulatedPunches.length} حركة بصمة ومعالجتها آلياً وفق الوردية`
       };
-    } catch (e: any) {
+    } catch (e) {
       return { success: false, punchesCount: 0, processedCount: 0, message: e.message || 'خطأ أثناء المزامنة' };
     }
   }

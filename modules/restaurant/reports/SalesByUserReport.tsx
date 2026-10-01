@@ -110,7 +110,7 @@ return;
         const fallbackList = Object.values(userSalesMap).sort((a, b) => b.total_sales - a.total_sales);
         setReportData(fallbackList);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching report:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + (error?.message || 'تعذر الاتصال'), 'error');
     } finally {

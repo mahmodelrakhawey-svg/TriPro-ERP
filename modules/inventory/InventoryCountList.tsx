@@ -183,7 +183,7 @@ const InventoryCountList = () => {
         showToast('تم ترحيل الجرد وإنشاء التسوية والقيد المحاسبي بنجاح ✅', 'success');
         setIsModalOpen(false);
         fetchCounts();
-    } catch (error: any) {
+    } catch (error) {
         console.error(error);
         showToast('فشل ترحيل الجرد: ' + error.message, 'error');
     }

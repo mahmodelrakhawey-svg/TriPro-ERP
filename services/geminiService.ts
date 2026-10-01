@@ -21,7 +21,7 @@ const generateWithFallback = async (
         ...params
       });
       return response;
-    } catch (error: any) {
+    } catch (error) {
       logger.warn(`Model ${model} failed:`, error);
       lastError = error;
     }
@@ -51,7 +51,7 @@ export const analyzeTransactionText = async (text: string, accounts: Account[]) 
         lastServerErrorMessage = errJson.error;
       }
     }
-  } catch (serverErr: any) {
+  } catch (serverErr) {
     logger.warn("Server API Route /api/analyze-transaction unreachable, trying local client fallback...", serverErr);
     if (serverErr?.message) lastServerErrorMessage = serverErr.message;
   }
@@ -174,7 +174,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
         return parsed;
       }
     }
-  } catch (sdkErr: any) {
+  } catch (sdkErr) {
     const sdkMsg = sdkErr?.message || String(sdkErr);
     logger.warn("[callGeminiRestDirect] SDK call failed:", sdkMsg, "| status:", sdkErr?.status);
     // فقط أرمي خطأ "مفتاح غير صالح" إذا تأكدنا من Google أنها مشكلة مفتاح
@@ -233,7 +233,7 @@ const callGeminiRestDirect = async (base64Data: string, mimeType: string, apiKey
       }
 
       lastErrorMsg = errMsg;
-    } catch (err: any) {
+    } catch (err) {
       // إعادة رمي الأخطاء المهمة (مفتاح، حصة) فورًا بدون تجاهل
       if (err?.message && (
         err.message.includes('مفتاح Gemini') ||
@@ -297,7 +297,7 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
         lastServerErrorMessage = errJson.error;
       }
     }
-  } catch (serverErr: any) {
+  } catch (serverErr) {
     if (serverErr.message && !serverErr.message.includes('404')) {
       lastServerErrorMessage = serverErr.message;
     }
@@ -389,14 +389,14 @@ const callGeminiInvoiceRestDirect = async (base64Data: string, mimeType: string,
             return parsed;
           }
         }
-      } catch (subErr: any) {
+      } catch (subErr) {
         logger.warn(`[callGeminiInvoiceRestDirect] SDK model ${modelName} attempt:`, subErr?.message);
         if (subErr?.message?.toLowerCase().includes('api_key_invalid') || subErr?.message?.toLowerCase().includes('api key not valid')) {
           throw new Error(`مفتاح Gemini API غير صالح: ${subErr.message}`);
         }
       }
     }
-  } catch (sdkErr: any) {
+  } catch (sdkErr) {
     if (sdkErr?.message?.includes('مفتاح Gemini API غير صالح')) {
       throw sdkErr;
     }
@@ -448,7 +448,7 @@ const callGeminiInvoiceRestDirect = async (base64Data: string, mimeType: string,
         throw new Error('تم تجاوز حد الطلبات المجانية لـ Gemini مؤقتاً. يرجى الانتظار ثوانٍ ثم إعادة المحاولة.');
       }
       lastErrorMsg = errMsg;
-    } catch (err: any) {
+    } catch (err) {
       if (err?.message && (err.message.includes('مفتاح Gemini') || err.message.includes('حد الطلبات') || err.message.includes('RESOURCE_EXHAUSTED'))) {
         throw err;
       }
@@ -499,7 +499,7 @@ export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: strin
         lastServerErrorMessage = errJson.error;
       }
     }
-  } catch (serverErr: any) {
+  } catch (serverErr) {
     if (serverErr.message && !serverErr.message.includes('404')) {
       lastServerErrorMessage = serverErr.message;
     }

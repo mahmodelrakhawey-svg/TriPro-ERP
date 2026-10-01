@@ -268,7 +268,7 @@ const Dashboard = () => {
         setStats(prev => ({ ...prev, salesTarget: targetValue }));
         setIsEditingTarget(false);
         showToast('تم تحديث الهدف البيعي بنجاح', 'success');
-    } catch (err: any) {
+    } catch (err) {
         showToast('فشل تحديث الهدف: ' + err.message, 'error');
     }
   };

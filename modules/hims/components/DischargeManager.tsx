@@ -82,7 +82,7 @@ export const DischargeManager: React.FC<{ visitId: string, onSuccess: () => void
         setDebtBlocked(false);
         onSuccess();
       }
-    } catch (err: any) {
+    } catch (err) {
       message.error('حدث خطأ غير متوقع: ' + (err?.message || ''));
     } finally {
       setLoading(false);
@@ -97,7 +97,7 @@ export const DischargeManager: React.FC<{ visitId: string, onSuccess: () => void
       const enrichedData = { ...data, visit_id: visitId };
       await LuxuryReportEngine.generatePDF(enrichedData, 'discharge', lang);
       message.success(lang === 'ar' ? 'تم توليد تقرير الخروج بنجاح ✅' : 'Discharge summary generated successfully ✅');
-    } catch (e: any) {
+    } catch (e) {
       message.error(lang === 'ar' ? 'فشل جلب بيانات التقرير: ' + e.message : 'Failed to generate summary report: ' + e.message);
     } finally {
       setLoading(false);

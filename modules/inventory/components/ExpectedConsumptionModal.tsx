@@ -27,7 +27,7 @@ export const ExpectedConsumptionModal: React.FC<ExpectedConsumptionModalProps> =
       });
       if (error) throw error;
       setConsumptionData(data || []);
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل جلب بيانات الاستهلاك: ' + err.message, 'error');
     } finally {
       setIsLoading(false);

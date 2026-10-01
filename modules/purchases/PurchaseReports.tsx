@@ -75,7 +75,7 @@ const PurchaseReports = () => {
           setInvoiceItems([]);
       }
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching purchase data:', error);
     } finally {
       setLoading(false);

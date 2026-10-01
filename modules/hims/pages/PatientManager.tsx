@@ -186,7 +186,7 @@ const PatientManager = () => {
       setIsModalOpen(false);
       setEditingId(null);
       refresh();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     }
   };
@@ -234,7 +234,7 @@ const PatientManager = () => {
       if (error) throw error;
       showToast('تم فتح الزيارة وإرسال المريض للعيادة بنجاح ✅', 'success');
       setIsVisitModalOpen(false);
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     }
   };
@@ -274,7 +274,7 @@ const PatientManager = () => {
       }));
 
       showToast('تم مسح البطاقة واستخراج البيانات آلياً بنجاح ✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
       const msg: string = err?.message || String(err);
 
       // التحقق من وجود مفتاح محفوظ فعلياً في المتصفح

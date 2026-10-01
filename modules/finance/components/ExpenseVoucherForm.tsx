@@ -380,7 +380,7 @@ const ExpenseVoucherForm = () => {
         
         if (!isEditing) handleNew();
 
-    } catch (error: any) {
+    } catch (error) {
         showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
         isSubmittingRef.current = false;

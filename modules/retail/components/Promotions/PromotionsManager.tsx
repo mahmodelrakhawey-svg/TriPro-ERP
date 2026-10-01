@@ -81,7 +81,7 @@ export default function PromotionsManager() {
 
       setPromotions(finalPromos);
       secureStorage.setItem(`tripro_promos_${orgId}`, finalPromos);
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ أثناء تحميل العروض: ' + err.message, 'error');
     } finally {
       setIsLoading(false);
@@ -175,7 +175,7 @@ export default function PromotionsManager() {
       showToast('تم حفظ وتفعيل العرض الترويجي بنجاح ✅', 'success');
       setIsModalOpen(false);
       setEditingId(null);
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حفظ العرض: ' + err.message, 'error');
     }
   };
@@ -188,7 +188,7 @@ export default function PromotionsManager() {
       setPromotions(updated);
       secureStorage.setItem(`tripro_promos_${orgId}`, updated);
       showToast('تم حذف العرض الترويجي بنجاح', 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ أثناء الحذف: ' + err.message, 'error');
     }
   };

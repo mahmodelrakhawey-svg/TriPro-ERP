@@ -42,7 +42,7 @@ const SubcontractorManager: React.FC<Props> = ({ onBack, onViewContracts, onView
 
       if (error) throw error;
       setSubcontractors(data || []);
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);
@@ -57,7 +57,7 @@ const SubcontractorManager: React.FC<Props> = ({ onBack, onViewContracts, onView
       if (error) throw error;
       showToast('تم حذف المقاول بنجاح 🗑️', 'success');
       fetchSubcontractors();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

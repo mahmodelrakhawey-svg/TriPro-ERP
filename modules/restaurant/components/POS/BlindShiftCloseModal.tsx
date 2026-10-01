@@ -127,7 +127,7 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
 
       setStep('RESULT');
       showToast('تم اعتماد الجرد وإقفال الوردية بنجاح 🔒', 'success');
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ أثناء إقفال الوردية: ' + (e.message || 'خطأ غير متوقع'), 'error');
     } finally {
       setIsSubmitting(false);

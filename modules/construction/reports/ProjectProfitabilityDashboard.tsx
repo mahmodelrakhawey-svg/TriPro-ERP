@@ -78,7 +78,7 @@ const ProjectProfitabilityDashboard: React.FC<Props> = ({ projectId, onBack }) =
         netProfit: netProfit,
         profitMargin: totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
       });
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

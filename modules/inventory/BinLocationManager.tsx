@@ -87,7 +87,7 @@ export const BinLocationManager: React.FC = () => {
     try {
       const data = await WmsLocationService.getBinsByWarehouse(orgId, selectedWarehouseId || undefined);
       setBins(data);
-    } catch (err: any) {
+    } catch (err) {
       showToast('تعذر تحميل المواقع التخزينية: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -218,7 +218,7 @@ export const BinLocationManager: React.FC = () => {
       }
       setIsBinModalOpen(false);
       fetchBins();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل حفظ الموقع', 'error');
     } finally {
       setSavingBin(false);
@@ -237,7 +237,7 @@ export const BinLocationManager: React.FC = () => {
       await WmsLocationService.deleteBin(bin.id);
       showToast('تم حذف الموقع التخزيني بنجاح', 'success');
       fetchBins();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل الحذف', 'error');
     }
   };
@@ -275,7 +275,7 @@ export const BinLocationManager: React.FC = () => {
       showToast(`تم تسكين ${allocFormData.quantity} وحدة في الرف ${activeBinForAlloc.bin_code} بنجاح`, 'success');
       setIsAllocateModalOpen(false);
       fetchBins();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل التسكين', 'error');
     } finally {
       setSavingAlloc(false);
@@ -344,7 +344,7 @@ export const BinLocationManager: React.FC = () => {
 
       setIsPickModalOpen(false);
       fetchBins();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل تنفيذ عملية الصرف', 'error');
     } finally {
       setSavingPick(false);

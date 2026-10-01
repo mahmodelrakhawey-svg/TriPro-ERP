@@ -268,7 +268,7 @@ export const etaService = {
             throw new Error(apiData.error);
           }
         }
-      } catch (proxyError: any) {
+      } catch (proxyError) {
         console.warn("Serverless ETA submission warning (using fallback status):", proxyError?.message);
         if (!isSandbox && companySettings.eta_client_id) {
           throw new Error(`خطأ في الإرسال لمصلحة الضرائب: ${proxyError.message}`);
@@ -296,7 +296,7 @@ export const etaService = {
         qrCodeUrl: qrCodeUrl
       };
 
-    } catch (error: any) {
+    } catch (error) {
       console.error("ETA integration failed: ", error);
       
       // Update invoice error status
@@ -440,7 +440,7 @@ export const etaService = {
         submissionId: etaSubmissionId,
         qrCodeUrl: qrCodeUrl
       };
-    } catch (error: any) {
+    } catch (error) {
       console.error("Restaurant ETA submission error: ", error);
       return {
         success: false,
@@ -492,7 +492,7 @@ export const etaService = {
         success: false,
         message: 'تعذر الاتصال بخدمة التحقق من الضرائب'
       };
-    } catch (e: any) {
+    } catch (e) {
       return {
         success: false,
         message: e?.message || 'فشل الاستعلام'
@@ -525,7 +525,7 @@ export const etaService = {
           details: data
         };
       }
-    } catch (err: any) {
+    } catch (err) {
       // Local helper is offline or not reachable
     }
 
@@ -559,7 +559,7 @@ export const etaService = {
         if (onProgress) {
           onProgress(i + 1, invoiceIds.length, res);
         }
-      } catch (err: any) {
+      } catch (err) {
         failed++;
         const failRes: ETAInvoiceResponse = { success: false, error: err.message };
         results.push({ id: invId, result: failRes });

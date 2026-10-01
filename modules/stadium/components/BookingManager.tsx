@@ -316,7 +316,7 @@ const BookingManager: React.FC = () => {
 
       setPayingBooking(null);
       fetchBookings();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       toast.error('حدث خطأ أثناء تنفيذ الدفع');
     } finally {

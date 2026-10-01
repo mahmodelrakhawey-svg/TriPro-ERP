@@ -48,7 +48,7 @@ export const UnitCostDrillDown: React.FC = () => {
 
       if (error) throw error;
       setData(anatomyData || []);
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     } finally {
       setLoading(false);

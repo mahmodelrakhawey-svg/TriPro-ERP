@@ -174,7 +174,7 @@ export default function EndOfServiceCalculator() {
           employee_name: empList.find(e => e.id === d.employee_id)?.name || 'موظف'
         })));
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setSettlements([]);
     } finally {
@@ -252,7 +252,7 @@ export default function EndOfServiceCalculator() {
       showToast('تم احتساب وتسجيل مخالصة نهاية الخدمة بنجاح 💼', 'success');
       setIsModalOpen(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حفظ المخالصة: ' + err.message, 'error');
     }
   };
@@ -265,7 +265,7 @@ export default function EndOfServiceCalculator() {
       if (error) throw error;
       showToast('تم حذف المخالصة', 'success');
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل الحذف: ' + err.message, 'error');
     }
   };

@@ -149,7 +149,7 @@ const RestaurantProfitReport = () => {
 
       setReportData(processedData);
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching profit report:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {

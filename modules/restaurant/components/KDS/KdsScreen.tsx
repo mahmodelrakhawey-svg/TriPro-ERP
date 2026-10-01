@@ -298,7 +298,7 @@ const KdsScreen = () => {
       const sortedTickets = Object.values(groupedByOrder).sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
       setTickets(sortedTickets);
 
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل تحميل طلبات المطبخ: ' + err.message, 'error');
     } finally {
       setLoading(false);

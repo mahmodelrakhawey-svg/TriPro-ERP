@@ -45,7 +45,7 @@ const DoctorManager: React.FC = () => {
 
             const { data: profilesData } = await query;
             setStaffList(profilesData || []);
-        } catch (error: any) {
+        } catch (error) {
             showToast(error.message, 'error');
         } finally {
             setLoading(false);
@@ -92,7 +92,7 @@ const DoctorManager: React.FC = () => {
             setEditingDoctor(null);
             form.resetFields();
             fetchData();
-        } catch (error: any) {
+        } catch (error) {
             showToast(error.message || 'حدث خطأ أثناء حفظ البيانات', 'error');
         } finally {
             setLoading(false);

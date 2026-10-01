@@ -71,7 +71,7 @@ const AssetManager = () => {
         setIsDepreciationModalOpen(false);
         // تحديث البيانات
         window.location.reload(); 
-    } catch (error: any) {
+    } catch (error) {
         console.error(error);
         showToast('فشل تشغيل الإهلاك: ' + error.message, 'error');
     }
@@ -197,7 +197,7 @@ const AssetManager = () => {
           await updateAsset(editAssetId, updatedAssetData);
           showToast('تم تعديل الأصل بنجاح ✅', 'success');
           setIsEditModalOpen(false);
-      } catch (err: any) {
+      } catch (err) {
           showToast('فشل تعديل الأصل: ' + err.message, 'error');
       }
   };
@@ -207,7 +207,7 @@ const AssetManager = () => {
           try {
               await deleteAsset(asset.id);
               showToast('تم حذف الأصل بنجاح ✅', 'success');
-          } catch (err: any) {
+          } catch (err) {
               showToast('فشل حذف الأصل: ' + err.message, 'error');
           }
       }
@@ -323,7 +323,7 @@ const AssetManager = () => {
 
       showToast(`تم حذف (${orphanedEntries.length}) قيد وتصحيح ميزان المراجعة بنجاح ✅`, 'success');
       window.location.reload();
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error cleaning orphaned asset entries:', err);
       showToast('فشل تنظيف قيود الأصول: ' + err.message, 'error');
     } finally {

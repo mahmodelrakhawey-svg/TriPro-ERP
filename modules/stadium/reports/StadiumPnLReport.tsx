@@ -289,7 +289,7 @@ export const StadiumPnLReport: React.FC = () => {
         totalExpense: totalExp,
       });
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching Stadium P&L data:', err);
     } finally {
       setLoading(false);

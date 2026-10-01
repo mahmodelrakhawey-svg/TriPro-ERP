@@ -97,7 +97,7 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
       setAdvanceTargetContract(null);
       setAdvanceData({ amount: 0, source_account_id: '', date: new Date().toISOString().split('T')[0], notes: '' });
       fetchContracts();
-    } catch (error: any) {
+    } catch (error) {
       showToast('خطأ في صرف الدفعة المقدمة: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -139,7 +139,7 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
         project_name: c.projects?.name,
         subcontractor_name: c.subcontractors?.name
       })));
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);
@@ -194,7 +194,7 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
       setContractItems([]);
       setIsItemized(false);
       fetchContracts();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

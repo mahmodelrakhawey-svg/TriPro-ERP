@@ -96,7 +96,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
         try {
           const { data: visitData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
           orgId = visitData?.organization_id;
-        } catch (e: any) {
+        } catch (e) {
           console.error('[OrderManagement] Failed to get org from visit:', e?.message);
         }
       }
@@ -166,7 +166,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
       }
       message.success('تم إرسال الطلبات للأقسام المعنية بنجاح ✅');
       type === 'lab' ? setSelectedTests([]) : setSelectedRads([]);
-    } catch (err: any) {
+    } catch (err) {
       message.error('خطأ في إرسال الطلب: ' + err.message);
     } finally {
       setLoading(false);
@@ -184,7 +184,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
       });
       if (error) throw error;
       message.success('تم إرسال طلب الدم لبنك الدم المركزي 🩸');
-    } catch (err: any) {
+    } catch (err) {
       console.error('[OrderManagement] Blood request error:', err);
       message.error('خطأ في طلب الدم: ' + (err?.message || ''));
     } finally {
@@ -213,7 +213,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
       if (error) throw error;
       message.success('تمت جدولة العملية الجراحية وإخطار غرفة العمليات 🏥');
       setSurgeryRequest({ name: '', date: null });
-    } catch (err: any) {
+    } catch (err) {
       console.error('[OrderManagement] Surgery request error:', err);
       message.error('خطأ في جدولة العملية: ' + (err?.message || ''));
     } finally {
@@ -261,7 +261,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
       message.success('تم إرسال طلب الخدمة التمريضية لمكتب التمريض بنجاح ✅');
       setNewNursingTask({ type: 'dressing', description: '', priority: 'normal' });
       fetchNursingTasks();
-    } catch (err: any) {
+    } catch (err) {
       message.error('خطأ في إرسال طلب الخدمة: ' + err.message);
     } finally {
       setLoading(false);

@@ -509,7 +509,7 @@ const SupplierManager = () => {
         queryClient.invalidateQueries({ queryKey: ['suppliers'] });
         setIsModalOpen(false);
         showToast('تم حفظ بيانات المورد بنجاح ✅', 'success');
-    } catch (error: any) {
+    } catch (error) {
         showToast('حدث خطأ: ' + error.message, 'error');
     }
   };
@@ -532,7 +532,7 @@ const SupplierManager = () => {
           await deleteSupplier(id, reason);
           queryClient.invalidateQueries({ queryKey: ['suppliers'] });
           showToast('تم إيقاف التعامل مع المورد بنجاح', 'success');
-        } catch (error: any) {
+        } catch (error) {
           showToast('تعذر إيقاف المورد: ' + error.message, 'error');
         }
       }
@@ -627,7 +627,7 @@ const SupplierManager = () => {
         }
         queryClient.invalidateQueries({ queryKey: ['suppliers'] });
         showToast(`تم استيراد ${successCount} مورد بنجاح.`, 'success');
-      } catch (error: any) {
+      } catch (error) {
         showToast('حدث خطأ أثناء الاستيراد: ' + error.message, 'error');
       } finally {
         setIsImporting(false);

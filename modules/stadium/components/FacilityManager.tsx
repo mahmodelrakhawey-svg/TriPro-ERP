@@ -87,7 +87,7 @@ export default function FacilityManager() {
 
       setFacilities(data || []);
       setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE));
-    } catch (error: any) {
+    } catch (error) {
       toast.error('حدث خطأ أثناء جلب المرافق');
       console.error(error);
     } finally {
@@ -134,7 +134,7 @@ export default function FacilityManager() {
       if (error) throw error;
       toast.success('تم حذف المرفق بنجاح');
       fetchFacilities();
-    } catch (error: any) {
+    } catch (error) {
       toast.error('حدث خطأ أثناء الحذف');
       console.error(error);
     }
@@ -158,7 +158,7 @@ export default function FacilityManager() {
         try {
           const imageUrl = await uploadStadiumImage(imageFile, 'facilities');
           if (imageUrl) uploadedImageUrl = imageUrl;
-        } catch (uploadErr: any) {
+        } catch (uploadErr) {
           toast.error(uploadErr.message ?? 'فشل رفع الصورة');
         }
       }
@@ -187,7 +187,7 @@ export default function FacilityManager() {
       
       setIsModalOpen(false);
       fetchFacilities();
-    } catch (error: any) {
+    } catch (error) {
       toast.error('حدث خطأ أثناء الحفظ');
       console.error(error);
     } finally {

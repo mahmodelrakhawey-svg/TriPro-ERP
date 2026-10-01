@@ -61,7 +61,7 @@ const UnitsOfMeasureManager = () => {
 
       if (catsRes.data) setCategories(catsRes.data);
       if (uomsRes.data) setUoms(uomsRes.data);
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -92,7 +92,7 @@ const UnitsOfMeasureManager = () => {
       }
       setIsModalOpen(false);
       fetchData();
-    } catch (error: any) {
+    } catch (error) {
       showToast('خطأ: ' + error.message, 'error');
     }
   };
@@ -112,7 +112,7 @@ const UnitsOfMeasureManager = () => {
       showToast('تمت إضافة الفئة بنجاح', 'success');
       setIsCatModalOpen(false);
       fetchData();
-    } catch (error: any) {
+    } catch (error) {
       showToast('خطأ: ' + error.message, 'error');
     }
   };
@@ -130,7 +130,7 @@ const UnitsOfMeasureManager = () => {
       if (error) throw error;
       showToast('تم الحذف بنجاح', 'success');
       fetchData();
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل الحذف: قد تكون الوحدة مرتبطة بأصناف أو حركات مخزنية.', 'error');
     }
   };

@@ -87,7 +87,7 @@ const RecycleBin = () => {
       const { data, error } = await query;
       if (error) throw error;
       setItems(data || []);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching deleted items:', error);
       showToast('خطأ في جلب عناصر سلة المحذوفات: ' + error.message, 'error');
     } finally {

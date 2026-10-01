@@ -440,7 +440,7 @@ const PaymentVoucherList = () => {
           chequeTotal: cheque,
           loading: false
         });
-      } catch (err: any) {
+      } catch (err) {
         console.error('Error fetching voucher stats:', err);
         if (!isCancelled) {
           setStats(prev => ({ ...prev, loading: false }));
@@ -619,7 +619,7 @@ const PaymentVoucherList = () => {
       XLSX.writeFile(wb, `سجل_سندات_الصرف_${fileNameSuffix}_${new Date().toISOString().split('T')[0]}.xlsx`);
 
       showToast(`تم تصدير ${rows.length} سند صرف إلى إكسيل بنجاح ✅`, 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error('فشل تصدير الإكسيل:', err);
       showToast('حدث خطأ أثناء تصدير ملف الإكسيل: ' + (err.message || 'خطأ غير معروف'), 'error');
     } finally {
@@ -675,7 +675,7 @@ const PaymentVoucherList = () => {
 
         showToast('تم حذف سند الصرف والقيود المرتبطة بنجاح ✅', 'success');
         refreshAll();
-    } catch (err: any) {
+    } catch (err) {
         showToast('حدث خطأ أثناء محاولة الحذف: ' + err.message, 'error');
     }
   };

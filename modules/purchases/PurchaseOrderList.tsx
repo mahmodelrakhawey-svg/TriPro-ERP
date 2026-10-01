@@ -124,7 +124,7 @@ export const PurchaseOrderList = () => {
       if (error) throw error;
 
       setOrders(data || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching purchase orders:', err);
       showToast('فشل تحميل سجل أوامر الشراء: ' + err.message, 'error');
     } finally {
@@ -182,7 +182,7 @@ export const PurchaseOrderList = () => {
       showToast('تم حذف أمر الشراء بنجاح ✅', 'success');
       fetchOrders();
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting PO:', err);
       showToast('فشل حذف أمر الشراء: ' + err.message, 'error');
     } finally {
@@ -210,7 +210,7 @@ export const PurchaseOrderList = () => {
       setIsConvertModalOpen(false);
       setSelectedOrderForConvert(null);
       fetchOrders();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل تحويل أمر الشراء: ' + err.message, 'error');
     } finally {

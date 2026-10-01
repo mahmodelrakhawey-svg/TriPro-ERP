@@ -68,7 +68,7 @@ export const ButcheringYieldManager: React.FC = () => {
       ]);
       setOrders(fetchedOrders || []);
       setTemplates(fetchedTemplates || DEFAULT_BUTCHERING_TEMPLATES);
-    } catch (err: any) {
+    } catch (err) {
       console.warn('Notice loading butchering data:', err);
     } finally {
       setLoading(false);
@@ -127,7 +127,7 @@ export const ButcheringYieldManager: React.FC = () => {
       showToast('تم حذف أمر التشفية بنجاح', 'success');
       fetchData();
       if (refreshData) refreshData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('حدث خطأ أثناء الحذف: ' + err.message, 'error');
     }
   };

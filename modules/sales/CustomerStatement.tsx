@@ -111,7 +111,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
       } else {
         showToast('فشل ترحيل الطلبات. يرجى التحقق من قاعدة البيانات.', 'error');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('حدث خطأ غير متوقع: ' + err.message, 'error');
     } finally {

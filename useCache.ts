@@ -59,7 +59,7 @@ export function useCache<T>(
         value: freshData,
         timestamp: Date.now()
       });
-    } catch (err: any) {
+    } catch (err) {
       if (process.env.NODE_ENV === 'development') console.error(`Error fetching data for ${key}:`, err);
       setError(err);
     } finally {

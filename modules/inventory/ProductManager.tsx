@@ -526,7 +526,7 @@ const ProductManager = () => {
       await refresh();
       await refreshData();
       showToast(`تم تعيين وتوليد أكواد SKU بنجاح لـ ${updatedCount} صنف ✅`, 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ أثناء تعيين الأكواد: ' + err.message, 'error');
     } finally {
       setIsAssigningSkus(false);
@@ -629,7 +629,7 @@ const ProductManager = () => {
       await refresh();
       await refreshData();
       showToast(`تم بنجاح توجيه ${updatedTotal} صنف خام إلى حساب مخزون المواد الخام، والحفاظ الكامل على ${preserved.length} صنف معدلة يدوياً ✅`, 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('حدث خطأ أثناء تحديث الحسابات: ' + (err.message || err), 'error');
     } finally {
       setIsSyncingRawAccounts(false);
@@ -710,7 +710,7 @@ const ProductManager = () => {
       await refresh();
       await refreshData();
       showToast(`تم بنجاح توجيه ${updatedTotal} صنف (تورت وجاتوهات وشرقي) إلى حساب مخزون الإنتاج التام (10302) وتثبيت حساب التصنيفات ✅`, 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('حدث خطأ أثناء تحديث الحسابات: ' + (err.message || err), 'error');
     } finally {
       setIsSyncingFinishedGoodsAccounts(false);
@@ -1087,7 +1087,7 @@ const ProductManager = () => {
       } else {
         showToast('جميع الأصناف المسجلة لديها قيود افتتاحية بالفعل، أو أن التكلفة أو الرصيد صفر.', 'info');
       }
-    } catch (err: any) {
+    } catch (err) {
       logger.error(err);
       showToast('حدث خطأ أثناء توليد القيود الافتتاحية: ' + err.message, 'error');
     } finally {
@@ -1106,7 +1106,7 @@ const ProductManager = () => {
       queryClient.invalidateQueries();
       refresh();
       showToast('تمت إعادة احتساب وتحديث أرصدة وتكاليف جميع الأصناف بنجاح ✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل إعادة الاحتساب: ' + err.message, 'error');
     } finally {
       setIsRecalculatingAll(false);
@@ -1149,7 +1149,7 @@ const ProductManager = () => {
         showToast('تم حذف التصنيف بنجاح', 'success');
         setFormData(prev => ({ ...prev, category_id: null }));
         await refreshData();
-    } catch (error: any) {
+    } catch (error) {
         showToast('فشل حذف التصنيف (قد يكون مرتبطاً بمنتجات): ' + error.message, 'error');
     }
   };
@@ -1511,7 +1511,7 @@ const ProductManager = () => {
       // تحديث قائمة الأصناف في الواجهة
       refresh();
       setIsModalOpen(false);
-    } catch (error: any) {
+    } catch (error) {
       logger.error(error);
       showToast('فشل حفظ الصنف: ' + error.message, 'error');
     }
@@ -1541,7 +1541,7 @@ const ProductManager = () => {
       // استخدام دالة الحذف من السياق لضمان الحذف الناعم وتسجيل النشاط
       await deleteProduct(id, reason); // Use handleError for consistency
       refresh(); // تحديث القائمة
-    } catch (error: any) {
+    } catch (error) {
       logger.error(error);
       showToast('حدث خطأ أثناء الحذف: ' + error.message, 'error');
     }
@@ -1566,7 +1566,7 @@ const ProductManager = () => {
       if (uploadError) throw uploadError;
       const { data } = supabase.storage.from('product-images').getPublicUrl(filePath); // Use handleError for consistency
       setFormData(prev => ({ ...prev, image_url: data.publicUrl }));
-    } catch (error: any) {
+    } catch (error) {
       logger.error(error);
       showToast('فشل رفع الصورة: ' + error.message, 'error');
     } finally {
@@ -1701,7 +1701,7 @@ const ProductManager = () => {
         showToast('تم تحديث تصنيف الأصناف بنجاح.', 'success');
         refresh();
         setSelectedIds(new Set());
-    } catch (error: any) {
+    } catch (error) {
         showToast('فشل تحديث التصنيف: ' + error.message, 'error');
     } finally {
         setIsBulkSaving(false);

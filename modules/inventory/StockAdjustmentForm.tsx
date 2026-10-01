@@ -322,7 +322,7 @@ const StockAdjustmentForm = () => {
         setItems([]);
         setReason('');
         // Optional: Reset warehouse or keep it
-    } catch (error: any) {
+    } catch (error) {
         console.error(error);
         showToast('حدث خطأ: ' + error.message, 'error');
     } finally {

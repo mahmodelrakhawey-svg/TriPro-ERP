@@ -26,7 +26,7 @@ const VitalsModal: React.FC<{ visible: boolean; visitId: string; onCancel: () =>
       message.success('تم تسجيل العلامات الحيوية بنجاح ✅');
       form.resetFields();
       onSuccess();
-    } catch (err: any) {
+    } catch (err) {
       console.error('[NurseStation] Unexpected vitals error:', err);
       message.error('حدث خطأ غير متوقع: ' + (err?.message || ''));
     } finally {

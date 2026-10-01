@@ -439,7 +439,7 @@ const ReceiptVoucherList = () => {
           chequeTotal: cheque,
           loading: false
         });
-      } catch (err: any) {
+      } catch (err) {
         console.error('Error fetching receipt voucher stats:', err);
         if (!isCancelled) {
           setStats(prev => ({ ...prev, loading: false }));
@@ -618,7 +618,7 @@ const ReceiptVoucherList = () => {
       XLSX.writeFile(wb, `سجل_سندات_القبض_${fileNameSuffix}_${new Date().toISOString().split('T')[0]}.xlsx`);
 
       showToast(`تم تصدير ${rows.length} سند قبض إلى إكسيل بنجاح ✅`, 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error('فشل تصدير الإكسيل:', err);
       showToast('حدث خطأ أثناء تصدير ملف الإكسيل: ' + (err.message || 'خطأ غير معروف'), 'error');
     } finally {
@@ -663,7 +663,7 @@ const ReceiptVoucherList = () => {
 
         showToast('تم حذف سند القبض والقيود المرتبطة بنجاح ✅', 'success');
         refreshAll();
-    } catch (err: any) {
+    } catch (err) {
         showToast('حدث خطأ أثناء محاولة الحذف: ' + err.message, 'error');
     }
   };

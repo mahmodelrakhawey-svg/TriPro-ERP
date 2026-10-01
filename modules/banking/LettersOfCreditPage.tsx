@@ -204,7 +204,7 @@ export default function LettersOfCreditPage() {
         setBanks(bankAccounts.length > 0 ? bankAccounts : accountsData);
       }
 
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ أثناء جلب البيانات: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -221,7 +221,7 @@ export default function LettersOfCreditPage() {
         .order('expense_date', { ascending: true });
       if (error) throw error;
       setExpenses(data || []);
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل جلب مصروفات الاعتماد: ' + err.message, 'error');
     }
   };
@@ -324,7 +324,7 @@ export default function LettersOfCreditPage() {
       setShowAddModal(false);
       setEditingLcId(null);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حفظ الاعتماد المستندي: ' + err.message, 'error');
     }
   };
@@ -409,7 +409,7 @@ export default function LettersOfCreditPage() {
 
       setShowExpenseModal(false);
       fetchLcExpenses(selectedLc.id);
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل إضافة المصروف: ' + err.message, 'error');
     }
   };
@@ -522,7 +522,7 @@ export default function LettersOfCreditPage() {
       setShowCloseModal(false);
       setSelectedLc(null);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل تصفية وإقفال الاعتماد: ' + err.message, 'error');
     }
   };

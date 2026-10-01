@@ -46,7 +46,7 @@ const ProjectSCurveChart: React.FC<Props> = ({ projectId }) => {
         if (healthError) throw healthError;
         setData(rpcData || []);
         setHealthScore(healthData || 0);
-      } catch (err: any) {
+      } catch (err) {
         console.error('Error fetching S-Curve:', err);
         setError(err.message);
       } finally {

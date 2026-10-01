@@ -74,7 +74,7 @@ const StaffRosterManager: React.FC = () => {
             setIsModalVisible(false);
             form.resetFields();
             fetchData();
-        } catch (error: any) {
+        } catch (error) {
             showToast(error.message, 'error');
         } finally {
             setLoading(false);

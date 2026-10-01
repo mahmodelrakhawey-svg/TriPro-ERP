@@ -115,7 +115,7 @@ export const AuditTrailViewer: React.FC = () => {
       setReconcileFeedback(res.message);
       // إعادة فحص الأركان بعد التسوية
       await runFinancialAudit();
-    } catch (err: any) {
+    } catch (err) {
       setReconcileFeedback(err?.message || 'تعذرت عملية إعادة التسوية.');
     } finally {
       setIsReconciling(false);

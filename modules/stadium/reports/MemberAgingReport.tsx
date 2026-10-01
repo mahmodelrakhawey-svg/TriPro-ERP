@@ -96,7 +96,7 @@ const MemberAgingReport: React.FC = () => {
 
       setData(formatted);
       setCurrentPage(1);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching aging members:', error);
       toast.error('حدث خطأ أثناء جلب البيانات');
     } finally {

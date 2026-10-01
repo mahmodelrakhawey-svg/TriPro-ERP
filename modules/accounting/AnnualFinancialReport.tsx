@@ -110,7 +110,7 @@ const AnnualFinancialReport: React.FC = () => {
       const { data: assetsData } = await qAssets;
       setDbAssets(assetsData || []);
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching annual report data:', err);
       showToast('خطأ أثناء جلب بيانات التقرير السنوي: ' + err.message, 'error');
     } finally {
@@ -513,7 +513,7 @@ const AnnualFinancialReport: React.FC = () => {
 
       XLSX.writeFile(wb, `Annual_Financial_Report_${reportYear}_${organization?.name || 'Company'}.xlsx`);
       showToast('تم تصدير ملف التقرير المالي السنوي بنجاح', 'success');
-    } catch (e: any) {
+    } catch (e) {
       showToast('فشل تصدير Excel: ' + e.message, 'error');
     }
   };

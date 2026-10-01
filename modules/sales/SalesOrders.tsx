@@ -107,7 +107,7 @@ export const SalesOrders: React.FC = () => {
       if (error) throw error;
 
       setOrders(data || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching sales orders:', err);
       showToast('فشل تحميل سجل أوامر البيع: ' + err.message, 'error');
     } finally {
@@ -159,7 +159,7 @@ export const SalesOrders: React.FC = () => {
       if (error) throw error;
       showToast(`تم تعميد وتأكيد أمر البيع رقم (${order.order_number}) بنجاح 🛡️✅`, 'success');
       fetchOrders();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل تعميد أمر البيع: ' + err.message, 'error');
     } finally {
@@ -181,7 +181,7 @@ export const SalesOrders: React.FC = () => {
       showToast('تم حذف أمر البيع بنجاح ✅', 'success');
       fetchOrders();
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting SO:', err);
       showToast('فشل حذف أمر البيع: ' + err.message, 'error');
     } finally {
@@ -214,7 +214,7 @@ export const SalesOrders: React.FC = () => {
       setIsConvertModalOpen(false);
       setSelectedOrderForConvert(null);
       fetchOrders();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل تحويل أمر البيع: ' + err.message, 'error');
     } finally {

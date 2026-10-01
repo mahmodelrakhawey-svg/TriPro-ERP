@@ -213,7 +213,7 @@ export default function LettersOfGuaranteePage() {
         setBanks(bankAccounts.length > 0 ? bankAccounts : accountsData);
       }
 
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ أثناء جلب البيانات: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -331,7 +331,7 @@ export default function LettersOfGuaranteePage() {
       setShowAddModal(false);
       setEditingLgId(null);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حفظ خطاب الضمان: ' + err.message, 'error');
     }
   };
@@ -351,7 +351,7 @@ export default function LettersOfGuaranteePage() {
       showToast('تم حذف خطاب الضمان بنجاح 🗑️', 'success');
       if (selectedLgDetail?.id === id) setSelectedLgDetail(null);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حذف خطاب الضمان: ' + err.message, 'error');
     }
   };
@@ -413,7 +413,7 @@ export default function LettersOfGuaranteePage() {
 
       setShowExtendModal(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل تمديد خطاب الضمان: ' + err.message, 'error');
     }
   };
@@ -467,7 +467,7 @@ export default function LettersOfGuaranteePage() {
 
       setShowReturnModal(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل استرداد خطاب الضمان: ' + err.message, 'error');
     }
   };
@@ -540,7 +540,7 @@ export default function LettersOfGuaranteePage() {
 
       setShowLiquidateModal(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل تسييل خطاب الضمان: ' + err.message, 'error');
     }
   };

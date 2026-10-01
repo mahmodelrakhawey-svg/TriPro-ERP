@@ -386,7 +386,7 @@ const PosScreen = () => {
               type: 'dine-in'
             });
           }
-        } catch (error: any) {
+        } catch (error) {
           showToast('فشل بدء جلسة الطاولة: ' + error.message, 'error');
         }
       }
@@ -434,7 +434,7 @@ const PosScreen = () => {
       } else {
         throw new Error('فشل استلام رمز الوصول من الخادم');
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل إنشاء رمز QR: ' + err.message, 'error');
     }
   };
@@ -487,7 +487,7 @@ const PosScreen = () => {
                 : undefined,
             deliveryFee: order.order_type === 'DELIVERY' ? (order.delivery_fee || delInfo?.delivery_fee || 0) : undefined,
         });
-    } catch (err: any) {
+    } catch (err) {
         showToast('فشل تحميل الطلب: ' + err.message, 'error');
     }
   };
@@ -499,7 +499,7 @@ const PosScreen = () => {
       showToast('تم إغلاق وأرشفة طلب المنصة بنجاح (مسدد آجل) ✓', 'success');
       setOpenExternalOrders(prev => prev.filter(o => o.id !== orderId));
       if (activeOrder?.orderId === orderId) setActiveOrder(null);
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ في إغلاق الطلب: ' + err.message, 'error');
     }
   };
@@ -714,7 +714,7 @@ const PosScreen = () => {
          return { ...prev, items: newItems, orderId: newOrderId };
        });
  
-      } catch (error: any) {
+      } catch (error) {
         logger.error('POS order send error:', error);
         
         // 📴 المرونة في وضع عدم الاتصال (Offline Queue Fallback)
@@ -911,7 +911,7 @@ const PosScreen = () => {
           
           showToast('تم إتمام الدفع وتحديث حالة الطاولة بنجاح ✅', 'success');
       }
-      } catch (e: any) {
+      } catch (e) {
           showToast('فشل إتمام الدفع: ' + e.message, 'error');
       } finally {
           setIsSubmitting(false);
@@ -970,7 +970,7 @@ const PosScreen = () => {
           setActiveCashShift(newS);
         }
         showToast('تم بدء الوردية بنجاح ✅', 'success');
-      } catch (err: any) {
+      } catch (err) {
         showToast(err.message || 'حدث خطأ أثناء بدء الوردية', 'error');
       }
     };
@@ -1011,7 +1011,7 @@ const PosScreen = () => {
         await closeCurrentShift(actualCash, notes);
         setIsCloseShiftModalOpen(false);
         showToast('تم إغلاق الوردية وتوليد القيود المحاسبية بنجاح ✅', 'success');
-      } catch (error: any) {
+      } catch (error) {
         showToast('فشل إغلاق الوردية: ' + (error.message || 'خطأ في قاعدة البيانات'), 'error');
       } finally {
         setIsClosingShift(false);
@@ -1123,7 +1123,7 @@ const PosScreen = () => {
       
       // إخفاء من قائمة الطلبات الخارجية فوراً في حالة الدفع الآجل أيضاً
       setOpenExternalOrders(prev => prev.filter(o => o.id !== activeOrder.orderId));
-    } catch (error: any) {
+    } catch (error) {
       logger.error(error);
       showToast('حدث خطأ أثناء تسجيل الدفع الآجل: ' + error.message, 'error');
     } finally {

@@ -499,7 +499,7 @@ const ReceiptVoucherForm = () => {
         try {
             const { error: rpcError } = await supabase.rpc('approve_receipt_voucher', { p_voucher_id: voucherData.id, p_credit_account_id: customerAcc.id });
             if (rpcError) throw rpcError;
-        } catch (err: any) {
+        } catch (err) {
             console.warn("RPC failed, falling back to manual entry:", err);
             // في حال فشل الدالة (مثلاً غير موجودة)، نقوم بإنشاء القيد يدوياً لضمان سلامة البيانات
             await addEntry({
@@ -518,7 +518,7 @@ const ReceiptVoucherForm = () => {
         setAttachments([]);
         setErrors({});
 
-    } catch (error: any) {
+    } catch (error) {
         showToast('خطأ: ' + error.message, 'error');
     } finally {
         isSubmittingRef.current = false;

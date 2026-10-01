@@ -134,7 +134,7 @@ export default function ShelfRestockReport() {
       });
 
       setItems(mapped);
-    } catch (e: any) {
+    } catch (e) {
       showToast('فشل تحميل بيانات الرفوف: ' + e.message, 'error');
     } finally {
       setIsLoading(false);

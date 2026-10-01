@@ -68,7 +68,7 @@ export const InTransitTransfersManager: React.FC = () => {
         transferType: typeFilter,
       });
       setTransfers(data);
-    } catch (err: any) {
+    } catch (err) {
       showToast('تعذر تحميل الشحنات: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -213,7 +213,7 @@ export const InTransitTransfersManager: React.FC = () => {
       showToast(`تم إنشاء شحنة التحويل #${res.data?.transfer_number} وبدء مرحلة النقل بنجاح 🚚`, 'success');
       setIsCreateModalOpen(false);
       fetchTransfers();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل إنشاء الشحنة', 'error');
     } finally {
       setSavingTransfer(false);
@@ -267,7 +267,7 @@ export const InTransitTransfersManager: React.FC = () => {
       showToast(`تم تأكيد استلام الشحنة #${activeTransferToReceive.transfer_number} وتحديث المخزون بنجاح ✅`, 'success');
       setIsReceiveModalOpen(false);
       fetchTransfers();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل تأكيد الاستلام', 'error');
     } finally {
       setSavingReceipt(false);

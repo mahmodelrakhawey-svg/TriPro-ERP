@@ -101,7 +101,7 @@ const SubcontractorForm: React.FC<SubcontractorFormProps> = ({ onClose, onSucces
       if (refreshData) refreshData();
       onSuccess();
       onClose();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

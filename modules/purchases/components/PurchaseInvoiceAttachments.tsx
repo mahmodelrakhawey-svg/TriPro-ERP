@@ -178,7 +178,7 @@ export const PurchaseInvoiceAttachments: React.FC<PurchaseInvoiceAttachmentsProp
 
       onChange(newItems);
       showToast(`تم إرفاق ${fileList.length} ملف بنجاح 📎`, 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error handling attachment upload:', err);
       showToast('حدث خطأ أثناء رفع المرفقات: ' + (err.message || ''), 'error');
     } finally {
@@ -214,7 +214,7 @@ export const PurchaseInvoiceAttachments: React.FC<PurchaseInvoiceAttachmentsProp
       const updated = attachments.filter((_, i) => i !== index);
       onChange(updated);
       showToast('تم حذف المرفق بنجاح 🗑️', 'info');
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حذف المرفق: ' + err.message, 'error');
     }
   };

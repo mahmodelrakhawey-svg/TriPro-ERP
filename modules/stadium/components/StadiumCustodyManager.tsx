@@ -125,7 +125,7 @@ export const StadiumCustodyManager: React.FC = () => {
         setCustodies(data || []);
         setTotalCount(count || 0);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
@@ -213,7 +213,7 @@ export const StadiumCustodyManager: React.FC = () => {
         notes: '',
       });
       fetchCustodies();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       toast.error(err.message || 'حدث خطأ أثناء صرف العهدة');
     }
@@ -282,7 +282,7 @@ export const StadiumCustodyManager: React.FC = () => {
       setIsSettleModalOpen(false);
       setSelectedCustody(null);
       fetchCustodies();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       toast.error(err.message || 'حدث خطأ أثناء تسوية العهدة');
     } finally {

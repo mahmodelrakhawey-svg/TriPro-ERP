@@ -229,7 +229,7 @@ const PurchaseInvoiceForm = () => {
       const idx = invoiceIds.indexOf(id);
       if (idx !== -1) setCurrentIndex(idx);
 
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error loading purchase invoice:', err);
       showToast('فشل تحميل الفاتورة: ' + err.message, 'error');
     } finally {
@@ -949,7 +949,7 @@ const PurchaseInvoiceForm = () => {
         loadInvoiceById(invoiceId);
       }
 
-    } catch (error: any) {
+    } catch (error) {
       logger.error(error);
       showToast('فشل حفظ الفاتورة: ' + error.message, 'error');
     } finally {
@@ -1041,7 +1041,7 @@ const PurchaseInvoiceForm = () => {
 
       showToast('تم إلغاء ترحيل فاتورة المشتريات بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
 
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error unposting purchase invoice:', err);
       showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
     } finally {
@@ -1128,7 +1128,7 @@ const PurchaseInvoiceForm = () => {
         handleNewInvoice();
       }
 
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error deleting purchase invoice:', err);
       showToast('فشل حذف الفاتورة: ' + err.message, 'error');
     } finally {

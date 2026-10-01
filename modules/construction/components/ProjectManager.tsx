@@ -62,7 +62,7 @@ const ProjectManager: React.FC = () => {
 
       if (error) throw error;
       setProjects((data || []).map(p => ({ ...p, customer_name: p.customers?.name })));
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);
@@ -80,7 +80,7 @@ const ProjectManager: React.FC = () => {
       if (error) throw error;
       showToast('تم تحديث حالة المشروع بنجاح ✅', 'success');
       fetchProjects();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

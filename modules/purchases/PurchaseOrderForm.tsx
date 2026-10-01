@@ -173,7 +173,7 @@ const PurchaseOrderForm = () => {
       const idx = orderIds.indexOf(id);
       if (idx !== -1) setCurrentIndex(idx);
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error loading PO:', err);
       showToast('فشل تحميل أمر الشراء: ' + err.message, 'error');
     } finally {
@@ -470,7 +470,7 @@ const PurchaseOrderForm = () => {
         loadOrderById(poId);
       }
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error saving PO:', error);
       showToast('فشل حفظ أمر الشراء: ' + (error.message || 'حدث خطأ أثناء الاتصال بقاعدة البيانات'), 'error');
     } finally {
@@ -503,7 +503,7 @@ const PurchaseOrderForm = () => {
         handleNewOrder();
       }
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting PO:', err);
       showToast('فشل حذف أمر الشراء: ' + err.message, 'error');
     } finally {
@@ -550,7 +550,7 @@ const PurchaseOrderForm = () => {
       showToast('تم تحويل أمر الشراء إلى فاتورة مشتريات بنجاح ✅', 'success');
       setIsConvertModalOpen(false);
       navigate('/purchase-invoices-list');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل التحويل: ' + err.message, 'error');
     } finally {

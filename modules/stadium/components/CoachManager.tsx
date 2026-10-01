@@ -89,7 +89,7 @@ const CoachManager: React.FC = () => {
 
       if (error) throw error;
       setCoaches(data || []);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching coaches:', error);
       toast.error('حدث خطأ أثناء جلب بيانات المدربين');
     } finally {
@@ -106,7 +106,7 @@ const CoachManager: React.FC = () => {
 
       if (error) throw error;
       setPrograms(data || []);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching programs:', error);
     }
   };
@@ -150,7 +150,7 @@ const CoachManager: React.FC = () => {
       setIsModalOpen(false);
       resetCoachForm();
       fetchCoaches();
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error saving coach:', error);
       toast.error('حدث خطأ أثناء حفظ البيانات');
     } finally {
@@ -255,7 +255,7 @@ const CoachManager: React.FC = () => {
         already_paid: alreadyPaid,
         amount_paid: netRemaining,
       }));
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error calculating revenue:', error);
     }
   };
@@ -305,7 +305,7 @@ const CoachManager: React.FC = () => {
 
       toast.success('تم تسجيل الدفعة وتوليد القيد بنجاح');
       setIsPaymentModalOpen(false);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error saving payment:', error);
       toast.error('حدث خطأ أثناء تسجيل الدفعة');
     }
@@ -324,7 +324,7 @@ const CoachManager: React.FC = () => {
       if (error) throw error;
       setPaymentHistory(data || []);
       setIsHistoryModalOpen(true);
-    } catch (error: any) {
+    } catch (error) {
       toast.error('حدث خطأ أثناء جلب السجل');
     }
   };

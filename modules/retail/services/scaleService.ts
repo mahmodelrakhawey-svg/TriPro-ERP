@@ -58,7 +58,7 @@ class ScaleService {
       this.notifyListeners();
       this.startReading(config.protocol || 'STANDARD');
       return true;
-    } catch (err: any) {
+    } catch (err) {
       this.currentReading.connected = false;
       this.notifyListeners();
       if (err.name === 'NotFoundError') {

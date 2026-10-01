@@ -218,7 +218,7 @@ export const DeliveryAggregatorManager: React.FC = () => {
       } else {
         showToast('خطأ: ' + res.error, 'error');
       }
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ: ' + e.message, 'error');
     }
   };

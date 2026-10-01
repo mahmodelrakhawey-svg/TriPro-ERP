@@ -145,7 +145,7 @@ const TopSellingReport = () => {
 
       setReportData(sortedData);
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching top selling products:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {

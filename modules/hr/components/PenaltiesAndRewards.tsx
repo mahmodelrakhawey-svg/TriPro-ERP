@@ -46,7 +46,7 @@ export const PenaltiesAndRewards: React.FC = () => {
     try {
       const data = await hrEnterpriseService.getPenaltiesRewards(orgId);
       setItems(data);
-    } catch (e: any) {
+    } catch (e) {
       console.warn('Load penalties error:', e);
     } finally {
       setLoading(false);
@@ -91,7 +91,7 @@ export const PenaltiesAndRewards: React.FC = () => {
       setFormReason('');
       setFormAmountValue(1);
       loadData();
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ: ' + e.message, 'error');
     } finally {
       setSaving(false);
@@ -104,7 +104,7 @@ export const PenaltiesAndRewards: React.FC = () => {
       await hrEnterpriseService.deletePenaltyReward(id);
       showToast('تم إلغاء السجل بنجاح 🗑️', 'success');
       loadData();
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ: ' + e.message, 'error');
     }
   };

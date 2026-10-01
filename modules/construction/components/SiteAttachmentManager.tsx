@@ -75,7 +75,7 @@ const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose 
       if (dbError) throw dbError;
       showToast('تم رفع المستند بنجاف ✅', 'success');
       fetchAttachments();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     } finally {
       setUploading(false);
@@ -89,7 +89,7 @@ const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose 
       if (error) throw error;
       setAttachments(attachments.filter(a => a.id !== id));
       showToast('تم الحذف بنجاح', 'success');
-    } catch (err: any) { showToast(err.message, 'error'); }
+    } catch (err) { showToast(err.message, 'error'); }
   };
 
   return (

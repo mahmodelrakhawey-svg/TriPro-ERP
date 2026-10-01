@@ -102,7 +102,7 @@ export default function PriceEscalationCalculator() {
           project_name: currentProjects.find(p => p.id === d.project_id)?.name || 'مشروع عام'
         })));
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setClaims([]);
     } finally {
@@ -168,7 +168,7 @@ export default function PriceEscalationCalculator() {
       showToast('تم تسجيل واحتساب مطالبة فروق الأسعار بنجاح 📈', 'success');
       setIsModalOpen(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حفظ المطالبة: ' + err.message, 'error');
     }
   };
@@ -183,7 +183,7 @@ export default function PriceEscalationCalculator() {
       if (error) throw error;
       showToast('تم تحديث حالة المطالبة بنجاح ✅', 'success');
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل التحديث: ' + err.message, 'error');
     }
   };
@@ -196,7 +196,7 @@ export default function PriceEscalationCalculator() {
       if (error) throw error;
       showToast('تم حذف المطالبة', 'success');
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل الحذف: ' + err.message, 'error');
     }
   };

@@ -199,7 +199,7 @@ class UnifiedAccountingEngine {
           );
           rpcResult = res.data;
           rpcError = res.error;
-        } catch (callEx: any) {
+        } catch (callEx) {
           rpcError = callEx;
         }
       } else {

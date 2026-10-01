@@ -50,7 +50,7 @@ const Quotations: React.FC = () => {
 
       showToast('تم تحويل عرض السعر إلى أمر بيع بنجاح ✅', 'success');
       fetchQuotations(); // تحديث القائمة لرؤية الحالة الجديدة (accepted)
-    } catch (error: any) {
+    } catch (error) {
       showToast('خطأ أثناء التحويل: ' + error.message, 'error');
     }
   };

@@ -120,7 +120,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({ shift, onClose, 
       } else {
         showToast('خطأ: ' + res.error, 'error');
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ: ' + err.message, 'error');
     } finally {
       setIsSubmitting(false);

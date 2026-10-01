@@ -623,7 +623,7 @@ const RoutingBOMManager = () => {
       } else {
         setRoutingSteps([]);
       }
-    } catch (error: any) {
+    } catch (error) {
       showToast('خطأ في جلب بيانات المسار: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -662,7 +662,7 @@ const RoutingBOMManager = () => {
       setIsWorkCenterModalOpen(false);
       setEditingWorkCenter(null);
       fetchWorkCenters();
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل حفظ مركز العمل: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -677,7 +677,7 @@ const RoutingBOMManager = () => {
       if (error) throw error;
       showToast('تم حذف مركز العمل بنجاح', 'success');
       fetchWorkCenters();
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل حذف مركز العمل: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -702,7 +702,7 @@ const RoutingBOMManager = () => {
       if (error) throw error;
       setCurrentRouting(data);
       showToast('تم إنشاء مسار إنتاج جديد', 'success');
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل إنشاء المسار: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -733,7 +733,7 @@ const RoutingBOMManager = () => {
 
       showToast('تم تعيين المسار الافتراضي بنجاح', 'success');
       fetchRoutingData(selectedProductId);
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل تعيين المسار الافتراضي: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -760,7 +760,7 @@ const RoutingBOMManager = () => {
       if (error) throw error;
       setRoutingSteps(prev => [...prev, { ...data, materials: [] }]);
       showToast('تم إضافة مرحلة جديدة', 'success');
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل إضافة المرحلة: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -776,7 +776,7 @@ const RoutingBOMManager = () => {
         prev.map(step => (step.id === stepId ? { ...step, ...updates } : step))
       );
       showToast('تم تحديث المرحلة', 'success');
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل تحديث المرحلة: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -859,7 +859,7 @@ const RoutingBOMManager = () => {
         await syncRoutingToBOM(targetProdId, nextSteps);
       }
       showToast('تم حذف المرحلة ومزامنة شجرة المكونات بنجاح', 'success');
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل حذف المرحلة: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -913,7 +913,7 @@ const RoutingBOMManager = () => {
         : ` (${preciseQuantity} ${prod?.unit || 'وحدة'})`;
 
       showToast(`تمت إضافة المكون: ${prod?.name || ''}${detailMsg}`, 'success');
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل إضافة المكون للمرحلة: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -946,7 +946,7 @@ const RoutingBOMManager = () => {
         await syncRoutingToBOM(targetProdId, nextSteps);
       }
       showToast('تم تحديث كمية المادة الخام ومزامنة شجرة المكونات بنجاح', 'success');
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل تحديث كمية المادة الخام: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -970,7 +970,7 @@ const RoutingBOMManager = () => {
         await syncRoutingToBOM(targetProdId, nextSteps);
       }
       showToast('تم حذف المادة الخام ومزامنة شجرة المكونات بنجاح', 'success');
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل حذف المادة الخام: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -1007,7 +1007,7 @@ const RoutingBOMManager = () => {
       if (dbError) throw dbError;
       showToast('تم رفع المرفق بنجاح', 'success');
       fetchRoutingData(selectedProductId!);
-    } catch (error: any) {
+    } catch (error) {
       showToast('خطأ في رفع المرفق: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -1021,7 +1021,7 @@ const RoutingBOMManager = () => {
       if (error) throw error;
       showToast('تم حذف المرفق', 'success');
       fetchRoutingData(selectedProductId!);
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل حذف المرفق: ' + error.message, 'error');
     }
   };
@@ -1060,7 +1060,7 @@ const RoutingBOMManager = () => {
       });
 
       showToast('تم تصدير شيت مراجعة مقادير الصنف إلى Excel بنجاح ✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل تصدير مقادير الصنف: ' + err.message, 'error');
     } finally {
@@ -1115,7 +1115,7 @@ const RoutingBOMManager = () => {
       });
 
       showToast('تم تصدير الشيت الشامل لكافة الوصفات والمقادير إلى Excel بنجاح ✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل تصدير الشيت الشامل: ' + err.message, 'error');
     } finally {

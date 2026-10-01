@@ -183,7 +183,7 @@ export const StadiumExpenseReport: React.FC = () => {
 
       items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setExpenses(items);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching stadium expenses:', err);
     } finally {
       setLoading(false);

@@ -135,7 +135,7 @@ export const YieldTemplatesModal: React.FC<YieldTemplatesModalProps> = ({
       showToast('تم حفظ قالب التشفية بنجاح ✅', 'success');
       setIsEditing(false);
       onTemplatesUpdated();
-    } catch (err: any) {
+    } catch (err) {
       showToast('حدث خطأ أثناء حفظ القالب: ' + err.message, 'error');
     } finally {
       setSaving(false);

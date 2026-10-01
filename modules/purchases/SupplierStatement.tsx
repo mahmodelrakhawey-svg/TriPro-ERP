@@ -337,7 +337,7 @@ const SupplierStatement = () => {
         setTransactions(finalTrans);
         setClosingBalance(runningBal);
 
-    } catch (error: any) {
+    } catch (error) {
         console.error(error);
         showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {

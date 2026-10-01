@@ -165,7 +165,7 @@ const SaaSAdmin: React.FC = () => {
           }
         }
       }      
-    } catch (error: any) {
+    } catch (error) {
       showToast('خطأ في تحميل البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -188,7 +188,7 @@ const SaaSAdmin: React.FC = () => {
 
       setOrphanedBackupsCount(0);
       await loadData();
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل عملية التنظيف: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -222,7 +222,7 @@ const SaaSAdmin: React.FC = () => {
         .order('backup_date', { ascending: false });
       if (error) throw error;
       setBackups(data || []);
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل جلب النسخ الاحتياطية', 'error');
     } finally {
       setLoadingBackups(false);
@@ -238,7 +238,7 @@ const SaaSAdmin: React.FC = () => {
       if (error) throw error;
       showToast('تم إنشاء نسخة احتياطية بنجاح ✅', 'success');
       fetchBackups(selectedBackupOrgId);
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل إنشاء النسخة الاحتياطية', 'error');
     } finally {
       setCreatingBackup(false);
@@ -258,7 +258,7 @@ const SaaSAdmin: React.FC = () => {
       } else {
         showToast((res.message || 'فشل الرفع إلى S3') + (res.error ? ': ' + res.error : ''), 'error');
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ في الرفع الخارجي: ' + err.message, 'error');
     } finally {
       setExportingS3(false);
@@ -287,7 +287,7 @@ const SaaSAdmin: React.FC = () => {
       });
       if (error) throw error;
       showToast(data || 'تمت استعادة البيانات بنجاح ✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل عملية الاستعادة', 'error');
     } finally {
       setRestoringId(null);
@@ -302,7 +302,7 @@ const SaaSAdmin: React.FC = () => {
       try {
         const backupData = JSON.parse(evt.target?.result as string);
         await handleRestoreBackup({ id: 'temp', organization_id: selectedBackupOrgId, backup_data: backupData } as any);
-      } catch (err: any) {
+      } catch (err) {
         showToast('ملف غير صالح', 'error');
       }
     };
@@ -320,7 +320,7 @@ const SaaSAdmin: React.FC = () => {
       if (error) throw error;
       showToast('تم حذف النسخة الاحتياطية بنجاح ✅', 'success');
       if (selectedBackupOrgId) fetchBackups(selectedBackupOrgId);
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حذف النسخة الاحتياطية: ' + err.message, 'error');
       console.error('Error deleting backup:', err);
     }
@@ -494,7 +494,7 @@ const SaaSAdmin: React.FC = () => {
               throw new Error(deleteResult.error.message || directDelete.error.message);
             }
           }
-        } catch (cleanupErr: any) {
+        } catch (cleanupErr) {
           throw new Error(deleteResult.error?.message || cleanupErr.message);
         }
       }
@@ -504,7 +504,7 @@ const SaaSAdmin: React.FC = () => {
       setIsDeleteModalOpen(false);
       setDeletingOrg(null);
       setDeleteConfirmName('');
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل حذف الشركة: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -536,7 +536,7 @@ const SaaSAdmin: React.FC = () => {
       setOrphanedFiles(orphanedDocs);
       setIsOrphanedModalOpen(true);
       showToast(`تم اكتشاف ${orphanedDocs.length} ملف يتيم`, 'info');
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل الفحص: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -560,7 +560,7 @@ const SaaSAdmin: React.FC = () => {
         setOrphanedFiles(prev => prev.filter(f => f !== path));
         showToast('تم حذف الملف بنجاح', 'success');
       }
-    } catch (err: any) { showToast('فشل الحذف: ' + err.message, 'error'); } finally { setLoading(false); }
+    } catch (err) { showToast('فشل الحذف: ' + err.message, 'error'); } finally { setLoading(false); }
   };
 
   const handleImpersonate = async (orgId: string, orgName: string) => {
@@ -592,7 +592,7 @@ const SaaSAdmin: React.FC = () => {
 
       showToast(`تم الانتقال لبيئة عمل: ${orgName} بنجاح. جاري تحديث النظام...`, 'success');
       setTimeout(() => window.location.reload(), 1500);
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل في عملية المحاكاة: ' + error.message, 'error');
     }
   };
@@ -609,7 +609,7 @@ const SaaSAdmin: React.FC = () => {
       showToast(data || 'تم إصلاح وتحديث قاعدة البيانات بنجاح ✅', 'success');
       // إعادة تحميل البيانات بعد الإصلاح
       await loadData();
-    } catch (error: any) {
+    } catch (error) {
       if (error.code === 'PGRST202') {
         showToast('النظام يحتاج تنشيط يدوي أول مرة: يرجى تشغيل "NOTIFY pgrst, \'reload config\';" في Supabase SQL Editor', 'warning');
       } else {
@@ -645,7 +645,7 @@ const SaaSAdmin: React.FC = () => {
       
       XLSX.writeFile(wb, `TriPro_Organizations_${new Date().toISOString().split('T')[0]}.xlsx`);
       showToast('تم تصدير ملف Excel بنجاح ✅', 'success');
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل تصدير الملف: ' + error.message, 'error');
     }
   };

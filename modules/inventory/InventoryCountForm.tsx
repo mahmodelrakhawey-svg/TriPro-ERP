@@ -77,7 +77,7 @@ const InventoryCountForm = () => {
         } else {
             setItems(warehouseProducts);
         }
-    } catch (error: any) {
+    } catch (error) {
         console.error("Error fetching products:", error);
         showToast("حدث خطأ أثناء جلب بيانات الأصناف: " + error.message, 'error');
     } finally {
@@ -149,7 +149,7 @@ const InventoryCountForm = () => {
         setItems([]);
         setWarehouseId('');
         navigate('/inventory-history');
-    } catch (error: any) {
+    } catch (error) {
         console.error(error);
         showToast('حدث خطأ أثناء الحفظ: ' + error.message, 'error');
     } finally {

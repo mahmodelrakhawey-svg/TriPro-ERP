@@ -142,7 +142,7 @@ const PurchaseReturnForm = () => {
         setItems(mapped);
         showToast(`تم استيراد ${mapped.length} صنف من الفاتورة الأصلية بنجاح ✅`, 'info');
       }
-    } catch (e: any) {
+    } catch (e) {
       console.error('Failed to load invoice items:', e);
     }
   };
@@ -210,7 +210,7 @@ const PurchaseReturnForm = () => {
       const idx = returnIds.indexOf(id);
       if (idx !== -1) setCurrentIndex(idx);
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error loading purchase return:', err);
       showToast('فشل تحميل بيانات المرتجع: ' + err.message, 'error');
     } finally {
@@ -463,7 +463,7 @@ const PurchaseReturnForm = () => {
         loadReturnById(returnIdToApprove);
       }
 
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('فشل حفظ المرتجع: ' + error.message, 'error');
     } finally {
@@ -522,7 +522,7 @@ const PurchaseReturnForm = () => {
         handleNewReturn();
       }
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting purchase return:', err);
       showToast('فشل حذف المرتجع: ' + err.message, 'error');
     } finally {

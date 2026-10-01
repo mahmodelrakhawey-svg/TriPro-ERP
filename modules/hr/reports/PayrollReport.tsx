@@ -88,7 +88,7 @@ const PayrollReport = () => {
         setPayrollSummary(null);
         setPayrollData([]);
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching payroll report:', error);
       showToast('حدث خطأ أثناء جلب التقرير: ' + error.message, 'error');
     } finally {

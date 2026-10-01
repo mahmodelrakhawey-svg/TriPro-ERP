@@ -97,7 +97,7 @@ const CreditNoteForm = () => {
       const idx = noteIds.indexOf(id);
       if (idx !== -1) setCurrentIndex(idx);
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error loading credit note:', err);
       showToast('فشل تحميل الإشعار الدائن: ' + err.message, 'error');
     } finally {
@@ -246,7 +246,7 @@ const CreditNoteForm = () => {
         loadNoteById(noteId);
       }
 
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('خطأ: ' + error.message, 'error');
     } finally {
@@ -283,7 +283,7 @@ const CreditNoteForm = () => {
         handleNewNote();
       }
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting credit note:', err);
       showToast('فشل حذف الإشعار الدائن: ' + err.message, 'error');
     } finally {

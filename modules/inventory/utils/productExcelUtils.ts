@@ -104,7 +104,7 @@ export const exportProductsToExcel = async ({
     XLSX.utils.book_append_sheet(wb, ws, "قائمة الأصناف");
     XLSX.writeFile(wb, `Products_List_${new Date().toISOString().split('T')[0]}.xlsx`);
     showToast(`تم تصدير ${allItems.length} صنف بنجاح إلى Excel ✅`, 'success');
-  } catch (err: any) {
+  } catch (err) {
     showToast('فشل التصدير: ' + err.message, 'error');
   } finally {
     setIsExporting(false);
@@ -157,7 +157,7 @@ export const exportScalePLUToExcel = async (showToast: (msg: string, type?: stri
     XLSX.utils.book_append_sheet(wb, ws, "Scale_PLU_List");
     XLSX.writeFile(wb, `Scale_PLU_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
     showToast(`تم تصدير ${pluData.length} صنف ميزان بنجاح ✅ جاهز للرفع على برامج الموازين`, 'success');
-  } catch (err: any) {
+  } catch (err) {
     showToast('فشل تصدير ملف الموازين: ' + err.message, 'error');
   }
 };
@@ -459,7 +459,7 @@ export const importRecipesFromExcel = async ({
       }
 
       showToast(`تم استيراد ${successCount} وصفة بنجاح.${failCount > 0 ? ` فشل ${failCount} صف.` : ''}`, 'success');
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('فشل استيراد الوصفات: ' + error.message, 'error');
     } finally {
@@ -672,7 +672,7 @@ export const importProductsFromExcel = async ({
       await refreshData();
       showToast(`تمت العملية:\n✅ تم استيراد: ${successCount} منتج\n❌ فشل: ${failCount}`, 'success');
       
-    } catch (error: any) {
+    } catch (error) {
       showToast('حدث خطأ أثناء قراءة الملف: ' + error.message, 'error');
     } finally {
       setIsImporting(false);
@@ -741,7 +741,7 @@ export const exportPriceListForUpdate = async ({
     XLSX.utils.book_append_sheet(wb, ws, "تحديث أسعار البيع");
     XLSX.writeFile(wb, `Price_Update_Sheet_${new Date().toISOString().split('T')[0]}.xlsx`);
     showToast(`تم تصدير شيت الأسعار بنجاح (${allItems.length} صنف) ✅ قم بتعديل عمود "سعر البيع الجديد" ثم ارفعه.`, 'success');
-  } catch (err: any) {
+  } catch (err) {
     showToast('فشل تصدير شيت الأسعار: ' + err.message, 'error');
   } finally {
     if (setIsExporting) setIsExporting(false);
@@ -997,7 +997,7 @@ export const updateProductPricesFromExcel = async ({
 
         setIsUpdating(false);
         resolve(result);
-      } catch (err: any) {
+      } catch (err) {
         showToast('حدث خطأ أثناء معالجة ملف الأسعار: ' + err.message, 'error');
         setIsUpdating(false);
         resolve(null);

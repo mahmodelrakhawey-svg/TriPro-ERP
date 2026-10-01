@@ -180,7 +180,7 @@ class AutoReorderService {
             insRes = await supabase.from('purchase_order_items').insert(adjusted);
           }
         }
-      } catch (err: any) {
+      } catch (err) {
         errors.push(`فشل إنشاء أمر الشراء للمورد ${supplierName}: ${err.message}`);
       }
     }

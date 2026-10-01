@@ -45,7 +45,7 @@ export const LoyaltyProgramManager: React.FC = () => {
     try {
       loyaltyService.saveConfig(config);
       showToast('تم حفظ إعدادات برنامج الولاء والمحفظة بنجاح 🎯', 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ: ' + err.message, 'error');
     } finally {
       setIsSaving(false);

@@ -143,7 +143,7 @@ const FiscalYearClosing: React.FC = () => {
       setNetProfitEstimate(netProfit);
       setTaxProvisionEstimate(netProfit > 0 ? netProfit * 0.225 : 0);
 
-    } catch (e: any) {
+    } catch (e) {
       console.error('Diagnostic error:', e);
       showToast('خطأ أثناء تشغيل الفحص: ' + e.message, 'error');
     } finally {
@@ -219,7 +219,7 @@ const FiscalYearClosing: React.FC = () => {
       showToast(`تم إنشاء وترحيل قيد الإهلاك السنوي بنجاح برقم مرجعي DEP-${year} ✅`, 'success');
       setDepAlreadyPosted(true);
       runDiagnostics();
-    } catch (err: any) {
+    } catch (err) {
       console.error('Depreciation entry error:', err);
       showToast('فشل إنشاء قيد الإهلاك: ' + err.message, 'error');
     } finally {
@@ -244,7 +244,7 @@ const FiscalYearClosing: React.FC = () => {
       if (success) {
         setCompletedSuccess(true);
       }
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل الإقفال: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -269,7 +269,7 @@ const FiscalYearClosing: React.FC = () => {
         showToast(`تم فتح السنة ${reopenYearVal} بنجاح، يمكنك الآن تعديل وإضافة الحركات.`, 'success');
         runDiagnostics();
       }
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل إعادة فتح السنة: ' + error.message, 'error');
     } finally {
       setLoading(false);

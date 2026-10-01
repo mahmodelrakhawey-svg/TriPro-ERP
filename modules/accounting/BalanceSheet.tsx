@@ -179,7 +179,7 @@ const BalanceSheet: React.FC = () => {
           setPriorLedgerLines(allPriorLines);
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching balance sheet data:', err);
       toast.error('فشل جلب البيانات: ' + err.message);
     } finally {

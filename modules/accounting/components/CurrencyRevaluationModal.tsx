@@ -81,7 +81,7 @@ export const CurrencyRevaluationModal: React.FC<CurrencyRevaluationModalProps> =
           }));
           setCurrencyAccounts(fallback);
         }
-      } catch (err: any) {
+      } catch (err) {
         toast.error('تعذر جلب الحسابات: ' + err.message);
       } finally {
         setLoading(false);
@@ -144,7 +144,7 @@ export const CurrencyRevaluationModal: React.FC<CurrencyRevaluationModalProps> =
       );
       onSuccess();
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || 'حدث خطأ أثناء ترحيل القيد');
     } finally {
       setSubmitting(false);

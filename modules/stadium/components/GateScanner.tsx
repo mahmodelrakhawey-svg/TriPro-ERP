@@ -100,7 +100,7 @@ export const GateScanner: React.FC = () => {
         const writer = textEncoder.writable.getWriter();
         await writer.write('RELAY_ON_GATE_1\r\n');
         writer.releaseLock();
-      } catch (err: any) {
+      } catch (err) {
         addHardwareLog(`⚠️ تعذر إرسال أمر السيريال: ${err.message}`);
       }
     }
@@ -150,14 +150,14 @@ export const GateScanner: React.FC = () => {
               }
             }
           }
-        } catch (e: any) {
+        } catch (e) {
           addHardwareLog(`❌ انقطع اتصال السيريال: ${e.message}`);
           setSerialConnected(false);
         } finally {
           reader.releaseLock();
         }
       })();
-    } catch (err: any) {
+    } catch (err) {
       if (err.name !== 'NotFoundError') {
         toast.error('تعذر الاتصال بمنفذ السيريال: ' + err.message);
         addHardwareLog(`❌ خطأ اتصال: ${err.message}`);
@@ -324,7 +324,7 @@ export const GateScanner: React.FC = () => {
           }
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       toast.error('حدث خطأ أثناء فحص البيانات');
     } finally {

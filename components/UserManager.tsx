@@ -107,7 +107,7 @@ const UserManager = () => {
       }));
 
       setUsers(usersWithActivity as UserProfile[]);
-    } catch (err: any) {
+    } catch (err) {
       setError('فشل تحميل بيانات المستخدمين: ' + err.message);
     } finally {
       setLoading(false);
@@ -138,7 +138,7 @@ const UserManager = () => {
       if (data && data.length > 0) {
         setDynamicRoles(data);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.warn('تعذّر جلب الأدوار من قاعدة البيانات، سيتم استخدام القائمة الافتراضية:', err.message);
     }
   };
@@ -233,7 +233,7 @@ const UserManager = () => {
       if (error) throw error;
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, can_view_dashboard: nextVal } : u));
       showToast(`تم ${nextVal ? 'السماح بـ' : 'حجب'} لوحة القيادة للمستخدم بنجاح`, 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل تعديل صلاحية لوحة القيادة: ' + err.message, 'error');
     }
   };
@@ -260,7 +260,7 @@ const UserManager = () => {
       if (error) throw error;
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, can_access_mobile: nextVal } : u));
       showToast(`تم ${nextVal ? 'تفعيل' : 'تعطيل'} تطبيق الموبايل للمستخدم بنجاح`, 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل تعديل صلاحية تطبيق الموبايل: ' + err.message, 'error');
     }
   };
@@ -394,7 +394,7 @@ const UserManager = () => {
       setIsAddModalOpen(false);
       setNewUserData({ email: '', password: '', fullName: '', role: 'viewer', hr_scope: 'all', can_view_dashboard: true, can_access_mobile: false });
       fetchUsers(); // تحديث القائمة
-    } catch (err: any) {
+    } catch (err) {
       if (process.env.NODE_ENV === 'development') console.error('Error creating user:', err);
       showToast('فشل إنشاء المستخدم: ' + err.message, 'error');
     } finally {
@@ -422,7 +422,7 @@ const UserManager = () => {
         if (error) throw error;
         showToast('تم حذف المستخدم بنجاح.', 'success');
         fetchUsers();
-      } catch (err: any) {
+      } catch (err) {
         if (process.env.NODE_ENV === 'development') console.error('Error deleting user:', err);
         showToast('فشل حذف المستخدم: ' + (err.data?.message || err.message), 'error');
       }
@@ -496,7 +496,7 @@ const UserManager = () => {
         showToast('تم إعادة تعيين كلمة المرور بنجاح ✅', 'success');
         setIsResetPasswordModalOpen(false);
         setResetPasswordData({ userId: '', newPassword: '' });
-    } catch (err: any) {
+    } catch (err) {
         showToast('فشل إعادة تعيين كلمة المرور: ' + (err.message || 'تأكد من إعداد Edge Function.'), 'error');
     } finally {
         setResetting(false);

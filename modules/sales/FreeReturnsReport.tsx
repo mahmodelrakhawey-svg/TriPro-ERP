@@ -64,7 +64,7 @@ const FreeReturnsReport = () => {
 
       if (error) throw error;
       setReturns(data || []);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching free returns:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {

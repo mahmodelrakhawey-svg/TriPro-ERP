@@ -72,7 +72,7 @@ export const HrDashboard: React.FC = () => {
       });
 
       setRecentPunches(logs.slice(0, 6));
-    } catch (e: any) {
+    } catch (e) {
       console.warn('Dashboard load notice:', e);
     } finally {
       setLoading(false);

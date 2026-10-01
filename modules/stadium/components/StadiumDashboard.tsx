@@ -160,7 +160,7 @@ export default function StadiumDashboard() {
       setExpiringMembers(expMembers || []);
       setOverdueContracts(overContracts || []);
 
-    } catch (error: any) {
+    } catch (error) {
       toast.error('حدث خطأ أثناء جلب بيانات لوحة القيادة');
       console.error('Dashboard fetch error:', error);
     } finally {

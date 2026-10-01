@@ -113,7 +113,7 @@ export default function AttendanceManager() {
           employee_name: empList.find(e => e.id === d.employee_id)?.name || 'موظف'
         })));
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setLogs([]);
     } finally {
@@ -166,7 +166,7 @@ export default function AttendanceManager() {
       showToast('تم تسجيل حركة الحضور بنجاح ⏱️', 'success');
       setIsNewModalOpen(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حفظ الحضور: ' + err.message, 'error');
     }
   };
@@ -219,7 +219,7 @@ export default function AttendanceManager() {
           setIsImportModalOpen(false);
           fetchData();
         }
-      } catch (err: any) {
+      } catch (err) {
         showToast('فشل قراءة ملف البصمة: ' + err.message, 'error');
       }
     };
@@ -234,7 +234,7 @@ export default function AttendanceManager() {
       if (error) throw error;
       showToast('تم حذف السجل', 'success');
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل الحذف: ' + err.message, 'error');
     }
   };

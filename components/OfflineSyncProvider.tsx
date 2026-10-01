@@ -108,7 +108,7 @@ export const OfflineSyncProvider = () => {
       showToast('🔄 جاري تصحيح ومزامنة العمليات المعلقة مع السحابة...', 'info');
       await offlineService.retryFailedOrders();
       showToast('✅ اكتملت عملية فحص المزامنة.', 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشلت المزامنة: ' + (err?.message || 'خطأ غير معروف'), 'error');
     } finally {
       setIsSyncing(false);

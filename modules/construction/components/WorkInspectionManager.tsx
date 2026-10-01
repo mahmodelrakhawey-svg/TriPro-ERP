@@ -99,7 +99,7 @@ export default function WorkInspectionManager() {
           project_name: currentProjects.find(p => p.id === d.project_id)?.name || 'مشروع غير محدد'
         })));
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setInspections([]);
     } finally {
@@ -159,7 +159,7 @@ export default function WorkInspectionManager() {
       showToast('تم تسجيل وإرسال طلب استلام الأعمال (WIR) بنجاح 📋', 'success');
       setIsNewModalOpen(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حفظ طلب الفحص: ' + err.message, 'error');
     }
   };
@@ -186,7 +186,7 @@ export default function WorkInspectionManager() {
       showToast('تم تسجيل قرار الاستشاري واعتماد محضر الاستلام بنجاح ✅', 'success');
       setIsVerdictModalOpen(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حفظ قرار الاستشاري: ' + err.message, 'error');
     }
   };

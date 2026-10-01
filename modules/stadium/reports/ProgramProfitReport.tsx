@@ -128,7 +128,7 @@ const ProgramProfitReport: React.FC = () => {
       calculatedStats.sort((a, b) => b.netProfit - a.netProfit);
       setStats(calculatedStats);
       setCurrentPage(1);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching program profitability:', error);
       toast.error('حدث خطأ أثناء حساب الربحية');
     } finally {

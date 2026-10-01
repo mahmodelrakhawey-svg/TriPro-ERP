@@ -117,7 +117,7 @@ export const CostClosingDashboard: React.FC = () => {
       });
 
       setChartData(trendData || []);
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     } finally {
       setLoading(false);
@@ -135,7 +135,7 @@ export const CostClosingDashboard: React.FC = () => {
       if (error) throw error;
       setReconReport(data || []);
       setShowReconModal(true);
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     } finally {
       setLoading(false);
@@ -159,7 +159,7 @@ export const CostClosingDashboard: React.FC = () => {
       if (error) throw error;
       showToast(`تم توزيع ${stats.pendingOverhead} ج.م على الأوامر النشطة بنجاح`, 'success');
       fetchPeriodStats();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     } finally {
       setLoading(false);
@@ -183,7 +183,7 @@ export const CostClosingDashboard: React.FC = () => {
         : '';
       showToast(`تم إغلاق الفترة ${periodName} وترحيل ${data?.orders_migrated || 0} أمراً بنجاح${settledMsg}`, 'success');
       fetchPeriodStats();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     } finally {
       setLoading(false);
@@ -201,7 +201,7 @@ export const CostClosingDashboard: React.FC = () => {
       if (error) throw error;
       showToast(`تم إلغاء إغلاق الفترة ${periodName} بنجاح`, 'success');
       fetchPeriodStats();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     } finally {
       setLoading(false);
@@ -224,7 +224,7 @@ export const CostClosingDashboard: React.FC = () => {
       } else {
         showToast('تم فحص كافة الأوامر النشطة: لا يوجد تجاوزات مكتشفة حالياً ✅', 'success');
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     } finally {
       setLoading(false);

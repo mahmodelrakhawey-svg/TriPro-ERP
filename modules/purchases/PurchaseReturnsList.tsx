@@ -80,7 +80,7 @@ export const PurchaseReturnsList: React.FC = () => {
       if (error) throw error;
 
       setReturns(data || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching purchase returns:', err);
       showToast('فشل تحميل سجل مرتجعات المشتريات: ' + err.message, 'error');
     } finally {
@@ -160,7 +160,7 @@ export const PurchaseReturnsList: React.FC = () => {
 
       showToast('تم حذف مرتجع المشتريات وعكس القيد والمخزون بنجاح ✅', 'success');
       fetchReturns();
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting purchase return:', err);
       showToast('فشل حذف المرتجع: ' + err.message, 'error');
     } finally {

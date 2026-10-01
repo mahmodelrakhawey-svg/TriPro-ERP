@@ -77,7 +77,7 @@ const BillingManager: React.FC<Props> = ({ projectId, onBack }) => {
         initialProgress[item.id] = 0;
       });
       setBoqItemProgress(initialProgress);
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error fetching BOQ:", error.message);
     }
   };
@@ -183,7 +183,7 @@ const BillingManager: React.FC<Props> = ({ projectId, onBack }) => {
       }
       setIsCreating(false);
       fetchBillings();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);
@@ -197,7 +197,7 @@ const BillingManager: React.FC<Props> = ({ projectId, onBack }) => {
       if (error) throw error;
       showToast('تم اعتماد المستخلص وترحيله محاسبياً بنجاح ✅', 'success');
       fetchBillings();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

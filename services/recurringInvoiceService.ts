@@ -233,7 +233,7 @@ export class RecurringInvoiceService {
         customers: customersMap[s.customer_id] || (s.customer_name ? { id: s.customer_id, name: s.customer_name, phone: s.customer_phone } : undefined),
         items: itemsMap[s.id] || [],
       }));
-    } catch (err: any) {
+    } catch (err) {
       let local = this.getLocalSubs(orgId);
       if (filters?.status && filters.status !== 'all') {
         local = local.filter(s => s.status === filters.status);
@@ -411,7 +411,7 @@ export class RecurringInvoiceService {
       this.saveLocalSubs([fullLocalRecord, ...existingSubs]);
 
       return { success: true, data: { ...createdSub, items, customers: fullLocalRecord.customers } };
-    } catch (err: any) {
+    } catch (err) {
       const existingSubs = this.getLocalSubs('');
       this.saveLocalSubs([fullLocalRecord, ...existingSubs]);
 
@@ -520,7 +520,7 @@ export class RecurringInvoiceService {
       }
 
       return { success: true };
-    } catch (err: any) {
+    } catch (err) {
       return { success: true };
     }
   }
@@ -547,7 +547,7 @@ export class RecurringInvoiceService {
       }
 
       return { success: true };
-    } catch (err: any) {
+    } catch (err) {
       const localSubs = this.getLocalSubs('');
       const idx = localSubs.findIndex(s => s.id === id);
       if (idx !== -1) {
@@ -578,7 +578,7 @@ export class RecurringInvoiceService {
       this.saveLocalItems(localItems);
 
       return { success: true };
-    } catch (err: any) {
+    } catch (err) {
       const localSubs = this.getLocalSubs('').filter(s => s.id !== id);
       this.saveLocalSubs(localSubs);
       return { success: true };
@@ -808,7 +808,7 @@ export class RecurringInvoiceService {
         invoiceNumber,
         whatsappUrl,
       };
-    } catch (err: any) {
+    } catch (err) {
       return { success: false, error: err.message || 'فشل توليد الفاتورة الدورية' };
     }
   }

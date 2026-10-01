@@ -80,7 +80,7 @@ const FinancialRatios = () => {
       const { data, error } = await query;
       if (error) throw error;
       setLedgerLines(data || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching ledger data for financial ratios:', err);
       showToast('فشل جلب البيانات: ' + err.message, 'error');
     } finally {

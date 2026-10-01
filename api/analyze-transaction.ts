@@ -88,7 +88,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const parsedData = JSON.parse(resText);
       return res.status(200).json(parsedData);
 
-    } catch (err: any) {
+    } catch (err) {
       console.warn(`[API /api/analyze-transaction] Model ${model} exception:`, err);
       lastErrorMsg = err?.message || String(err);
     }

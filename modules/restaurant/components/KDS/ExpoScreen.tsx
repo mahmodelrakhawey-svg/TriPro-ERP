@@ -86,7 +86,7 @@ export const ExpoScreen: React.FC = () => {
       if (ordersRes.data) {
         setOrders(ordersRes.data);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.warn('Expo data load notice:', err);
     } finally {
       setLoading(false);
@@ -215,7 +215,7 @@ export const ExpoScreen: React.FC = () => {
         showToast('تم تسليم وخروج كامل الطلب للعميل بنجاح 🍽️ (بانتظار سداد الحساب لدى الكاشير)', 'success');
       }
       setOrders(prev => prev.filter(o => o.id !== orderId));
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ: ' + e.message, 'error');
     }
   };

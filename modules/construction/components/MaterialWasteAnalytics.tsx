@@ -276,7 +276,7 @@ export default function MaterialWasteAnalytics() {
       }
 
       setBoqReconciliations(reconMatrix);
-    } catch (err: any) {
+    } catch (err) {
       console.warn('Reconciliation fetch error:', err.message);
       setBoqReconciliations([]);
     } finally {
@@ -937,7 +937,7 @@ export default function MaterialWasteAnalytics() {
                   showToast('تم تسجيل فحص هدر الخامة بنجاح ✅', 'success');
                   setIsModalOpen(false);
                   fetchData();
-                } catch (err: any) {
+                } catch (err) {
                   showToast('خطأ أثناء الحفظ: ' + err.message, 'error');
                 }
               }}

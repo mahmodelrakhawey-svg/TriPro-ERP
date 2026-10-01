@@ -19,7 +19,7 @@ const WIPMonthlySummaryReport = () => {
         const { data: result, error } = await supabase.from('v_mfg_wip_monthly_summary').select('*').eq('organization_id', orgId);
         if (error) throw error;
         setData(result || []);
-      } catch (error: any) {
+      } catch (error) {
         showToast(error.message, 'error');
       } finally {
         setLoading(false);

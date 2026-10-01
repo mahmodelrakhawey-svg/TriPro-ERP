@@ -106,7 +106,7 @@ export default function MachineryMaintenanceManager() {
           spare_parts_used: Array.isArray(d.spare_parts_used) ? d.spare_parts_used : []
         })));
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setOrders([]);
     } finally {
@@ -162,7 +162,7 @@ export default function MachineryMaintenanceManager() {
       showToast('تم إصدار أمر الصيانة بنجاح 🛠️', 'success');
       setIsNewModalOpen(false);
       fetchOrders();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حفظ أمر الصيانة: ' + err.message, 'error');
     }
   };
@@ -191,7 +191,7 @@ export default function MachineryMaintenanceManager() {
       showToast('تم إتمام أمر الصيانة وتوثيق قطع الغيار بنجاح ✅', 'success');
       setIsCompleteModalOpen(false);
       fetchOrders();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل إتمام الصيانة: ' + err.message, 'error');
     }
   };
@@ -204,7 +204,7 @@ export default function MachineryMaintenanceManager() {
       if (error) throw error;
       showToast('تم حذف أمر الصيانة', 'success');
       fetchOrders();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل الحذف: ' + err.message, 'error');
     }
   };

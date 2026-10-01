@@ -118,7 +118,7 @@ const ConstructionDashboard = () => {
         .eq('organization_id', orgId);
       setMaterialVariances(varianceData || []);
 
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل تحميل تحليلات المقاولات: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -182,7 +182,7 @@ const ConstructionDashboard = () => {
       const safeProjectName = (project.project_name || 'Project').replace(/[/\\?%*:|"<>]/g, '_');
       pdf.save(`Executive_Report_${safeProjectName}_${new Date().toISOString().split('T')[0]}.pdf`);
       showToast('تم توليد التقرير التنفيذي بنجاح ✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error('PDF generation error:', err);
       showToast('خطأ في تصدير PDF: ' + err.message, 'error');
     } finally {

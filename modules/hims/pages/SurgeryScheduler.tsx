@@ -37,7 +37,7 @@ export const SurgeryScheduler: React.FC = () => {
         .order('scheduled_start', { ascending: true });
       if (error) throw error;
       setSurgeries(data || []);
-    } catch (err: any) {
+    } catch (err) {
       message.error('خطأ في جلب بيانات العمليات: ' + (err?.message || ''));
     } finally {
       setLoading(false);
@@ -65,7 +65,7 @@ export const SurgeryScheduler: React.FC = () => {
 
       setDoctors(docsRes.data || []);
       setPendingVisits(visitsRes.data || []);
-    } catch (err: any) {
+    } catch (err) {
       message.error('خطأ في جلب بيانات الأطباء والزيارات: ' + (err?.message || ''));
     }
   }, [orgId]);

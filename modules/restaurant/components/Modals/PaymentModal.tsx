@@ -141,7 +141,7 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
         onSuccess();
         onClose();
       }
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message || 'حدث خطأ أثناء المعالجة', 'error');
     } finally {
       setSubmitting(false);

@@ -120,7 +120,7 @@ const InventoryRevaluation = () => {
       setNewCost('');
       setNotes('');
 
-    } catch (error: any) {
+    } catch (error) {
       showToast(`فشل إعادة التقييم: ${error.message}`, 'error');
     } finally {
       setSaving(false);

@@ -50,7 +50,7 @@ export const BOMImportModal: React.FC<BOMImportModalProps> = ({
       } else {
         setActiveTab('all');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل قراءة ملف الإكسيل: ' + err.message, 'error');
       setParseResult(null);
@@ -66,7 +66,7 @@ export const BOMImportModal: React.FC<BOMImportModalProps> = ({
     try {
       const res = await parseBOMExcelFile(selectedFile, allProducts, sheetName);
       setParseResult(res);
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ في قراءة الورقة المختارة: ' + err.message, 'error');
     } finally {
       setParsing(false);
@@ -86,7 +86,7 @@ export const BOMImportModal: React.FC<BOMImportModalProps> = ({
       showToast(result.message, 'success');
       onSuccess();
       handleClose();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل تطبيق التعديلات: ' + err.message, 'error');
     } finally {

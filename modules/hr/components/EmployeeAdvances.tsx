@@ -94,7 +94,7 @@ const EmployeeAdvances = () => {
         }
       }
 
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('خطأ في جلب البيانات: ' + error.message, 'error');
     } finally {
@@ -391,7 +391,7 @@ const EmployeeAdvances = () => {
       });
       fetchData();
 
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('حدث خطأ: ' + error.message, 'error');
     } finally {

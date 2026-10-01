@@ -95,7 +95,7 @@ const ProjectComprehensiveReport: React.FC<ProjectComprehensiveReportProps> = ({
         subPerformance: subPerformance,
       });
 
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل جلب بيانات التقرير: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -132,7 +132,7 @@ const ProjectComprehensiveReport: React.FC<ProjectComprehensiveReportProps> = ({
 
       pdf.save(`تقرير_المشروع_الشامل_${projectName}_${new Date().toISOString().split('T')[0]}.pdf`);
       showToast('تم تصدير التقرير بنجاح ✅', 'success');
-    } catch (error: any) {
+    } catch (error) {
       showToast('خطأ في تصدير التقرير: ' + error.message, 'error');
       console.error("PDF Export Error:", error);
     } finally {

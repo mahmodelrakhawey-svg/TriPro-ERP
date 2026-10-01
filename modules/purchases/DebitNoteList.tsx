@@ -75,7 +75,7 @@ export const DebitNoteList = () => {
       if (error) throw error;
 
       setNotes(data || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching debit notes:', err);
       showToast('فشل تحميل سجل الإشعارات المدينة: ' + err.message, 'error');
     } finally {
@@ -133,7 +133,7 @@ export const DebitNoteList = () => {
       showToast('تم حذف الإشعار المدين وعكس القيد بنجاح ✅', 'success');
       fetchNotes();
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting debit note:', err);
       showToast('فشل حذف الإشعار المدين: ' + err.message, 'error');
     } finally {

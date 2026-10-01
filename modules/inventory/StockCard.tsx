@@ -743,7 +743,7 @@ const StockCard = () => {
       if (updateError) throw updateError;
       
       await refreshData();
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل رفع الصورة: ' + error.message, 'error');
     } finally {
       setUploading(false);
@@ -846,7 +846,7 @@ const StockCard = () => {
           setIsEditModalOpen(false);
           await refreshData();
           await fetchTransactions(); // Refresh the card data
-      } catch (error: any) {
+      } catch (error) {
           showToast('فشل التحديث: ' + error.message, 'error');
       }
   };
@@ -916,7 +916,7 @@ const StockCard = () => {
           await fetchTransactions();
           setIsOpeningModalOpen(false);
           showToast('تم حذف رصيد أول المدة بنجاح ✅', 'success');
-      } catch (error: any) {
+      } catch (error) {
           showToast('خطأ: ' + error.message, 'error');
       } finally {
           setLoading(false);
@@ -973,7 +973,7 @@ const StockCard = () => {
           await fetchTransactions();
           setIsOpeningModalOpen(false);
           showToast('تم تحديث رصيد أول المدة وتجديد أرصدة النظام بنجاح ✅', 'success');
-      } catch (error: any) {
+      } catch (error) {
           showToast('خطأ: ' + error.message, 'error');
       } finally {
           setLoading(false);

@@ -119,7 +119,7 @@ export default function MachineOeeTracker() {
       } else {
         setLogs(data || []);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setLogs([]);
     } finally {
@@ -166,7 +166,7 @@ export default function MachineOeeTracker() {
       showToast('تم تسجيل واحتساب مؤشر كفاءة الماكينة (OEE) بنجاح ⚙️', 'success');
       setIsModalOpen(false);
       fetchLogs();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حفظ السجل: ' + err.message, 'error');
     }
   };
@@ -179,7 +179,7 @@ export default function MachineOeeTracker() {
       if (error) throw error;
       showToast('تم حذف السجل', 'success');
       fetchLogs();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل الحذف: ' + err.message, 'error');
     }
   };

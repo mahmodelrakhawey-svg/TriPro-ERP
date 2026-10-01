@@ -24,7 +24,7 @@ export default async function handler(
     });
 
     response.status(200).json({ success: true, message: 'Database pinged and logged successfully.' });
-  } catch (error: any) {
+  } catch (error) {
     if (process.env.NODE_ENV === 'development') console.error('Cron Job Error:', error);
 
     // محاولة إرسال إيميل تنبيه عند الفشل

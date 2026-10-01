@@ -344,7 +344,7 @@ export class StockTransferService {
       }
 
       return { success: true };
-    } catch (err: any) {
+    } catch (err) {
       return { success: false, error: err.message || 'فشل تأكيد استلام الشحنة' };
     }
   }

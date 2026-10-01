@@ -122,7 +122,7 @@ export default function GoodsReceiptManager() {
         .order('created_at', { ascending: false });
 
       setPurchaseOrders(pos || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('خطأ أثناء جلب أذون الاستلام', 'error');
     } finally {
@@ -354,7 +354,7 @@ export default function GoodsReceiptManager() {
         notes: ''
       });
 
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast(err.message || 'فشل حفظ إذن الاستلام', 'error');
     } finally {

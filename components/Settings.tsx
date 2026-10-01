@@ -62,7 +62,7 @@ const Settings = () => {
       const { error } = await supabase.rpc('recalculate_all_products_wac');
       if (error) throw error;
       showToast('تم إعادة احتساب تكاليف المخزون بنجاح وتصحيح هوامش الربح! ✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast(`فشل الاحتساب: ${err.message}`, 'error');
     } finally {
       setRecalculatingWac(false);
@@ -94,7 +94,7 @@ const Settings = () => {
       showToast('تمت إضافة جهاز الكاشير بنجاح ✅', 'success');
       setNewTerminalData({ name: '', warehouseId: '', cashAccountId: '' });
       fetchTerminals();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل إضافة جهاز الكاشير', 'error');
     }
   };
@@ -109,7 +109,7 @@ const Settings = () => {
       if (error) throw error;
       showToast('تم حذف جهاز الكاشير بنجاح 🗑️', 'success');
       fetchTerminals();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل حذف جهاز الكاشير', 'error');
     }
   };
@@ -454,7 +454,7 @@ const Settings = () => {
         setOriginalSettings({ ...formData });
 
         showToast("تم حفظ الإعدادات بنجاح ✅", 'success');
-      } catch (err: any) {
+      } catch (err) {
         showToast("فشل الحفظ: " + err.message, 'error');
       }
   };
@@ -484,7 +484,7 @@ const Settings = () => {
       
       setFormData(prev => ({ ...prev, logoUrl: data.publicUrl }));
       showToast('تم رفع الشعار بنجاح! لا تنس حفظ الإعدادات.', 'success');
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل رفع الشعار: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -542,7 +542,7 @@ const Settings = () => {
             if (error) throw error;
             showToast(data || 'تمت استعادة البيانات بنجاح ✅', 'success');
             setTimeout(() => window.location.reload(), 1500);
-          } catch (restoreErr: any) {
+          } catch (restoreErr) {
             showToast('فشل عملية الاستعادة: ' + restoreErr.message, 'error');
           } finally {
             setLoading(false);
@@ -550,7 +550,7 @@ const Settings = () => {
         } else { // Excel file
           showToast('لاستيراد البيانات من Excel، يرجى استخدام "مركز ترحيل البيانات" من القائمة الجانبية.', 'info');
         }
-      } catch (err: any) {
+      } catch (err) {
         showToast("فشل قراءة الملف: " + err.message, 'error');
       } finally {
         if (fileInputRef.current) fileInputRef.current.value = '';
@@ -581,7 +581,7 @@ const Settings = () => {
       if (error) throw error;
       showToast(`تم إنشاء النسخة الاحتياطية بنجاح ✅ رقم النسخة: ${data}`, 'success');
       fetchCloudBackups();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل إنشاء النسخة الاحتياطية: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -621,7 +621,7 @@ const Settings = () => {
       if (error) throw error;
       showToast(data || 'تمت استعادة البيانات بنجاح ✅', 'success');
       setTimeout(() => window.location.reload(), 1500);
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل عملية الاستعادة: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -670,7 +670,7 @@ const Settings = () => {
 
               showToast("تم إعادة ضبط بيانات الديمو بنجاح ✅", 'success');
               window.location.href = '/'; // إعادة التوجيه للرئيسية لتحديث البيانات
-          } catch (err: any) {
+          } catch (err) {
               showToast("فشل إعادة الضبط: " + err.message, 'error');
           } finally {
               setLoading(false);
@@ -715,7 +715,7 @@ const Settings = () => {
       try {
           const result = await createMissingSystemAccounts();
           showToast(result.message, 'success');
-      } catch (e: any) {
+      } catch (e) {
           showToast('حدث خطأ: ' + e.message, 'error');
       } finally {
           setLoading(false);
@@ -735,7 +735,7 @@ const Settings = () => {
           const { data, error } = await supabase.rpc('fix_returns_schema');
           if (error) throw error;
           showToast(data || 'تم الفحص بنجاح.', 'success');
-      } catch (e: any) {
+      } catch (e) {
           showToast('حدث خطأ أثناء الصيانة: ' + e.message, 'error');
       } finally {
           setLoading(false);
@@ -794,7 +794,7 @@ const Settings = () => {
           } else {
               showToast('سجل القيود نظيف. جميع قيود الأرصدة الافتتاحية مرتبطة بأصناف موجودة. ✅', 'success');
           }
-      } catch (e: any) {
+      } catch (e) {
           console.error(e);
           showToast('حدث خطأ أثناء التنظيف: ' + e.message, 'error');
       } finally {
@@ -833,7 +833,7 @@ const Settings = () => {
           
           showToast('تم تنظيف البيانات التجريبية بنجاح. النظام جاهز للعمل الفعلي. ✅', 'success');
           window.location.reload();
-      } catch (e: any) {
+      } catch (e) {
           showToast('حدث خطأ أثناء التنظيف: ' + e.message, 'error');
       } finally {
           setLoading(false);
@@ -891,7 +891,7 @@ const Settings = () => {
           } else {
               showToast('لا توجد بيانات للتصدير.', 'info');
           }
-      } catch (err: any) {
+      } catch (err) {
           showToast('فشل التصدير: ' + err.message, 'error');
       } finally {
           setLoading(false);
@@ -1048,7 +1048,7 @@ const Settings = () => {
           } else {
               showToast('تنبيه: ' + (data.error || 'فشل الاتصال بمصلحة الضرائب'), 'warning');
           }
-      } catch (err: any) {
+      } catch (err) {
           showToast('خطأ في فحص الاتصال: ' + err.message, 'error');
       } finally {
           setTestingEta(false);
@@ -1067,7 +1067,7 @@ const Settings = () => {
           } else {
               showToast(result.message, 'warning');
           }
-      } catch (err: any) {
+      } catch (err) {
           setLocalSignerStatus({ online: false, message: err.message || 'فشل الاتصال بالمساعد المحلي' });
           showToast('تعذر فحص المساعد المحلي: ' + err.message, 'error');
       } finally {

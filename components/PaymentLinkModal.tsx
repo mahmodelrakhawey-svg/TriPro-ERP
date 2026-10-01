@@ -66,7 +66,7 @@ export const PaymentLinkModal: React.FC<PaymentLinkModalProps> = ({
       } else {
         throw new Error(res.error || 'تعذر إنشاء الرابط');
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ: ' + err.message, 'error');
     } finally {
       setLoading(false);

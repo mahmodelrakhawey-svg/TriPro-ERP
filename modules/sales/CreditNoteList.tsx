@@ -75,7 +75,7 @@ export const CreditNoteList = () => {
       if (error) throw error;
 
       setNotes(data || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching credit notes:', err);
       showToast('فشل تحميل سجل الإشعارات الدائنة: ' + err.message, 'error');
     } finally {
@@ -133,7 +133,7 @@ export const CreditNoteList = () => {
       showToast('تم حذف الإشعار الدائن وعكس القيد بنجاح ✅', 'success');
       fetchNotes();
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting credit note:', err);
       showToast('فشل حذف الإشعار الدائن: ' + err.message, 'error');
     } finally {

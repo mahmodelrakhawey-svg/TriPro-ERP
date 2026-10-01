@@ -334,7 +334,7 @@ const PayrollRun = () => {
 
       setPayrollData(preparedData);
       showToast(`تم احتساب مسير رواتب شهر ${selectedMonth}/${selectedYear} بنجاح لعدد ${preparedData.length} موظف.`, 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('حدث خطأ أثناء احتساب المسير: ' + err.message, 'error');
     } finally {
@@ -408,7 +408,7 @@ const PayrollRun = () => {
           } else {
             showToast('تم تحديث دليل الحسابات. يرجى المحاولة مرة أخرى.', 'info');
           }
-        } catch (error: any) {
+        } catch (error) {
           showToast('حدث خطأ أثناء إنشاء الحسابات: ' + error.message, 'error');
         }
       }
@@ -462,7 +462,7 @@ const PayrollRun = () => {
 
       showToast(`تم ترحيل قيد استحقاق رواتب شهر ${selectedMonth}/${selectedYear} بنجاح (حـ/ 2251 دائن) 📋✅`, 'success');
       await fetchExistingPayroll(selectedMonth, selectedYear);
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('فشل ترحيل قيد الاستحقاق: ' + error.message, 'error');
     } finally {
@@ -521,7 +521,7 @@ const PayrollRun = () => {
 
       showToast(`تم صرف رواتب شهر ${selectedMonth}/${selectedYear} بنجاح وترحيل قيد النقدية من ${treasuryName} 💰✅`, 'success');
       await fetchExistingPayroll(selectedMonth, selectedYear);
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('فشل صرف الرواتب: ' + error.message, 'error');
     } finally {
@@ -574,7 +574,7 @@ const PayrollRun = () => {
 
       showToast('تم تنفيذ مسير الرواتب وترحيل القيد المحاسبي بنجاح 💰✅', 'success');
       await fetchExistingPayroll(selectedMonth, selectedYear);
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('فشل تنفيذ المسير: ' + error.message, 'error');
     } finally {

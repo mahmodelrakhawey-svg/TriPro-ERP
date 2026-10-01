@@ -830,7 +830,7 @@ const StockTransfer = () => {
       setFormData(prev => ({ ...prev, notes: '' }));
       setItems([]);
       showToast(`تم تنفيذ التحويل المخزني رقم (${transferNumber}) بنجاح وترحيل الأرصدة ✅`, 'success');
-    } catch (error: any) {
+    } catch (error) {
       logger.error(error);
       showToast(error.message || 'حدث خطأ أثناء معالجة التحويل المخزني', 'error');
     } finally {

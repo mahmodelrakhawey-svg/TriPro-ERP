@@ -83,7 +83,7 @@ const LaborCostReport = () => {
       }));
 
       setReportData(finalData);
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     } finally {
       setLoading(false);

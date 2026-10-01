@@ -157,7 +157,7 @@ const TrialBalanceAdvanced = () => {
 
         setLedgerLines(allLines);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching ledger:', err);
       // تمييز أخطاء الشبكة عن أخطاء البيانات
       if (
@@ -214,7 +214,7 @@ const TrialBalanceAdvanced = () => {
           from += CHUNK_SIZE;
         }
         setLedgerLines(allLines);
-      } catch (err: any) {
+      } catch (err) {
         toast.error('تعذر جلب تفاصيل الأسطر للتدقيق: ' + err.message);
       } finally {
         setLoading(false);
@@ -511,7 +511,7 @@ const TrialBalanceAdvanced = () => {
       } else {
         toast.error(res.message);
       }
-    } catch (err: any) {
+    } catch (err) {
       toast.error('حدث خطأ أثناء فك الترحيل: ' + err.message);
     } finally {
       setIsFixingEntry(false);

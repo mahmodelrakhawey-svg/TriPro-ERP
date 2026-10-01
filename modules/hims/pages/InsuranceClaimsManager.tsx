@@ -81,7 +81,7 @@ export const InsuranceClaimsManager: React.FC = () => {
 
       setPendingBills(finalPending);
       setSubmittedClaims(finalSubmitted);
-    } catch (err: any) {
+    } catch (err) {
       message.error('حدث خطأ أثناء جلب البيانات: ' + (err?.message || ''));
     } finally {
       setLoading(false);
@@ -109,7 +109,7 @@ export const InsuranceClaimsManager: React.FC = () => {
 
       message.success(`تم توليد مطالبة مجمعة بنجاح ✅ مرجع: ${batchRef}`);
       await fetchPendingInsuranceBills();
-    } catch (err: any) {
+    } catch (err) {
       message.error('فشل تجميع المطالبة: ' + err.message);
     } finally {
       setLoading(false);
@@ -128,7 +128,7 @@ export const InsuranceClaimsManager: React.FC = () => {
       message.success('تمت تسوية المطالبة وترحيل المبلغ للبنك بنجاح ✅');
       setIsSettleModalOpen(false);
       fetchPendingInsuranceBills();
-    } catch (error: any) {
+    } catch (error) {
       message.error(error.message || 'فشل في تسوية المطالبة');
     } finally {
       setLoading(false); // يجب أن يكون هنا
@@ -222,7 +222,7 @@ export const InsuranceClaimsManager: React.FC = () => {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
 
       message.success({ content: 'تم تصدير ملف XML بنجاح ✅', key: 'xml_export' });
-    } catch (e: any) {
+    } catch (e) {
       console.error('[InsuranceClaims] XML export error:', e);
       message.error({ content: `فشل تصدير XML: ${e.message}`, key: 'xml_export' });
     } finally {

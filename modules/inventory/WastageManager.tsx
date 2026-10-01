@@ -106,7 +106,7 @@ const WastageManager = () => {
         showToast('تم تسجيل وترحيل الهالك بنجاح ✅', 'success');
         setItems([]);
         setNotes('');
-    } catch (error: any) {
+    } catch (error) {
         console.error(error);
         showToast('حدث خطأ أثناء معالجة الهالك: ' + error.message, 'error');
     } finally {

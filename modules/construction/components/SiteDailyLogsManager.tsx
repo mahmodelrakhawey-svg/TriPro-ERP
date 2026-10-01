@@ -147,7 +147,7 @@ export default function SiteDailyLogsManager() {
         });
         setLogs(mapped);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setLogs([]);
     } finally {
@@ -232,7 +232,7 @@ export default function SiteDailyLogsManager() {
 
       setIsModalOpen(false);
       fetchDailyLogs();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل حفظ يومية الموقع: ' + err.message, 'error');
     }
@@ -246,7 +246,7 @@ export default function SiteDailyLogsManager() {
       if (error) throw error;
       showToast('تم حذف السجل بنجاح', 'success');
       fetchDailyLogs();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل الحذف: ' + err.message, 'error');
     }
   };

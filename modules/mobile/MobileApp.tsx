@@ -192,7 +192,7 @@ export default function MobileApp() {
       showToast('تم اعتماد أمر الشراء بنجاح ✅', 'success');
       setPendingOrders(prev => prev.filter(o => o.id !== id));
       setStats(prev => ({ ...prev, pendingPOsCount: Math.max(0, prev.pendingPOsCount - 1) }));
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ في الاعتماد: ' + err.message, 'error');
     } finally {
       setProcessingId(null);
@@ -211,7 +211,7 @@ export default function MobileApp() {
       showToast('تم رفض أمر الشراء ❌', 'info');
       setPendingOrders(prev => prev.filter(o => o.id !== id));
       setStats(prev => ({ ...prev, pendingPOsCount: Math.max(0, prev.pendingPOsCount - 1) }));
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ في العملية: ' + err.message, 'error');
     } finally {
       setProcessingId(null);
@@ -243,7 +243,7 @@ export default function MobileApp() {
       }
       setCameraActive(true);
       scanFrame();
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Camera access error:', err);
       setCameraError('تعذر تشغيل الكاميرا. يرجى منح الإذن أو إدخال الباركود يدوياً.');
       setCameraActive(false);
@@ -373,7 +373,7 @@ export default function MobileApp() {
         setSelectedProduct((prev: any) => ({ ...prev, stock: targetCount }));
         showToast(`تم تحديث رصيد المخزن إلى: ${targetCount} بنجاح ✅`, 'success');
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ في حفظ الرصيد: ' + err.message, 'error');
     } finally {
       setAdjustingStock(false);
@@ -466,7 +466,7 @@ export default function MobileApp() {
       setNewCustName('');
       setNewCustPhone('');
       showToast(`تمت إضافة العميل "${createdCustomer.name}" بنجاح واختياره للفاتورة ✅`, 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ في إضافة العميل: ' + err.message, 'error');
     } finally {
       setSavingNewCustomer(false);
@@ -809,7 +809,7 @@ export default function MobileApp() {
               showToast(`تم حفظ الفاتورة #${invoiceNumber} كمسودة: ${errMsg}`, 'info');
             }
           }
-        } catch (postEx: any) {
+        } catch (postEx) {
           logger.warn('post_sales_invoice exception:', postEx);
           showToast(`تم حفظ الفاتورة #${invoiceNumber} كمسودة`, 'info');
         }
@@ -825,7 +825,7 @@ export default function MobileApp() {
       }
 
       setCart([]);
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ أثناء حفظ الفاتورة: ' + err.message, 'error');
     } finally {
       setSavingInvoice(false);
@@ -875,7 +875,7 @@ export default function MobileApp() {
         await offlineService.syncProductsLocally(currentOrgId);
       }
       showToast('تم تحديث وتنزيل بيانات الأصناف محلياً بنجاح 🚀', 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل المزامنة: ' + err.message, 'error');
     } finally {
       setSyncingNow(false);

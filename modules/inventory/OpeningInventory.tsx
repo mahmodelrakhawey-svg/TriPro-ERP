@@ -136,7 +136,7 @@ export default function OpeningInventory() {
       showToast('تم حفظ الأصناف والقيد الافتتاحي وتحديث أرصدة النظام بنجاح! ✅', 'success');
       setItems([{ id: Date.now().toString(), name: '', sku: '', quantity: 1, cost: 0, price: 0, unit: 'قطعة', product_type: 'STOCK' }]); // تصفير النموذج
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error saving opening stock:', error);
       showToast('حدث خطأ أثناء الحفظ: ' + error.message, 'error');
     } finally {

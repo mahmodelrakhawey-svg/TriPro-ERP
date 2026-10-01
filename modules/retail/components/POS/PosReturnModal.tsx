@@ -260,7 +260,7 @@ export default function PosReturnModal({
       }
 
       setupOrderForReturn(foundOrder);
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ أثناء البحث عن الفاتورة: ' + err.message, 'error');
     } finally {
       setIsLoading(false);
@@ -405,7 +405,7 @@ export default function PosReturnModal({
         items: activeReturns
       });
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حفظ المرتجع: ' + err.message, 'error');
     } finally {
       setIsSubmitting(false);

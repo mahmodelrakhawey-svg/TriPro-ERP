@@ -126,7 +126,7 @@ const StadiumRevenueReport: React.FC = () => {
       
       setData(allRecords);
       setCurrentPage(1);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching revenue:', error);
       toast.error('حدث خطأ أثناء جلب بيانات الإيرادات');
     } finally {

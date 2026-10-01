@@ -45,7 +45,7 @@ export const MidnightAuditShieldCard: React.FC<MidnightAuditShieldCardProps> = (
     try {
       const rep = await auditDaemonService.runSystemAudit(organizationId);
       setReport(rep);
-    } catch (err: any) {
+    } catch (err) {
       toast.error('تعذر إجراء فحص النزاهة: ' + err.message);
     } finally {
       setLoading(false);
@@ -69,7 +69,7 @@ export const MidnightAuditShieldCard: React.FC<MidnightAuditShieldCardProps> = (
       } else {
         toast.error(res.message);
       }
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || 'حدث خطأ أثناء المعالجة');
     } finally {
       setReconciling(false);

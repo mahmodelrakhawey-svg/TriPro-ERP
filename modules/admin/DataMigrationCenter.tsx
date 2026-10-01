@@ -182,7 +182,7 @@ const DataMigrationCenter = () => {
                     await importFixedAssets(row, orgId, equityAcc);
                 }
                 successCount++;
-            } catch (error: any) {
+            } catch (error) {
                 failedRecords.push({ row, error: error.message });
             }
         }
@@ -216,7 +216,7 @@ const DataMigrationCenter = () => {
             showToast(`تم استيراد ${successCount} سجل، وفشل ${failedRecords.length}. راجع تفاصيل الأخطاء بالأسفل.`, 'warning');
         }
 
-      } catch (error: any) {
+      } catch (error) {
         showToast('خطأ في معالجة الملف: ' + error.message, 'error');
       } finally {
         setIsImporting(false);

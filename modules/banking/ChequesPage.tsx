@@ -216,7 +216,7 @@ export const ChequesPage = () => {
         fetchData();
         showToast('تم حفظ الشيك بنجاح ✅', 'success');
 
-    } catch (err: any) {
+    } catch (err) {
         showToast('خطأ: ' + err.message, 'error');
     }
   };
@@ -244,7 +244,7 @@ export const ChequesPage = () => {
       await deleteCheque(cheque.id);
       showToast('تم حذف الشيك والقيود المحاسبية بنجاح ✅', 'success');
       await fetchData();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل حذف الشيك: ' + err.message, 'error');
     } finally {
@@ -267,7 +267,7 @@ export const ChequesPage = () => {
         setShowCashModal(false);
         setSelectedBankId('');
         fetchData(); // تحديث القائمة المحلية
-      } catch (err: any) {
+      } catch (err) {
         showToast('خطأ أثناء معالجة الشيك: ' + (err.message || err.details || err), 'error');
       }
   };
@@ -332,7 +332,7 @@ export const ChequesPage = () => {
         setShowTransferModal(false);
         fetchData();
 
-    } catch (error: any) {
+    } catch (error) {
         showToast('حدث خطأ: ' + error.message, 'error');
     }
   };
@@ -381,7 +381,7 @@ export const ChequesPage = () => {
 
           showToast('تم رفض الشيك بنجاح وتوليد القيد العكسي في دفتر اليومية ✅', 'success');
           fetchData();
-      } catch (err: any) {
+      } catch (err) {
           showToast('خطأ: ' + err.message, 'error');
       }
   };

@@ -117,7 +117,7 @@ const ManufacturingDashboard = () => {
 
       // تحديث القائمة بحذف الأمر المغلق
       setOrders(prev => prev.filter(o => o.order_id !== id));
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setFinishingId(null);

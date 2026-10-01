@@ -46,7 +46,7 @@ const SubcontractorStatement: React.FC<{ subcontractorId: string, onBack: () => 
         total_retained: billingsData?.reduce((sum, b) => sum + Number(b.retention_amount || 0), 0) || 0,
         net_balance: data?.[data.length - 1]?.balance || 0
       });
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

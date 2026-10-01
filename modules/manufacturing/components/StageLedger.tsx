@@ -22,7 +22,7 @@ const StageLedger = ({ orderId, orderNumber }: { orderId: string, orderNumber: s
         const { data, error } = await supabase.rpc('mfg_get_stage_cost_ledger', { p_order_id: orderId });
         if (error) throw error;
         setData(data || []);
-      } catch (error: any) {
+      } catch (error) {
         showToast('خطأ في جلب كشف حساب المرحلة: ' + error.message, 'error');
       } finally {
         setLoading(false);

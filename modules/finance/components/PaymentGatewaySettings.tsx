@@ -76,7 +76,7 @@ export const PaymentGatewaySettings: React.FC = () => {
         };
       });
       setConfigs(newConfigs);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
@@ -102,7 +102,7 @@ export const PaymentGatewaySettings: React.FC = () => {
       } else {
         throw new Error(res.error);
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حفظ الإعدادات: ' + err.message, 'error');
     } finally {
       setSaving(false);

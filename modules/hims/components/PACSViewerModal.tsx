@@ -186,7 +186,7 @@ export const PACSViewerModal: React.FC<PACSViewerModalProps> = ({
       }
       message.success('تم اعتماد وحفظ التقرير الإشعاعي وإرساله لملف المريض بنجاح ✅');
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       message.error('فشل حفظ التقرير: ' + err.message);
     } finally {
       setIsSubmitting(false);

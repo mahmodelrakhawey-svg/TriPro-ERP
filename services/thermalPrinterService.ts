@@ -170,7 +170,7 @@ class ThermalPrinterService {
         message: `تم الاتصال بطابعة USB مباشرة: ${device.productName || 'طابعة حرارية'} ✅`,
         deviceName: device.productName || 'USB Thermal Printer'
       };
-    } catch (err: any) {
+    } catch (err) {
       if (err.name === 'NotFoundError') {
         return { success: false, message: 'تم إلغاء اختيار الطابعة' };
       }
@@ -195,7 +195,7 @@ class ThermalPrinterService {
 
       await device.transferOut(endpointNumber, rawBytes);
       return { success: true, message: 'تمت الطباعة المباشرة عبر USB بنجاح 🖨️' };
-    } catch (err: any) {
+    } catch (err) {
       return { success: false, message: 'خطأ أثناء إرسال البيانات عبر USB: ' + err.message };
     }
   }
@@ -217,7 +217,7 @@ class ThermalPrinterService {
       await port.open({ baudRate });
       this.activeSerialPort = port;
       return { success: true, message: `تم الاتصال بطابعة السيريال (Baud: ${baudRate}) بنجاح 🔌` };
-    } catch (err: any) {
+    } catch (err) {
       return { success: false, message: 'فشل الاتصال بمنفذ السيريال: ' + err.message };
     }
   }
@@ -233,7 +233,7 @@ class ThermalPrinterService {
       await writer.write(rawBytes);
       writer.releaseLock();
       return { success: true, message: 'تمت الطباعة المباشرة عبر Serial/COM بنجاح 🖨️' };
-    } catch (err: any) {
+    } catch (err) {
       return { success: false, message: 'خطأ إرسال بيانات السيريال: ' + err.message };
     }
   }
@@ -252,7 +252,7 @@ class ThermalPrinterService {
       this.activePolePort = port;
       await this.showWelcomeMessage('TriPro POS');
       return { success: true, message: 'تم الاتصال بشاشة العميل (VFD Customer Display) بنجاح 📟' };
-    } catch (err: any) {
+    } catch (err) {
       return { success: false, message: 'فشل الاتصال بشاشة العميل: ' + err.message };
     }
   }
@@ -506,7 +506,7 @@ class ThermalPrinterService {
 
       // Default browser fallback
       return { success: true, message: `تم تجهيز أمر الطباعة لـ ${printer.name}` };
-    } catch (e: any) {
+    } catch (e) {
       return { success: false, message: `تعذر الطباعة على ${printer.name}: ${e.message}` };
     }
   }

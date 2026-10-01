@@ -50,7 +50,7 @@ const EquipmentManager: React.FC<{ projectId: string, projectName: string, onBac
       showToast('تم تسجيل ساعات العمل بنجاح', 'success');
       setShowLogForm(false);
       fetchData();
-    } catch (e: any) { showToast(e.message, 'error'); }
+    } catch (e) { showToast(e.message, 'error'); }
   };
 
   // 🏗️ دالة تعريف معدة جديدة (ربط الأصل بمعدات التشغيل)
@@ -70,7 +70,7 @@ const EquipmentManager: React.FC<{ projectId: string, projectName: string, onBac
       setShowEquipDefineForm(false);
       setNewEquip({ name: '', asset_id: '', hourly_cost: 0 });
       fetchData();
-    } catch (e: any) { showToast(e.message, 'error'); }
+    } catch (e) { showToast(e.message, 'error'); }
     finally { setDefining(false); }
   };
 

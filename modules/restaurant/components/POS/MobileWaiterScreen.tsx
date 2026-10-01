@@ -266,7 +266,7 @@ export const MobileWaiterScreen: React.FC = () => {
 
       await thermalPrinterService.routeOrderToPrinters(payload);
       showToast(`تم إرسال أمر طباعة شيك حساب طاولة ${selectedTable.name} للكاشير بنجاح 🧾`, 'success');
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ أثناء طلب الحساب: ' + e.message, 'error');
     }
   };
@@ -366,7 +366,7 @@ export const MobileWaiterScreen: React.FC = () => {
 
       setCart([]);
       setSelectedTable(null);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Mobile Waiter submit error:', err);
       showToast('فشل إرسال الطلب: ' + (err.message || 'تحقق من الاتصال'), 'error');
     } finally {

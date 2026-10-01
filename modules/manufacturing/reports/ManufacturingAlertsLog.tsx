@@ -55,7 +55,7 @@ const ManufacturingAlertsLog: React.FC = () => {
       }));
 
       setAlerts(formatted);
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     } finally {
       setLoading(false);

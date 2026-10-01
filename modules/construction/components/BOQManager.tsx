@@ -100,7 +100,7 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
       if (error) throw error;
       showToast('تم حفظ المقايسة بنجاح', 'success');
       fetchBOQ(); // إعادة جلب البيانات لمزامنة الـ IDs الجديدة من السيرفر
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

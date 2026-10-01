@@ -36,7 +36,7 @@ export default function CouponsManagerTab() {
     try {
       const data = await couponService.getCoupons(orgId);
       setCoupons(data);
-    } catch (e: any) {
+    } catch (e) {
       showToast('فشل تحميل الكوبونات: ' + e.message, 'error');
     } finally {
       setIsLoading(false);
@@ -63,7 +63,7 @@ export default function CouponsManagerTab() {
       showToast(editingId ? 'تم تحديث الكوبون بنجاح' : 'تم إنشاء الكوبون بنجاح ✅', 'success');
       setIsModalOpen(false);
       loadCoupons();
-    } catch (e: any) {
+    } catch (e) {
       showToast('فشل حفظ الكوبون: ' + e.message, 'error');
     }
   };
@@ -73,7 +73,7 @@ export default function CouponsManagerTab() {
       await couponService.saveCoupon({ ...coupon, is_active: !coupon.is_active }, orgId);
       showToast(coupon.is_active ? 'تم إيقاف الكوبون' : 'تم تفعيل الكوبون', 'info');
       loadCoupons();
-    } catch (e: any) {
+    } catch (e) {
       showToast('فشل تحديث الحالة: ' + e.message, 'error');
     }
   };

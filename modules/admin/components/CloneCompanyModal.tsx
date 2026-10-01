@@ -90,7 +90,7 @@ const CloneCompanyModal = ({
       setCloneResult(data);
       showToast('تم استنساخ القالب والدليل بنجاح تام! 🎉', 'success');
       onSuccess();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل الاستنساخ: ' + err.message, 'error');
     } finally {
       setLoading(false);

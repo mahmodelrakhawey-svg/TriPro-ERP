@@ -125,7 +125,7 @@ const OccupancyReport: React.FC = () => {
       calculatedStats.sort((a, b) => b.occupancyRate - a.occupancyRate);
       setStats(calculatedStats);
       setCurrentPage(1);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching occupancy:', error);
       toast.error('حدث خطأ أثناء حساب الإشغال');
     } finally {

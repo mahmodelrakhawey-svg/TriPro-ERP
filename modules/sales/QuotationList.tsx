@@ -87,7 +87,7 @@ export const QuotationList = () => {
       if (error) throw error;
 
       setQuotations(data || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching quotations:', err);
       showToast('فشل تحميل سجل عروض الأسعار: ' + err.message, 'error');
     } finally {
@@ -141,7 +141,7 @@ export const QuotationList = () => {
       showToast('تم حذف عرض السعر بنجاح ✅', 'success');
       fetchQuotations();
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting quote:', err);
       showToast('فشل حذف عرض السعر: ' + err.message, 'error');
     } finally {

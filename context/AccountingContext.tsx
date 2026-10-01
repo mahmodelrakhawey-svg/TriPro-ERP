@@ -1318,7 +1318,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             }
             entryCreated = true;
           }
-        } catch (directErr: any) {
+        } catch (directErr) {
           logger.error('Direct journal entry insert error:', directErr);
           showToast('تعذر إنشاء القيد المحاسبي المباشر للسند: ' + (directErr?.message || ''), 'warning');
         }
@@ -1342,7 +1342,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             .update({ paid_amount: newPaid, status: newStatus })
             .eq('id', data.invoiceId);
         }
-      } catch (invErr: any) {
+      } catch (invErr) {
         logger.error('Failed to update purchase invoice paid_amount:', invErr);
         showToast('تعذر تحديث المبلغ المسدد في فاتورة المشتريات: ' + (invErr?.message || ''), 'warning');
       }
@@ -1719,7 +1719,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
       await refreshData();
-    } catch (error: any) {
+    } catch (error) {
       logger.error('Error updating transfer:', error);
       showToast('فشل تعديل التحويل المالي: ' + (error?.message || ''), 'error');
       throw error;
@@ -1756,7 +1756,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
       await refreshData();
-    } catch (error: any) {
+    } catch (error) {
       logger.error('Error deleting transfer:', error);
       showToast('فشل حذف التحويل المالي: ' + (error?.message || ''), 'error');
       throw error;
@@ -1885,7 +1885,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       XLSX.utils.book_append_sheet(wb, ws, "Journal Entries");
       XLSX.writeFile(wb, `General_Journal_${new Date().toISOString().split('T')[0]}.xlsx`);
       showToast('تم تصدير القيود المحاسبية بنجاح ✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Export CSV error:', err);
       showToast('فشل تصدير القيود: ' + err.message, 'error');
     }
@@ -1980,7 +1980,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (error) throw error;
       refreshData();
       return data;
-    } catch (err: any) {
+    } catch (err) {
       const sessionId = 'session-' + Date.now();
       setRestaurantTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'OCCUPIED', session_id: sessionId } : t));
       setOfflineTableOrder(tableId, { sessionId, orderId: null, items: [] });
@@ -2100,7 +2100,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
       if (error) throw error;
       return data;
-    } catch (err: any) {
+    } catch (err) {
       const orderId = 'ord-offline-' + Date.now();
       try {
         await offlineService.queueOrder({ ...payload, orderId, organization_id: targetOrgId });
@@ -2208,7 +2208,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
       if (error) throw error;
       refreshData();
-    } catch (err: any) {
+    } catch (err) {
       const offlineOrders = getOfflineTableOrders();
       for (const [tableId, ord] of Object.entries(offlineOrders)) {
         if (ord.orderId === orderId) {
@@ -2248,7 +2248,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const { error } = await supabase.from('restaurant_tables').insert({ ...data, organization_id: targetOrgId }); 
       if (error) throw error;
       await refreshData(); 
-    } catch (err: any) {
+    } catch (err) {
       const newT = { ...data, id: 'tbl-' + Date.now(), organization_id: targetOrgId, status: data.status || 'AVAILABLE' };
       setRestaurantTables(prev => [...prev, newT]);
       showToast('تمت إضافة الطاولة بنجاح (محلياً)', 'success');
@@ -2322,7 +2322,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }); 
       if (error) throw error;
       await refreshData(); 
-    } catch (err: any) {
+    } catch (err) {
       const newShift = {
         id: 'shift-offline-' + Date.now(),
         shift_number: 'SHIFT-' + Math.floor(1000 + Math.random() * 9000),

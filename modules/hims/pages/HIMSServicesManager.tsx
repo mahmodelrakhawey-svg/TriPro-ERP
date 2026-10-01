@@ -60,7 +60,7 @@ export const HIMSServicesManager: React.FC = () => {
       form.resetFields();
       setEditingItem(null);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       message.error("فشل الحفظ: " + err.message);
     } finally {
       setLoading(false);

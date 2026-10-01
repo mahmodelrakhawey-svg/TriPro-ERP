@@ -118,7 +118,7 @@ const JournalEntryForm = () => {
       const { data, error } = await q;
       if (error) throw error;
       setRecentEntries(data || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       toast.error('حدث خطأ أثناء تحميل القيود السابقة');
     } finally {
@@ -282,7 +282,7 @@ const JournalEntryForm = () => {
             { account_id: '', debit: 0, credit: 0, cost_center_id: '' },
         ]);
         setAttachments([]);
-    } catch (error: any) {
+    } catch (error) {
         toast.error(error.message || "حدث خطأ أثناء حفظ القيد");
     } finally {
         setIsSubmitting(false);

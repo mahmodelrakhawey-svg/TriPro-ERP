@@ -184,7 +184,7 @@ const SlowMovingReport = () => {
       // ترتيب حسب الرصيد (الأكثر تكدساً أولاً)
       setReportData(slowMoving.sort((a, b) => b.stock - a.stock));
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching slow moving items:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {

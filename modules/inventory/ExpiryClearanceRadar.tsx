@@ -113,7 +113,7 @@ export default function ExpiryClearanceRadar() {
       });
 
       setProducts(computed);
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل جلب بيانات رادار الصلاحية: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -182,7 +182,7 @@ export default function ExpiryClearanceRadar() {
       showToast(`تم تطبيق عرض التصفية الفوري على (${selectedItem.name}) بسعر ${customOfferPrice} ${currencySymbol} ✅`, 'success');
       setSelectedItem(null);
       fetchExpiryData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل تطبيق العرض: ' + err.message, 'error');
     } finally {
       setIsApplyingOffer(false);

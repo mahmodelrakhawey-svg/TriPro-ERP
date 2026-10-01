@@ -101,7 +101,7 @@ const WorkOrderManager = () => {
         setSelectedOrder(null);
       }
       fetchOrders();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حذف أمر التشغيل: ' + err.message, 'error');
     }
   };
@@ -155,7 +155,7 @@ const WorkOrderManager = () => {
         showToast('تم إنشاء أمر التشغيل بنجاح ✅', 'success');
         setIsModalOpen(false);
         fetchOrders();
-    } catch (error: any) {
+    } catch (error) {
         console.error(error);
         showToast('خطأ: ' + error.message, 'error');
     }
@@ -251,7 +251,7 @@ const WorkOrderManager = () => {
           showToast('تم حفظ إعدادات المرحلة بنجاح', 'success');
           setConfigModal({ ...configModal, open: false });
           fetchOrderSteps(selectedOrder.id);
-      } catch (error: any) {
+      } catch (error) {
           showToast(error.message, 'error');
       }
   };

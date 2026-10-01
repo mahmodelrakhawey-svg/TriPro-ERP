@@ -208,7 +208,7 @@ const TaxReturnReport = () => {
                 } else {
                     showToast('لا توجد مبالغ لإنشاء قيد إغلاق.', 'warning');
                 }
-            } catch (error: any) {
+            } catch (error) {
                 console.error(error);
                 showToast('حدث خطأ: ' + error.message, 'error');
             } finally {

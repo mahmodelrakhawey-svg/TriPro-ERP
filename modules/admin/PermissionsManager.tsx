@@ -447,7 +447,7 @@ const PermissionsManager = () => {
         if (rolesData && rolesData.length > 0 && !selectedRoleId) {
           setSelectedRoleId(rolesData[0].id.toString());
         }
-      } catch (err: any) {
+      } catch (err) {
         setError(err.message);
       } finally {
         setLoading(false);
@@ -475,7 +475,7 @@ const PermissionsManager = () => {
         const perms = new Set(data?.map(p => p.permission_id.toString()) || []);
         setRolePermissions(perms);
         setInitialRolePermissions(new Set(perms));
-      } catch (err: any) {
+      } catch (err) {
         logger.error('Error fetching role permissions:', err);
       }
     };
@@ -582,7 +582,7 @@ const PermissionsManager = () => {
       setShowNewRoleModal(false);
       setNewRoleName('');
       setNewRoleDesc('');
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل إنشاء الدور: ' + err.message, 'error');
     } finally {
       setCreatingRole(false);
@@ -610,7 +610,7 @@ const PermissionsManager = () => {
       if (selectedRoleId === roleId) {
         setSelectedRoleId(updated[0]?.id || null);
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حذف الدور: ' + err.message, 'error');
     }
   };
@@ -686,7 +686,7 @@ const PermissionsManager = () => {
 
       showToast('تم بنجاح تثبيت وتفعيل حزمة أدوار المطعم الستة الجاهزة بصلاحياتها! 🍽️👑', 'success');
       await refreshPermissions();
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error installing restaurant roles:', err);
       showToast('فشل تثبيت الأدوار: ' + (err.message || 'خطأ غير متوقع'), 'error');
     } finally {
@@ -762,7 +762,7 @@ const PermissionsManager = () => {
 
       showToast('تم بنجاح تثبيت وتفعيل حزمة أدوار السوبر ماركت والتجزئة بصلاحياتها! 🛒👑', 'success');
       await refreshPermissions();
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error installing retail roles:', err);
       showToast('فشل تثبيت الأدوار: ' + (err.message || 'خطأ غير متوقع'), 'error');
     } finally {
@@ -842,7 +842,7 @@ const PermissionsManager = () => {
 
       showToast('تم بنجاح تثبيت وتفعيل حزمة صلاحيات الحلواني السبعة (لينزا) بصلاحياتها التامة! 🍰👑', 'success');
       await refreshPermissions();
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error installing bakery roles:', err);
       showToast('فشل تثبيت الأدوار: ' + (err.message || 'خطأ غير متوقع'), 'error');
     } finally {
@@ -914,7 +914,7 @@ const PermissionsManager = () => {
 
       showToast('تم بنجاح إنشاء وتفعيل دور مسؤول الموارد البشرية والرواتب (HR) وربط كافة صلاحياته! 👥👑', 'success');
       await refreshPermissions();
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error installing HR role:', err);
       showToast('فشل إنشاء دور الموارد البشرية: ' + (err.message || 'خطأ غير متوقع'), 'error');
     } finally {
@@ -950,7 +950,7 @@ const PermissionsManager = () => {
       setInitialRolePermissions(new Set(rolePermissions));
       showToast('تم حفظ ومزامنة الصلاحيات بنجاح لجميع المستخدمين ✅', 'success');
       await refreshPermissions();
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Save Permissions Error:', err);
       showToast('فشل الحفظ: ' + err.message, 'error');
     } finally {

@@ -78,7 +78,7 @@ const DeficitReport = () => {
 
       if (error) throw error;
       setLogs(data || []);
-    } catch (err: any) {
+    } catch (err) {
       console.warn('Notice fetching deficit logs:', err.message);
       setLogs([]);
     } finally {

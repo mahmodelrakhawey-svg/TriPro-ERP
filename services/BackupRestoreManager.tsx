@@ -39,7 +39,7 @@ export const BackupRestoreManager = () => {
       link.click();
       URL.revokeObjectURL(url);
       showToast('تم تحميل النسخة الاحتياطية بنجاح ✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل التصدير: ' + err.message, 'error');
     } finally {
       setIsExporting(false);
@@ -77,7 +77,7 @@ export const BackupRestoreManager = () => {
 
       showToast(data || 'تمت استعادة البيانات بنجاح ✅', 'success');
       setTimeout(() => window.location.reload(), 2000);
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل الاستعادة: ' + err.message, 'error');
       setView('preview');
     }

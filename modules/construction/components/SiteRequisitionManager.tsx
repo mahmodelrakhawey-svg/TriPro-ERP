@@ -57,7 +57,7 @@ const SiteRequisitionManager: React.FC<Props> = ({ projectId, projectName, onBac
       if (error) throw error;
       showToast('تم اعتماد صرف المواد وتحميل التكلفة على المشروع بنجاح ✅', 'success');
       fetchIssues();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

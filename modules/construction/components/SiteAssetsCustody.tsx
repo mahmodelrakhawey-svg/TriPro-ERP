@@ -56,7 +56,7 @@ const SiteAssetsCustody: React.FC<{ projectId: string, projectName: string, onBa
       showToast('تم تسليم العُهدة بنجاح ✅', 'success');
       setShowForm(false);
       fetchCustody();
-    } catch (e: any) { showToast(e.message, 'error'); }
+    } catch (e) { showToast(e.message, 'error'); }
   };
 
   const handleReturnTool = async (id: string) => {

@@ -56,7 +56,7 @@ const SiteAttendanceManager = ({ projectId, projectName, onBack }: { projectId: 
       
       showToast('تم حفظ سجل الحضور بنجاح 💾', 'success');
       fetchAttendance();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

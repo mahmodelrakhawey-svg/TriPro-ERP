@@ -209,7 +209,7 @@ export const ModifierManagement: React.FC<ModifierManagementProps> = ({ productI
       setNewGroupName('');
       await loadData();
       showToast('تم إضافة المجموعة بنجاح', 'success');
-    } catch (error: any) {
+    } catch (error) {
       console.error("Detailed Add Group Error:", error);
       showToast('فشل إضافة المجموعة. السبب: ' + (error.message || 'خطأ غير معروف. تأكد من تطبيق سياسات الأمان RLS.'), 'error');
     } finally {

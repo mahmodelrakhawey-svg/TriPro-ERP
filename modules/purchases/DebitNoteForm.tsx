@@ -97,7 +97,7 @@ const DebitNoteForm = () => {
       const idx = noteIds.indexOf(id);
       if (idx !== -1) setCurrentIndex(idx);
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error loading debit note:', err);
       showToast('فشل تحميل الإشعار المدين: ' + err.message, 'error');
     } finally {
@@ -246,7 +246,7 @@ const DebitNoteForm = () => {
         loadNoteById(noteId);
       }
 
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('خطأ: ' + error.message, 'error');
     } finally {
@@ -282,7 +282,7 @@ const DebitNoteForm = () => {
         handleNewNote();
       }
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting debit note:', err);
       showToast('فشل حذف الإشعار المدين: ' + err.message, 'error');
     } finally {

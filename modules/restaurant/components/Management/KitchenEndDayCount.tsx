@@ -213,7 +213,7 @@ const KitchenEndDayCount = () => {
         setItems([]);
         navigate('/inventory-history');
 
-    } catch (error: any) {
+    } catch (error) {
         console.error(error);
         showToast('حدث خطأ: ' + error.message, 'error');
     } finally {

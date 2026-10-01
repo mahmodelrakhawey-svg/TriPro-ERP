@@ -168,7 +168,7 @@ const EmployeeManager = () => {
       
       showToast('تم حفظ بيانات الموظف بنجاح ✅', 'success');
       setIsModalOpen(false);
-    } catch (error: any) {
+    } catch (error) {
       showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -183,7 +183,7 @@ const EmployeeManager = () => {
     try {
       await deleteEmployee(id, reason);
       showToast('تم حذف الموظف بنجاح ✅', 'success');
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل حذف الموظف: ' + error.message, 'error');
     }
   };
@@ -258,7 +258,7 @@ const EmployeeManager = () => {
         await refreshData();
       }
       setDepartmentFilter('المصنع');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Failed to import factory employees:', error);
       showToast(`فشل استيراد طاقم المصنع: ${error.message || 'يرجى التحقق من الاتصال'}`, 'error');
     } finally {

@@ -111,7 +111,7 @@ export default function OperatingTheaterManager() {
       } else {
         setCases([]);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.warn('Error fetching surgeries:', err.message);
       setCases([]);
     } finally {

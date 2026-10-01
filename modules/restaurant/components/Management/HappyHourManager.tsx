@@ -47,7 +47,7 @@ export const HappyHourManager: React.FC = () => {
     try {
       const data = await happyHourService.getSchedules(currentUser?.organization_id || undefined);
       setSchedules(data);
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ: ' + e.message, 'error');
     } finally {
       setLoading(false);
@@ -86,7 +86,7 @@ export const HappyHourManager: React.FC = () => {
       await happyHourService.deleteSchedule(id, currentUser?.organization_id || undefined);
       showToast('تم حذف جدول الساعات السعيدة بنجاح 🗑️', 'success');
       fetchSchedules();
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ أثناء الحذف: ' + e.message, 'error');
     }
   };
@@ -103,7 +103,7 @@ export const HappyHourManager: React.FC = () => {
       showToast('تم حفظ جدول الساعات السعيدة بنجاح ⏰', 'success');
       setIsEditing(false);
       fetchSchedules();
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ: ' + e.message, 'error');
     } finally {
       setSaving(false);

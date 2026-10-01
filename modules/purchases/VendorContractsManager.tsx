@@ -134,7 +134,7 @@ export default function VendorContractsManager() {
         vendor_name: suppliers.find(sup => sup.id === s.vendor_id)?.name || 'مورد غير معروف'
       }));
       setSettlements(formattedSettlements);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('خطأ أثناء جلب بيانات العقود والريباط', 'error');
     } finally {
@@ -249,7 +249,7 @@ export default function VendorContractsManager() {
 
       setIsContractModalOpen(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast(err.message || 'فشل حفظ العقد', 'error');
     }
@@ -266,7 +266,7 @@ export default function VendorContractsManager() {
       if (error) throw error;
       showToast('تم حذف العقد بنجاح', 'info');
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حذف العقد', 'error');
     }
   };
@@ -318,7 +318,7 @@ export default function VendorContractsManager() {
       setCalculatedShelfRental(Number(contract.shelf_rental_fee) || 0);
 
       showToast(`تم احتساب المشتريات الفعلية (${actualPurchases.toFixed(2)} ${currencySymbol})`, 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل احتساب المشتريات', 'error');
     } finally {
@@ -484,7 +484,7 @@ export default function VendorContractsManager() {
       );
       setIsSettlementModalOpen(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل حفظ التسوية', 'error');
     }
   };

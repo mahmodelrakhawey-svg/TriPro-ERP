@@ -78,7 +78,7 @@ export const BulkPriceUpdateModal: React.FC<BulkPriceUpdateModalProps> = ({
       onClose();
       setBulkPricePercentage(0);
       setSelectedIds(new Set());
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('حدث خطأ أثناء تحديث الأسعار: ' + error.message, 'error');
     } finally {

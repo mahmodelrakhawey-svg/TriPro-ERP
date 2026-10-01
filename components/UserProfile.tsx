@@ -78,7 +78,7 @@ const UserProfile = () => {
       
       setFormData(prev => ({ ...prev, avatarUrl: data.publicUrl }));
       
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل رفع الصورة: ' + error.message, 'error');
     } finally {
       setUploading(false);
@@ -125,7 +125,7 @@ const UserProfile = () => {
       showToast('تم تحديث الملف الشخصي بنجاح ✅', 'success');
       setFormData(prev => ({ ...prev, password: '', confirmPassword: '' }));
       
-    } catch (error: any) {
+    } catch (error) {
       showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);

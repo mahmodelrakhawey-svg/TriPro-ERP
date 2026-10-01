@@ -183,7 +183,7 @@ const BankReconciliationForm = () => {
         setHistory(data || []);
         if (data && data.length > 0) setPreviousReconciliation(data[0]);
 
-    } catch (error: any) {
+    } catch (error) {
         console.error(error);
         showToast('فشل حفظ التسوية: ' + error.message, 'error');
     } finally {
@@ -234,7 +234,7 @@ const BankReconciliationForm = () => {
           setAdjAmount(0);
           setAdjDesc('');
           await refreshData(); // تحديث البيانات لظهور القيد الجديد في القائمة
-      } catch (error: any) {
+      } catch (error) {
           showToast('فشل إنشاء القيد: ' + error.message, 'error');
       } finally {
           setSaving(false);

@@ -164,7 +164,7 @@ const UserPermissionsEditor: React.FC = () => {
         if (users.length > 0) {
           setSelectedUserId(prev => prev && users.some(u => u.id === prev) ? prev : users[0].id);
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error('UserPermissionsEditor loading error:', err);
         showToast('فشل تحميل البيانات: ' + err.message, 'error');
       } finally {
@@ -290,7 +290,7 @@ const UserPermissionsEditor: React.FC = () => {
       if (selectedUserId === authUser?.id) {
         await refreshPermissions();
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل الحفظ: ' + err.message, 'error');
     } finally {
       setSaving(false);
@@ -325,7 +325,7 @@ const UserPermissionsEditor: React.FC = () => {
       setDirectPermissions(new Set());
       setInitialDirectPerms(new Set());
       showToast('تم مسح الصلاحيات المباشرة. المستخدم يملك صلاحيات دوره فقط.', 'info');
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل المسح: ' + err.message, 'error');
     } finally {
       setSaving(false);

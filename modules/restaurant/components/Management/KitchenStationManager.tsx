@@ -200,7 +200,7 @@ export const KitchenStationManager: React.FC = () => {
       if (data.length > 0 && !selectedStation) {
         setSelectedStation(data[0]);
       }
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ في جلب المحطات: ' + e.message, 'error');
     } finally {
       setLoading(false);
@@ -241,7 +241,7 @@ export const KitchenStationManager: React.FC = () => {
       showToast('تم حفظ محطة المطبخ بنجاح ✅', 'success');
       setIsEditing(false);
       fetchStations();
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ: ' + e.message, 'error');
     } finally {
       setSaving(false);
@@ -292,7 +292,7 @@ export const KitchenStationManager: React.FC = () => {
       }
 
       showToast('تم تحديث محطة الصنف بنجاح ✅', 'success');
-    } catch (e: any) {
+    } catch (e) {
       // Rollback
       setAssignedStations(prev => ({ ...prev, [productId]: prevStation }));
       if (prod) {

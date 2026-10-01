@@ -563,7 +563,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
 
       setDiscrepancyEntries(discrepancies);
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching customer reconciliation:', error);
       showToast('خطأ في جلب بيانات المطابقة: ' + (error.message || ''), 'error');
     } finally {
@@ -578,7 +578,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       if (error) throw error;
       showToast('تم حذف القيد بنجاح.', 'success');
       fetchReconciliation();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حذف القيد: ' + err.message, 'error');
     }
   };
@@ -649,7 +649,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       showToast(`تم إنشاء العميل «${newCust.name}» وربط القيد بنجاح ✅`, 'success');
       setFixModalOpen(false);
       fetchReconciliation();
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -700,7 +700,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       }
       setFixModalOpen(false);
       fetchReconciliation();
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ: ' + err.message, 'error');
     }
   };

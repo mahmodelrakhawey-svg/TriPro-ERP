@@ -78,7 +78,7 @@ export const AutoReorderManager: React.FC = () => {
       } else {
         showToast('خطأ: ' + (res.errors?.[0] || 'تعذر الإنشاء'), 'error');
       }
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ: ' + e.message, 'error');
     } finally {
       setIsGenerating(false);

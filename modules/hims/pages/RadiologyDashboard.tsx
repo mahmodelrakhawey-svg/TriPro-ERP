@@ -200,7 +200,7 @@ export const RadiologyDashboard: React.FC = () => {
       resetDicomViewer();
       form.resetFields();
       fetchOrders();
-    } catch (err: any) {
+    } catch (err) {
       message.error('فشل في حفظ التقرير: ' + err.message);
     } finally {
       setLoading(false);

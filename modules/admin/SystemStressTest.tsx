@@ -61,7 +61,7 @@ const SystemStressTest: React.FC = () => {
       } else {
         showToast('⚠️ اكتمل الفحص مع وجود بعض الملاحظات، يرجى مراجعة التقرير.', 'warning');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('حدث خطأ أثناء تشغيل الفحص: ' + err.message, 'error');
     } finally {
@@ -85,7 +85,7 @@ const SystemStressTest: React.FC = () => {
 
       await engine.cleanupTestData();
       showToast('تم تنظيف بيانات الاختبار بنجاح وبقيت بياناتك الأصلية سليمة ✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل التنظيف: ' + err.message, 'error');
     } finally {
       setIsCleaning(false);

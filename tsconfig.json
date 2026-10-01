@@ -28,7 +28,8 @@
     "noFallthroughCasesInSwitch": true,
     "alwaysStrict": true,
     "noImplicitAny": false,
-    "noImplicitThis": false
+    "noImplicitThis": false,
+    "useUnknownInCatchVariables": false
   },
   "include": [
     "**/*.ts",

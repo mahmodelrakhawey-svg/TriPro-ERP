@@ -159,7 +159,7 @@ export const SalesOrderForm = () => {
       const idx = orderIds.indexOf(id);
       if (idx !== -1) setCurrentIndex(idx);
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error loading SO:', err);
       showToast('فشل تحميل أمر البيع: ' + err.message, 'error');
     } finally {
@@ -417,7 +417,7 @@ export const SalesOrderForm = () => {
         loadOrderById(soId);
       }
 
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('فشل حفظ أمر البيع: ' + error.message, 'error');
     } finally {
@@ -441,7 +441,7 @@ export const SalesOrderForm = () => {
       if (error) throw error;
       setFormData(prev => ({ ...prev, status: 'confirmed' }));
       showToast('تم تعميد أمر البيع بنجاح 🛡️✅ أصبح جاهزاً للصرف أو التشغيل', 'success');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل التعميد: ' + err.message, 'error');
     } finally {
@@ -474,7 +474,7 @@ export const SalesOrderForm = () => {
         handleNewOrder();
       }
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting SO:', err);
       showToast('فشل حذف أمر البيع: ' + err.message, 'error');
     } finally {
@@ -526,7 +526,7 @@ export const SalesOrderForm = () => {
       showToast('تم تحويل أمر البيع إلى فاتورة مبيعات رسمية بنجاح ✅', 'success');
       setIsConvertModalOpen(false);
       navigate('/invoices-list');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل التحويل: ' + err.message, 'error');
     } finally {

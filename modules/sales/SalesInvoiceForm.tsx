@@ -420,7 +420,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
                   showToast(`العميل لديه ${overdueInvoices.length} فواتير متأخرة السداد`, 'warning');
               }, 500);
           }
-      } catch (error: any) {
+      } catch (error) {
           logger.error("Error calculating customer balance:", error);
           handleError(error, { showNotification: showToast, context: { customerId: formData.customerId } });
       }
@@ -528,7 +528,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       const idx = invoiceIds.indexOf(invId);
       if (idx !== -1) setCurrentIndex(idx);
 
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error loading invoice:', err);
       showToast('فشل تحميل الفاتورة: ' + err.message, 'error');
     } finally {
@@ -773,7 +773,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
       showToast('تم إلغاء ترحيل الفاتورة بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
 
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error unposting sales invoice:', err);
       showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
     } finally {
@@ -860,7 +860,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         handleNewInvoice();
       }
 
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error deleting sales invoice:', err);
       showToast('فشل حذف الفاتورة: ' + err.message, 'error');
     } finally {
@@ -1174,7 +1174,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               setNewCustomerPhone('');
               setNewCustomerOpeningBalance('');
               setIsCustomerModalOpen(false);
-          } catch (err: any) { 
+          } catch (err) { 
               logger.error('Error creating customer:', err);
               showToast(err?.message || 'فشل إنشاء العميل', 'error');
           }
@@ -1215,7 +1215,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               setCustomerSearchTerm(editCustomerData.name);
               setIsEditCustomerModalOpen(false);
               showToast('تم تحديث بيانات العميل بنجاح', 'success');
-          } catch (err: any) {
+          } catch (err) {
               logger.error('Error updating customer:', err);
               showToast(err?.message || 'فشل تحديث العميل', 'error');
           }
@@ -1486,7 +1486,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
             try {
                 await approveInvoice(invoiceId, userOrgId, finalWarehouseId);
                 showToast('تم تحديث الفاتورة والقيود المحاسبية بنجاح ✅', 'success');
-            } catch (postErr: any) {
+            } catch (postErr) {
                 logger.error("Error approving sales invoice:", postErr);
                 showToast('تم حفظ الفاتورة ولكن تعذر ترحيل القيود تلقائياً: ' + (postErr.message || ''), 'warning');
             }
@@ -1497,7 +1497,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         if (convertedQuotationId) {
             try {
                 await supabase.from('quotations').update({ status: 'converted' }).eq('id', convertedQuotationId);
-            } catch (qErr: any) {
+            } catch (qErr) {
                 logger.error("Error updating quotation status:", qErr);
                 showToast('تم حفظ الفاتورة ولكن تعذر تحديث حالة عرض السعر: ' + (qErr?.message || ''), 'warning');
             }
@@ -1552,7 +1552,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         }
         if(barcodeInputRef.current) barcodeInputRef.current.focus();
 
-    } catch (err: any) {
+    } catch (err) {
         logger.error("فشل حفظ الفاتورة", err);
         handleError(err, { showNotification: showToast, context: { operation: 'حفظ الفاتورة' } });
     } finally {
@@ -1716,7 +1716,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         if (convertedQuotationId) {
             try {
                 await supabase.from('quotations').update({ status: 'posted' }).eq('id', convertedQuotationId);
-            } catch (qErr: any) {
+            } catch (qErr) {
                 logger.error("Error updating quotation status:", qErr);
                 showToast('تم ترحيل الفاتورة ولكن تعذر تحديث حالة عرض السعر: ' + (qErr?.message || ''), 'warning');
             }
@@ -1733,7 +1733,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         setTimeout(() => setSuccessMessage(null), 4000);
         if(barcodeInputRef.current) barcodeInputRef.current.focus();
 
-    } catch (err: any) {
+    } catch (err) {
         logger.error("فشل الحفظ والترحيل", err);
         handleError(err, { showNotification: showToast, context: { operation: 'حفظ وترحيل الفاتورة' } });
     } finally {
@@ -1774,7 +1774,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           error: response.error || ''
         }));
       }
-    } catch (error: any) {
+    } catch (error) {
       showToast(`خطأ في الإرسال: ${error.message}`, 'error');
     } finally {
       setSubmittingToEta(false);

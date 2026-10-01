@@ -73,7 +73,7 @@ export default function JournalAttachments({ journalEntryId, readOnly = false }:
       if (dbError) throw dbError;
 
       fetchAttachments();
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل رفع الملف: ' + error.message, 'error');
     } finally {
       setUploading(false);
@@ -102,7 +102,7 @@ export default function JournalAttachments({ journalEntryId, readOnly = false }:
       if (dbError) throw dbError;
 
       setAttachments(attachments.filter(a => a.id !== id));
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل حذف الملف: ' + error.message, 'error');
     }
   };

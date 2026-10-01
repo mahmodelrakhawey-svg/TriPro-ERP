@@ -94,7 +94,7 @@ const ProjectForm: React.FC<ProjectFormProps> = ({ onClose, onSuccess, project }
 
       onSuccess();
       onClose();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

@@ -455,7 +455,7 @@ const StockMovementCostReport = () => {
 
       setMovements(finalMovements);
 
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {

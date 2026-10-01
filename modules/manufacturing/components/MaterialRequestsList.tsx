@@ -28,7 +28,7 @@ const MaterialRequestsList = () => {
 
       if (error) throw error;
       setRequests(data || []);
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);
@@ -48,7 +48,7 @@ const MaterialRequestsList = () => {
       if (error) throw error;
       showToast('تم صرف المواد وتوليد القيد المحاسبي بنجاح', 'success');
       fetchRequests();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setProcessingId(null);

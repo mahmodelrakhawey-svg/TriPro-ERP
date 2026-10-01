@@ -52,7 +52,7 @@ export const CategoryModal: React.FC<CategoryModalProps> = ({
 
       const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
       setCategoryFormData(prev => ({ ...prev, image_url: data.publicUrl }));
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل رفع الصورة: ' + error.message, 'error');
     } finally {
       setCategoryUploading(false);
@@ -95,7 +95,7 @@ export const CategoryModal: React.FC<CategoryModalProps> = ({
       showToast('تم حفظ التصنيف بنجاح', 'success');
       await refreshData();
       onClose();
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل حفظ التصنيف: ' + error.message, 'error');
     }
   };

@@ -43,7 +43,7 @@ const ProjectChangeOrderForm: React.FC<Props> = ({ projectId, onClose, onSuccess
       showToast('تم حفظ أمر التغيير كمسودة بنجاح ✅', 'success');
       onSuccess();
       onClose();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

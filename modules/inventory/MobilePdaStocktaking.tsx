@@ -287,7 +287,7 @@ export default function MobilePdaStocktaking() {
 
       setCountedItems([]);
       setActiveItem(null);
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ أثناء حفظ الجرد: ' + err.message, 'error');
     } finally {
       setIsSubmitting(false);

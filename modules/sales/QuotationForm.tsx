@@ -141,7 +141,7 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
       const idx = quoteIds.indexOf(id);
       if (idx !== -1) setCurrentIndex(idx);
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error loading quotation:', err);
       showToast('فشل تحميل عرض السعر: ' + err.message, 'error');
     } finally {
@@ -402,7 +402,7 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
           loadQuoteById(quoteId);
         }
 
-    } catch (error: any) {
+    } catch (error) {
         console.error(error);
         showToast('خطأ في حفظ العرض: ' + error.message, 'error');
     } finally {
@@ -435,7 +435,7 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
         handleNewQuote();
       }
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting quote:', err);
       showToast('فشل حذف عرض السعر: ' + err.message, 'error');
     } finally {

@@ -45,7 +45,7 @@ export const ShiftManager: React.FC = () => {
     try {
       const data = await hrEnterpriseService.getShifts(orgId);
       setShifts(data);
-    } catch (e: any) {
+    } catch (e) {
       console.warn('Load shifts error:', e);
     } finally {
       setLoading(false);
@@ -69,7 +69,7 @@ export const ShiftManager: React.FC = () => {
       showToast('تم حفظ الوردية وسياسة الدوام بنجاح ⏱️✅', 'success');
       setIsModalOpen(false);
       loadShifts();
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ أثناء حفظ الوردية: ' + e.message, 'error');
     } finally {
       setSaving(false);

@@ -30,7 +30,7 @@ const StageVarianceReport = ({ orderId }: { orderId: string }) => {
         const { data, error } = await supabase.rpc('mfg_get_stage_variance_report', { p_order_id: orderId });
         if (error) throw error;
         setData(data || []);
-      } catch (error: any) {
+      } catch (error) {
         showToast('خطأ في حساب الانحرافات: ' + error.message, 'error');
       } finally {
         setLoading(false);

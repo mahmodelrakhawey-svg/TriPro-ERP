@@ -88,7 +88,7 @@ export const HIMSExecutiveDashboard: React.FC = () => {
       } else {
         setStats(prev => ({ ...prev, insuranceReceivables: realInsuranceReceivables }));
       }
-    } catch (err: any) {
+    } catch (err) {
       console.warn('Using fallback executive stats:', err);
     } finally {
       setLoading(false);

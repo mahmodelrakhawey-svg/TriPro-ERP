@@ -156,7 +156,7 @@ export default function RfiSubmittalManager() {
         })));
       }
 
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setRfis([]);
       setSubmittals([]);
@@ -225,7 +225,7 @@ export default function RfiSubmittalManager() {
       showToast('تم إصدار طلب المعلومات الهندسي (RFI) بنجاح 🚀', 'success');
       setIsRfiModalOpen(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ في حفظ الـ RFI: ' + err.message, 'error');
     }
   };
@@ -250,7 +250,7 @@ export default function RfiSubmittalManager() {
       showToast('تم توثيق رد الاستشاري وإغلاق الـ RFI بنجاح ✅', 'success');
       setIsReplyModalOpen(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حفظ الرد: ' + err.message, 'error');
     }
   };
@@ -308,7 +308,7 @@ export default function RfiSubmittalManager() {
       showToast('تم تسجيل التقديم الهندسي بنجاح 📋', 'success');
       setIsSubmittalModalOpen(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ في حفظ التقديم: ' + err.message, 'error');
     }
   };

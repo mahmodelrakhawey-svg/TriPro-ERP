@@ -644,7 +644,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
       setDiscrepancyEntries(discrepancies);
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching supplier reconciliation:', error);
       showToast('خطأ في جلب بيانات المطابقة: ' + (error.message || ''), 'error');
     } finally {
@@ -676,7 +676,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
       showToast('تم حذف القيد وتحديث المطابقة بنجاح ✅', 'success');
       fetchReconciliation();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل حذف القيد: ' + err.message, 'error');
     }
   };
@@ -747,7 +747,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       showToast(`تم إنشاء المورد «${newSupp.name}» وربط القيد بنجاح ✅`, 'success');
       setFixModalOpen(false);
       fetchReconciliation();
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -798,7 +798,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       }
       setFixModalOpen(false);
       fetchReconciliation();
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ: ' + err.message, 'error');
     }
   };

@@ -185,7 +185,7 @@ export default function ProductionGanttScheduler() {
       } else {
         setOrders([]);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.warn('Gantt fetch notice:', err.message);
       setOrders([]);
     } finally {
@@ -281,7 +281,7 @@ export default function ProductionGanttScheduler() {
       setOrders(prev => prev.map(o => o.id === selectedOrderForEdit.id ? selectedOrderForEdit : o));
       showToast('تم حفظ وتحديث جدولة أمر التشغيل بنجاح 📅', 'success');
       setSelectedOrderForEdit(null);
-    } catch (err: any) {
+    } catch (err) {
       showToast('حدث خطأ أثناء الحفظ: ' + err.message, 'error');
     }
   };
@@ -380,7 +380,7 @@ export default function ProductionGanttScheduler() {
       setOrders(prev => [newGanttItem, ...prev]);
       setIsNewOrderModalOpen(false);
       showToast(`تم إدراج وجدولة أمر الإنتاج #${orderNum} بنجاح ✅`, 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ أثناء إنشاء أمر التشغيل: ' + err.message, 'error');
     }
   };

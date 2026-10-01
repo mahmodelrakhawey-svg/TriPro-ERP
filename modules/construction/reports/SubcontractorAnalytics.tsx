@@ -37,7 +37,7 @@ const SubcontractorAnalytics: React.FC = () => {
 
       if (error) throw error;
       setPerformanceData(data || []);
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل تحميل بيانات أداء مقاولي الباطن: ' + error.message, 'error');
     } finally {
       setLoading(false);

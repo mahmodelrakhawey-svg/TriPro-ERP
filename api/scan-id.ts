@@ -88,7 +88,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const parsedData = JSON.parse(cleanJson);
       return res.status(200).json(parsedData);
 
-    } catch (err: any) {
+    } catch (err) {
       console.warn(`[API /api/scan-id] Endpoint ${endpoint.split('?')[0]} exception:`, err);
       lastErrorMsg = err?.message || String(err);
     }

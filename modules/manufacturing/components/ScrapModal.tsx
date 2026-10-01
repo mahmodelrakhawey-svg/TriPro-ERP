@@ -47,7 +47,7 @@ export const ScrapModal: React.FC<ScrapModalProps> = ({ isOpen, onClose, progres
       showToast('تم تسجيل التالف وتحديث قيود الـ WIP بنجاح', 'success');
       onSuccess();
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     } finally {
       setLoading(false);

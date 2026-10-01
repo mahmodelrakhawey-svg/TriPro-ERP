@@ -25,7 +25,7 @@ export const RawMaterialsTurnover: React.FC = () => {
 
       setTurnover(data);
       showToast('تم تحديث التقرير بنجاح', 'success');
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching turnover:', error);
       showToast(error.message || 'فشل في حساب معدل الدوران', 'error');
     } finally {

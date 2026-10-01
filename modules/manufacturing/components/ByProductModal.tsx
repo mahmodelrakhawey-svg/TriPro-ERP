@@ -74,7 +74,7 @@ export const ByProductModal: React.FC<ByProductModalProps> = ({ isOpen, onClose,
       showToast('تم تسجيل المنتج العرضي وإيداعه بالمستودع وتخفيض تكلفة الأمر بنجاح ✅', 'success');
       onSuccess();
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message, 'error');
     } finally {
       setLoading(false);

@@ -94,7 +94,7 @@ class PaymentGatewayService {
 
       if (error) throw error;
       return { success: true };
-    } catch (err: any) {
+    } catch (err) {
       return { success: false, error: err.message };
     }
   }
@@ -155,7 +155,7 @@ class PaymentGatewayService {
         paymentUrl: data.payment_url,
         qrCodeData: data.qr_code_data
       };
-    } catch (err: any) {
+    } catch (err) {
       console.error('[PaymentGatewayService] Error creating payment link:', err);
       return { success: false, error: err.message };
     }
@@ -211,7 +211,7 @@ class PaymentGatewayService {
       }
 
       return { success: true };
-    } catch (err: any) {
+    } catch (err) {
       console.error('[PaymentGatewayService] Error settling payment:', err);
       return { success: false, error: err.message };
     }

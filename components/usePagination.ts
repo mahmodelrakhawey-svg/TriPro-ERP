@@ -115,7 +115,7 @@ export function usePagination<T>(
 
       setData((resultData as T[]) || []);
       setTotalCount(count || 0);
-    } catch (err: any) {
+    } catch (err) {
       // تجاهل الأخطاء الناتجة عن إلغاء الطلب يدوياً
 
       if (err.name === 'AbortError' || err.message?.includes('AbortError')) return;

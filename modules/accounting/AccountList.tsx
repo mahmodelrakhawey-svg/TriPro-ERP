@@ -142,7 +142,7 @@ const AccountList = () => {
             if (error) throw error;
             showToast('تم تصفير أرصدة الحسابات في قاعدة البيانات بنجاح.', 'success');
             refreshData();
-        } catch (error: any) {
+        } catch (error) {
             showToast('فشل تصفير الأرصدة: ' + error.message, 'error');
         }
     }
@@ -189,7 +189,7 @@ const AccountList = () => {
       await Promise.all(updates);
       showToast(`تم إصلاح ${updatedCount} حساب بنجاح.`, 'success');
       refreshData(); // إعادة تحميل البيانات بعد التحديث
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error auto-fixing account types:', error);
       showToast('فشل إصلاح أنواع الحسابات: ' + error.message, 'error');
     }
@@ -217,7 +217,7 @@ const AccountList = () => {
       showToast(data, 'success'); // The RPC function returns a success message
       refreshData();
 
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل إنشاء الحسابات: ' + err.message, 'error');
     }
@@ -245,7 +245,7 @@ const AccountList = () => {
       showToast(`تمت عملية الإصلاح بنجاح ✅: ${summary}`, 'success');
       refreshData();
 
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل الإصلاح العالمي: ' + err.message, 'error');
     }
@@ -402,7 +402,7 @@ const AccountList = () => {
                     if (error) throw error;
                     showToast(data, 'success');
                     refreshData();
-                  } catch (err: any) {
+                  } catch (err) {
                     showToast('فشل الفتح: ' + err.message, 'error');
                   }
                 }

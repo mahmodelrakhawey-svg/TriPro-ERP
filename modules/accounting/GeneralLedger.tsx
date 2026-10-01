@@ -218,7 +218,7 @@ const GeneralLedger = () => {
       // 2. جلب الصفحة الأولى من البيانات
       await fetchPageData(0, targetAccountIds, startDate, endDate, openBal, true, customerEntryIds);
 
-    } catch (error: any) {
+    } catch (error) {
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
       setLoading(false);
     }
@@ -284,7 +284,7 @@ const GeneralLedger = () => {
       // التحقق مما إذا كان هناك المزيد من البيانات
       setHasMore(periodData.length === PAGE_SIZE);
 
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('خطأ في تحميل البيانات', 'error');
     } finally {

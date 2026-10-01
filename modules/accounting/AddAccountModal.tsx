@@ -123,7 +123,7 @@ const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAc
       // await refreshData(); // Removed to avoid double refresh if context handles it
       
       handleClose();
-    } catch (err: any) {
+    } catch (err) {
       setError(err.message);
     }
   };

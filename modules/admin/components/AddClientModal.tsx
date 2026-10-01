@@ -225,7 +225,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({
       const { data } = supabase.storage.from('logos').getPublicUrl(path);
       setFormData(prev => ({ ...prev, logoUrl: data.publicUrl }));
       showToast('تم رفع الشعار ✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل رفع الشعار: ' + err.message, 'error');
     } finally {
       setUploadingLogo(false);
@@ -324,7 +324,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({
 
       setProvisionResult(result);
       onSuccess();
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ في التأسيس: ' + err.message, 'error');
     } finally {
       setLoading(false);

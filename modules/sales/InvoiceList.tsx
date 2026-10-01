@@ -197,7 +197,7 @@ export const InvoiceList = () => {
         });
       }
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching sales invoices:', err);
       showToast('فشل تحميل سجل فواتير المبيعات: ' + err.message, 'error');
     } finally {
@@ -240,7 +240,7 @@ export const InvoiceList = () => {
         });
         fetchInvoices();
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Invoice approve error:', err);
       const errMsg = err?.message || err?.details || String(err);
       showToast('فشل ترحيل الفاتورة: ' + errMsg, 'error');
@@ -283,7 +283,7 @@ export const InvoiceList = () => {
         });
         fetchInvoices();
         return;
-      } catch (rpcErr: any) {
+      } catch (rpcErr) {
         console.warn('Atomic unpost RPC unavailable or failed, attempting client fallback:', rpcErr);
       }
 
@@ -343,7 +343,7 @@ export const InvoiceList = () => {
       });
       fetchInvoices();
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error unposting invoice:', err);
       showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
     } finally {
@@ -386,7 +386,7 @@ export const InvoiceList = () => {
         });
         fetchInvoices();
         return;
-      } catch (rpcErr: any) {
+      } catch (rpcErr) {
         console.warn('Atomic delete RPC unavailable or failed, attempting client fallback:', rpcErr);
       }
 
@@ -410,7 +410,7 @@ export const InvoiceList = () => {
       });
       fetchInvoices();
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting sales invoice:', err);
       showToast('فشل حذف الفاتورة: ' + err.message, 'error');
     } finally {
@@ -460,7 +460,7 @@ export const InvoiceList = () => {
         window.print();
         setInvoiceToPrint(null);
       }, 250);
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل تحميل تفاصيل الفاتورة للطباعة: ' + err.message, 'error');
     }
   };
@@ -487,7 +487,7 @@ export const InvoiceList = () => {
       } else {
         showToast('فشل الإرسال لمنظومة الضرائب: ' + (response.error || 'يرجى مراجعة إعدادات الضرائب'), 'error');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('خطأ في الإرسال: ' + err.message, 'error');
     } finally {
@@ -560,7 +560,7 @@ export const InvoiceList = () => {
       XLSX.utils.book_append_sheet(wb, ws, 'فواتير المبيعات');
       XLSX.writeFile(wb, `سجل_فواتير_المبيعات_${new Date().toISOString().split('T')[0]}.xlsx`);
       showToast('تم تصدير سجل المبيعات إلى إكسيل بنجاح ✅', 'success');
-    } catch (e: any) {
+    } catch (e) {
       showToast('فشل تصدير الإكسيل: ' + e.message, 'error');
     }
   };

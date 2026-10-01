@@ -67,7 +67,7 @@ export const CFODashboard: React.FC = () => {
       if (err2) throw err2;
       setCumulativeLines(cumData || []);
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching CFO dashboard data:', err);
       showToast('خطأ أثناء جلب مؤشرات السيولة: ' + err.message, 'error');
     } finally {

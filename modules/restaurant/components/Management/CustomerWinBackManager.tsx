@@ -41,7 +41,7 @@ export const CustomerWinBackManager: React.FC = () => {
 
       if (custRes.data) setCustomers(custRes.data);
       if (ordRes.data) setOrders(ordRes.data);
-    } catch (e: any) {
+    } catch (e) {
       console.warn('Winback data load notice:', e);
     } finally {
       setLoading(false);

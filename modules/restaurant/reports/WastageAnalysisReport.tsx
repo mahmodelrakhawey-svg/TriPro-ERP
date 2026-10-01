@@ -116,7 +116,7 @@ const WastageAnalysisReport = () => {
       if (formattedData.length === 0) {
         showToast('لا توجد بيانات هدر مسجلة في الفترة المحددة.', 'info');
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error generating wastage report:', error);
       showToast('حدث خطأ أثناء جلب التقرير: ' + error.message, 'error');
     } finally {

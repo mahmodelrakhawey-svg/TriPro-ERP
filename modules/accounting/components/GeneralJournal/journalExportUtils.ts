@@ -223,7 +223,7 @@ export const exportJournalToExcel = async ({
     const fileDate = startDate && endDate ? `${startDate}_to_${endDate}` : new Date().toISOString().split('T')[0];
     XLSX.writeFile(wb, `General_Journal_${fileDate}.xlsx`);
     toast.success(`تم تصدير ${entries.length} قيد محاسبي إلى ملف Excel بنجاح ✅`);
-  } catch (err: any) {
+  } catch (err) {
     console.error('Error exporting journal entries:', err);
     toast.error('حدث خطأ أثناء تصدير البيانات: ' + err.message);
   } finally {

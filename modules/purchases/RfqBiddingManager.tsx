@@ -74,7 +74,7 @@ export const RfqBiddingManager: React.FC = () => {
     try {
       const data = await RfqService.getRfqs(orgId, { status: statusFilter });
       setRfqs(data);
-    } catch (err: any) {
+    } catch (err) {
       showToast('تعذر تحميل طلبات عروض الأسعار: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -182,7 +182,7 @@ export const RfqBiddingManager: React.FC = () => {
       showToast(`تم إنشاء طلب عروض الأسعار #${res.data?.rfq_number} بنجاح`, 'success');
       setIsCreateRfqModalOpen(false);
       fetchRfqs();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل إنشاء المناقصة', 'error');
     } finally {
       setSavingRfq(false);
@@ -265,7 +265,7 @@ export const RfqBiddingManager: React.FC = () => {
       showToast(`تم تسجيل عرض سعر المورد "${supplierName}" بنجاح`, 'success');
       setIsSubmitBidModalOpen(false);
       fetchRfqs();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل تسجيل عرض السعر', 'error');
     } finally {
       setSavingBid(false);
@@ -299,7 +299,7 @@ export const RfqBiddingManager: React.FC = () => {
 
       setIsComparisonMatrixOpen(false);
       fetchRfqs();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشلت عملية الترسية', 'error');
     } finally {
       setAwardingBidId(null);

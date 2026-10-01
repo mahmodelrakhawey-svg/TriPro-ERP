@@ -227,7 +227,7 @@ export const PurchaseInvoiceList = () => {
         });
       }
 
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error fetching purchase invoices:', err);
       showToast('فشل تحميل سجل فواتير المشتريات: ' + err.message, 'error');
     } finally {
@@ -265,7 +265,7 @@ export const PurchaseInvoiceList = () => {
         organizationId: userOrgId
       });
       fetchInvoices();
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error approving purchase invoice:', err);
       showToast('فشل ترحيل فاتورة المشتريات: ' + (err?.message || 'حدث خطأ أثناء الترحيل'), 'error');
     }
@@ -307,7 +307,7 @@ export const PurchaseInvoiceList = () => {
         });
         fetchInvoices();
         return;
-      } catch (rpcErr: any) {
+      } catch (rpcErr) {
         logger.warn('Atomic unpost RPC unavailable, attempting client fallback:', rpcErr);
       }
 
@@ -361,7 +361,7 @@ export const PurchaseInvoiceList = () => {
       });
       fetchInvoices();
 
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error unposting purchase invoice:', err);
       showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
     } finally {
@@ -404,7 +404,7 @@ export const PurchaseInvoiceList = () => {
         });
         fetchInvoices();
         return;
-      } catch (rpcErr: any) {
+      } catch (rpcErr) {
         logger.warn('Atomic delete RPC unavailable, attempting client fallback:', rpcErr);
       }
 
@@ -428,7 +428,7 @@ export const PurchaseInvoiceList = () => {
       });
       fetchInvoices();
 
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error deleting purchase invoice:', err);
       showToast('فشل حذف الفاتورة: ' + err.message, 'error');
     } finally {
@@ -469,7 +469,7 @@ export const PurchaseInvoiceList = () => {
       showToast('تم إنشاء سند الصرف وتحديث الفاتورة بنجاح ✅', 'success');
       setIsPaymentModalOpen(false);
       fetchInvoices();
-    } catch (err: any) {
+    } catch (err) {
       logger.error(err);
       showToast('حدث خطأ: ' + err.message, 'error');
     }
@@ -508,7 +508,7 @@ export const PurchaseInvoiceList = () => {
         window.print();
         setInvoiceToPrint(null);
       }, 250);
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error preparing print data:', err);
       showToast('فشل تجهيز بيانات الطباعة: ' + err.message, 'error');
     }
@@ -624,7 +624,7 @@ export const PurchaseInvoiceList = () => {
       XLSX.utils.book_append_sheet(wb, ws, 'فواتير المشتريات');
       XLSX.writeFile(wb, `سجل_فواتير_المشتريات_${new Date().toISOString().split('T')[0]}.xlsx`);
       showToast('تم تصدير سجل المشتريات إلى إكسيل بنجاح ✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
       logger.error(err);
       showToast('فشل تصدير البيانات إلى إكسيل', 'error');
     }

@@ -103,7 +103,7 @@ const ManufacturingManager = () => {
             showToast(result.message, 'error');
         }
 
-    } catch (error: any) {
+    } catch (error) {
         console.error(error);
         showToast('فشل عملية التصنيع: ' + error.message, 'error');
     } finally {

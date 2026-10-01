@@ -96,7 +96,7 @@ const MultiCurrencyStatement = () => {
 
       setEntries(finalEntries);
 
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('حدث خطأ: ' + error.message, 'error');
     } finally {

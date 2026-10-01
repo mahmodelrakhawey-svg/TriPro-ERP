@@ -112,7 +112,7 @@ export default function ClinicalPharmacy() {
       toast.success('تم صرف الوصفة الطبية وتحديث المخزون بنجاح');
       setDetailsModal(false);
       fetchPendingPrescriptions();
-    } catch (error: any) {
+    } catch (error) {
       toast.error(error.message || 'فشل في عملية الصرف');
     }
   };

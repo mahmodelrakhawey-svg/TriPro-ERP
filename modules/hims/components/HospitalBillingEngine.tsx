@@ -87,7 +87,7 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
 
       setBillItems(items || []);
       setBill(data);
-    } catch (err: any) {
+    } catch (err) {
       message.error('فشل معالجة الفاتورة: ' + (err.message || 'خطأ غير معروف'));
     } finally {
       setLoading(false);
@@ -101,7 +101,7 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
       if (error) throw error;
       const enrichedData = { ...data, visit_id: visitId };
       await LuxuryReportEngine.generatePDF(enrichedData, 'invoice', lang);
-    } catch (err: any) {
+    } catch (err) {
       message.error('فشل جلب البيانات الفاخرة: ' + err.message);
     }
     setLoading(false);

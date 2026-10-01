@@ -34,7 +34,7 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
       if (error) throw error;
       import('antd').then(({ message }) => message.success('تم التراجع عن خروج المريض بنجاح وإعادة تنشيط الزيارة ✅'));
       fetchData();
-    } catch (e: any) {
+    } catch (e) {
       console.error('[PatientMedicalRecord] Error undoing discharge:', e);
       import('antd').then(({ message }) => message.error('فشل التراجع عن الخروج: ' + e.message));
     } finally {
@@ -139,7 +139,7 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
       setClinicalNotes(notesRes.data || []);
       setRadiologyReports(radsRes.data || []);
       setSurgeries(surgsRes.data || []);
-    } catch (error: any) {
+    } catch (error) {
       console.error('[PatientMedicalRecord] Error fetching data:', error);
       // إظهار رسالة للمستخدم بدلاً من ابتلاعها بصمت
       import('antd').then(({ message }) => message.error('فشل تحميل الملف الطبي: ' + (error?.message || 'خطأ غير متوقع')));

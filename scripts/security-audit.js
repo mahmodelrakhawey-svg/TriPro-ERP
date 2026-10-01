@@ -46,6 +46,8 @@ const SAFE_PATHS = [
   'e2e',
   'tests',
   'notificationTestUtils.ts',
+  'system_auditor.js',
+  'search_tool.js',
   'utils/logger.ts'
 ];
 

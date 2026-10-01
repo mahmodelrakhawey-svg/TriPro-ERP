@@ -145,7 +145,7 @@ const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) =
 
       onSuccess();
       onClose();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

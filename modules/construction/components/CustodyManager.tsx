@@ -109,7 +109,7 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
       showToast('تم اعتماد المصروف وتحميله على المشروع بنجاح ✅', 'success');
       if (selectedCustody) fetchExpenses(selectedCustody);
       fetchCustodies();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     }
   };
@@ -135,7 +135,7 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
       setIsAddingExpense(false);
       setNewExpense({ amount: 0, description: '', category: 'نثريات', expense_date: new Date().toISOString().split('T')[0] });
       fetchExpenses(selectedCustody);
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);
@@ -221,7 +221,7 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
       setIsCreating(false);
       setNewCustody({ custody_name: '', employee_id: '', total_advanced: 0, source_account_id: '' });
       fetchCustodies();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);
@@ -293,7 +293,7 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
       setIsToppingUp(false);
       setTopUpData({ amount: 0, source_account_id: '', notes: '', date: new Date().toISOString().split('T')[0] });
       fetchCustodies();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

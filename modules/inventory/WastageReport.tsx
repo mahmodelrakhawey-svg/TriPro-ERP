@@ -132,7 +132,7 @@ const WastageReport = () => {
             }
 
             setReportData(calculatedList);
-        } catch (error: any) {
+        } catch (error) {
             console.error('Failed to calculate wastage analysis:', error);
             showToast('تعذر جلب تقرير انحراف التكلفة', 'error');
         } finally {

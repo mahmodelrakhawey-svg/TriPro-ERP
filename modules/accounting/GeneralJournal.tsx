@@ -548,7 +548,7 @@ const GeneralJournal: React.FC = () => {
       toast.success(isHighValue ? 'تم اعتماد وترحيل القيد ذو القيمة الكبرى بنجاح.' : 'تم ترحيل القيد بنجاح.');
       refreshData();
       refresh();
-    } catch (err: any) {
+    } catch (err) {
       toast.error('فشل ترحيل القيد: ' + err.message);
     }
   };
@@ -582,7 +582,7 @@ const GeneralJournal: React.FC = () => {
       toast.success('تم حذف القيد وتحديث الأرصدة بنجاح.');
       refreshData();
       refresh();
-    } catch (err: any) {
+    } catch (err) {
       toast.error('فشل حذف القيد: ' + err.message);
     }
   };
@@ -688,7 +688,7 @@ const GeneralJournal: React.FC = () => {
       await clearCache();
       await refreshData();
       refresh();
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error cleaning orphaned asset entries:', err);
       toast.error('فشل تنظيف قيود الأصول: ' + err.message);
     } finally {
@@ -757,7 +757,7 @@ const GeneralJournal: React.FC = () => {
       await refreshData();
       refresh();
       toast.success(`تم بنجاح تنظيف ${duplicateIdsToDelete.length} قيد شيكات مكرر وإعادة ضبط الأرصدة ✅`);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       toast.error('حدث خطأ أثناء تنظيف القيود المكررة: ' + err.message);
     } finally {
@@ -790,7 +790,7 @@ const GeneralJournal: React.FC = () => {
       await clearCache();
       await refreshData();
       refresh();
-    } catch (err: any) {
+    } catch (err) {
       toast.error('فشل حذف القيد: ' + err.message);
     }
   };
@@ -866,7 +866,7 @@ const GeneralJournal: React.FC = () => {
       await clearCache();
       await refreshData();
       refresh();
-    } catch (err: any) {
+    } catch (err) {
       toast.error('حدث خطأ أثناء تنظيف قيود الموردين: ' + err.message);
     } finally {
       setIsCleaningSuppliers(false);
@@ -906,7 +906,7 @@ const GeneralJournal: React.FC = () => {
       } else {
         toast.error(res.message);
       }
-    } catch (err: any) {
+    } catch (err) {
       toast.error('حدث خطأ: ' + err.message);
     }
   };

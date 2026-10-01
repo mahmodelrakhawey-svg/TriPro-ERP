@@ -406,7 +406,7 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
         showToast(`تمت إضافة واختيار المورد "${created.name}" بنجاح ✅`, 'success');
         if (refreshData) refreshData();
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('تعذر إضافة المورد: ' + (err.message || ''), 'error');
     } finally {
       setQuickAddSubmitting(false);
@@ -447,7 +447,7 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
       showToast('تم تحديث بيانات المورد بنجاح ✅', 'success');
       setIsQuickEditOpen(false);
       if (refreshData) refreshData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('تعذر تحديث المورد: ' + (err.message || ''), 'error');
     } finally {
       setQuickAddSubmitting(false);

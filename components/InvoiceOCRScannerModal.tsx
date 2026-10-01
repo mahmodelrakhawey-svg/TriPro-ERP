@@ -137,7 +137,7 @@ export const InvoiceOCRScannerModal: React.FC<InvoiceOCRScannerModalProps> = ({
                 items: matchedItems
             });
 
-        } catch (err: any) {
+        } catch (err) {
             console.error("OCR Scan Error:", err);
             const errMsg = err.message || 'فشل مسح الفاتورة. تأكد من وضوح الصورة ومفتاح Gemini API.';
             setScanError(errMsg);

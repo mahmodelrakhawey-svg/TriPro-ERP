@@ -256,7 +256,7 @@ class JournalAuditService {
 
       if (error) throw error;
       return { success: true, message: 'تم تحويل القيد إلى مسودة بنجاح لتعديله وتصحيحه.' };
-    } catch (err: any) {
+    } catch (err) {
       return { success: false, message: err.message || 'فشل إلغاء ترحيل القيد' };
     }
   }

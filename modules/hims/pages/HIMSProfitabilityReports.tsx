@@ -64,7 +64,7 @@ export const HIMSProfitabilityReports: React.FC = () => {
 
       XLSX.writeFile(wb, `HIMS_Profitability_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
       message.success('تم تصدير تقرير الربحية الطبية بنجاح ✅');
-    } catch (error: any) {
+    } catch (error) {
       message.error('فشل تصدير التقرير: ' + error.message);
     }
   };

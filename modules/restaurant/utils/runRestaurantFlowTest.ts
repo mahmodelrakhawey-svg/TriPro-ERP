@@ -207,7 +207,7 @@ export const runRestaurantModuleTest = async () => {
     log('🎉🎉🎉 اكتمل اختبار موديول المطاعم بنجاح! 🎉🎉🎉', 'success');
     toast.success('🎉 اكتمل اختبار دورة موديول المطاعم بنجاح تام!', { id: 'restaurant-flow-test' });
 
-  } catch (error: any) {
+  } catch (error) {
     log(`❌ حدث خطأ أثناء الاختبار: ${error.message}`, 'error');
     console.error(error);
     toast.error(`❌ حدث خطأ أثناء الاختبار: ${error.message}`, { id: 'restaurant-flow-test' });

@@ -78,7 +78,7 @@ export const offsiteBackupService = {
           message: uploadRes.error || 'فشل الاتصال بمستودع S3'
         };
       }
-    } catch (e: any) {
+    } catch (e) {
       return {
         success: false,
         message: e?.message || 'خطأ في فحص الاتصال الخارجي'
@@ -179,7 +179,7 @@ export const offsiteBackupService = {
           error: errText
         };
       }
-    } catch (e: any) {
+    } catch (e) {
       return {
         success: false,
         message: 'خطأ أثناء الرفع إلى التخزين الخارجي',
@@ -270,7 +270,7 @@ export const offsiteBackupService = {
 
       return uploadRes;
 
-    } catch (e: any) {
+    } catch (e) {
       return {
         success: false,
         message: 'فشلت عملية النسخ الاحتياطي الخارجي',

@@ -81,7 +81,7 @@ export const RecurringInvoicesManager: React.FC = () => {
         status: statusFilter,
       });
       setSubscriptions(data);
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل تحميل عقود الاشتراكات: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -342,7 +342,7 @@ export const RecurringInvoicesManager: React.FC = () => {
       }
       setIsModalOpen(false);
       fetchSubscriptions();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'حدث خطأ أثناء الحفظ', 'error');
     } finally {
       setSaving(false);
@@ -367,7 +367,7 @@ export const RecurringInvoicesManager: React.FC = () => {
           window.open(res.whatsappUrl, '_blank');
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل إصدار الفاتورة', 'error');
     } finally {
       setExecutingId(null);
@@ -385,7 +385,7 @@ export const RecurringInvoicesManager: React.FC = () => {
         showToast(`تمت معالجة ${res.processed} اشتراك. نجح: ${res.successCount}، فشل: ${res.failedCount}`, 'success');
         fetchSubscriptions();
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل تشغيل المعالجة التلقائية: ' + err.message, 'error');
     } finally {
       setRunningBatch(false);
@@ -399,7 +399,7 @@ export const RecurringInvoicesManager: React.FC = () => {
       if (!res.success) throw new Error(res.error);
       showToast(`تم تغيير حالة الاشتراك إلى "${getStatusArabic(newStatus)}"`, 'success');
       fetchSubscriptions();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل تحديث الحالة', 'error');
     }
   };
@@ -413,7 +413,7 @@ export const RecurringInvoicesManager: React.FC = () => {
       if (!res.success) throw new Error(res.error);
       showToast('تم حذف الاشتراك بنجاح', 'success');
       fetchSubscriptions();
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل الحذف', 'error');
     }
   };
@@ -425,7 +425,7 @@ export const RecurringInvoicesManager: React.FC = () => {
     try {
       const details = await RecurringInvoiceService.getRecurringInvoiceById(sub.id);
       setActiveSubscriptionLogs({ sub: details.subscription, logs: details.logs });
-    } catch (err: any) {
+    } catch (err) {
       showToast('تعذر تحميل سجل العمليات', 'error');
     } finally {
       setLoadingLogs(false);

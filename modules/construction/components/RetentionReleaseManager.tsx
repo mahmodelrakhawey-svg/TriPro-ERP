@@ -78,7 +78,7 @@ const RetentionReleaseManager: React.FC<Props> = ({ projectId, projectName, onBa
 
       if (error) throw error;
       setReleases(data || []);
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -94,7 +94,7 @@ const RetentionReleaseManager: React.FC<Props> = ({ projectId, projectName, onBa
         .order('name', { ascending: true });
       if (error) throw error;
       setSubcontractors(data || []);
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل جلب مقاولي الباطن: ' + error.message, 'error');
     }
   };
@@ -115,7 +115,7 @@ const RetentionReleaseManager: React.FC<Props> = ({ projectId, projectName, onBa
       reset();
       setShowAddForm(false);
       fetchReleases();
-    } catch (error: any) {
+    } catch (error) {
       showToast('خطأ في تسجيل الاسترداد: ' + error.message, 'error');
     }
   };

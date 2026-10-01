@@ -51,7 +51,7 @@ export const AssetTransferManager: React.FC = () => {
       setAssets(astList);
       setTransfers(trfList);
       if (astList.length > 0) setSelectedAssetId(astList[0].id);
-    } catch (e: any) {
+    } catch (e) {
       console.warn('Load transfers error:', e);
     } finally {
       setLoading(false);
@@ -97,7 +97,7 @@ export const AssetTransferManager: React.FC = () => {
       setTransportVehicle('');
       setTransferNotes('');
       loadData();
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ: ' + e.message, 'error');
     } finally {
       setSaving(false);

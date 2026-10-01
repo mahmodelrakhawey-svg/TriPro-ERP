@@ -95,7 +95,7 @@ const MultiUomStockReport = () => {
       });
 
       setData(computed);
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل جلب تقرير الوحدات المتعددة: ' + err.message, 'error');
     } finally {
       setLoading(false);

@@ -150,14 +150,14 @@ export default function SupplierInvoiceExcelImporter({
 
           setParsedRows(rows);
           setStep('preview');
-        } catch (err: any) {
+        } catch (err) {
           showToast('فشل قراءة ملف الإكسيل: ' + err.message, 'error');
         } finally {
           setIsProcessing(false);
         }
       };
       reader.readAsBinaryString(uploadedFile);
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ أثناء تحميل الملف: ' + err.message, 'error');
       setIsProcessing(false);
     }
@@ -262,7 +262,7 @@ export default function SupplierInvoiceExcelImporter({
       showToast(`تم استيراد فاتورة المشتريات بنجاح ✅ وإضافة ${parsedRows.length} صنف للمخزن`, 'success');
       onSuccess(createdInv.id);
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل استيراد الفاتورة: ' + err.message, 'error');
     } finally {
       setIsProcessing(false);

@@ -484,7 +484,7 @@ export class RfqService {
       }
 
       return { success: true, poNumber, whatsappUrl };
-    } catch (err: any) {
+    } catch (err) {
       return { success: false, error: err.message || 'فشلت عملية الترسية' };
     }
   }

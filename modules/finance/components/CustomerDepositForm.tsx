@@ -245,7 +245,7 @@ const CustomerDepositForm = () => {
                 });
             }
         handleNew();
-    } catch (error: any) {
+    } catch (error) {
         showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
         setLoading(false);

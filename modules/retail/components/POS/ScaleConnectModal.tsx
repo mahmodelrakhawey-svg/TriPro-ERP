@@ -71,7 +71,7 @@ export default function ScaleConnectModal({ isOpen, onClose, onApplyWeight }: Sc
     try {
       await scaleService.connect(config);
       showToast('تم الاتصال بالميزان الإلكتروني بنجاح ⚖️✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل الاتصال بالميزان', 'error');
     } finally {
       setIsConnecting(false);

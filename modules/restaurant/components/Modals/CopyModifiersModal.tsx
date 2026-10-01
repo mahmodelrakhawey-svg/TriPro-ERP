@@ -41,7 +41,7 @@ export const CopyModifiersModal: React.FC<CopyModifiersModalProps> = ({ isOpen, 
       showToast('تم نسخ إعدادات الإضافات بنجاح!', 'success');
       onSuccess();
       onClose();
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل نسخ الإعدادات: ' + error.message, 'error');
     } finally {
       setIsCopying(false);

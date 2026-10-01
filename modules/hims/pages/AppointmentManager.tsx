@@ -78,7 +78,7 @@ export const AppointmentManager: React.FC = () => {
 
         setAppointments(offlineAppointments);
       }
-    } catch (err: any) {
+    } catch (err) {
       message.error('خطأ في تحميل المواعيد: ' + err.message);
     } finally {
       setLoading(false);
@@ -122,7 +122,7 @@ export const AppointmentManager: React.FC = () => {
           ]);
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Failed to fetch metadata:', err);
     }
   };
@@ -187,7 +187,7 @@ export const AppointmentManager: React.FC = () => {
       setIsBookingModalVisible(false);
       form.resetFields();
       fetchAppointments();
-    } catch (err: any) {
+    } catch (err) {
       // قد يكون هذا بسبب تضارب المواعيد المرفوض من قبل الـ trigger في قاعدة البيانات
       Modal.error({
         title: 'فشل حجز الموعد ⚠️',
@@ -255,7 +255,7 @@ export const AppointmentManager: React.FC = () => {
       }
 
       fetchAppointments();
-    } catch (err: any) {
+    } catch (err) {
       message.error('خطأ في معالجة الطلب: ' + err.message);
     } finally {
       setLoading(false);

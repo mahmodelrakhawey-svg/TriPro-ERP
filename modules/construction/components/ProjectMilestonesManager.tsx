@@ -60,7 +60,7 @@ const ProjectMilestonesManager: React.FC<Props> = ({ projectId, projectName, onB
 
       if (error) throw error;
       setMilestones(data || []);
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);
@@ -81,7 +81,7 @@ const ProjectMilestonesManager: React.FC<Props> = ({ projectId, projectName, onB
       reset();
       setShowAddForm(false);
       fetchMilestones();
-    } catch (error: any) {
+    } catch (error) {
       showToast('خطأ في إضافة المرحلة: ' + error.message, 'error');
     }
   };
@@ -97,7 +97,7 @@ const ProjectMilestonesManager: React.FC<Props> = ({ projectId, projectName, onB
       if (error) throw error;
       showToast('تم تحديث نسبة الإنجاز ✅', 'success');
       fetchMilestones();
-    } catch (e: any) { showToast(e.message, 'error'); }
+    } catch (e) { showToast(e.message, 'error'); }
   };
 
   const getStatusBadge = (status: Milestone['status']) => {

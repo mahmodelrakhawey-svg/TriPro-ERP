@@ -44,7 +44,7 @@ export const InpatientDashboard: React.FC = () => {
       if (dbError) throw dbError;
       setBeds(data || []);
       setLastUpdated(new Date());
-    } catch (err: any) {
+    } catch (err) {
       setError('خطأ في جلب بيانات الأسرة: ' + (err?.message || 'خطأ غير معروف'));
     } finally {
       setLoading(false);

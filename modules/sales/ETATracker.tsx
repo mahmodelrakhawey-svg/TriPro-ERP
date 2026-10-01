@@ -82,7 +82,7 @@ export const ETATracker: React.FC = () => {
       } else {
         showToast(res.message, 'info');
       }
-    } catch (e: any) {
+    } catch (e) {
       setSignerHealth({ online: false, message: e.message });
     } finally {
       setCheckingSigner(false);
@@ -145,7 +145,7 @@ export const ETATracker: React.FC = () => {
       }));
 
       setInvoices(formatted);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching ETA invoices:', err);
       showToast('تعذر تحميل بيانات الفواتير الضريبية: ' + err.message, 'error');
     } finally {
@@ -220,7 +220,7 @@ export const ETATracker: React.FC = () => {
         showToast(`فشل الإرسال: ${res.error}`, 'error');
         fetchData();
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast(`خطأ في العملية: ${err.message}`, 'error');
     } finally {
       setProcessingId(null);
@@ -242,7 +242,7 @@ export const ETATracker: React.FC = () => {
       } else {
         showToast(`تنبيه من المنظومة: ${res.message}`, 'warning');
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast(`فشل الاستعلام: ${err.message}`, 'error');
     } finally {
       setProcessingId(null);
@@ -272,7 +272,7 @@ export const ETATracker: React.FC = () => {
       showToast(`اكتمل الإرسال: تم اعتماد ${summary.successful} فواتير بنجاح، وتعثر ${summary.failed}.`, summary.failed === 0 ? 'success' : 'warning');
       setSelectedIds(new Set());
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast(`خطأ في الإرسال الجماعي: ${err.message}`, 'error');
     } finally {
       setBatchSubmitting(false);

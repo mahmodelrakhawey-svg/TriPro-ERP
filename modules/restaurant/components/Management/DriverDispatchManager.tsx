@@ -95,7 +95,7 @@ export const DriverDispatchManager: React.FC = () => {
       if (ordersRes.data) {
         setPendingOrders(ordersRes.data);
       }
-    } catch (e: any) {
+    } catch (e) {
       console.warn('Dispatch load notice:', e);
     } finally {
       setLoading(false);
@@ -146,7 +146,7 @@ export const DriverDispatchManager: React.FC = () => {
       await driverDispatchService.settleDeliveryDirectly(deliveryId, orderId);
       showToast('تمت تسوية عهدة هذا الطلب واعتباره مسدداً بنجاح ✅', 'success');
       fetchDispatchData();
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ أثناء التسوية: ' + e.message, 'error');
     }
   };
@@ -181,7 +181,7 @@ export const DriverDispatchManager: React.FC = () => {
       } else {
         showToast('خطأ: ' + res.error, 'error');
       }
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ: ' + e.message, 'error');
     } finally {
       setSettling(false);
@@ -274,7 +274,7 @@ export const DriverDispatchManager: React.FC = () => {
       setDriverNameInput('');
       setDriverPhoneInput('');
       await fetchDispatchData();
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ: ' + e.message, 'error');
     }
   };
@@ -298,7 +298,7 @@ export const DriverDispatchManager: React.FC = () => {
       setNewDriverForm({ name: '', phone: '', vehicle_type: 'موتوسيكل' });
       const updatedDrivers = await driverDispatchService.getDrivers(currentUser?.organization_id || undefined);
       setDrivers(updatedDrivers);
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ أثناء حفظ السائق: ' + e.message, 'error');
     } finally {
       setSavingDriver(false);
@@ -319,7 +319,7 @@ export const DriverDispatchManager: React.FC = () => {
         setDriverNameInput('');
         setDriverPhoneInput('');
       }
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ أثناء الحذف: ' + e.message, 'error');
     }
   };

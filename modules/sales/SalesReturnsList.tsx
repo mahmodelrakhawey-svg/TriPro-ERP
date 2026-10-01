@@ -80,7 +80,7 @@ export const SalesReturnsList: React.FC = () => {
       if (error) throw error;
 
       setReturns(data || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching sales returns:', err);
       showToast('فشل تحميل سجل المرتجعات: ' + err.message, 'error');
     } finally {
@@ -162,7 +162,7 @@ export const SalesReturnsList: React.FC = () => {
 
       showToast('تم حذف مرتجع المبيعات وعكس القيد والمخزون بنجاح ✅', 'success');
       fetchReturns();
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting sales return:', err);
       showToast('فشل حذف المرتجع: ' + err.message, 'error');
     } finally {

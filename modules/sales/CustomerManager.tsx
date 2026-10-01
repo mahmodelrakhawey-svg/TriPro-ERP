@@ -146,7 +146,7 @@ const CustomerManager = () => {
         setServerCustomers((data || []) as Customer[]);
         setTotalRecords(count || 0);
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ في جلب بيانات العملاء: ' + err.message, 'error');
     } finally {
       setIsServerLoading(false);
@@ -263,7 +263,7 @@ const CustomerManager = () => {
         queryClient.invalidateQueries({ queryKey: ['customers'] }); // تحديث القائمة فوراً
         setIsModalOpen(false);
         showToast('تم حفظ بيانات العميل بنجاح ✅', 'success');
-    } catch (error: any) {
+    } catch (error) {
         console.error(error);
         showToast('حدث خطأ: ' + error.message, 'error');
     }
@@ -288,7 +288,7 @@ const CustomerManager = () => {
           fetchCustomers();
           queryClient.invalidateQueries({ queryKey: ['customers'] });
           showToast('تم إيقاف التعامل مع العميل بنجاح', 'success');
-        } catch (error: any) {
+        } catch (error) {
           console.error(error);
           showToast('تعذر إيقاف العميل: ' + error.message, 'error');
         }
@@ -457,7 +457,7 @@ const CustomerManager = () => {
             showToast(toastMessage, 'success');
         }
         
-      } catch (error: any) {
+      } catch (error) {
         showToast('حدث خطأ أثناء قراءة الملف: ' + error.message, 'error');
       } finally {
         setIsImporting(false);

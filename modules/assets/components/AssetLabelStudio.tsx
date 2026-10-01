@@ -36,7 +36,7 @@ export const AssetLabelStudio: React.FC = () => {
       setAssets(data);
       // الافتراضي: تحديد الكل
       setSelectedIds(data.map(a => a.id));
-    } catch (e: any) {
+    } catch (e) {
       console.warn('Load error:', e);
     } finally {
       setLoading(false);

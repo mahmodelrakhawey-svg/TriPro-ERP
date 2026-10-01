@@ -384,7 +384,7 @@ const CashFlowStatement = () => {
       setOpeningCashBalance(openingCash);
       setClosingCashBalance(closingCashActual || (openingCash + netChangeCalculated));
 
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل تحميل قائمة التدفقات النقدية: ' + error.message, 'error');
     } finally {
       setLoading(false);

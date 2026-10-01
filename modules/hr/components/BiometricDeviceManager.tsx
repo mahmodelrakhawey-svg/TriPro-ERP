@@ -67,7 +67,7 @@ export const BiometricDeviceManager: React.FC = () => {
       ]);
       setDevices(devs);
       setRawLogs(logs);
-    } catch (e: any) {
+    } catch (e) {
       console.warn('Load devices notice:', e);
     } finally {
       setLoading(false);
@@ -100,7 +100,7 @@ export const BiometricDeviceManager: React.FC = () => {
         is_active: true
       });
       loadData();
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ أثناء حفظ الماكينة: ' + e.message, 'error');
     } finally {
       setSavingDevice(false);
@@ -113,7 +113,7 @@ export const BiometricDeviceManager: React.FC = () => {
       await hrEnterpriseService.deleteDevice(id);
       showToast('تم حذف الماكينة بنجاح 🗑️', 'success');
       loadData();
-    } catch (e: any) {
+    } catch (e) {
       showToast('خطأ أثناء الحذف: ' + e.message, 'error');
     }
   };
@@ -128,7 +128,7 @@ export const BiometricDeviceManager: React.FC = () => {
       } else {
         showToast(res.message, 'warning');
       }
-    } catch (e: any) {
+    } catch (e) {
       showToast('فشل المزامنة: ' + e.message, 'error');
     } finally {
       setSyncingDeviceId(null);

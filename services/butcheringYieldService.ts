@@ -805,7 +805,7 @@ class ButcheringYieldService {
           } else {
             break;
           }
-        } catch (dbErr: any) {
+        } catch (dbErr) {
           logger.error('❌ butchering_orders insert exception:', dbErr);
           break;
         }
@@ -1181,7 +1181,7 @@ class ButcheringYieldService {
                   .update({ journal_entry_id: journalEntryId })
                   .eq('id', orderId);
               }
-            } catch (jErr: any) {
+            } catch (jErr) {
               logger.warn('Journal entry creation notice:', jErr);
               journalError = jErr.message || 'خطأ أثناء ترحيل قيد اليومية';
             }
@@ -1198,7 +1198,7 @@ class ButcheringYieldService {
         deductedWeight: Number(order.input_weight),
         addedItemsCount
       };
-    } catch (err: any) {
+    } catch (err) {
       logger.error('Error creating butchering order:', err);
       return {
         success: false,

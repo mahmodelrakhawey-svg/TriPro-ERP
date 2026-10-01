@@ -113,7 +113,7 @@ const EditClientModal = ({ isOpen, onClose, onSuccess, organization }: { isOpen:
       showToast('تم تحديث بيانات الشركة بنجاح ✅', 'success');
       onSuccess();
       onClose();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

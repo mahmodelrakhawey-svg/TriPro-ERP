@@ -61,7 +61,7 @@ const DailyReportForm: React.FC<DailyReportFormProps> = ({ projectId, projectNam
       }
       setImageUrls(prev => [...prev, ...newUrls]);
       showToast('تم رفع الصور بنجاح', 'success');
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل رفع الصور: ' + error.message, 'error');
     } finally {
       setUploading(false);
@@ -89,7 +89,7 @@ const DailyReportForm: React.FC<DailyReportFormProps> = ({ projectId, projectNam
       reset();
       setImageUrls([]);
       if (onSuccess) onSuccess();
-    } catch (error: any) {
+    } catch (error) {
       showToast('خطأ في إرسال التقرير: ' + error.message, 'error');
     } finally {
       setIsSubmitting(false);

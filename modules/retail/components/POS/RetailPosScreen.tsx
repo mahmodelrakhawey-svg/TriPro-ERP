@@ -470,7 +470,7 @@ export default function RetailPosScreen() {
       await offlineService.syncProductsLocally(currentUser.organization_id);
       showToast('تم تحديث قائمة المنتجات والباركود بنجاح 🔄', 'success');
       playBeep();
-    } catch (e: any) {
+    } catch (e) {
       showToast('فشل المزامنة: ' + e.message, 'error');
     } finally {
       setIsSyncingProducts(false);
@@ -901,7 +901,7 @@ export default function RetailPosScreen() {
         secureStorage.setItem(`tripro_shift_${currentUser.id}`, fullShift);
         showToast('تم فتح الوردية بنجاح ✅', 'success');
       }
-    } catch (err: any) {
+    } catch (err) {
       logger.error('handleOpenShift error:', err);
       // Fallback offline shift
       const termToUse = selectedTerminal || (terminals.length > 0 ? terminals[0] : null);
@@ -996,7 +996,7 @@ export default function RetailPosScreen() {
       setCart([]);
       setIsCloseModalOpen(false);
       await refreshData();
-    } catch (err: any) {
+    } catch (err) {
       secureStorage.removeItem(`tripro_shift_${currentUser.id}`);
       setActiveShift(null);
       setCart([]);
@@ -1140,7 +1140,7 @@ export default function RetailPosScreen() {
         window.print();
       }, 500);
 
-    } catch (err: any) {
+    } catch (err) {
       showToast(err.message || 'فشل إتمام عملية الدفع', 'error');
     } finally {
       setIsPrinting(false);

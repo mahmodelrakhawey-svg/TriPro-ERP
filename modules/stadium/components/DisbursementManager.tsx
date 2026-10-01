@@ -154,7 +154,7 @@ export const DisbursementManager: React.FC = () => {
         setDisbursements(data || []);
         setTotalCount(count || 0);
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
@@ -206,7 +206,7 @@ export const DisbursementManager: React.FC = () => {
         notes: '',
       });
       fetchDisbursements();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       toast.error(err.message || 'حدث خطأ أثناء حفظ طلب الصرف');
     }
@@ -222,7 +222,7 @@ export const DisbursementManager: React.FC = () => {
       if (error) throw error;
       toast.success('تم الاعتماد الإداري وإحالة الطلب للإدارة المالية');
       fetchDisbursements();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || 'فشل اعتماد الطلب');
     }
   };
@@ -283,7 +283,7 @@ export const DisbursementManager: React.FC = () => {
       setIsPayModalOpen(false);
       setSelectedDisbursement(null);
       fetchDisbursements();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       toast.error(err.message || 'حدث خطأ أثناء الصرف');
     } finally {
@@ -316,7 +316,7 @@ export const DisbursementManager: React.FC = () => {
       setIsRejectModalOpen(false);
       setSelectedDisbursement(null);
       fetchDisbursements();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || 'فشل رفض الطلب');
     }
   };
@@ -328,7 +328,7 @@ export const DisbursementManager: React.FC = () => {
       if (error) throw error;
       toast.success('تم حذف المسودة بنجاح');
       fetchDisbursements();
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || 'فشل حذف الطلب');
     }
   };

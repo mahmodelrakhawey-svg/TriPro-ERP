@@ -300,7 +300,7 @@ class AuditDaemonService {
         success: true,
         message: 'تم تشغيل المعالجة الرقابية الشاملة وتحديث أرصدة المنظومة بنجاح.'
       };
-    } catch (err: any) {
+    } catch (err) {
       return {
         success: false,
         message: err.message || 'فشلت معالجة إعادة حساب الأرصدة.'

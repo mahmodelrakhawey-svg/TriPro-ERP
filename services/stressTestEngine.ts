@@ -675,7 +675,7 @@ export class StressTestEngine {
         durationMs: Date.now() - startTime
       };
 
-    } catch (err: any) {
+    } catch (err) {
       this.addLog('النظام', 'خطأ أثناء تشغيل الفحص', 'failed', err.message, undefined, undefined, err.message);
       return {
         totalOperations: this.logs.length,
@@ -740,7 +740,7 @@ export class StressTestEngine {
       }
 
       this.addLog('النظام', 'تم تنظيف بيانات الاختبار بالكامل', 'passed', 'تم مسح كافة الحركات الاختبارية والبيانات الحقيقية سليمة ومحفوظة ✅');
-    } catch (err: any) {
+    } catch (err) {
       this.addLog('النظام', 'خطأ في التنظيف', 'failed', err.message);
     }
   }

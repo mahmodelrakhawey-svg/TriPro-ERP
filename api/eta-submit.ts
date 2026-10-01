@@ -75,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               });
             }
           }
-        } catch (fetchErr: any) {
+        } catch (fetchErr) {
           console.warn('Status live fetch failed, fallback to standard response:', fetchErr?.message);
         }
       }
@@ -155,7 +155,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } else {
           throw new Error(submitResult.message || submitResult.error || 'فشل استلام المستند من مصلحة الضرائب');
         }
-      } catch (liveErr: any) {
+      } catch (liveErr) {
         console.error('ETA Live Submission Failed:', liveErr);
         return res.status(502).json({
           success: false,
@@ -180,7 +180,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       message: 'تم إرسال الفاتورة بنجاح في بيئة المحاكاة والاختبار التجريبية للضرائب.'
     });
 
-  } catch (globalErr: any) {
+  } catch (globalErr) {
     console.error('ETA Serverless Handler Error:', globalErr);
     return res.status(500).json({
       success: false,

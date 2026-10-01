@@ -53,7 +53,7 @@ export const BloodBankDashboard: React.FC = () => {
       setIsDonorModalOpen(false);
       form.resetFields();
       fetchStock();
-    } catch (e: any) { 
+    } catch (e) { 
       if (e.message?.includes('duplicate key') || e.code === '23505' || e.message?.includes('409') || e.message?.includes('Conflict')) {
         message.warning('هذا المتبرع مسجل مسبقاً (رقم قومي أو هاتف مكرر)! يرجى البحث عنه في السجل بدلاً من إعادة تسجيله.');
       } else {
@@ -85,7 +85,7 @@ export const BloodBankDashboard: React.FC = () => {
       setIsDonationModalVisible(false);
       donationForm.resetFields();
       fetchStock();
-    } catch (e: any) {
+    } catch (e) {
       if (e.message?.includes('duplicate key') || e.message?.includes('hims_blood_donations_bag_code_key')) {
         message.error('كود كيس الدم هذا مكرر ومسجل مسبقاً! اضغط زر التوليد التلقائي لإنشاء كود جديد 🎲');
       } else {
@@ -107,7 +107,7 @@ export const BloodBankDashboard: React.FC = () => {
       message.success('تم صرف كيس الدم وتلبية الطلب بنجاح ✅');
       setIsFulfillModalVisible(false);
       fetchStock();
-    } catch (e: any) {
+    } catch (e) {
       message.error('فشل صرف الطلب: ' + e.message);
     }
   };

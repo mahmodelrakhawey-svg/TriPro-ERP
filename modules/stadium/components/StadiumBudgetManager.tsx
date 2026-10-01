@@ -105,7 +105,7 @@ export const StadiumBudgetManager: React.FC = () => {
       });
 
       setBudgets(merged);
-    } catch (err: any) {
+    } catch (err) {
       console.warn(err);
     } finally {
       setLoading(false);
@@ -180,7 +180,7 @@ export const StadiumBudgetManager: React.FC = () => {
 
       setIsModalOpen(false);
       fetchBudgetsAndSpent();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       toast.error('حدث خطأ أثناء الحفظ');
     }

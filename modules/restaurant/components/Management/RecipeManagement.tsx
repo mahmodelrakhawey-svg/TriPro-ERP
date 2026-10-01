@@ -87,7 +87,7 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
           showToast('تنبيه: عمود shrinkage_pct غير موجود في قاعدة البيانات. يرجى تشغيل migration الإضافة.', 'warning');
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ في جلب المكونات: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -246,7 +246,7 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
 
       showToast('تم حفظ مكونات الوصفة وتحديث التكلفة ومسار التصنيع بنجاح', 'success');
       onClose();
-    } catch (err: any) {
+    } catch (err) {
       showToast('خطأ في حفظ الوصفة: ' + err.message, 'error');
     } finally {
       setSaving(false);

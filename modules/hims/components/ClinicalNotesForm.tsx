@@ -51,7 +51,7 @@ export const ClinicalNotesForm: React.FC<{ visitId: string }> = ({ visitId }) =>
         setPlan('');
         setNoteId(null);
       }
-    } catch (e: any) {
+    } catch (e) {
       console.error("Error fetching clinical note:", e.message);
     } finally {
       setLoading(false);
@@ -138,7 +138,7 @@ export const ClinicalNotesForm: React.FC<{ visitId: string }> = ({ visitId }) =>
         }
         message.success('تم حفظ الملاحظات الطبية (SOAP) لأول مرة بنجاح ✅');
       }
-    } catch (e: any) {
+    } catch (e) {
       message.error('فشل في حفظ الملاحظات: ' + e.message);
     } finally {
       setLoading(false);

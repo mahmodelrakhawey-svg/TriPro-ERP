@@ -121,7 +121,7 @@ export default function PurchaseAnalysisReport() {
       setBySupplier(Object.values(supplierMap).sort((a, b) => b.totalAmount - a.totalAmount));
       setByItem(Object.values(itemMap).sort((a, b) => b.totalAmount - a.totalAmount));
 
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error fetching purchase analysis:", err);
       showToast("حدث خطأ: " + err.message, 'error');
     } finally {

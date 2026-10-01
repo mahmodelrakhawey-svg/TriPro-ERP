@@ -509,7 +509,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       return { success: true };
-    } catch (error: any) {
+    } catch (error) {
       // وضع العمل بدون إنترنت عند انقطاع الاتصال التام (Offline Resilience Fallback)
       if (!navigator.onLine || error?.message?.includes('Failed to fetch') || error?.message?.includes('NetworkError')) {
         if (finalEmail === DEMO_EMAIL) {

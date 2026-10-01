@@ -586,7 +586,7 @@ async function _createRevenueJournalEntry(
     }
 
     return { success: true, journalEntryId: journalEntry.id };
-  } catch (err: any) {
+  } catch (err) {
     logger.error('[Stadium Journal Error]:', err);
     return { success: false, error: err.message ?? 'خطأ غير متوقع' };
   }
@@ -875,7 +875,7 @@ export async function processDisbursementPayment(
       .eq('id', disbursement.id);
 
     return { success: true, journalEntryId: journalEntry.id, chequeId: createdChequeId };
-  } catch (err: any) {
+  } catch (err) {
     logger.error('Error processing disbursement payment:', err);
     return { success: false, error: err.message };
   }
@@ -983,7 +983,7 @@ export async function createCustodyIssuanceJournalEntry(
     }
 
     return { success: true, journalEntryId: journalEntry.id, chequeId: createdChequeId };
-  } catch (err: any) {
+  } catch (err) {
     logger.error('Error creating custody issuance entry:', err);
     return { success: false, error: err.message };
   }
@@ -1117,7 +1117,7 @@ export async function createCustodySettlementJournalEntry(
       .eq('id', custody.id);
 
     return { success: true, journalEntryId: journalEntry.id };
-  } catch (err: any) {
+  } catch (err) {
     logger.error('Error creating custody settlement entry:', err);
     return { success: false, error: err.message };
   }

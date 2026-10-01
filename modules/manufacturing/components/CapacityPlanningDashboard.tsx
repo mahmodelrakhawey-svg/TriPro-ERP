@@ -86,7 +86,7 @@ export default function CapacityPlanningDashboard() {
       }
 
       setCapacities(capData || []);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setCapacities([]);
     } finally {
@@ -117,7 +117,7 @@ export default function CapacityPlanningDashboard() {
 
       showToast('تمت مزامنة مراكز العمل الفعلية للمصنع بنجاح 🏭', 'success');
       fetchCapacities();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل المزامنة: ' + err.message, 'error');
     }
   };
@@ -129,7 +129,7 @@ export default function CapacityPlanningDashboard() {
       await supabase.from('mfg_work_center_capacities').delete().eq('organization_id', orgId);
       showToast('تم مسح السجلات بنجاح', 'info');
       fetchCapacities();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل المسح: ' + err.message, 'error');
     }
   };
@@ -183,7 +183,7 @@ export default function CapacityPlanningDashboard() {
 
       setIsModalOpen(false);
       fetchCapacities();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل الحفظ: ' + err.message, 'error');
     }
   };
@@ -196,7 +196,7 @@ export default function CapacityPlanningDashboard() {
       if (error) throw error;
       showToast('تم حذف السجل', 'success');
       fetchCapacities();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل الحذف: ' + err.message, 'error');
     }
   };

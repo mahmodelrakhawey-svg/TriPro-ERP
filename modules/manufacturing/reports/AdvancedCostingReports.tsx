@@ -33,7 +33,7 @@ const AdvancedCostingReports = ({ orderId }: { orderId: string }) => {
       const { data, error } = await supabase.rpc('mfg_post_wip_gl_settlement', { p_order_id: orderId });
       if (error) throw error;
       showToast('تم ترحيل قيد التسوية بنجاح ✅', 'success');
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     }
   };

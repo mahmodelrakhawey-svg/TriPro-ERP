@@ -84,7 +84,7 @@ export default async function handler(req: any, res: any) {
 
     return res.status(200).json({ message: 'تم إنشاء العميل والشركة بنجاح', orgId: org.id })
 
-  } catch (error: any) {
+  } catch (error) {
     return res.status(400).json({ error: error.message })
   }
 }

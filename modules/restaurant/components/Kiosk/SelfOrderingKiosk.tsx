@@ -169,7 +169,7 @@ export const SelfOrderingKiosk: React.FC = () => {
 
       setConfirmedOrderNumber(orderNum);
       setStep(4);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Kiosk order failed:', err);
       showToast('عذراً، حدث خطأ أثناء إرسال الطلب. يرجى التوجه للكاشير', 'error');
     } finally {

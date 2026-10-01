@@ -260,7 +260,7 @@ const BudgetManager = () => {
           plannedAmount: Number(i.plannedAmount || i.planned_amount || 0)
         }))
       });
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
     } finally {
       setSaving(false);

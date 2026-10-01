@@ -102,7 +102,7 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
         initialProgress[item.id] = 0;
       });
       setSubItemProgress(initialProgress);
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error fetching subcontractor contract items:", error.message);
     }
   };
@@ -207,7 +207,7 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
       }
       setIsCreating(false);
       fetchBillings();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);
@@ -229,7 +229,7 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
       showToast('تم اعتماد مستخلص المقاول وترحيله للتكاليف بنجاح ✅', 'success');
       setShowApprovalDialog(null);
       fetchBillings();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

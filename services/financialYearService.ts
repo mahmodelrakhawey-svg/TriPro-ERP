@@ -116,7 +116,7 @@ export async function closeFinancialYearEngine({
 
     const msg = typeof data === 'string' ? data : `تم إقفال السنة المالية ${year} بنجاح ✅`;
     return { success: true, message: msg };
-  } catch (err: any) {
+  } catch (err) {
     return { success: false, message: 'فشل إقفال السنة: ' + (err.message || 'خطأ غير متوقع') };
   }
 }
@@ -141,7 +141,7 @@ export async function reopenFinancialYearEngine({
 
     const msg = typeof data === 'string' ? data : `تم فتح السنة المالية ${year} بنجاح 🔓`;
     return { success: true, message: msg };
-  } catch (err: any) {
+  } catch (err) {
     return { success: false, message: 'فشل إعادة فتح السنة: ' + (err.message || 'خطأ غير متوقع') };
   }
 }

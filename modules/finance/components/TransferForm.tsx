@@ -108,7 +108,7 @@ const TransferForm = () => {
       await deleteTransfer(id);
       showToast('تم التراجع عن التحويل المالي وحذف القيد بنجاح 🗑️', 'success');
       setDeleteConfirmId(null);
-    } catch (error: any) {
+    } catch (error) {
       showToast('فشل التراجع عن التحويل: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -152,7 +152,7 @@ const TransferForm = () => {
           showToast('تم التحويل المالي بنجاح ✅', 'success');
           resetForm();
         }
-    } catch (error: any) {
+    } catch (error) {
         showToast('فشل العملية: ' + error.message, 'error');
     } finally {
         setLoading(false);

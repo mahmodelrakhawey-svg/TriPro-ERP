@@ -477,7 +477,7 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
       } else {
         showToast('خطأ: ' + res.error, 'error');
       }
-    } catch (err: any) {
+    } catch (err) {
       showToast('حدث خطأ أثناء حفظ أمر التشفية: ' + err.message, 'error');
     } finally {
       setSubmitting(false);

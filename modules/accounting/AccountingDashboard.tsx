@@ -401,7 +401,7 @@ export default function AccountingDashboard() {
           for (const table of tablesLines) {
           try {
               await supabase.from(table).delete().eq('organization_id', orgId);
-          } catch (e: any) {
+          } catch (e) {
               // Log specific error for debugging, but continue with other tables
               logger.warn(`Table ${table} could not be cleared or does not exist: ${e?.message || e}`);
           }
@@ -453,7 +453,7 @@ export default function AccountingDashboard() {
           
           showToast('تم تصفير جميع العمليات والقيود والأرصدة بنجاح.', 'success');
           window.location.reload();
-      } catch (e: any) {
+      } catch (e) {
           logger.error(e);
           showToast('حدث خطأ أثناء تصفير العمليات: ' + e.message, 'error');
       } finally {
@@ -503,7 +503,7 @@ export default function AccountingDashboard() {
           await clearCache();
           showToast('تم تصفير البيانات الأساسية بنجاح.', 'success');
           window.location.reload();
-      } catch (e: any) {
+      } catch (e) {
           logger.error(e);
           showToast('حدث خطأ (ربما توجد عمليات مرتبطة): ' + e.message, 'error');
       } finally {
@@ -532,7 +532,7 @@ export default function AccountingDashboard() {
               await emptyRecycleBin(table);
           }
           showToast('تم تفريغ سلة المحذوفات بنجاح.', 'success');
-      } catch (e: any) {
+      } catch (e) {
           logger.error(e);
           showToast('حدث خطأ: ' + e.message, 'error');
       } finally {

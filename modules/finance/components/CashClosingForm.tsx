@@ -216,7 +216,7 @@ const CashClosingForm = () => {
       showToast('تم إقفال الصندوق بنجاح ✅', 'success');
       setNotes('');
       fetchLastClosings();
-    } catch (error: any) {
+    } catch (error) {
       showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);

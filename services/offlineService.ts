@@ -303,7 +303,7 @@ export const offlineService = {
         if (atomicErr) {
           logger.warn('complete_pos_sale_atomic error in offline fallback:', atomicErr.message);
         }
-      } catch (atomicException: any) {
+      } catch (atomicException) {
         logger.warn('complete_pos_sale_atomic exception in offline fallback:', atomicException);
       }
 
@@ -351,7 +351,7 @@ export const offlineService = {
       }
 
       return { success: true, order_number: ord.order_number };
-    } catch (err: any) {
+    } catch (err) {
       return { success: false, error: err?.message || 'فشلت المزامنة عبر كافة المسارات البديلة' };
     }
   },
@@ -676,7 +676,7 @@ export const offlineService = {
             }
           }
         }
-      } catch (globalErr: any) {
+      } catch (globalErr) {
         logger.warn('Notice in POS offline sync batch, executing resilient fallback for pending orders:', globalErr);
         for (const { orderRecord, sanitizedPayload } of sanitizedOrdersList) {
           if (!orderRecord.id) continue;
@@ -723,7 +723,7 @@ export const offlineService = {
 
           await db.queuedPatients.delete(patient.id);
           logger.log(`Patient ${patient.id} synced successfully. Mapped to ${realPatientId}`);
-        } catch (error: any) {
+        } catch (error) {
           logger.error(`Failed to sync patient ${patient.id}:`, error);
           await db.queuedPatients.update(patient.id, { status: 'failed', error: error.message });
         }
@@ -830,7 +830,7 @@ export const offlineService = {
 
           await db.queuedVisits.delete(visit.id);
           logger.log(`Visit ${visit.id} synced successfully. Mapped to ${realVisitId}`);
-        } catch (error: any) {
+        } catch (error) {
           logger.error(`Failed to sync visit ${visit.id}:`, error);
           await db.queuedVisits.update(visit.id, { status: 'failed', error: error.message });
         }
@@ -859,7 +859,7 @@ export const offlineService = {
           if (error) throw error;
           await db.queuedClinicalNotes.delete(note.id);
           logger.log(`Clinical note ${note.id} synced successfully.`);
-        } catch (error: any) {
+        } catch (error) {
           logger.error(`Failed to sync clinical note ${note.id}:`, error);
           await db.queuedClinicalNotes.update(note.id, { status: 'failed', error: error.message });
         }
@@ -888,7 +888,7 @@ export const offlineService = {
           if (error) throw error;
           await db.queuedPrescriptions.delete(pres.id);
           logger.log(`Prescription ${pres.id} synced successfully.`);
-        } catch (error: any) {
+        } catch (error) {
           logger.error(`Failed to sync prescription ${pres.id}:`, error);
           await db.queuedPrescriptions.update(pres.id, { status: 'failed', error: error.message });
         }
@@ -956,7 +956,7 @@ export const offlineService = {
           if (error) throw error;
           await db.queuedLabOrders.delete(order.id);
           logger.log(`Lab order batch ${order.id} synced successfully.`);
-        } catch (error: any) {
+        } catch (error) {
           logger.error(`Failed to sync lab order batch ${order.id}:`, error);
           await db.queuedLabOrders.update(order.id, { status: 'failed', error: error.message });
         }
@@ -975,7 +975,7 @@ export const offlineService = {
           if (error) throw error;
           await db.queuedRadiologyOrders.delete(order.id);
           logger.log(`Radiology order batch ${order.id} synced successfully.`);
-        } catch (error: any) {
+        } catch (error) {
           logger.error(`Failed to sync radiology order batch ${order.id}:`, error);
           await db.queuedRadiologyOrders.update(order.id, { status: 'failed', error: error.message });
         }

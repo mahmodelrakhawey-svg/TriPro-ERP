@@ -40,7 +40,7 @@ const ProjectClosingForm: React.FC<Props> = ({ projectId, projectName, onBack, o
 
       showToast(data.message || 'تم إغلاق المشروع بنجاح ✅', 'success');
       onSuccess();
-    } catch (error: any) {
+    } catch (error) {
       showToast(error.message, 'error');
     } finally {
       setLoading(false);

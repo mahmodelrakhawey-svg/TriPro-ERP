@@ -89,7 +89,7 @@ export const FiscalPeriodManager: React.FC<{ onBack?: () => void }> = ({ onBack 
       });
 
       setPeriods(enrichedPeriods);
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error fetching accounting periods:', err);
       showToast('تعذر تحميل الفترات المالية: ' + err.message, 'error');
     } finally {
@@ -134,7 +134,7 @@ export const FiscalPeriodManager: React.FC<{ onBack?: () => void }> = ({ onBack 
 
       showToast(`تم ${actionText} ${period.period_name} بنجاح ✅`, 'success');
       await fetchPeriods();
-    } catch (err: any) {
+    } catch (err) {
       showToast('حدث خطأ أثناء تعديل حالة الفترة: ' + err.message, 'error');
     } finally {
       setActionLoadingId(null);

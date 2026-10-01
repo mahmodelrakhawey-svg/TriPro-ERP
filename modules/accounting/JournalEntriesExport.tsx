@@ -80,7 +80,7 @@ export default function JournalEntriesExport() {
       // التصدير
       XLSX.writeFile(wb, `Journal_Entries_${startDate}_to_${endDate}.csv`);
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('Export error:', error);
       showToast('حدث خطأ أثناء التصدير: ' + error.message, 'error');
     } finally {

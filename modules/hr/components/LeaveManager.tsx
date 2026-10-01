@@ -139,7 +139,7 @@ export default function LeaveManager() {
           employee_name: empList.find(e => e.id === b.employee_id)?.name || 'موظف'
         })));
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       setRequests([]);
       setBalances([]);
@@ -190,7 +190,7 @@ export default function LeaveManager() {
       showToast('تم تقديم طلب الإجازة بنجاح 🏖️', 'success');
       setIsNewModalOpen(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل تقديم الطلب: ' + err.message, 'error');
     }
   };
@@ -231,7 +231,7 @@ export default function LeaveManager() {
       showToast(isApproved ? 'تم اعتماد الإجازة بنجاح ✅' : 'تم رفض الإجازة', 'info');
       setIsDecisionModalOpen(false);
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل تحديث القرار: ' + err.message, 'error');
     }
   };
@@ -244,7 +244,7 @@ export default function LeaveManager() {
       if (error) throw error;
       showToast('تم حذف الطلب', 'success');
       fetchData();
-    } catch (err: any) {
+    } catch (err) {
       showToast('فشل الحذف: ' + err.message, 'error');
     }
   };

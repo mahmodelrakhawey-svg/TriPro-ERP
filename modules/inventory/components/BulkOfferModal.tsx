@@ -95,7 +95,7 @@ export const BulkOfferModal: React.FC<BulkOfferModalProps> = ({
       refresh();
       onClose();
       setSelectedIds(new Set());
-    } catch (error: any) {
+    } catch (error) {
       console.error(error);
       showToast('حدث خطأ: ' + error.message, 'error');
     } finally {

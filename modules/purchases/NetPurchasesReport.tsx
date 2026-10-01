@@ -107,7 +107,7 @@ const NetPurchasesReport = () => {
 
       setReportData(data);
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error fetching report:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {

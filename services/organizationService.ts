@@ -139,13 +139,13 @@ export async function deleteOrganizationSafe({
             throw new Error(deleteResult.error.message || directDelete.error.message);
           }
         }
-      } catch (cleanupErr: any) {
+      } catch (cleanupErr) {
         throw new Error(deleteResult.error?.message || cleanupErr.message);
       }
     }
 
     return { success: true };
-  } catch (e: any) {
+  } catch (e) {
     return { success: false, message: e.message || 'حدث خطأ غير متوقع أثناء حذف الشركة' };
   }
 }

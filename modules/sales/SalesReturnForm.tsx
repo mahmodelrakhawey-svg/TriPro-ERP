@@ -148,7 +148,7 @@ const SalesReturnForm = () => {
       const idx = returnIds.indexOf(id);
       if (idx !== -1) setCurrentIndex(idx);
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error loading return:', err);
       showToast('فشل تحميل بيانات المرتجع: ' + err.message, 'error');
     } finally {
@@ -251,7 +251,7 @@ const SalesReturnForm = () => {
       } else {
         showToast('لم يتم العثور على الفاتورة', 'error');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error loading invoice:', err);
       showToast(err?.message || 'فشل تحميل الفاتورة', 'error');
     } finally {
@@ -466,7 +466,7 @@ const SalesReturnForm = () => {
         loadReturnById(returnIdToApprove);
       }
 
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error saving return:', error);
       showToast(error?.message || 'فشل حفظ المرتجع', 'error');
     } finally {
@@ -526,7 +526,7 @@ const SalesReturnForm = () => {
         handleNewReturn();
       }
 
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error deleting return:', err);
       showToast('فشل حذف المرتجع: ' + err.message, 'error');
     } finally {

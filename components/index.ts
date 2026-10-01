@@ -56,7 +56,7 @@ export const runOrphanedFilesCleanup = async () => {
 
     return { success: true, deleted: orphanedDocs.length };
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Cleanup Error:', error);
     return { success: false, error: error.message };
   }

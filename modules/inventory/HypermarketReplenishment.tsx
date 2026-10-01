@@ -206,7 +206,7 @@ export default function HypermarketReplenishment() {
       const criticalIds = analyzed.filter(item => item.urgency_status === 'CRITICAL' && item.suggested_order_qty > 0).map(i => i.id);
       setSelectedItemIds(criticalIds);
 
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast('فشل احتساب التنبؤات والسرعة اليومية', 'error');
     } finally {
@@ -332,7 +332,7 @@ export default function HypermarketReplenishment() {
 
       showToast(`تم توليد (${createdPosCount}) أمر شراء تلقائي بنجاح لموردي الأصناف الحرجة 🚀✅`, 'success');
       navigate('/purchase-order-list');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       showToast(err.message || 'فشل توليد أوامر الشراء', 'error');
     } finally {

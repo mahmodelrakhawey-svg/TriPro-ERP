@@ -535,7 +535,7 @@ export const MemberManager: React.FC = () => {
 
         setParsedRows(normalized);
         toast.success(`تمت قراءة ${normalized.length} عضو بنجاح وتجهيز التواريخ للاستيراد`);
-      } catch (err: any) {
+      } catch (err) {
         console.error('Error parsing Excel:', err);
         toast.error('حدث خطأ أثناء قراءة ملف الإكسيل');
       }
@@ -597,7 +597,7 @@ export const MemberManager: React.FC = () => {
       setImportFile(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
       fetchMembers();
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       toast.error('حدث خطأ أثناء عملية الاستيراد');
     } finally {
@@ -636,7 +636,7 @@ export const MemberManager: React.FC = () => {
       XLSX.writeFile(workbook, `سجل_أعضاء_الاستاد_${new Date().toISOString().split('T')[0]}.xlsx`);
       toast.dismiss(toastId);
       toast.success('تم تصدير سجل الأعضاء إلى Excel بنجاح');
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
       toast.dismiss(toastId);
       toast.error('فشل تصدير ملف الأعضاء');

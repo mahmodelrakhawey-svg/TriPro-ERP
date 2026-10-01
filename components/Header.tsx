@@ -74,7 +74,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
                     .single();
                 setCurrentUser(profile);
             }
-          } catch (e: any) {
+          } catch (e) {
             if (process.env.NODE_ENV === 'development') console.error(`فشل تحميل بيانات المستخدم: ${e.message}`);
           }
         };

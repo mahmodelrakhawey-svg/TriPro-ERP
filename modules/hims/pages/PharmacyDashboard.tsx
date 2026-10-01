@@ -179,7 +179,7 @@ export const PharmacyDashboard: React.FC = () => {
         
       if (error) throw error;
       setAllBatches(data || []);
-    } catch (err: any) {
+    } catch (err) {
       messageApi.error('فشل جلب تقرير الصلاحيات: ' + err.message);
     } finally {
       setReportLoading(false);
@@ -224,7 +224,7 @@ export const PharmacyDashboard: React.FC = () => {
         setSelectedOrder(null);
         fetchPendingPrescriptions();
       }
-    } catch (err: any) {
+    } catch (err) {
       messageApi.error('خطأ أثناء تنفيذ الصرف: ' + (err?.message || 'تعذر الصرف الحقيقي'));
     } finally {
       setLoading(false);
@@ -291,7 +291,7 @@ export const PharmacyDashboard: React.FC = () => {
       } else {
         messageApi.success(`تم مسح الدواء "${product.name}" بنجاح ✅`);
       }
-    } catch (error: any) { 
+    } catch (error) { 
       messageApi.error('خطأ في مسح الباركود: ' + error.message); 
     } finally { 
       setLoading(false); 
