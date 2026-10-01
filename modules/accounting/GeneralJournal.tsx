@@ -279,7 +279,7 @@ const GeneralJournal: React.FC = () => {
             } else {
               // مسار فحص البيانات المحلية كإجراء إضافي
               const localUnbalanced = (contextEntries || []).filter((e: Record<string, any>) => {
-                const dr = (e.journal_lines || e.lines || []).reduce((s: number, l: any) => s + (Number(l.debit) || 0), 0);
+                const dr = (e.journal_lines || e.lines || []).reduce((s: number, l: Record<string, any>) => s + (Number(l.debit) || 0), 0);
                 const cr = (e.journal_lines || e.lines || []).reduce((s: number, l: any) => s + (Number(l.credit) || 0), 0);
                 return Math.abs(dr - cr) > 0.005;
               });
@@ -520,7 +520,7 @@ const GeneralJournal: React.FC = () => {
 
   const handlePostEntry = async (entryId: string) => {
     const targetEntry = journalEntries.find(e => e.id === entryId);
-    const totalAmount = (targetEntry?.lines || []).reduce((sum: number, l: any) => sum + (Number(l.debit) || 0), 0);
+    const totalAmount = (targetEntry?.lines || []).reduce((sum: number, l: Record<string, any>) => sum + (Number(l.debit) || 0), 0);
     const isHighValue = totalAmount >= 50000;
 
     let confirmMsg = 'هل أنت متأكد من ترحيل هذا القيد؟ لا يمكن التراجع عن هذه العملية بعد الترحيل.';
@@ -662,7 +662,7 @@ const GeneralJournal: React.FC = () => {
       }
 
       const totalAmount = orphanedEntries.reduce((sum, e) => {
-        const lineDebits = (e.journal_lines || []).reduce((ls: number, l: any) => ls + (Number(l.debit) || 0), 0);
+        const lineDebits = (e.journal_lines || []).reduce((ls: number, l: Record<string, any>) => ls + (Number(l.debit) || 0), 0);
         return sum + lineDebits;
       }, 0);
 

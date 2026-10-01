@@ -112,7 +112,7 @@ export const SalesReturnsList: React.FC = () => {
     return filteredReturns.slice(start, start + itemsPerPage);
   }, [filteredReturns, currentPage]);
 
-  const handleDelete = async (ret: any) => {
+  const handleDelete = async (ret: Record<string, any>) => {
     if (!window.confirm(`هل أنت متأكد من حذف مرتجع المبيعات رقم ${ret.return_number}؟\nسيتم إلغاء حركة المخزون والقيد المحاسبي بالكامل.`)) {
       return;
     }
@@ -171,11 +171,11 @@ export const SalesReturnsList: React.FC = () => {
     }
   };
 
-  const handleEdit = (ret: any) => {
+  const handleEdit = (ret: Record<string, any>) => {
     navigate('/sales-return', { state: { returnToEdit: ret } });
   };
 
-  const handlePrint = (ret: any) => {
+  const handlePrint = (ret: Record<string, any>) => {
     setReturnToPrint(ret);
     setTimeout(() => {
       window.print();
@@ -183,7 +183,7 @@ export const SalesReturnsList: React.FC = () => {
     }, 200);
   };
 
-  const handleWhatsApp = (ret: any) => {
+  const handleWhatsApp = (ret: Record<string, any>) => {
     const phone = ret.customers?.phone;
     if (!phone) {
       showToast('لا يوجد رقم هاتف مسجل لهذا العميل', 'warning');

@@ -101,10 +101,10 @@ export default function LeaveManager() {
       // 1. Fetch Employees
       let empList: { id: string; name: string }[] = [];
       if (contextEmployees && contextEmployees.length > 0) {
-        empList = contextEmployees.map((e: any) => ({ id: e.id, name: e.name || e.full_name || 'موظف' }));
+        empList = contextEmployees.map((e: Record<string, any>) => ({ id: e.id, name: e.name || e.full_name || 'موظف' }));
       } else {
         const { data: eData } = await supabase.from('employees').select('id, name').eq('organization_id', orgId);
-        empList = (eData || []).map((e: any) => ({ id: e.id, name: e.name || 'موظف' }));
+        empList = (eData || []).map((e: Record<string, any>) => ({ id: e.id, name: e.name || 'موظف' }));
       }
       setEmployeesList(empList);
 
@@ -119,10 +119,10 @@ export default function LeaveManager() {
         logger.warn('hr_leave_requests table notice:', reqErr.message);
         setRequests([]);
       } else {
-        setRequests((reqData || []).map((r: any) => ({
+        setRequests((reqData || []).map((r: Record<string, any>) => ({
           ...r,
           employee_name: empList.find(e => e.id === r.employee_id)?.name || 'موظف'
-        })));
+        })) as LeaveRequest[]);
       }
 
       // 3. Fetch Balances
@@ -135,10 +135,10 @@ export default function LeaveManager() {
         logger.warn('hr_leave_balances table notice:', balErr.message);
         setBalances([]);
       } else {
-        setBalances((balData || []).map((b: any) => ({
+        setBalances((balData || []).map((b: Record<string, any>) => ({
           ...b,
           employee_name: empList.find(e => e.id === b.employee_id)?.name || 'موظف'
-        })));
+        })) as LeaveBalance[]);
       }
     } catch (err) {
       logger.error(err);

@@ -107,7 +107,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       // نفصل القيود الافتتاحية عن باقي القيود لمنع ازدواجية الحساب
       const openingEntryIds = new Set<string>();
 
-      glLines?.forEach((line: any) => {
+      glLines?.forEach((line: Record<string, any>) => {
         const debitVal  = Number(line.debit  || 0);
         const creditVal = Number(line.credit || 0);
         totalGlDebit  += debitVal;
@@ -304,7 +304,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       customersList?.forEach(cust => {
         if (!cust.name) return;
         const custName = cust.name.trim().toLowerCase();
-        glLines?.forEach((line: any) => {
+        glLines?.forEach((line: Record<string, any>) => {
           const jeId = line.journal_entries?.id;
           if (!jeId || entryIdToCustomerId.has(jeId)) return;
           const desc = `${line.description || ''} ${line.journal_entries?.description || ''}`.toLowerCase();
@@ -345,7 +345,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       // تصنيف خطوط الأستاذ العام
       const matchedEntryIds = new Set<string>();
 
-      glLines?.forEach((line: any) => {
+      glLines?.forEach((line: Record<string, any>) => {
         const jeId = line.journal_entries?.id;
         const docId = line.journal_entries?.related_document_id;
         const debit = Number(line.debit || 0);
@@ -586,7 +586,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
 
   const [extractedCustomerName, setExtractedCustomerName] = useState('');
 
-  const openFixModal = (entry: any) => {
+  const openFixModal = (entry: Record<string, any>) => {
     setEntryToFix(entry);
     const desc = entry.description || '';
     const match = desc.match(/العميل\s+([^\s]+)/i) || desc.match(/عميل\s+([^\s]+)/i) || desc.match(/من\s+([^\s]+)/i) || desc.match(/طرف\s+([^\s]+)/i);

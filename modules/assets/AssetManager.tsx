@@ -119,7 +119,7 @@ const AssetManager = () => {
     setIsModalOpen(false);
   };
 
-  const openRevaluationModal = (asset: any) => {
+  const openRevaluationModal = (asset: Record<string, any>) => {
       const currentVal = asset.currentValue || asset.current_value || 0;
       setRevaluationData({
           assetId: asset.id,
@@ -149,7 +149,7 @@ const AssetManager = () => {
       setIsRevaluationModalOpen(false);
   };
 
-  const openEditModal = (asset: any) => {
+  const openEditModal = (asset: Record<string, any>) => {
       setEditAssetId(asset.id);
       setEditFormData({
           name: asset.name || '',
@@ -203,7 +203,7 @@ const AssetManager = () => {
       }
   };
 
-  const handleDeleteClick = async (asset: any) => {
+  const handleDeleteClick = async (asset: Record<string, any>) => {
       if (window.confirm(`هل أنت متأكد من حذف الأصل "${asset.name}"؟`)) {
           try {
               await deleteAsset(asset.id);
@@ -296,7 +296,7 @@ const AssetManager = () => {
       }
 
       const totalAmount = orphanedEntries.reduce((sum, e) => {
-        const lineDebits = (e.journal_lines || []).reduce((ls: number, l: any) => ls + (Number(l.debit) || 0), 0);
+        const lineDebits = (e.journal_lines || []).reduce((ls: number, l: Record<string, any>) => ls + (Number(l.debit) || 0), 0);
         return sum + lineDebits;
       }, 0);
 

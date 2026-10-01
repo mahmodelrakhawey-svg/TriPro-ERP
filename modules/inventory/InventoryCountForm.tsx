@@ -43,11 +43,11 @@ const InventoryCountForm = () => {
         }
 
         const warehouseProducts = productsSource
-            .filter((p: any) => {
+            .filter((p: Record<string, any>) => {
                 const type = p.product_type || p.item_type || 'STOCK';
                 return type !== 'SERVICE';
             }) // استبعاد الخدمات وضم الأصناف المخزنية والمواد الخام والتصنيع
-            .map((p: any) => {
+            .map((p: Record<string, any>) => {
                 let currentQty = 0;
                 
                 // استخدام الحقل القياسي warehouse_stock
@@ -180,7 +180,7 @@ const InventoryCountForm = () => {
       
       const scannedCode = barcodeInput.trim().toLowerCase();
       // البحث في المنتجات الموجودة في السياق للحصول على المعرف
-      let product = products.find((p: any) => 
+      let product = products.find((p: Record<string, any>) => 
         (p.barcode && p.barcode.trim().toLowerCase() === scannedCode) || 
         (p.sku && p.sku.trim().toLowerCase() === scannedCode) ||
         (p.barcode2 && p.barcode2.trim().toLowerCase() === scannedCode)
@@ -189,7 +189,7 @@ const InventoryCountForm = () => {
       if (!product) {
         for (const p of products) {
           if (Array.isArray((p as any).unit_barcodes)) {
-            const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === scannedCode);
+            const foundUom = (p as any).unit_barcodes.find((ub: Record<string, any>) => ub.barcode && ub.barcode.trim().toLowerCase() === scannedCode);
             if (foundUom) {
               product = p;
               break;

@@ -188,7 +188,7 @@ export const MobileWaiterScreen: React.FC = () => {
   const QUICK_NOTES = ['بدون بصل', 'سبايسي حار 🔥', 'نص سوا (Medium)', 'مستوي جيداً (Well Done)', 'سكر خفيف', 'بدون ثوم', 'صوص خارجي'];
 
   // Add Item to cart
-  const handleAddItem = (product: any) => {
+  const handleAddItem = (product: Record<string, any>) => {
     if (navigator.vibrate) navigator.vibrate(30);
     const existing = cart.find(c => c.productId === product.id && !c.notes && (!c.selectedModifiers || c.selectedModifiers.length === 0));
     if (existing) {
@@ -207,7 +207,7 @@ export const MobileWaiterScreen: React.FC = () => {
     }
   };
 
-  const handleOpenModifiers = (product: any) => {
+  const handleOpenModifiers = (product: Record<string, any>) => {
     setItemForModifiers(product);
     setItemNotes('');
     setSelectedMods([]);
@@ -256,7 +256,7 @@ export const MobileWaiterScreen: React.FC = () => {
         tableName: selectedTable.name,
         orderType: 'صالة (طلب حساب)',
         serverName: currentUser?.full_name || 'الويتر',
-        items: existingOrders.flatMap(o => (o.order_items || []).map((it: any) => ({
+        items: existingOrders.flatMap(o => (o.order_items || []).map((it: Record<string, any>) => ({
           name: it.products?.name || 'صنف',
           quantity: it.quantity,
           unitPrice: it.unit_price,
@@ -770,7 +770,7 @@ export const MobileWaiterScreen: React.FC = () => {
                     <span className="font-mono text-emerald-600">{Number(ord.grand_total).toFixed(2)} ج</span>
                   </div>
                   <div className="divide-y divide-slate-100 text-xs">
-                    {(ord.order_items || []).map((it: any) => (
+                    {(ord.order_items || []).map((it: Record<string, any>) => (
                       <div key={it.id} className="py-1 flex justify-between items-center text-[11px]">
                         <div>
                           <span className="font-semibold text-slate-800">{it.products?.name}</span>

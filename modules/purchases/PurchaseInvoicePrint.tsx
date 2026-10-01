@@ -15,11 +15,11 @@ export const PurchaseInvoicePrint: React.FC<PurchaseInvoicePrintProps> = ({ invo
   const paidAmount = Number(invoiceData.paidAmount ?? invoiceData.paid_amount ?? 0);
   const remainingAmount = Math.max(0, totalAmount - paidAmount);
 
-  const hasItemDiscount = items.some((i: any) => Number(i.discount || i.discount_amount || 0) > 0);
-  const itemsDiscountTotal = Number(invoiceData.itemsDiscountTotal ?? invoiceData.items_discount_amount ?? items.reduce((sum: number, it: any) => sum + (Number(it.discount || it.discount_amount || 0)), 0));
+  const hasItemDiscount = items.some((i: Record<string, any>) => Number(i.discount || i.discount_amount || 0) > 0);
+  const itemsDiscountTotal = Number(invoiceData.itemsDiscountTotal ?? invoiceData.items_discount_amount ?? items.reduce((sum: number, it: Record<string, any>) => sum + (Number(it.discount || it.discount_amount || 0)), 0));
   const invoiceDiscount = Number(invoiceData.discountAmount ?? invoiceData.discount_amount ?? 0);
   const totalDiscount = Number(invoiceData.totalDiscount ?? (itemsDiscountTotal + invoiceDiscount));
-  const grossTotal = Number(invoiceData.grossTotal ?? items.reduce((sum: number, it: any) => sum + ((Number(it.quantity) || 0) * (Number(it.unitPrice || it.unit_price) || 0)), 0));
+  const grossTotal = Number(invoiceData.grossTotal ?? items.reduce((sum: number, it: Record<string, any>) => sum + ((Number(it.quantity) || 0) * (Number(it.unitPrice || it.unit_price) || 0)), 0));
   const taxableBase = Number(invoiceData.taxableBase ?? Math.max(0, grossTotal - totalDiscount));
   const subtotal = Number(invoiceData.subtotal ?? (grossTotal - itemsDiscountTotal));
 
@@ -94,7 +94,7 @@ export const PurchaseInvoicePrint: React.FC<PurchaseInvoicePrintProps> = ({ invo
             </tr>
         </thead>
         <tbody className="divide-y divide-slate-200 text-sm">
-            {items.map((item: any, index: number) => {
+            {items.map((item: Record<string, any>, index: number) => {
               const qty = Number(item.quantity || 0);
               const uPrice = Number(item.unitPrice || item.unit_price || 0);
               const disc = Number(item.discount || item.discount_amount || 0);

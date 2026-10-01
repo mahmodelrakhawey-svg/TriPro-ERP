@@ -106,7 +106,7 @@ export default function PriceCheckerKiosk() {
 
     // 1. Try local offline cache first for instant response
     try {
-      let matched: any = null;
+      let matched: Record<string, any> | null = null;
       let matchedUomName: string | undefined;
       let matchedUomPrice: number | undefined;
       let calculatedWeight: number | undefined;
@@ -123,19 +123,19 @@ export default function PriceCheckerKiosk() {
           (p.sku && p.sku.toLowerCase() === cleanCode) || 
           (p.barcode && p.barcode.toLowerCase() === cleanCode) ||
           (p.barcode2 && p.barcode2.toLowerCase() === cleanCode)
-        );
+        ) || null;
       } else {
         const allCached = await db.products.toArray();
         matched = allCached.find(p => 
           (p.barcode && p.barcode.trim().toLowerCase() === cleanCode) ||
           (p.sku && p.sku.trim().toLowerCase() === cleanCode) ||
           (p.barcode2 && p.barcode2.trim().toLowerCase() === cleanCode)
-        );
+        ) || null;
 
         if (!matched) {
           for (const p of allCached) {
             if (Array.isArray((p as any).unit_barcodes)) {
-              const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
+              const foundUom = (p as any).unit_barcodes.find((ub: Record<string, any>) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
               if (foundUom) {
                 matched = p;
                 matchedUomName = foundUom.uom_name;
@@ -145,7 +145,7 @@ export default function PriceCheckerKiosk() {
             }
           }
         } else if (Array.isArray((matched as any).unit_barcodes)) {
-          const foundUom = (matched as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
+          const foundUom = (matched as any).unit_barcodes.find((ub: Record<string, any>) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
           if (foundUom) {
             matchedUomName = foundUom.uom_name;
             matchedUomPrice = foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : undefined;
@@ -178,7 +178,7 @@ export default function PriceCheckerKiosk() {
           if (uomProds && uomProds.length > 0) {
             for (const p of uomProds) {
               if (Array.isArray(p.unit_barcodes)) {
-                const foundUom = p.unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
+                const foundUom = p.unit_barcodes.find((ub: Record<string, any>) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
                 if (foundUom) {
                   matched = p;
                   matchedUomName = foundUom.uom_name;

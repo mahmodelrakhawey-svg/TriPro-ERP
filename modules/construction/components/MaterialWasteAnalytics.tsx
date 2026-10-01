@@ -118,10 +118,10 @@ export default function MaterialWasteAnalytics() {
       }
 
       const { data: wasteData } = await query;
-      setWasteRecords((wasteData || []).map((d: any) => ({
+      setWasteRecords((wasteData || []).map((d: Record<string, any>) => ({
         ...d,
         project_name: currentProjects.find(p => p.id === d.project_id)?.name || 'مشروع عام'
-      })));
+      })) as WasteRecord[]);
 
       // 3. Fetch BOQ Items, Issued Materials & Billings for Automated Reconciliation
       const { data: boqData } = await supabase
@@ -152,7 +152,7 @@ export default function MaterialWasteAnalytics() {
       // Aggregate Material Issues by BOQ Item
       const issuedByBoq: { [boqId: string]: { totalQty: number; avgCost: number; productName: string } } = {};
       if (issueItemsData) {
-        issueItemsData.forEach((item: any) => {
+        issueItemsData.forEach((item: Record<string, any>) => {
           if (!item.boq_item_id) return;
           if (!issuedByBoq[item.boq_item_id]) {
             issuedByBoq[item.boq_item_id] = {
@@ -168,7 +168,7 @@ export default function MaterialWasteAnalytics() {
       // Compute Executed Quantities from Billings
       const executedByBoq: { [boqId: string]: number } = {};
       if (billingsData && billingsData.length > 0) {
-        billingsData.forEach((b: any) => {
+        billingsData.forEach((b: Record<string, any>) => {
           if (b.items_progress && typeof b.items_progress === 'object') {
             Object.entries(b.items_progress).forEach(([bId, progressVal]) => {
               const numVal = Number(progressVal) || 0;
@@ -181,7 +181,7 @@ export default function MaterialWasteAnalytics() {
       // Build Automated Live Reconciliation Matrix
       const reconMatrix: BOQReconciliationItem[] = [];
       if (boqData && boqData.length > 0) {
-        boqData.forEach((boq: any) => {
+        boqData.forEach((boq: Record<string, any>) => {
           const projName = currentProjects.find(p => p.id === boq.project_id)?.name || 'مشروع عام';
           const estQty = Number(boq.estimated_quantity) || 0;
           

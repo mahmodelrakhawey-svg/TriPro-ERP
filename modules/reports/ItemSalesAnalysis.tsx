@@ -102,7 +102,7 @@ const ItemSalesAnalysis = () => {
       // تجميع البيانات من جميع القنوات حسب الصنف
       const productStats: Record<string, any> = {};
 
-      const processItem = (pid: string, prodInfo: any, qty: number, revenue: number, unitCost: number) => {
+      const processItem = (pid: string, prodInfo: Record<string, any>, qty: number, revenue: number, unitCost: number) => {
         if (!pid) return;
         if (!productStats[pid]) {
           productStats[pid] = {
@@ -126,17 +126,17 @@ const ItemSalesAnalysis = () => {
       };
 
       // معالجة فواتير المبيعات
-      invItems?.forEach((item: any) => {
+      invItems?.forEach((item: Record<string, any>) => {
         processItem(item.product_id, item.products, item.quantity, item.total, item.cost);
       });
 
       // معالجة مبيعات الكاشير والهايبر ماركت
-      posItems?.forEach((item: any) => {
+      posItems?.forEach((item: Record<string, any>) => {
         processItem(item.product_id, item.products, item.quantity, item.total_price, item.unit_cost);
       });
 
       // معالجة مبيعات الصيدلية والخدمات الطبية
-      himsItems?.forEach((item: any) => {
+      himsItems?.forEach((item: Record<string, any>) => {
         processItem(item.product_id, item.products, item.quantity, item.total_price, item.products?.weighted_average_cost);
       });
 

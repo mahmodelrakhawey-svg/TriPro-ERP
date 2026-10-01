@@ -59,7 +59,7 @@ const AttachmentsReport = () => {
       const normalized: Attachment[] = [];
 
       if (journalAtts) {
-        journalAtts.forEach((att: any) => {
+        journalAtts.forEach((att: Record<string, any>) => {
           normalized.push({
             id: att.id,
             fileName: att.file_name,
@@ -75,7 +75,7 @@ const AttachmentsReport = () => {
       }
 
       if (receiptAtts) {
-        receiptAtts.forEach((att: any) => {
+        receiptAtts.forEach((att: Record<string, any>) => {
           normalized.push({
             id: att.id,
             fileName: att.file_name,
@@ -91,7 +91,7 @@ const AttachmentsReport = () => {
       }
 
       if (paymentAtts) {
-        paymentAtts.forEach((att: any) => {
+        paymentAtts.forEach((att: Record<string, any>) => {
           normalized.push({
             id: att.id,
             fileName: att.file_name,
@@ -107,7 +107,7 @@ const AttachmentsReport = () => {
       }
 
       if (purchaseAtts) {
-        purchaseAtts.forEach((att: any) => {
+        purchaseAtts.forEach((att: Record<string, any>) => {
           normalized.push({
             id: att.id,
             fileName: att.file_name,

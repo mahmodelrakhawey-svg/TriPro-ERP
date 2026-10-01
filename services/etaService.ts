@@ -25,14 +25,14 @@ export const etaService = {
    * - Element keys are omitted in the serialization, only values are concatenated in a specific order.
    * - Elements are serialized in alphabetical order of their keys at each nesting level.
    */
-  generateCanonicalString(obj: any): string {
+  generateCanonicalString(obj: unknown): string {
     if (obj === null || obj === undefined) {
       return '';
     }
 
     if (typeof obj !== 'object') {
       // Escape special characters in strings and convert to uppercase keys or exact values
-      return `"${obj.toString().replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+      return `"${String(obj).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
     }
 
     if (Array.isArray(obj)) {
@@ -370,7 +370,7 @@ export const etaService = {
         documentType: "I",
         dateTimeIssued: new Date(order.created_at || Date.now()).toISOString().replace(/\.\d+Z$/, 'Z'),
         taxpayerActivityCode: companySettings?.eta_activity_code || "5610", // 5610 = Restaurants and mobile food service activities
-        invoiceLines: items.map((it: any) => {
+        invoiceLines: items.map((it: Record<string, any>) => {
           const qty = Number(it.quantity || 1);
           const price = Number(it.unit_price || it.price_at_order || 0);
           const lineTotal = price * qty;
@@ -455,7 +455,7 @@ export const etaService = {
    */
   async checkDocumentStatus(uuid: string, organizationId?: string): Promise<{ success: boolean; status?: string; message?: string }> {
     try {
-      let companySettings: any = null;
+      let companySettings: Record<string, any> | null = null;
       if (organizationId) {
         const { data } = await supabase
           .from('company_settings')
@@ -504,7 +504,7 @@ export const etaService = {
   /**
    * Checks the status and connectivity of the Local USB Token Signer helper tool (localhost:8500)
    */
-  async checkLocalSignerHealth(): Promise<{ online: boolean; message: string; details?: any }> {
+  async checkLocalSignerHealth(): Promise<{ online: boolean; message: string; details?: unknown }> {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 2000);

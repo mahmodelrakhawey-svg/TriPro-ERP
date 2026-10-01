@@ -52,7 +52,7 @@ const BudgetManager = () => {
   useEffect(() => {
     const existing = budgets.find(b => b.year === year && b.month === month);
     if (existing && existing.items) {
-      setItems(existing.items.map((i: any) => ({
+      setItems(existing.items.map((i: Record<string, any>) => ({
         type: i.type,
         targetId: i.targetId || i.target_id || '',
         target_id: i.target_id || i.targetId || '',
@@ -97,7 +97,8 @@ const BudgetManager = () => {
   };
 
   // تحديث حقول المستهدف
-  const updateItem = (idx: number, field: keyof BudgetItem, val: any) => {
+  type DynamicVal = any;
+  const updateItem = (idx: number, field: keyof BudgetItem, val: DynamicVal) => {
     setItems(prev => {
       const newItems = [...prev];
       const item = { ...newItems[idx] };
@@ -218,7 +219,7 @@ const BudgetManager = () => {
     }
 
     const multiplier = 1 + (Number(copyPercent) || 0) / 100;
-    const clonedItems: BudgetItem[] = prevBudget.items.map((i: any) => {
+    const clonedItems: BudgetItem[] = prevBudget.items.map((i: Record<string, any>) => {
       const amount = Math.round(Number(i.plannedAmount || i.planned_amount || 0) * multiplier);
       return {
         type: i.type,

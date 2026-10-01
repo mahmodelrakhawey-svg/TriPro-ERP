@@ -133,7 +133,7 @@ const SalesReturnForm = () => {
         setSearchInvoiceNumber('');
       }
 
-      const formattedItems = (ret.sales_return_items || []).map((item: any) => ({
+      const formattedItems = (ret.sales_return_items || []).map((item: Record<string, any>) => ({
         id: item.id,
         productId: item.product_id,
         name: item.products?.name || 'صنف',
@@ -239,7 +239,7 @@ const SalesReturnForm = () => {
         }));
         setOriginalInvoiceId(invoice.id);
         setOriginalInvoiceOrgId(invoice.organization_id);
-        const newItems = invoice.invoice_items.map((item: any) => ({
+        const newItems = invoice.invoice_items.map((item: Record<string, any>) => ({
             productId: item.product_id,
             name: item.products?.name,
             quantity: returnPartialQuantities ? 0 : item.quantity,
@@ -260,7 +260,7 @@ const SalesReturnForm = () => {
     }
   };
 
-  const addItem = (product: any) => {
+  const addItem = (product: Record<string, any>) => {
     setItems([...items, { 
       productId: product.id, 
       name: product.name, 
@@ -272,7 +272,7 @@ const SalesReturnForm = () => {
     setProductSearch('');
   };
 
-  const updateItem = (index: number, field: string, value: any) => {
+  const updateItem = (index: number, field: string, value: unknown) => {
     const newItems = [...items];
     let processedValue = value;
 

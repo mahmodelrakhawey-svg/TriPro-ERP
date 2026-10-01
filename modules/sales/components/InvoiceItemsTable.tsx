@@ -1,3 +1,4 @@
+type ProductParam = any;
 import React from 'react';
 import { 
   Package, 
@@ -21,11 +22,11 @@ export interface InvoiceItemsTableProps {
   setShowProductResults: (show: boolean) => void;
   handleBarcodeSearch: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   filteredProducts: any[];
-  addProductToInvoice: (product: any) => void;
+  addProductToInvoice: (product: ProductParam, ...args: ProductParam[]) => void;
   getProductStock: (productId: string) => number;
-  isOfferActive: (product: any) => boolean;
-  getProductHypermarketOffer: (product: any) => any;
-  getProductPrice: (product: any) => number;
+  isOfferActive: (product: Record<string, any>) => boolean;
+  getProductHypermarketOffer: (product: Record<string, any>) => any;
+  getProductPrice: (product: ProductParam) => number;
   formData: {
     currency?: string;
     warehouseId?: string;
@@ -37,7 +38,7 @@ export interface InvoiceItemsTableProps {
   activeStockViewer: string | null;
   setActiveStockViewer: (id: string | null) => void;
   uoms: any[];
-  handleItemChange: (index: number, field: string, value: any) => void;
+  handleItemChange: (index: number, field: string, value: unknown) => void;
   removeItem: (index: number) => void;
   settings: any;
   currentUserRole: string;

@@ -128,7 +128,7 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
 
       // تصفية المنتجات لتجنب ظهور الألبسة أو الأطعمة أو مواد البناء في الروشتة الطبية
       const excludedCategories = ['ملابس', 'أزياء', 'طعام', 'وجبات', 'دجاج', 'لحوم', 'مطعم', 'سلطات', 'بناء', 'أسمنت', 'حديد', 'مقاولات'];
-      const filteredData = (data || []).filter((p: any) => {
+      const filteredData = (data || []).filter((p: Record<string, any>) => {
         const catName = getCategoryName(p.category);
         if (catName) {
           return !excludedCategories.some(ex => catName.includes(ex));
@@ -136,7 +136,7 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
         return true;
       });
 
-      setProductOptions(filteredData.map((p: any) => {
+      setProductOptions(filteredData.map((p: Record<string, any>) => {
         const catName = getCategoryName(p.category);
         return {
           label: catName ? `${p.name} [${catName}] - (المتوفر: ${p.stock})` : `${p.name} (المتوفر: ${p.stock})`,
@@ -230,7 +230,7 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
     }
 
     const cleanedMeds = (data.medications || [])
-      .filter((m: any) => m.product_id && m.product_id.trim() !== '')
+      .filter((m: Record<string, any>) => m.product_id && m.product_id.trim() !== '')
       .map((m: any) => ({
         product_id: m.product_id,
         drug_name: m.drug_name,
@@ -323,7 +323,7 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
                           onFocus={() => { if (productOptions.length === 0) handleProductSearch(); }}
                           loading={loadingProducts}
                           options={productOptions}
-                          onChange={(val, option: any) => {
+                          onChange={(val, option: Record<string, any>) => {
                             selectField.onChange(val);
                             setValue(`medications.${index}.drug_name`, option.name);
                           }}

@@ -82,7 +82,7 @@ export default function HypermarketReplenishment() {
         const { data: salesData, error: salesErr } = await invQuery;
 
         if (!salesErr && salesData) {
-          salesData.forEach((item: any) => {
+          salesData.forEach((item: Record<string, any>) => {
             if (item.product_id) {
               salesMap[item.product_id] = (salesMap[item.product_id] || 0) + Number(item.quantity || 0);
             }
@@ -96,7 +96,7 @@ export default function HypermarketReplenishment() {
             .gte('invoices.invoice_date', thirtyDaysAgo);
 
           if (fallbackSales) {
-            fallbackSales.forEach((item: any) => {
+            fallbackSales.forEach((item: Record<string, any>) => {
               if (item.product_id) {
                 salesMap[item.product_id] = (salesMap[item.product_id] || 0) + Number(item.quantity || 0);
               }
@@ -121,7 +121,7 @@ export default function HypermarketReplenishment() {
         const { data: posItems, error: posErr } = await posQuery;
 
         if (!posErr && posItems) {
-          posItems.forEach((item: any) => {
+          posItems.forEach((item: Record<string, any>) => {
             if (item.product_id) {
               salesMap[item.product_id] = (salesMap[item.product_id] || 0) + Number(item.quantity || 0);
             }
@@ -278,7 +278,7 @@ export default function HypermarketReplenishment() {
         const poNumber = `PO-AUTO-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
         // 1. Insert PO Header
-        const poPayload: any = {
+        const poPayload: Record<string, any> = {
           organization_id: orgId,
           order_number: poNumber,
           po_number: poNumber,

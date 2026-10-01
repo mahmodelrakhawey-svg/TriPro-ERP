@@ -207,7 +207,8 @@ const ReceiptVoucherList = () => {
   );
 
   // Pagination query modifier for Supabase
-  const queryModifier = useCallback((query: any) => {
+  type SupabaseQuery = any;
+  const queryModifier = useCallback((query: SupabaseQuery) => {
     if (debouncedSearch) {
        query = query.or(`voucher_number.ilike.%${debouncedSearch}%,notes.ilike.%${debouncedSearch}%`);
     }
@@ -413,7 +414,7 @@ const ReceiptVoucherList = () => {
         if (isCancelled) return;
 
         let cTotal = 0, cCount = 0, oTotal = 0, oCount = 0, cash = 0, bank = 0, cheque = 0;
-        (data || []).forEach((row: any) => {
+        (data || []).forEach((row: Record<string, any>) => {
           const amt = Number(row.amount) || 0;
           if (row.customer_id) {
             cTotal += amt;
@@ -627,7 +628,7 @@ const ReceiptVoucherList = () => {
     }
   };
 
-  const handlePreviewAttachment = (attachment: any) => {
+  const handlePreviewAttachment = (attachment: Record<string, any>) => {
     const { data } = supabase.storage.from('documents').getPublicUrl(attachment.file_path);
     window.open(data.publicUrl, '_blank');
   };
@@ -641,7 +642,7 @@ const ReceiptVoucherList = () => {
     }
   };
 
-  const handlePrint = (voucher: any) => {
+  const handlePrint = (voucher: Record<string, any>) => {
     setVoucherToPrint(voucher);
   };
 

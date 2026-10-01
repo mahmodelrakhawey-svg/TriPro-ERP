@@ -148,7 +148,7 @@ export const AppointmentManager: React.FC = () => {
     };
   }, [orgId]);
 
-  const handleBookAppointment = async (values: any) => {
+  const handleBookAppointment = async (values: Record<string, any>) => {
     if (!orgId) return;
     setBookingLoading(true);
     try {
@@ -291,7 +291,7 @@ export const AppointmentManager: React.FC = () => {
     { 
       title: 'المريض', 
       dataIndex: ['hims_patients', 'full_name'],
-      render: (name: string, record: any) => (
+      render: (name: string, record: Record<string, any>) => (
         <div>
           <b className="text-slate-800">{name}</b>
           <div className="text-xs text-slate-400">الهوية: {record.hims_patients?.national_id || 'غير مسجلة'}</div>
@@ -300,7 +300,7 @@ export const AppointmentManager: React.FC = () => {
     },
     { 
       title: 'العيادة / الطبيب', 
-      render: (record: any) => {
+      render: (record: Record<string, any>) => {
         const docName = record.hims_doctors?.profile?.full_name || 'طبيب غير مسمى';
         const spec = record.hims_doctors?.specialization || '';
         return (
@@ -334,7 +334,7 @@ export const AppointmentManager: React.FC = () => {
     },
     { 
       title: 'إجراءات الاستقبال', 
-      render: (record: any) => (
+      render: (record: Record<string, any>) => (
         <Space>
           {record.status === 'scheduled' && (
             <>

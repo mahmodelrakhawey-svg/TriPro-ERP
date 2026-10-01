@@ -136,7 +136,7 @@ const ProductManager = () => {
 
       if (!error && data) {
         const map = new Map<string, { routingId: string; routingName: string; stepsCount: number }>();
-        data.forEach((r: any) => {
+        data.forEach((r: Record<string, any>) => {
           if (!r.product_id) return;
           const stepsCount = Array.isArray(r.mfg_routing_steps) ? r.mfg_routing_steps.length : 0;
           const existing = map.get(r.product_id);
@@ -160,7 +160,8 @@ const ProductManager = () => {
   }, [fetchOrgRoutings]);
 
   // إعداد استعلام البيانات
-  const queryModifier = useCallback((query: any) => {
+  type DynamicQuery = any;
+  const queryModifier = useCallback((query: DynamicQuery) => {
     if (debouncedSearch) {
       query = query.or(`name.ilike.%${debouncedSearch}%,sku.ilike.%${debouncedSearch}%,description.ilike.%${debouncedSearch}%,barcode.ilike.%${debouncedSearch}%,barcode2.ilike.%${debouncedSearch}%`);
     }
@@ -348,7 +349,7 @@ const ProductManager = () => {
           .eq('invoices.status', 'draft');
         
         const reserved: Record<string, number> = {};
-        data?.forEach((item: any) => {
+        data?.forEach((item: Record<string, any>) => {
           if (item.product_id) {
             reserved[item.product_id] = (reserved[item.product_id] || 0) + Number(item.quantity);
           }
@@ -2059,7 +2060,7 @@ const ProductManager = () => {
                   )}
                   {(item as any).supplier_id && (
                       <span className="block mt-1 text-[11px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 font-medium">
-                        🏢 {suppliers?.find((s: any) => s.id === (item as any).supplier_id)?.name || 'مورد محدد'}
+                        🏢 {suppliers?.find((s: Record<string, any>) => s.id === (item as any).supplier_id)?.name || 'مورد محدد'}
                       </span>
                   )}
                 </td>

@@ -70,7 +70,7 @@ export const LabSpecimenTracking: React.FC = () => {
                 }
               }
 
-              const testMaster = cachedLabMasters.find((t: any) => t.id === o.test_id);
+              const testMaster = cachedLabMasters.find((t: Record<string, any>) => t.id === o.test_id);
 
               const specimenId = `queued-spec-${batch.id}-${index++}`;
               const offlineStatus = secureStorage.getItem(`specimen_status_${specimenId}`) || 'pending_collection';
@@ -150,7 +150,7 @@ export const LabSpecimenTracking: React.FC = () => {
     },
     { 
       title: 'المريض والفحص', 
-      render: (record: any) => (
+      render: (record: Record<string, any>) => (
         <Space orientation="vertical" size={0}>
           <Text strong>{record.lab_order?.hims_visits?.hims_patients?.full_name}</Text>
           <Text type="secondary" className="text-xs">{record.lab_order?.hims_lab_tests?.test_name}</Text>
@@ -161,7 +161,7 @@ export const LabSpecimenTracking: React.FC = () => {
       title: 'الحالة الحالية', 
       dataIndex: 'status',
       render: (status: string) => {
-        const config: any = {
+        const config: Record<string, any> = {
           pending_collection: { color: 'default', text: 'بانتظار السحب', icon: <ClockCircleOutlined /> },
           collected: { color: 'blue', text: 'تم السحب', icon: <SyncOutlined spin /> },
           received_in_lab: { color: 'purple', text: 'وصلت المختبر', icon: <ExperimentOutlined /> },
@@ -177,7 +177,7 @@ export const LabSpecimenTracking: React.FC = () => {
     },
     { 
       title: 'إجراءات التتبع', 
-      render: (record: any) => (
+      render: (record: Record<string, any>) => (
         <Space>
           {record.status === 'pending_collection' && (
             <Button size="small" type="primary" onClick={() => updateStatus(record.id, 'collected')}>إثبات السحب</Button>
