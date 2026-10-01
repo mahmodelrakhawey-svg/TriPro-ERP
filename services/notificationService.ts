@@ -5,6 +5,7 @@
  */
 
 import { supabase } from '../supabaseClient';
+import { secureStorage } from '../utils/securityMiddleware';
 
 export type NotificationType = 
   | 'radiology_result_ready'
@@ -682,7 +683,7 @@ class NotificationService {
 
       // لتجنب تكرار الإشعار عدة مرات في نفس اليوم، نقرأ آخر وقت فحص
       const cacheKey = `tripro_last_financial_audit_${orgId}`;
-      const lastAudit = typeof window !== 'undefined' ? localStorage.getItem(cacheKey) : null;
+      const lastAudit = typeof window !== 'undefined' ? secureStorage.getItem<string>(cacheKey) : null;
       const now = Date.now();
       // تشغيل مرة كل 6 ساعات كحد أقصى لتفادي الإزعاج
       if (lastAudit && (now - parseInt(lastAudit, 10)) < 6 * 60 * 60 * 1000) {
@@ -693,7 +694,7 @@ class NotificationService {
       const report = await auditDaemonService.runSystemAudit(orgId);
 
       if (typeof window !== 'undefined') {
-        localStorage.setItem(cacheKey, now.toString());
+        secureStorage.setItem(cacheKey, now.toString());
       }
 
       if (report.overallStatus === 'failed' || report.overallStatus === 'warning') {

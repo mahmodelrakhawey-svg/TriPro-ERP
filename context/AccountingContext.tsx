@@ -2342,6 +2342,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!navigator.onLine || isDemo || !isValidUUID(shiftId)) {
       setCurrentShift(null);
       try {
+        secureStorage.removeItem('tripro_offline_current_shift');
         localStorage.removeItem('tripro_offline_current_shift');
       } catch (e) {}
       showToast('تم إغلاق الوردية محلياً بنجاح 🔒', 'success');

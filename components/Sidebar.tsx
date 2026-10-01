@@ -96,9 +96,8 @@ import {
   Repeat,
   FileSpreadsheet,
 } from 'lucide-react';
+import { secureStorage } from '../utils/securityMiddleware';
 
-
- 
 export interface SidebarProps {
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
@@ -113,8 +112,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }
   // ⚡ سجل الوصول السريع للشاشات الأكثر استخداماً
   const [recentRoutes, setRecentRoutes] = useState<{ path: string; label: string }[]>(() => {
     try {
-      const saved = localStorage.getItem('tripro_recent_routes');
-      return saved ? JSON.parse(saved) : [];
+      const saved = secureStorage.getItem<{ path: string; label: string }[]>('tripro_recent_routes');
+      return Array.isArray(saved) ? saved : [];
     } catch {
       return [];
     }
@@ -129,7 +128,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }
         const filtered = prev.filter(r => r.path !== path);
         const updated = [{ path, label: title }, ...filtered].slice(0, 4);
         try {
-          localStorage.setItem('tripro_recent_routes', JSON.stringify(updated));
+          secureStorage.setItem('tripro_recent_routes', updated);
         } catch (_) {}
         return updated;
       });
@@ -726,7 +725,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }
             <button 
               onClick={() => {
                 setRecentRoutes([]);
-                try { localStorage.removeItem('tripro_recent_routes'); } catch (_) {}
+                try { secureStorage.removeItem('tripro_recent_routes'); } catch (_) {}
               }}
               className="text-[9px] text-slate-500 hover:text-slate-300 transition-colors"
               title="مسح سجل الوصول السريع"

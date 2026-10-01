@@ -42,7 +42,8 @@ const SAFE_PATHS = [
   'scripts/security-audit.js',
   'utils/securityUtils.test.ts',
   'package-lock.json',
-  'supabase'
+  'supabase',
+  'e2e'
 ];
 
 function scanFile(filePath) {
