@@ -328,7 +328,7 @@ const TrialBalanceAdvanced = () => {
         }
 
         // إذا كان حساب رئيسي، نجمع أبناءه
-        const children = Array.from(allAccountsMap.values()).filter((a: Record<string, any>) => a.parent_id === accountId);
+        const children = Array.from(allAccountsMap.values()).filter((a: Account & Record<string, any>) => a.parent_id === accountId);
         let total = { open: 0, transDr: 0, transCr: 0 };
         
         children.forEach(child => {
@@ -342,7 +342,7 @@ const TrialBalanceAdvanced = () => {
     };
 
     // 4. بناء القائمة النهائية
-    let result = Array.from(allAccountsMap.values()).map((acc: Record<string, any>) => {
+    let result = Array.from(allAccountsMap.values()).map((acc: Account & Record<string, any>) => {
         const stats = getAccountStats(acc.id);
         return {
             ...acc,

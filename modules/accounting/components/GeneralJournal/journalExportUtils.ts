@@ -162,7 +162,7 @@ export const exportJournalToExcel = async ({
     }
 
     // تطبيق الفلاتر الحالية نفسها
-    query = queryModifier(query);
+    query = queryModifier(query as Record<string, any>) as any;
 
     const { data: entries, error } = await query;
     if (error) throw error;
