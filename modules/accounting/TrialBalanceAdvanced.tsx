@@ -744,7 +744,7 @@ const TrialBalanceAdvanced = () => {
                         <tr 
                             key={row.id} 
                             className={`transition-colors ${row.isGroup ? 'bg-slate-50 font-bold text-slate-800' : 'text-slate-600 hover:bg-blue-50 cursor-pointer'}`}
-                            onClick={() => handleRowClick(row.id, row.isGroup)}
+                            onClick={() => handleRowClick(row.id, Boolean(row.isGroup))}
                             title={!row.isGroup ? "اضغط لعرض كشف الحساب" : ""}
                         >
                             <td className="p-2 border-l border-slate-100 font-mono">{row.code}</td>
