@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { Save, Loader2, Wallet, Calendar, FileText, DollarSign, AlertCircle, CheckCircle, Building2, Printer, MessageCircle, ArrowRight, ArrowLeft, Plus, Search, Upload, X, Paperclip, Eye, Download, User } from 'lucide-react';
@@ -10,6 +10,7 @@ import { useLocation } from 'react-router-dom';
 const ExpenseVoucherForm = () => {
   const { accounts, costCenters, updateVoucher, addEntry, currentUser, addDemoEntry } = useAccounting();
   const location = useLocation();
+  const isSubmittingRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [expenseSearchTerm, setExpenseSearchTerm] = useState('');
@@ -71,9 +72,9 @@ const ExpenseVoucherForm = () => {
     }
   };
 
-  // تصفية حسابات الخزينة والبنوك (الأصول المتداولة النقدية)
+  // تصفية حسابات الخزينة والبنوك (الأصول المتداولة النقدية - استبعاد الحسابات الرئيسية والتجميعية قطيعاً)
   const treasuryAccounts = useMemo(() => accounts.filter(a => {
-    if (a.isGroup) return false;
+    if (a.isGroup || a.is_group || a.code === '123' || a.code === '12' || a.code === '1') return false;
     const type = String(a.type || '').toLowerCase();
     const name = a.name.toLowerCase();
     const code = a.code;
@@ -87,7 +88,7 @@ const ExpenseVoucherForm = () => {
 
   // تصفية حسابات المصروفات
   const expenseAccounts = useMemo(() => accounts.filter(a => {
-    if (a.isGroup) return false;
+    if (a.isGroup || a.is_group) return false;
     const type = String(a.type || '').toLowerCase();
     const code = a.code;
     const matchesSearch = (a.name || '').toLowerCase().includes(expenseSearchTerm.toLowerCase()) || 
@@ -219,6 +220,7 @@ const ExpenseVoucherForm = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current || loading) return;
     
     const expenseVoucherSchema = z.object({
         amount: z.number().min(0.01, 'المبلغ يجب أن يكون أكبر من 0'),
@@ -238,6 +240,7 @@ const ExpenseVoucherForm = () => {
         showToast(validationResult.error.issues[0].message, 'warning');
         return;
     }
+    isSubmittingRef.current = true;
 
     if (currentUser?.role === 'demo') {
         setLoading(true);
@@ -380,6 +383,7 @@ const ExpenseVoucherForm = () => {
     } catch (error: any) {
         showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
+        isSubmittingRef.current = false;
         setLoading(false);
     }
   };
@@ -445,7 +449,15 @@ const ExpenseVoucherForm = () => {
                 </div>
             )}
             
-            <form onSubmit={handleSubmit} className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+            <form 
+                onSubmit={handleSubmit} 
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
+                        e.preventDefault();
+                    }
+                }}
+                className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8"
+            >
                 
                 {/* القسم الأيمن: البيانات المالية */}
                 <div className="space-y-6">

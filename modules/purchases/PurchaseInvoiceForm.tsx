@@ -105,10 +105,11 @@ const PurchaseInvoiceForm = () => {
     if (currentUser) fetchUoms();
   }, [currentUser]);
 
-  // حسابات الخزينة
+  // حسابات الخزينة (استبعاد الحسابات الرئيسية والتجميعية قطيعاً)
   const treasuryAccounts = useMemo(() => {
     return accounts.filter(a => 
-      !a.isGroup && (
+      !(a.isGroup || a.is_group) &&
+      a.code !== '123' && a.code !== '12' && a.code !== '1' && (
         a.name.includes('صندوق') || 
         a.name.includes('خزينة') || 
         a.name.includes('بنك') || 

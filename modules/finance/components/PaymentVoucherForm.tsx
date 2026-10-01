@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -19,6 +19,7 @@ const PaymentVoucherForm = () => {
   const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers, can, addDemoPaymentVoucher, isDemo, organization } = useAccounting();
   const { currentUser } = useAuth();
   const { showToast } = useToast();
+  const isSubmittingRef = useRef(false);
   
   const [formData, setFormData] = useState({
     supplierId: '',
@@ -252,10 +253,11 @@ const PaymentVoucherForm = () => {
 
   const paymentVouchers = vouchers.filter(v => v.type === 'payment');
 
-  // تصفية حسابات الخزينة والبنوك من السياق مباشرة لضمان التحديث الفوري
+  // تصفية حسابات الخزينة والبنوك من السياق مباشرة لضمان التحديث الفوري (استبعاد الحسابات الرئيسية والتجميعية قطيعاً)
   const treasuryAccounts = useMemo(() => {
     return accounts.filter(a => 
-      !a.isGroup && (
+      !(a.isGroup || a.is_group) &&
+      a.code !== '123' && a.code !== '12' && a.code !== '1' && (
         a.name.includes('صندوق') || 
         a.name.includes('خزينة') || 
         a.name.includes('بنك') || 
@@ -310,7 +312,7 @@ const PaymentVoucherForm = () => {
     setUnpaidInvoices([]);
     setFormData({
       supplierId: '',
-      treasuryId: treasuryAccounts.length > 0 ? treasuryAccounts[0].id : '',
+      treasuryId: '',
       amount: 0,
       date: new Date().toISOString().split('T')[0],
       notes: '',
@@ -402,6 +404,7 @@ const PaymentVoucherForm = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current || loading) return;
     setErrors({});
 
     // إعداد البيانات للتحقق
@@ -424,6 +427,7 @@ const PaymentVoucherForm = () => {
         return;
     }
     setLoading(true);
+    isSubmittingRef.current = true;
 
     // demo simulation: bypass supabase and update context
     if (!isEditing && (currentUser?.role === 'demo' || isDemo)) {
@@ -445,6 +449,7 @@ const PaymentVoucherForm = () => {
         addDemoPaymentVoucher(demoVoucher);
         showToast('تم حفظ سند الصرف (ديمو) بنجاح ✅', 'success');
         handleNew();
+        isSubmittingRef.current = false;
         setLoading(false);
         return;
     }
@@ -620,6 +625,7 @@ const PaymentVoucherForm = () => {
         console.error('Error saving payment voucher:', error);
         showToast(error?.message || 'فشل حفظ سند الصرف', 'error');
     } finally {
+        isSubmittingRef.current = false;
         setLoading(false);
     }
   };
@@ -677,7 +683,15 @@ const PaymentVoucherForm = () => {
         </h2>
       </div>
 
-      <form onSubmit={handleSave} className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 space-y-6">
+      <form 
+        onSubmit={handleSave} 
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
+            e.preventDefault();
+          }
+        }}
+        className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 space-y-6"
+      >
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* المورد الذكي الفائق */}

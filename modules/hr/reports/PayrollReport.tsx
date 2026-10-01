@@ -104,6 +104,7 @@ const PayrollReport = () => {
     setSelectedPayslip({
       employee_name: item.employees?.full_name || 'موظف',
       job_title: item.employees?.position || 'موظف',
+      department: item.employees?.department || '-',
       month: selectedMonth,
       year: selectedYear,
       gross_salary: item.gross_salary || 0,
@@ -247,6 +248,7 @@ const PayrollReport = () => {
                     <thead className="bg-slate-50 text-slate-600 font-bold text-sm border-y-2 border-slate-200">
                         <tr>
                             <th className="p-3 border-b">الموظف</th>
+                            <th className="p-3 border-b">الفرع / القسم</th>
                             <th className="p-3 border-b">الراتب الأساسي</th>
                             <th className="p-3 border-b text-emerald-700">إضافي (+)</th>
                             <th className="p-3 border-b text-red-700">ضريبة (-)</th>
@@ -260,6 +262,11 @@ const PayrollReport = () => {
                         {payrollData.map((item) => (
                     item && <tr key={item.id}>
                         <td className="p-3 font-bold">{item.employees?.full_name || 'غير محدد'} <span className="text-xs font-normal text-slate-500 block">{item.employees?.position || 'غير محدد'}</span></td>
+                        <td className="p-3 text-slate-600 font-medium text-sm">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
+                                {item.employees?.department || '-'}
+                            </span>
+                        </td>
                         <td className="p-3">{(item.gross_salary || 0).toLocaleString()}</td>
                         <td className="p-3 text-emerald-600">{(item.additions || 0).toLocaleString()}</td>
                         <td className="p-3 text-red-600">{(item.payroll_tax || 0).toLocaleString()}</td>
@@ -276,12 +283,13 @@ const PayrollReport = () => {
                     </tbody>
                     <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300">
                         <tr>
-                            <td className="p-3">الإجمالي</td>
+                            <td className="p-3" colSpan={2}>الإجمالي</td>
                             <td className="p-3">{payrollSummary.total_gross_salary.toLocaleString()}</td>
                             <td className="p-3 text-emerald-700">{payrollSummary.total_additions.toLocaleString()}</td>
                             <td className="p-3 text-red-700">{payrollSummary.total_payroll_tax.toLocaleString()}</td>
                             <td className="p-3 text-red-700" colSpan={2}>{payrollSummary.total_deductions.toLocaleString()}</td>
                             <td className="p-3 text-lg">{payrollSummary.total_net_salary.toLocaleString()}</td>
+                            <td className="p-3 print:hidden"></td>
                         </tr>
                     </tfoot>
                 </table>

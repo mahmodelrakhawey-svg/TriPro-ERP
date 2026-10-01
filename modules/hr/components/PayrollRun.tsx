@@ -20,7 +20,9 @@ import {
   Printer,
   ShieldAlert,
   Award,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Building2,
+  Filter
 } from 'lucide-react';
 import {
   payrollRunSchema,
@@ -32,6 +34,7 @@ import {
 type PayrollItem = {
   employee_id: string;
   full_name: string;
+  department?: string;
   gross_salary: number;
   additions: number;
   advances_deducted: number;
@@ -69,6 +72,7 @@ const PayrollRun = () => {
   const [selectedYear, setSelectedYear] = useState(selectedFiscalYear || new Date().getFullYear());
   const [treasuryId, setTreasuryId] = useState('');
   const [treasuryAccounts, setTreasuryAccounts] = useState<any[]>([]);
+  const [selectedDepartment, setSelectedDepartment] = useState('all');
 
   // Function to calculate last day of a month
   const getLastDayOfMonth = (year: number, month: number) => {
@@ -155,6 +159,7 @@ const PayrollRun = () => {
           const mappedItems: PayrollItem[] = items.map((it: any) => ({
             employee_id: it.employee_id,
             full_name: it.employees?.full_name || 'موظف',
+            department: it.employees?.department || '-',
             gross_salary: Number(it.gross_salary || 0),
             additions: Number(it.additions || 0),
             advances_deducted: Number(it.advances_deducted || 0),
@@ -310,6 +315,7 @@ const PayrollRun = () => {
         return {
           employee_id: emp.id,
           full_name: emp.full_name,
+          department: emp.department || '-',
           gross_salary: basicSalary,
           additions,
           advances_deducted: totalAdvances,
@@ -576,6 +582,20 @@ const PayrollRun = () => {
     }
   };
 
+  const departments = useMemo(() => {
+    const set = new Set<string>();
+    payrollData.forEach(p => {
+      const dept = (p.department || '').trim();
+      if (dept && dept !== '-') set.add(dept);
+    });
+    return Array.from(set).sort();
+  }, [payrollData]);
+
+  const filteredPayrollData = useMemo(() => {
+    if (selectedDepartment === 'all') return payrollData;
+    return payrollData.filter(p => (p.department || 'بدون فرع').trim() === selectedDepartment);
+  }, [payrollData, selectedDepartment]);
+
   const totals = useMemo(() => {
     return payrollData.reduce(
       (acc, item) => ({
@@ -590,16 +610,31 @@ const PayrollRun = () => {
     );
   }, [payrollData]);
 
+  const displayedTotals = useMemo(() => {
+    return filteredPayrollData.reduce(
+      (acc, item) => ({
+        gross: acc.gross + Number(item.gross_salary || 0),
+        additions: acc.additions + Number(item.additions || 0),
+        advances: acc.advances + Number(item.advances_deducted || 0),
+        taxes: acc.taxes + Number(item.payroll_tax || 0),
+        deductions: acc.deductions + Number(item.other_deductions || 0),
+        net: acc.net + Number(item.net_salary || 0)
+      }),
+      { gross: 0, additions: 0, advances: 0, taxes: 0, deductions: 0, net: 0 }
+    );
+  }, [filteredPayrollData]);
+
   // تصدير كشف مسير الرواتب إلى Excel بدقة متناهية وتنسيق احترافي
   const handleExportExcel = () => {
-    if (payrollData.length === 0) {
+    if (filteredPayrollData.length === 0) {
       showToast('لا توجد بيانات مسير للتصدير، يرجى تجهيز المسير أولاً', 'warning');
       return;
     }
 
-    const rows = payrollData.map((item, idx) => ({
+    const rows = filteredPayrollData.map((item, idx) => ({
       'م': idx + 1,
       'اسم الموظف': item.full_name,
+      'الفرع / القسم': item.department && item.department !== '-' ? item.department : 'بدون فرع',
       'الراتب الأساسي (ج.م)': Number(item.gross_salary) || 0,
       'ساعات الإضافي': Number(item.overtime_hours) || 0,
       'قيمة الإضافي والمكافآت (ج.م)': Number(item.additions) || 0,
@@ -615,17 +650,18 @@ const PayrollRun = () => {
     // إضافة صف الإجمالي
     rows.push({
       'م': '' as any,
-      'اسم الموظف': `الإجمالي العام (${payrollData.length} موظف)`,
-      'الراتب الأساسي (ج.م)': totals.gross,
-      'ساعات الإضافي': payrollData.reduce((s, i) => s + (Number(i.overtime_hours) || 0), 0),
-      'قيمة الإضافي والمكافآت (ج.م)': totals.additions,
-      'أيام إجازة بدون راتب': payrollData.reduce((s, i) => s + (Number(i.unpaid_leave_days) || 0), 0),
-      'خصم إجازات بدون راتب (ج.م)': payrollData.reduce((s, i) => s + (Number(i.unpaid_leave_deduction) || 0), 0),
-      'أيام الغياب': payrollData.reduce((s, i) => s + (Number(i.absence_days) || 0), 0),
-      'خصومات أخرى وجزاءات (ج.م)': totals.deductions,
-      'السلف المخصومة (ج.م)': totals.advances,
-      'ضريبة كسب العمل (ج.م)': totals.taxes,
-      'صافي الراتب المستحق (ج.م)': totals.net
+      'اسم الموظف': `الإجمالي ${selectedDepartment !== 'all' ? `(${selectedDepartment})` : 'العام'} (${filteredPayrollData.length} موظف)`,
+      'الفرع / القسم': selectedDepartment !== 'all' ? selectedDepartment : 'كل الفروع والأقسام',
+      'الراتب الأساسي (ج.م)': displayedTotals.gross,
+      'ساعات الإضافي': filteredPayrollData.reduce((s, i) => s + (Number(i.overtime_hours) || 0), 0),
+      'قيمة الإضافي والمكافآت (ج.م)': displayedTotals.additions,
+      'أيام إجازة بدون راتب': filteredPayrollData.reduce((s, i) => s + (Number(i.unpaid_leave_days) || 0), 0),
+      'خصم إجازات بدون راتب (ج.م)': filteredPayrollData.reduce((s, i) => s + (Number(i.unpaid_leave_deduction) || 0), 0),
+      'أيام الغياب': filteredPayrollData.reduce((s, i) => s + (Number(i.absence_days) || 0), 0),
+      'خصومات أخرى وجزاءات (ج.م)': displayedTotals.deductions,
+      'السلف المخصومة (ج.م)': displayedTotals.advances,
+      'ضريبة كسب العمل (ج.م)': displayedTotals.taxes,
+      'صافي الراتب المستحق (ج.م)': displayedTotals.net
     });
 
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -633,6 +669,7 @@ const PayrollRun = () => {
     ws['!cols'] = [
       { wch: 6 },  // م
       { wch: 26 }, // اسم الموظف
+      { wch: 20 }, // الفرع / القسم
       { wch: 18 }, // الراتب الأساسي
       { wch: 14 }, // ساعات الإضافي
       { wch: 22 }, // قيمة الإضافي والمكافآت
@@ -646,9 +683,10 @@ const PayrollRun = () => {
     ];
 
     const wb = XLSX.utils.book_new();
+    const deptSuffix = selectedDepartment !== 'all' ? `_${selectedDepartment}` : '';
     XLSX.utils.book_append_sheet(wb, ws, `مسير_${selectedMonth}_${selectedYear}`);
-    XLSX.writeFile(wb, `مسير_رواتب_شهر_${selectedMonth}_سنة_${selectedYear}.xlsx`);
-    showToast(`تم تصدير مسير رواتب شهر ${selectedMonth}/${selectedYear} لعدد ${payrollData.length} موظف إلى Excel بنجاح ✅`, 'success');
+    XLSX.writeFile(wb, `مسير_رواتب_شهر_${selectedMonth}_سنة_${selectedYear}${deptSuffix}.xlsx`);
+    showToast(`تم تصدير مسير رواتب شهر ${selectedMonth}/${selectedYear} لعدد ${filteredPayrollData.length} موظف إلى Excel بنجاح ✅`, 'success');
   };
 
   if (currentUser?.role === 'demo') {
@@ -850,48 +888,93 @@ const PayrollRun = () => {
         </div>
       )}
 
+      {/* Branch / Department Filter Pills */}
+      {departments.length > 0 && (
+        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 ml-2">
+            <Building2 className="w-4 h-4 text-indigo-600" />
+            <span>تصفية حسب الفرع / القسم:</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedDepartment('all')}
+            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+              selectedDepartment === 'all'
+                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+            }`}
+          >
+            <span>كل الفروع والأقسام</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedDepartment === 'all' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'}`}>
+              {payrollData.length}
+            </span>
+          </button>
+          {departments.map((dept) => {
+            const count = payrollData.filter(p => (p.department || 'بدون فرع').trim() === dept).length;
+            const isSelected = selectedDepartment === dept;
+            return (
+              <button
+                key={dept}
+                type="button"
+                onClick={() => setSelectedDepartment(dept)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                  isSelected
+                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                }`}
+              >
+                <span>{dept}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {/* Summary Cards */}
-      {payrollData.length > 0 && (
+      {filteredPayrollData.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
           <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
             <span className="text-[11px] text-slate-500 font-bold block">إجمالي الأساسي</span>
             <span className="text-sm font-black text-slate-800 font-mono mt-1 block">
-              {totals.gross.toLocaleString()} ج.م
+              {displayedTotals.gross.toLocaleString()} ج.م
             </span>
           </div>
 
           <div className="bg-white p-3.5 rounded-2xl border border-emerald-100 shadow-sm">
             <span className="text-[11px] text-emerald-700 font-bold block">إجمالي الإضافي (+)</span>
             <span className="text-sm font-black text-emerald-600 font-mono mt-1 block">
-              +{totals.additions.toLocaleString()} ج.م
+              +{displayedTotals.additions.toLocaleString()} ج.م
             </span>
           </div>
 
           <div className="bg-white p-3.5 rounded-2xl border border-rose-100 shadow-sm">
             <span className="text-[11px] text-rose-700 font-bold block">السلف المستقطعة (-)</span>
             <span className="text-sm font-black text-rose-600 font-mono mt-1 block">
-              -{totals.advances.toLocaleString()} ج.م
+              -{displayedTotals.advances.toLocaleString()} ج.م
             </span>
           </div>
 
           <div className="bg-white p-3.5 rounded-2xl border border-rose-100 shadow-sm">
             <span className="text-[11px] text-rose-700 font-bold block">الخصومات والجزاءات (-)</span>
             <span className="text-sm font-black text-rose-600 font-mono mt-1 block">
-              -{totals.deductions.toLocaleString()} ج.م
+              -{displayedTotals.deductions.toLocaleString()} ج.م
             </span>
           </div>
 
           <div className="bg-white p-3.5 rounded-2xl border border-rose-100 shadow-sm">
             <span className="text-[11px] text-rose-700 font-bold block">ضريبة كسب العمل (-)</span>
             <span className="text-sm font-black text-rose-600 font-mono mt-1 block">
-              -{totals.taxes.toLocaleString()} ج.م
+              -{displayedTotals.taxes.toLocaleString()} ج.م
             </span>
           </div>
 
           <div className="bg-emerald-50 p-3.5 rounded-2xl border border-emerald-200 shadow-sm">
             <span className="text-[11px] text-emerald-800 font-bold block">صافي الرواتب المستحق</span>
             <span className="text-base font-black text-emerald-700 font-mono mt-1 block">
-              {totals.net.toLocaleString()} ج.م
+              {displayedTotals.net.toLocaleString()} ج.م
             </span>
           </div>
         </div>
@@ -904,6 +987,7 @@ const PayrollRun = () => {
             <thead>
               <tr className="bg-slate-50/75 border-b border-slate-200 text-slate-600 font-bold">
                 <th className="p-3.5">الموظف</th>
+                <th className="p-3.5 text-center">الفرع / القسم</th>
                 <th className="p-3.5 text-center">الراتب الأساسي</th>
                 <th className="p-3.5 text-center">إضافي ومكافآت (+)</th>
                 <th className="p-3.5 text-center">السلف (-)</th>
@@ -914,7 +998,7 @@ const PayrollRun = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {payrollData.map((emp) => (
+              {filteredPayrollData.map((emp) => (
                 <tr key={emp.employee_id} className="hover:bg-slate-50/60 transition">
                   <td className="p-3.5 font-bold text-slate-800">
                     <div className="flex items-center gap-2">
@@ -931,6 +1015,13 @@ const PayrollRun = () => {
                         )}
                       </div>
                     </div>
+                  </td>
+
+                  <td className="p-3.5 text-center">
+                    <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold border border-slate-200 inline-flex items-center gap-1">
+                      <Building2 className="w-3 h-3 text-slate-400" />
+                      {emp.department && emp.department !== '-' ? emp.department : 'بدون فرع'}
+                    </span>
                   </td>
 
                   <td className="p-3.5 text-center">
@@ -990,6 +1081,7 @@ const PayrollRun = () => {
                     <button
                       onClick={() => setSelectedPayslip({
                         employee_name: emp.full_name,
+                        department: emp.department && emp.department !== '-' ? emp.department : undefined,
                         month: selectedMonth,
                         year: selectedYear,
                         gross_salary: emp.gross_salary,
@@ -1011,13 +1103,17 @@ const PayrollRun = () => {
                 </tr>
               ))}
 
-              {payrollData.length === 0 && !loading && (
+              {filteredPayrollData.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={8} className="p-10 text-center text-slate-400 space-y-2">
+                  <td colSpan={9} className="p-10 text-center text-slate-400 space-y-2">
                     <Info className="w-8 h-8 text-slate-300 mx-auto" />
-                    <p className="font-bold text-slate-600">لم يتم تجهيز المسير بعد</p>
+                    <p className="font-bold text-slate-600">
+                      {payrollData.length === 0 ? 'لم يتم تجهيز المسير بعد' : 'لا يوجد موظفون في هذا الفرع / القسم'}
+                    </p>
                     <p className="text-[11px] text-slate-400">
-                      حدد الشهر والسنة ثم اضغط على "تجهيز واحتساب المسير" لجلب بيانات الموظفين والبدلات والسلف والغياب آلياً.
+                      {payrollData.length === 0 
+                        ? 'حدد الشهر والسنة ثم اضغط على "تجهيز واحتساب المسير" لجلب بيانات الموظفين والبدلات والسلف والغياب آلياً.'
+                        : 'يمكنك اختيار "كل الفروع والأقسام" لعرض كافة موظفي المسير.'}
                     </p>
                   </td>
                 </tr>

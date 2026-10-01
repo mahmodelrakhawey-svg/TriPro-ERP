@@ -386,7 +386,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setOrganization(effectiveOrgObj);
     setOrganizations([effectiveOrgObj]);
     setCurrentSelectedOrgId(effectiveOfflineOrgId);
-    setAccounts(DEFAULT_OFFLINE_ACCOUNTS);
+    setAccounts(DEFAULT_OFFLINE_ACCOUNTS.map((a: any) => ({ ...a, isGroup: Boolean(a.is_group ?? a.isGroup) })));
     setProducts(DEFAULT_OFFLINE_PRODUCTS);
     setRestaurantTables(DEFAULT_OFFLINE_TABLES);
     setMenuCategories(DEFAULT_OFFLINE_CATEGORIES);
@@ -621,8 +621,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       const loadedAccounts = (accs.data && accs.data.length > 0) ? accs.data.map((acc: any) => ({
         ...acc,
+        isGroup: Boolean(acc.is_group ?? acc.isGroup),
         type: acc.type ? acc.type.toUpperCase() : acc.type
-      })) : DEFAULT_OFFLINE_ACCOUNTS;
+      })) : DEFAULT_OFFLINE_ACCOUNTS.map((acc: any) => ({
+        ...acc,
+        isGroup: Boolean(acc.is_group ?? acc.isGroup)
+      }));
 
       setAccounts(loadedAccounts);
       setEntries(ents.data || []);

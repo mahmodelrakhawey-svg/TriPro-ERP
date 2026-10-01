@@ -24,13 +24,14 @@ const TransferForm = () => {
     description: ''
   });
 
-  // تصفية حسابات النقدية والبنوك (الأصول المتداولة - النقدية وما في حكمها)
+  // تصفية حسابات النقدية والبنوك (الأصول المتداولة - استبعاد الحسابات الرئيسية والتجميعية قطيعاً)
   const treasuryAccounts = useMemo(() => accounts.filter(a => 
-    !a.isGroup && (
+    !(a.isGroup || a.is_group) &&
+    a.code !== '123' && a.code !== '12' && a.code !== '1' && (
       a.code.startsWith('123') || a.code.startsWith('101') || 
       a.name.includes('خزينة') || 
       a.name.includes('نقد') || 
-      a.name.includes('بنك') ||
+      a.name.includes('بنك') || 
       a.name.includes('صندوق')
     )
   ), [accounts]);
