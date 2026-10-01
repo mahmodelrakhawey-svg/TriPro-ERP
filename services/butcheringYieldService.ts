@@ -755,7 +755,7 @@ class ButcheringYieldService {
 
       // 1. محاولة إدخال رأس الأمر في جدول butchering_orders في Supabase مع إعادة المحاولة عند وجود تكرار
       let createdOrder: { id: string } | null = null;
-      let orderErr: any = null;
+      let orderErr: Record<string, any> | null = null;
 
       for (let attempt = 0; attempt < 3; attempt++) {
         try {

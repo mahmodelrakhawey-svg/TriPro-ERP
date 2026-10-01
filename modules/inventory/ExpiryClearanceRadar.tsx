@@ -78,7 +78,7 @@ export default function ExpiryClearanceRadar() {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      const computed: ExpiringProduct[] = (data || []).map((p: any) => {
+      const computed: ExpiringProduct[] = (data || []).map((p: Record<string, any>) => {
         const exp = new Date(p.expiry_date);
         exp.setHours(0, 0, 0, 0);
         const diffTime = exp.getTime() - today.getTime();

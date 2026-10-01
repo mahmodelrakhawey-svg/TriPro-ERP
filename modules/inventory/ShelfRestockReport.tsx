@@ -75,7 +75,7 @@ export default function ShelfRestockReport() {
 
       // 4. إدراج الأصناف المسكنة في الرفوف (WMS)
       if (allocsData && allocsData.length > 0) {
-        allocsData.forEach((alloc: any) => {
+        allocsData.forEach((alloc: Record<string, any>) => {
           const product = prodsMap.get(alloc.product_id);
           const bin = binsMap.get(alloc.bin_id);
           if (product) {
@@ -108,7 +108,7 @@ export default function ShelfRestockReport() {
       }
 
       // 5. إدراج أي منتجات لها موقع رف يدوي سابق
-      (prodsData || []).forEach((p: any) => {
+      (prodsData || []).forEach((p: Record<string, any>) => {
         if (p.shelf_location && !handledProductIds.has(p.id)) {
           const stockQty = Number(p.stock || 0);
           const minStock = Number(p.min_stock_level) || 0;

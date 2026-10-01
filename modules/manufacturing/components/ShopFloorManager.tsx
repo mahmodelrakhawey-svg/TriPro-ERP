@@ -57,7 +57,7 @@ const ShopFloorManager = () => {
     } else {
       setTasks(data || []);
       if (data && data.length > 0) {
-        fetchAttachments(data.map((t: any) => t.step_id));
+        fetchAttachments(data.map((t: Record<string, any>) => t.step_id));
       }
     }
     setLoading(false);
@@ -91,7 +91,7 @@ const ShopFloorManager = () => {
       .eq('step_id', task.step_id);
     
     if (!error && data) {
-      setStepMaterials(data.map((m: any) => ({ ...m, material_name: m.products.name })));
+      setStepMaterials((data.map((m: Record<string, any>) => ({ ...m, material_name: m.products?.name })) as unknown as StepMaterial[]));
     }
     setProcessing(false);
   };

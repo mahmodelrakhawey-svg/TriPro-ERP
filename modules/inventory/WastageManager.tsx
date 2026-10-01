@@ -16,7 +16,7 @@ const WastageManager = () => {
   const [items, setItems] = useState<any[]>([]);
   const [selectedProductId, setSelectedProductId] = useState('');
 
-  const addItem = (product: any) => {
+  const addItem = (product: Record<string, any>) => {
     if (!product) return;
     if (items.some(i => i.productId === product.id)) {
       showToast('الصنف موجود بالفعل في جدول الهوالك', 'warning');
@@ -34,7 +34,7 @@ const WastageManager = () => {
 
   const removeItem = (idx: number) => setItems(items.filter((_, i) => i !== idx));
 
-  const updateItem = (idx: number, field: string, value: any) => {
+  const updateItem = (idx: number, field: string, value: string | number | undefined) => {
     const newItems = [...items];
     newItems[idx][field] = value;
     setItems(newItems);

@@ -233,7 +233,7 @@ const WorkOrderManager = () => {
       fetchCosts(selectedOrder.id);
   };
 
-  const openDetails = (order: any) => {
+  const openDetails = (order: Record<string, any>) => {
       setSelectedOrder(order);
       fetchCosts(order.id);
       fetchOrderSteps(order.id);

@@ -192,7 +192,7 @@ export default function ClinicalPharmacy() {
             <List
               header={<Text strong>الأدوية المطلوبة:</Text>}
               dataSource={selectedPresc.checkedMeds}
-              renderItem={(item: any) => (
+              renderItem={(item: Record<string, any>) => (
                 <List.Item className={`border-l-4 ${item.isValid ? 'border-green-500' : 'border-red-500'}`}>
                   <div className="w-full flex justify-between items-center">
                     <div>

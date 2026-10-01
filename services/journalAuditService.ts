@@ -69,7 +69,7 @@ class JournalAuditService {
       });
 
       if (!rpcErr && Array.isArray(rpcData) && rpcData.length > 0) {
-        const entries: UnbalancedJournalEntrySummary[] = rpcData.map((r: any) => {
+        const entries: UnbalancedJournalEntrySummary[] = rpcData.map((r: Record<string, any>) => {
           const totDr = Number(r.total_debit || 0);
           const totCr = Number(r.total_credit || 0);
           const diff = Number(r.difference !== undefined ? r.difference : (totDr - totCr));

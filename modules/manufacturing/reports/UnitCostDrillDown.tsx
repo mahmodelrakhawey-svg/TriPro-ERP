@@ -229,7 +229,14 @@ export const UnitCostDrillDown: React.FC = () => {
   );
 };
 
-const BreakdownRow = ({ icon, label, value, color }: any) => (
+interface BreakdownRowProps {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  color?: string;
+}
+
+const BreakdownRow = ({ icon, label, value, color }: BreakdownRowProps) => (
   <div className="flex items-center justify-between p-3 rounded-xl bg-white border border-gray-100 shadow-sm hover:border-gray-200 transition-colors">
     <div className="flex items-center gap-3">
       <div className={`p-2 rounded-lg bg-${color}-50`}>{icon}</div>

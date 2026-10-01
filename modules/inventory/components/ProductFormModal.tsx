@@ -494,7 +494,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <div>
                 <SearchableSelect
                     label="المورد المفضل (المشتريات وإعادة الطلب)"
-                    options={(suppliers || []).map((s: any) => ({ 
+                    options={(suppliers || []).map((s: Record<string, any>) => ({ 
                         id: s.id, 
                         name: s.name + (s.contact_person ? ` (${s.contact_person})` : '') + (s.phone ? ` - ${s.phone}` : '')
                     }))}
@@ -846,7 +846,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   </h4>
                   {existingOpenings.length > 0 ? (
                       <div className="space-y-1 text-xs">
-                          {existingOpenings.map((op: any) => (
+                          {existingOpenings.map((op: Record<string, any>) => (
                               <div key={op.id} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-slate-200 text-slate-700">
                                   <span>المستودع: <strong>{op.warehouses?.name || 'غير محدد'}</strong></span>
                                   <span>الكمية: <strong className="text-blue-600">{op.quantity}</strong></span>

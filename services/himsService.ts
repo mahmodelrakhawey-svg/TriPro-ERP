@@ -188,7 +188,7 @@ export const himsService = {
     return data;
   },
 
-  async registerDonor(donor: any) {
+  async registerDonor(donor: Record<string, any>) {
     const { data, error } = await supabase.from('hims_blood_donors').insert([donor]).select().single();
     if (error) throw error;
     return data;

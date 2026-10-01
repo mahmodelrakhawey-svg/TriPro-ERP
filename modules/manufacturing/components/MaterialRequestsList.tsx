@@ -96,7 +96,7 @@ const MaterialRequestsList = () => {
                     <tr className="text-gray-400 font-medium border-b"><th className="pb-2">المادة الخام</th><th className="pb-2 text-center">الكمية المطلوبة</th><th className="pb-2 text-center">الكمية المصروفة</th><th className="pb-2 text-center">الوحدة</th></tr>
                   </thead>
                   <tbody className="divide-y">
-                    {req.mfg_material_request_items?.map((item: any) => (
+                    {req.mfg_material_request_items?.map((item: Record<string, any>) => (
                       <tr key={item.id} className="hover:bg-gray-50">
                         <td className="py-3 font-medium">{item.products?.name}</td>
                         <td className="py-3 text-center">{item.quantity_requested}</td>

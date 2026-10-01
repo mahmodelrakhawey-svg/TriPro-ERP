@@ -46,7 +46,7 @@ const BatchOrderManager = () => {
       showToast('خطأ في جلب الفواتير', 'error');
     } else {
       // Map the RPC response to the SalesInvoice interface
-      const formattedInvoices = (data || []).map((inv: any) => ({
+      const formattedInvoices = (data || []).map((inv: Record<string, any>) => ({
         id: inv.invoice_id, // RPC returns invoice_id
         invoice_number: inv.invoice_num, // RPC returns invoice_num
         customer_name: inv.cust_name, // RPC returns cust_name

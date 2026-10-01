@@ -179,8 +179,8 @@ class UnifiedAccountingEngine {
         cost_center_id: line.costCenterId || costCenterId || null
       }));
 
-      let rpcResult: any = null;
-      let rpcError: any = null;
+      let rpcResult: Record<string, any> | null = null;
+      let rpcError: Record<string, any> | null = null;
 
       if (typeof (supabase as any)?.rpc === 'function') {
         try {

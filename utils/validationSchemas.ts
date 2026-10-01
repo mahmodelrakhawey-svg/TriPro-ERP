@@ -617,8 +617,8 @@ export function sanitizeString(input: string): string {
 /**
  * Sanitize number input
  */
-export function sanitizeNumber(input: any): number {
-  const num = Number(input);
+export function sanitizeNumber(input: unknown): number {
+  const num = Number(input as number | string);
   if (isNaN(num) || !isFinite(num)) {
     throw new Error('رقم غير صالح');
   }

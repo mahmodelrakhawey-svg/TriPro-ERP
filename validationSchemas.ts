@@ -133,7 +133,7 @@ export const ProductionOrderSchema = z.object({
 /**
  * دالة مساعدة لتشغيل التحقق وإرجاع الأخطاء بشكل مبسط للواجهة
  */
-export const validateCostingData = (schema: z.ZodSchema, data: any) => {
+export const validateCostingData = (schema: z.ZodSchema, data: unknown) => {
   try {
     return { success: true, data: schema.parse(data) };
   } catch (error) {

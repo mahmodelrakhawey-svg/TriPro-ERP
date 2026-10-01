@@ -115,9 +115,9 @@ export class WmsLocationService {
             .in('bin_id', binIds);
 
           if (allocs) {
-            allocs.forEach((a: any) => {
+            allocs.forEach((a: Record<string, any>) => {
               if (!allocationsMap[a.bin_id]) allocationsMap[a.bin_id] = [];
-              allocationsMap[a.bin_id].push(a);
+              allocationsMap[a.bin_id].push(a as unknown as BinStockAllocation);
             });
           }
         } catch {}
@@ -227,7 +227,7 @@ export class WmsLocationService {
   static async updateBin(id: string, data: Partial<WarehouseBin>): Promise<{ success: boolean; error?: string }> {
     const validId = this.sanitizeUuid(id);
 
-    const cleanPayload: any = {
+    const cleanPayload: Record<string, any> = {
       updated_at: new Date().toISOString(),
     };
     if (data.bin_code !== undefined) cleanPayload.bin_code = data.bin_code;

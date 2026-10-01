@@ -228,7 +228,7 @@ export default function GoodsReceiptManager() {
       if (!matchedProd) {
         for (const p of products) {
           if (Array.isArray((p as any).unit_barcodes)) {
-            const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === scannedCode);
+            const foundUom = (p as any).unit_barcodes.find((ub: Record<string, any>) => ub.barcode && ub.barcode.trim().toLowerCase() === scannedCode);
             if (foundUom) {
               matchedProd = p;
               matchedUomName = foundUom.uom_name;

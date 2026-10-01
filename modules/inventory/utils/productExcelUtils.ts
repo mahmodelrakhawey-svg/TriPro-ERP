@@ -882,7 +882,7 @@ export const updateProductPricesFromExcel = async ({
         const unmatched: Array<{ sku?: string; barcode?: string; name?: string }> = [];
 
         for (const rawRow of data) {
-          const row: any = {};
+          const row: Record<string, any> = {};
           Object.keys(rawRow).forEach(k => {
             row[k.trim()] = rawRow[k];
           });

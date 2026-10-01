@@ -374,7 +374,7 @@ export class RfqService {
       if (winningBid.payment_terms) extraNotesParts.push(`شروط السداد: ${winningBid.payment_terms}`);
       const extraNotes = extraNotesParts.length > 0 ? ` (${extraNotesParts.join(' | ')})` : '';
 
-      const poPayload: any = {
+      const poPayload: Record<string, any> = {
         organization_id: validOrgId,
         po_number: poNumber,
         order_number: poNumber,
@@ -524,7 +524,7 @@ export class RfqService {
   /**
    * إنشاء رسالة إشعار الترسية وتأكيد أمر الشراء للمورد الفائز
    */
-  static buildAwardWhatsAppMessage(rfq: any, bid: VendorQuotationBid, poNumber: string): string {
+  static buildAwardWhatsAppMessage(rfq: PurchaseRfq | Record<string, any> | null, bid: VendorQuotationBid, poNumber: string): string {
     const totalFormatted = Number(bid.total_amount).toLocaleString('ar-EG', { minimumFractionDigits: 2 });
     let msg = `🎉 *إشعار ترسية وأمر شراء رسمي (Purchase Order)*\n`;
     msg += `━━━━━━━━━━━━━━━━━━━━━\n`;

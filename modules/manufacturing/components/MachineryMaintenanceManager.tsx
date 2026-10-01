@@ -102,10 +102,10 @@ export default function MachineryMaintenanceManager() {
         logger.warn('mfg_maintenance_orders table notice:', error.message);
         setOrders([]);
       } else {
-        setOrders((data || []).map((d: any) => ({
+        setOrders(((data || []).map((d: Record<string, any>) => ({
           ...d,
           spare_parts_used: Array.isArray(d.spare_parts_used) ? d.spare_parts_used : []
-        })));
+        }))) as unknown as MaintenanceOrder[]);
       }
     } catch (err) {
       logger.error(err);

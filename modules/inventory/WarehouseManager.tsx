@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿import React, { useState } from 'react';
+﻿﻿﻿﻿import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Warehouse, Plus, MapPin, Trash2, Edit2, Save, X, User, Phone, Package, DollarSign } from 'lucide-react';
@@ -11,7 +11,7 @@ const WarehouseManager = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ name: '', location: '', manager: '', phone: '' });
 
-  const handleOpenModal = (warehouse?: any) => {
+  const handleOpenModal = (warehouse?: Record<string, any> | null) => {
     if (warehouse) {
       setEditingId(warehouse.id);
       setFormData({ name: warehouse.name, location: warehouse.location || '', manager: warehouse.manager || '', phone: warehouse.phone || '' });

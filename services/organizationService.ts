@@ -84,7 +84,7 @@ export async function deleteOrganizationSafe({
 
         // استخراج معرفات الأصناف التابعة للمنظمة لفك أي قيود معلقة عليها
         const { data: orgProducts } = await supabase.from('products').select('id').eq('organization_id', orgId);
-        const prodIds = (orgProducts || []).map((p: any) => p.id).filter(Boolean);
+        const prodIds = (orgProducts || []).map((p: Record<string, any>) => p.id).filter(Boolean);
 
         // تفكيك موديول التشفية والذبائح
         try {

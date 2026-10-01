@@ -1,4 +1,4 @@
-﻿﻿﻿import { logger } from '../../utils/logger';
+﻿﻿import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -139,7 +139,7 @@ const InventoryCountList = () => {
     fetchCounts();
   }, [selectedFiscalYear]);
 
-  const handleViewDetails = async (count: any) => {
+  const handleViewDetails = async (count: Record<string, any>) => {
     setSelectedCount(count);
     setIsModalOpen(true);
     setIsItemsLoading(true);

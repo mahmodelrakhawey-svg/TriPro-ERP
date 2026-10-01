@@ -477,7 +477,15 @@ export const CostClosingDashboard: React.FC = () => {
   ); // نهاية الـ return
 };
 
-const StatCard = ({ title, value, icon, unit = 'ج.م', isCurrency = true }: any) => (
+interface StatCardProps {
+  title: string;
+  value: number | string;
+  icon?: React.ReactNode;
+  unit?: string;
+  isCurrency?: boolean;
+}
+
+const StatCard = ({ title, value, icon, unit = 'ج.م', isCurrency = true }: StatCardProps) => (
   <div className="bg-white p-6 rounded-xl shadow-sm border flex items-center gap-4">
     <div className="p-3 bg-gray-50 rounded-lg">{icon}</div>
     <div>

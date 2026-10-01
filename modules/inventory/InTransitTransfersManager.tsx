@@ -165,7 +165,7 @@ export const InTransitTransfersManager: React.FC = () => {
     ]);
   };
 
-  const handleItemChange = (index: number, field: keyof InTransitTransferItem, val: any) => {
+  const handleItemChange = (index: number, field: keyof InTransitTransferItem, val: string | number | undefined) => {
     const newItems = [...items];
     const item = { ...newItems[index], [field]: val };
     if (field === 'product_id') {

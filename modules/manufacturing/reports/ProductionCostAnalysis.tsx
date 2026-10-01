@@ -51,7 +51,7 @@ const ProductionCostAnalysis = () => {
       }
 
       // تحويل البيانات من snake_case (SQL) إلى camelCase (JS)
-      const analysisData = (data || []).map((item: any) => ({
+      const analysisData = (data || []).map((item: Record<string, any>) => ({
           id: item.id,
           orderNumber: item.order_number,
           productName: item.product_name,

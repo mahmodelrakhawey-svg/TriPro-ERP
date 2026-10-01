@@ -124,7 +124,7 @@ class KitchenStationService {
   ): Promise<void> {
     try {
       const now = new Date().toISOString();
-      const updates: any = { status };
+      const updates: Record<string, any> = { status };
       if (status === 'PREPARING') updates.started_at = now;
       if (status === 'READY') updates.ready_at = now;
       if (status === 'SERVED') updates.served_at = now;

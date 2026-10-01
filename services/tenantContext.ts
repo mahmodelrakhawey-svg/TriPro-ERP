@@ -143,7 +143,7 @@ export function useActiveOrgId(explicitOrgId?: string | null) {
   useEffect(() => {
     refreshOrgId();
 
-    const handleOrgChange = (e: any) => {
+    const handleOrgChange = (e: CustomEvent | Record<string, any>) => {
       setOrgIdState(e.detail?.orgId || null);
     };
 

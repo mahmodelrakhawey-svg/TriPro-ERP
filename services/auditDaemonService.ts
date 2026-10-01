@@ -51,8 +51,8 @@ class AuditDaemonService {
       });
 
       if (!error && data?.success && Array.isArray(data.checks)) {
-        const passedCount = data.checks.filter((c: any) => c.status === 'passed').length;
-        const failedCount = data.checks.filter((c: any) => c.status === 'failed' || c.status === 'warning').length;
+        const passedCount = data.checks.filter((c: Record<string, any>) => c.status === 'passed').length;
+        const failedCount = data.checks.filter((c: Record<string, any>) => c.status === 'failed' || c.status === 'warning').length;
         return {
           organizationId: orgId,
           timestamp: data.timestamp || new Date().toISOString(),

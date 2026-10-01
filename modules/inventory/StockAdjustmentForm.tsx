@@ -1,4 +1,4 @@
-﻿import { logger } from '../../utils/logger';
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
@@ -46,7 +46,7 @@ const StockAdjustmentForm = () => {
     }
   }, [location.state, products]);
 
-  const handleAddItem = (prodToAdd?: any) => {
+  const handleAddItem = (prodToAdd?: Record<string, any> | null) => {
     const targetId = prodToAdd?.id || selectedProductId;
     if (!targetId) return;
     const product = prodToAdd || products.find(p => p.id === targetId);

@@ -72,7 +72,7 @@ const DailyReportForm: React.FC<DailyReportFormProps> = ({ projectId, projectNam
     setImageUrls(prev => prev.filter((_, i) => i !== index));
   };
 
-  const onSubmit = async (data: any) => {
+  const onSubmit = async (data: Record<string, any>) => {
     setIsSubmitting(true);
     try {
       const { error } = await supabase

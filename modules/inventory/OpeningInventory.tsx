@@ -44,7 +44,7 @@ export default function OpeningInventory() {
     }
   };
 
-  const handleChange = (id: string, field: keyof NewProduct, value: any) => {
+  const handleChange = (id: string, field: keyof NewProduct, value: string | number | undefined) => {
     setItems(items.map(i => i.id === id ? { ...i, [field]: value } : i));
   };
 

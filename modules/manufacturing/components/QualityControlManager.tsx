@@ -38,7 +38,7 @@ const QualityControlManager = () => {
     if (error) {
       showToast('خطأ في جلب بيانات الجودة', 'error');
     } else {
-      const formatted = (data || []).filter(d => d.mfg_production_orders && d.mfg_routing_steps).map((d: any) => ({
+      const formatted = (data || []).filter(d => d.mfg_production_orders && d.mfg_routing_steps).map((d: Record<string, any>) => ({
         progress_id: d.id,
         order_number: d.mfg_production_orders?.order_number || 'N/A',
         product_name: d.mfg_production_orders?.products?.name || 'منتج غير معروف',

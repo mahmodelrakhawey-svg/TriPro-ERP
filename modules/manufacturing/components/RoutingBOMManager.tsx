@@ -1345,10 +1345,10 @@ const RoutingBOMManager = () => {
                 🎂 المنتجات النهائية التامة (اضغط للمراجعة الفورية للمسار والمكونات):
               </span>
               <div className="flex flex-wrap gap-2 mt-1">
-                {productOptions.filter((p: any) => !p.isIntermediate).length === 0 ? (
+                {productOptions.filter((p: Record<string, any>) => !p.isIntermediate).length === 0 ? (
                   <p className="text-xs text-slate-400 italic py-1">لا توجد منتجات تامة مسجلة حالياً.</p>
                 ) : (
-                  productOptions.filter((p: any) => !p.isIntermediate).map(p => (
+                  productOptions.filter((p: Record<string, any>) => !p.isIntermediate).map(p => (
                     <button
                       key={p.id}
                       type="button"

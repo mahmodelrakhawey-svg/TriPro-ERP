@@ -80,7 +80,7 @@ const ItemProfitReport = () => {
       // 2. تجميع البيانات
       const productMap: Record<string, ItemProfit> = {};
 
-      items?.forEach((item: any) => {
+      items?.forEach((item: Record<string, any>) => {
         if (!item.product_id || !item.products) return;
 
         if (!productMap[item.product_id]) {
@@ -108,7 +108,7 @@ const ItemProfitReport = () => {
       });
       
       // دمج بيانات المطعم
-      restItems?.forEach((item: any) => {
+      restItems?.forEach((item: Record<string, any>) => {
         if (!item.product_id || !item.products) return;
 
         if (!productMap[item.product_id]) {

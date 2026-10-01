@@ -113,7 +113,7 @@ export default function ProductionGanttScheduler() {
 
       let currentLanes: WorkCenterLane[] = [];
       if (wcData && wcData.length > 0) {
-        currentLanes = wcData.map((wc: any, idx: number) => ({
+        currentLanes = wcData.map((wc: Record<string, any>, idx: number) => ({
           id: wc.id,
           name: wc.name,
           capacity_hours_per_day: 16,
@@ -159,7 +159,7 @@ export default function ProductionGanttScheduler() {
       }
 
       if (mfgData && mfgData.length > 0) {
-        const mapped: GanttOrder[] = mfgData.map((d: any, index: number) => {
+        const mapped: GanttOrder[] = mfgData.map((d: Record<string, any>, index: number) => {
           const assignedCenter = d.mfg_work_centers?.name || 
                                  currentLanes.find(l => l.id === d.work_center_id)?.name || 
                                  currentLanes[0]?.name || 'مركز العمل الرئيسي';

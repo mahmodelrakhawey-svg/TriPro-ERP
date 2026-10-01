@@ -18,7 +18,7 @@ import { supabase } from '../supabaseClient';
  * @param currentUser — كائن المستخدم من useAccounting() Context (اختياري)
  * @returns org_id string أو null إذا تعذر الاسترجاع
  */
-export async function getOrgId(currentUser?: any): Promise<string | null> {
+export async function getOrgId(currentUser?: Record<string, any> | null): Promise<string | null> {
   // ── الطبقة الأولى: Context (محلي — صفر شبكة) ──────────────────
   const fromContext: string | undefined =
     currentUser?.organization_id ||
@@ -64,7 +64,7 @@ export async function getOrgId(currentUser?: any): Promise<string | null> {
 /**
  * يحدد نوع خطأ الشبكة ويرجع رسالة مناسبة للمستخدم.
  */
-export function isNetworkError(err: any): boolean {
+export function isNetworkError(err: { message?: string; name?: string } | Record<string, any> | null | undefined): boolean {
   if (!err) return false;
   const msg = (err.message || '').toLowerCase();
   return (
