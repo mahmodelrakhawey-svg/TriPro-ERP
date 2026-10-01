@@ -10,6 +10,8 @@
 
 import { useAccounting } from '../AccountingContext';
 
+type DynamicParam = any;
+
 export interface GeneralLedgerDomainState {
   entries: any[];
   accounts: any[];
@@ -18,10 +20,10 @@ export interface GeneralLedgerDomainState {
   fiscalYearRange: { startDate: string; endDate: string };
   selectedFiscalYear: number;
   setSelectedFiscalYear: (year: number) => void;
-  addEntry: (entry: any) => Promise<void>;
+  addEntry: (entry: DynamicParam) => Promise<void>;
   fetchEntriesPaged: (page: number, pageSize: number) => Promise<{ data: any[]; count: number }>;
   getAccountBalanceInPeriod: (id: string, start: string, end: string) => Promise<number>;
-  saveBudget: (budget: any) => Promise<void>;
+  saveBudget: (budget: DynamicParam) => Promise<void>;
   exportJournalToCSV: () => void;
   closeFinancialYear: (year: number, date: string) => Promise<boolean>;
   reopenFinancialYear: (year: number) => Promise<boolean>;

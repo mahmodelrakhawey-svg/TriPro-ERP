@@ -172,8 +172,8 @@ export const exportJournalToExcel = async ({
       return;
     }
 
-    const userMap = new Map((users || []).map((u: any) => [u.id, u.name]));
-    const accountMap = new Map((accounts || []).map((a: any) => [a.id, a]));
+    const userMap = new Map((users || []).map((u: Record<string, any>) => [u.id, u.name]));
+    const accountMap = new Map((accounts || []).map((a: Record<string, any>) => [a.id, a]));
 
     const flatData: any[] = [];
     entries.forEach((entry: Record<string, any>) => {

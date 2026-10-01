@@ -63,7 +63,8 @@ const HighlightedText: React.FC<{ text: string; query: string }> = ({ text, quer
   }
 };
 
-export const getProductWarehouseStock = (product: any, warehouseId?: string): number => {
+export const getProductWarehouseStock = (product?: Product | Record<string, any> | null, warehouseId?: string): number => {
+  if (!product) return 0;
   if (!product) return 0;
   if (!warehouseId) return product.stock ?? 0;
   const stockMap = product.warehouse_stock || product.warehouseStock;
@@ -129,7 +130,7 @@ export const ProductSearchSelect: React.FC<ProductSearchSelectProps> = ({
       const normBarcode2 = normalizeArabic((p as any).barcode2 || '');
       
       const normUnitBarcodes = Array.isArray((p as any).unit_barcodes)
-        ? (p as any).unit_barcodes.map((ub: any) => normalizeArabic(ub?.barcode || '')).filter(Boolean).join(' ')
+        ? (p as Record<string, any>).unit_barcodes.map((ub: Record<string, any>) => normalizeArabic(ub?.barcode || '')).filter(Boolean).join(' ')
         : '';
 
       const pType = String((p as any).product_type || p.item_type || '').toUpperCase();

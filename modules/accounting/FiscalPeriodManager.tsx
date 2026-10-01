@@ -71,13 +71,13 @@ export const FiscalPeriodManager: React.FC<{ onBack?: () => void }> = ({ onBack 
         .gte('transaction_date', `${selectedYear}-01-01`)
         .lte('transaction_date', `${selectedYear}-12-31`);
 
-      const enrichedPeriods: AccountingPeriod[] = (data || []).map((p: any) => {
+      const enrichedPeriods = (data || []).map((p: Record<string, any>) => {
         const periodEntries = (entries || []).filter(e => 
           e.transaction_date >= p.start_date && e.transaction_date <= p.end_date
         );
         let totalDebit = 0;
-        periodEntries.forEach((e: any) => {
-          e.journal_lines?.forEach((l: any) => {
+        periodEntries.forEach((e: Record<string, any>) => {
+          e.journal_lines?.forEach((l: Record<string, any>) => {
             totalDebit += Number(l.debit || 0);
           });
         });
@@ -87,7 +87,7 @@ export const FiscalPeriodManager: React.FC<{ onBack?: () => void }> = ({ onBack 
           entries_count: periodEntries.length,
           total_debit: totalDebit
         };
-      });
+      }) as AccountingPeriod[];
 
       setPeriods(enrichedPeriods);
     } catch (err) {

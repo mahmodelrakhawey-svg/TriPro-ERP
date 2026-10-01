@@ -10,6 +10,8 @@
 
 import { useAccounting } from '../AccountingContext';
 
+type DynamicParam = any;
+
 export interface SettingsDomainState {
   organization: any;
   currentUser: any;
@@ -19,9 +21,9 @@ export interface SettingsDomainState {
   isLoading: boolean;
   can: (module: string, action: string) => boolean;
   getSystemAccount: (key: string) => any;
-  addEntry: (entry: any) => Promise<void>;
-  addAccount: (acc: any) => Promise<any>;
-  updateAccount: (id: string, updates: any) => Promise<void>;
+  addEntry: (entry: DynamicParam) => Promise<void>;
+  addAccount: (acc: DynamicParam) => Promise<any>;
+  updateAccount: (id: string, updates: DynamicParam) => Promise<void>;
   deleteAccount: (id: string, reason?: string) => Promise<{ success: boolean; message?: string }>;
 }
 

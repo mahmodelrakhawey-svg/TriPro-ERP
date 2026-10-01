@@ -57,8 +57,8 @@ export default function JournalEntriesExport() {
       // تسطيح البيانات (Flattening) لتناسب ملف CSV
       const flatData: any[] = [];
       
-      data.forEach((entry: any) => {
-        entry.journal_lines.forEach((line: any) => {
+      data.forEach((entry: Record<string, any>) => {
+        entry.journal_lines.forEach((line: Record<string, any>) => {
           flatData.push({
             'التاريخ': entry.transaction_date,
             'المرجع': entry.reference,

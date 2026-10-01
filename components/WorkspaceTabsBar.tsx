@@ -1,3 +1,4 @@
+type DynamicIcon = any;
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { secureStorage } from '../utils/securityMiddleware';
@@ -15,7 +16,7 @@ export interface WorkspaceTab {
 }
 
 // 🗺️ خريطة العناوين والأيقونات الشاملة للمسارات
-const ROUTE_INFO: Record<string, { title: string; icon: any }> = {
+const ROUTE_INFO: Record<string, { title: string; icon: DynamicIcon }> = {
     '/': { title: 'الرئيسية', icon: Home },
     '/sales-invoice': { title: 'فاتورة مبيعات', icon: ShoppingBag },
     '/invoices-list': { title: 'سجل المبيعات', icon: FileText },
@@ -93,7 +94,7 @@ export const WorkspaceTabsBar: React.FC = () => {
     });
 
     useEffect(() => {
-        const handleToggle = (e: any) => {
+        const handleToggle = (e: React.MouseEvent | Record<string, any>) => {
             const val = e.detail !== undefined ? e.detail : (secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled') !== false);
             setIsEnabled(val);
         };

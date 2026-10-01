@@ -10,10 +10,12 @@
 
 import { useAccounting } from '../AccountingContext';
 
+type DynamicParam = any;
+
 export interface CustomerDomainState {
   customers: any[];
-  addCustomer: (customer: any) => Promise<any>;
-  updateCustomer: (id: string, updates: any) => Promise<void>;
+  addCustomer: (customer: DynamicParam) => Promise<any>;
+  updateCustomer: (id: string, updates: DynamicParam) => Promise<void>;
   deleteCustomer: (id: string, reason?: string) => Promise<void>;
 }
 

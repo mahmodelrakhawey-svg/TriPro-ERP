@@ -99,7 +99,7 @@ const AccountList = () => {
     setIsModalOpen(true);
   };
 
-  const handleEdit = (account: any) => {
+  const handleEdit = (account: Record<string, any>) => {
     if (PROTECTED_SYSTEM_ACCOUNT_CODES.includes(account.code)) {
         if (!window.confirm(`تنبيه: الحساب "${account.name}" هو حساب نظام أساسي.\nتعديله قد يؤثر على التقارير الآلية.\n\nهل أنت متأكد من رغبتك في التعديل؟`)) {
             return;
@@ -242,7 +242,7 @@ const AccountList = () => {
       if (error) throw error;
 
       // تحويل مصفوفة المهام المنفذة إلى نص منسق لعرضه في الرسالة دون أخطاء
-      const summary = Array.isArray(data) ? data.map((item: any) => item.task_name).join('، ') : 'تمت العملية';
+      const summary = Array.isArray(data) ? data.map((item: Record<string, any>) => item.task_name).join('، ') : 'تمت العملية';
       showToast(`تمت عملية الإصلاح بنجاح ✅: ${summary}`, 'success');
       refreshData();
 

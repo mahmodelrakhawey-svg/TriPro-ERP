@@ -125,7 +125,7 @@ const JournalEntryView = () => {
             status: data.status,
             created_at: data.created_at,
             is_posted: data.status === 'posted',
-            lines: data.journal_lines.map((line: any) => ({
+            lines: data.journal_lines.map((line: Record<string, any>) => ({
                 accountId: line.account_id,
                 accountCode: line.accounts?.code,
                 accountName: line.accounts?.name,
@@ -293,7 +293,7 @@ const JournalEntryView = () => {
               <Paperclip size={16} /> المرفقات ({entry.journal_attachments.length})
             </h4>
             <div className="flex flex-wrap gap-3">
-              {entry.journal_attachments.map((att: any) => (
+              {entry.journal_attachments.map((att: Record<string, any>) => (
                 <a
                   key={att.id}
                   href={`${supabaseUrl}/storage/v1/object/public/documents/${att.file_path}`}

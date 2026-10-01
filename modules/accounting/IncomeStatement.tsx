@@ -213,11 +213,11 @@ const IncomeStatement: React.FC = () => {
     
     if (rpcSummary && rpcSummary.length > 0) {
       // 🚀 تعبئة فورية من إحصائيات الخادم المجمعة فائقة السرعة
-      rpcSummary.forEach((row: any) => {
+      rpcSummary.forEach((row: Record<string, any>) => {
         accountBalances[row.account_id] = Number(row.net_movement) || 0;
       });
       if (priorRpcSummary && priorRpcSummary.length > 0) {
-        priorRpcSummary.forEach((row: any) => {
+        priorRpcSummary.forEach((row: Record<string, any>) => {
           priorAccountBalances[row.account_id] = Number(row.net_movement) || 0;
         });
       }

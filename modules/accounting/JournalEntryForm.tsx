@@ -70,7 +70,7 @@ const JournalEntryForm = () => {
       setDuplicatedFromRef(entryToDuplicate.reference || 'قيد سابق');
       
       const linesData = entryToDuplicate.lines || [];
-      const formattedLines = linesData.map((line: any) => ({
+      const formattedLines = linesData.map((line: Record<string, any>) => ({
         account_id: line.accountId || line.account_id || '',
         debit: line.debit || 0,
         credit: line.credit || 0,
@@ -140,7 +140,7 @@ const JournalEntryForm = () => {
     setDuplicatedFromRef(ent.reference || 'قيد سابق');
 
     const linesData = ent.journal_lines || [];
-    const formattedLines = linesData.map((line: any) => ({
+    const formattedLines = linesData.map((line: Record<string, any>) => ({
       account_id: line.account_id || '',
       debit: line.debit || 0,
       credit: line.credit || 0,

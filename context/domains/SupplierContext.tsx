@@ -10,11 +10,13 @@
 
 import { useAccounting } from '../AccountingContext';
 
+type DynamicParam = any;
+
 export interface SupplierDomainState {
   suppliers: any[];
   purchaseInvoices: any[];
-  addSupplier: (supplier: any) => Promise<any>;
-  updateSupplier: (id: string, updates: any) => Promise<void>;
+  addSupplier: (supplier: DynamicParam) => Promise<any>;
+  updateSupplier: (id: string, updates: DynamicParam) => Promise<void>;
   deleteSupplier: (id: string, reason?: string) => Promise<void>;
   approvePurchaseInvoice: (id: string, orgId?: string, warehouseId?: string) => Promise<void>;
   unpostPurchaseInvoice: (id: string, orgId?: string) => Promise<boolean>;

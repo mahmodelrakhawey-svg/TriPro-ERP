@@ -7,7 +7,8 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 )
 
-export default async function handler(req: any, res: any) {
+type DynamicParam = any;
+export default async function handler(req: DynamicParam, res: DynamicParam) {
   // تأمين الـ API: السماح فقط بطلبات POST
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
@@ -70,7 +71,7 @@ export default async function handler(req: any, res: any) {
     });
 
     if (coaError) {
-      console.error("COA initialization failed:", coaError);
+      if (process.env.NODE_ENV !== 'production') console.error("COA initialization failed:", coaError);
       // نستمر في العملية ولكن نسجل الخطأ للمتابعة
     }
 

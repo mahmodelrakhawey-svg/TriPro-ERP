@@ -77,7 +77,7 @@ export function useForm<T extends Record<string, any>>(
    * Validate single field
    */
   const validateField = useCallback(
-    async (fieldName: string, value: any): Promise<boolean> => {
+    async (fieldName: string, value: unknown): Promise<boolean> => {
       if (!validationSchema) return true;
 
       try {
@@ -184,7 +184,7 @@ export function useForm<T extends Record<string, any>>(
   /**
    * Set field value programmatically
    */
-  const setFieldValue = useCallback((fieldName: string, value: any) => {
+  const setFieldValue = useCallback((fieldName: string, value: unknown) => {
     setFormState((prev) => ({
       ...prev,
       values: { ...prev.values, [fieldName]: value },
@@ -289,7 +289,7 @@ export function FormField({
 export function withFormValidation<P extends object>(
   Component: React.ComponentType<P & { form: ReturnType<typeof useForm> }>,
   validationSchema: ZodSchema,
-  initialValues: any
+  initialValues: Record<string, any>
 ) {
   return function ValidatedComponent(props: P) {
     const form = useForm(initialValues, validationSchema);

@@ -213,7 +213,7 @@ const BalanceSheet: React.FC = () => {
 
     if (rpcSummary && rpcSummary.length > 0) {
       // 🚀 تعبئة فورية من إحصائيات الخادم المجمعة فائقة السرعة
-      rpcSummary.forEach((row: any) => {
+      rpcSummary.forEach((row: Record<string, any>) => {
         const accId = row.account_id;
         const close = Number(row.closing_balance) || 0;
         accountBalances[accId] = close;
@@ -235,7 +235,7 @@ const BalanceSheet: React.FC = () => {
       });
 
       if (priorRpcSummary && priorRpcSummary.length > 0) {
-        priorRpcSummary.forEach((row: any) => {
+        priorRpcSummary.forEach((row: Record<string, any>) => {
           const accId = row.account_id;
           const close = Number(row.closing_balance) || 0;
           priorAccountBalances[accId] = close;

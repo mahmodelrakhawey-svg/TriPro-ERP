@@ -57,7 +57,7 @@ const SmartRiskAlerts = () => {
                 </span>
             </div>
             <div className="space-y-3">
-                {dueCheques.slice(0, 3).map((cheque: any) => (
+                {dueCheques.slice(0, 3).map((cheque: Record<string, any>) => (
                 <div key={cheque.id} className="bg-white p-3 rounded-xl border border-amber-100 flex justify-between items-center shadow-sm">
                     <div className="flex items-center gap-3">
                     <div className={`p-2 rounded-lg ${cheque.type === 'incoming' ? 'bg-emerald-50 text-emerald-500' : 'bg-red-50 text-red-500'}`}>
@@ -104,7 +104,7 @@ const SmartRiskAlerts = () => {
       </div>
       
       <div className="space-y-3">
-        {lowStockItems.slice(0, 3).map((item: any) => (
+        {lowStockItems.slice(0, 3).map((item: Record<string, any>) => (
           <div key={item.id} className="bg-white p-3 rounded-xl border border-red-100 flex justify-between items-center shadow-sm">
             <div className="flex items-center gap-3">
               <div className="bg-red-50 p-2 rounded-lg text-red-500"><PackageX size={16} /></div>

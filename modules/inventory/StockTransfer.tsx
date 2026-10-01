@@ -513,7 +513,7 @@ const StockTransfer = () => {
 
   // التنفيذ الفعلي لإضافة البند للجدول
   const executeAddItem = (
-    product: Record<string, any>, 
+    product: DynamicParam, 
     qtyVal: number, 
     uName: string, 
     convRatio: number, 
