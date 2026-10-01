@@ -9,7 +9,7 @@ export const isValidUUID = (str: unknown): boolean => {
 };
 
 export const isValidNonNilUUID = (str: unknown): boolean => {
-  return isValidUUID(str) && str.trim() !== '00000000-0000-0000-0000-000000000000';
+  return typeof str === 'string' && isValidUUID(str) && str.trim() !== '00000000-0000-0000-0000-000000000000';
 };
 
 export interface QueuedOrder {

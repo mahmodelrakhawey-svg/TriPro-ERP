@@ -450,7 +450,7 @@ const GeneralJournal: React.FC = () => {
       ] as any[];
     }
 
-    return serverEntries.map((entry: Record<string, any>) => ({
+    return (serverEntries as Record<string, any>[]).map((entry) => ({
       id: entry.id,
       date: entry.transaction_date || entry.created_at?.split('T')[0],
       description: entry.description,
