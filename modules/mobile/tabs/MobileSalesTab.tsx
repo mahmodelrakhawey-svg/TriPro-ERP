@@ -1,3 +1,4 @@
+import { ToastType } from '../../../context/ToastContext';
 import React from 'react';
 import { 
   Truck, 
@@ -42,10 +43,10 @@ interface MobileSalesTabProps {
   loadingCatalog: boolean;
   productSearch: string;
   setProductSearch: (query: string) => void;
-  getProductStockInWarehouse: (product: any, warehouseId: string) => number;
+  getProductStockInWarehouse: (product: Record<string, any>, warehouseId: string) => number;
   cart: MobileCartItem[];
   setCart: React.Dispatch<React.SetStateAction<MobileCartItem[]>>;
-  addToCart: (product: any) => void;
+  addToCart: (product: Record<string, any>) => void;
   updateCartQty: (productId: string, delta: number) => void;
   cartSubtotal: number;
   cartTax: number;
@@ -60,7 +61,7 @@ interface MobileSalesTabProps {
   salesVideoRef: React.RefObject<HTMLVideoElement>;
   startSalesCamera: () => void;
   stopSalesCamera: () => void;
-  showToast: (msg: string, type?: any) => void;
+  showToast: (msg: string, type?: ToastType) => void;
 }
 
 export const MobileSalesTab: React.FC<MobileSalesTabProps> = ({

@@ -42,7 +42,7 @@ const AdminTestDashboard: React.FC = () => {
     try {
       const { data, error } = await supabase.rpc('get_admin_test_summary', { p_limit: 50 });
       if (!error && Array.isArray(data)) {
-        const normalized: TestResult[] = data.map((item: any) => {
+        const normalized: TestResult[] = data.map((item: Record<string, any>) => {
           const isFailed = item.result === 'FAILED';
           const isInfo = item.result === 'INFO';
           return {
@@ -64,7 +64,7 @@ const AdminTestDashboard: React.FC = () => {
           .limit(30);
 
         if (secLogs && secLogs.length > 0) {
-          const normalized: TestResult[] = secLogs.map((s: any) => ({
+          const normalized: TestResult[] = secLogs.map((s: Record<string, any>) => ({
             id: s.id,
             test_date: s.created_at,
             test_name: s.event_type || 'إجراء أمني',
@@ -262,8 +262,8 @@ const AdminTestDashboard: React.FC = () => {
 };
 
 /* مكون بطاقة الإحصائيات الفرعي */
-const StatCard = ({ title, value, icon, color }: any) => {
-  const colorMap: any = {
+const StatCard = ({ title, value, icon, color }: { title: string; value: string | number; icon: React.ReactElement; color: string }) => {
+  const colorMap: Record<string, string> = {
     indigo: 'text-indigo-600 bg-indigo-50 border-indigo-100',
     green: 'text-green-600 bg-green-50 border-green-100',
     red: 'text-red-600 bg-red-50 border-red-100',

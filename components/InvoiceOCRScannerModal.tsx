@@ -102,7 +102,7 @@ export const InvoiceOCRScannerModal: React.FC<InvoiceOCRScannerModalProps> = ({
             }
 
             // المطابقة الذكية مع الأصناف
-            const matchedItems = (result.items || []).map((extractedItem: any) => {
+            const matchedItems = (result.items || []).map((extractedItem: Record<string, any>) => {
                 const itemName = (extractedItem.productName || '').trim().toLowerCase();
                 
                 // البحث بالاسم أو الباركود
@@ -158,7 +158,7 @@ export const InvoiceOCRScannerModal: React.FC<InvoiceOCRScannerModalProps> = ({
             invoiceNumber: parsedData.invoiceNumber || undefined,
             date: parsedData.invoiceDate || undefined,
             notes: parsedData.notes || 'تم استيراد الأصناف عبر المسح الذكي بالذكاء الاصطناعي (AI OCR)',
-            items: parsedData.items.map((i: any) => ({
+            items: parsedData.items.map((i: Record<string, any>) => ({
                 productId: i.productId,
                 productName: i.productName,
                 productSku: i.productSku,
@@ -359,7 +359,7 @@ export const InvoiceOCRScannerModal: React.FC<InvoiceOCRScannerModalProps> = ({
                                     <span className="text-[11px] text-slate-400 font-normal">تمت مطابقة الأصناف مع دليلك تلقائياً</span>
                                 </div>
                                 <div className="max-h-60 overflow-y-auto divide-y divide-slate-100 text-xs">
-                                    {parsedData.items?.map((item: any, idx: number) => (
+                                    {parsedData.items?.map((item: Record<string, any>, idx: number) => (
                                         <div key={idx} className="p-3 flex items-center justify-between gap-3 hover:bg-slate-50">
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex items-center gap-2">

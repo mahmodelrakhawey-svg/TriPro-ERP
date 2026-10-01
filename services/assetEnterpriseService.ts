@@ -95,7 +95,7 @@ class AssetEnterpriseService {
       const { data, error } = await query;
       if (error || !data || data.length === 0) return local;
 
-      const formatted: EnterpriseAsset[] = data.map((d: any) => {
+      const formatted: EnterpriseAsset[] = data.map((d: Record<string, any>) => {
         const cost = Number(d.purchase_cost || d.cost || 0);
         const accum = Number(d.accumulated_depreciation || 0);
         return {
@@ -195,7 +195,7 @@ class AssetEnterpriseService {
     // 1. تحديث بيانات الأصل في قاعدة البيانات
     try {
       if (isValidUUID(asset.id)) {
-        const updatePayload: any = {
+        const updatePayload: Record<string, any> = {
           last_audit_date: auditTimestamp,
           last_audit_status: params.auditStatus,
           asset_condition: params.condition || asset.asset_condition
@@ -267,7 +267,7 @@ class AssetEnterpriseService {
       const { data, error } = await query;
       if (error || !data || data.length === 0) return local;
 
-      const remoteIds = new Set(data.map((d: any) => d.id));
+      const remoteIds = new Set(data.map((d: Record<string, any>) => d.id));
       const missing = local.filter(l => !remoteIds.has(l.id));
       const merged = [...(data as AssetTransferRecord[]), ...missing];
       secureStorage.setItem(LOCAL_TRANSFERS_KEY, merged);

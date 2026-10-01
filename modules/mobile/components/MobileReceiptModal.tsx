@@ -24,7 +24,7 @@ export const MobileReceiptModal: React.FC<MobileReceiptModalProps> = ({
 
   const handleShareWhatsApp = () => {
     const itemsText = (invoice.items || [])
-      .map((it: any) => `• ${it.name}: ${it.quantity} × ${Number(it.unit_price).toFixed(2)} = ${Number(it.total).toFixed(2)} ج.م`)
+      .map((it: Record<string, any>) => `• ${it.name}: ${it.quantity} × ${Number(it.unit_price).toFixed(2)} = ${Number(it.total).toFixed(2)} ج.م`)
       .join('\n');
     const text = `🧾 *فاتورة مبيعات - ${companySettings?.company_name || 'تري برو للتوزيع'}*\n` +
       `رقم الفاتورة: #${invoice.invoice_number}\n` +
@@ -115,7 +115,7 @@ export const MobileReceiptModal: React.FC<MobileReceiptModalProps> = ({
                     </tr>
                   </thead>
                   <tbody>
-                    {(invoice.items || []).map((it: any, idx: number) => (
+                    {(invoice.items || []).map((it: Record<string, any>, idx: number) => (
                       <tr key={idx} className="border-b border-gray-200 border-dotted">
                         <td className="py-1 font-medium">{it.name}</td>
                         <td className="py-1 text-center font-bold">{it.quantity}</td>

@@ -1,3 +1,4 @@
+type DynamicAi = any;
 import { GoogleGenAI, Type } from "@google/genai";
 import { logger } from '../utils/logger';
 import { Account } from "../types";
@@ -8,11 +9,11 @@ const VALID_MODELS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-
 
 // Helper function to call generateContent with fallback models on client side if needed
 const generateWithFallback = async (
-  ai: any,
-  params: { contents: any; config: any },
+  ai: DynamicAi,
+  params: { contents: DynamicAi; config: DynamicAi },
   modelList: string[]
 ) => {
-  let lastError: any = null;
+  let lastError: DynamicAi = null;
   for (const model of modelList) {
     try {
       logger.log(`Attempting generateContent with model: ${model}`);

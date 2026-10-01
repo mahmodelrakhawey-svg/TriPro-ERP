@@ -113,7 +113,7 @@ class AutoReorderService {
 
       try {
         const poNumber = `PO-AUTO-${Date.now().toString().slice(-6)}`;
-        const poPayload: any = {
+        const poPayload: Record<string, any> = {
           organization_id: organizationId || null,
           supplier_id: validSupplierId,
           po_number: poNumber,
@@ -123,8 +123,8 @@ class AutoReorderService {
           notes: `أمر شراء تم توليده تلقائياً وفق حد الأمان لنواقص المخزون (${items.length} أصناف)`
         };
 
-        let po: any = null;
-        let poErr: any = null;
+        let po: Record<string, any> | null = null;
+        let poErr: { message?: string } | null = null;
 
         const res1 = await supabase
           .from('purchase_orders')
@@ -225,7 +225,7 @@ class AutoReorderService {
         return [];
       }
 
-      return (data || []).map((o: any) => ({
+      return (data || []).map((o: Record<string, any>) => ({
         id: o.id,
         po_number: o.po_number || o.order_number || `PO-${o.id?.slice(0, 6)}`,
         supplier_name: o.suppliers?.name || 'مورد عام',

@@ -1,3 +1,4 @@
+type DynamicHardware = any;
 /**
  * ==============================================================================
  * ESC/POS Direct Thermal, WebUSB, WebSerial & Customer Pole Display Engine
@@ -103,9 +104,9 @@ export interface PrintableTicketPayload {
 }
 
 class ThermalPrinterService {
-  private activeUsbDevice: any = null;
-  private activeSerialPort: any = null;
-  private activePolePort: any = null;
+  private activeUsbDevice: DynamicHardware = null;
+  private activeSerialPort: DynamicHardware = null;
+  private activePolePort: DynamicHardware = null;
 
   /**
    * جلب قائمة الطابعات المهيئة
@@ -190,7 +191,7 @@ class ThermalPrinterService {
       const device = this.activeUsbDevice;
       // Find OUT endpoint for printing
       const endpoint = device.configuration?.interfaces[0]?.alternate?.endpoints?.find(
-        (e: any) => e.direction === 'out'
+        (e: Record<string, any>) => e.direction === 'out'
       );
       const endpointNumber = endpoint ? endpoint.endpointNumber : 1;
 

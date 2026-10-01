@@ -84,16 +84,16 @@ const UserManager = () => {
       // 🛡️ حماية خصوصية السوبر أدمن: إخفاء حسابات Super Admin تماماً عن مدراء الشركات والعملاء
       const filteredProfiles = (currentUserRole === 'super_admin')
         ? (profiles || [])
-        : (profiles || []).filter((p: any) => p.role !== 'super_admin');
+        : (profiles || []).filter((p: Record<string, any>) => p.role !== 'super_admin');
 
       // دمج البيانات مع البريد الإلكتروني إذا كان متاحاً في profile
-      const profilesWithEmail = filteredProfiles.map((p: any) => ({
+      const profilesWithEmail = filteredProfiles.map((p: Record<string, any>) => ({
           ...p,
           email: p.email || (p.id === DEMO_USER_ID ? DEMO_EMAIL : null)
       }));
 
       // جلب آخر نشاط لكل مستخدم من سجلات الأمان
-      const usersWithActivity = await Promise.all(profilesWithEmail.map(async (p: any) => {
+      const usersWithActivity = await Promise.all(profilesWithEmail.map(async (p: Record<string, any>) => {
           const { data: logs } = await supabase
               .from('security_logs')
               .select('created_at')

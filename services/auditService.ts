@@ -37,7 +37,7 @@ export const logDocumentAction = async ({
         const actionLabel = getActionArabicLabel(action);
         const description = details?.note || `${actionLabel} (${documentId})`;
 
-        const payload: any = {
+        const payload: Record<string, any> = {
             event_type: 'DOCUMENT_AUDIT',
             description: description,
             metadata: {
@@ -85,12 +85,12 @@ export const getDocumentAuditTrail = async (
             return [];
         }
 
-        const filtered = (data || []).filter((row: any) => {
+        const filtered = (data || []).filter((row: Record<string, any>) => {
             const metaDocId = row.metadata?.document_id;
             return metaDocId === String(documentId) || metaDocId === documentId;
         });
 
-        return filtered.map((row: any) => ({
+        return filtered.map((row: Record<string, any>) => ({
             id: row.id,
             document_type: row.metadata?.document_type || row.module,
             document_id: row.metadata?.document_id || documentId,

@@ -69,7 +69,7 @@ const ReceiptVoucherForm = () => {
     const getRealBalance = async () => {
       if (!formData.customerId) { setDynamicBalance(null); return; }
       
-      const customer: any = customers.find(c => c.id === formData.customerId);
+      const customer: Record<string, any> | undefined = customers.find(c => c.id === formData.customerId);
       if (!customer) return;
 
       const userOrgId = organization?.id;
@@ -141,7 +141,7 @@ const ReceiptVoucherForm = () => {
 
       const unpostedRestaurantSales = openOrders?.reduce((sum, o) => sum + Number(o.grand_total), 0) || 0;
 
-      const hasOpeningEntry = manualEntriesRes.data?.some((je: any) => 
+      const hasOpeningEntry = manualEntriesRes.data?.some((je: Record<string, any>) => 
         je.related_document_type === 'opening_balance' || 
         (je.reference && (je.reference.startsWith('OP-CUST-') || je.reference.startsWith('OP-') || je.reference.startsWith('OB-') || je.reference.startsWith('OPENING-'))) || 
         (je.description && je.description.includes('رصيد افتتاحي'))
@@ -200,7 +200,7 @@ const ReceiptVoucherForm = () => {
     }
   }, [location]);
 
-  const loadVoucher = async (voucher: any) => {
+  const loadVoucher = async (voucher: Record<string, any>) => {
     if (!voucher) return;
     setIsEditing(true);
     setCurrentVoucherId(voucher.id);
