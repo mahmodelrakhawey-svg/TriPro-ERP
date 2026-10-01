@@ -107,7 +107,7 @@ export const RadiologyDashboard: React.FC = () => {
         const completedOffline = await db.queuedRadiologyOrders
           .where('type').equals('completed_rad')
           .toArray();
-        const completedIds = new Set(completedOffline.map((r: any) => r.tempId));
+        const completedIds = new Set(completedOffline.map((r: Record<string, any>) => r.tempId));
         setOrders(offlineOrders.filter(o => !completedIds.has(o.id)));
       }
     } catch (e) {
@@ -161,7 +161,7 @@ export const RadiologyDashboard: React.FC = () => {
 
 
 
-  const handleSubmitReport = async (values: any) => {
+  const handleSubmitReport = async (values: Record<string, any>) => {
     if (!selectedOrder) return;
     
     setLoading(true);
@@ -208,7 +208,7 @@ export const RadiologyDashboard: React.FC = () => {
     }
   };
 
-  const openReportModal = (order: any) => {
+  const openReportModal = (order: Record<string, any>) => {
     resetDicomViewer();
     setSelectedOrder(order);
     form.setFieldsValue({
@@ -222,7 +222,7 @@ export const RadiologyDashboard: React.FC = () => {
   const columns = [
     { 
       title: 'بيانات الحالة', 
-      render: (r: any) => (
+      render: (r: Record<string, any>) => (
         <Space orientation="vertical" size={0}>
           <Text strong>{r.hims_visits?.hims_patients?.full_name}</Text>
           <Text type="secondary" className="text-xs">زيارة: {r.hims_visits?.id.substring(0,8)}</Text>
@@ -236,7 +236,7 @@ export const RadiologyDashboard: React.FC = () => {
     },
     { 
       title: 'حالة السداد بالخزينة', 
-      render: (record: any) => {
+      render: (record: Record<string, any>) => {
         const visitBilling = record.hims_visits?.hims_billing;
         const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
         if (billing?.insurance_provider_id) {
@@ -250,7 +250,7 @@ export const RadiologyDashboard: React.FC = () => {
         );
       }
     },
-    { title: 'إجراء', render: (record: any) => {
+    { title: 'إجراء', render: (record: Record<string, any>) => {
       const visitBilling = record.hims_visits?.hims_billing;
       const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
       const isPaid = billing?.payment_status === 'paid' || billing?.insurance_provider_id;

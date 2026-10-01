@@ -165,7 +165,7 @@ export const PurchaseOrderList = () => {
     return { totalAmount, sentCount, convertedCount, draftCount, count: filteredOrders.length };
   }, [filteredOrders]);
 
-  const handleDelete = async (order: any) => {
+  const handleDelete = async (order: Record<string, any>) => {
     const num = order.po_number || order.order_number || '';
     if (!window.confirm(`هل أنت متأكد من حذف أمر الشراء رقم (${num})؟`)) {
       return;
@@ -191,7 +191,7 @@ export const PurchaseOrderList = () => {
     }
   };
 
-  const openConvertModal = (order: any) => {
+  const openConvertModal = (order: Record<string, any>) => {
     setSelectedOrderForConvert(order);
     const initialWh = settings.defaultWarehouseId || (warehouses.length > 0 ? warehouses[0].id : '');
     setTargetWarehouseId(initialWh);
@@ -219,7 +219,7 @@ export const PurchaseOrderList = () => {
     }
   };
 
-  const handlePrint = (order: any) => {
+  const handlePrint = (order: Record<string, any>) => {
     setOrderToPrint({
       orderNumber: order.po_number || order.order_number,
       date: order.order_date,
@@ -228,7 +228,7 @@ export const PurchaseOrderList = () => {
       notes: order.notes,
       totalAmount: order.total_amount,
       taxAmount: order.tax_amount,
-      items: (order.purchase_order_items || []).map((i: any) => ({
+      items: (order.purchase_order_items || []).map((i: Record<string, any>) => ({
         name: i.products?.name || 'صنف',
         quantity: i.quantity,
         unitPrice: i.unit_price,
@@ -242,7 +242,7 @@ export const PurchaseOrderList = () => {
     }, 200);
   };
 
-  const handleShareWhatsApp = (order: any) => {
+  const handleShareWhatsApp = (order: Record<string, any>) => {
     const phone = order.suppliers?.phone ? order.suppliers.phone.replace(/[^0-9]/g, '') : '';
     const num = order.po_number || order.order_number || '';
     const message = `مرحباً ${order.suppliers?.name || 'السادة المورد'},\nنود إخطاركم بطلب توريد / أمر شراء رقم: ${num}\nالتاريخ: ${order.order_date}\nالإجمالي التقديري: ${Number(order.total_amount).toLocaleString()} ${settings.currency || 'ج.م'}\nالحالة: ${order.status === 'sent' ? 'مرسل ومعتمد' : 'مسودة'}\nيرجى مراجعة وتجهيز الطلب. شكراً لكم.`;

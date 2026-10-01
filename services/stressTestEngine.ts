@@ -55,7 +55,7 @@ export class StressTestEngine {
   private onLogUpdate?: (log: TestLog) => void;
   private logs: TestLog[] = [];
 
-  constructor(orgId: string, currentUser?: any, onLogUpdate?: (log: TestLog) => void) {
+  constructor(orgId: string, currentUser?: Record<string, any> | null, onLogUpdate?: (log: TestLog) => void) {
     this.orgId = orgId;
     this.currentUser = currentUser;
     this.onLogUpdate = onLogUpdate;
@@ -95,24 +95,24 @@ export class StressTestEngine {
         .select('id, code, name, is_group')
         .eq('organization_id', this.orgId);
 
-      const validAccounts = (accounts || []).filter((a: any) => !a.is_group);
+      const validAccounts = (accounts || []).filter((a: Record<string, any>) => !a.is_group);
       const fallbackAcc = validAccounts[0]?.id || accounts?.[0]?.id;
 
       const findLeafAcc = (keywords: string[], codePrefixes: string[], excludeKeywords: string[] = []): string => {
         for (const kw of keywords) {
-          const found = validAccounts.find((a: any) => 
+          const found = validAccounts.find((a: Record<string, any>) => 
             a.name && a.name.includes(kw) && !excludeKeywords.some(ex => a.name.includes(ex))
           );
           if (found) return found.id;
         }
         for (const prefix of codePrefixes) {
-          const found = validAccounts.find((a: any) => 
+          const found = validAccounts.find((a: Record<string, any>) => 
             a.code && a.code.startsWith(prefix) && !excludeKeywords.some(ex => a.name?.includes(ex))
           );
           if (found) return found.id;
         }
         for (const kw of keywords) {
-          const found = accounts?.find((a: any) => 
+          const found = accounts?.find((a: Record<string, any>) => 
             a.name && a.name.includes(kw) && !excludeKeywords.some(ex => a.name.includes(ex))
           );
           if (found) return found.id;
@@ -580,7 +580,7 @@ export class StressTestEngine {
         .eq('organization_id', this.orgId)
         .ilike('reference', 'TEST-%');
 
-      const orphanCount = (emptyEntries || []).filter((e: any) => !e.journal_lines || e.journal_lines.length === 0).length;
+      const orphanCount = (emptyEntries || []).filter((e: Record<string, any>) => !e.journal_lines || e.journal_lines.length === 0).length;
 
       const orphanAudit: VerificationAuditResult = {
         title: 'سلامة القيود المنفذة من الأسطر الفارغة أو اليتيمة',

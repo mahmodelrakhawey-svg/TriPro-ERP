@@ -48,7 +48,7 @@ const FinancialRatios = () => {
       );
       const lines = filteredEntries.flatMap(entry => {
         const entryLines = entry.journal_lines || entry.lines || [];
-        return entryLines.map((line: any) => ({
+        return entryLines.map((line: Record<string, any>) => ({
           ...line,
           accountId: line.account_id || line.accountId,
           journal_entries: { transaction_date: entry.transaction_date || entry.date, status: entry.status }
@@ -389,7 +389,7 @@ const FinancialRatios = () => {
       (entries || []).forEach(entry => {
         const entryDate = entry.transaction_date || entry.date;
         if (entry.status === 'posted' && entryDate >= start && entryDate <= end) {
-          (entry.journal_lines || entry.lines || []).forEach((line: any) => {
+          (entry.journal_lines || entry.lines || []).forEach((line: Record<string, any>) => {
             const acc = accounts.find(a => a.id === (line.account_id || line.accountId));
             if (!acc) return;
             const type = (acc.type || '').toLowerCase();
@@ -1445,7 +1445,7 @@ const FinancialRatios = () => {
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 12 }} />
                   <YAxis tick={{ fill: '#64748b', fontSize: 12 }} tickFormatter={(val) => `${val >= 1000 ? val / 1000 + 'k' : val}`} />
-                  <Tooltip formatter={(value: any) => `${Number(value || 0).toLocaleString()} ج.م`} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                  <Tooltip formatter={(value: unknown) => `${Number(value || 0).toLocaleString()} ج.م`} contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                   <Legend />
                   <Bar dataKey={currentYear} name={`السنة الحالية (${currentYear})`} fill="#4f46e5" radius={[6, 6, 0, 0]} />
                   <Bar dataKey={prevYear} name={`السنة السابقة (${prevYear})`} fill="#94a3b8" radius={[6, 6, 0, 0]} />
@@ -1469,7 +1469,7 @@ const FinancialRatios = () => {
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                       <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 12 }} />
                       <YAxis tick={{ fill: '#64748b', fontSize: 12 }} />
-                      <Tooltip formatter={(val: any) => `${val}%`} />
+                      <Tooltip formatter={(val: unknown) => `${val}%`} />
                       <Legend />
                       <Line type="monotone" dataKey="ربحية" stroke="#10b981" strokeWidth={3} dot={{ r: 5 }} name="هامش صافي الربح %" />
                     </LineChart>
@@ -1491,7 +1491,7 @@ const FinancialRatios = () => {
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                       <XAxis dataKey="name" tick={{ fill: '#64748b', fontSize: 12 }} />
                       <YAxis tick={{ fill: '#64748b', fontSize: 12 }} />
-                      <Tooltip formatter={(val: any) => `${val} مرة`} />
+                      <Tooltip formatter={(val: unknown) => `${val} مرة`} />
                       <Legend />
                       <Bar dataKey="سيولة" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={36} name="النسبة المتداولة (Current Ratio)" />
                     </BarChart>

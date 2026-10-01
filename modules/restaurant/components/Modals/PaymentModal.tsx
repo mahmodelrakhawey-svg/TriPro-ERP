@@ -45,7 +45,7 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
 
   useEffect(() => {
     if (order) {
-      setSelectedItems(order.order_items.map((item: any) => ({ ...item, payQuantity: item.quantity })));
+      setSelectedItems(order.order_items.map((item: Record<string, any>) => ({ ...item, payQuantity: item.quantity })));
     }
   }, [order]);
 
@@ -66,7 +66,7 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
     if (!order) return { subtotal: 0, serviceCharge: 0, tax: 0, total: 0 };
     const itemsToCalculate = splitMode 
       ? selectedItems.filter(item => item.payQuantity > 0)
-      : (order.order_items || []).map((item: any) => ({ ...item, payQuantity: item.quantity }));
+      : (order.order_items || []).map((item: Record<string, any>) => ({ ...item, payQuantity: item.quantity }));
     return calculateTotals(itemsToCalculate);
   }, [splitMode, selectedItems, order, settings]);
 
@@ -83,7 +83,7 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
 
   const handleSelectAll = () => {
     if (!order) return;
-    setSelectedItems(order.order_items.map((item: any) => ({ ...item, payQuantity: item.quantity })));
+    setSelectedItems(order.order_items.map((item: Record<string, any>) => ({ ...item, payQuantity: item.quantity })));
   };
 
   const handleClearAll = () => {
@@ -197,7 +197,7 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
                   <X size={12} /> إلغاء الكل
                 </button>
               </div>
-              {order.order_items.map((originalItem: any) => {
+              {order.order_items.map((originalItem: Record<string, any>) => {
                 const item = selectedItems.find(si => si.id === originalItem.id) || originalItem;
                 return (
                   <div key={item.id} className="flex justify-between items-center bg-white p-3 rounded-xl shadow-sm border border-slate-100">
@@ -205,7 +205,7 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
                       <div className="font-semibold text-sm text-slate-800">{item.products?.name || item.name}</div>
                       {item.modifiers && item.modifiers.length > 0 && (
                         <div className="text-[10px] text-blue-600 font-medium">
-                          {Array.isArray(item.modifiers) ? item.modifiers.map((m: any) => m.name).join(', ') : ''}
+                          {Array.isArray(item.modifiers) ? item.modifiers.map((m: Record<string, any>) => m.name).join(', ') : ''}
                         </div>
                       )}
                       <div className="text-xs text-slate-500">{(Number(item.unit_price) || 0).toFixed(2)}</div>

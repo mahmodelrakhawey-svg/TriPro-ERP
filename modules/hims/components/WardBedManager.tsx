@@ -86,7 +86,7 @@ export const WardBedManager: React.FC = () => {
     setLoading(false);
   };
 
-  const handleCreateWard = async (values: any) => {
+  const handleCreateWard = async (values: Record<string, any>) => {
     setLoading(true);
     const { error } = await supabase.from('hims_wards').insert([{
       ...values,
@@ -104,7 +104,7 @@ export const WardBedManager: React.FC = () => {
     setLoading(false);
   };
 
-  const handleCreateBed = async (values: any) => {
+  const handleCreateBed = async (values: Record<string, any>) => {
     setLoading(true);
     const { error } = await supabase.from('hims_beds').insert([{
       ...values,
@@ -146,7 +146,7 @@ export const WardBedManager: React.FC = () => {
     setLoading(false);
   };
 
-  const handleUpdateWard = async (values: any) => {
+  const handleUpdateWard = async (values: Record<string, any>) => {
     if (!editingWard?.id) return;
     setLoading(true);
     const { error } = await supabase.from('hims_wards').update({
@@ -166,7 +166,7 @@ export const WardBedManager: React.FC = () => {
     setLoading(false);
   };
 
-  const handleUpdateBed = async (values: any) => {
+  const handleUpdateBed = async (values: Record<string, any>) => {
     if (!editingBed?.id) return;
     setLoading(true);
     const { error } = await supabase.from('hims_beds').update({
@@ -195,7 +195,7 @@ export const WardBedManager: React.FC = () => {
     },
     {
       title: 'الجناح / القسم',
-      render: (r: any) => (
+      render: (r: Record<string, any>) => (
         <div className="flex items-center gap-2">
           <span>{r.ward?.name} (الطابق: {r.ward?.floor})</span>
         </div>
@@ -205,13 +205,13 @@ export const WardBedManager: React.FC = () => {
       title: 'الحالة الحالية',
       dataIndex: 'status',
       render: (status: string) => {
-        const colors: any = {
+        const colors: Record<string, string> = {
           available: 'success',
           occupied: 'error',
           cleaning: 'warning',
           maintenance: 'default'
         };
-        const labels: any = {
+        const labels: Record<string, string> = {
           available: 'متاح',
           occupied: 'مشغول',
           cleaning: 'جاري التنظيف',
@@ -223,7 +223,7 @@ export const WardBedManager: React.FC = () => {
     {
       title: 'إجراءات التجهيز',
       key: 'action',
-      render: (record: any) => (
+      render: (record: Record<string, any>) => (
         <Space>
           {record.status === 'cleaning' && (
             <Button
@@ -245,7 +245,7 @@ export const WardBedManager: React.FC = () => {
     {
       title: 'تعديل / حذف',
       key: 'edit_delete',
-      render: (record: any) => (
+      render: (record: Record<string, any>) => (
         <Space>
           <Button
             size="small"
@@ -364,7 +364,7 @@ export const WardBedManager: React.FC = () => {
       {viewMode === 'grid' ? (
         <Row gutter={[16, 16]}>
           {beds.map((bed) => {
-            const statusConfig: any = {
+            const statusConfig: Record<string, { bg: string; badge: string; text: string }> = {
               available: { bg: 'bg-emerald-50 border-emerald-200 text-emerald-800', badge: 'bg-emerald-500', text: 'متاح للاستقبال 🟢' },
               occupied: { bg: 'bg-rose-50 border-rose-200 text-rose-800', badge: 'bg-rose-500', text: 'مشغول بمرض 🔴' },
               cleaning: { bg: 'bg-amber-50 border-amber-200 text-amber-800', badge: 'bg-amber-500', text: 'جاري التطهير 🟡' },

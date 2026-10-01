@@ -148,7 +148,7 @@ const DataMigrationCenter = () => {
              existing?.forEach(a => accountMap.set(a.code, a.id));
              
              // Sort data to ensure parents are processed before children (shorter codes first)
-             data.sort((a: any, b: any) => {
+             (data as Record<string, any>[]).sort((a, b) => {
                  const codeA = String(a['كود الحساب'] || a['Code'] || '').trim();
                  const codeB = String(b['كود الحساب'] || b['Code'] || '').trim();
                  return codeA.length - codeB.length || codeA.localeCompare(codeB);
@@ -229,7 +229,7 @@ const DataMigrationCenter = () => {
 
   // --- Import Logic Functions ---
 
-  const importAccount = async (row: any, orgId: string, accountMap: Map<string, string>) => {
+  const importAccount = async (row: Record<string, any>, orgId: string, accountMap: Map<string, string>) => {
       const accountSchema = z.object({
           code: z.string().min(1, 'كود الحساب مطلوب'),
           name: z.string().min(1, 'اسم الحساب مطلوب'),
@@ -285,7 +285,7 @@ const DataMigrationCenter = () => {
       }
   };
 
-  const importProduct = async (row: any, orgId: string, warehouseId: any, equityAcc: any, existingSkus?: Set<string>) => {
+  const importProduct = async (row: Record<string, any>, orgId: string, warehouseId: string | null, equityAcc?: string | null, existingSkus?: Set<string>) => {
       const productSchema = z.object({
           name: z.string().min(1, 'اسم المنتج مطلوب'),
           sku: z.string().nullable().optional(),
@@ -355,7 +355,7 @@ const DataMigrationCenter = () => {
       }
   };
 
-  const importCustomer = async (row: any, orgId: string, equityAcc: any) => {
+  const importCustomer = async (row: Record<string, any>, orgId: string, equityAcc?: string | null) => {
       const customerSchema = z.object({
           name: z.string().min(1, 'اسم العميل مطلوب'),
           phone: z.string().optional(),
@@ -425,7 +425,7 @@ const DataMigrationCenter = () => {
       }
   };
 
-  const importSupplier = async (row: any, orgId: string, equityAcc: any) => {
+  const importSupplier = async (row: Record<string, any>, orgId: string, equityAcc?: string | null) => {
       const supplierSchema = z.object({
           name: z.string().min(1, 'اسم المورد مطلوب'),
           phone: z.string().optional(),
@@ -486,7 +486,7 @@ const DataMigrationCenter = () => {
       }
   };
 
-  const importFixedAssets = async (row: any, orgId: string, equityAcc: any) => {
+  const importFixedAssets = async (row: Record<string, any>, orgId: string, equityAcc?: string | null) => {
       const assetSchema = z.object({
           name: z.string().min(1, 'اسم الأصل مطلوب'),
           purchaseDate: z.string().optional(),

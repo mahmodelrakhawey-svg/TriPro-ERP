@@ -148,7 +148,7 @@ const PurchaseOrderForm = () => {
         }
       }
 
-      const formattedItems = (itemsData || []).map((item: any) => {
+      const formattedItems = (itemsData || []).map((item: Record<string, any>) => {
         const prod = item.products || products.find(p => p.id === item.product_id);
         const pTax = prod?.tax_rate_override;
         const itemTaxRate = (item.tax_rate !== undefined && item.tax_rate !== null)
@@ -239,7 +239,7 @@ const PurchaseOrderForm = () => {
     showToast('تم فتح نموذج أمر شراء جديد ➕', 'info');
   };
 
-  const addItem = (product: any) => {
+  const addItem = (product: Record<string, any>) => {
     const defaultUomId = product.purchase_uom_id || product.base_uom_id || '';
     const selectedUom = uoms.find(u => u.id === defaultUomId);
     const basePrice = product.purchase_price || product.cost || 0;
@@ -261,7 +261,7 @@ const PurchaseOrderForm = () => {
     setProductSearch('');
   };
 
-  const updateItem = (index: number, field: string, value: any) => {
+  const updateItem = (index: number, field: string, value: string | number | boolean | null) => {
     const newItems = [...items];
     newItems[index][field] = value;
 
@@ -275,7 +275,7 @@ const PurchaseOrderForm = () => {
     }
 
     if (field === 'taxRate') {
-      newItems[index].taxRate = Math.max(0, Math.min(100, parseFloat(value) || 0));
+      newItems[index].taxRate = Math.max(0, Math.min(100, parseFloat(String(value || 0)) || 0));
     }
 
     newItems[index].total = (Number(newItems[index].quantity) || 0) * (Number(newItems[index].unitPrice) || 0);
@@ -368,7 +368,7 @@ const PurchaseOrderForm = () => {
 
       if (editingId) {
         // تحديث أمر شراء موجود
-        const updatePayload: any = {
+        const updatePayload: Record<string, any> = {
           supplier_id: formData.supplierId,
           po_number: poNumber,
           order_number: poNumber,
@@ -417,7 +417,7 @@ const PurchaseOrderForm = () => {
 
       } else {
         // إنشاء أمر شراء جديد
-        const insertPayload: any = {
+        const insertPayload: Record<string, any> = {
           organization_id: userOrgId,
           supplier_id: formData.supplierId,
           po_number: poNumber,

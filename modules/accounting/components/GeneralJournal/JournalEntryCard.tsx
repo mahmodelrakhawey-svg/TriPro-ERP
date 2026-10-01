@@ -1,16 +1,17 @@
 import React from 'react';
 import { Calendar, CheckSquare, AlertTriangle, Eye, Printer, Copy, Edit, Trash2, Paperclip, Download, ShieldCheck } from 'lucide-react';
 import { getEntrySource } from './journalSourceClassifier';
+import { JournalEntry } from '../../../../types';
 
 export interface JournalEntryCardProps {
-  entry: any;
+  entry: JournalEntry & Record<string, any>;
   canPost: boolean;
   onPost: (id: string) => void;
   onUnpost?: (id: string) => void;
   onView: (id: string) => void;
-  onPrint: (entry: any) => void;
-  onDuplicate: (entry: any) => void;
-  onEdit: (entry: any) => void;
+  onPrint: (entry: JournalEntry) => void;
+  onDuplicate: (entry: JournalEntry) => void;
+  onEdit: (entry: JournalEntry) => void;
   onDelete: (id: string) => void;
 }
 
@@ -36,8 +37,8 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
     }
   }
 
-  const totalDebit = (entry.lines || []).reduce((sum: number, line: any) => sum + (line.debit || 0), 0);
-  const totalCredit = (entry.lines || []).reduce((sum: number, line: any) => sum + (line.credit || 0), 0);
+  const totalDebit = (entry.lines || []).reduce((sum: number, line: Record<string, any>) => sum + (line.debit || 0), 0);
+  const totalCredit = (entry.lines || []).reduce((sum: number, line: Record<string, any>) => sum + (line.credit || 0), 0);
   const isBalanced = Math.abs(totalDebit - totalCredit) < 0.01;
   const source = getEntrySource(entry.reference || '', entry.description || '');
 
@@ -166,7 +167,7 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
             </tr>
           </thead>
           <tbody>
-            {(entry.lines || []).map((line: any, index: number) => (
+            {(entry.lines || []).map((line: Record<string, any>, index: number) => (
               <tr key={index} className="border-t border-slate-100">
                 <td className="p-2 font-medium text-slate-800">
                   {line.accountName || 'حساب غير معروف'} <span className="text-xs text-slate-400">({line.accountCode})</span>
@@ -191,7 +192,7 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
             المرفقات ({entry.attachments.length})
           </h4>
           <div className="flex flex-wrap gap-2">
-            {entry.attachments.map((att: any) => (
+            {entry.attachments.map((att: Record<string, any>) => (
               <a
                 key={att.id}
                 href={`${supabaseUrl}/storage/v1/object/public/documents/${att.file_path}`}

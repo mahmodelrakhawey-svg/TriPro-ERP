@@ -147,7 +147,7 @@ const Settings = () => {
   });
 
   useEffect(() => {
-    const handleTabsToggle = (e: any) => {
+    const handleTabsToggle = (e: Record<string, any>) => {
       const val = e.detail !== undefined ? e.detail : (secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled') !== false);
       setEnableWorkspaceTabs(val);
     };
@@ -174,7 +174,7 @@ const Settings = () => {
     // جلب إعدادات الشركة
     const fetchSettings = async () => {
         const orgId = (currentUser as any)?.organization_id;
-        let sData: any = null;
+        let sData: Record<string, any> | null = null;
 
         try {
             // 🛡️ استخدام RPC لضمان جلب إعدادات الشركة الصحيحة وتجنب مشاكل التوكن القديم
@@ -329,7 +329,7 @@ const Settings = () => {
             eta_is_active: formData.etaIsActive
         };
 
-        const payload: any = {
+        const payload: Record<string, any> = {
             ...(targetOrg ? { organization_id: targetOrg } : {}),
             company_name: formData.companyName,
             tax_number: formData.taxNumber,
@@ -404,7 +404,7 @@ const Settings = () => {
         if (error) throw error;
 
         // حساب التغييرات المحددة لتسجيلها في تفاصيل سجل الأمان
-        const changes: Record<string, { from: any, to: any }> = {};
+        const changes: Record<string, { from: unknown; to: unknown }> = {};
         const fieldLabels: Record<string, string> = {
             companyName: 'اسم الشركة',
             taxNumber: 'الرقم الضريبي',
@@ -986,13 +986,13 @@ const Settings = () => {
       }
 
       // بحث اسمي (fallback) لحسابات بنكية محددة
-      const nameFallbacks: Record<string, (acc: any) => boolean> = {
+      const nameFallbacks: Record<string, (acc: { code?: string; name?: string; isGroup?: boolean }) => boolean> = {
           LETTER_OF_GUARANTEE_MARGIN: (acc) =>
-              acc.code === '1248' || acc.code?.startsWith('1248') ||
-              acc.name?.includes('غطاء خطابات ضمان') || acc.name?.includes('غطاء خطابات الضمان') || acc.name?.includes('غطاء الضمان'),
+              Boolean(acc.code === '1248' || acc.code?.startsWith('1248') ||
+              acc.name?.includes('غطاء خطابات ضمان') || acc.name?.includes('غطاء خطابات الضمان') || acc.name?.includes('غطاء الضمان')),
           LETTER_OF_CREDIT_GOODS: (acc) =>
-              acc.code === '1246' || acc.code?.startsWith('1246') ||
-              acc.name?.includes('اعتمادات مستندية') || acc.name?.includes('اعتماد مستندي') || acc.name?.includes('خطابات اعتماد'),
+              Boolean(acc.code === '1246' || acc.code?.startsWith('1246') ||
+              acc.name?.includes('اعتمادات مستندية') || acc.name?.includes('اعتماد مستندي') || acc.name?.includes('خطابات اعتماد')),
       };
 
       Object.entries(mappingSource).forEach(([key, defaultCode]) => {
@@ -1056,7 +1056,7 @@ const Settings = () => {
       }
   };
 
-  const [localSignerStatus, setLocalSignerStatus] = useState<{ online: boolean; message: string; details?: any } | null>(null);
+  const [localSignerStatus, setLocalSignerStatus] = useState<{ online: boolean; message: string; details?: unknown } | null>(null);
   const [checkingSigner, setCheckingSigner] = useState(false);
   const handleCheckLocalSigner = async () => {
       setCheckingSigner(true);

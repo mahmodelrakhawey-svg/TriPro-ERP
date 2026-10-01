@@ -31,7 +31,7 @@ export const BloodBankDashboard: React.FC = () => {
       .eq('status', 'available')
       .eq('organization_id', currentUser.organization_id);
     
-    const mapped = (data || []).map((item: any) => ({
+    const mapped = (data || []).map((item: Record<string, any>) => ({
       ...item,
       blood_type: item.donor?.blood_type
     }));
@@ -46,7 +46,7 @@ export const BloodBankDashboard: React.FC = () => {
 
   useEffect(() => { fetchStock(); }, [currentUser?.organization_id]);
 
-  const handleAddDonor = async (values: any) => {
+  const handleAddDonor = async (values: Record<string, any>) => {
     try {
       await himsService.registerDonor({ ...values, organization_id: currentUser?.organization_id });
       message.success('تم تسجيل المتبرع بنجاح ✅');
@@ -62,7 +62,7 @@ export const BloodBankDashboard: React.FC = () => {
     }
   };
 
-  const handleOpenDonationModal = (donor: any) => {
+  const handleOpenDonationModal = (donor: Record<string, any>) => {
     setSelectedDonor(donor);
     const autoCode = `BAG-${(donor?.blood_type || 'DON').replace('+', 'P').replace('-', 'N')}-${Math.floor(100000 + Math.random() * 900000)}`;
     donationForm.setFieldsValue({
@@ -72,7 +72,7 @@ export const BloodBankDashboard: React.FC = () => {
     setIsDonationModalVisible(true);
   };
 
-  const handleRecordDonation = async (values: any) => {
+  const handleRecordDonation = async (values: Record<string, any>) => {
     if (!selectedDonor) return;
     try {
       await himsService.processDonation(
@@ -94,7 +94,7 @@ export const BloodBankDashboard: React.FC = () => {
     }
   };
 
-  const handleOpenFulfillModal = (request: any) => {
+  const handleOpenFulfillModal = (request: Record<string, any>) => {
     setSelectedRequest(request);
     setSelectedBagId(null);
     setIsFulfillModalVisible(true);

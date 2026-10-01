@@ -93,7 +93,7 @@ class DriverDispatchService {
         return localList;
       }
 
-      const remoteFormatted: DriverDelivery[] = data.map((d: any) => {
+      const remoteFormatted: DriverDelivery[] = data.map((d: Record<string, any>) => {
         const orderStatus = d.order?.status || 'CONFIRMED';
         const isOrderPaid = orderStatus === 'PAID' || orderStatus === 'COMPLETED';
         const isSettled = Boolean(d.is_settled || isOrderPaid);
@@ -125,7 +125,7 @@ class DriverDispatchService {
           is_prepaid: isOrderPaid || Boolean(d.is_prepaid),
           cod_amount: isSettled ? 0 : Number(d.cod_amount || 0),
           original_cod_amount: Number(d.cod_amount || d.original_cod_amount || 0)
-        };
+        } as DriverDelivery;
       });
 
       // دمج بيانات السيرفر مع البيانات المحلية لضمان عدم ضياع أي طلبات معينة حديثاً
@@ -201,7 +201,7 @@ class DriverDispatchService {
           .eq('order_id', validOrderId)
           .maybeSingle();
 
-        const dbPayload: any = {
+        const dbPayload: Record<string, any> = {
           organization_id: validOrgId,
           order_id: validOrderId,
           driver_name: deliveryRecord.driver_name,
@@ -256,7 +256,7 @@ class DriverDispatchService {
   ): Promise<void> {
     const now = new Date().toISOString();
     try {
-      const updates: any = { status };
+      const updates: Record<string, any> = { status };
       if (status === 'DELIVERED') updates.delivered_at = now;
       if (status === 'RETURNED') updates.returned_at = now;
 
@@ -282,7 +282,7 @@ class DriverDispatchService {
       const { data, error } = await query;
       if (error || !data) return localList;
 
-      const remoteIds = new Set(data.map((d: any) => d.id || d.settlement_number));
+      const remoteIds = new Set(data.map((d: Record<string, any>) => d.id || d.settlement_number));
       const missingFromRemote = localList.filter(
         l => !remoteIds.has(l.id) && !remoteIds.has(l.settlement_number)
       );
@@ -522,7 +522,7 @@ class DriverDispatchService {
         return localList;
       }
 
-      const remoteIds = new Set(data.map((d: any) => d.id));
+      const remoteIds = new Set(data.map((d: Record<string, any>) => d.id));
       const missingFromRemote = localList.filter(l => !remoteIds.has(l.id));
       const merged = [...(data as DeliveryDriver[]), ...missingFromRemote];
       secureStorage.setItem(LOCAL_DRIVERS_KEY, merged);

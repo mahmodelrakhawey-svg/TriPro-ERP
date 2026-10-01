@@ -343,7 +343,7 @@ export default function MobileApp() {
       if (selectedWarehouseId) {
         const updatedWStock: Record<string, number> = { ...(selectedProduct.warehouse_stock || {}) };
         updatedWStock[selectedWarehouseId] = targetCount;
-        const newTotalStock: number = Number(Object.values(updatedWStock).reduce((sum: number, val: any) => sum + Number(val || 0), 0));
+        const newTotalStock: number = Number(Object.values(updatedWStock).reduce((sum: number, val: unknown) => sum + Number(val || 0), 0));
 
         // 1. Update IndexedDB locally
         await (db.products as any).update(selectedProduct.id, { stock: newTotalStock, warehouse_stock: updatedWStock });
@@ -358,7 +358,7 @@ export default function MobileApp() {
           if (error) throw error;
         }
 
-        setSelectedProduct((prev: any) => ({ ...prev, stock: newTotalStock, warehouse_stock: updatedWStock }));
+        setSelectedProduct((prev: Record<string, any> | null) => prev ? ({ ...prev, stock: newTotalStock, warehouse_stock: updatedWStock }) : null);
         const whName = warehousesList.find(w => w.id === selectedWarehouseId)?.name || 'المستودع المحدد';
         showToast(`تم تحديث رصيد (${whName}) إلى: ${targetCount} بنجاح ✅`, 'success');
       } else {
@@ -370,7 +370,7 @@ export default function MobileApp() {
             .eq('id', selectedProduct.id);
           if (error) throw error;
         }
-        setSelectedProduct((prev: any) => ({ ...prev, stock: targetCount }));
+        setSelectedProduct((prev: Record<string, any> | null) => prev ? ({ ...prev, stock: targetCount }) : null);
         showToast(`تم تحديث رصيد المخزن إلى: ${targetCount} بنجاح ✅`, 'success');
       }
     } catch (err) {
@@ -432,7 +432,7 @@ export default function MobileApp() {
     }
     setSavingNewCustomer(true);
     try {
-      let createdCustomer: any = null;
+      let createdCustomer: Record<string, any>;
       if (isOnline && currentOrgId) {
         const { data, error } = await supabase
           .from('customers')
@@ -473,7 +473,7 @@ export default function MobileApp() {
     }
   };
 
-  const getProductStockInWarehouse = (product: any, whId?: string): number => {
+  const getProductStockInWarehouse = (product: Record<string, any>, whId?: string): number => {
     const targetWhId = whId || selectedWarehouseId;
     if (!targetWhId) return Number(product?.stock || 0);
 
@@ -618,7 +618,7 @@ export default function MobileApp() {
     }
   };
 
-  const addToCart = (product: any) => {
+  const addToCart = (product: Record<string, any>) => {
     const available = getProductStockInWarehouse(product, selectedWarehouseId);
     const selectedWh = warehousesList.find(w => w.id === selectedWarehouseId);
     const whName = selectedWh ? selectedWh.name : 'المستودع المحدد';
@@ -839,7 +839,7 @@ export default function MobileApp() {
   const handleShareWhatsApp = () => {
     if (!lastSavedInvoice) return;
     const itemsText = (lastSavedInvoice.items || [])
-      .map((it: any) => `• ${it.name}: ${it.quantity} × ${Number(it.unit_price).toFixed(2)} = ${Number(it.total).toFixed(2)} ج.م`)
+      .map((it: Record<string, any>) => `• ${it.name}: ${it.quantity} × ${Number(it.unit_price).toFixed(2)} = ${Number(it.total).toFixed(2)} ج.م`)
       .join('\n');
     const text = `🧾 *فاتورة مبيعات - ${companySettings?.company_name || 'تري برو للتوزيع'}*\n` +
       `رقم الفاتورة: #${lastSavedInvoice.invoice_number}\n` +

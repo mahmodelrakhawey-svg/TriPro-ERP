@@ -604,7 +604,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }
   // تحويل القائمة المسطحة إلى هيكل شجري للموديولات لتسهيل عرضها كقوائم منسدلة
   const groupedItems = React.useMemo(() => {
     const groups: any[] = [];
-    let currentSection: any = null;
+    let currentSection: Record<string, any> | null = null;
 
     visibleItems.forEach(item => {
       if (item.type === 'section') {
@@ -627,7 +627,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }
     return groupedItems
       .map(group => {
         if (group.type === 'section') {
-          const matchingChildren = group.children?.filter((child: any) =>
+          const matchingChildren = group.children?.filter((child: Record<string, any>) =>
             child.label?.toLowerCase().includes(term) ||
             group.label?.toLowerCase().includes(term)
           );
@@ -768,7 +768,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }
             displayedGroups.map((item, index) => {
               if (item.type === 'section') {
                 const isOpen = Boolean(searchTerm.trim()) || openSection === item.label;
-                const hasActiveChild = item.children?.some((child: any) => location.pathname === child.to);
+                const hasActiveChild = item.children?.some((child: Record<string, any>) => location.pathname === child.to);
               
               return (
                 <li key={`section-${index}`} className="pt-2">
@@ -784,7 +784,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }
                   
                   {(isOpen || hasActiveChild) && (
                     <ul className="mt-1 mr-2 space-y-1 border-r border-white/10 pr-3 animate-in slide-in-from-right-1 duration-200">
-                      {item.children.map((child: any) => {
+                      {item.children.map((child: Record<string, any>) => {
                         const isActive = location.pathname === child.to;
                         return (
                           <li key={child.to}>
@@ -846,7 +846,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }
               className="w-full bg-[#1c2541] border border-white/10 text-white text-xs p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
             >
               <option value="">-- اختر شركة لعرض بياناتها --</option>
-              {organizations && organizations.length > 0 ? organizations.map((org: any) => (
+              {organizations && organizations.length > 0 ? organizations.map((org: { id: string; name: string }) => (
                 <option key={org.id} value={org.id}>
                   {org.name}
                 </option>

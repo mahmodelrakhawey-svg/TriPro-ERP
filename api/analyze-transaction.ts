@@ -19,7 +19,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Missing text or accounts in request body.' });
   }
 
-  const accountsContext = accounts.map((a: any) => `${a.code}: ${a.name} (${a.type})`).join('\n');
+  const accountsContext = accounts.map((a: Record<string, any>) => `${a.code}: ${a.name} (${a.type})`).join('\n');
 
   const systemInstruction = `
     أنت خبير محاسبي ومساعد ذكي. دورك هو تحويل الوصف النصي للمعاملات المالية إلى قيد محاسبي مقترح بتنسيق JSON.
@@ -47,7 +47,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   for (const model of FALLBACK_MODELS) {
     try {
-      console.log(`[API /api/analyze-transaction] Requesting REST API for model: ${model}`);
+      if (process.env.NODE_ENV === 'development') console.log(`[API /api/analyze-transaction] Requesting REST API for model: ${model}`);
       const endpoint = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
       
       const response = await fetch(endpoint, {
@@ -71,7 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const responseData = await response.json();
 
       if (!response.ok) {
-        console.warn(`[API /api/analyze-transaction] Model ${model} HTTP ${response.status}:`, responseData);
+        if (process.env.NODE_ENV === 'development') console.warn(`[API /api/analyze-transaction] Model ${model} HTTP ${response.status}:`, responseData);
         lastErrorMsg = responseData?.error?.message || `HTTP ${response.status} error`;
         if (response.status === 400 || response.status === 401 || response.status === 403) {
           break; // stop on API key errors
@@ -89,12 +89,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json(parsedData);
 
     } catch (err) {
-      console.warn(`[API /api/analyze-transaction] Model ${model} exception:`, err);
+      if (process.env.NODE_ENV === 'development') console.warn(`[API /api/analyze-transaction] Model ${model} exception:`, err);
       lastErrorMsg = err?.message || String(err);
     }
   }
 
-  console.error('[API /api/analyze-transaction] All models failed. Last error:', lastErrorMsg);
+  if (process.env.NODE_ENV === 'development') console.error('[API /api/analyze-transaction] All models failed. Last error:', lastErrorMsg);
 
   if (lastErrorMsg.includes('API_KEY_INVALID') || lastErrorMsg.includes('API key not valid') || lastErrorMsg.includes('404') || lastErrorMsg.includes('not found')) {
     return res.status(400).json({

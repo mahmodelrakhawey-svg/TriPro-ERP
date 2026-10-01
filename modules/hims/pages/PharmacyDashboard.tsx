@@ -91,7 +91,7 @@ export const PharmacyDashboard: React.FC = () => {
       let dispensedOfflineIds: string[] = [];
       try {
         const dispensedRecords = await (db as any).dispensedOffline?.toArray?.();
-        dispensedOfflineIds = (dispensedRecords || []).map((r: any) => r.presId);
+        dispensedOfflineIds = (dispensedRecords || []).map((r: Record<string, any>) => r.presId);
       } catch {
         // Fallback: استخدام localStorage كحل احتياطي مؤقت فقط
         dispensedOfflineIds = offlinePres
@@ -116,7 +116,7 @@ export const PharmacyDashboard: React.FC = () => {
   }, []);
 
   // مراجعة الصلاحية والمخزون قبل الصرف
-  const handleReviewOrder = async (order: any) => {
+  const handleReviewOrder = async (order: Record<string, any>) => {
     if (!currentUser) return;
     setLoading(true);
 
@@ -127,7 +127,7 @@ export const PharmacyDashboard: React.FC = () => {
       orgId = profile?.organization_id;
     }
 
-    const productIds = order.medications.map((m: any) => m.product_id).filter(Boolean);
+    const productIds = order.medications.map((m: Record<string, any>) => m.product_id).filter(Boolean);
     // 🛡️ إضافة organization_id filter — كان يجلب منتجات كل المستشفيات!
     const { data: products } = await supabase
       .from('products')
@@ -143,7 +143,7 @@ export const PharmacyDashboard: React.FC = () => {
       .eq('organization_id', orgId)
       .order('expiry_date', { ascending: true });
 
-    const enriched = order.medications.map((med: any) => {
+    const enriched = order.medications.map((med: Record<string, any>) => {
       const prod = products?.find(p => p.id === med.product_id);
       const prodBatches = batches?.filter(b => b.product_id === med.product_id) || [];
       return {
@@ -304,7 +304,7 @@ export const PharmacyDashboard: React.FC = () => {
     { title: 'المريض', dataIndex: ['hims_visits', 'hims_patients', 'full_name'] },
     { 
       title: 'بيانات الهوية', 
-      render: (_: any, record: any) => (
+      render: (_: unknown, record: Record<string, any>) => (
         <Typography.Text type="secondary" className="text-xs">
           {record.hims_visits?.hims_patients?.national_id || 'بدون رقم هوية'}
         </Typography.Text>
@@ -318,7 +318,7 @@ export const PharmacyDashboard: React.FC = () => {
     },
     { 
       title: 'حالة السداد بالخزينة', 
-      render: (record: any) => {
+      render: (record: Record<string, any>) => {
         const visitBilling = record.hims_visits?.hims_billing;
         const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
         if (billing?.insurance_provider_id) {
@@ -336,7 +336,7 @@ export const PharmacyDashboard: React.FC = () => {
     },
     { 
       title: 'إجراء', 
-      render: (record: any) => {
+      render: (record: Record<string, any>) => {
         const visitBilling = record.hims_visits?.hims_billing;
         const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
         const isPaid = billing?.payment_status === 'paid' || 
@@ -526,7 +526,7 @@ export const PharmacyDashboard: React.FC = () => {
                 },
                 { 
                   title: 'الحالة', 
-                  render: (_, r: any) => {
+                  render: (_: unknown, r: Record<string, any>) => {
                     if (!r.is_scanned) return <Tag>بانتظار المسح</Tag>;
                     if (r.scanned_gs1) {
                       return (

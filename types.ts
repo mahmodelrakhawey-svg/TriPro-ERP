@@ -491,6 +491,22 @@ export interface Voucher {
   voucherNumber?: string;
 }
 
+export type PaymentVoucher = Voucher;
+
+export interface StockTransfer {
+  id: string;
+  source_warehouse_id?: string;
+  target_warehouse_id?: string;
+  from_warehouse_id?: string;
+  to_warehouse_id?: string;
+  status?: string;
+  transfer_date?: string;
+  notes?: string;
+  organization_id?: string | null;
+  items?: any[];
+  [key: string]: any;
+}
+
 export interface StockTransaction {
   id: string;
   date: string;

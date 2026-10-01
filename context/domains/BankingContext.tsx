@@ -9,18 +9,19 @@
  */
 
 import { useAccounting } from '../AccountingContext';
+import { Cheque, PaymentVoucher } from '../../types';
 
 export interface BankingDomainState {
-  cheques: any[];
-  vouchers: any[];
-  addCheque: (cheque: any) => Promise<void>;
-  updateCheque: (id: string, cheque: any) => Promise<void>;
+  cheques: Cheque[];
+  vouchers: PaymentVoucher[];
+  addCheque: (cheque: Partial<Cheque>) => Promise<void>;
+  updateCheque: (id: string, cheque: Partial<Cheque>) => Promise<void>;
   deleteCheque: (id: string) => Promise<void>;
   updateChequeStatus: (id: string, status: string, date: string, bankId?: string) => Promise<void>;
-  addPaymentVoucher: (voucher: any) => Promise<void>;
-  updateVoucher: (id: string, updates: any) => Promise<boolean>;
-  addTransfer: (transfer: any) => Promise<void>;
-  updateTransfer: (id: string, transfer: any) => Promise<void>;
+  addPaymentVoucher: (voucher: Partial<PaymentVoucher>) => Promise<void>;
+  updateVoucher: (id: string, updates: Partial<PaymentVoucher>) => Promise<boolean>;
+  addTransfer: (transfer: Record<string, any>) => Promise<void>;
+  updateTransfer: (id: string, transfer: Record<string, any>) => Promise<void>;
   deleteTransfer: (id: string) => Promise<void>;
 }
 

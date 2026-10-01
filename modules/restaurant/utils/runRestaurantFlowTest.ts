@@ -48,7 +48,7 @@ export const runRestaurantModuleTest = async () => {
     log('1. إعداد بيانات الاختبار (منتج، إضافات، طاولة)...');
     
     // Create Product
-    const productPayload: any = { 
+    const productPayload: Record<string, any> = { 
       name: 'بيتزا اختبار آلية', 
       product_type: 'MANUFACTURED', 
       sales_price: 50, 
@@ -69,7 +69,7 @@ export const runRestaurantModuleTest = async () => {
     testDataIds.productId = product.id;
 
     // Create "Size" Modifier Group
-    const sizeGroupPayload: any = { 
+    const sizeGroupPayload: Record<string, any> = { 
       product_id: product.id, 
       name: 'الحجم', 
       selection_type: 'SINGLE', 
@@ -96,7 +96,7 @@ export const runRestaurantModuleTest = async () => {
     if (sizesErr) throw sizesErr;
 
     // Create "Toppings" Modifier Group
-    const toppingsGroupPayload: any = { 
+    const toppingsGroupPayload: Record<string, any> = { 
       product_id: product.id, 
       name: 'الإضافات', 
       selection_type: 'MULTIPLE', 
@@ -124,7 +124,7 @@ export const runRestaurantModuleTest = async () => {
     log('✅ تم إعداد المنتج والإضافات بنجاح.', 'success');
 
     // Create Table
-    const tablePayload: any = { 
+    const tablePayload: Record<string, any> = { 
       name: 'طاولة الاختبار الآلي', 
       capacity: 4, 
       section: 'Test Section',
@@ -146,7 +146,7 @@ export const runRestaurantModuleTest = async () => {
     log('2. محاكاة عملية الطلب (فتح جلسة، إضافة صنف مع إضافات)...');
     
     // Open session
-    const sessionPayload: any = { table_id: table.id, status: 'OPEN' };
+    const sessionPayload: Record<string, any> = { table_id: table.id, status: 'OPEN' };
     if (userOrgId) sessionPayload.organization_id = userOrgId;
 
     const { data: tableSession, error: sessionErr } = await supabase
@@ -159,7 +159,7 @@ export const runRestaurantModuleTest = async () => {
     testDataIds.sessionId = tableSession.id;
 
     // Get created modifiers
-    const middleModifier = (insertedSizes || []).find((m: any) => m.name === 'وسط') || { id: 'temp-mid-id' };
+    const middleModifier = (insertedSizes || []).find((m: Record<string, any>) => m.name === 'وسط') || { id: 'temp-mid-id' };
     const cheeseModifier = (insertedToppings || []).find((m: any) => m.name === 'جبنة إضافية') || { id: 'temp-cheese-id' };
 
     const itemsToSend = [{

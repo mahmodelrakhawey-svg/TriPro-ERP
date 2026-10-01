@@ -145,7 +145,7 @@ export const SalesOrderForm = () => {
         status: so.status || 'draft'
       });
 
-      const formattedItems = (so.sales_order_items || []).map((item: any) => ({
+      const formattedItems = (so.sales_order_items || []).map((item: Record<string, any>) => ({
         id: item.id,
         productId: item.product_id,
         name: item.products?.name || 'صنف',
@@ -224,7 +224,7 @@ export const SalesOrderForm = () => {
     showToast('تم فتح نموذج أمر بيع جديد ➕', 'info');
   };
 
-  const addItem = (product: any) => {
+  const addItem = (product: Record<string, any>) => {
     let priceToUse = product.sales_price || 0;
     if (pricingTier === 'wholesale') priceToUse = product.wholesalePrice || product.sales_price || 0;
     if (pricingTier === 'half') priceToUse = product.halfWholesalePrice || product.sales_price || 0;
@@ -244,7 +244,7 @@ export const SalesOrderForm = () => {
     setProductSearch('');
   };
 
-  const updateItem = (index: number, field: string, value: any) => {
+  const updateItem = (index: number, field: string, value: unknown) => {
     const newItems = [...items];
     newItems[index][field] = value;
 
@@ -340,7 +340,7 @@ export const SalesOrderForm = () => {
       let soId = editingId;
 
       if (editingId) {
-        const updatePayload: any = {
+        const updatePayload: Record<string, any> = {
           customer_id: formData.customerId,
           order_number: orderNum,
           order_date: formData.date,
@@ -376,7 +376,7 @@ export const SalesOrderForm = () => {
         showToast(statusToSave === 'confirmed' ? 'تم تعميد وتأكيد أمر البيع بنجاح 🛡️✅' : 'تم تحديث أمر البيع بنجاح ✅', 'success');
 
       } else {
-        const insertPayload: any = {
+        const insertPayload: Record<string, any> = {
           organization_id: userOrgId,
           customer_id: formData.customerId,
           order_number: orderNum,

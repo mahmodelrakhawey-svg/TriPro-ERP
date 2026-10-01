@@ -94,7 +94,7 @@ class HrEnterpriseService {
       const { data, error } = await query;
       if (error || !data || data.length === 0) return local;
 
-      const remoteIds = new Set(data.map((d: any) => d.id));
+      const remoteIds = new Set(data.map((d: Record<string, any>) => d.id));
       const missing = local.filter(l => !remoteIds.has(l.id));
       const merged = [...(data as BiometricDevice[]), ...missing];
       secureStorage.setItem(LOCAL_DEVICES_KEY, merged);
@@ -171,7 +171,7 @@ class HrEnterpriseService {
       const { data, error } = await query;
       if (error || !data) return local;
 
-      const remoteIds = new Set(data.map((d: any) => d.id));
+      const remoteIds = new Set(data.map((d: Record<string, any>) => d.id));
       const missing = local.filter(l => !remoteIds.has(l.id));
       const merged = [...(data as BiometricRawLog[]), ...missing];
       secureStorage.setItem(LOCAL_RAW_LOGS_KEY, merged);
@@ -337,7 +337,7 @@ class HrEnterpriseService {
       const { data, error } = await query;
       if (error || !data || data.length === 0) return local;
 
-      const remoteIds = new Set(data.map((d: any) => d.id));
+      const remoteIds = new Set(data.map((d: Record<string, any>) => d.id));
       const missing = local.filter(l => !remoteIds.has(l.id));
       const merged = [...(data as HrShift[]), ...missing];
       secureStorage.setItem(LOCAL_SHIFTS_KEY, merged);
@@ -400,12 +400,12 @@ class HrEnterpriseService {
       const { data, error } = await query;
       if (error || !data) return local;
 
-      const formatted = data.map((d: any) => ({
+      const formatted = data.map((d: Record<string, any>) => ({
         ...d,
         employee_name: d.employee?.full_name || d.employee?.name || 'موظف'
-      }));
+      } as HrPenaltyReward));
 
-      const remoteIds = new Set(formatted.map((d: any) => d.id));
+      const remoteIds = new Set(formatted.map((d: Record<string, any>) => d.id));
       const missing = local.filter(l => !remoteIds.has(l.id));
       const merged = [...formatted, ...missing];
       secureStorage.setItem(LOCAL_PENALTIES_KEY, merged);

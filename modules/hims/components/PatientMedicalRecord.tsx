@@ -118,10 +118,10 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
       const [prescRes, notesRes, radsRes, surgsRes] = dependentQueries;
 
       // تجهيز بيانات المخطط الزمني
-      const chartData = (vitalsRes.data || []).map((v: any) => {
+      const chartData = (vitalsRes.data || []).map((v: Record<string, any>) => {
         const vs = v.vital_signs || {};
         const bpParts = vs.bp?.split('/') || [];
-        const safeParse = (val: any) => { const p = parseFloat(val); return isNaN(p) ? 0 : p; };
+        const safeParse = (val: unknown) => { const p = parseFloat(String(val || 0)); return isNaN(p) ? 0 : p; };
         return {
           date: dayjs(v.created_at).format('YYYY-MM-DD HH:mm'),
           temp: safeParse(vs.temp),
@@ -130,12 +130,12 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
           systolic_bp: safeParse(bpParts[0]),
           diastolic_bp: safeParse(bpParts[1]),
         };
-      }).filter((d: any) => d.temp > 0 || d.pulse > 0 || d.spo2 > 0 || d.systolic_bp > 0).reverse();
+      }).filter((d: Record<string, any>) => d.temp > 0 || d.pulse > 0 || d.spo2 > 0 || d.systolic_bp > 0).reverse();
 
       setHistory(visitsRes.data || []);
       setLabResults(labsRes.data || []);
       setVitalsHistory(vitalsRes.data || []);
-      setCurrentMedications((prescRes.data || []).flatMap((p: any) => p.medications));
+      setCurrentMedications((prescRes.data || []).flatMap((p: Record<string, any>) => p.medications));
       setVitalsChartData(chartData);
       setClinicalNotes(notesRes.data || []);
       setRadiologyReports(radsRes.data || []);
@@ -261,7 +261,7 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
               children: (
                 <div className="space-y-3">
                   {vitalsHistory?.length > 0 ? (
-                    vitalsHistory.map((item: any, idx: number) => (
+                    vitalsHistory.map((item: Record<string, any>, idx: number) => (
                       <Card key={idx} size="small" className="rounded-xl shadow-sm border-slate-100">
                         <div className="flex justify-between items-center mb-2">
                            <Tag color="blue">{dayjs(item.created_at).format('YYYY-MM-DD HH:mm')}</Tag>
@@ -286,7 +286,7 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
               children: (
                 <div className="bg-white border border-slate-200 rounded-2xl p-4 divide-y divide-slate-100">
                   {currentMedications?.length > 0 ? (
-                    currentMedications.map((item: any, idx: number) => (
+                    currentMedications.map((item: Record<string, any>, idx: number) => (
                       <div key={idx} className="flex justify-between items-center py-2.5 first:pt-0 last:pb-0">
                         <span className="font-bold text-slate-800">{item.drug_name}</span>
                         <div className="flex gap-2">

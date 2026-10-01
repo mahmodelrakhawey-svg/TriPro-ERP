@@ -59,7 +59,7 @@ export const DoctorDesktop: React.FC = () => {
           ];
         }
         setQueue(finalQueue);
-        setEmergencyAlerts(monitorData?.filter((a: any) => a.alert_status.includes('🔴')) || []);
+        setEmergencyAlerts(monitorData?.filter((a: Record<string, any>) => a.alert_status.includes('🔴')) || []);
       } else {
         const queuedVisits = await db.queuedVisits.toArray();
         const queuedPatients = await db.queuedPatients.toArray();
@@ -147,7 +147,7 @@ export const DoctorDesktop: React.FC = () => {
     }
   }, [activeVisit?.id]);
 
-  const startConsultation = async (record: any) => {
+  const startConsultation = async (record: Record<string, any>) => {
     try {
       if (!navigator.onLine || record.id.startsWith('11111111-1111-4111-a111-')) {
         setActiveVisit(record);
@@ -199,22 +199,22 @@ export const DoctorDesktop: React.FC = () => {
     { title: 'التوقيت', dataIndex: 'created_at', render: (t: string) => new Date(t).toLocaleTimeString('ar-EG', {hour:'2-digit', minute:'2-digit'}) },
     { 
       title: 'المريض', 
-      render: (text: any, record: any) => (
+      render: (text: unknown, record: Record<string, any>) => (
         <div className="flex items-center gap-2">
           <b>{record.hims_patients?.full_name}</b>
-          {record.hims_lab_orders?.some((o: any) => o.status === 'completed') && (
+          {record.hims_lab_orders?.some((o: Record<string, any>) => o.status === 'completed') && (
             <Tooltip title="انقر لعرض نتائج المختبر الجاهزة">
               <Badge dot status="processing">
                 <ExperimentOutlined
                   className={`${
-                    record.hims_lab_orders?.some((o: any) => o.is_critical) ? 'text-red-500 animate-pulse' : 'text-blue-500'
+                    record.hims_lab_orders?.some((o: Record<string, any>) => o.is_critical) ? 'text-red-500 animate-pulse' : 'text-blue-500'
                   } cursor-pointer hover:scale-125 transition-transform`}
                   onClick={(e) => { e.stopPropagation(); viewResults(record.id, 'lab'); }}
                 />
               </Badge>
             </Tooltip>
           )}
-          {record.hims_radiology_orders?.some((o: any) => o.status === 'completed') && (
+          {record.hims_radiology_orders?.some((o: Record<string, any>) => o.status === 'completed') && (
             <Tooltip title="نتائج أشعة جاهزة">
               <Badge dot status="warning">
                 <CameraOutlined 
@@ -228,7 +228,7 @@ export const DoctorDesktop: React.FC = () => {
       ) 
     },
     { title: 'الحالة', dataIndex: 'status', render: (s: string) => <Tag color={s === 'in_consultation' ? 'orange' : 'blue'}>{s === 'in_consultation' ? 'قيد الكشف' : 'في الانتظار'}</Tag> },
-    { title: 'إجراء', render: (record: any) => (
+    { title: 'إجراء', render: (record: Record<string, any>) => (
       <Button 
         type="primary" 
         icon={<PlayCircleOutlined />} 
@@ -343,7 +343,7 @@ export const DoctorDesktop: React.FC = () => {
           ) : resultsModal.data.length === 0 ? (
             <Empty description="لا توجد نتائج مكتملة متاحة للعرض حالياً" />
           ) : (
-            resultsModal.data.map((item: any, idx: number) => (
+            resultsModal.data.map((item: Record<string, any>, idx: number) => (
               <div key={idx} className="border-b last:border-none mb-4 pb-4">
                 <div className="w-full">
                   <div className="flex justify-between items-center mb-2">

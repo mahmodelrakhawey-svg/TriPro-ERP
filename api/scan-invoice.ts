@@ -60,7 +60,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   for (const endpoint of ENDPOINTS_TO_TRY(apiKey)) {
     try {
-      console.log(`[API /api/scan-invoice] Requesting REST API: ${endpoint.split('?')[0]}`);
+      if (process.env.NODE_ENV === 'development') console.log(`[API /api/scan-invoice] Requesting REST API: ${endpoint.split('?')[0]}`);
       
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -93,7 +93,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const responseData = await response.json();
 
       if (!response.ok) {
-        console.warn(`[API /api/scan-invoice] Endpoint ${endpoint.split('?')[0]} HTTP ${response.status}:`, responseData);
+        if (process.env.NODE_ENV === 'development') console.warn(`[API /api/scan-invoice] Endpoint ${endpoint.split('?')[0]} HTTP ${response.status}:`, responseData);
         lastErrorMsg = responseData?.error?.message || `HTTP ${response.status} error`;
         if (response.status === 400 || response.status === 401 || response.status === 403) {
           break;
@@ -112,12 +112,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(200).json(parsedData);
 
     } catch (err) {
-      console.warn(`[API /api/scan-invoice] Endpoint ${endpoint.split('?')[0]} exception:`, err);
+      if (process.env.NODE_ENV === 'development') console.warn(`[API /api/scan-invoice] Endpoint ${endpoint.split('?')[0]} exception:`, err);
       lastErrorMsg = err?.message || String(err);
     }
   }
 
-  console.error('[API /api/scan-invoice] All models failed. Last error:', lastErrorMsg);
+  if (process.env.NODE_ENV === 'development') console.error('[API /api/scan-invoice] All models failed. Last error:', lastErrorMsg);
 
   if (lastErrorMsg.includes('API_KEY_INVALID') || lastErrorMsg.includes('API key not valid') || lastErrorMsg.includes('404') || lastErrorMsg.includes('not found')) {
     return res.status(400).json({

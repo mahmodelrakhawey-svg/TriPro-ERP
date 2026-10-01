@@ -160,7 +160,7 @@ const Dashboard = () => {
                   totalConstructionBilled: data.totalConstructionBilled || 0
               });
               setChartData(data.chartData || []);
-              setRecentInvoices(data.recentInvoices?.map((inv: any) => ({...inv, customers: { name: inv.customer_name }})) || []);
+              setRecentInvoices(data.recentInvoices?.map((inv: Record<string, any>) => ({...inv, customers: { name: inv.customer_name }})) || []);
               setRecentJournals(data.recentJournals || []);
               setTopCustomers(data.topCustomers || []);
               setTopProducts(data.topProducts || []);
@@ -219,7 +219,7 @@ const Dashboard = () => {
             });
 
             setChartData([ { name: 'يناير', sales: 45000, purchases: 30000 }, { name: 'فبراير', sales: 52000, purchases: 35000 }, { name: 'مارس', sales: 48000, purchases: 42000 }, { name: 'أبريل', sales: 61000, purchases: 45000 }, { name: 'مايو', sales: 85000, purchases: 60000 }, { name: 'يونيو', sales: 125000, purchases: 85000 }, ]);
-            setRecentInvoices((demoInvoices || []).slice(0, 5).map((inv: any) => ({...inv, customers: {name: (demoCustomers || []).find(c => c.id === inv.customer_id)?.name || 'عميل غير معروف'}})));
+            setRecentInvoices((demoInvoices || []).slice(0, 5).map((inv: Record<string, any>) => ({...inv, customers: {name: (demoCustomers || []).find(c => c.id === inv.customer_id)?.name || 'عميل غير معروف'}})));
             setRecentJournals([]);
             setTopCustomers(topCustomersData);
             setTopProducts([ { name: 'لابتوب HP ProBook', total_revenue: 62500 }, { name: 'طابعة ليزر Canon', total_revenue: 12750 }, { name: 'ورق تصوير A4', total_revenue: 12750 } ]);
@@ -274,7 +274,18 @@ const Dashboard = () => {
     }
   };
 
-  const StatCard = ({ title, value, icon: Icon, color, previousValue, isCurrency = true, isGood, subLabel }: any) => {
+  interface StatCardProps {
+    title: string;
+    value: number;
+    icon: React.ElementType;
+    color: string;
+    previousValue?: number;
+    isCurrency?: boolean;
+    isGood?: boolean;
+    subLabel?: string;
+  }
+
+  const StatCard = ({ title, value, icon: Icon, color, previousValue, isCurrency = true, isGood, subLabel }: StatCardProps) => {
     const change = useMemo(() => {
         if (previousValue === undefined || previousValue === 0) return null;
         return ((value - previousValue) / previousValue) * 100;
@@ -371,13 +382,22 @@ const Dashboard = () => {
     );
   };
 
-  const TopListWidget = ({ title, data, icon: Icon, color, valueKey = 'total', nameKey = 'name' }: any) => (
+  interface TopListWidgetProps {
+    title: string;
+    data: Record<string, any>[];
+    icon: React.ElementType;
+    color: string;
+    valueKey?: string;
+    nameKey?: string;
+  }
+
+  const TopListWidget = ({ title, data, icon: Icon, color, valueKey = 'total', nameKey = 'name' }: TopListWidgetProps) => (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
         <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
             <Icon className={`${color}`} size={20} /> {title}
         </h3>
         <div className="space-y-3">
-            {data.length > 0 ? data.map((item: any, index: number) => (
+            {data.length > 0 ? data.map((item: Record<string, any>, index: number) => (
                 <div key={index} className="flex items-center justify-between text-sm">
                     <div className="flex items-center gap-2">
                         <span className={`w-5 h-5 flex items-center justify-center text-xs font-bold rounded-full ${index === 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{index + 1}</span>
@@ -433,7 +453,7 @@ const Dashboard = () => {
               onChange={(e) => setCurrentSelectedOrgId(e.target.value || null)}
               className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-3 py-2 rounded-xl border border-white/20 focus:outline-none focus:ring-2 focus:ring-sky-400 transition-all cursor-pointer min-w-[220px]"
             >
-              {organizations.map((org: any) => (
+              {organizations.map((org: { id: string; name: string }) => (
                 <option key={org.id} value={org.id} className="bg-slate-900 text-white">
                   🏢 {org.name}
                 </option>
@@ -531,7 +551,7 @@ const Dashboard = () => {
                                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                                 <XAxis dataKey="name" />
                                 <YAxis />
-                                <Tooltip formatter={(value: any) => Number(value || 0).toLocaleString()} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                                <Tooltip formatter={(value: unknown) => Number(value || 0).toLocaleString()} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
                                 <Legend />
                                 <Bar dataKey="sales" name="المبيعات" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                                 <Bar dataKey="purchases" name="المشتريات" fill="#a855f7" radius={[4, 4, 0, 0]} />
@@ -582,14 +602,14 @@ const Dashboard = () => {
                                             <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                                         ))}
                                     </Pie>
-                                    <Tooltip formatter={(value: any) => Number(value || 0).toLocaleString()} />
+                                    <Tooltip formatter={(value: unknown) => Number(value || 0).toLocaleString()} />
                                     <Legend iconSize={10} />
                                 </PieChart>
                             </ResponsiveContainer>
                         </div>
                         <div className="border-t border-slate-100 my-4"></div>
                         <div className="space-y-3">
-                            {topCustomers.map((item: any, index: number) => (
+                            {topCustomers.map((item: Record<string, any>, index: number) => (
                                 <div key={index} className="flex items-center justify-between text-sm">
                                     <div className="flex items-center gap-2">
                                         <span className={`w-5 h-5 flex items-center justify-center text-xs font-bold rounded-full ${index === 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{index + 1}</span>

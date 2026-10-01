@@ -95,7 +95,7 @@ export default function MobilePdaStocktaking() {
     if (!matched) {
       for (const p of allProducts) {
         if (Array.isArray((p as any).unit_barcodes)) {
-          const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
+          const foundUom = (p as any).unit_barcodes.find((ub: Record<string, any>) => ub.barcode && ub.barcode.trim().toLowerCase() === cleanCode);
           if (foundUom) {
             matched = p;
             break;
@@ -245,17 +245,17 @@ export default function MobilePdaStocktaking() {
 
         if (totalDiffValue !== 0 && addEntry) {
           const inventoryAcc = (getSystemAccount && (getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY'))) ||
-            accounts?.find((a: any) => a.code === '10302' || a.code === '10301' || a.code === '1213' || (a.name?.includes('مخزون') && !a.name?.includes('ضريب')));
+            accounts?.find((a: Record<string, any>) => a.code === '10302' || a.code === '10301' || a.code === '1213' || (a.name?.includes('مخزون') && !a.name?.includes('ضريب')));
 
           let adjustmentAcc;
           if (totalDiffValue > 0) {
             // زيادة مخزنية (أرباح تسويات)
             adjustmentAcc = (getSystemAccount && (getSystemAccount('REVENUE_OTHER') || getSystemAccount('OTHER_REVENUE'))) ||
-              accounts?.find((a: any) => a.code === '421' || a.code === '441' || a.name?.includes('أرباح تسوية') || a.name?.includes('زيادة المخزون'));
+              accounts?.find((a: Record<string, any>) => a.code === '421' || a.code === '441' || a.name?.includes('أرباح تسوية') || a.name?.includes('زيادة المخزون'));
           } else {
             // عجز مخزني (خسائر تسويات الجرد)
             adjustmentAcc = (getSystemAccount && (getSystemAccount('INVENTORY_ADJUSTMENTS') || getSystemAccount('WASTAGE_EXPENSE'))) ||
-              accounts?.find((a: any) => a.code === '512' || a.code === '5121' || a.name?.includes('عجز المخزون') || a.name?.includes('تسويات الجرد'));
+              accounts?.find((a: Record<string, any>) => a.code === '512' || a.code === '5121' || a.name?.includes('عجز المخزون') || a.name?.includes('تسويات الجرد'));
           }
 
           if (inventoryAcc && adjustmentAcc) {
@@ -331,7 +331,7 @@ export default function MobilePdaStocktaking() {
               onChange={e => setSelectedWarehouseId(e.target.value)}
               className="bg-slate-800 border border-slate-700 text-purple-200 font-bold rounded-xl px-3 py-1.5 outline-none"
             >
-              {warehouses.map((w: any) => (
+              {warehouses.map((w: Record<string, any>) => (
                 <option key={w.id} value={w.id}>{w.name}</option>
               ))}
             </select>

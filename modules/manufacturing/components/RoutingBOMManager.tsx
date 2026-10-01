@@ -616,7 +616,7 @@ const RoutingBOMManager = () => {
           .order('step_order', { ascending: true });
 
         if (stepsError) throw stepsError;
-        setRoutingSteps((stepsData || []).map((s: Record<string, any>) => ({
+        setRoutingSteps((stepsData || []).map((s: RoutingStep & { mfg_step_attachments?: StepAttachment[]; mfg_step_materials?: StepMaterial[] }) => ({
           ...s,
           attachments: s.mfg_step_attachments || [],
           materials: s.mfg_step_materials || [] // <--- تم إضافة هذا السطر لربط المواد الخام بالعرض

@@ -33,6 +33,8 @@ export const downloadRecipeTemplate = () => {
   XLSX.writeFile(wb, "Recipes_Template.xlsx");
 };
 
+type SupabaseQuery = any;
+
 export const exportProductsToExcel = async ({
   targetOrgId,
   categories,
@@ -42,7 +44,7 @@ export const exportProductsToExcel = async ({
 }: {
   targetOrgId?: string | null;
   categories: any[];
-  queryModifier: (query: Record<string, any>) => Record<string, any>;
+  queryModifier: (query: SupabaseQuery) => SupabaseQuery;
   showToast: (msg: string, type?: string) => void;
   setIsExporting: (val: boolean) => void;
 }) => {

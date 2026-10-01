@@ -336,7 +336,7 @@ export const isValidUUID = (str?: string | null): boolean => {
 // فئة الخدمة المركزية مع طبقة التوافق التلقائي (Local Fallback Resilience)
 // ---------------------------------------------------------------------------
 class ButcheringYieldService {
-  private isTableMissingError(error: any): boolean {
+  private isTableMissingError(error: Record<string, any> | null | undefined): boolean {
     if (!error) return false;
     const msg = (error.message || '').toLowerCase();
     const code = error.code || '';
@@ -660,7 +660,7 @@ class ButcheringYieldService {
 
       // جلب أسماء الأصناف الخام لتجنب أخطاء PostgREST
       const productIds = Array.from(
-        new Set((data || []).map((r: any) => r.source_product_id).filter(Boolean))
+        new Set((data || []).map((r: Record<string, any>) => r.source_product_id).filter(Boolean))
       );
 
       const productMap: Record<string, string> = {};
@@ -671,7 +671,7 @@ class ButcheringYieldService {
             .select('id, name')
             .in('id', productIds);
           if (prods) {
-            prods.forEach((p: any) => {
+            prods.forEach((p: Record<string, any>) => {
               productMap[p.id] = p.name;
             });
           }
@@ -680,7 +680,7 @@ class ButcheringYieldService {
         }
       }
 
-      const dbOrders = (data || []).map((row: any) => ({
+      const dbOrders = (data || []).map((row: Record<string, any>) => ({
         ...row,
         source_product_name: productMap[row.source_product_id] || row.source_product_name || 'صنف ذبيحة خام'
       })) as ButcheringOrder[];
@@ -754,7 +754,7 @@ class ButcheringYieldService {
       let addedItemsCount = 0;
 
       // 1. محاولة إدخال رأس الأمر في جدول butchering_orders في Supabase مع إعادة المحاولة عند وجود تكرار
-      let createdOrder: any = null;
+      let createdOrder: { id: string } | null = null;
       let orderErr: any = null;
 
       for (let attempt = 0; attempt < 3; attempt++) {

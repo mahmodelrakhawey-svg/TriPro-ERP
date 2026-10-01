@@ -138,7 +138,7 @@ export const MemberManager: React.FC = () => {
 
       if (error || !expired || expired.length === 0) return;
 
-      const ids = expired.map((m: any) => m.id);
+      const ids = expired.map((m: Record<string, any>) => m.id);
       const { error: updateErr } = await supabase
         .from('stadium_members')
         .update({ status: 'expired', updated_at: new Date().toISOString() })
@@ -164,7 +164,7 @@ export const MemberManager: React.FC = () => {
     fetchMembers();
   }, [page, orgId, search, statusFilter]);
 
-  const onSaveMember = async (data: any) => {
+  const onSaveMember = async (data: Record<string, any>) => {
     if (!orgId) return;
     let photo_url: string | null | undefined = editingMember?.photo_url;
     if (photoFile) {
@@ -210,7 +210,7 @@ export const MemberManager: React.FC = () => {
     }
   };
 
-  const onRenewSubscription = async (data: any) => {
+  const onRenewSubscription = async (data: Record<string, any>) => {
     if (!orgId || !renewingMember) return;
     const today = new Date().toISOString().split('T')[0];
     const endDate = calcSubscriptionEndDate(today, data.duration);
@@ -383,7 +383,7 @@ export const MemberManager: React.FC = () => {
   };
 
   // دالة لتنظيف وضبط وتصحيح التواريخ تلقائياً وحمايتها من أخطاء التاريخ الخارج عن النطاق
-  const sanitizeDate = (raw: any): string | null => {
+  const sanitizeDate = (raw: unknown): string | null => {
     if (raw === null || raw === undefined || raw === '') return null;
 
     // 1. إذا كان التاريخ رقم سيريال من إكسيل (Excel serial date number)
@@ -480,7 +480,7 @@ export const MemberManager: React.FC = () => {
         }
 
         // Map parsed rows with strict schema validation
-        const normalized = data.map((row: any) => {
+        const normalized = (data as Record<string, any>[]).map((row) => {
           const name = row['الاسم الكامل *'] || row['الاسم الكامل'] || row['الاسم'] || row['full_name'] || row['Name'] || '';
           const natId = String(row['الرقم القومي'] || row['national_id'] || row['National ID'] || '').trim();
           const phone = String(row['رقم الهاتف'] || row['الهاتف'] || row['phone'] || row['Phone'] || '').trim();

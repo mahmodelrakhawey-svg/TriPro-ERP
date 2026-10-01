@@ -605,13 +605,14 @@ export class RecurringInvoiceService {
           .maybeSingle();
 
         if (!error && data) {
-          sub = data;
-          if (sub.customer_id) {
-            const { data: cust } = await supabase.from('customers').select('id, name, phone, email').eq('id', sub.customer_id).maybeSingle();
-            if (cust) sub.customers = cust;
+          const currentSub = data as Record<string, any>;
+          if (currentSub.customer_id) {
+            const { data: cust } = await supabase.from('customers').select('id, name, phone, email').eq('id', currentSub.customer_id).maybeSingle();
+            if (cust) currentSub.customers = cust;
           }
           const { data: items } = await supabase.from('recurring_invoice_items').select('*').eq('recurring_invoice_id', validSubId);
-          sub.items = items || [];
+          currentSub.items = items || [];
+          sub = currentSub;
         }
       }
 

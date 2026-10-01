@@ -9,7 +9,7 @@ const VitalsModal: React.FC<{ visible: boolean; visitId: string; onCancel: () =>
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
 
-  const handleSave = async (values: any) => {
+  const handleSave = async (values: Record<string, any>) => {
     setLoading(true);
     try {
       const { error } = await supabase
@@ -60,13 +60,13 @@ const MedicationMARModal: React.FC<{ visible: boolean; visitId: string; onCancel
       .eq('visit_id', visitId);
     
     // تسطيح قائمة الأدوية من كافة الروشتات
-    const allMeds = data?.flatMap(p => p.medications.map((m: any) => ({ ...m, p_id: p.id }))) || [];
+    const allMeds = data?.flatMap(p => p.medications.map((m: Record<string, any>) => ({ ...m, p_id: p.id }))) || [];
     setPrescriptions(allMeds);
   };
 
   useEffect(() => { if (visible) fetchMedications(); }, [visible]);
 
-  const giveMedication = async (med: any) => {
+  const giveMedication = async (med: Record<string, any>) => {
     setLoading(true);
     const { error } = await supabase.rpc('hims_log_medication_administration', {
       p_visit_id: visitId,
@@ -83,7 +83,7 @@ const MedicationMARModal: React.FC<{ visible: boolean; visitId: string; onCancel
     <Modal title={<b>سجل إعطاء الأدوية (MAR) 💊</b>} open={visible} onCancel={onCancel} footer={null} width={600}>
       {prescriptions && prescriptions.length > 0 ? (
         <div className="flex flex-col gap-2">
-          {prescriptions.map((item: any, idx: number) => (
+          {prescriptions.map((item: Record<string, any>, idx: number) => (
             <div key={idx} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl">
               <div>
                 <b className="text-indigo-600 block">{item.drug_name}</b>
@@ -233,7 +233,7 @@ export const NurseStation: React.FC = () => {
               </div>
               {pendingTasks && pendingTasks.length > 0 ? (
                 <div className="flex flex-col divide-y divide-slate-100 max-h-[400px] overflow-y-auto">
-                  {pendingTasks.map((task: any, idx: number) => (
+                  {pendingTasks.map((task: Record<string, any>, idx: number) => (
                     <div key={idx} className="px-6 py-4 hover:bg-slate-50 transition-colors flex justify-between items-center">
                       <div>
                         <Typography.Text strong className="block text-indigo-700">
