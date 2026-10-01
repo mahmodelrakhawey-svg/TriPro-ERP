@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -76,7 +77,7 @@ export const DebitNoteList = () => {
 
       setNotes(data || []);
     } catch (err) {
-      console.error('Error fetching debit notes:', err);
+      logger.error('Error fetching debit notes:', err);
       showToast('فشل تحميل سجل الإشعارات المدينة: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -134,7 +135,7 @@ export const DebitNoteList = () => {
       fetchNotes();
 
     } catch (err) {
-      console.error('Error deleting debit note:', err);
+      logger.error('Error deleting debit note:', err);
       showToast('فشل حذف الإشعار المدين: ' + err.message, 'error');
     } finally {
       setDeletingId(null);

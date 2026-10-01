@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { AccountType } from '../../types';
@@ -106,7 +107,7 @@ const BudgetVarianceReport = () => {
               responseText = res.text || '';
               if (responseText) break;
             } catch (err) {
-              console.warn(`[BudgetVarianceReport] Model ${modelName} failed:`, err);
+              logger.warn(`[BudgetVarianceReport] Model ${modelName} failed:`, err);
             }
           }
 

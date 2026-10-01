@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
@@ -67,7 +68,7 @@ export const StadiumBudgetManager: React.FC = () => {
         .eq('fiscal_year', fiscalYear);
 
       if (bErr) {
-        console.warn('Budgets query warning:', bErr);
+        logger.warn('Budgets query warning:', bErr);
       }
 
       // 2. Fetch actual spent from journal entries for the fiscal year
@@ -82,7 +83,7 @@ export const StadiumBudgetManager: React.FC = () => {
         .lte('transaction_date', endDate);
 
       if (jErr) {
-        console.warn('Journal entries query warning:', jErr);
+        logger.warn('Journal entries query warning:', jErr);
       }
 
       const spentByCode: Record<string, number> = {};
@@ -106,7 +107,7 @@ export const StadiumBudgetManager: React.FC = () => {
 
       setBudgets(merged);
     } catch (err) {
-      console.warn(err);
+      logger.warn(err);
     } finally {
       setLoading(false);
     }
@@ -181,7 +182,7 @@ export const StadiumBudgetManager: React.FC = () => {
       setIsModalOpen(false);
       fetchBudgetsAndSpent();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       toast.error('حدث خطأ أثناء الحفظ');
     }
   };

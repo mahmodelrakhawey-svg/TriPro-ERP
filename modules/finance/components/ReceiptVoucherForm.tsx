@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -79,7 +80,7 @@ const ReceiptVoucherForm = () => {
 
       const customerAcc = getSystemAccount('CUSTOMERS');
       if (!customerAcc) {
-          console.error("Customer A/R account not found for balance calculation.");
+          logger.error("Customer A/R account not found for balance calculation.");
           setDynamicBalance(null);
           return;
       }
@@ -158,7 +159,7 @@ const ReceiptVoucherForm = () => {
   useEffect(() => {
     supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
       if (error) {
-        console.error("فشل جلب إعدادات الشركة عبر RPC:", error);
+        logger.error("فشل جلب إعدادات الشركة عبر RPC:", error);
       } else {
         setCompanySettings(data);
       }
@@ -284,7 +285,7 @@ const ReceiptVoucherForm = () => {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Error downloading:', err);
+      logger.error('Error downloading:', err);
       showToast('فشل تحميل الملف', 'error');
     }
   };
@@ -480,7 +481,7 @@ const ReceiptVoucherForm = () => {
                     .upload(filePath, file);
 
                 if (uploadError) {
-                    console.error('Upload failed:', uploadError);
+                    logger.error('Upload failed:', uploadError);
                     showToast(`تم حفظ السند ولكن فشل رفع المرفق: ${file.name}. السبب: ${uploadError.message}`, 'warning');
                 } else {
                     // حفظ بيانات المرفق في الجدول الجديد
@@ -500,7 +501,7 @@ const ReceiptVoucherForm = () => {
             const { error: rpcError } = await supabase.rpc('approve_receipt_voucher', { p_voucher_id: voucherData.id, p_credit_account_id: customerAcc.id });
             if (rpcError) throw rpcError;
         } catch (err) {
-            console.warn("RPC failed, falling back to manual entry:", err);
+            logger.warn("RPC failed, falling back to manual entry:", err);
             // في حال فشل الدالة (مثلاً غير موجودة)، نقوم بإنشاء القيد يدوياً لضمان سلامة البيانات
             await addEntry({
                 date: formData.date,

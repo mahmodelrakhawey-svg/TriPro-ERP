@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { Table, Tag, Button, Card, Typography, Empty, message, Modal, Form, Input, Divider, Space, Tooltip } from 'antd';
 import { CameraOutlined, FileImageOutlined, SendOutlined, CheckCircleOutlined, FileTextOutlined, ZoomInOutlined, ZoomOutOutlined, RotateRightOutlined, RedoOutlined, AimOutlined, BgColorsOutlined } from '@ant-design/icons';
@@ -110,7 +111,7 @@ export const RadiologyDashboard: React.FC = () => {
         setOrders(offlineOrders.filter(o => !completedIds.has(o.id)));
       }
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
     setLoading(false);
   };

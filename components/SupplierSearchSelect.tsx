@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { 
   Search, X, Truck, Phone, FileText, Plus, Edit2, RefreshCw, 
@@ -236,7 +237,7 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
       const bal = await fetchSingleSupplierBalance(supplierId, orgId, supplierName);
       setCurrentBalance(bal);
     } catch (err) {
-      console.warn('Could not fetch supplier balance:', err);
+      logger.warn('Could not fetch supplier balance:', err);
     } finally {
       setIsRefreshingBalance(false);
     }

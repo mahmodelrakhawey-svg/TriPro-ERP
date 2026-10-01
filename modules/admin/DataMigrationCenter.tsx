@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useRef } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -207,7 +208,7 @@ const DataMigrationCenter = () => {
                 }
             });
         } catch (logErr) {
-            console.warn('Could not log migration to security_logs:', logErr);
+            logger.warn('Could not log migration to security_logs:', logErr);
         }
 
         if (failedRecords.length === 0) {

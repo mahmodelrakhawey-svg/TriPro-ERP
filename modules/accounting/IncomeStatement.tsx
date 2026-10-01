@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -110,7 +111,7 @@ const IncomeStatement: React.FC = () => {
           setPriorLedgerLines([]);
         }
       } catch (rpcEx) {
-        console.warn('[IncomeStatement] Server-side RPC failed, falling back to chunked query:', rpcEx);
+        logger.warn('[IncomeStatement] Server-side RPC failed, falling back to chunked query:', rpcEx);
       }
 
       // 🛡️ الخطوة 2 (Graceful Degradation Fallback): استعلام أسطر اليومية المقسم
@@ -176,7 +177,7 @@ const IncomeStatement: React.FC = () => {
         }
       }
     } catch (err) {
-      console.error('Error fetching income statement data:', err);
+      logger.error('Error fetching income statement data:', err);
       showToast('فشل جلب البيانات: ' + err.message, 'error');
     } finally {
       setLoading(false);

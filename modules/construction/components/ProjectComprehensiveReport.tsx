@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
@@ -43,11 +44,11 @@ const ProjectComprehensiveReport: React.FC<ProjectComprehensiveReportProps> = ({
         .select('*')
         .eq('project_id', projectId)
         .single();
-      if (profitabilityError) console.error("Error fetching profitability:", profitabilityError);
+      if (profitabilityError) logger.error("Error fetching profitability:", profitabilityError);
 
       // 3. Fetch EVM Metrics
       const { data: evmMetrics, error: evmError } = await supabase.rpc('get_project_evm_metrics', { p_project_id: projectId });
-      if (evmError) console.error("Error fetching EVM metrics:", evmError);
+      if (evmError) logger.error("Error fetching EVM metrics:", evmError);
 
       // 4. Fetch Milestones
       const { data: milestones, error: milestonesError } = await supabase
@@ -55,7 +56,7 @@ const ProjectComprehensiveReport: React.FC<ProjectComprehensiveReportProps> = ({
         .select('*')
         .eq('project_id', projectId)
         .order('expected_start_date', { ascending: true });
-      if (milestonesError) console.error("Error fetching milestones:", milestonesError);
+      if (milestonesError) logger.error("Error fetching milestones:", milestonesError);
 
       // 5. Fetch Latest Daily Reports (e.g., last 3 with images)
       const { data: dailyReports, error: dailyReportsError } = await supabase
@@ -65,7 +66,7 @@ const ProjectComprehensiveReport: React.FC<ProjectComprehensiveReportProps> = ({
         .not('site_images', 'is', null)
         .order('report_date', { ascending: false })
         .limit(3);
-      if (dailyReportsError) console.error("Error fetching daily reports:", dailyReportsError);
+      if (dailyReportsError) logger.error("Error fetching daily reports:", dailyReportsError);
 
       // 6. Fetch Subcontractor Performance (for this project's subcontractors)
       // جلب معرفات مقاولي الباطن المرتبطين بالمشروع أولاً
@@ -82,7 +83,7 @@ const ProjectComprehensiveReport: React.FC<ProjectComprehensiveReportProps> = ({
           .from('v_subcontractor_performance')
           .select('*')
           .in('subcontractor_id', subIds);
-        if (subPerformanceError) console.error("Error fetching subcontractor performance:", subPerformanceError);
+        if (subPerformanceError) logger.error("Error fetching subcontractor performance:", subPerformanceError);
         subPerformance = perf || [];
       }
 
@@ -134,7 +135,7 @@ const ProjectComprehensiveReport: React.FC<ProjectComprehensiveReportProps> = ({
       showToast('تم تصدير التقرير بنجاح ✅', 'success');
     } catch (error) {
       showToast('خطأ في تصدير التقرير: ' + error.message, 'error');
-      console.error("PDF Export Error:", error);
+      logger.error("PDF Export Error:", error);
     } finally {
       setIsExporting(false);
     }

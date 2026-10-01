@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -234,7 +235,7 @@ export default function PriceCheckerKiosk() {
       }, 7000);
 
     } catch (err) {
-      console.error('Error scanning price:', err);
+      logger.error('Error scanning price:', err);
       setNotFound(true);
     }
   };

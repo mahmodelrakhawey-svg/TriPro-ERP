@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { UserPlus, Search, FileText, Activity, CreditCard, Calendar, Filter, Plus, Edit2, Trash2, Camera, Loader2, X, Key } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
@@ -135,7 +136,7 @@ const PatientManager = () => {
 
         setDisplayedPatients(offlineList);
       } catch (err) {
-        console.error('Failed to load offline patients:', err);
+        logger.error('Failed to load offline patients:', err);
       }
     }
   }, [patients, searchTerm, organization?.id, currentUser?.organization_id]);

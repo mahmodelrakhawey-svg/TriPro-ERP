@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -135,7 +136,7 @@ export default function VendorContractsManager() {
       }));
       setSettlements(formattedSettlements);
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('خطأ أثناء جلب بيانات العقود والريباط', 'error');
     } finally {
       setIsLoading(false);
@@ -250,7 +251,7 @@ export default function VendorContractsManager() {
       setIsContractModalOpen(false);
       fetchData();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast(err.message || 'فشل حفظ العقد', 'error');
     }
   };
@@ -319,7 +320,7 @@ export default function VendorContractsManager() {
 
       showToast(`تم احتساب المشتريات الفعلية (${actualPurchases.toFixed(2)} ${currencySymbol})`, 'success');
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل احتساب المشتريات', 'error');
     } finally {
       setIsCalculating(false);

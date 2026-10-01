@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { RotateCcw, Search, Barcode, CheckCircle, AlertCircle, X, Printer, PackageMinus, Clock, Loader2 } from 'lucide-react';
 import { supabase } from '../../../../supabaseClient';
@@ -88,7 +89,7 @@ export default function PosReturnModal({
         setRecentOrders([]);
       }
     } catch (e) {
-      console.error('Error fetching recent orders for POS return:', e);
+      logger.error('Error fetching recent orders for POS return:', e);
       setRecentOrders([]);
     } finally {
       setIsLoadingRecent(false);
@@ -318,7 +319,7 @@ export default function PosReturnModal({
       if (!retErr && insertData) {
         retRec = insertData;
       } else {
-        console.warn('Initial insert to sales_returns failed, trying minimal payload:', retErr);
+        logger.warn('Initial insert to sales_returns failed, trying minimal payload:', retErr);
         const { data: fallbackData, error: fallbackErr } = await supabase
           .from('sales_returns')
           .insert({
@@ -334,7 +335,7 @@ export default function PosReturnModal({
         if (fallbackData) {
           retRec = fallbackData;
         } else if (fallbackErr) {
-          console.warn('Fallback insert also had an error:', fallbackErr);
+          logger.warn('Fallback insert also had an error:', fallbackErr);
         }
       }
 
@@ -352,7 +353,7 @@ export default function PosReturnModal({
           const { error: err1 } = await supabase.from('sales_return_items').insert(payload1);
 
           if (err1) {
-            console.warn('First insert to sales_return_items failed, trying payload with price/total:', err1);
+            logger.warn('First insert to sales_return_items failed, trying payload with price/total:', err1);
             // Attempt 2: schema with price column instead of unit_price
             const payload2 = activeReturns.map(it => ({
               sales_return_id: retRec.id,
@@ -364,7 +365,7 @@ export default function PosReturnModal({
             const { error: err2 } = await supabase.from('sales_return_items').insert(payload2);
 
             if (err2) {
-              console.warn('Second insert to sales_return_items failed, trying minimal payload:', err2);
+              logger.warn('Second insert to sales_return_items failed, trying minimal payload:', err2);
               // Attempt 3: minimal (sales_return_id, product_id, quantity, total)
               const payload3 = activeReturns.map(it => ({
                 sales_return_id: retRec.id,
@@ -376,7 +377,7 @@ export default function PosReturnModal({
             }
           }
         } catch (e) {
-          console.warn('Could not insert sales_return_items:', e);
+          logger.warn('Could not insert sales_return_items:', e);
         }
       }
 

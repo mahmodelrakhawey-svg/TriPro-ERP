@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -108,7 +109,7 @@ export const SalesOrders: React.FC = () => {
 
       setOrders(data || []);
     } catch (err) {
-      console.error('Error fetching sales orders:', err);
+      logger.error('Error fetching sales orders:', err);
       showToast('فشل تحميل سجل أوامر البيع: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -160,7 +161,7 @@ export const SalesOrders: React.FC = () => {
       showToast(`تم تعميد وتأكيد أمر البيع رقم (${order.order_number}) بنجاح 🛡️✅`, 'success');
       fetchOrders();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل تعميد أمر البيع: ' + err.message, 'error');
     } finally {
       setConfirmingId(null);
@@ -182,7 +183,7 @@ export const SalesOrders: React.FC = () => {
       fetchOrders();
 
     } catch (err) {
-      console.error('Error deleting SO:', err);
+      logger.error('Error deleting SO:', err);
       showToast('فشل حذف أمر البيع: ' + err.message, 'error');
     } finally {
       setDeletingId(null);
@@ -215,7 +216,7 @@ export const SalesOrders: React.FC = () => {
       setSelectedOrderForConvert(null);
       fetchOrders();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل تحويل أمر البيع: ' + err.message, 'error');
     } finally {
       setConverting(false);

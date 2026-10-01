@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
@@ -138,7 +139,7 @@ const PayrollRun = () => {
       const { data, error } = await query.order('created_at', { ascending: false }).limit(1);
 
       if (error) {
-        console.error("Error fetching payroll:", error);
+        logger.error("Error fetching payroll:", error);
         return;
       }
 
@@ -178,7 +179,7 @@ const PayrollRun = () => {
         setExistingPayroll(null);
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
     } finally {
       setCheckingExisting(false);
     }
@@ -335,7 +336,7 @@ const PayrollRun = () => {
       setPayrollData(preparedData);
       showToast(`تم احتساب مسير رواتب شهر ${selectedMonth}/${selectedYear} بنجاح لعدد ${preparedData.length} موظف.`, 'success');
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('حدث خطأ أثناء احتساب المسير: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -463,7 +464,7 @@ const PayrollRun = () => {
       showToast(`تم ترحيل قيد استحقاق رواتب شهر ${selectedMonth}/${selectedYear} بنجاح (حـ/ 2251 دائن) 📋✅`, 'success');
       await fetchExistingPayroll(selectedMonth, selectedYear);
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('فشل ترحيل قيد الاستحقاق: ' + error.message, 'error');
     } finally {
       setSavingAccrual(false);
@@ -522,7 +523,7 @@ const PayrollRun = () => {
       showToast(`تم صرف رواتب شهر ${selectedMonth}/${selectedYear} بنجاح وترحيل قيد النقدية من ${treasuryName} 💰✅`, 'success');
       await fetchExistingPayroll(selectedMonth, selectedYear);
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('فشل صرف الرواتب: ' + error.message, 'error');
     } finally {
       setSavingPayment(false);
@@ -575,7 +576,7 @@ const PayrollRun = () => {
       showToast('تم تنفيذ مسير الرواتب وترحيل القيد المحاسبي بنجاح 💰✅', 'success');
       await fetchExistingPayroll(selectedMonth, selectedYear);
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('فشل تنفيذ المسير: ' + error.message, 'error');
     } finally {
       setSavingPayment(false);

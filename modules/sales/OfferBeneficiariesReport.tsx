@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useMemo, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -147,7 +148,7 @@ const OfferBeneficiariesReport = () => {
 
       setSalesRecords(allRecords);
     } catch (e) {
-      console.error("Error fetching offer beneficiaries data:", e);
+      logger.error("Error fetching offer beneficiaries data:", e);
     } finally {
       setLoading(false);
     }

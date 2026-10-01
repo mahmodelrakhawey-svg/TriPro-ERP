@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useState } from 'react';
 import { Download, Database, Loader2, ShieldCheck, FileJson } from 'lucide-react';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -60,7 +61,7 @@ const ArchiveManager: React.FC<ArchiveManagerProps> = ({
 
       showToast('تم تحميل الأرشيف الكامل بنجاح ✅ احتفظ بهذا الملف في مكان آمن.', 'success');
     } catch (err: unknown) {
-      console.error('Export Error:', err);
+      logger.error('Export Error:', err);
       const errObj = err as { message?: string };
       showToast('فشل تصدير الأرشيف: ' + (errObj.message || 'خطأ غير معروف'), 'error');
     } finally {

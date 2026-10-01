@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Loader2, AlertTriangle, Filter } from 'lucide-react';
@@ -139,7 +140,7 @@ const GeneralJournal: React.FC = () => {
         setDetectedOrphanEntry(null);
       }
     } catch (e) {
-      console.warn('Error checking orphan entries:', e);
+      logger.warn('Error checking orphan entries:', e);
     }
   }, []);
 
@@ -159,7 +160,7 @@ const GeneralJournal: React.FC = () => {
         setUnbalancedAudit(null);
       }
     } catch (e) {
-      console.warn('Error auditing journal balance:', e);
+      logger.warn('Error auditing journal balance:', e);
     } finally {
       setIsAuditingBalance(false);
     }
@@ -293,7 +294,7 @@ const GeneralJournal: React.FC = () => {
           setMatchingEntryIds(Array.from(foundIds));
         }
       } catch (err) {
-        console.error("Error performing search:", err);
+        logger.error("Error performing search:", err);
       } finally {
         setIsSearching(false);
       }
@@ -689,7 +690,7 @@ const GeneralJournal: React.FC = () => {
       await refreshData();
       refresh();
     } catch (err) {
-      console.error('Error cleaning orphaned asset entries:', err);
+      logger.error('Error cleaning orphaned asset entries:', err);
       toast.error('فشل تنظيف قيود الأصول: ' + err.message);
     } finally {
       setIsCleaningAssets(false);
@@ -750,7 +751,7 @@ const GeneralJournal: React.FC = () => {
       try {
         await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
       } catch (e) {
-        console.error('Failed to recalculate balances', e);
+        logger.error('Failed to recalculate balances', e);
       }
 
       await clearCache();
@@ -758,7 +759,7 @@ const GeneralJournal: React.FC = () => {
       refresh();
       toast.success(`تم بنجاح تنظيف ${duplicateIdsToDelete.length} قيد شيكات مكرر وإعادة ضبط الأرصدة ✅`);
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       toast.error('حدث خطأ أثناء تنظيف القيود المكررة: ' + err.message);
     } finally {
       setIsCleaningDuplicates(false);

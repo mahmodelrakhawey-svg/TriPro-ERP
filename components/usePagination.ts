@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 
@@ -120,7 +121,7 @@ export function usePagination<T>(
 
       if (err.name === 'AbortError' || err.message?.includes('AbortError')) return;
       
-      if (import.meta.env.DEV) console.error(`Error fetching data from ${tableName}:`, err);
+      if (import.meta.env.DEV) logger.error(`Error fetching data from ${tableName}:`, err);
       setError(err.message || 'An error occurred while fetching data');
     } finally {
       setLoading(false);

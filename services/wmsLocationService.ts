@@ -9,6 +9,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { WarehouseBin, BinStockAllocation, BinType } from '../types';
 import { secureStorage } from '../utils/securityMiddleware';
@@ -55,7 +56,7 @@ export class WmsLocationService {
     try {
       secureStorage.setItem(STORAGE_KEYS.BINS, bins);
     } catch (e) {
-      console.warn('Local save error:', e);
+      logger.warn('Local save error:', e);
     }
   }
 
@@ -74,7 +75,7 @@ export class WmsLocationService {
     try {
       secureStorage.setItem(STORAGE_KEYS.ALLOCATIONS, allocs);
     } catch (e) {
-      console.warn('Local save error:', e);
+      logger.warn('Local save error:', e);
     }
   }
 

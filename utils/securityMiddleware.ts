@@ -3,6 +3,7 @@
  * حماية أمنية لـ API Calls والعمليات الحساسة
  */
 
+import { logger } from '../utils/logger';
 import { sanitizeHtml, sanitizeObject, isValidUrl } from './securityGuards';
 
 /**
@@ -34,7 +35,7 @@ export async function secureFetch<T>(
 
     if (!response.ok) {
       if (process.env.NODE_ENV === 'development') {
-        console.error(`HTTP ${response.status}: ${response.statusText}`);
+        logger.error(`HTTP ${response.status}: ${response.statusText}`);
       }
       return { error: `HTTP Error: ${response.status}` };
     }
@@ -46,7 +47,7 @@ export async function secureFetch<T>(
     return { data: sanitized };
   } catch (error) {
     if (process.env.NODE_ENV === 'development') {
-      console.error('Fetch error:', error);
+      logger.error('Fetch error:', error);
     }
     return { error: 'Network error' };
   }
@@ -131,7 +132,7 @@ export function logSecurityEvent(
   details: Record<string, unknown>
 ): void {
   if (process.env.NODE_ENV === 'development') {
-    console.log(`[SECURITY] ${eventType}`, {
+    logger.log(`[SECURITY] ${eventType}`, {
       timestamp: new Date().toISOString(),
       userId: userId ? userId.slice(0, 8) : 'anonymous',
       ...Object.entries(details).reduce((acc, [key, value]) => {
@@ -202,7 +203,7 @@ export const secureStorage = {
       const sensitiveKeys = ['password', 'secret', 'credential'];
       if (key !== 'user_gemini_api_key' && sensitiveKeys.some(s => key.toLowerCase().includes(s))) {
         if (process.env.NODE_ENV === 'development') {
-          console.warn(`⚠️ Attempting to store sensitive data: ${key}`);
+          logger.warn(`⚠️ Attempting to store sensitive data: ${key}`);
         }
         return;
       }
@@ -216,7 +217,7 @@ export const secureStorage = {
       if (storage) storage.setItem(key, JSON.stringify(sanitized));
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
-        console.error('Storage error:', error);
+        logger.error('Storage error:', error);
       }
     }
   },
@@ -243,7 +244,7 @@ export const secureStorage = {
       localStorage.removeItem(key);
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
-        console.error('Storage remove error:', error);
+        logger.error('Storage remove error:', error);
       }
     }
   }

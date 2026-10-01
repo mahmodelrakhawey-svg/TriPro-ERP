@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
@@ -95,7 +96,7 @@ const EmployeeAdvances = () => {
       }
 
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('خطأ في جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -392,7 +393,7 @@ const EmployeeAdvances = () => {
       fetchData();
 
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);

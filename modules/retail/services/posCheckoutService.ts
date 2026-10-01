@@ -3,6 +3,7 @@
  * تنفيذ عمليات الدفع، إغلاق الأوردر، وإرسال البيانات لقاعدة البيانات أو طابور الأوفلاين
  */
 
+import { logger } from '../../../utils/logger';
 import { supabase } from '../../../supabaseClient';
 import { offlineService, isValidUUID } from '../../../services/offlineService';
 import { secureStorage } from '../../../utils/securityMiddleware';
@@ -150,7 +151,7 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
         atomicSuccess = true;
       }
     } catch (atomicException) {
-      console.warn('Atomic POS checkout RPC fallback to standard flow:', atomicException);
+      logger.warn('Atomic POS checkout RPC fallback to standard flow:', atomicException);
     }
 
     // Graceful fallback to legacy multi-roundtrip if atomic RPC is not yet executed in database
@@ -248,7 +249,7 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
         actualOrderNumber = ordRow.order_number;
       }
     } catch (e) {
-      console.warn('Could not fetch real order_number:', e);
+      logger.warn('Could not fetch real order_number:', e);
     }
   }
   if (!actualOrderNumber) {

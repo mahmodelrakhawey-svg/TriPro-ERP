@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -71,7 +72,7 @@ const PurchaseOrderForm = () => {
       const ids = (data || []).map(o => o.id);
       setOrderIds(ids);
     } catch (err) {
-      console.error('Error fetching PO IDs:', err);
+      logger.error('Error fetching PO IDs:', err);
     }
   };
 
@@ -174,7 +175,7 @@ const PurchaseOrderForm = () => {
       if (idx !== -1) setCurrentIndex(idx);
 
     } catch (err) {
-      console.error('Error loading PO:', err);
+      logger.error('Error loading PO:', err);
       showToast('فشل تحميل أمر الشراء: ' + err.message, 'error');
     } finally {
       setLoadingOrder(false);
@@ -471,7 +472,7 @@ const PurchaseOrderForm = () => {
       }
 
     } catch (error) {
-      console.error('Error saving PO:', error);
+      logger.error('Error saving PO:', error);
       showToast('فشل حفظ أمر الشراء: ' + (error.message || 'حدث خطأ أثناء الاتصال بقاعدة البيانات'), 'error');
     } finally {
       setSaving(false);
@@ -504,7 +505,7 @@ const PurchaseOrderForm = () => {
       }
 
     } catch (err) {
-      console.error('Error deleting PO:', err);
+      logger.error('Error deleting PO:', err);
       showToast('فشل حذف أمر الشراء: ' + err.message, 'error');
     } finally {
       setDeleting(false);
@@ -551,7 +552,7 @@ const PurchaseOrderForm = () => {
       setIsConvertModalOpen(false);
       navigate('/purchase-invoices-list');
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل التحويل: ' + err.message, 'error');
     } finally {
       setConverting(false);

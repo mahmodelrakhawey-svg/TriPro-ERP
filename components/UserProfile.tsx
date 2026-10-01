@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { User, Mail, Lock, Save, Loader2, Shield, Eye, EyeOff, Activity, Clock, Upload } from 'lucide-react';
@@ -45,7 +46,7 @@ const UserProfile = () => {
           }));
         }
       } catch (error) {
-        if (process.env.NODE_ENV === 'development') console.error('Error fetching profile:', error);
+        if (process.env.NODE_ENV === 'development') logger.error('Error fetching profile:', error);
       } finally {
         setLoading(false);
       }

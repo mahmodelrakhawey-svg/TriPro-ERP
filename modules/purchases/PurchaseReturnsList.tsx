@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -81,7 +82,7 @@ export const PurchaseReturnsList: React.FC = () => {
 
       setReturns(data || []);
     } catch (err) {
-      console.error('Error fetching purchase returns:', err);
+      logger.error('Error fetching purchase returns:', err);
       showToast('فشل تحميل سجل مرتجعات المشتريات: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -161,7 +162,7 @@ export const PurchaseReturnsList: React.FC = () => {
       showToast('تم حذف مرتجع المشتريات وعكس القيد والمخزون بنجاح ✅', 'success');
       fetchReturns();
     } catch (err) {
-      console.error('Error deleting purchase return:', err);
+      logger.error('Error deleting purchase return:', err);
       showToast('فشل حذف المرتجع: ' + err.message, 'error');
     } finally {
       setDeletingId(null);

@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { useToast } from '../context/ToastContext';
 import { offlineService, db } from '../services/offlineService';
@@ -65,7 +66,7 @@ export const OfflineSyncProvider = () => {
       try {
         await offlineService.processQueue();
       } catch (err) {
-        console.error("Sync process crashed:", err);
+        logger.error("Sync process crashed:", err);
       } finally {
         setIsSyncing(false);
       }
@@ -95,7 +96,7 @@ export const OfflineSyncProvider = () => {
         await db.queuedRadiologyOrders.clear();
         showToast('تم تنظيف قائمة الانتظار بنجاح.', 'success');
       } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('فشل حذف القائمة.', 'error');
       }
     }

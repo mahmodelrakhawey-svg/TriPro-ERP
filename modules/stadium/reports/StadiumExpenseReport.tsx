@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '@/context/AccountingContext';
 import { supabase } from '@/supabaseClient';
@@ -184,7 +185,7 @@ export const StadiumExpenseReport: React.FC = () => {
       items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       setExpenses(items);
     } catch (err) {
-      console.error('Error fetching stadium expenses:', err);
+      logger.error('Error fetching stadium expenses:', err);
     } finally {
       setLoading(false);
     }

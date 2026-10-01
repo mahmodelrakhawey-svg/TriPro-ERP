@@ -1,4 +1,5 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import React, { useState, useMemo } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { logger } from '../../utils/logger';
+import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles, Lock, Calendar } from 'lucide-react';
@@ -190,7 +191,7 @@ const AccountList = () => {
       showToast(`تم إصلاح ${updatedCount} حساب بنجاح.`, 'success');
       refreshData(); // إعادة تحميل البيانات بعد التحديث
     } catch (error) {
-      console.error('Error auto-fixing account types:', error);
+      logger.error('Error auto-fixing account types:', error);
       showToast('فشل إصلاح أنواع الحسابات: ' + error.message, 'error');
     }
   };
@@ -218,7 +219,7 @@ const AccountList = () => {
       refreshData();
 
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل إنشاء الحسابات: ' + err.message, 'error');
     }
   };
@@ -246,7 +247,7 @@ const AccountList = () => {
       refreshData();
 
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل الإصلاح العالمي: ' + err.message, 'error');
     }
   };

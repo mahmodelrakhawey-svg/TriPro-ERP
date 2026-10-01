@@ -5,6 +5,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { Product } from '../types';
 
@@ -220,7 +221,7 @@ class AutoReorderService {
 
       const { data, error } = await query;
       if (error) {
-        console.warn('Fetch recent auto POs notice:', error);
+        logger.warn('Fetch recent auto POs notice:', error);
         return [];
       }
 
@@ -234,7 +235,7 @@ class AutoReorderService {
         notes: o.notes
       }));
     } catch (e) {
-      console.warn('Error fetching auto POs:', e);
+      logger.warn('Error fetching auto POs:', e);
       return [];
     }
   }

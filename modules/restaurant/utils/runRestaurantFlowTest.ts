@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import { supabase } from '../../../supabaseClient';
 import { toast } from 'react-hot-toast';
 
@@ -8,7 +9,7 @@ const log = (message: string, status: 'info' | 'success' | 'error' = 'info') => 
     success: 'color: #16a34a', // green
     error: 'color: #dc2626', // red
   };
-  console.log(`%c[Test] ${message}`, `${colors[status]}; font-weight: bold;`);
+  logger.log(`%c[Test] ${message}`, `${colors[status]}; font-weight: bold;`);
 };
 
 // Helper to assert conditions and throw errors
@@ -209,7 +210,7 @@ export const runRestaurantModuleTest = async () => {
 
   } catch (error) {
     log(`❌ حدث خطأ أثناء الاختبار: ${error.message}`, 'error');
-    console.error(error);
+    logger.error(error);
     toast.error(`❌ حدث خطأ أثناء الاختبار: ${error.message}`, { id: 'restaurant-flow-test' });
   } finally {
     // --- 5. تنظيف بيانات الاختبار ---
@@ -228,7 +229,7 @@ export const runRestaurantModuleTest = async () => {
         await supabase.from('products').delete().eq('id', testDataIds.productId);
       }
     } catch (cleanErr) {
-      console.warn('Cleanup note:', cleanErr);
+      logger.warn('Cleanup note:', cleanErr);
     }
     log('✅ تم تنظيف بيانات الاختبار.', 'success');
   }

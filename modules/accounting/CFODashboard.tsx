@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -68,7 +69,7 @@ export const CFODashboard: React.FC = () => {
       setCumulativeLines(cumData || []);
 
     } catch (err) {
-      console.error('Error fetching CFO dashboard data:', err);
+      logger.error('Error fetching CFO dashboard data:', err);
       showToast('خطأ أثناء جلب مؤشرات السيولة: ' + err.message, 'error');
     } finally {
       setLoading(false);

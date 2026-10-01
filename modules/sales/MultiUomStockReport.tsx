@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -42,7 +43,7 @@ const MultiUomStockReport = () => {
           return;
         }
       } catch (viewErr) {
-        console.warn('View v_inventory_multi_uom query error, using dynamic calculation:', viewErr);
+        logger.warn('View v_inventory_multi_uom query error, using dynamic calculation:', viewErr);
       }
 
       // Fallback calculation directly from products and conversions

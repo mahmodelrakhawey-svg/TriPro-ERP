@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Tag, Row, Col, Progress, Badge, Tooltip, Empty, Modal, Form, Input, message, Button, Tabs, Typography } from 'antd';
@@ -18,7 +19,7 @@ const VitalsModal: React.FC<{ visible: boolean; visitId: string; onCancel: () =>
 
       // 🛡️ كان الخطأ يُبتلع صامتاً — خطير طبياً!
       if (error) {
-        console.error('[NurseStation] Vitals save error:', error);
+        logger.error('[NurseStation] Vitals save error:', error);
         message.error('⚠️ فشل حفظ العلامات الحيوية! يرجى المحاولة مرة أخرى أو التواصل مع الدعم الفني.');
         return; // وقف العملية بدلاً من المتابعة بصمت
       }
@@ -27,7 +28,7 @@ const VitalsModal: React.FC<{ visible: boolean; visitId: string; onCancel: () =>
       form.resetFields();
       onSuccess();
     } catch (err) {
-      console.error('[NurseStation] Unexpected vitals error:', err);
+      logger.error('[NurseStation] Unexpected vitals error:', err);
       message.error('حدث خطأ غير متوقع: ' + (err?.message || ''));
     } finally {
       setLoading(false);

@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
@@ -90,7 +91,7 @@ const CoachManager: React.FC = () => {
       if (error) throw error;
       setCoaches(data || []);
     } catch (error) {
-      console.error('Error fetching coaches:', error);
+      logger.error('Error fetching coaches:', error);
       toast.error('حدث خطأ أثناء جلب بيانات المدربين');
     } finally {
       setLoading(false);
@@ -107,7 +108,7 @@ const CoachManager: React.FC = () => {
       if (error) throw error;
       setPrograms(data || []);
     } catch (error) {
-      console.error('Error fetching programs:', error);
+      logger.error('Error fetching programs:', error);
     }
   };
 
@@ -151,7 +152,7 @@ const CoachManager: React.FC = () => {
       resetCoachForm();
       fetchCoaches();
     } catch (error) {
-      console.error('Error saving coach:', error);
+      logger.error('Error saving coach:', error);
       toast.error('حدث خطأ أثناء حفظ البيانات');
     } finally {
       setUploading(false);
@@ -256,7 +257,7 @@ const CoachManager: React.FC = () => {
         amount_paid: netRemaining,
       }));
     } catch (error) {
-      console.error('Error calculating revenue:', error);
+      logger.error('Error calculating revenue:', error);
     }
   };
 
@@ -306,7 +307,7 @@ const CoachManager: React.FC = () => {
       toast.success('تم تسجيل الدفعة وتوليد القيد بنجاح');
       setIsPaymentModalOpen(false);
     } catch (error) {
-      console.error('Error saving payment:', error);
+      logger.error('Error saving payment:', error);
       toast.error('حدث خطأ أثناء تسجيل الدفعة');
     }
   };

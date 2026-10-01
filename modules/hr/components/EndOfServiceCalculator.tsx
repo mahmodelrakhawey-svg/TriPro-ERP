@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -166,7 +167,7 @@ export default function EndOfServiceCalculator() {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.warn('hr_end_of_service_settlements table notice:', error.message);
+        logger.warn('hr_end_of_service_settlements table notice:', error.message);
         setSettlements([]);
       } else {
         setSettlements((data || []).map((d: any) => ({
@@ -175,7 +176,7 @@ export default function EndOfServiceCalculator() {
         })));
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       setSettlements([]);
     } finally {
       setIsLoading(false);

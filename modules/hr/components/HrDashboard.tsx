@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { supabase } from '../../../supabaseClient';
@@ -73,7 +74,7 @@ export const HrDashboard: React.FC = () => {
 
       setRecentPunches(logs.slice(0, 6));
     } catch (e) {
-      console.warn('Dashboard load notice:', e);
+      logger.warn('Dashboard load notice:', e);
     } finally {
       setLoading(false);
     }

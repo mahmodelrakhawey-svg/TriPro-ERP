@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState } from 'react';
 import { Percent, X } from 'lucide-react';
 import { supabase } from '../../../supabaseClient';
@@ -79,7 +80,7 @@ export const BulkPriceUpdateModal: React.FC<BulkPriceUpdateModalProps> = ({
       setBulkPricePercentage(0);
       setSelectedIds(new Set());
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('حدث خطأ أثناء تحديث الأسعار: ' + error.message, 'error');
     } finally {
       setIsBulkSaving(false);

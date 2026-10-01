@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -37,7 +38,7 @@ export const AssetLabelStudio: React.FC = () => {
       // الافتراضي: تحديد الكل
       setSelectedIds(data.map(a => a.id));
     } catch (e) {
-      console.warn('Load error:', e);
+      logger.warn('Load error:', e);
     } finally {
       setLoading(false);
     }

@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -91,7 +92,7 @@ export default function WorkInspectionManager() {
 
       const { data, error } = await query;
       if (error) {
-        console.warn('project_inspection_requests table notice:', error.message);
+        logger.warn('project_inspection_requests table notice:', error.message);
         setInspections([]);
       } else {
         setInspections((data || []).map((d: any) => ({
@@ -100,7 +101,7 @@ export default function WorkInspectionManager() {
         })));
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       setInspections([]);
     } finally {
       setIsLoading(false);

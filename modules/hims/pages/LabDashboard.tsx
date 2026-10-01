@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Table, Tag, Input, Button, Modal, message, Card, Typography, Select, Space, Divider, InputNumber, Tooltip } from 'antd';
@@ -80,7 +81,7 @@ export const LabDashboard: React.FC = () => {
         setOrders(offlineOrders.filter(o => !secureStorage.getItem(`completed_lab_${o.id}`)));
       }
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
     setLoading(false);
   };

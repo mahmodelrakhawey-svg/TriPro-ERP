@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -103,7 +104,7 @@ const SupplierManager = () => {
                 return;
             }
         } catch (err) {
-            console.warn('get_all_supplier_balances_fast fallback:', err);
+            logger.warn('get_all_supplier_balances_fast fallback:', err);
         }
 
         // مسار بديل بالترقيم الصفحي المقيد
@@ -196,7 +197,7 @@ const SupplierManager = () => {
             return;
           }
         } catch (rpcErr) {
-          if (import.meta.env.DEV) console.warn('Fast RPC get_all_supplier_balances_fast not active, falling back:', rpcErr);
+          if (import.meta.env.DEV) logger.warn('Fast RPC get_all_supplier_balances_fast not active, falling back:', rpcErr);
         }
 
         // احتياطي في حال عدم توفر الدالة: استخدام fetchAllSupplierBalances
@@ -435,7 +436,7 @@ const SupplierManager = () => {
         });
 
         setStats(newStats);
-    } catch (error) { if (process.env.NODE_ENV === 'development') console.error("Error fetching supplier stats", error); } finally { setStatsLoading(false); }
+    } catch (error) { if (process.env.NODE_ENV === 'development') logger.error("Error fetching supplier stats", error); } finally { setStatsLoading(false); }
   };
 
   const requestSort = (key: string) => {

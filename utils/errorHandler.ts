@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { toastNotify } from '../context/ToastContext';
 
 /**
@@ -69,7 +70,7 @@ export const handleError = (
 
   // 3. تسجيل الخطأ في الكونسول للبيئة المحلية
   if (logToConsole) {
-    console.error('❌ [TriPro Error]:', {
+    logger.error('❌ [TriPro Error]:', {
       message: appError.message,
       code: appError.code,
       severity: appError.severity,

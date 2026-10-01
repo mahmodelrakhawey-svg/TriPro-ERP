@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -659,7 +660,7 @@ const ItemMovementReport = () => {
       setMovements(finalMovements);
 
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);

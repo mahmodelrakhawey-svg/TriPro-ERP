@@ -8,6 +8,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { AccountingEngine } from './accountingEngine';
 
@@ -60,7 +61,7 @@ class PaymentGatewayService {
       .eq('organization_id', orgId);
 
     if (error) {
-      console.error('[PaymentGatewayService] Error fetching settings:', error);
+      logger.error('[PaymentGatewayService] Error fetching settings:', error);
       return [];
     }
     return data || [];
@@ -156,7 +157,7 @@ class PaymentGatewayService {
         qrCodeData: data.qr_code_data
       };
     } catch (err) {
-      console.error('[PaymentGatewayService] Error creating payment link:', err);
+      logger.error('[PaymentGatewayService] Error creating payment link:', err);
       return { success: false, error: err.message };
     }
   }
@@ -212,7 +213,7 @@ class PaymentGatewayService {
 
       return { success: true };
     } catch (err) {
-      console.error('[PaymentGatewayService] Error settling payment:', err);
+      logger.error('[PaymentGatewayService] Error settling payment:', err);
       return { success: false, error: err.message };
     }
   }

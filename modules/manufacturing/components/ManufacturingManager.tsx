@@ -1,4 +1,5 @@
-﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿import { logger } from '../../../utils/logger';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { supabase } from '../../../supabaseClient';
 import { Hammer, Save, Loader2, Package, AlertTriangle, CheckCircle } from 'lucide-react';
@@ -104,7 +105,7 @@ const ManufacturingManager = () => {
         }
 
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('فشل عملية التصنيع: ' + error.message, 'error');
     } finally {
         setLoading(false);

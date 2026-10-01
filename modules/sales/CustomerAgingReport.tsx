@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -336,7 +337,7 @@ const CustomerAgingReport = () => {
 
       setReportData(agingData);
     } catch (error) {
-      console.error("Error fetching aging report:", error);
+      logger.error("Error fetching aging report:", error);
     } finally {
       setLoading(false);
     }

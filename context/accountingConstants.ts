@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { secureStorage } from '../utils/securityMiddleware';
 
 export const SYSTEM_ACCOUNTS = {
@@ -119,6 +120,6 @@ export const setOfflineTableOrder = (tableId: string, orderData: any) => {
     }
     secureStorage.setItem('tripro_offline_table_orders', all);
   } catch (e) {
-    console.warn('LocalStorage error:', e);
+    logger.warn('LocalStorage error:', e);
   }
 };

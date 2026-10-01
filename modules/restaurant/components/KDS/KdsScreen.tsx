@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../../../supabaseClient';
@@ -215,7 +216,7 @@ const KdsScreen = () => {
     try {
       const orgId = await getOrgId();
       if (!orgId) {
-        console.warn("Organization ID not found, retrying...");
+        logger.warn("Organization ID not found, retrying...");
         return;
       }
 
@@ -334,8 +335,8 @@ const KdsScreen = () => {
           if (payload.eventType === 'INSERT') {
             try {
               const audio = new Audio('/notification.mp3');
-              audio.play().catch(e => console.warn("Audio play notice:", e));
-            } catch (e) { console.error(e); }
+              audio.play().catch(e => logger.warn("Audio play notice:", e));
+            } catch (e) { logger.error(e); }
           }
         })
         .on('postgres_changes', { 
@@ -388,7 +389,7 @@ const KdsScreen = () => {
         await supabase.from('kitchen_orders').update({ status: newStatus }).eq('order_item_id', itemId);
       }
     } catch (err) {
-      console.warn('Kitchen status update notice:', err);
+      logger.warn('Kitchen status update notice:', err);
     }
   }, [tickets, updateKitchenOrderStatus, setTickets]);
 

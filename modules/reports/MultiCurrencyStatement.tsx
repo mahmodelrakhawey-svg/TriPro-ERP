@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -97,7 +98,7 @@ const MultiCurrencyStatement = () => {
       setEntries(finalEntries);
 
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
       setLoading(false);

@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -169,7 +170,7 @@ const EmployeeStatement = () => {
         setClosingBalance(runningBal);
 
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('حدث خطأ أثناء جلب البيانات', 'error');
     } finally {
         setLoading(false);

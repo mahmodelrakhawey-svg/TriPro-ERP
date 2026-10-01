@@ -5,6 +5,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { secureStorage } from '../utils/securityMiddleware';
 
@@ -51,7 +52,7 @@ class HappyHourService {
         await supabase.from('happy_hour_schedules').delete().eq('id', id);
       }
     } catch (e) {
-      console.warn('DB happy hour delete notice:', e);
+      logger.warn('DB happy hour delete notice:', e);
     }
     const current = this.getLocalSchedules();
     const filtered = current.filter(s => s.id !== id);
@@ -84,7 +85,7 @@ class HappyHourService {
         if (data) scheduleId = data.id;
       }
     } catch (e) {
-      console.warn('DB happy hour save notice:', e);
+      logger.warn('DB happy hour save notice:', e);
     }
 
     const saved: HappyHourSchedule = { ...schedule, ...payload, id: scheduleId } as HappyHourSchedule;

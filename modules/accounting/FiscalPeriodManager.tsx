@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
@@ -90,7 +91,7 @@ export const FiscalPeriodManager: React.FC<{ onBack?: () => void }> = ({ onBack 
 
       setPeriods(enrichedPeriods);
     } catch (err) {
-      console.error('Error fetching accounting periods:', err);
+      logger.error('Error fetching accounting periods:', err);
       showToast('تعذر تحميل الفترات المالية: ' + err.message, 'error');
     } finally {
       setLoading(false);

@@ -7,6 +7,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { PurchaseRfq, PurchaseRfqItem, VendorQuotationBid, VendorQuotationBidItem, PurchaseRfqStatus } from '../types';
 import NotificationService from './notificationService';
@@ -53,7 +54,7 @@ export class RfqService {
     try {
       secureStorage.setItem(STORAGE_KEYS.RFQS, rfqs);
     } catch (e) {
-      console.warn('Local storage save error:', e);
+      logger.warn('Local storage save error:', e);
     }
   }
 
@@ -71,7 +72,7 @@ export class RfqService {
     try {
       secureStorage.setItem(STORAGE_KEYS.BIDS, bids);
     } catch (e) {
-      console.warn('Local storage save error:', e);
+      logger.warn('Local storage save error:', e);
     }
   }
 
@@ -442,7 +443,7 @@ export class RfqService {
           }
         }
       } catch (e) {
-        console.warn('PO insert notice:', e);
+        logger.warn('PO insert notice:', e);
       }
 
       // تحديث محلي

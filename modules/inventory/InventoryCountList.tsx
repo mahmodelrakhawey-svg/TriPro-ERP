@@ -1,4 +1,5 @@
-﻿﻿﻿import React, { useState, useEffect } from 'react';
+﻿﻿﻿import { logger } from '../../utils/logger';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -150,7 +151,7 @@ const InventoryCountList = () => {
       .eq('inventory_count_id', count.id);
 
     if (error) {
-        console.error("Error fetching count items:", error);
+        logger.error("Error fetching count items:", error);
         showToast("فشل في جلب تفاصيل الجرد.", 'error');
         setCountItems([]);
     } else {
@@ -184,7 +185,7 @@ const InventoryCountList = () => {
         setIsModalOpen(false);
         fetchCounts();
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('فشل ترحيل الجرد: ' + error.message, 'error');
     }
   };

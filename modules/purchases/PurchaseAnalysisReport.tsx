@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -122,7 +123,7 @@ export default function PurchaseAnalysisReport() {
       setByItem(Object.values(itemMap).sort((a, b) => b.totalAmount - a.totalAmount));
 
     } catch (err) {
-      console.error("Error fetching purchase analysis:", err);
+      logger.error("Error fetching purchase analysis:", err);
       showToast("حدث خطأ: " + err.message, 'error');
     } finally {
       setLoading(false);

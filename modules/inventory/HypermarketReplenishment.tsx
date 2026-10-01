@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -103,7 +104,7 @@ export default function HypermarketReplenishment() {
           }
         }
       } catch (e) {
-        console.warn('Invoice sales velocity query notice:', e);
+        logger.warn('Invoice sales velocity query notice:', e);
       }
 
       // Also check POS / Restaurant / Retail order_items if available
@@ -127,7 +128,7 @@ export default function HypermarketReplenishment() {
           });
         }
       } catch (e) {
-        console.warn('POS order sales velocity query notice:', e);
+        logger.warn('POS order sales velocity query notice:', e);
       }
 
       // 2. Build analysis per product
@@ -207,7 +208,7 @@ export default function HypermarketReplenishment() {
       setSelectedItemIds(criticalIds);
 
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل احتساب التنبؤات والسرعة اليومية', 'error');
     } finally {
       setIsLoading(false);
@@ -333,7 +334,7 @@ export default function HypermarketReplenishment() {
       showToast(`تم توليد (${createdPosCount}) أمر شراء تلقائي بنجاح لموردي الأصناف الحرجة 🚀✅`, 'success');
       navigate('/purchase-order-list');
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast(err.message || 'فشل توليد أوامر الشراء', 'error');
     } finally {
       setIsGeneratingPo(false);

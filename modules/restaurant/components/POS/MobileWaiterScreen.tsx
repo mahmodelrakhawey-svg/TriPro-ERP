@@ -5,6 +5,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
@@ -147,7 +148,7 @@ export const MobileWaiterScreen: React.FC = () => {
           setExistingOrders([]);
         }
       } catch (err) {
-        console.warn('Existing orders load error:', err);
+        logger.warn('Existing orders load error:', err);
       } finally {
         setExistingOrdersLoading(false);
       }
@@ -359,7 +360,7 @@ export const MobileWaiterScreen: React.FC = () => {
       };
 
       thermalPrinterService.routeOrderToPrinters(printTicketPayload).catch(pErr => {
-        console.warn('Printer routing notice:', pErr);
+        logger.warn('Printer routing notice:', pErr);
       });
 
       showToast(`تم إرسال طلب طاولة ${selectedTable.name} للمطبخ بنجاح! 👨‍🍳🚀`, 'success');
@@ -367,7 +368,7 @@ export const MobileWaiterScreen: React.FC = () => {
       setCart([]);
       setSelectedTable(null);
     } catch (err) {
-      console.error('Mobile Waiter submit error:', err);
+      logger.error('Mobile Waiter submit error:', err);
       showToast('فشل إرسال الطلب: ' + (err.message || 'تحقق من الاتصال'), 'error');
     } finally {
       setIsSubmitting(false);

@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { ArrowRight, ShieldAlert, TrendingDown } from 'lucide-react';
@@ -28,7 +29,7 @@ export const DashboardAlerts = ({ orgId }: { orgId?: string }) => {
         if (error) throw error;
         setAlerts(data || []);
       } catch (err) {
-        if (process.env.NODE_ENV === 'development') console.error('Error fetching dashboard alerts:', err);
+        if (process.env.NODE_ENV === 'development') logger.error('Error fetching dashboard alerts:', err);
       } finally {
         setLoading(false);
       }

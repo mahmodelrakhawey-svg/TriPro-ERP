@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Row, Col, Statistic, Progress, Typography, Tag, Spin, message, Button, Space } from 'antd';
@@ -44,7 +45,7 @@ export const HIMSExecutiveDashboard: React.FC = () => {
         const { data } = await supabase.rpc('get_hims_executive_stats', { p_org_id: currentUser.organization_id });
         rpcData = data;
       } catch (err) {
-        console.warn('RPC failed:', err);
+        logger.warn('RPC failed:', err);
       }
 
       // حساب ذمم التأمين بدقة من المطالبات المرفوعة والفواتير المعلقة
@@ -89,7 +90,7 @@ export const HIMSExecutiveDashboard: React.FC = () => {
         setStats(prev => ({ ...prev, insuranceReceivables: realInsuranceReceivables }));
       }
     } catch (err) {
-      console.warn('Using fallback executive stats:', err);
+      logger.warn('Using fallback executive stats:', err);
     } finally {
       setLoading(false);
     }

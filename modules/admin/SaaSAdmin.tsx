@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import * as XLSX from 'xlsx';
@@ -322,7 +323,7 @@ const SaaSAdmin: React.FC = () => {
       if (selectedBackupOrgId) fetchBackups(selectedBackupOrgId);
     } catch (err) {
       showToast('فشل حذف النسخة الاحتياطية: ' + err.message, 'error');
-      console.error('Error deleting backup:', err);
+      logger.error('Error deleting backup:', err);
     }
   };
 
@@ -352,10 +353,10 @@ const SaaSAdmin: React.FC = () => {
               .from('logos')
               .remove([fileName]);
               
-            if (storageError) console.warn('Storage deletion warning:', storageError);
+            if (storageError) logger.warn('Storage deletion warning:', storageError);
           }
         } catch (err) {
-          console.error('Failed to parse or delete logo from storage:', err);
+          logger.error('Failed to parse or delete logo from storage:', err);
         }
       }
 
@@ -380,10 +381,10 @@ const SaaSAdmin: React.FC = () => {
             .from('documents')
             .remove(allPaths);
           
-          if (attStorageError) console.warn('Attachments storage deletion warning:', attStorageError);
+          if (attStorageError) logger.warn('Attachments storage deletion warning:', attStorageError);
         }
       } catch (err) {
-        console.error('Failed to clean up attachments from storage:', err);
+        logger.error('Failed to clean up attachments from storage:', err);
       }
 
       // 3. محاولة الحذف عبر الدالة الآمنة في قاعدة البيانات
@@ -392,7 +393,7 @@ const SaaSAdmin: React.FC = () => {
 
       // إذا حدث خطأ (400 أو 409 أو 500) نقوم بالتدخل لتفكيك القيود المرجعية فورياً
       if (deleteResult.error) {
-        console.warn('RPC delete failed, executing client-side cascade cleanup...', deleteResult.error);
+        logger.warn('RPC delete failed, executing client-side cascade cleanup...', deleteResult.error);
 
         try {
           // أ. فك ارتباط كافة المستخدمين بالشركة

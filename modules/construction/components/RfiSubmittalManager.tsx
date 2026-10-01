@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -133,7 +134,7 @@ export default function RfiSubmittalManager() {
       if (selectedProjectId !== 'ALL') rfiQuery = rfiQuery.eq('project_id', selectedProjectId);
       const { data: rfiData, error: rfiErr } = await rfiQuery;
       if (rfiErr) {
-        console.warn('project_rfis table notice:', rfiErr.message);
+        logger.warn('project_rfis table notice:', rfiErr.message);
         setRfis([]);
       } else {
         setRfis((rfiData || []).map((d: any) => ({
@@ -147,7 +148,7 @@ export default function RfiSubmittalManager() {
       if (selectedProjectId !== 'ALL') subQuery = subQuery.eq('project_id', selectedProjectId);
       const { data: subData, error: subErr } = await subQuery;
       if (subErr) {
-        console.warn('project_submittals table notice:', subErr.message);
+        logger.warn('project_submittals table notice:', subErr.message);
         setSubmittals([]);
       } else {
         setSubmittals((subData || []).map((d: any) => ({
@@ -157,7 +158,7 @@ export default function RfiSubmittalManager() {
       }
 
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       setRfis([]);
       setSubmittals([]);
     } finally {

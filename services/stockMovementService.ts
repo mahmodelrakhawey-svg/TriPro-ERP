@@ -9,6 +9,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 
 /**
@@ -288,13 +289,13 @@ export class StockMovementService {
 
       const { data, error } = await query;
       if (error) {
-        console.error('[StockMovementService] Error fetching opening balance:', error);
+        logger.error('[StockMovementService] Error fetching opening balance:', error);
         return 0;
       }
 
       return data?.reduce((sum, row) => sum + Number(row.quantity || 0), 0) || 0;
     } catch (err) {
-      console.error('[StockMovementService] Exception in fetchOpeningBalance:', err);
+      logger.error('[StockMovementService] Exception in fetchOpeningBalance:', err);
       return 0;
     }
   }
@@ -751,7 +752,7 @@ export class StockMovementService {
         closingBalance
       };
     } catch (err: unknown) {
-      console.error('[StockMovementService] Error fetching product movements:', err);
+      logger.error('[StockMovementService] Error fetching product movements:', err);
       return {
         openingBalance,
         movements: [],

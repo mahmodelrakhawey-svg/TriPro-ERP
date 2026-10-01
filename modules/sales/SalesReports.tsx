@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
@@ -147,7 +148,7 @@ const SalesReports = () => {
             setRestaurantOrders(mappedOrders);
         }
     } catch (e) {
-        console.error("Error fetching sales reports data:", e);
+        logger.error("Error fetching sales reports data:", e);
     } finally {
         setLoading(false);
     }

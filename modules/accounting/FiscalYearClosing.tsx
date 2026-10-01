@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -144,7 +145,7 @@ const FiscalYearClosing: React.FC = () => {
       setTaxProvisionEstimate(netProfit > 0 ? netProfit * 0.225 : 0);
 
     } catch (e) {
-      console.error('Diagnostic error:', e);
+      logger.error('Diagnostic error:', e);
       showToast('خطأ أثناء تشغيل الفحص: ' + e.message, 'error');
     } finally {
       setDiagLoading(false);
@@ -220,7 +221,7 @@ const FiscalYearClosing: React.FC = () => {
       setDepAlreadyPosted(true);
       runDiagnostics();
     } catch (err) {
-      console.error('Depreciation entry error:', err);
+      logger.error('Depreciation entry error:', err);
       showToast('فشل إنشاء قيد الإهلاك: ' + err.message, 'error');
     } finally {
       setLoading(false);

@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -68,7 +69,7 @@ const SupplierBalancesReport = () => {
 
       setReportData(balances);
     } catch (error) {
-      console.error("Error fetching supplier balances:", error);
+      logger.error("Error fetching supplier balances:", error);
     } finally {
       setLoading(false);
     }

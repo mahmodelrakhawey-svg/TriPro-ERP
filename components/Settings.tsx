@@ -1,4 +1,5 @@
 
+import { logger } from '../utils/logger';
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
@@ -47,7 +48,7 @@ const Settings = () => {
       if (error) throw error;
       setTerminalsList(data || []);
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     } finally {
       setIsTerminalsLoading(false);
     }
@@ -657,7 +658,7 @@ const Settings = () => {
               const { error: rpcError } = await supabase.rpc('reset_demo_data');
               
               if (rpcError) {
-                  if (process.env.NODE_ENV === 'development') console.warn("RPC failed, trying manual delete...", rpcError);
+                  if (process.env.NODE_ENV === 'development') logger.warn("RPC failed, trying manual delete...", rpcError);
                   // الحذف اليدوي مع شرط لتجاوز "DELETE requires a WHERE clause"
                   // نستخدم neq('id', '00000000-0000-0000-0000-000000000000') كشرط عام (أو أي شرط صحيح دائماً)
                   await supabase.from('journal_lines').delete().neq('id', '00000000-0000-0000-0000-000000000000');
@@ -795,7 +796,7 @@ const Settings = () => {
               showToast('سجل القيود نظيف. جميع قيود الأرصدة الافتتاحية مرتبطة بأصناف موجودة. ✅', 'success');
           }
       } catch (e) {
-          console.error(e);
+          logger.error(e);
           showToast('حدث خطأ أثناء التنظيف: ' + e.message, 'error');
       } finally {
           setLoading(false);
@@ -938,7 +939,7 @@ const Settings = () => {
                   await refreshData();
               }
           } catch (e) {
-              console.error('Failed to auto-create 41104 account:', e);
+              logger.error('Failed to auto-create 41104 account:', e);
           }
       }
 
@@ -959,7 +960,7 @@ const Settings = () => {
                   currentAccs.push(createdAcc);
               }
           } catch (e) {
-              console.error('Failed to auto-create 1248 account:', e);
+              logger.error('Failed to auto-create 1248 account:', e);
           }
       }
 
@@ -980,7 +981,7 @@ const Settings = () => {
                   currentAccs.push(createdAcc);
               }
           } catch (e) {
-              console.error('Failed to auto-create 1246 account:', e);
+              logger.error('Failed to auto-create 1246 account:', e);
           }
       }
 

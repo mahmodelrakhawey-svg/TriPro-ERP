@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
@@ -148,7 +149,7 @@ export const MemberManager: React.FC = () => {
         fetchMembers();
       }
     } catch (e) {
-      console.error('autoExpireMembers error:', e);
+      logger.error('autoExpireMembers error:', e);
     }
   };
 
@@ -536,7 +537,7 @@ export const MemberManager: React.FC = () => {
         setParsedRows(normalized);
         toast.success(`تمت قراءة ${normalized.length} عضو بنجاح وتجهيز التواريخ للاستيراد`);
       } catch (err) {
-        console.error('Error parsing Excel:', err);
+        logger.error('Error parsing Excel:', err);
         toast.error('حدث خطأ أثناء قراءة ملف الإكسيل');
       }
     };
@@ -572,14 +573,14 @@ export const MemberManager: React.FC = () => {
 
         const { error } = await supabase.from('stadium_members').insert(batch);
         if (error) {
-          console.warn('Batch insert had error, inserting row by row fallback:', error);
+          logger.warn('Batch insert had error, inserting row by row fallback:', error);
           // Fallback: insert row by row in this batch so good rows pass
           for (const singleItem of batch) {
             const { error: singleError } = await supabase.from('stadium_members').insert([singleItem]);
             if (!singleError) {
               successCount += 1;
             } else {
-              console.error('Row failed:', singleItem.full_name, singleError);
+              logger.error('Row failed:', singleItem.full_name, singleError);
             }
           }
         } else {
@@ -598,7 +599,7 @@ export const MemberManager: React.FC = () => {
       if (fileInputRef.current) fileInputRef.current.value = '';
       fetchMembers();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       toast.error('حدث خطأ أثناء عملية الاستيراد');
     } finally {
       setIsImporting(false);
@@ -637,7 +638,7 @@ export const MemberManager: React.FC = () => {
       toast.dismiss(toastId);
       toast.success('تم تصدير سجل الأعضاء إلى Excel بنجاح');
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       toast.dismiss(toastId);
       toast.error('فشل تصدير ملف الأعضاء');
     }

@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 
 /**
@@ -34,7 +35,7 @@ export async function getNextDocumentNumber(
       }
     }
   } catch (err) {
-    console.warn(`[sequenceService] RPC get_next_document_number failed for ${docType}, using fallback:`, err);
+    logger.warn(`[sequenceService] RPC get_next_document_number failed for ${docType}, using fallback:`, err);
   }
 
   // Graceful fallback for offline, demo or pre-migration environments

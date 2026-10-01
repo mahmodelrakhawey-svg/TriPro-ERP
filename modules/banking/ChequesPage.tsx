@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -38,7 +39,7 @@ export const ChequesPage = () => {
     // 🛡️ استخدام RPC لتجنب خطأ 406 الناتج عن سياسات الحماية
     supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
       if (error) {
-        console.error("فشل جلب إعدادات الشركة في صفحة الشيكات عبر RPC:", error);
+        logger.error("فشل جلب إعدادات الشركة في صفحة الشيكات عبر RPC:", error);
       } else {
         setCompanySettings(data);
       }
@@ -245,7 +246,7 @@ export const ChequesPage = () => {
       showToast('تم حذف الشيك والقيود المحاسبية بنجاح ✅', 'success');
       await fetchData();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل حذف الشيك: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -407,7 +408,7 @@ export const ChequesPage = () => {
         a.click();
         URL.revokeObjectURL(url);
     } catch (err) {
-        console.error('Error downloading:', err);
+        logger.error('Error downloading:', err);
         showToast('فشل تحميل الملف', 'error');
     }
   };

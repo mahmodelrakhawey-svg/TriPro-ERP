@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { QRCodeCanvas } from 'qrcode.react';
 import { X, Printer, Loader2 } from 'lucide-react';
@@ -36,7 +37,7 @@ export const BulkQRCodeModal: React.FC<BulkQRCodeModalProps> = ({ isOpen, onClos
           }));
           setQrData(results);
         } catch (error) {
-          console.error("Error fetching QR codes:", error);
+          logger.error("Error fetching QR codes:", error);
         } finally {
           setLoading(false);
         }

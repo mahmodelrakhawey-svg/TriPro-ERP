@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -200,7 +201,7 @@ const CashFlowStatement = () => {
           rpcSuccess = true;
         }
       } catch (rpcEx) {
-        console.warn('[CashFlowStatement] Server-side RPC failed, falling back to chunked query:', rpcEx);
+        logger.warn('[CashFlowStatement] Server-side RPC failed, falling back to chunked query:', rpcEx);
       }
 
       // 🛡️ الخطوة 2 (Graceful Degradation Fallback): استعلام أسطر اليومية المقسم لتفادي حد الـ 1000 سطر

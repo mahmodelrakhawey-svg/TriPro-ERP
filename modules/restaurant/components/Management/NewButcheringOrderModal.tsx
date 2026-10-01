@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   ButcheringTemplate,
@@ -215,7 +216,7 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
           resolvedPrice = Number(lastInvoiceItem.unit_price);
         }
       } catch (err) {
-        console.warn('Notice fetching latest purchase invoice price:', err);
+        logger.warn('Notice fetching latest purchase invoice price:', err);
       }
     }
 
@@ -459,7 +460,7 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
           if (recalculateStock) await recalculateStock();
           if (refreshData) await refreshData();
         } catch (rErr) {
-          console.warn('Recalculate or refresh data notice:', rErr);
+          logger.warn('Recalculate or refresh data notice:', rErr);
         }
 
         const rawProdName = products.find(p => p.id === sourceProductId)?.name || 'الخام';

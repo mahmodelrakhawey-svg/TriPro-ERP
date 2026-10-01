@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -72,7 +73,7 @@ const AssetManager = () => {
         // تحديث البيانات
         window.location.reload(); 
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('فشل تشغيل الإهلاك: ' + error.message, 'error');
     }
   };
@@ -324,7 +325,7 @@ const AssetManager = () => {
       showToast(`تم حذف (${orphanedEntries.length}) قيد وتصحيح ميزان المراجعة بنجاح ✅`, 'success');
       window.location.reload();
     } catch (err) {
-      console.error('Error cleaning orphaned asset entries:', err);
+      logger.error('Error cleaning orphaned asset entries:', err);
       showToast('فشل تنظيف قيود الأصول: ' + err.message, 'error');
     } finally {
       setIsCleaningAssets(false);

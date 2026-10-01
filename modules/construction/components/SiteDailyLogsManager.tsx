@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -131,7 +132,7 @@ export default function SiteDailyLogsManager() {
 
       const { data, error } = await query;
       if (error) {
-        console.warn('project_daily_logs table notice:', error.message);
+        logger.warn('project_daily_logs table notice:', error.message);
         setLogs([]);
       } else {
         const mapped: DailyLog[] = (data || []).map((d: any) => {
@@ -148,7 +149,7 @@ export default function SiteDailyLogsManager() {
         setLogs(mapped);
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       setLogs([]);
     } finally {
       setIsLoading(false);
@@ -233,7 +234,7 @@ export default function SiteDailyLogsManager() {
       setIsModalOpen(false);
       fetchDailyLogs();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل حفظ يومية الموقع: ' + err.message, 'error');
     }
   };

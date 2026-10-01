@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { Button, Modal, Result, message, Space, Alert, Spin } from 'antd';
 import { LogoutOutlined, PrinterOutlined, LockOutlined, CheckCircleOutlined, WarningOutlined } from '@ant-design/icons';
@@ -47,7 +48,7 @@ export const DischargeManager: React.FC<{ visitId: string, onSuccess: () => void
       }
       setClinicalWarnings(warningsList);
     } catch (e) {
-      console.error('[DischargeManager] Error checking clinical warnings:', e);
+      logger.error('[DischargeManager] Error checking clinical warnings:', e);
     } finally {
       setCheckingWarnings(false);
     }

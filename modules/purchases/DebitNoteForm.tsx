@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -62,7 +63,7 @@ const DebitNoteForm = () => {
       const ids = (data || []).map(n => n.id);
       setNoteIds(ids);
     } catch (err) {
-      console.error('Error fetching debit note IDs:', err);
+      logger.error('Error fetching debit note IDs:', err);
     }
   };
 
@@ -98,7 +99,7 @@ const DebitNoteForm = () => {
       if (idx !== -1) setCurrentIndex(idx);
 
     } catch (err) {
-      console.error('Error loading debit note:', err);
+      logger.error('Error loading debit note:', err);
       showToast('فشل تحميل الإشعار المدين: ' + err.message, 'error');
     } finally {
       setLoadingNote(false);
@@ -247,7 +248,7 @@ const DebitNoteForm = () => {
       }
 
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -283,7 +284,7 @@ const DebitNoteForm = () => {
       }
 
     } catch (err) {
-      console.error('Error deleting debit note:', err);
+      logger.error('Error deleting debit note:', err);
       showToast('فشل حذف الإشعار المدين: ' + err.message, 'error');
     } finally {
       setDeleting(false);

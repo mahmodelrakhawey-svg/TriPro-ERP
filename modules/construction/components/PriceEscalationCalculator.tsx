@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -94,7 +95,7 @@ export default function PriceEscalationCalculator() {
 
       const { data, error } = await query;
       if (error) {
-        console.warn('project_price_escalations table notice:', error.message);
+        logger.warn('project_price_escalations table notice:', error.message);
         setClaims([]);
       } else {
         setClaims((data || []).map((d: any) => ({
@@ -103,7 +104,7 @@ export default function PriceEscalationCalculator() {
         })));
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       setClaims([]);
     } finally {
       setIsLoading(false);

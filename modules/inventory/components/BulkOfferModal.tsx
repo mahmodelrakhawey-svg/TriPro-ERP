@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState } from 'react';
 import { Tag, X } from 'lucide-react';
 import { supabase } from '../../../supabaseClient';
@@ -96,7 +97,7 @@ export const BulkOfferModal: React.FC<BulkOfferModalProps> = ({
       onClose();
       setSelectedIds(new Set());
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
       setIsBulkSaving(false);

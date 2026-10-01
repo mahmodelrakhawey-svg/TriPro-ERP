@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '@/supabaseClient';
@@ -78,7 +79,7 @@ export default function PatientPortal() {
       if (error) throw error;
       setData(res);
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       setData({
         error: err.message || 'فشل تحميل بيانات الزيارة الطبية',
         hospital_name: '',

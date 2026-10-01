@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../../../../supabaseClient';
@@ -87,7 +88,7 @@ export const ExpoScreen: React.FC = () => {
         setOrders(ordersRes.data);
       }
     } catch (err) {
-      console.warn('Expo data load notice:', err);
+      logger.warn('Expo data load notice:', err);
     } finally {
       setLoading(false);
     }
@@ -224,7 +225,7 @@ export const ExpoScreen: React.FC = () => {
     try {
       await supabase.from('kitchen_orders').update({ status: newStatus }).eq('order_item_id', itemId);
     } catch (e) {
-      console.warn('kitchen_orders update notice:', e);
+      logger.warn('kitchen_orders update notice:', e);
     }
     await kitchenStationService.updateTicketItemStatus(itemId, newStatus);
     fetchExpoData();

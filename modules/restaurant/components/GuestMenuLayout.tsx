@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../../../supabaseClient';
@@ -116,7 +117,7 @@ const GuestMenuLayout = () => {
           setSelectedCategory(categoriesRes.data[0].id);
         }
       } catch (err) {
-        console.error("Menu Loading Error:", err);
+        logger.error("Menu Loading Error:", err);
         setError(err.message || 'فشل تحميل قائمة الطعام. يرجى استدعاء النادل.');
       } finally {
         setLoading(false);
@@ -247,14 +248,14 @@ const GuestMenuLayout = () => {
       setCart([]);
       setIsCartOpen(false);
     } catch (err) {
-      console.error("Guest Order Error:", err);
+      logger.error("Guest Order Error:", err);
       // عرض تفاصيل الخطأ الفعلية للمساعدة في التشخيص
       let errorMsg = err.message || err.details || 'خطأ غير معروف';
       
       // معالجة خطأ الكاش (Schema Cache) الشائع عند إضافة دوال جديدة
       if (err.code === 'PGRST202') {
           errorMsg = 'خطأ اتصال (Schema Cache). يرجى من المسؤول تحديث قاعدة البيانات.';
-          console.warn("⚠️ FIX REQUIRED: Run this SQL in Supabase: NOTIFY pgrst, 'reload config';");
+          logger.warn("⚠️ FIX REQUIRED: Run this SQL in Supabase: NOTIFY pgrst, 'reload config';");
           
           if (process.env.NODE_ENV === 'development') {
              errorMsg += ` (نفذ أمر SQL: NOTIFY pgrst, 'reload config';)`;

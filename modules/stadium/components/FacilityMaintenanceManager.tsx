@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
@@ -73,7 +74,7 @@ export const FacilityMaintenanceManager: React.FC = () => {
       setFacilities(data || []);
       getTreasuryAccounts(orgId).then(setTreasuryAccounts);
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
   };
 
@@ -102,12 +103,12 @@ export const FacilityMaintenanceManager: React.FC = () => {
 
       const { data, error } = await query;
       if (error) {
-        console.warn('Maintenance fetch error:', error);
+        logger.warn('Maintenance fetch error:', error);
       } else {
         setTickets(data || []);
       }
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     } finally {
       setLoading(false);
     }
@@ -220,7 +221,7 @@ export const FacilityMaintenanceManager: React.FC = () => {
 
       // Fallback if journal_entry_id / payment_method columns are not yet present
       if (error) {
-        console.warn('Initial update failed, retrying without optional columns:', error);
+        logger.warn('Initial update failed, retrying without optional columns:', error);
         delete ticketPayload.journal_entry_id;
         delete ticketPayload.payment_method;
         const res2 = await supabase
@@ -231,7 +232,7 @@ export const FacilityMaintenanceManager: React.FC = () => {
       }
 
       if (error) {
-        console.error('Update ticket error:', error);
+        logger.error('Update ticket error:', error);
         toast.error('حدث خطأ أثناء تعديل أمر الصيانة');
       } else {
         toast.success('تم تحديث أمر الصيانة بنجاح');
@@ -244,7 +245,7 @@ export const FacilityMaintenanceManager: React.FC = () => {
         .insert([ticketPayload]);
 
       if (error) {
-        console.warn('Initial insert failed, retrying without optional columns:', error);
+        logger.warn('Initial insert failed, retrying without optional columns:', error);
         delete ticketPayload.journal_entry_id;
         delete ticketPayload.payment_method;
         const res2 = await supabase
@@ -254,7 +255,7 @@ export const FacilityMaintenanceManager: React.FC = () => {
       }
 
       if (error) {
-        console.error('Insert ticket error:', error);
+        logger.error('Insert ticket error:', error);
         toast.error('حدث خطأ أثناء إنشاء أمر الصيانة');
       } else {
         toast.success('تم جدولة أمر الصيانة بنجاح');

@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { Banknote, Printer, X, AlertCircle, Building2, Landmark, Receipt } from 'lucide-react';
 import { useToast } from '../../../../context/ToastContext';
@@ -99,7 +100,7 @@ export default function CashDropModal({
         setExpenseAccounts((expData || []) as AccountOption[]);
         setVaultAccounts((vaultData || []) as AccountOption[]);
       } catch (err) {
-        console.warn('Could not load accounts for CashDropModal:', err);
+        logger.warn('Could not load accounts for CashDropModal:', err);
       } finally {
         setLoadingAccounts(false);
       }

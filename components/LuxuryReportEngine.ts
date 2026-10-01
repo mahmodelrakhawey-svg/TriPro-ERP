@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
@@ -448,7 +449,7 @@ export const LuxuryReportEngine = {
       // Save the generated document
       pdf.save(`${type}_${patientName.replace(/\s+/g, '_')}.pdf`);
     } catch (error) {
-      console.error('LuxuryReportEngine: Error generating PDF', error);
+      logger.error('LuxuryReportEngine: Error generating PDF', error);
       throw error;
     } finally {
       // 6. Clean up the DOM — مع التأكد من وجود العنصر لمنع الأخطاء

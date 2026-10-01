@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -111,7 +112,7 @@ const AnnualFinancialReport: React.FC = () => {
       setDbAssets(assetsData || []);
 
     } catch (err) {
-      console.error('Error fetching annual report data:', err);
+      logger.error('Error fetching annual report data:', err);
       showToast('خطأ أثناء جلب بيانات التقرير السنوي: ' + err.message, 'error');
     } finally {
       setLoading(false);

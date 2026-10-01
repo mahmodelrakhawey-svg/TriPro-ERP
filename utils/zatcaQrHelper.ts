@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 /**
  * ==============================================================================
  * ZATCA & Tax E-Invoice QR Code TLV Encoder
@@ -136,7 +137,7 @@ export function generateZatcaTlvQrString(data: ZatcaQrData): string {
     }
     return window.btoa(binary);
   } catch (e) {
-    console.warn('ZATCA QR Generation error:', e);
+    logger.warn('ZATCA QR Generation error:', e);
     return `Invoice:${data.sellerName}|Tax:${data.taxNumber}|Total:${data.totalAmount}`;
   }
 }

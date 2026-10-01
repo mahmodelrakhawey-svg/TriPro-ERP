@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -150,7 +151,7 @@ const ItemProfitReport = () => {
       setReportData(processedData);
 
     } catch (error) {
-      console.error('Error fetching item profits:', error);
+      logger.error('Error fetching item profits:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);

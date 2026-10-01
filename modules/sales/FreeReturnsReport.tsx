@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -65,7 +66,7 @@ const FreeReturnsReport = () => {
       if (error) throw error;
       setReturns(data || []);
     } catch (error) {
-      console.error('Error fetching free returns:', error);
+      logger.error('Error fetching free returns:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
@@ -115,7 +116,7 @@ const FreeReturnsReport = () => {
       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
       pdf.save(`Free_Returns_${startDate}.pdf`);
     } catch (error) {
-      console.error('Error exporting PDF:', error);
+      logger.error('Error exporting PDF:', error);
       showToast('حدث خطأ أثناء تصدير PDF', 'error');
     }
   };

@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -107,7 +108,7 @@ const WastageManager = () => {
         setItems([]);
         setNotes('');
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('حدث خطأ أثناء معالجة الهالك: ' + error.message, 'error');
     } finally {
         setLoading(false);

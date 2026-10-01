@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -54,7 +55,7 @@ const ManufacturingDashboard = () => {
         .order('created_at', { ascending: false });
 
       if (ordersError) {
-        console.error("خطأ في جلب بيانات الأوامر:", ordersError.message, ordersError.details);
+        logger.error("خطأ في جلب بيانات الأوامر:", ordersError.message, ordersError.details);
         showToast('فشل تحميل قائمة أوامر الإنتاج: ' + ordersError.message, 'error');
       }
 

@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
@@ -22,7 +23,7 @@ const Login = () => {
       if (!result.success) {
         // تحسين رسالة الخطأ لتكون مفهومة
         let msg = result.message || 'فشل تسجيل الدخول';
-        console.log('Login Error Detail:', result.message);
+        logger.log('Login Error Detail:', result.message);
         if (msg.includes('Invalid login credentials')) {
           msg = 'بيانات الدخول غير صحيحة (تأكد من كتابة البريد وكلمة المرور كما تم إنشاؤهما في Supabase)';
         } else if (msg.includes('Email not confirmed')) {

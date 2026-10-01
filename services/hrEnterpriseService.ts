@@ -5,6 +5,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { secureStorage } from '../utils/securityMiddleware';
 
@@ -128,7 +129,7 @@ class HrEnterpriseService {
         if (data && data.id) deviceId = data.id;
       }
     } catch (e) {
-      console.warn('DB device save notice:', e);
+      logger.warn('DB device save notice:', e);
     }
 
     const record: BiometricDevice = {
@@ -150,7 +151,7 @@ class HrEnterpriseService {
         await supabase.from('hr_biometric_devices').delete().eq('id', deviceId);
       }
     } catch (e) {
-      console.warn('DB device delete notice:', e);
+      logger.warn('DB device delete notice:', e);
     }
 
     const current = secureStorage.getItem<BiometricDevice[]>(LOCAL_DEVICES_KEY) || [];
@@ -268,7 +269,7 @@ class HrEnterpriseService {
             }
           }
         } catch (attErr) {
-          console.warn('Attendance punch insert notice:', attErr);
+          logger.warn('Attendance punch insert notice:', attErr);
         }
       }
 
@@ -371,7 +372,7 @@ class HrEnterpriseService {
         if (data && data.id) shiftId = data.id;
       }
     } catch (e) {
-      console.warn('DB shift save notice:', e);
+      logger.warn('DB shift save notice:', e);
     }
 
     const record: HrShift = {
@@ -453,7 +454,7 @@ class HrEnterpriseService {
         if (data && data.id) itemId = data.id;
       }
     } catch (e) {
-      console.warn('DB penalty save notice:', e);
+      logger.warn('DB penalty save notice:', e);
     }
 
     const record: HrPenaltyReward = {
@@ -475,7 +476,7 @@ class HrEnterpriseService {
         await supabase.from('hr_penalties_rewards').delete().eq('id', id);
       }
     } catch (e) {
-      console.warn('DB penalty delete notice:', e);
+      logger.warn('DB penalty delete notice:', e);
     }
 
     const current = secureStorage.getItem<HrPenaltyReward[]>(LOCAL_PENALTIES_KEY) || [];

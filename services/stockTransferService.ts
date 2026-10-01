@@ -7,6 +7,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { InTransitTransfer, InTransitTransferItem, TransferType, InTransitStatus } from '../types';
 import WmsLocationService from './wmsLocationService';
@@ -53,7 +54,7 @@ export class StockTransferService {
     try {
       secureStorage.setItem(STORAGE_KEYS.TRANSFERS, transfers);
     } catch (e) {
-      console.warn('Local save error:', e);
+      logger.warn('Local save error:', e);
     }
   }
 

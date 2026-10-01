@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useState, useRef } from 'react';
 import { 
     X, Upload, Camera, Sparkles, CheckCircle2, AlertCircle, 
@@ -138,7 +139,7 @@ export const InvoiceOCRScannerModal: React.FC<InvoiceOCRScannerModalProps> = ({
             });
 
         } catch (err) {
-            console.error("OCR Scan Error:", err);
+            logger.error("OCR Scan Error:", err);
             const errMsg = err.message || 'فشل مسح الفاتورة. تأكد من وضوح الصورة ومفتاح Gemini API.';
             setScanError(errMsg);
             if (errMsg.includes('مفتاح') || errMsg.includes('API') || errMsg.includes('🔑') || errMsg.includes('غير متوفر')) {

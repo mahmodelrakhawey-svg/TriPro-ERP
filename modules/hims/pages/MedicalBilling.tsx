@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useCallback } from 'react';
 import { HospitalBillingEngine } from '../components/HospitalBillingEngine';
 import { Card, Select, Empty, Spin, Table, Tag, Button, Tooltip, Row, Col, Statistic } from 'antd';
@@ -47,7 +48,7 @@ const MedicalBilling: React.FC = () => {
         setActiveBills(data || []);
       }
     } catch (e) {
-      console.error('[MedicalBilling] Error fetching active bills:', e);
+      logger.error('[MedicalBilling] Error fetching active bills:', e);
     } finally {
       setBillsLoading(false);
     }

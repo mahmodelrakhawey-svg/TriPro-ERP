@@ -8,6 +8,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '../supabaseClient';
 import { secureStorage } from '../utils/securityMiddleware';
@@ -90,7 +91,7 @@ export async function resolveActiveOrgId(explicitOrgId?: string | null): Promise
       }
     }
   } catch (err) {
-    console.warn('[tenantContext] Error resolving active org from auth:', err);
+    logger.warn('[tenantContext] Error resolving active org from auth:', err);
   }
 
   // 5. ملاذ أخير: آخر معرف صحيح مخزن

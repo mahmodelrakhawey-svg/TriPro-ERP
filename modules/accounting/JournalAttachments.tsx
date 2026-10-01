@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
@@ -35,7 +36,7 @@ export default function JournalAttachments({ journalEntryId, readOnly = false }:
       if (error) throw error;
       setAttachments(data || []);
     } catch (error) {
-      console.error('Error fetching attachments:', error);
+      logger.error('Error fetching attachments:', error);
     } finally {
       setLoading(false);
     }

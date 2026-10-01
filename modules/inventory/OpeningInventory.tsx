@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -119,7 +120,7 @@ export default function OpeningInventory() {
             created_by: currentUser?.id,
             organization_id: orgId
           });
-          if (openingError) console.error("Failed to save opening inventory record:", openingError);
+          if (openingError) logger.error("Failed to save opening inventory record:", openingError);
         }
       }
 
@@ -128,7 +129,7 @@ export default function OpeningInventory() {
         try {
           await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
         } catch (e) {
-          console.error("Failed to recalculate balances:", e);
+          logger.error("Failed to recalculate balances:", e);
         }
       }
 
@@ -137,7 +138,7 @@ export default function OpeningInventory() {
       setItems([{ id: Date.now().toString(), name: '', sku: '', quantity: 1, cost: 0, price: 0, unit: 'قطعة', product_type: 'STOCK' }]); // تصفير النموذج
 
     } catch (error) {
-      console.error('Error saving opening stock:', error);
+      logger.error('Error saving opening stock:', error);
       showToast('حدث خطأ أثناء الحفظ: ' + error.message, 'error');
     } finally {
       setLoading(false);

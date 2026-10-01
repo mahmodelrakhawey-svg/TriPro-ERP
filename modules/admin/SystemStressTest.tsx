@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -62,7 +63,7 @@ const SystemStressTest: React.FC = () => {
         showToast('⚠️ اكتمل الفحص مع وجود بعض الملاحظات، يرجى مراجعة التقرير.', 'warning');
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('حدث خطأ أثناء تشغيل الفحص: ' + err.message, 'error');
     } finally {
       setIsRunning(false);

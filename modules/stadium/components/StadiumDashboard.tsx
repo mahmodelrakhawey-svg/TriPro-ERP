@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
@@ -162,7 +163,7 @@ export default function StadiumDashboard() {
 
     } catch (error) {
       toast.error('حدث خطأ أثناء جلب بيانات لوحة القيادة');
-      console.error('Dashboard fetch error:', error);
+      logger.error('Dashboard fetch error:', error);
     } finally {
       setLoading(false);
     }

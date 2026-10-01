@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -85,7 +86,7 @@ export const SalesOrderForm = () => {
       const ids = (data || []).map(o => o.id);
       setOrderIds(ids);
     } catch (err) {
-      console.error('Error fetching SO IDs:', err);
+      logger.error('Error fetching SO IDs:', err);
     }
   };
 
@@ -160,7 +161,7 @@ export const SalesOrderForm = () => {
       if (idx !== -1) setCurrentIndex(idx);
 
     } catch (err) {
-      console.error('Error loading SO:', err);
+      logger.error('Error loading SO:', err);
       showToast('فشل تحميل أمر البيع: ' + err.message, 'error');
     } finally {
       setLoadingOrder(false);
@@ -418,7 +419,7 @@ export const SalesOrderForm = () => {
       }
 
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('فشل حفظ أمر البيع: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -442,7 +443,7 @@ export const SalesOrderForm = () => {
       setFormData(prev => ({ ...prev, status: 'confirmed' }));
       showToast('تم تعميد أمر البيع بنجاح 🛡️✅ أصبح جاهزاً للصرف أو التشغيل', 'success');
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل التعميد: ' + err.message, 'error');
     } finally {
       setConfirming(false);
@@ -475,7 +476,7 @@ export const SalesOrderForm = () => {
       }
 
     } catch (err) {
-      console.error('Error deleting SO:', err);
+      logger.error('Error deleting SO:', err);
       showToast('فشل حذف أمر البيع: ' + err.message, 'error');
     } finally {
       setDeleting(false);
@@ -527,7 +528,7 @@ export const SalesOrderForm = () => {
       setIsConvertModalOpen(false);
       navigate('/invoices-list');
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل التحويل: ' + err.message, 'error');
     } finally {
       setConverting(false);

@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -59,7 +60,7 @@ const BankReconciliationForm = () => {
           setPreviousReconciliation(null);
         }
       } catch (err) {
-        console.error("Error fetching reconciliation history:", err);
+        logger.error("Error fetching reconciliation history:", err);
       } finally {
         setLoading(false);
       }
@@ -184,7 +185,7 @@ const BankReconciliationForm = () => {
         if (data && data.length > 0) setPreviousReconciliation(data[0]);
 
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('فشل حفظ التسوية: ' + error.message, 'error');
     } finally {
         setSaving(false);

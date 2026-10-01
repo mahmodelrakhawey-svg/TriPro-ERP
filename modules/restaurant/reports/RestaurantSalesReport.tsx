@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -54,7 +55,7 @@ const RestaurantSalesReport = () => {
           return;
         }
       } catch (rpcErr) {
-        console.warn('RPC get_restaurant_sales_report not available, falling back to direct query:', rpcErr);
+        logger.warn('RPC get_restaurant_sales_report not available, falling back to direct query:', rpcErr);
       }
 
       // Dynamic Fallback: Direct query on order_items
@@ -98,7 +99,7 @@ const RestaurantSalesReport = () => {
 
       setReportData(Object.values(salesMap));
     } catch (error) {
-      console.error('Error fetching report:', error);
+      logger.error('Error fetching report:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);

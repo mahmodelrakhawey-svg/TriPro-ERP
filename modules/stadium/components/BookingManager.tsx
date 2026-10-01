@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
@@ -317,7 +318,7 @@ const BookingManager: React.FC = () => {
       setPayingBooking(null);
       fetchBookings();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       toast.error('حدث خطأ أثناء تنفيذ الدفع');
     } finally {
       setIsProcessingPayment(false);

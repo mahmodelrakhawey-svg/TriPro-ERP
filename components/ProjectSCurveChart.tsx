@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useEffect, useState } from 'react';
 import {
   LineChart,
@@ -47,7 +48,7 @@ const ProjectSCurveChart: React.FC<Props> = ({ projectId }) => {
         setData(rpcData || []);
         setHealthScore(healthData || 0);
       } catch (err) {
-        console.error('Error fetching S-Curve:', err);
+        logger.error('Error fetching S-Curve:', err);
         setError(err.message);
       } finally {
         setLoading(false);

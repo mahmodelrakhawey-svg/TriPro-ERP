@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
@@ -198,7 +199,7 @@ export const InvoiceList = () => {
       }
 
     } catch (err) {
-      console.error('Error fetching sales invoices:', err);
+      logger.error('Error fetching sales invoices:', err);
       showToast('فشل تحميل سجل فواتير المبيعات: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -241,7 +242,7 @@ export const InvoiceList = () => {
         fetchInvoices();
       }
     } catch (err) {
-      console.error('Invoice approve error:', err);
+      logger.error('Invoice approve error:', err);
       const errMsg = err?.message || err?.details || String(err);
       showToast('فشل ترحيل الفاتورة: ' + errMsg, 'error');
     }
@@ -284,7 +285,7 @@ export const InvoiceList = () => {
         fetchInvoices();
         return;
       } catch (rpcErr) {
-        console.warn('Atomic unpost RPC unavailable or failed, attempting client fallback:', rpcErr);
+        logger.warn('Atomic unpost RPC unavailable or failed, attempting client fallback:', rpcErr);
       }
 
       // جلب سطور الفاتورة إذا لم تكن محملة في الذاكرة (Fallback)
@@ -344,7 +345,7 @@ export const InvoiceList = () => {
       fetchInvoices();
 
     } catch (err) {
-      console.error('Error unposting invoice:', err);
+      logger.error('Error unposting invoice:', err);
       showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
     } finally {
       setDeletingId(null);
@@ -387,7 +388,7 @@ export const InvoiceList = () => {
         fetchInvoices();
         return;
       } catch (rpcErr) {
-        console.warn('Atomic delete RPC unavailable or failed, attempting client fallback:', rpcErr);
+        logger.warn('Atomic delete RPC unavailable or failed, attempting client fallback:', rpcErr);
       }
 
       await supabase.from('invoice_items').delete().eq('invoice_id', invoice.id);
@@ -411,7 +412,7 @@ export const InvoiceList = () => {
       fetchInvoices();
 
     } catch (err) {
-      console.error('Error deleting sales invoice:', err);
+      logger.error('Error deleting sales invoice:', err);
       showToast('فشل حذف الفاتورة: ' + err.message, 'error');
     } finally {
       setDeletingId(null);
@@ -488,7 +489,7 @@ export const InvoiceList = () => {
         showToast('فشل الإرسال لمنظومة الضرائب: ' + (response.error || 'يرجى مراجعة إعدادات الضرائب'), 'error');
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('خطأ في الإرسال: ' + err.message, 'error');
     } finally {
       setSubmittingId(null);

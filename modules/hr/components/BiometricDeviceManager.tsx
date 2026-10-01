@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -68,7 +69,7 @@ export const BiometricDeviceManager: React.FC = () => {
       setDevices(devs);
       setRawLogs(logs);
     } catch (e) {
-      console.warn('Load devices notice:', e);
+      logger.warn('Load devices notice:', e);
     } finally {
       setLoading(false);
     }

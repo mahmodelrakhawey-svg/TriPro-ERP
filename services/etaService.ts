@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { supabase } from './supabaseClient';
 
 export interface ETASettings {
@@ -164,7 +165,7 @@ export const etaService = {
         };
       }
     } catch (e) {
-      console.warn("Local signing helper not found, trying simulation mode...");
+      logger.warn("Local signing helper not found, trying simulation mode...");
     }
 
     // Simulation fallback for development / sandbox
@@ -269,7 +270,7 @@ export const etaService = {
           }
         }
       } catch (proxyError) {
-        console.warn("Serverless ETA submission warning (using fallback status):", proxyError?.message);
+        logger.warn("Serverless ETA submission warning (using fallback status):", proxyError?.message);
         if (!isSandbox && companySettings.eta_client_id) {
           throw new Error(`خطأ في الإرسال لمصلحة الضرائب: ${proxyError.message}`);
         }
@@ -297,7 +298,7 @@ export const etaService = {
       };
 
     } catch (error) {
-      console.error("ETA integration failed: ", error);
+      logger.error("ETA integration failed: ", error);
       
       // Update invoice error status
       await supabase
@@ -431,7 +432,7 @@ export const etaService = {
           })
           .eq('id', orderId);
       } catch (updErr) {
-        console.warn('ETA note save notice:', updErr);
+        logger.warn('ETA note save notice:', updErr);
       }
 
       return {
@@ -441,7 +442,7 @@ export const etaService = {
         qrCodeUrl: qrCodeUrl
       };
     } catch (error) {
-      console.error("Restaurant ETA submission error: ", error);
+      logger.error("Restaurant ETA submission error: ", error);
       return {
         success: false,
         error: error.message || 'فشل إرسال الإيصال لمنظومة الضرائب'

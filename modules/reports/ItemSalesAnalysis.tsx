@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -63,7 +64,7 @@ const ItemSalesAnalysis = () => {
         .neq('invoices.status', 'draft')
         .neq('invoices.status', 'cancelled');
 
-      if (invError) console.error('Error fetching invoice items:', invError);
+      if (invError) logger.error('Error fetching invoice items:', invError);
 
       // 2. جلب مبيعات نقاط البيع والكاشير والتجزئة والهايبر ماركت والمطاعم (POS Orders)
       const { data: posItems, error: posError } = await supabase
@@ -81,7 +82,7 @@ const ItemSalesAnalysis = () => {
         .gte('orders.created_at', `${startDate}T00:00:00`)
         .lte('orders.created_at', `${endDate}T23:59:59`);
 
-      if (posError) console.error('Error fetching POS order items:', posError);
+      if (posError) logger.error('Error fetching POS order items:', posError);
 
       // 3. جلب مبيعات وصرف الصيدليات والعيادات (إن وجدت)
       let himsItems: any[] = [];
@@ -151,7 +152,7 @@ const ItemSalesAnalysis = () => {
       setItems(reportData);
 
     } catch (error) {
-      console.error('Error fetching sales analysis:', error);
+      logger.error('Error fetching sales analysis:', error);
       showToast('حدث خطأ أثناء جلب البيانات', 'error');
     } finally {
       setLoading(false);

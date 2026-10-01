@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -55,7 +56,7 @@ const CustomerDepositForm = () => {
   useEffect(() => {
     supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
       if (error) {
-        console.error("فشل جلب إعدادات الشركة عبر RPC:", error);
+        logger.error("فشل جلب إعدادات الشركة عبر RPC:", error);
       } else {
         setCompanySettings(data);
       }

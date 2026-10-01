@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
@@ -97,7 +98,7 @@ const MemberAgingReport: React.FC = () => {
       setData(formatted);
       setCurrentPage(1);
     } catch (error) {
-      console.error('Error fetching aging members:', error);
+      logger.error('Error fetching aging members:', error);
       toast.error('حدث خطأ أثناء جلب البيانات');
     } finally {
       setLoading(false);

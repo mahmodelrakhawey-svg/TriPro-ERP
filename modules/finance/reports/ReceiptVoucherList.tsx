@@ -2,6 +2,7 @@
  * سجل سندات القبض المطور - يشمل إحصائيات تحصيلات العملاء والمقبوضات العامة وفلاتر ذكية ومعاينة شاملة
  * المسار: modules/finance/reports/ReceiptVoucherList.tsx
  */
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -119,7 +120,7 @@ const ReceiptVoucherList = () => {
   useEffect(() => {
     supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
       if (error) {
-        console.error("فشل جلب إعدادات الشركة عبر RPC:", error);
+        logger.error("فشل جلب إعدادات الشركة عبر RPC:", error);
       } else {
         setCompanySettings(data);
       }
@@ -440,7 +441,7 @@ const ReceiptVoucherList = () => {
           loading: false
         });
       } catch (err) {
-        console.error('Error fetching receipt voucher stats:', err);
+        logger.error('Error fetching receipt voucher stats:', err);
         if (!isCancelled) {
           setStats(prev => ({ ...prev, loading: false }));
         }
@@ -619,7 +620,7 @@ const ReceiptVoucherList = () => {
 
       showToast(`تم تصدير ${rows.length} سند قبض إلى إكسيل بنجاح ✅`, 'success');
     } catch (err) {
-      console.error('فشل تصدير الإكسيل:', err);
+      logger.error('فشل تصدير الإكسيل:', err);
       showToast('حدث خطأ أثناء تصدير ملف الإكسيل: ' + (err.message || 'خطأ غير معروف'), 'error');
     } finally {
       setIsExporting(false);

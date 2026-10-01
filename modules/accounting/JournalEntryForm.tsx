@@ -1,4 +1,5 @@
-﻿﻿import React, { useState, useEffect, useMemo } from 'react';
+﻿﻿import { logger } from '../../utils/logger';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X, Copy, Search } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 import { analyzeTransactionText } from '../../services/geminiService';
@@ -119,7 +120,7 @@ const JournalEntryForm = () => {
       if (error) throw error;
       setRecentEntries(data || []);
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       toast.error('حدث خطأ أثناء تحميل القيود السابقة');
     } finally {
       setLoadingRecent(false);

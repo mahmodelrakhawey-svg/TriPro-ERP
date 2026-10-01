@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../supabaseClient'; 
@@ -75,7 +76,7 @@ const AdminTestDashboard: React.FC = () => {
         }
       }
     } catch (err) {
-      console.warn('Error fetching test results:', err);
+      logger.warn('Error fetching test results:', err);
     } finally {
       setLoading(false);
     }

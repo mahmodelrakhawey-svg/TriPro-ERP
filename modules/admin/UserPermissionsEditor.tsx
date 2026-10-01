@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import {
@@ -165,7 +166,7 @@ const UserPermissionsEditor: React.FC = () => {
           setSelectedUserId(prev => prev && users.some(u => u.id === prev) ? prev : users[0].id);
         }
       } catch (err) {
-        console.error('UserPermissionsEditor loading error:', err);
+        logger.error('UserPermissionsEditor loading error:', err);
         showToast('فشل تحميل البيانات: ' + err.message, 'error');
       } finally {
         setLoading(false);
@@ -261,7 +262,7 @@ const UserPermissionsEditor: React.FC = () => {
       });
 
       if (rpcError) {
-        console.warn('RPC sync_user_permissions failed, using table fallback:', rpcError);
+        logger.warn('RPC sync_user_permissions failed, using table fallback:', rpcError);
         // Fallback مباشر: حذف ثم إعادة إدخال
         const { error: delError } = await supabase
           .from('user_permissions')

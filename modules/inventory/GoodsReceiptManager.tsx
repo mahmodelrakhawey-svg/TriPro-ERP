@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -123,7 +124,7 @@ export default function GoodsReceiptManager() {
 
       setPurchaseOrders(pos || []);
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('خطأ أثناء جلب أذون الاستلام', 'error');
     } finally {
       setIsLoading(false);
@@ -189,7 +190,7 @@ export default function GoodsReceiptManager() {
         setItems(mappedItems);
         showToast(`تم تحميل بنود أمر الشراء (${mappedItems.length} صنف)`, 'info');
       } catch (e) {
-        console.error(e);
+        logger.error(e);
       }
     }
   };
@@ -355,7 +356,7 @@ export default function GoodsReceiptManager() {
       });
 
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast(err.message || 'فشل حفظ إذن الاستلام', 'error');
     } finally {
       setIsLoading(false);

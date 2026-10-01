@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { 
@@ -125,7 +126,7 @@ export const PurchaseOrderList = () => {
 
       setOrders(data || []);
     } catch (err) {
-      console.error('Error fetching purchase orders:', err);
+      logger.error('Error fetching purchase orders:', err);
       showToast('فشل تحميل سجل أوامر الشراء: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -183,7 +184,7 @@ export const PurchaseOrderList = () => {
       fetchOrders();
 
     } catch (err) {
-      console.error('Error deleting PO:', err);
+      logger.error('Error deleting PO:', err);
       showToast('فشل حذف أمر الشراء: ' + err.message, 'error');
     } finally {
       setDeletingId(null);
@@ -211,7 +212,7 @@ export const PurchaseOrderList = () => {
       setSelectedOrderForConvert(null);
       fetchOrders();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل تحويل أمر الشراء: ' + err.message, 'error');
     } finally {
       setConverting(false);

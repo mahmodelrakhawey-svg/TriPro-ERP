@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
@@ -76,7 +77,7 @@ const PurchaseReports = () => {
       }
 
     } catch (error) {
-      console.error('Error fetching purchase data:', error);
+      logger.error('Error fetching purchase data:', error);
     } finally {
       setLoading(false);
     }

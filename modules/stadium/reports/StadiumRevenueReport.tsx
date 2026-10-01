@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
@@ -127,7 +128,7 @@ const StadiumRevenueReport: React.FC = () => {
       setData(allRecords);
       setCurrentPage(1);
     } catch (error) {
-      console.error('Error fetching revenue:', error);
+      logger.error('Error fetching revenue:', error);
       toast.error('حدث خطأ أثناء جلب بيانات الإيرادات');
     } finally {
       setLoading(false);

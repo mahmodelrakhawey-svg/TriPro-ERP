@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Download, Calendar, Loader2, FileSpreadsheet } from 'lucide-react';
@@ -81,7 +82,7 @@ export default function JournalEntriesExport() {
       XLSX.writeFile(wb, `Journal_Entries_${startDate}_to_${endDate}.csv`);
 
     } catch (error) {
-      console.error('Export error:', error);
+      logger.error('Export error:', error);
       showToast('حدث خطأ أثناء التصدير: ' + error.message, 'error');
     } finally {
       setLoading(false);

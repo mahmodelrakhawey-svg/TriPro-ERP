@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
@@ -79,7 +80,7 @@ const DeficitReport = () => {
       if (error) throw error;
       setLogs(data || []);
     } catch (err) {
-      console.warn('Notice fetching deficit logs:', err.message);
+      logger.warn('Notice fetching deficit logs:', err.message);
       setLogs([]);
     } finally {
       setLoading(false);

@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useRef } from 'react';
 import {
   X, Upload, FileSpreadsheet, CheckCircle, AlertTriangle,
@@ -51,7 +52,7 @@ export const BOMImportModal: React.FC<BOMImportModalProps> = ({
         setActiveTab('all');
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل قراءة ملف الإكسيل: ' + err.message, 'error');
       setParseResult(null);
     } finally {
@@ -87,7 +88,7 @@ export const BOMImportModal: React.FC<BOMImportModalProps> = ({
       onSuccess();
       handleClose();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل تطبيق التعديلات: ' + err.message, 'error');
     } finally {
       setApplying(false);

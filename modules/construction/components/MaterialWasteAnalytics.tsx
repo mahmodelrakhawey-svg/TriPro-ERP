@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -277,7 +278,7 @@ export default function MaterialWasteAnalytics() {
 
       setBoqReconciliations(reconMatrix);
     } catch (err) {
-      console.warn('Reconciliation fetch error:', err.message);
+      logger.warn('Reconciliation fetch error:', err.message);
       setBoqReconciliations([]);
     } finally {
       setIsLoading(false);

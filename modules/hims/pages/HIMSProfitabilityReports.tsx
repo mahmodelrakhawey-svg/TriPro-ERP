@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { Card, Row, Col, Statistic, Table, Typography, Tag, Progress, Divider, Button, message } from 'antd';
 import { RiseOutlined, UserOutlined, BankOutlined, FilePdfOutlined, PieChartOutlined } from '@ant-design/icons';
@@ -26,7 +27,7 @@ export const HIMSProfitabilityReports: React.FC = () => {
       ]);
       setDoctorStats(docs || []);
       setDeptStats(depts || []);
-    } catch (e) { console.error('Error fetching profitability data:', e); }
+    } catch (e) { logger.error('Error fetching profitability data:', e); }
     setLoading(false);
   };
 

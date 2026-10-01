@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '@/context/AccountingContext';
 import { supabase } from '@/supabaseClient';
@@ -100,7 +101,7 @@ export const StadiumPnLReport: React.FC = () => {
         .lte('transaction_date', endDate);
 
       if (jErr) {
-        console.warn('Journal entries query warning:', jErr);
+        logger.warn('Journal entries query warning:', jErr);
       }
 
       if (entries && entries.length > 0) {
@@ -290,7 +291,7 @@ export const StadiumPnLReport: React.FC = () => {
       });
 
     } catch (err) {
-      console.error('Error fetching Stadium P&L data:', err);
+      logger.error('Error fetching Stadium P&L data:', err);
     } finally {
       setLoading(false);
     }

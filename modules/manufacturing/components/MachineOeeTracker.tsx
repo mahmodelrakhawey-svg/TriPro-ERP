@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -114,13 +115,13 @@ export default function MachineOeeTracker() {
         .order('log_date', { ascending: false });
 
       if (error) {
-        console.warn('mfg_machine_oee_logs table notice:', error.message);
+        logger.warn('mfg_machine_oee_logs table notice:', error.message);
         setLogs([]);
       } else {
         setLogs(data || []);
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       setLogs([]);
     } finally {
       setIsLoading(false);

@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { useToast } from '../context/ToastContext';
@@ -30,7 +31,7 @@ const Quotations: React.FC = () => {
       .order('created_at', { ascending: false });
 
     if (error) {
-      console.error('Error fetching quotations:', error);
+      logger.error('Error fetching quotations:', error);
     } else {
       setQuotations(data || []);
     }

@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { 
     Clock, Shield, CheckCircle2, Edit3, Printer, 
@@ -48,7 +49,7 @@ export const DocumentAuditTimeline: React.FC<DocumentAuditTimelineProps> = ({
                 }
                 setLogs(trail);
             } catch (err) {
-                console.warn('Failed to load audit timeline:', err);
+                logger.warn('Failed to load audit timeline:', err);
             } finally {
                 setLoading(false);
             }

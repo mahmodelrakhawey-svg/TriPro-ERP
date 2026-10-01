@@ -1,4 +1,5 @@
 
+import { logger } from '../utils/logger';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccounting } from '../context/AccountingContext'; // Assuming context provides demo data
 import { supabase } from '../supabaseClient';
@@ -114,7 +115,7 @@ const Dashboard = () => {
             if (error) throw error;
             setOverLimitCustomers(data || []);
           } catch (err) {
-            if (process.env.NODE_ENV === 'development') console.error("Error in checkHighDebt:", err);
+            if (process.env.NODE_ENV === 'development') logger.error("Error in checkHighDebt:", err);
           }
         };
 
@@ -167,7 +168,7 @@ const Dashboard = () => {
               setLowStockItems(data.lowStockItems || []);
           }
         } catch (error) {
-          if (process.env.NODE_ENV === 'development') console.error("Error fetching dashboard data:", error);
+          if (process.env.NODE_ENV === 'development') logger.error("Error fetching dashboard data:", error);
           if (!rpcError) setRpcError("فشل تحميل بيانات لوحة القيادة.");
         } finally {
           setLoading(false);

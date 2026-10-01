@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -185,7 +186,7 @@ const SlowMovingReport = () => {
       setReportData(slowMoving.sort((a, b) => b.stock - a.stock));
 
     } catch (error) {
-      console.error('Error fetching slow moving items:', error);
+      logger.error('Error fetching slow moving items:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);

@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { Table, Tag, Button, Card, Typography, message, Space, Modal, Form, Select, DatePicker, TimePicker, Input, Row, Col, Statistic } from 'antd';
 import { CalendarOutlined, ClockCircleOutlined, UserAddOutlined, CheckCircleOutlined, CloseCircleOutlined, UserOutlined, MedicineBoxOutlined, InfoCircleOutlined } from '@ant-design/icons';
@@ -123,7 +124,7 @@ export const AppointmentManager: React.FC = () => {
         }
       }
     } catch (err) {
-      console.error('Failed to fetch metadata:', err);
+      logger.error('Failed to fetch metadata:', err);
     }
   };
 

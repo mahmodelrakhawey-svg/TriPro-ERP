@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useForm, useFieldArray, SubmitHandler, Controller } from 'react-hook-form';
 import { Button, Input, Table, Space, Card, Typography, message, Select, Spin, InputNumber, Alert } from 'antd';
@@ -121,7 +122,7 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
       const { data, error } = await queryBuilder.limit(40);
 
       if (error) {
-        console.error("PrescriptionForm: Error fetching products:", error);
+        logger.error("PrescriptionForm: Error fetching products:", error);
         setProductOptions([]);
       }
 
@@ -159,7 +160,7 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
           price: p.sales_price || 0
         })));
       } catch (err) {
-        console.error("Offline product search error:", err);
+        logger.error("Offline product search error:", err);
       }
     }
     setLoadingProducts(false);
@@ -196,7 +197,7 @@ export const PrescriptionForm: React.FC<{ visitId: string }> = ({ visitId }) => 
           }));
         }
       } catch (err) {
-        console.error("Failed to query ICD10 from database:", err);
+        logger.error("Failed to query ICD10 from database:", err);
       }
     }
 

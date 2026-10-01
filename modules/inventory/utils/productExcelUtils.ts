@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
 
@@ -315,7 +316,7 @@ export const importRecipesFromExcel = async ({
               createdList.push({ name: newProduct.name, sku: newProduct.sku, type: 'وجبة (Meal)' });
             }
           } catch (err) {
-            console.error("Failed to auto-create meal:", err);
+            logger.error("Failed to auto-create meal:", err);
           }
         }
 
@@ -347,7 +348,7 @@ export const importRecipesFromExcel = async ({
               createdList.push({ name: newMaterial.name, sku: newMaterial.sku, type: 'مادة خام (Raw Material)' });
             }
           } catch (err) {
-            console.error("Failed to auto-create raw material:", err);
+            logger.error("Failed to auto-create raw material:", err);
           }
         }
 
@@ -440,7 +441,7 @@ export const importRecipesFromExcel = async ({
               }
             }
           } catch (mfgErr) {
-            console.warn('Could not sync to mfg_routings:', mfgErr);
+            logger.warn('Could not sync to mfg_routings:', mfgErr);
           }
         }
       }
@@ -460,7 +461,7 @@ export const importRecipesFromExcel = async ({
 
       showToast(`تم استيراد ${successCount} وصفة بنجاح.${failCount > 0 ? ` فشل ${failCount} صف.` : ''}`, 'success');
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('فشل استيراد الوصفات: ' + error.message, 'error');
     } finally {
       setIsRecipeImporting(false);
@@ -630,7 +631,7 @@ export const importProductsFromExcel = async ({
                 organization_id: orgId,
                 created_by: currentUser?.id
               });
-              if (opErr) console.error("Error creating opening inventory:", opErr);
+              if (opErr) logger.error("Error creating opening inventory:", opErr);
 
               const totalValue = Number(stock) * (Number(purchase_price) || 0);
               if (totalValue > 0 && itemInvAcc && equityAcc) {
@@ -653,7 +654,7 @@ export const importProductsFromExcel = async ({
 
             successCount++;
           } catch (err) {
-            console.error("Error adding product:", name, err);
+            logger.error("Error adding product:", name, err);
             failCount++;
           }
         } else {
@@ -666,7 +667,7 @@ export const importProductsFromExcel = async ({
         try {
           await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
         } catch (e) {
-          console.error('Failed to recalculate balances after bulk import', e);
+          logger.error('Failed to recalculate balances after bulk import', e);
         }
       }
       await refreshData();

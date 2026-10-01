@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
@@ -126,7 +127,7 @@ const OccupancyReport: React.FC = () => {
       setStats(calculatedStats);
       setCurrentPage(1);
     } catch (error) {
-      console.error('Error fetching occupancy:', error);
+      logger.error('Error fetching occupancy:', error);
       toast.error('حدث خطأ أثناء حساب الإشغال');
     } finally {
       setLoading(false);

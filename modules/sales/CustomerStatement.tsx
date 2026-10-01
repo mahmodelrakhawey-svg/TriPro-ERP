@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
@@ -99,7 +100,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         });
 
         if (error) {
-          console.error(`Failed to post order ${ord.reference}:`, error.message);
+          logger.error(`Failed to post order ${ord.reference}:`, error.message);
         } else {
           successCount++;
         }
@@ -112,7 +113,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         showToast('فشل ترحيل الطلبات. يرجى التحقق من قاعدة البيانات.', 'error');
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('حدث خطأ غير متوقع: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -375,7 +376,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         setClosingBalance(runningBal);
 
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('حدث خطأ أثناء جلب البيانات', 'error');
     } finally {
         setLoading(false);

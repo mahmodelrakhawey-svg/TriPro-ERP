@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
@@ -650,7 +651,7 @@ const StockCard = () => {
       setTransactions(txnsWithBalance.reverse());
 
     } catch (error) {
-      console.error("Error fetching transactions:", error);
+      logger.error("Error fetching transactions:", error);
     } finally {
       setLoading(false);
     }
@@ -872,7 +873,7 @@ const StockCard = () => {
           
           setPriceHistory(priceLogs);
       } catch (err) {
-          console.error(err);
+          logger.error(err);
       } finally {
           setHistoryLoading(false);
       }
@@ -887,7 +888,7 @@ const StockCard = () => {
             await recalculateStock(selectedProductId);
             await fetchTransactions(); // تحديث جدول الحركات المكتملة
         } catch (e) {
-            console.error(e);
+            logger.error(e);
         } finally {
             setIsRecalculating(false);
         }
@@ -909,7 +910,7 @@ const StockCard = () => {
               try {
                   await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
               } catch (e) {
-                  console.error('Failed to recalculate balances:', e);
+                  logger.error('Failed to recalculate balances:', e);
               }
           }
           await refreshData();
@@ -966,7 +967,7 @@ const StockCard = () => {
               try {
                   await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
               } catch (e) {
-                  console.error('Failed to recalculate balances:', e);
+                  logger.error('Failed to recalculate balances:', e);
               }
           }
           await refreshData();

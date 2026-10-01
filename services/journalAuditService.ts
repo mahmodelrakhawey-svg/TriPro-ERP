@@ -7,6 +7,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 
 export interface UnbalancedJournalEntrySummary {
@@ -119,7 +120,7 @@ class JournalAuditService {
 
         const { data, error } = await query;
         if (error) {
-          console.warn('Fallback 1 query notice in journalAuditService:', error.message);
+          logger.warn('Fallback 1 query notice in journalAuditService:', error.message);
           break;
         }
         if (!data || data.length === 0) break;
@@ -233,7 +234,7 @@ class JournalAuditService {
         totalDifference: Number(totalDiff.toFixed(2))
       };
     } catch (err) {
-      console.error('Failed to audit journal balance:', err);
+      logger.error('Failed to audit journal balance:', err);
       return {
         unbalancedIds: [],
         entries: [],

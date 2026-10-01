@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
@@ -130,7 +131,7 @@ const SecurityLogs = () => {
 
         setUsersList(Object.values(userMap));
       } catch (err) {
-        console.error('Error loading users for filter:', err);
+        logger.error('Error loading users for filter:', err);
       }
     };
 
@@ -270,7 +271,7 @@ const SecurityLogs = () => {
           setLogs(filtered);
         }
       } catch (err) {
-        if (process.env.NODE_ENV === 'development') console.error('Error fetching logs:', err);
+        if (process.env.NODE_ENV === 'development') logger.error('Error fetching logs:', err);
       } finally {
         setLoading(false);
       }

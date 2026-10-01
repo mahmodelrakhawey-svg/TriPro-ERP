@@ -3,6 +3,7 @@
  * يجب استدعاء هذا الملف في App.tsx عند بدء التطبيق
  */
 
+import { logger } from '../utils/logger';
 import NotificationService from './notificationService';
 import { secureStorage } from '../utils/securityMiddleware';
 
@@ -23,7 +24,7 @@ class NotificationScheduler {
     const { intervalMinutes = 60, autoStart = true } = config;
 
     if (this.isRunning) {
-      console.warn('⚠️ Notification scheduler is already running');
+      logger.warn('⚠️ Notification scheduler is already running');
       return;
     }
 
@@ -40,7 +41,7 @@ class NotificationScheduler {
         this.runChecks();
       } else {
         const minutesAgo = Math.round((now - parseInt(lastRun, 10)) / 60000);
-        console.log(`⏳ Notification checks were run recently (${minutesAgo}m ago). Skipping immediate run.`);
+        logger.log(`⏳ Notification checks were run recently (${minutesAgo}m ago). Skipping immediate run.`);
       }
     }
 
@@ -52,7 +53,7 @@ class NotificationScheduler {
       this.intervalMinutes * 60 * 1000
     );
 
-    console.log(`✅ Notification scheduler started (every ${intervalMinutes} minutes)`);
+    logger.log(`✅ Notification scheduler started (every ${intervalMinutes} minutes)`);
   }
 
   /**
@@ -63,7 +64,7 @@ class NotificationScheduler {
       clearInterval(this.intervalId);
       this.intervalId = null;
       this.isRunning = false;
-      console.log('⏹️ Notification scheduler stopped');
+      logger.log('⏹️ Notification scheduler stopped');
     }
   }
 
@@ -75,16 +76,16 @@ class NotificationScheduler {
     try {
       this.isRunning = true;
       secureStorage.setItem('tripro_last_notification_check', Date.now().toString());
-      console.log(`🔔 Running notification checks at ${new Date().toLocaleTimeString()}`);
+      logger.log(`🔔 Running notification checks at ${new Date().toLocaleTimeString()}`);
 
       // تشغيل جميع الفحوصات
       await NotificationService.runAllChecks();
 
       this.isRunning = false;
-      console.log(`✅ Notification checks completed at ${new Date().toLocaleTimeString()}`);
+      logger.log(`✅ Notification checks completed at ${new Date().toLocaleTimeString()}`);
     } catch (error) {
       this.isRunning = false;
-      console.error('❌ Error running notification checks:', error);
+      logger.error('❌ Error running notification checks:', error);
     }
   }
 
@@ -107,7 +108,7 @@ class NotificationScheduler {
    * تشغيل الفحوصات يدوياً (بدون انتظار الفترة الدورية)
    */
   static async triggerNow(): Promise<void> {
-    console.log('🚀 Manual trigger: Running notification checks immediately');
+    logger.log('🚀 Manual trigger: Running notification checks immediately');
     await NotificationService.runAllChecks();
   }
 }

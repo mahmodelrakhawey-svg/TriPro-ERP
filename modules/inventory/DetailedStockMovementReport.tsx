@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -726,7 +727,7 @@ const DetailedStockMovementReport = () => {
       setMovements(periodMovements);
 
     } catch (error) {
-      console.error("Error fetching stock movements:", error);
+      logger.error("Error fetching stock movements:", error);
     } finally {
       setLoading(false);
     }

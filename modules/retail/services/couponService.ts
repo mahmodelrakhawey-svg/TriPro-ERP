@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import { supabase } from '../../../supabaseClient';
 import { secureStorage } from '../../../utils/securityMiddleware';
 
@@ -38,7 +39,7 @@ export const couponService = {
         }
       }
     } catch (e) {
-      console.warn('Fallback to local coupons:', e);
+      logger.warn('Fallback to local coupons:', e);
     }
     const local = secureStorage.getItem(storageKey) as RetailCoupon[];
     return local && Array.isArray(local) ? local : [];
@@ -137,7 +138,7 @@ export const couponService = {
         });
       }
     } catch (e) {
-      console.warn('Saved coupon locally:', e);
+      logger.warn('Saved coupon locally:', e);
     }
 
     const current = await couponService.getCoupons(orgId);

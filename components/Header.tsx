@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
@@ -75,7 +76,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
                 setCurrentUser(profile);
             }
           } catch (e) {
-            if (process.env.NODE_ENV === 'development') console.error(`فشل تحميل بيانات المستخدم: ${e.message}`);
+            if (process.env.NODE_ENV === 'development') logger.error(`فشل تحميل بيانات المستخدم: ${e.message}`);
           }
         };
         fetchUserData();
@@ -124,7 +125,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
             secureStorage.removeItem('admin_original_org_id');
             window.location.reload(); // إعادة تحميل النظام بالهوية الأصلية
         } catch (error) {
-            console.error("Error returning to admin:", error);
+            logger.error("Error returning to admin:", error);
             // 🛡️ صمام أمان: إذا فشلت العودة لأي سبب (مثل حذف الشركة)، نمسح المفتاح لفك تعليق المستخدم
             if (secureStorage.getItem('admin_original_org_id')) {
                 secureStorage.removeItem('admin_original_org_id');

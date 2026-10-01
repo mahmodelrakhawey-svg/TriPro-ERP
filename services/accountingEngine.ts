@@ -9,6 +9,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 
 /**
@@ -220,7 +221,7 @@ class UnifiedAccountingEngine {
       // إذا فشل RPC (ربما لأنه لم يُطبَّق بعد على قاعدة البيانات)
       // نسقط إلى المسار الاحتياطي الكلاسيكي مع تسجيل التحذير
       if (rpcError) {
-        console.warn('[AccountingEngine] Atomic RPC unavailable, using fallback:', rpcError.message);
+        logger.warn('[AccountingEngine] Atomic RPC unavailable, using fallback:', rpcError.message);
       } else if (rpcResult && !rpcResult.success) {
         // الـ RPC موجود ورفض العملية (خطأ منطقي مثل فترة مقفلة أو عدم التوازن)
         return {
@@ -235,7 +236,7 @@ class UnifiedAccountingEngine {
       // 🔁 المسار الاحتياطي: إنشاء القيد بالخطوات الكلاسيكية
       // يُستخدم فقط عندما لا يكون RPC الأتومي متاحاً بعد في قاعدة البيانات
       // ======================================================================
-      console.warn('[AccountingEngine] ⚠️ Using non-atomic fallback — apply critical_security_fixes.sql to upgrade');
+      logger.warn('[AccountingEngine] ⚠️ Using non-atomic fallback — apply critical_security_fixes.sql to upgrade');
 
       // 3. إنشاء رأس القيد في جدول journal_entries كمسودة أولاً
       const entryPayload: JournalEntryHeaderPayload = {
@@ -298,7 +299,7 @@ class UnifiedAccountingEngine {
         try {
           await supabase.from('journal_entries').delete().eq('id', entry.id);
         } catch (cleanupErr) {
-          console.error('[AccountingEngine] Orphan header cleanup failed:', cleanupErr);
+          logger.error('[AccountingEngine] Orphan header cleanup failed:', cleanupErr);
         }
         throw new Error(linesError.message);
       }
@@ -330,7 +331,7 @@ class UnifiedAccountingEngine {
           ? String((err as { message: unknown }).message)
           : 'حدث خطأ أثناء ترحيل القيد المحاسبي';
 
-      console.error('[UnifiedAccountingEngine] Error creating journal entry:', err);
+      logger.error('[UnifiedAccountingEngine] Error creating journal entry:', err);
       return {
         success: false,
         totalDebit,

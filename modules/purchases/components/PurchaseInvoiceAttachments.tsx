@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
@@ -80,7 +81,7 @@ export const PurchaseInvoiceAttachments: React.FC<PurchaseInvoiceAttachmentsProp
 
       return signed?.signedUrl || '';
     } catch (e) {
-      console.error('Error generating attachment URL:', e);
+      logger.error('Error generating attachment URL:', e);
       return '';
     }
   };
@@ -113,7 +114,7 @@ export const PurchaseInvoiceAttachments: React.FC<PurchaseInvoiceAttachmentsProp
             .upload(filePath, file, { cacheControl: '3600', upsert: true });
 
           if (uploadErr) {
-            console.warn('Supabase storage upload error, saving as staged file:', uploadErr.message);
+            logger.warn('Supabase storage upload error, saving as staged file:', uploadErr.message);
             // Fallback: إضافة كملف محلي
             newItems.push({
               file_name: file.name,
@@ -146,7 +147,7 @@ export const PurchaseInvoiceAttachments: React.FC<PurchaseInvoiceAttachmentsProp
 
             if (dbData?.id) insertedId = dbData.id;
           } catch (dbErr) {
-            console.warn('Could not insert to purchase_invoice_attachments table (non-blocking):', dbErr);
+            logger.warn('Could not insert to purchase_invoice_attachments table (non-blocking):', dbErr);
           }
 
           const { data: urlData } = supabase.storage.from('finance_docs').getPublicUrl(filePath);
@@ -179,7 +180,7 @@ export const PurchaseInvoiceAttachments: React.FC<PurchaseInvoiceAttachmentsProp
       onChange(newItems);
       showToast(`تم إرفاق ${fileList.length} ملف بنجاح 📎`, 'success');
     } catch (err) {
-      console.error('Error handling attachment upload:', err);
+      logger.error('Error handling attachment upload:', err);
       showToast('حدث خطأ أثناء رفع المرفقات: ' + (err.message || ''), 'error');
     } finally {
       setUploading(false);
@@ -199,14 +200,14 @@ export const PurchaseInvoiceAttachments: React.FC<PurchaseInvoiceAttachmentsProp
         try {
           await supabase.storage.from('finance_docs').remove([item.file_path]);
         } catch (e) {
-          console.warn('Storage deletion fallback:', e);
+          logger.warn('Storage deletion fallback:', e);
         }
 
         if (item.id) {
           try {
             await supabase.from('purchase_invoice_attachments').delete().eq('id', item.id);
           } catch (e) {
-            console.warn('DB deletion fallback:', e);
+            logger.warn('DB deletion fallback:', e);
           }
         }
       }

@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -146,7 +147,7 @@ export const ETATracker: React.FC = () => {
 
       setInvoices(formatted);
     } catch (err) {
-      console.error('Error fetching ETA invoices:', err);
+      logger.error('Error fetching ETA invoices:', err);
       showToast('تعذر تحميل بيانات الفواتير الضريبية: ' + err.message, 'error');
     } finally {
       setLoading(false);

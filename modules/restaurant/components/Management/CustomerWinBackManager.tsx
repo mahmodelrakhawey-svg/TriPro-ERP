@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
@@ -42,7 +43,7 @@ export const CustomerWinBackManager: React.FC = () => {
       if (custRes.data) setCustomers(custRes.data);
       if (ordRes.data) setOrders(ordRes.data);
     } catch (e) {
-      console.warn('Winback data load notice:', e);
+      logger.warn('Winback data load notice:', e);
     } finally {
       setLoading(false);
     }

@@ -1,4 +1,5 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { useMemo, useState, useEffect } from 'react';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { logger } from '../../utils/logger';
+import { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { 
   Gauge, TrendingUp, Activity, Printer, Download, Target, Loader2, RefreshCw, 
@@ -81,7 +82,7 @@ const FinancialRatios = () => {
       if (error) throw error;
       setLedgerLines(data || []);
     } catch (err) {
-      console.error('Error fetching ledger data for financial ratios:', err);
+      logger.error('Error fetching ledger data for financial ratios:', err);
       showToast('فشل جلب البيانات: ' + err.message, 'error');
     } finally {
       setLoadingData(false);
@@ -365,7 +366,7 @@ const FinancialRatios = () => {
           setHistoricalData(data);
         }
       } catch (error) {
-        console.error("Error fetching historical ratios:", error);
+        logger.error("Error fetching historical ratios:", error);
       } finally {
         setLoadingCharts(false);
       }

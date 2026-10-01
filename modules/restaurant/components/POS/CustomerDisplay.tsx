@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { secureStorage } from '../../../../utils/securityMiddleware';
@@ -15,7 +16,7 @@ const CustomerDisplay = () => {
           const newOrder = event.newValue ? JSON.parse(event.newValue) : null;
           setOrder(newOrder);
         } catch (e) {
-          console.error("Failed to parse order from localStorage", e);
+          logger.error("Failed to parse order from localStorage", e);
           setOrder(null);
         }
       }
@@ -26,7 +27,7 @@ const CustomerDisplay = () => {
         const initialOrder = secureStorage.getItem<ActiveOrder>('tripro-customer-display-order');
         if(initialOrder) setOrder(initialOrder);
     } catch(e) {
-        console.error("Failed to parse initial order", e);
+        logger.error("Failed to parse initial order", e);
     }
 
     window.addEventListener('storage', handleStorageChange);

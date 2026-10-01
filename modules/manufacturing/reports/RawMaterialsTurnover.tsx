@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAuth } from '../../../context/AuthContext';
@@ -26,7 +27,7 @@ export const RawMaterialsTurnover: React.FC = () => {
       setTurnover(data);
       showToast('تم تحديث التقرير بنجاح', 'success');
     } catch (error) {
-      console.error('Error fetching turnover:', error);
+      logger.error('Error fetching turnover:', error);
       showToast(error.message || 'فشل في حساب معدل الدوران', 'error');
     } finally {
       setLoading(false);

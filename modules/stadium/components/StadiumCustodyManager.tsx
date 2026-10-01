@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '@/context/AccountingContext';
 import { supabase } from '@/supabaseClient';
@@ -126,7 +127,7 @@ export const StadiumCustodyManager: React.FC = () => {
         setTotalCount(count || 0);
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
     } finally {
       setLoading(false);
     }
@@ -214,7 +215,7 @@ export const StadiumCustodyManager: React.FC = () => {
       });
       fetchCustodies();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       toast.error(err.message || 'حدث خطأ أثناء صرف العهدة');
     }
   };
@@ -283,7 +284,7 @@ export const StadiumCustodyManager: React.FC = () => {
       setSelectedCustody(null);
       fetchCustodies();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       toast.error(err.message || 'حدث خطأ أثناء تسوية العهدة');
     } finally {
       setIsProcessingSettle(false);

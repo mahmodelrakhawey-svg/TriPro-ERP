@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../../../supabaseClient';
@@ -75,7 +76,7 @@ const KitchenEndDayCount = () => {
             });
         setItems(warehouseProducts);
     } catch (error) {
-        console.error("Error fetching products:", error);
+        logger.error("Error fetching products:", error);
         showToast("حدث خطأ أثناء جلب بيانات المواد الخام", 'error');
     } finally {
         setLoadingProducts(false);
@@ -214,7 +215,7 @@ const KitchenEndDayCount = () => {
         navigate('/inventory-history');
 
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
         setSaving(false);

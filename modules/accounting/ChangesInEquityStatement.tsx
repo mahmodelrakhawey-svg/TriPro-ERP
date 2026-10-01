@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -86,7 +87,7 @@ const ChangesInEquityStatement: React.FC = () => {
       if (error) throw error;
       setLedgerLines(data || []);
     } catch (err) {
-      console.error('Error fetching changes in equity data:', err);
+      logger.error('Error fetching changes in equity data:', err);
       showToast('فشل جلب البيانات: ' + err.message, 'error');
     } finally {
       setLoading(false);

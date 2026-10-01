@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -66,7 +67,7 @@ const PurchaseReturnForm = () => {
       const ids = (data || []).map(r => r.id);
       setReturnIds(ids);
     } catch (err) {
-      console.error('Error fetching purchase return IDs:', err);
+      logger.error('Error fetching purchase return IDs:', err);
     }
   };
 
@@ -143,7 +144,7 @@ const PurchaseReturnForm = () => {
         showToast(`تم استيراد ${mapped.length} صنف من الفاتورة الأصلية بنجاح ✅`, 'info');
       }
     } catch (e) {
-      console.error('Failed to load invoice items:', e);
+      logger.error('Failed to load invoice items:', e);
     }
   };
 
@@ -211,7 +212,7 @@ const PurchaseReturnForm = () => {
       if (idx !== -1) setCurrentIndex(idx);
 
     } catch (err) {
-      console.error('Error loading purchase return:', err);
+      logger.error('Error loading purchase return:', err);
       showToast('فشل تحميل بيانات المرتجع: ' + err.message, 'error');
     } finally {
       setLoadingReturn(false);
@@ -464,7 +465,7 @@ const PurchaseReturnForm = () => {
       }
 
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('فشل حفظ المرتجع: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -523,7 +524,7 @@ const PurchaseReturnForm = () => {
       }
 
     } catch (err) {
-      console.error('Error deleting purchase return:', err);
+      logger.error('Error deleting purchase return:', err);
       showToast('فشل حذف المرتجع: ' + err.message, 'error');
     } finally {
       setDeleting(false);

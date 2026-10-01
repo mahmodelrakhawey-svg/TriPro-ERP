@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { supabase } from './supabaseClient';
 import { Database } from '../types';
 
@@ -21,7 +22,7 @@ export const createAccount = async (accountData: AccountInsert) => {
     .single();
 
   if (error) {
-    console.error('Error creating account:', error.message);
+    logger.error('Error creating account:', error.message);
     throw error;
   }
 
@@ -42,7 +43,7 @@ export const getAccounts = async () => {
     .order('code', { ascending: true });
 
   if (error) {
-    console.error('Error fetching accounts:', error);
+    logger.error('Error fetching accounts:', error);
     throw error;
   }
 

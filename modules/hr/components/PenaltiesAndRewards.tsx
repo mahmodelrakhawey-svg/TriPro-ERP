@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -47,7 +48,7 @@ export const PenaltiesAndRewards: React.FC = () => {
       const data = await hrEnterpriseService.getPenaltiesRewards(orgId);
       setItems(data);
     } catch (e) {
-      console.warn('Load penalties error:', e);
+      logger.warn('Load penalties error:', e);
     } finally {
       setLoading(false);
     }

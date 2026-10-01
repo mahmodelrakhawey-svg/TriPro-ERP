@@ -3,6 +3,7 @@
  * Handles request/response security, validation, and logging
  */
 
+import { logger } from '../utils/logger';
 import { checkRateLimit, sanitizeInput, verifyCSRFToken, createAuditLog, maskSensitiveData } from './securityUtils';
 import { handleError } from './errorHandler';
 import { supabase } from '../supabaseClient';
@@ -243,10 +244,10 @@ export async function logAuditEvent(log: AuditLogEntry): Promise<void> {
     ]);
 
     if (error) {
-      console.error('Audit logging failed:', error);
+      logger.error('Audit logging failed:', error);
     }
   } catch (error) {
-    if (process.env.NODE_ENV === 'development') console.error('Error writing audit log:', error);
+    if (process.env.NODE_ENV === 'development') logger.error('Error writing audit log:', error);
   }
 }
 

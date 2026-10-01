@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -68,7 +69,7 @@ const SalesReturnForm = () => {
       const ids = (data || []).map(r => r.id);
       setReturnIds(ids);
     } catch (err) {
-      console.error('Error fetching return IDs for navigation:', err);
+      logger.error('Error fetching return IDs for navigation:', err);
     }
   };
 
@@ -149,7 +150,7 @@ const SalesReturnForm = () => {
       if (idx !== -1) setCurrentIndex(idx);
 
     } catch (err) {
-      console.error('Error loading return:', err);
+      logger.error('Error loading return:', err);
       showToast('فشل تحميل بيانات المرتجع: ' + err.message, 'error');
     } finally {
       setLoadingReturn(false);
@@ -252,7 +253,7 @@ const SalesReturnForm = () => {
         showToast('لم يتم العثور على الفاتورة', 'error');
       }
     } catch (err) {
-      console.error('Error loading invoice:', err);
+      logger.error('Error loading invoice:', err);
       showToast(err?.message || 'فشل تحميل الفاتورة', 'error');
     } finally {
       setIsSearching(false);
@@ -467,7 +468,7 @@ const SalesReturnForm = () => {
       }
 
     } catch (error) {
-      console.error('Error saving return:', error);
+      logger.error('Error saving return:', error);
       showToast(error?.message || 'فشل حفظ المرتجع', 'error');
     } finally {
       setSaving(false);
@@ -527,7 +528,7 @@ const SalesReturnForm = () => {
       }
 
     } catch (err) {
-      console.error('Error deleting return:', err);
+      logger.error('Error deleting return:', err);
       showToast('فشل حذف المرتجع: ' + err.message, 'error');
     } finally {
       setDeleting(false);

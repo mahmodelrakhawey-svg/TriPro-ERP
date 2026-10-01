@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -115,7 +116,7 @@ export default function LeaveManager() {
         .order('start_date', { ascending: false });
 
       if (reqErr) {
-        console.warn('hr_leave_requests table notice:', reqErr.message);
+        logger.warn('hr_leave_requests table notice:', reqErr.message);
         setRequests([]);
       } else {
         setRequests((reqData || []).map((r: any) => ({
@@ -131,7 +132,7 @@ export default function LeaveManager() {
         .eq('organization_id', orgId);
 
       if (balErr) {
-        console.warn('hr_leave_balances table notice:', balErr.message);
+        logger.warn('hr_leave_balances table notice:', balErr.message);
         setBalances([]);
       } else {
         setBalances((balData || []).map((b: any) => ({
@@ -140,7 +141,7 @@ export default function LeaveManager() {
         })));
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       setRequests([]);
       setBalances([]);
     } finally {

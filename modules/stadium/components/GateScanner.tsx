@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
@@ -178,7 +179,7 @@ export const GateScanner: React.FC = () => {
         .limit(20);
       setActiveMembersList(data || []);
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
   };
 
@@ -203,7 +204,7 @@ export const GateScanner: React.FC = () => {
         setTodayLogs(data);
       }
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     } finally {
       setLogsLoading(false);
     }
@@ -325,7 +326,7 @@ export const GateScanner: React.FC = () => {
         }
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       toast.error('حدث خطأ أثناء فحص البيانات');
     } finally {
       setChecking(false);
@@ -361,7 +362,7 @@ export const GateScanner: React.FC = () => {
         scanned_by: (currentUser as any)?.full_name || 'بوابة الدخول الذكية (Hardware Turnstile)',
       }]);
     } catch (e) {
-      console.error('Error logging gate access:', e);
+      logger.error('Error logging gate access:', e);
     }
   };
 

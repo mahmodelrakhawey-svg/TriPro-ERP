@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -10,7 +11,7 @@ const supabase = createClient(
 
 export const runOrphanedFilesCleanup = async () => {
   try {
-    console.log('Starting automated orphaned files cleanup...');
+    logger.log('Starting automated orphaned files cleanup...');
 
     // 1. جلب كافة المسارات المسجلة في قاعدة البيانات
     const [jRes, rRes, pRes, cRes, orgRes] = await Promise.all([
@@ -36,7 +37,7 @@ export const runOrphanedFilesCleanup = async () => {
       .map(f => f.name) || [];
 
     if (orphanedDocs.length > 0) {
-      console.log(`Deleting ${orphanedDocs.length} orphaned files...`);
+      logger.log(`Deleting ${orphanedDocs.length} orphaned files...`);
       await supabase.storage.from('documents').remove(orphanedDocs);
     }
 
@@ -57,7 +58,7 @@ export const runOrphanedFilesCleanup = async () => {
     return { success: true, deleted: orphanedDocs.length };
 
   } catch (error) {
-    console.error('Cleanup Error:', error);
+    logger.error('Cleanup Error:', error);
     return { success: false, error: error.message };
   }
 };

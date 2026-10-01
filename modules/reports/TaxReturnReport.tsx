@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -71,7 +72,7 @@ const TaxReturnReport = () => {
                     inputVatAcc
                 });
             } catch (err) {
-                console.error(err);
+                logger.error(err);
                 showToast('خطأ في حساب المبالغ الضريبية', 'error');
             } finally {
                 setLoading(false);
@@ -209,7 +210,7 @@ const TaxReturnReport = () => {
                     showToast('لا توجد مبالغ لإنشاء قيد إغلاق.', 'warning');
                 }
             } catch (error) {
-                console.error(error);
+                logger.error(error);
                 showToast('حدث خطأ: ' + error.message, 'error');
             } finally {
                 setClosing(false);

@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useEffect, useState, useCallback } from 'react';
 import { Tabs, Timeline, List, Badge, Card, Statistic, Row, Col, Spin, Empty, Tag, Button, Popconfirm } from 'antd';
 import { HistoryOutlined, MedicineBoxOutlined, FileSearchOutlined, HeartOutlined, CalendarOutlined, UndoOutlined } from '@ant-design/icons';
@@ -35,7 +36,7 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
       import('antd').then(({ message }) => message.success('تم التراجع عن خروج المريض بنجاح وإعادة تنشيط الزيارة ✅'));
       fetchData();
     } catch (e) {
-      console.error('[PatientMedicalRecord] Error undoing discharge:', e);
+      logger.error('[PatientMedicalRecord] Error undoing discharge:', e);
       import('antd').then(({ message }) => message.error('فشل التراجع عن الخروج: ' + e.message));
     } finally {
       setLoading(false);
@@ -140,7 +141,7 @@ export const PatientMedicalRecord: React.FC<{ patientId: string }> = ({ patientI
       setRadiologyReports(radsRes.data || []);
       setSurgeries(surgsRes.data || []);
     } catch (error) {
-      console.error('[PatientMedicalRecord] Error fetching data:', error);
+      logger.error('[PatientMedicalRecord] Error fetching data:', error);
       // إظهار رسالة للمستخدم بدلاً من ابتلاعها بصمت
       import('antd').then(({ message }) => message.error('فشل تحميل الملف الطبي: ' + (error?.message || 'خطأ غير متوقع')));
     } finally {

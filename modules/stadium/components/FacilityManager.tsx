@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
@@ -89,7 +90,7 @@ export default function FacilityManager() {
       setTotalPages(Math.ceil((count || 0) / ITEMS_PER_PAGE));
     } catch (error) {
       toast.error('حدث خطأ أثناء جلب المرافق');
-      console.error(error);
+      logger.error(error);
     } finally {
       setLoading(false);
     }
@@ -136,7 +137,7 @@ export default function FacilityManager() {
       fetchFacilities();
     } catch (error) {
       toast.error('حدث خطأ أثناء الحذف');
-      console.error(error);
+      logger.error(error);
     }
   };
 
@@ -189,7 +190,7 @@ export default function FacilityManager() {
       fetchFacilities();
     } catch (error) {
       toast.error('حدث خطأ أثناء الحفظ');
-      console.error(error);
+      logger.error(error);
     } finally {
       setIsSubmitting(false);
     }

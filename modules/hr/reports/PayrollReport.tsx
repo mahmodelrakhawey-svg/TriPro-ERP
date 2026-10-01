@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
@@ -89,7 +90,7 @@ const PayrollReport = () => {
         setPayrollData([]);
       }
     } catch (error) {
-      console.error('Error fetching payroll report:', error);
+      logger.error('Error fetching payroll report:', error);
       showToast('حدث خطأ أثناء جلب التقرير: ' + error.message, 'error');
     } finally {
       setLoading(false);

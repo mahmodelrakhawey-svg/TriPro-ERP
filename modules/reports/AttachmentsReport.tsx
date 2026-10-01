@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
@@ -52,7 +53,7 @@ const AttachmentsReport = () => {
           .select('*, purchase_invoices(invoice_number, invoice_date)');
         purchaseAtts = data;
       } catch (pErr) {
-        console.warn('Purchase attachments query:', pErr);
+        logger.warn('Purchase attachments query:', pErr);
       }
 
       const normalized: Attachment[] = [];
@@ -130,7 +131,7 @@ const AttachmentsReport = () => {
 
       setAttachments(normalized);
     } catch (error) {
-      console.error('Error fetching attachments:', error);
+      logger.error('Error fetching attachments:', error);
     } finally {
       setLoading(false);
     }
@@ -150,7 +151,7 @@ const AttachmentsReport = () => {
       a.click();
       URL.revokeObjectURL(url);
     } catch (err) {
-      console.error('Error downloading:', err);
+      logger.error('Error downloading:', err);
       showToast('فشل تحميل الملف', 'error');
     }
   };
@@ -167,7 +168,7 @@ const AttachmentsReport = () => {
         window.open(data.publicUrl, '_blank');
       }
     } catch (err) {
-      console.error('Error previewing attachment:', err);
+      logger.error('Error previewing attachment:', err);
     }
   };
 

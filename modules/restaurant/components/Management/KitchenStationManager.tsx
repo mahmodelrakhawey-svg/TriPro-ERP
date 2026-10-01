@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
@@ -271,7 +272,7 @@ export const KitchenStationManager: React.FC = () => {
           (prod as any).station_id = prevStation;
         }
 
-        console.error('Failed to assign station to product:', error);
+        logger.error('Failed to assign station to product:', error);
 
         // Check if error is due to UUID column mismatch or missing column
         if (

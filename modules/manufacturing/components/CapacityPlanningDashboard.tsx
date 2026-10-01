@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -87,7 +88,7 @@ export default function CapacityPlanningDashboard() {
 
       setCapacities(capData || []);
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       setCapacities([]);
     } finally {
       setIsLoading(false);

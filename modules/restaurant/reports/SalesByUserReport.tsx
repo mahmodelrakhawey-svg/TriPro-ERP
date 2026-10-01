@@ -1,4 +1,5 @@
 
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -53,7 +54,7 @@ return;
       if (!error && data) {
         setReportData(data || []);
       } else {
-        console.warn('RPC get_sales_by_user_report error, switching to direct client-side fallback...', error);
+        logger.warn('RPC get_sales_by_user_report error, switching to direct client-side fallback...', error);
         
         // 2. بديل فوري وآمن (Direct Client Query Fallback)
         const [profilesRes, ordersRes, invoicesRes] = await Promise.all([
@@ -111,7 +112,7 @@ return;
         setReportData(fallbackList);
       }
     } catch (error) {
-      console.error('Error fetching report:', error);
+      logger.error('Error fetching report:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + (error?.message || 'تعذر الاتصال'), 'error');
     } finally {
       setLoading(false);

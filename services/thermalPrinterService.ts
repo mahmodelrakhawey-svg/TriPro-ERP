@@ -5,6 +5,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { secureStorage } from '../utils/securityMiddleware';
 
 export type PrinterStation = 'ALL' | 'CASHIER' | 'KITCHEN' | 'GRILL' | 'BAR' | 'FRYER';
@@ -264,7 +265,7 @@ class ThermalPrinterService {
       await writer.write(new Uint8Array(bytes));
       writer.releaseLock();
     } catch (e) {
-      console.warn('Pole display send error:', e);
+      logger.warn('Pole display send error:', e);
     }
   }
 

@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -146,7 +147,7 @@ const TopSellingReport = () => {
       setReportData(sortedData);
 
     } catch (error) {
-      console.error('Error fetching top selling products:', error);
+      logger.error('Error fetching top selling products:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);

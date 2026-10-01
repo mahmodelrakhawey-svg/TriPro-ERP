@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useEffect, useState, useCallback } from 'react';
 import { Table, Tag, Button, Card, Typography, Space, message, Badge, Tooltip, Row, Col } from 'antd';
 import { ExperimentOutlined, ScanOutlined, CheckCircleOutlined, SyncOutlined, ClockCircleOutlined } from '@ant-design/icons';
@@ -95,7 +96,7 @@ export const LabSpecimenTracking: React.FC = () => {
         setSpecimens(offlineSpecimens);
       }
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     } finally {
       setLoading(false);
     }

@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -52,7 +53,7 @@ export const AssetTransferManager: React.FC = () => {
       setTransfers(trfList);
       if (astList.length > 0) setSelectedAssetId(astList[0].id);
     } catch (e) {
-      console.warn('Load transfers error:', e);
+      logger.warn('Load transfers error:', e);
     } finally {
       setLoading(false);
     }

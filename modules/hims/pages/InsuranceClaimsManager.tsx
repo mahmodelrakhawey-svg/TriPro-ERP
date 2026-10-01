@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Table, Button, Tag, Space, message, Statistic, Divider, Modal, Select, Empty, Tabs } from 'antd';
@@ -223,7 +224,7 @@ export const InsuranceClaimsManager: React.FC = () => {
 
       message.success({ content: 'تم تصدير ملف XML بنجاح ✅', key: 'xml_export' });
     } catch (e) {
-      console.error('[InsuranceClaims] XML export error:', e);
+      logger.error('[InsuranceClaims] XML export error:', e);
       message.error({ content: `فشل تصدير XML: ${e.message}`, key: 'xml_export' });
     } finally {
       setLoading(false);

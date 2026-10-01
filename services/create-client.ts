@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import { createClient } from '@supabase/supabase-js'
 import { VercelRequest, VercelResponse } from '@vercel/node'
 
@@ -85,7 +86,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
 
     if (coaError) {
-      console.error("COA initialization failed:", coaError);
+      logger.error("COA initialization failed:", coaError);
     }
 
     // 4. تحديث إعدادات الشركة الافتراضية مع الحفاظ على ربط الحسابات

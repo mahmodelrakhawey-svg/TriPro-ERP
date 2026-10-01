@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useRef } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -54,7 +55,7 @@ export const AssetFieldScanner: React.FC = () => {
       const data = await assetEnterpriseService.getAssets(orgId);
       setAssets(data);
     } catch (e) {
-      console.warn('Load assets error:', e);
+      logger.warn('Load assets error:', e);
     } finally {
       setLoading(false);
     }

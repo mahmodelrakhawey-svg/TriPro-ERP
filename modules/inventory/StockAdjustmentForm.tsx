@@ -1,4 +1,5 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import { logger } from '../../utils/logger';
+import React, { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -137,7 +138,7 @@ const StockAdjustmentForm = () => {
             setItems(prev => [...prev, ...newItems]);
             showToast(`تم إضافة ${foundCount} صنف للقائمة.`, 'success');
         } catch (error) {
-            console.error(error);
+            logger.error(error);
             showToast('حدث خطأ في قراءة الملف', 'error');
         } finally {
             setIsImporting(false);
@@ -323,7 +324,7 @@ const StockAdjustmentForm = () => {
         setReason('');
         // Optional: Reset warehouse or keep it
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
         setLoading(false);

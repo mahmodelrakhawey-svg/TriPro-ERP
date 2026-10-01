@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -46,7 +47,7 @@ export const ShiftManager: React.FC = () => {
       const data = await hrEnterpriseService.getShifts(orgId);
       setShifts(data);
     } catch (e) {
-      console.warn('Load shifts error:', e);
+      logger.warn('Load shifts error:', e);
     } finally {
       setLoading(false);
     }

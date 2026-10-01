@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Tabs, Select, Button, Table, Tag, message, Typography, InputNumber, Input, DatePicker } from 'antd';
@@ -54,7 +55,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
           secureStorage.setItem(`hims_lab_tests_${orgId}`, labRes.data || []);
           secureStorage.setItem(`hims_radiology_types_${orgId}`, radRes.data || []);
         } catch (err) {
-          console.error("Failed online fetchMasters:", err);
+          logger.error("Failed online fetchMasters:", err);
         }
       } else {
         const cachedLab = secureStorage.getItem(`hims_lab_tests_${orgId}`);
@@ -97,7 +98,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
           const { data: visitData } = await supabase.from('hims_visits').select('organization_id').eq('id', visitId).single();
           orgId = visitData?.organization_id;
         } catch (e) {
-          console.error('[OrderManagement] Failed to get org from visit:', e?.message);
+          logger.error('[OrderManagement] Failed to get org from visit:', e?.message);
         }
       }
 
@@ -185,7 +186,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
       if (error) throw error;
       message.success('تم إرسال طلب الدم لبنك الدم المركزي 🩸');
     } catch (err) {
-      console.error('[OrderManagement] Blood request error:', err);
+      logger.error('[OrderManagement] Blood request error:', err);
       message.error('خطأ في طلب الدم: ' + (err?.message || ''));
     } finally {
       setLoading(false);
@@ -214,7 +215,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
       message.success('تمت جدولة العملية الجراحية وإخطار غرفة العمليات 🏥');
       setSurgeryRequest({ name: '', date: null });
     } catch (err) {
-      console.error('[OrderManagement] Surgery request error:', err);
+      logger.error('[OrderManagement] Surgery request error:', err);
       message.error('خطأ في جدولة العملية: ' + (err?.message || ''));
     } finally {
       setLoading(false);

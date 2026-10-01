@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../../../supabaseClient';
 import { JournalEntry } from '../../../../types';
@@ -224,7 +225,7 @@ export const exportJournalToExcel = async ({
     XLSX.writeFile(wb, `General_Journal_${fileDate}.xlsx`);
     toast.success(`تم تصدير ${entries.length} قيد محاسبي إلى ملف Excel بنجاح ✅`);
   } catch (err) {
-    console.error('Error exporting journal entries:', err);
+    logger.error('Error exporting journal entries:', err);
     toast.error('حدث خطأ أثناء تصدير البيانات: ' + err.message);
   } finally {
     setIsExporting(false);

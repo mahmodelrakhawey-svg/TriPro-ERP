@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -123,7 +124,7 @@ const CustomerManager = () => {
           return;
         }
       } catch (rpcErr) {
-        console.warn('get_all_customer_balances_fast fallback:', rpcErr);
+        logger.warn('get_all_customer_balances_fast fallback:', rpcErr);
       }
 
       // مسار بديل بالترقيم الصفحي المقيد
@@ -264,7 +265,7 @@ const CustomerManager = () => {
         setIsModalOpen(false);
         showToast('تم حفظ بيانات العميل بنجاح ✅', 'success');
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('حدث خطأ: ' + error.message, 'error');
     }
   };
@@ -289,7 +290,7 @@ const CustomerManager = () => {
           queryClient.invalidateQueries({ queryKey: ['customers'] });
           showToast('تم إيقاف التعامل مع العميل بنجاح', 'success');
         } catch (error) {
-          console.error(error);
+          logger.error(error);
           showToast('تعذر إيقاف العميل: ' + error.message, 'error');
         }
       }
@@ -451,7 +452,7 @@ const CustomerManager = () => {
         let toastMessage = `تم استيراد ${successRecords.length} عميل بنجاح.`;
         if (failedRecords.length > 0) {
             toastMessage += `\nفشل استيراد ${failedRecords.length} سجل. راجع الـ console لمزيد من التفاصيل.`;
-            console.error("فشل استيراد السجلات التالية:", failedRecords);
+            logger.error("فشل استيراد السجلات التالية:", failedRecords);
             showToast(toastMessage, 'warning');
         } else {
             showToast(toastMessage, 'success');

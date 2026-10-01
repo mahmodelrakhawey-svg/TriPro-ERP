@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -45,7 +46,7 @@ const ProductionCostAnalysis = () => {
       });
 
       if (error) {
-          console.error("Error in manufacturing analysis RPC:", error);
+          logger.error("Error in manufacturing analysis RPC:", error);
           throw error;
       }
 
@@ -68,7 +69,7 @@ const ProductionCostAnalysis = () => {
       setReportData(analysisData);
 
     } catch (error) {
-      console.error('Error fetching production analysis:', error);
+      logger.error('Error fetching production analysis:', error);
       showToast('حدث خطأ أثناء جلب البيانات', 'error');
     } finally {
       setLoading(false);

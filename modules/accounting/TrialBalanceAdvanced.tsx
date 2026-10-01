@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -128,7 +129,7 @@ const TrialBalanceAdvanced = () => {
           setLedgerLines([]);
         }
       } catch (rpcEx) {
-        console.warn('[TrialBalance] Server RPC unavailable, falling back to chunked query:', rpcEx);
+        logger.warn('[TrialBalance] Server RPC unavailable, falling back to chunked query:', rpcEx);
       }
 
       // 🛡️ الخطوة 2 (Graceful Degradation Fallback): جلب السطور مقسمة إذا لم تتوفر دالة الخادم
@@ -158,7 +159,7 @@ const TrialBalanceAdvanced = () => {
         setLedgerLines(allLines);
       }
     } catch (err) {
-      console.error('Error fetching ledger:', err);
+      logger.error('Error fetching ledger:', err);
       // تمييز أخطاء الشبكة عن أخطاء البيانات
       if (
         err?.message?.includes('Failed to fetch') ||

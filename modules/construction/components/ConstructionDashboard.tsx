@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { 
@@ -84,21 +85,21 @@ const ConstructionDashboard = () => {
       const projectsWithForecasts = await Promise.all((data || []).map(async (p: any) => {
         // 🛡️ صمام أمان: التأكد من أن project_id صالح قبل استدعاء RPC
         if (!p.project_id || typeof p.project_id !== 'string' || p.project_id.length !== 36) {
-          console.warn(`Skipping RPC calls for invalid project_id: ${p.project_id} for project ${p.project_name}`);
+          logger.warn(`Skipping RPC calls for invalid project_id: ${p.project_id} for project ${p.project_name}`);
           return { ...p, forecast: null, health: 0, sCurve: [], cashFlow: null } as ProjectPerformance;
         }
 
         const { data: forecast, error: forecastError } = await supabase.rpc('mfg_predict_project_completion_cost', { p_project_id: p.project_id });
-        if (forecastError) console.error(`Error fetching forecast for ${p.project_name}:`, forecastError);
+        if (forecastError) logger.error(`Error fetching forecast for ${p.project_name}:`, forecastError);
 
         const { data: health, error: healthError } = await supabase.rpc('get_project_health_score', { p_project_id: p.project_id });
-        if (healthError) console.error(`Error fetching health for ${p.project_name}:`, healthError);
+        if (healthError) logger.error(`Error fetching health for ${p.project_name}:`, healthError);
 
         const { data: sCurve, error: sCurveError } = await supabase.rpc('get_project_s_curve_data', { p_project_id: p.project_id });
-        if (sCurveError) console.error(`Error fetching S-Curve for ${p.project_name}:`, sCurveError);
+        if (sCurveError) logger.error(`Error fetching S-Curve for ${p.project_name}:`, sCurveError);
 
         const { data: cashFlow, error: cashFlowError } = await supabase.rpc('get_project_cash_flow_projection', { p_project_id: p.project_id });
-        if (cashFlowError) console.error(`Error fetching cash flow for ${p.project_name}:`, cashFlowError);
+        if (cashFlowError) logger.error(`Error fetching cash flow for ${p.project_name}:`, cashFlowError);
 
         return {
           ...p,
@@ -183,7 +184,7 @@ const ConstructionDashboard = () => {
       pdf.save(`Executive_Report_${safeProjectName}_${new Date().toISOString().split('T')[0]}.pdf`);
       showToast('تم توليد التقرير التنفيذي بنجاح ✅', 'success');
     } catch (err) {
-      console.error('PDF generation error:', err);
+      logger.error('PDF generation error:', err);
       showToast('خطأ في تصدير PDF: ' + err.message, 'error');
     } finally {
       setIsExporting(false);

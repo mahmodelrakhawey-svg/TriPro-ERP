@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { Card, Form, Input, Button, message, Spin } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
@@ -52,7 +53,7 @@ export const ClinicalNotesForm: React.FC<{ visitId: string }> = ({ visitId }) =>
         setNoteId(null);
       }
     } catch (e) {
-      console.error("Error fetching clinical note:", e.message);
+      logger.error("Error fetching clinical note:", e.message);
     } finally {
       setLoading(false);
     }

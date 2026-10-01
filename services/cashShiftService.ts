@@ -5,6 +5,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { AccountingEngine } from './accountingEngine';
 import { secureStorage } from '../utils/securityMiddleware';
@@ -130,11 +131,11 @@ class CashShiftService {
       .then(
         ({ error }) => {
           if (error) {
-            console.warn('cashier_shifts sync notice:', error.message);
+            logger.warn('cashier_shifts sync notice:', error.message);
           }
         },
         err => {
-          console.warn('cashier_shifts sync network notice:', err);
+          logger.warn('cashier_shifts sync network notice:', err);
         }
       );
 
@@ -213,7 +214,7 @@ class CashShiftService {
           journalEntryId = jRes.journalEntryId || null;
         }
       } catch (err) {
-        console.warn('Journal entry for petty cash notice:', err);
+        logger.warn('Journal entry for petty cash notice:', err);
       }
     }
 
@@ -328,7 +329,7 @@ class CashShiftService {
           adjustmentJeId = jRes.journalEntryId || null;
         }
       } catch (e) {
-        console.warn('Shift adjustment JE notice:', e);
+        logger.warn('Shift adjustment JE notice:', e);
       }
     }
 

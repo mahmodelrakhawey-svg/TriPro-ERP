@@ -5,6 +5,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { secureStorage } from '../utils/securityMiddleware';
 
@@ -223,7 +224,7 @@ class AssetEnterpriseService {
         });
       }
     } catch (e) {
-      console.warn('DB audit submit notice:', e);
+      logger.warn('DB audit submit notice:', e);
     }
 
     // 2. تحديث التخزين المحلي
@@ -319,7 +320,7 @@ class AssetEnterpriseService {
           .eq('id', transfer.asset_id);
       }
     } catch (e) {
-      console.warn('DB transfer insert notice:', e);
+      logger.warn('DB transfer insert notice:', e);
     }
 
     const record: AssetTransferRecord = {

@@ -5,6 +5,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { AccountingEngine } from './accountingEngine';
 import { secureStorage } from '../utils/securityMiddleware';
@@ -203,7 +204,7 @@ class DeliveryAggregatorService {
         }
       }
     } catch (dbErr) {
-      console.warn('DB aggregator order routing notice:', dbErr);
+      logger.warn('DB aggregator order routing notice:', dbErr);
     }
 
     // 2. إنشاء القيد المحاسبي لعمولة المنصة والمبيعات
@@ -241,7 +242,7 @@ class DeliveryAggregatorService {
           journalEntryId = jResult.journalEntryId;
         }
       } catch (jErr) {
-        console.warn('Journal entry notice for aggregator order:', jErr);
+        logger.warn('Journal entry notice for aggregator order:', jErr);
       }
     }
 

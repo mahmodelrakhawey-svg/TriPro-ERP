@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RotateCcw, Home, ChevronDown, ChevronUp, Copy, Check } from 'lucide-react';
 
@@ -30,7 +31,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('🛡️ [ErrorBoundary Caught Error]:', error, errorInfo);
+    logger.error('🛡️ [ErrorBoundary Caught Error]:', error, errorInfo);
     this.setState({ errorInfo });
   }
 

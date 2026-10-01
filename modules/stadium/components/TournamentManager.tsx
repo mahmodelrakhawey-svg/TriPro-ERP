@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
@@ -75,7 +76,7 @@ export const TournamentManager: React.FC = () => {
         setTournaments(data);
       }
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     } finally {
       setLoading(false);
     }
@@ -90,7 +91,7 @@ export const TournamentManager: React.FC = () => {
         .eq('organization_id', orgId);
       setFacilities(data || []);
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
   };
 
@@ -107,7 +108,7 @@ export const TournamentManager: React.FC = () => {
         setTeams(data);
       }
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     } finally {
       setTeamsLoading(false);
     }

@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
@@ -259,7 +260,7 @@ const EmployeeManager = () => {
       }
       setDepartmentFilter('المصنع');
     } catch (error) {
-      console.error('Failed to import factory employees:', error);
+      logger.error('Failed to import factory employees:', error);
       showToast(`فشل استيراد طاقم المصنع: ${error.message || 'يرجى التحقق من الاتصال'}`, 'error');
     } finally {
       setImportingFactory(false);

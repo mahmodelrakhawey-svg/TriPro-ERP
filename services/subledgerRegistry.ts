@@ -9,6 +9,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 
 export interface SubledgerCustomerDoc {
@@ -85,7 +86,7 @@ class SubledgerRegistryService {
         try {
           return await p.getCustomerDocs(orgId);
         } catch (err) {
-          console.warn(`[SubledgerRegistry] Error in ${p.moduleKey}.getCustomerDocs:`, err);
+          logger.warn(`[SubledgerRegistry] Error in ${p.moduleKey}.getCustomerDocs:`, err);
           return [];
         }
       })
@@ -105,7 +106,7 @@ class SubledgerRegistryService {
         try {
           return await p.getSupplierDocs(orgId);
         } catch (err) {
-          console.warn(`[SubledgerRegistry] Error in ${p.moduleKey}.getSupplierDocs:`, err);
+          logger.warn(`[SubledgerRegistry] Error in ${p.moduleKey}.getSupplierDocs:`, err);
           return [];
         }
       })
@@ -131,7 +132,7 @@ class SubledgerRegistryService {
         try {
           return await p.getStatementCustomerEntryIds(orgId, customerId, customerName);
         } catch (err) {
-          console.warn(`[SubledgerRegistry] Error in ${p.moduleKey}.getStatementCustomerEntryIds:`, err);
+          logger.warn(`[SubledgerRegistry] Error in ${p.moduleKey}.getStatementCustomerEntryIds:`, err);
           return [];
         }
       })
@@ -179,7 +180,7 @@ SubledgerRegistry.register({
         };
       });
     } catch (err) {
-      console.warn('[SubledgerRegistry] Error in construction.getCustomerDocs:', err);
+      logger.warn('[SubledgerRegistry] Error in construction.getCustomerDocs:', err);
       return [];
     }
   },
@@ -219,7 +220,7 @@ SubledgerRegistry.register({
         };
       });
     } catch (err) {
-      console.warn('[SubledgerRegistry] Error in construction.getSupplierDocs:', err);
+      logger.warn('[SubledgerRegistry] Error in construction.getSupplierDocs:', err);
       return [];
     }
   },

@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -81,7 +82,7 @@ const CashClosingForm = () => {
       if (actualBalance === '') setActualBalance(balance);
 
     } catch (error) {
-      console.error('Error fetching balance:', error);
+      logger.error('Error fetching balance:', error);
     } finally {
       setLoading(false);
     }
@@ -135,7 +136,7 @@ const CashClosingForm = () => {
                 max_allowed_deficit: MAX_ALLOWED_DEFICIT
             });
         } catch (logError) {
-            console.error("Failed to log rejected cash closing:", logError);
+            logger.error("Failed to log rejected cash closing:", logError);
         }
 
         showToast(

@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useRef } from 'react';
 import { QrCode, Search, CheckCircle, AlertTriangle, ArrowLeft, RefreshCw, Volume2, MapPin, PackageCheck, Send, Check } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
@@ -180,7 +181,7 @@ export default function MobilePdaStocktaking() {
         .single();
 
       if (headErr) {
-        console.warn('Fallback inventory count save notice:', headErr);
+        logger.warn('Fallback inventory count save notice:', headErr);
       }
 
       // 2. إذا كان خيار تسوية الفوارق مفعلاً، قم بإنشاء التسوية المخزنية وتعديل الرصيد والقيد

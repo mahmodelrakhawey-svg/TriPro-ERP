@@ -8,6 +8,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { SupabaseClient } from '@supabase/supabase-js';
 
 export interface DeleteOrganizationOptions {
@@ -75,7 +76,7 @@ export async function deleteOrganizationSafe({
 
     // 2. إذا حدث خطأ قيود مرجعية نقوم بتفكيك القيود برمجياً وإعادة المحاولة
     if (deleteResult.error) {
-      console.warn('RPC delete failed, initiating programmatic cascade cleanup...', deleteResult.error);
+      logger.warn('RPC delete failed, initiating programmatic cascade cleanup...', deleteResult.error);
       try {
         await supabase.from('profiles').update({ organization_id: null }).eq('organization_id', orgId);
         await supabase.from('role_permissions').delete().eq('organization_id', orgId);

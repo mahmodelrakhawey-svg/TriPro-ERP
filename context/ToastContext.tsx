@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
 
@@ -45,7 +46,7 @@ export const toastNotify = {
       pendingToasts.push({ message, type });
       if (pendingToasts.length > 20) pendingToasts.shift();
       if (typeof window !== 'undefined' && process.env.NODE_ENV !== 'production') {
-        console.warn(`[Toast early queue]: [${type}] ${message}`);
+        logger.warn(`[Toast early queue]: [${type}] ${message}`);
       }
     }
   },

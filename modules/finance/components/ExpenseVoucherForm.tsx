@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -41,7 +42,7 @@ const ExpenseVoucherForm = () => {
   useEffect(() => {
     supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
       if (error) {
-        console.error("فشل جلب إعدادات الشركة عبر RPC:", error);
+        logger.error("فشل جلب إعدادات الشركة عبر RPC:", error);
       } else {
         setCompanySettings(data);
       }
@@ -137,7 +138,7 @@ const ExpenseVoucherForm = () => {
         }
         setExpenseSearchTerm('');
     } catch (error) {
-        console.error("Error loading voucher:", error);
+        logger.error("Error loading voucher:", error);
     } finally {
         setLoading(false);
     }

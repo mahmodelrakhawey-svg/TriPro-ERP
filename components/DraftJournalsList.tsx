@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabaseClient';
@@ -43,7 +44,7 @@ const DraftJournalsList = () => {
         setDrafts(formattedDrafts);
       }
     } catch (error) {
-      if (process.env.NODE_ENV === 'development') console.error('Error fetching drafts:', error);
+      if (process.env.NODE_ENV === 'development') logger.error('Error fetching drafts:', error);
     } finally {
       setLoading(false);
     }
@@ -68,7 +69,7 @@ const DraftJournalsList = () => {
       await refreshData();
       fetchDrafts(); // تحديث القائمة
     } catch (error) {
-      if (process.env.NODE_ENV === 'development') console.error('Error posting entry:', error);
+      if (process.env.NODE_ENV === 'development') logger.error('Error posting entry:', error);
       showToast('حدث خطأ أثناء الترحيل', 'error');
     }
   };

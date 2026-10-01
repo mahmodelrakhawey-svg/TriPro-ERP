@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -81,7 +82,7 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
       const ids = (data || []).map(q => q.id);
       setQuoteIds(ids);
     } catch (err) {
-      console.error('Error fetching quotation IDs:', err);
+      logger.error('Error fetching quotation IDs:', err);
     }
   };
 
@@ -142,7 +143,7 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
       if (idx !== -1) setCurrentIndex(idx);
 
     } catch (err) {
-      console.error('Error loading quotation:', err);
+      logger.error('Error loading quotation:', err);
       showToast('فشل تحميل عرض السعر: ' + err.message, 'error');
     } finally {
       setLoadingQuote(false);
@@ -403,7 +404,7 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
         }
 
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('خطأ في حفظ العرض: ' + error.message, 'error');
     } finally {
         setSaving(false);
@@ -436,7 +437,7 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
       }
 
     } catch (err) {
-      console.error('Error deleting quote:', err);
+      logger.error('Error deleting quote:', err);
       showToast('فشل حذف عرض السعر: ' + err.message, 'error');
     } finally {
       setDeleting(false);
@@ -476,7 +477,7 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
       await supabase.from('quotations').update({ status: 'converted' }).eq('id', editingId);
       setFormData(prev => ({ ...prev, status: 'converted' }));
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
 
     // توجيه المستخدم لشاشة فاتورة المبيعات مع تمرير البيانات

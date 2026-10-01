@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useEffect, useState, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { supabase } from '../../../supabaseClient';
@@ -180,7 +181,7 @@ export function getRawMaterialRecipeUnits(rawProd: any, systemUoms: any[] = []):
       });
     }
   } catch (e) {
-    console.error('Error reading packaging for recipe:', e);
+    logger.error('Error reading packaging for recipe:', e);
   }
 
   // 6. مطابقة وحدات النظام العامة (UoMs)
@@ -327,7 +328,7 @@ const RoutingBOMManager = () => {
         const { data } = await q;
         if (data) setSystemUoms(data);
       } catch (e) {
-        console.error('Error fetching system uoms:', e);
+        logger.error('Error fetching system uoms:', e);
       }
     };
     fetchSystemUoms();
@@ -415,7 +416,7 @@ const RoutingBOMManager = () => {
         setRecipeCalcBaseQtyPerSmall(1);
       }
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
 
     setIsRecipeCalcModalOpen(true);
@@ -444,7 +445,7 @@ const RoutingBOMManager = () => {
     try {
       secureStorage.setItem(`tripro_pkg_hierarchy_${selectedRawProduct.id}`, hierarchyData);
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
 
     let appliedUnit = cleanSmall;
@@ -842,7 +843,7 @@ const RoutingBOMManager = () => {
         .eq('id', productId);
 
     } catch (syncErr) {
-      console.warn('تنبيه: تعذر المزامنة مع جدول bill_of_materials:', syncErr);
+      logger.warn('تنبيه: تعذر المزامنة مع جدول bill_of_materials:', syncErr);
     }
   };
 
@@ -1061,7 +1062,7 @@ const RoutingBOMManager = () => {
 
       showToast('تم تصدير شيت مراجعة مقادير الصنف إلى Excel بنجاح ✅', 'success');
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل تصدير مقادير الصنف: ' + err.message, 'error');
     } finally {
       setExportingSingle(false);
@@ -1116,7 +1117,7 @@ const RoutingBOMManager = () => {
 
       showToast('تم تصدير الشيت الشامل لكافة الوصفات والمقادير إلى Excel بنجاح ✅', 'success');
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('فشل تصدير الشيت الشامل: ' + err.message, 'error');
     } finally {
       setExportingMaster(false);

@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { AlertTriangle, TrendingUp, Package, RefreshCw, BarChart3, Printer, Search, Calendar } from 'lucide-react';
@@ -133,7 +134,7 @@ const WastageReport = () => {
 
             setReportData(calculatedList);
         } catch (error) {
-            console.error('Failed to calculate wastage analysis:', error);
+            logger.error('Failed to calculate wastage analysis:', error);
             showToast('تعذر جلب تقرير انحراف التكلفة', 'error');
         } finally {
             setLoading(false);

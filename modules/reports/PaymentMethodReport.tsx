@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
@@ -95,7 +96,7 @@ const PaymentMethodReport = () => {
       setReportData(finalData);
 
     } catch (error) {
-      console.error('Error fetching report:', error);
+      logger.error('Error fetching report:', error);
       showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);

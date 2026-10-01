@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -645,7 +646,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       setDiscrepancyEntries(discrepancies);
 
     } catch (error) {
-      console.error('Error fetching supplier reconciliation:', error);
+      logger.error('Error fetching supplier reconciliation:', error);
       showToast('خطأ في جلب بيانات المطابقة: ' + (error.message || ''), 'error');
     } finally {
       setLoading(false);

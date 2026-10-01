@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import { useState, useEffect, useMemo } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
@@ -338,7 +339,7 @@ const SupplierStatement = () => {
         setClosingBalance(runningBal);
 
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
         setLoading(false);

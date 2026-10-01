@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -98,7 +99,7 @@ export default function MachineryMaintenanceManager() {
         .order('created_at', { ascending: false });
 
       if (error) {
-        console.warn('mfg_maintenance_orders table notice:', error.message);
+        logger.warn('mfg_maintenance_orders table notice:', error.message);
         setOrders([]);
       } else {
         setOrders((data || []).map((d: any) => ({
@@ -107,7 +108,7 @@ export default function MachineryMaintenanceManager() {
         })));
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       setOrders([]);
     } finally {
       setIsLoading(false);

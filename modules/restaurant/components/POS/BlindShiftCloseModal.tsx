@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState } from 'react';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
@@ -59,7 +60,7 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
         const sum = await getCurrentShiftSummary();
         if (sum) setShiftSummary(sum);
       } catch (err) {
-        console.warn('Failed to load shift summary:', err);
+        logger.warn('Failed to load shift summary:', err);
       }
     };
     fetchSummary();
@@ -82,7 +83,7 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
           summary = await getCurrentShiftSummary();
           if (summary) setShiftSummary(summary);
         } catch (e) {
-          console.warn('Shift summary fetch notice:', e);
+          logger.warn('Shift summary fetch notice:', e);
         }
       }
 
@@ -121,7 +122,7 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
             // Note: Journal entries are generated officially and automatically by PostgreSQL close_shift
           });
         } catch (localErr) {
-          console.warn('Local shift sync notice:', localErr);
+          logger.warn('Local shift sync notice:', localErr);
         }
       }
 

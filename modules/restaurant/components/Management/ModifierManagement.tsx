@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { modifierService } from '../../services/modifierService';
 import { ModifierGroup, Modifier } from '../../../../types';
@@ -210,7 +211,7 @@ export const ModifierManagement: React.FC<ModifierManagementProps> = ({ productI
       await loadData();
       showToast('تم إضافة المجموعة بنجاح', 'success');
     } catch (error) {
-      console.error("Detailed Add Group Error:", error);
+      logger.error("Detailed Add Group Error:", error);
       showToast('فشل إضافة المجموعة. السبب: ' + (error.message || 'خطأ غير معروف. تأكد من تطبيق سياسات الأمان RLS.'), 'error');
     } finally {
       setIsAddingGroup(false);

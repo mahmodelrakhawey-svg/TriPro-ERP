@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
@@ -80,7 +81,7 @@ const LandingPage = () => {
         showToast('فشل الدخول للنسخة التجريبية', 'error');
       }
     } catch (error) {
-      if (process.env.NODE_ENV === 'development') console.error(error);
+      if (process.env.NODE_ENV === 'development') logger.error(error);
       showToast('فشل الدخول للنسخة التجريبية', 'error');
     } finally {
       setLoading(false);

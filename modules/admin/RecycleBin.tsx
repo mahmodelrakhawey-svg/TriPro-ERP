@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -55,7 +56,7 @@ const RecycleBin = () => {
       }
       setCounts(countsMap);
     } catch (err) {
-      console.warn('Error fetching recycle bin counts:', err);
+      logger.warn('Error fetching recycle bin counts:', err);
     }
   };
 
@@ -88,7 +89,7 @@ const RecycleBin = () => {
       if (error) throw error;
       setItems(data || []);
     } catch (error) {
-      console.error('Error fetching deleted items:', error);
+      logger.error('Error fetching deleted items:', error);
       showToast('خطأ في جلب عناصر سلة المحذوفات: ' + error.message, 'error');
     } finally {
       setLoading(false);

@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAccounting } from '../context/AccountingContext';
@@ -139,7 +140,7 @@ const UserManager = () => {
         setDynamicRoles(data);
       }
     } catch (err) {
-      console.warn('تعذّر جلب الأدوار من قاعدة البيانات، سيتم استخدام القائمة الافتراضية:', err.message);
+      logger.warn('تعذّر جلب الأدوار من قاعدة البيانات، سيتم استخدام القائمة الافتراضية:', err.message);
     }
   };
 
@@ -356,10 +357,10 @@ const UserManager = () => {
         .eq('id', authData.user.id)
         .maybeSingle();
 
-      if (fetchProfileError) console.error("Error checking for existing profile:", fetchProfileError);
+      if (fetchProfileError) logger.error("Error checking for existing profile:", fetchProfileError);
 
       if (!existingProfile) {
-        console.warn("Profile not found after user signup, attempting manual profile creation.");
+        logger.warn("Profile not found after user signup, attempting manual profile creation.");
         const { error: profileInsertError } = await supabase.from('profiles').insert({
           id: authData.user.id,
           full_name: newUserData.fullName.trim(),
@@ -395,7 +396,7 @@ const UserManager = () => {
       setNewUserData({ email: '', password: '', fullName: '', role: 'viewer', hr_scope: 'all', can_view_dashboard: true, can_access_mobile: false });
       fetchUsers(); // تحديث القائمة
     } catch (err) {
-      if (process.env.NODE_ENV === 'development') console.error('Error creating user:', err);
+      if (process.env.NODE_ENV === 'development') logger.error('Error creating user:', err);
       showToast('فشل إنشاء المستخدم: ' + err.message, 'error');
     } finally {
       setCreating(false);
@@ -423,7 +424,7 @@ const UserManager = () => {
         showToast('تم حذف المستخدم بنجاح.', 'success');
         fetchUsers();
       } catch (err) {
-        if (process.env.NODE_ENV === 'development') console.error('Error deleting user:', err);
+        if (process.env.NODE_ENV === 'development') logger.error('Error deleting user:', err);
         showToast('فشل حذف المستخدم: ' + (err.data?.message || err.message), 'error');
       }
     }

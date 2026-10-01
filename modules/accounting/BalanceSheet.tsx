@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -124,7 +125,7 @@ const BalanceSheet: React.FC = () => {
           setPriorLedgerLines([]);
         }
       } catch (rpcEx) {
-        console.warn('[BalanceSheet] Server-side RPC failed, falling back to chunked query:', rpcEx);
+        logger.warn('[BalanceSheet] Server-side RPC failed, falling back to chunked query:', rpcEx);
       }
 
       // 🛡️ الخطوة 2 (Graceful Degradation Fallback): استعلام أسطر اليومية المقسم
@@ -180,7 +181,7 @@ const BalanceSheet: React.FC = () => {
         }
       }
     } catch (err) {
-      console.error('Error fetching balance sheet data:', err);
+      logger.error('Error fetching balance sheet data:', err);
       toast.error('فشل جلب البيانات: ' + err.message);
     } finally {
       setLoading(false);

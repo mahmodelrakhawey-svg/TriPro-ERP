@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -105,7 +106,7 @@ export default function AttendanceManager() {
 
       const { data, error } = await query;
       if (error) {
-        console.warn('hr_attendance_logs table notice:', error.message);
+        logger.warn('hr_attendance_logs table notice:', error.message);
         setLogs([]);
       } else {
         setLogs((data || []).map((d: any) => ({
@@ -114,7 +115,7 @@ export default function AttendanceManager() {
         })));
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       setLogs([]);
     } finally {
       setIsLoading(false);

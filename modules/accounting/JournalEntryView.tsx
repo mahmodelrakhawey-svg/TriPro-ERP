@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
@@ -137,7 +138,7 @@ const JournalEntryView = () => {
         setEntry(formattedEntry);
 
       } catch (error) {
-        console.error('Error fetching entry:', error);
+        logger.error('Error fetching entry:', error);
         setEntry(null);
       } finally {
         setLoading(false);

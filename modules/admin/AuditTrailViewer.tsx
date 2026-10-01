@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -87,7 +88,7 @@ export const AuditTrailViewer: React.FC = () => {
       const { data: directData } = await query;
       setLogs((directData as AuditLogEntry[]) || []);
     } catch (err) {
-      console.warn('[AuditTrail] Fetch error:', err);
+      logger.warn('[AuditTrail] Fetch error:', err);
     } finally {
       setLoadingLogs(false);
     }
@@ -100,7 +101,7 @@ export const AuditTrailViewer: React.FC = () => {
       const report = await auditDaemonService.runSystemAudit(currentSelectedOrgId);
       setAuditReport(report);
     } catch (err) {
-      console.error('[AuditTrail] Financial audit error:', err);
+      logger.error('[AuditTrail] Financial audit error:', err);
     } finally {
       setLoadingAudit(false);
     }

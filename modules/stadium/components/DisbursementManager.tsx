@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '@/context/AccountingContext';
 import { supabase } from '@/supabaseClient';
@@ -105,7 +106,7 @@ export const DisbursementManager: React.FC = () => {
         .eq('is_active', true);
       setFacilities(data || []);
     } catch (err) {
-      console.error('Error fetching facilities:', err);
+      logger.error('Error fetching facilities:', err);
     }
   };
 
@@ -149,13 +150,13 @@ export const DisbursementManager: React.FC = () => {
 
       if (error) {
         // Table might not exist yet if migration wasn't run in Supabase directly
-        console.warn('Disbursements query info:', error.message);
+        logger.warn('Disbursements query info:', error.message);
       } else {
         setDisbursements(data || []);
         setTotalCount(count || 0);
       }
     } catch (err) {
-      console.error(err);
+      logger.error(err);
     } finally {
       setLoading(false);
     }
@@ -207,7 +208,7 @@ export const DisbursementManager: React.FC = () => {
       });
       fetchDisbursements();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       toast.error(err.message || 'حدث خطأ أثناء حفظ طلب الصرف');
     }
   };
@@ -284,7 +285,7 @@ export const DisbursementManager: React.FC = () => {
       setSelectedDisbursement(null);
       fetchDisbursements();
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       toast.error(err.message || 'حدث خطأ أثناء الصرف');
     } finally {
       setIsProcessingPay(false);

@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   ButcheringOrder,
@@ -69,7 +70,7 @@ export const ButcheringYieldManager: React.FC = () => {
       setOrders(fetchedOrders || []);
       setTemplates(fetchedTemplates || DEFAULT_BUTCHERING_TEMPLATES);
     } catch (err) {
-      console.warn('Notice loading butchering data:', err);
+      logger.warn('Notice loading butchering data:', err);
     } finally {
       setLoading(false);
     }

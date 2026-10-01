@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -85,7 +86,7 @@ export default function OperatingTheaterManager() {
         .order('scheduled_start', { ascending: true });
 
       if (error) {
-        console.warn('hims_surgeries query notice:', error.message);
+        logger.warn('hims_surgeries query notice:', error.message);
         setCases([]);
       } else if (data && data.length > 0) {
         const mapped: SurgeryCase[] = data.map((d: any, idx: number) => ({
@@ -112,7 +113,7 @@ export default function OperatingTheaterManager() {
         setCases([]);
       }
     } catch (err) {
-      console.warn('Error fetching surgeries:', err.message);
+      logger.warn('Error fetching surgeries:', err.message);
       setCases([]);
     } finally {
       setIsLoading(false);

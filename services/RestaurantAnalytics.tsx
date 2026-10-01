@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import React, { useState, useEffect, useCallback } from 'react';
 import ReportBuilder from './ReportBuilder';
 import { supabase } from '../supabaseClient';
@@ -62,7 +63,7 @@ const RestaurantAnalytics = () => {
       setData(reportData || []);
       setFilters(currentFilters); // حفظ الفلاتر الحالية لضمان استمراريتها عند تبديل التبويبات
     } catch (error) {
-      console.error("Connection issue:", error);
+      logger.error("Connection issue:", error);
       setError("تعذر الاتصال بالخادم. يرجى التحقق من جودة الإنترنت لديك.");
     } finally {
       setLoading(false);

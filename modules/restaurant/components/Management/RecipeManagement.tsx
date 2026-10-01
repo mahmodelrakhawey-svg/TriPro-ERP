@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../../services/supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
@@ -241,7 +242,7 @@ const RecipeManagement = ({ productId, productName, onClose }: { productId: stri
           }
         }
       } catch (mfgSyncErr) {
-        console.warn('تنبيه: تعذر المزامنة التلقائية مع مسار التصنيع:', mfgSyncErr);
+        logger.warn('تنبيه: تعذر المزامنة التلقائية مع مسار التصنيع:', mfgSyncErr);
       }
 
       showToast('تم حفظ مكونات الوصفة وتحديث التكلفة ومسار التصنيع بنجاح', 'success');

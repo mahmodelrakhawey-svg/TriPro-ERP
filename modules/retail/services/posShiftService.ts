@@ -2,6 +2,7 @@
  * TriPro ERP — POS Shift Financials Service
  * منطق معزول ومحكم لحسابات نقدية الوردية، المبيعات النقدية، المرتجعات، والمسحوبات
  */
+import { logger } from '../../../utils/logger';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { db, isValidUUID } from '../../../services/offlineService';
 
@@ -111,7 +112,7 @@ export async function getLiveShiftFinancials(
             .reduce((sum: number, r: any) => sum + Number(r.total_amount || 0), 0);
         }
       } catch (e) {
-        console.warn('Could not query sales_returns for shift balance:', e);
+        logger.warn('Could not query sales_returns for shift balance:', e);
       }
     }
 
@@ -124,7 +125,7 @@ export async function getLiveShiftFinancials(
       drawerCash
     };
   } catch (err) {
-    console.error('Error calculating live shift financials:', err);
+    logger.error('Error calculating live shift financials:', err);
     return {
       cashSales: 0,
       cashReturns: 0,
@@ -201,7 +202,7 @@ export async function calculateClosingShiftSummary(
           .reduce((sum: number, r: any) => sum + Number(r.total_amount || 0), 0);
       }
     } catch (reErr) {
-      console.warn('Could not query sales_returns for shift close:', reErr);
+      logger.warn('Could not query sales_returns for shift close:', reErr);
     }
   }
 

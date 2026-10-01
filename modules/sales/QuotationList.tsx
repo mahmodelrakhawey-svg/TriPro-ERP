@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -88,7 +89,7 @@ export const QuotationList = () => {
 
       setQuotations(data || []);
     } catch (err) {
-      console.error('Error fetching quotations:', err);
+      logger.error('Error fetching quotations:', err);
       showToast('فشل تحميل سجل عروض الأسعار: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -142,7 +143,7 @@ export const QuotationList = () => {
       fetchQuotations();
 
     } catch (err) {
-      console.error('Error deleting quote:', err);
+      logger.error('Error deleting quote:', err);
       showToast('فشل حذف عرض السعر: ' + err.message, 'error');
     } finally {
       setDeletingId(null);
@@ -153,7 +154,7 @@ export const QuotationList = () => {
     try {
       await supabase.from('quotations').update({ status: 'converted' }).eq('id', quote.id);
     } catch (e) {
-      console.error(e);
+      logger.error(e);
     }
 
     navigate('/sales-invoice', { 

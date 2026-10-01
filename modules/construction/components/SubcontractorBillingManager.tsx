@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -103,7 +104,7 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
       });
       setSubItemProgress(initialProgress);
     } catch (error) {
-      console.error("Error fetching subcontractor contract items:", error.message);
+      logger.error("Error fetching subcontractor contract items:", error.message);
     }
   };
 

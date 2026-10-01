@@ -7,6 +7,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { RecurringInvoice, RecurringInvoiceItem, RecurringInvoiceLog, RecurringFrequency, RecurringStatus } from '../types';
 import NotificationService from './notificationService';
@@ -85,7 +86,7 @@ export class RecurringInvoiceService {
     try {
       secureStorage.setItem(STORAGE_KEYS.SUBSCRIPTIONS, subs);
     } catch (e) {
-      console.warn('LocalStorage save error:', e);
+      logger.warn('LocalStorage save error:', e);
     }
   }
 
@@ -105,7 +106,7 @@ export class RecurringInvoiceService {
     try {
       secureStorage.setItem(STORAGE_KEYS.ITEMS, items);
     } catch (e) {
-      console.warn('LocalStorage save error:', e);
+      logger.warn('LocalStorage save error:', e);
     }
   }
 
@@ -125,7 +126,7 @@ export class RecurringInvoiceService {
     try {
       secureStorage.setItem(STORAGE_KEYS.LOGS, logs);
     } catch (e) {
-      console.warn('LocalStorage save error:', e);
+      logger.warn('LocalStorage save error:', e);
     }
   }
 
@@ -697,15 +698,15 @@ export class RecurringInvoiceService {
                 p_warehouse_id: this.sanitizeUuid(sub.warehouse_id) || null
               });
               if (postError) {
-                console.warn('post_sales_invoice warning for recurring invoice:', postError);
+                logger.warn('post_sales_invoice warning for recurring invoice:', postError);
               }
             } catch (postErr) {
-              console.warn('post_sales_invoice exception:', postErr);
+              logger.warn('post_sales_invoice exception:', postErr);
             }
           }
         }
       } catch (e) {
-        console.warn('Invoices insert fallback:', e);
+        logger.warn('Invoices insert fallback:', e);
       }
 
       // 3. حساب تاريخ التشغيل القادم وتحديث حالة الاشتراك

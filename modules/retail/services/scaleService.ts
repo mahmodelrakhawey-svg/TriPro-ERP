@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 // ⚖️ TriPro ERP - Web Serial API Electronic Checkout Scale Driver
 // يدعم موازين الكاشير المتصلة عبر USB أو COM Port (CAS, Mettler Toledo, Dibal, Digi, Avery Berkel)
 
@@ -98,7 +99,7 @@ class ScaleService {
         }
       }
     } catch (error) {
-      console.warn('Scale read loop terminated:', error);
+      logger.warn('Scale read loop terminated:', error);
     } finally {
       if (this.reader) {
         try {
@@ -149,7 +150,7 @@ class ScaleService {
         this.notifyListeners();
       }
     } catch (e) {
-      console.error('Failed to parse scale data:', e);
+      logger.error('Failed to parse scale data:', e);
     }
   }
 
@@ -167,7 +168,7 @@ class ScaleService {
       await writableStreamClosed;
       return true;
     } catch (e) {
-      console.error('Failed to send scale command:', e);
+      logger.error('Failed to send scale command:', e);
       return false;
     }
   }

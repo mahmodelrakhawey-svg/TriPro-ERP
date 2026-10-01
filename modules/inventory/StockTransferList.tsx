@@ -1,4 +1,5 @@
 
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -48,7 +49,7 @@ const StockTransferList = () => {
       if (error) throw error;
       setTransfers(data || []);
     } catch (error) {
-      console.error('Error fetching transfers:', error);
+      logger.error('Error fetching transfers:', error);
     } finally {
       setLoading(false);
     }

@@ -1,3 +1,4 @@
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -62,7 +63,7 @@ const CreditNoteForm = () => {
       const ids = (data || []).map(n => n.id);
       setNoteIds(ids);
     } catch (err) {
-      console.error('Error fetching credit note IDs:', err);
+      logger.error('Error fetching credit note IDs:', err);
     }
   };
 
@@ -98,7 +99,7 @@ const CreditNoteForm = () => {
       if (idx !== -1) setCurrentIndex(idx);
 
     } catch (err) {
-      console.error('Error loading credit note:', err);
+      logger.error('Error loading credit note:', err);
       showToast('فشل تحميل الإشعار الدائن: ' + err.message, 'error');
     } finally {
       setLoadingNote(false);
@@ -247,7 +248,7 @@ const CreditNoteForm = () => {
       }
 
     } catch (error) {
-      console.error(error);
+      logger.error(error);
       showToast('خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);
@@ -284,7 +285,7 @@ const CreditNoteForm = () => {
       }
 
     } catch (err) {
-      console.error('Error deleting credit note:', err);
+      logger.error('Error deleting credit note:', err);
       showToast('فشل حذف الإشعار الدائن: ' + err.message, 'error');
     } finally {
       setDeleting(false);

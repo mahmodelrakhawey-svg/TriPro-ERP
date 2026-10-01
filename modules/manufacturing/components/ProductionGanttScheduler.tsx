@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -186,7 +187,7 @@ export default function ProductionGanttScheduler() {
         setOrders([]);
       }
     } catch (err) {
-      console.warn('Gantt fetch notice:', err.message);
+      logger.warn('Gantt fetch notice:', err.message);
       setOrders([]);
     } finally {
       setIsLoading(false);
@@ -356,7 +357,7 @@ export default function ProductionGanttScheduler() {
           .single();
 
         if (insErr) {
-          console.warn('DB insert notice:', insErr.message);
+          logger.warn('DB insert notice:', insErr.message);
         } else if (insData) {
           createdId = insData.id;
         }

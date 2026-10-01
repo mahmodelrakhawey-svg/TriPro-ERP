@@ -1,4 +1,5 @@
-﻿import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+﻿import { logger } from '../../utils/logger';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { useAccounting } from '../../context/AccountingContext';
@@ -188,7 +189,7 @@ const GeneralLedger = () => {
             rpcSucceeded = true;
           }
         } catch (rpcEx) {
-          console.warn('[GeneralLedger] RPC opening balance fallback to client query:', rpcEx);
+          logger.warn('[GeneralLedger] RPC opening balance fallback to client query:', rpcEx);
         }
       }
 
@@ -285,7 +286,7 @@ const GeneralLedger = () => {
       setHasMore(periodData.length === PAGE_SIZE);
 
     } catch (err) {
-      console.error(err);
+      logger.error(err);
       showToast('خطأ في تحميل البيانات', 'error');
     } finally {
       setLoading(false);

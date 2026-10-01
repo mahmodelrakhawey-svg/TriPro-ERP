@@ -5,6 +5,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
@@ -165,12 +166,12 @@ export const SelfOrderingKiosk: React.FC = () => {
           notes: it.notes
         })),
         grandTotal: cartTotal
-      }).catch(err => console.warn('Kiosk print notice:', err));
+      }).catch(err => logger.warn('Kiosk print notice:', err));
 
       setConfirmedOrderNumber(orderNum);
       setStep(4);
     } catch (err) {
-      console.error('Kiosk order failed:', err);
+      logger.error('Kiosk order failed:', err);
       showToast('عذراً، حدث خطأ أثناء إرسال الطلب. يرجى التوجه للكاشير', 'error');
     } finally {
       setIsSubmitting(false);

@@ -1,3 +1,4 @@
+import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
@@ -96,7 +97,7 @@ export const DriverDispatchManager: React.FC = () => {
         setPendingOrders(ordersRes.data);
       }
     } catch (e) {
-      console.warn('Dispatch load notice:', e);
+      logger.warn('Dispatch load notice:', e);
     } finally {
       setLoading(false);
     }

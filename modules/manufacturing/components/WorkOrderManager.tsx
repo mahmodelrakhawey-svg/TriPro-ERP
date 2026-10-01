@@ -1,3 +1,4 @@
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -112,7 +113,7 @@ const WorkOrderManager = () => {
         .select('*, step:mfg_routing_steps(*, work_center:mfg_work_centers(name))')
         .eq('production_order_id', orderId)
         .order('created_at', { ascending: true });
-      if (error) console.error(error);
+      if (error) logger.error(error);
       else setSteps(data || []);
   };
 
@@ -156,7 +157,7 @@ const WorkOrderManager = () => {
         setIsModalOpen(false);
         fetchOrders();
     } catch (error) {
-        console.error(error);
+        logger.error(error);
         showToast('خطأ: ' + error.message, 'error');
     }
   };

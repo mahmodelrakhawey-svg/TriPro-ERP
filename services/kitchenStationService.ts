@@ -5,6 +5,7 @@
  * ==============================================================================
  */
 
+import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { secureStorage } from '../utils/securityMiddleware';
 
@@ -104,10 +105,10 @@ class KitchenStationService {
       if (!error && data) {
         stationId = data.id;
       } else if (error) {
-        console.warn('Database station save notice:', error);
+        logger.warn('Database station save notice:', error);
       }
     } catch (e) {
-      console.warn('Database station save notice:', e);
+      logger.warn('Database station save notice:', e);
     }
 
     const saved: KitchenStation = { ...station, ...payload, id: stationId } as KitchenStation;
@@ -130,7 +131,7 @@ class KitchenStationService {
 
       await supabase.from('kitchen_ticket_items').update(updates).eq('id', itemId);
     } catch (e) {
-      console.warn('DB ticket status update notice:', e);
+      logger.warn('DB ticket status update notice:', e);
     }
 
     // Save locally
