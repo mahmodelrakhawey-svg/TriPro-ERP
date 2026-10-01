@@ -50,7 +50,7 @@ export const printJournalEntry = (entry: JournalEntry) => {
               </tr>
             </thead>
             <tbody>
-              ${(entry.lines || []).map((line: any) => `
+              ${(entry.lines || []).map((line: Record<string, any>) => `
                 <tr>
                   <td>${line.accountName || '-'}</td>
                   <td>${line.accountCode || '-'}</td>
@@ -60,8 +60,8 @@ export const printJournalEntry = (entry: JournalEntry) => {
               `).join('')}
               <tr style="font-weight: bold; background-color: #f8f9fa;">
                   <td colspan="2" style="text-align: left;">الإجمالي</td>
-                  <td>${(entry.lines || []).reduce((sum: number, line: any) => sum + (line.debit || 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                  <td>${(entry.lines || []).reduce((sum: number, line: any) => sum + (line.credit || 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                  <td>${(entry.lines || []).reduce((sum: number, line: Record<string, any>) => sum + (line.debit || 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                  <td>${(entry.lines || []).reduce((sum: number, line: Record<string, any>) => sum + (line.credit || 0), 0).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
               </tr>
             </tbody>
           </table>
@@ -87,7 +87,7 @@ export interface ExportParams {
   journalEntries: any[];
   startDate: string;
   endDate: string;
-  queryModifier: (query: any) => any;
+  queryModifier: (query: Record<string, any>) => Record<string, any>;
   users: any[];
   accounts: any[];
   toast: any;
@@ -108,8 +108,8 @@ export const exportJournalToExcel = async ({
   setIsExporting(true);
   try {
     if (currentUser?.role === 'demo') {
-      const flatData = journalEntries.flatMap((entry: any) => 
-        (entry.lines || []).map((line: any) => ({
+      const flatData = journalEntries.flatMap((entry: Record<string, any>) => 
+        (entry.lines || []).map((line: Record<string, any>) => ({
           'التاريخ': entry.date || '-',
           'رقم القيد': entry.reference || '-',
           'البيان الرئيسي': entry.description || '-',
@@ -176,7 +176,7 @@ export const exportJournalToExcel = async ({
     const accountMap = new Map((accounts || []).map((a: any) => [a.id, a]));
 
     const flatData: any[] = [];
-    entries.forEach((entry: any) => {
+    entries.forEach((entry: Record<string, any>) => {
       const sourceInfo = getEntrySource(entry.reference, entry.description);
       const userName = userMap.get(entry.user_id) || 'النظام';
       const statusLabel = entry.status === 'posted' ? 'مرحل' : 'مسودة';
@@ -198,7 +198,7 @@ export const exportJournalToExcel = async ({
           'بيان الحركة': '-'
         });
       } else {
-        lines.forEach((line: any) => {
+        lines.forEach((line: Record<string, any>) => {
           const acc = accountMap.get(line.account_id);
           flatData.push({
             'التاريخ': dateStr,

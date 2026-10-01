@@ -47,7 +47,7 @@ const TrialBalanceAdvanced = () => {
                 const ref = (entry.reference || '').toUpperCase();
                 const entryLines = entry.journal_lines || entry.lines || [];
                 
-                return entryLines.map((line: any, idx: number) => {
+                return entryLines.map((line: Record<string, any>, idx: number) => {
                     let smartAccountId = line.accountId || line.account_id;
                     
                     // إذا كان الحساب غير معروف في الديمو، نمنحه هوية بناءً على السياق
@@ -250,7 +250,7 @@ const TrialBalanceAdvanced = () => {
 
     if (rpcSummary && rpcSummary.length > 0) {
       // 🚀 الخطوة 1: حقن إحصائيات الخادم المجمعة مباشرة
-      rpcSummary.forEach((row: any) => {
+      rpcSummary.forEach((row: Record<string, any>) => {
         const accId = row.account_id;
         accStats[accId] = {
           open: Number(row.opening_balance) || 0,
@@ -328,7 +328,7 @@ const TrialBalanceAdvanced = () => {
         }
 
         // إذا كان حساب رئيسي، نجمع أبناءه
-        const children = Array.from(allAccountsMap.values()).filter((a: any) => a.parent_id === accountId);
+        const children = Array.from(allAccountsMap.values()).filter((a: Record<string, any>) => a.parent_id === accountId);
         let total = { open: 0, transDr: 0, transCr: 0 };
         
         children.forEach(child => {
@@ -342,7 +342,7 @@ const TrialBalanceAdvanced = () => {
     };
 
     // 4. بناء القائمة النهائية
-    let result = Array.from(allAccountsMap.values()).map((acc: any) => {
+    let result = Array.from(allAccountsMap.values()).map((acc: Record<string, any>) => {
         const stats = getAccountStats(acc.id);
         return {
             ...acc,
@@ -519,7 +519,7 @@ const TrialBalanceAdvanced = () => {
     }
   };
 
-  const handleNavigateToEntry = (entry: any) => {
+  const handleNavigateToEntry = (entry: Record<string, any>) => {
     sessionStorage.setItem('tripro_initial_filter_status', 'unbalanced');
     sessionStorage.setItem('tripro_unbalanced_entry_id', entry.id);
     navigate('/general-journal', { 
@@ -848,7 +848,7 @@ const TrialBalanceAdvanced = () => {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {entry.lines.map((l: any, idx: number) => {
+                        {entry.lines.map((l: Record<string, any>, idx: number) => {
                           const acc = accounts.find(a => a.id === l.account_id);
                           return (
                             <tr key={idx} className="hover:bg-slate-50">

@@ -75,7 +75,7 @@ const PaymentVoucherForm = () => {
           .order('invoice_date', { ascending: false });
 
         if (!error && data) {
-          const pending = data.filter((inv: any) => {
+          const pending = data.filter((inv: Record<string, any>) => {
             const remaining = Number(inv.total_amount || 0) - Number(inv.paid_amount || 0);
             return remaining > 0.001;
           });
@@ -94,7 +94,7 @@ const PaymentVoucherForm = () => {
     fetchUnpaidInvoices();
   }, [formData.supplierId, organization?.id]);
 
-  const handleSelectInvoiceForPayment = (invoice: any) => {
+  const handleSelectInvoiceForPayment = (invoice: Record<string, any>) => {
     if (selectedInvoiceId === invoice.id) {
       setSelectedInvoiceId(null);
       return;
@@ -137,7 +137,7 @@ const PaymentVoucherForm = () => {
     const getRealBalance = async () => {
       if (!formData.supplierId) { setDynamicBalance(null); return; }
       
-      const supplier: any = suppliers.find(s => s.id === formData.supplierId);
+      const supplier: Record<string, any> | undefined = suppliers.find(s => s.id === formData.supplierId);
       if (!supplier) return;
 
       const userOrgId = organization?.id;
@@ -206,12 +206,12 @@ const PaymentVoucherForm = () => {
 
       // قيود تسوية يدوية أخرى (باستثناء البوانص والفواتير والشيكات المسجلة)
       const otherManualDebit = (manualJRes.data as any[])
-        ?.filter((l: any) => {
+        ?.filter((l: Record<string, any>) => {
           const jEntry = Array.isArray(l.journal_entries) ? l.journal_entries[0] : l.journal_entries;
           const ref = jEntry?.reference || '';
           return !ref.startsWith('REB-') && !ref.startsWith('PV-') && !ref.startsWith('PINV-') && !ref.startsWith('CHQ-');
         })
-        .reduce((sum: number, l: any) => sum + Number(l.debit || 0), 0) || 0;
+        .reduce((sum: number, l: Record<string, any>) => sum + Number(l.debit || 0), 0) || 0;
 
       const otherManualCredit = (manualJRes.data as any[])
         ?.filter((l: any) => {
@@ -219,7 +219,7 @@ const PaymentVoucherForm = () => {
           const ref = jEntry?.reference || '';
           return !ref.startsWith('REB-') && !ref.startsWith('PV-') && !ref.startsWith('PINV-') && !ref.startsWith('CHQ-');
         })
-        .reduce((sum: number, l: any) => sum + Number(l.credit || 0), 0) || 0;
+        .reduce((sum: number, l: Record<string, any>) => sum + Number(l.credit || 0), 0) || 0;
 
       const opening = Number(supplier.opening_balance || 0);
 
@@ -277,7 +277,7 @@ const PaymentVoucherForm = () => {
     }
   }, [location]);
 
-  const loadVoucher = async (voucher: any) => {
+  const loadVoucher = async (voucher: Record<string, any>) => {
     if (!voucher) return;
     setIsEditing(true);
     setCurrentVoucherId(voucher.id);

@@ -47,7 +47,7 @@ const CashFlowStatement = () => {
   }, [selectedFiscalYear]);
 
   // دوال مساعدة لتصنيف الحسابات بدقة متناهية وفق معايير المحاسبة (IAS 7)
-  const isCashAccount = (acc: any) => {
+  const isCashAccount = (acc: Record<string, any>) => {
     const code = String(acc.code || '').trim();
     const name = String(acc.name || '').toLowerCase();
     const type = String(acc.type || '').toLowerCase();
@@ -64,7 +64,7 @@ const CashFlowStatement = () => {
   };
 
   // فحص الحسابات الوسيطة للأرصدة الافتتاحية لاستبعادها من التدفقات النقدية (غير نقدية - IAS 7 الفقرة 43)
-  const isNonCashSuspenseAccount = (acc: any) => {
+  const isNonCashSuspenseAccount = (acc: Record<string, any>) => {
     const code = String(acc.code || '').trim();
     const name = String(acc.name || '').toLowerCase();
     return (
@@ -77,7 +77,7 @@ const CashFlowStatement = () => {
     );
   };
 
-  const isPnlAccount = (acc: any) => {
+  const isPnlAccount = (acc: Record<string, any>) => {
     const code = String(acc.code || '').trim();
     const type = String(acc.type || '').toLowerCase().trim();
     if (code.startsWith('1') || code.startsWith('2') || code.startsWith('3')) {
@@ -89,7 +89,7 @@ const CashFlowStatement = () => {
            type.includes('إيراد') || type.includes('مصروف') || type.includes('تكلفة');
   };
 
-  const isFixedAssetAccount = (acc: any) => {
+  const isFixedAssetAccount = (acc: Record<string, any>) => {
     const code = String(acc.code || '').trim();
     const name = String(acc.name || '').toLowerCase();
     const type = String(acc.type || '').toLowerCase();
@@ -187,7 +187,7 @@ const CashFlowStatement = () => {
         });
 
         if (!summaryErr && Array.isArray(summaryData) && summaryData.length > 0) {
-          summaryData.forEach((row: any) => {
+          summaryData.forEach((row: Record<string, any>) => {
             const accId = row.account_id;
             const perDebit = Number(row.period_debit) || 0;
             const perCredit = Number(row.period_credit) || 0;
@@ -223,7 +223,7 @@ const CashFlowStatement = () => {
           if (linesError) throw linesError;
           if (!lines || lines.length === 0) break;
 
-          lines.forEach((line: any) => {
+          lines.forEach((line: Record<string, any>) => {
             const current = fallbackMovements[line.account_id] || 0;
             fallbackMovements[line.account_id] = current + (Number(line.debit) || 0) - (Number(line.credit) || 0);
           });
@@ -250,7 +250,7 @@ const CashFlowStatement = () => {
             if (openErr) throw openErr;
             if (!openData || openData.length === 0) break;
 
-            fallbackOpenCash += openData.reduce((sum, line: any) => sum + ((Number(line.debit) || 0) - (Number(line.credit) || 0)), 0);
+            fallbackOpenCash += openData.reduce((sum, line: Record<string, any>) => sum + ((Number(line.debit) || 0) - (Number(line.credit) || 0)), 0);
 
             if (openData.length < CHUNK_SIZE) break;
             openFrom += CHUNK_SIZE;
@@ -270,7 +270,7 @@ const CashFlowStatement = () => {
             if (closeErr) throw closeErr;
             if (!closeData || closeData.length === 0) break;
 
-            fallbackCloseCash += closeData.reduce((sum, line: any) => sum + ((Number(line.debit) || 0) - (Number(line.credit) || 0)), 0);
+            fallbackCloseCash += closeData.reduce((sum, line: Record<string, any>) => sum + ((Number(line.debit) || 0) - (Number(line.credit) || 0)), 0);
 
             if (closeData.length < CHUNK_SIZE) break;
             closeFrom += CHUNK_SIZE;

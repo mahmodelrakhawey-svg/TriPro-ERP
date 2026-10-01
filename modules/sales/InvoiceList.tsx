@@ -215,7 +215,7 @@ export const InvoiceList = () => {
   const paginatedInvoices = invoices;
   const summary = summaryData;
 
-  const handleApprove = async (invoice: any) => {
+  const handleApprove = async (invoice: Record<string, any>) => {
     if (!window.confirm(`هل أنت متأكد من اعتماد وترحيل الفاتورة رقم (${invoice.invoice_number})؟\nسيتم إنشاء القيود المحاسبية وخصم الكميات من المخزن فوراً.`)) {
       return;
     }
@@ -248,7 +248,7 @@ export const InvoiceList = () => {
     }
   };
 
-  const handleUnpost = async (invoice: any) => {
+  const handleUnpost = async (invoice: Record<string, any>) => {
     const userRole = (currentUser as any)?.role || '';
     const canUnpost = can?.('accounting', 'unpost') || can?.('sales', 'unpost') || can?.('sales', 'delete') || ['admin', 'super_admin', 'owner', 'manager'].includes(userRole);
     if (!canUnpost) {
@@ -352,7 +352,7 @@ export const InvoiceList = () => {
     }
   };
 
-  const handleDelete = async (invoice: any) => {
+  const handleDelete = async (invoice: Record<string, any>) => {
     // 🛡️ صمام أمان عدم القابلية للتغيير (Document Immutability Guard)
     if (invoice.status === 'posted' || invoice.status === 'paid') {
       showToast('❌ لا يمكن حذف الفاتورة المرحلة أو المسددة مباشرة حفاظاً على سلامة الحسابات والقيود. يرجى إلغاء الترحيل أولاً لتحويلها إلى مسودة أو إنشاء إشعار دائن.', 'error');
@@ -419,7 +419,7 @@ export const InvoiceList = () => {
     }
   };
 
-  const handlePrint = async (invoice: any) => {
+  const handlePrint = async (invoice: Record<string, any>) => {
     logDocumentAction({
       documentType: 'sales_invoice',
       documentId: String(invoice.id),
@@ -466,7 +466,7 @@ export const InvoiceList = () => {
     }
   };
 
-  const handleWhatsApp = (invoice: any) => {
+  const handleWhatsApp = (invoice: Record<string, any>) => {
     const phone = invoice.customers?.phone ? invoice.customers.phone.replace(/[^0-9]/g, '') : '';
     const message = `مرحباً ${invoice.customers?.name || 'عميلنا العزيز'},\nإليك تفاصيل فاتورة المبيعات رقم: ${invoice.invoice_number}\nالتاريخ: ${invoice.invoice_date}\nالإجمالي: ${Number(invoice.total_amount).toLocaleString()} ${settings.currency || 'ج.م'}\nالمسدد: ${Number(invoice.paid_amount || 0).toLocaleString()} ${settings.currency || 'ج.م'}\nالمتبقي: ${((invoice.total_amount || 0) - (invoice.paid_amount || 0)).toLocaleString()} ${settings.currency || 'ج.م'}\nشكراً لتعاملكم معنا.`;
     
@@ -477,7 +477,7 @@ export const InvoiceList = () => {
     window.open(url, '_blank');
   };
 
-  const handleEtaSubmit = async (invoice: any) => {
+  const handleEtaSubmit = async (invoice: Record<string, any>) => {
     setSubmittingId(invoice.id);
     try {
       showToast('جاري إرسال الفاتورة لمنظومة الضرائب المصرية...', 'info');
@@ -542,7 +542,7 @@ export const InvoiceList = () => {
         return;
       }
 
-      const dataToExport = exportRows.map((inv: any, idx: number) => ({
+      const dataToExport = exportRows.map((inv: Record<string, any>, idx: number) => ({
         '#': idx + 1,
         'رقم الفاتورة': inv.invoice_number || '-',
         'التاريخ': inv.invoice_date,

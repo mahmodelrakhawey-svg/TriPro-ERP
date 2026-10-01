@@ -132,42 +132,42 @@ const SlowMovingReport = () => {
       const outflowMap: Record<string, number> = {};
       const processedOrderMaterials = new Set<string>(); // لتجنب الازدواجية: order_id + material_id
 
-      salesItems?.forEach((item: any) => {
+      salesItems?.forEach((item: Record<string, any>) => {
           outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + Number(item.quantity);
       });
       
-      restSalesItems?.forEach((item: any) => {
+      restSalesItems?.forEach((item: Record<string, any>) => {
           outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + Number(item.quantity);
       });
 
-      mfgActualUsageItems?.forEach((item: any) => {
+      mfgActualUsageItems?.forEach((item: Record<string, any>) => {
           outflowMap[item.raw_material_id] = (outflowMap[item.raw_material_id] || 0) + Number(item.actual_quantity);
           processedOrderMaterials.add(`${item.mfg_order_progress.production_order_id}-${item.raw_material_id}`);
       });
 
-      mfgIssuedRequestItems?.forEach((item: any) => {
+      mfgIssuedRequestItems?.forEach((item: Record<string, any>) => {
           const key = `${item.mfg_material_requests.production_order_id}-${item.raw_material_id}`;
           if (!processedOrderMaterials.has(key)) {
               outflowMap[item.raw_material_id] = (outflowMap[item.raw_material_id] || 0) + Number(item.quantity_issued);
           }
       });
 
-      mfgScrapLogItems?.forEach((item: any) => {
+      mfgScrapLogItems?.forEach((item: Record<string, any>) => {
           outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + Number(item.quantity);
       });
 
-      constructionIssueItems?.forEach((item: any) => {
+      constructionIssueItems?.forEach((item: Record<string, any>) => {
           outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + Number(item.quantity);
       });
 
-      himsBillingItems?.forEach((item: any) => {
+      himsBillingItems?.forEach((item: Record<string, any>) => {
           outflowMap[item.product_id] = (outflowMap[item.product_id] || 0) + Number(item.quantity);
       });
 
       // 4. تصفية الأصناف الراكدة
       const slowMoving: SlowProduct[] = [];
       
-      products?.forEach((p: any) => {
+      products?.forEach((p: Record<string, any>) => {
           const qtyOutflow = outflowMap[p.id] || 0;
           // إذا كانت الكمية المباعة أقل من أو تساوي الحد المسموح به
           if (qtyOutflow <= threshold) {

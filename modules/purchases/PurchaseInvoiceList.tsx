@@ -271,7 +271,7 @@ export const PurchaseInvoiceList = () => {
     }
   };
 
-  const handleUnpost = async (invoice: any) => {
+  const handleUnpost = async (invoice: Record<string, any>) => {
     const userRole = (currentUser as any)?.role || '';
     const canUnpost = can?.('accounting', 'unpost') || can?.('purchases', 'unpost') || can?.('purchases', 'delete') || ['admin', 'super_admin', 'owner', 'manager'].includes(userRole);
     if (!canUnpost) {
@@ -369,7 +369,7 @@ export const PurchaseInvoiceList = () => {
     }
   };
 
-  const handleDelete = async (invoice: any) => {
+  const handleDelete = async (invoice: Record<string, any>) => {
     // 🛡️ صمام أمان عدم القابلية للتغيير (Document Immutability Guard)
     if (invoice.status === 'posted' || invoice.status === 'paid') {
       showToast('❌ لا يمكن حذف فاتورة المشتريات المرحلة أو المسددة مباشرة حفاظاً على سلامة المخزون والدفاتر المحاسبية. يرجى إلغاء الترحيل أولاً لتحويلها لمسودة أو إصدار مرتجع مشتريات.', 'error');
@@ -436,7 +436,7 @@ export const PurchaseInvoiceList = () => {
     }
   };
 
-  const openPaymentModal = (invoice: any) => {
+  const openPaymentModal = (invoice: Record<string, any>) => {
     setSelectedInvoiceForPayment(invoice);
     const remaining = Number(invoice.total_amount || 0) - Number(invoice.paid_amount || 0);
     setPaymentFormData({
@@ -475,7 +475,7 @@ export const PurchaseInvoiceList = () => {
     }
   };
 
-  const handlePrint = async (invoice: any) => {
+  const handlePrint = async (invoice: Record<string, any>) => {
     logDocumentAction({
       documentType: 'purchase_invoice',
       documentId: String(invoice.id),
@@ -514,7 +514,7 @@ export const PurchaseInvoiceList = () => {
     }
   };
 
-  const handleShareWhatsApp = (invoice: any) => {
+  const handleShareWhatsApp = (invoice: Record<string, any>) => {
     const phone = invoice.suppliers?.phone ? invoice.suppliers.phone.replace(/[^0-9]/g, '') : '';
     const message = `مرحباً ${invoice.suppliers?.name || 'السادة المورد'},\nنود إخطاركم بتسجيل فاتورة مشتريات رقم: ${invoice.invoice_number}\nالتاريخ: ${invoice.invoice_date}\nالإجمالي: ${Number(invoice.total_amount).toLocaleString()} ${settings.currency || 'ج.م'}\nالحالة: ${invoice.status === 'posted' ? 'مرحلة ومستحقة' : 'مسودة'}\nشكراً لتعاملكم معنا.`;
     
@@ -587,7 +587,7 @@ export const PurchaseInvoiceList = () => {
         return;
       }
 
-      const dataToExport = exportRows.map((inv: any, idx: number) => {
+      const dataToExport = exportRows.map((inv: Record<string, any>, idx: number) => {
         const itemDisc = Number(inv.items_discount_amount || 0);
         const invDisc = Number(inv.discount_amount || 0);
         const totalDisc = itemDisc + invDisc;
@@ -1195,7 +1195,7 @@ export const PurchaseInvoiceList = () => {
               </div>
             ) : (
               <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-                {viewingAttachments.attachments.map((att: any, idx: number) => {
+                {viewingAttachments.attachments.map((att: Record<string, any>, idx: number) => {
                   const isImage = (att.file_type || '').toLowerCase().includes('image') || /\.(jpg|jpeg|png|webp|gif)$/i.test(att.file_name || '');
                   const isPdf = (att.file_type || '').toLowerCase().includes('pdf') || (att.file_name || '').toLowerCase().endsWith('.pdf');
                   const isSheet = /\.(xlsx|xls|csv)$/i.test(att.file_name || '');

@@ -222,7 +222,7 @@ export const ChequesPage = () => {
     }
   };
 
-  const handleEditCheque = (cheque: any) => {
+  const handleEditCheque = (cheque: Record<string, any>) => {
     setEditingChequeId(cheque.id);
     setFormData({
       chequeNumber: cheque.cheque_number || '',
@@ -235,7 +235,7 @@ export const ChequesPage = () => {
     setShowModal(true);
   };
 
-  const handleDeleteCheque = async (cheque: any) => {
+  const handleDeleteCheque = async (cheque: Record<string, any>) => {
     if (!window.confirm(`هل أنت متأكد من حذف الشيك رقم (${cheque.cheque_number}) بمبلغ (${Number(cheque.amount || 0).toLocaleString()})؟\n\nسيتم حذف القيود المحاسبية وتصحيح رصيد الحساب فوراً.`)) {
       return;
     }
@@ -338,7 +338,7 @@ export const ChequesPage = () => {
     }
   };
 
-  const handleRejectCheque = async (cheque: any) => {
+  const handleRejectCheque = async (cheque: Record<string, any>) => {
       const rejectionReason = prompt(`الرجاء إدخال سبب رفض الشيك رقم ${cheque.cheque_number}:`);
       if (!rejectionReason) {
           showToast('سبب الرفض مطلوب لإتمام العملية محاسبياً.', 'warning');
@@ -387,7 +387,7 @@ export const ChequesPage = () => {
       }
   };
 
-  const handleViewAttachments = (cheque: any) => {
+  const handleViewAttachments = (cheque: Record<string, any>) => {
       setCurrentAttachments(cheque.cheque_attachments || []);
       setShowAttachmentsModal(true);
   };
@@ -413,11 +413,11 @@ export const ChequesPage = () => {
     }
   };
 
-  const handlePrint = (cheque: any) => {
+  const handlePrint = (cheque: Record<string, any>) => {
     setChequeToPrint(cheque);
   };
 
-  const handleWhatsApp = (cheque: any) => {
+  const handleWhatsApp = (cheque: Record<string, any>) => {
       let phone = '';
       if (cheque.type === 'outgoing') {
           const supplier = suppliers.find(s => s.id === cheque.party_id);
@@ -567,7 +567,7 @@ export const ChequesPage = () => {
                                 <Cell key={`cell-${index}`} fill={entry.color} />
                             ))}
                         </Pie>
-                        <Tooltip formatter={(value: any) => Number(value || 0).toLocaleString()} />
+                        <Tooltip formatter={(value: unknown) => Number(value || 0).toLocaleString()} />
                         <Legend verticalAlign="middle" align="right" layout="vertical" />
                     </PieChart>
                 </ResponsiveContainer>
