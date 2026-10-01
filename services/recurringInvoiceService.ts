@@ -47,7 +47,7 @@ export class RecurringInvoiceService {
   /**
    * التحقق مما إذا كان الخطأ بسبب عدم وجود الجدول أو أخطاء العلاقات في Supabase
    */
-  private static isTableOrSchemaError(error: any): boolean {
+  private static isTableOrSchemaError(error: Record<string, any>): boolean {
     if (!error) return false;
     const msg = (error.message || '').toLowerCase();
     const code = error.code || '';
@@ -457,7 +457,7 @@ export class RecurringInvoiceService {
         totalAmount = Math.max(0, subtotal! - discountAmount + totalTax!);
       }
 
-      const cleanUpdatePayload: any = {
+      const cleanUpdatePayload: Record<string, any> = {
         updated_at: new Date().toISOString(),
       };
       if (data.customer_id !== undefined) cleanUpdatePayload.customer_id = this.sanitizeUuid(data.customer_id);
@@ -594,7 +594,7 @@ export class RecurringInvoiceService {
     userId?: string
   ): Promise<{ success: boolean; invoiceId?: string; invoiceNumber?: string; whatsappUrl?: string; error?: string }> {
     try {
-      let sub: any = null;
+      let sub: Record<string, any> | null = null;
       const validSubId = this.sanitizeUuid(subscriptionId);
 
       if (validSubId) {
@@ -641,7 +641,7 @@ export class RecurringInvoiceService {
       const validCustomerId = this.sanitizeUuid(sub.customer_id);
 
       // 1. إنشاء الفاتورة في جدول invoices
-      const invoiceData: any = {
+      const invoiceData: Record<string, any> = {
         invoice_number: invoiceNumber,
         customer_id: validCustomerId,
         warehouse_id: this.sanitizeUuid(sub.warehouse_id),
@@ -676,7 +676,7 @@ export class RecurringInvoiceService {
 
           // 2. إدخال بنود الفاتورة
           if (sub.items && sub.items.length > 0) {
-            const invoiceItemsData = sub.items.map((it: any) => ({
+            const invoiceItemsData = sub.items.map((it: Record<string, any>) => ({
               organization_id: validOrgId,
               invoice_id: createdInvoice.id,
               product_id: this.sanitizeUuid(it.product_id),
@@ -872,7 +872,7 @@ export class RecurringInvoiceService {
   /**
    * توليد نص رسالة الواتساب المنسق للاشتراك والفاتورة الدورية
    */
-  static buildWhatsAppMessage(sub: any, invoiceNumber: string, date: string, dueDate: string): string {
+  static buildWhatsAppMessage(sub: Record<string, any>, invoiceNumber: string, date: string, dueDate: string): string {
     const customerName = sub.customer_name || sub.customers?.name || 'العميل العزيز';
     const totalFormatted = Number(sub.total_amount).toLocaleString('ar-EG', { minimumFractionDigits: 2 });
 
@@ -890,7 +890,7 @@ export class RecurringInvoiceService {
 
     if (sub.items && sub.items.length > 0) {
       msg += `📦 *تفاصيل الخدمات / المنتجات:*\n`;
-      sub.items.forEach((it: any) => {
+      sub.items.forEach((it: Record<string, any>) => {
         msg += `• ${it.product_name} × ${it.quantity} = ${(it.quantity * it.unit_price).toFixed(2)} ج.م\n`;
       });
       msg += `━━━━━━━━━━━━━━━━━━━━━\n`;

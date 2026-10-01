@@ -616,7 +616,7 @@ const RoutingBOMManager = () => {
           .order('step_order', { ascending: true });
 
         if (stepsError) throw stepsError;
-        setRoutingSteps((stepsData || []).map((s: any) => ({
+        setRoutingSteps((stepsData || []).map((s: Record<string, any>) => ({
           ...s,
           attachments: s.mfg_step_attachments || [],
           materials: s.mfg_step_materials || [] // <--- تم إضافة هذا السطر لربط المواد الخام بالعرض
@@ -1317,12 +1317,12 @@ const RoutingBOMManager = () => {
                 🍰 المنتجات الوسيطة ونصف المصنعة (اضغط للمراجعة الفورية للمسار والمكونات):
               </span>
               <div className="flex flex-wrap gap-2 mt-1">
-                {productOptions.filter((p: any) => p.isIntermediate).length === 0 ? (
+                {productOptions.filter((p: Record<string, any>) => p.isIntermediate).length === 0 ? (
                   <p className="text-xs text-slate-400 italic py-1">
                     لا توجد منتجات وسيطة مضافة حالياً. (تظهر الأصناف هنا فقط عند تحديد نوعها كـ "منتج وسيط / نصف مصنع" في كارت الصنف).
                   </p>
                 ) : (
-                  productOptions.filter((p: any) => p.isIntermediate).map(p => (
+                  productOptions.filter((p: Record<string, any>) => p.isIntermediate).map(p => (
                     <button
                       key={p.id}
                       type="button"
@@ -1562,7 +1562,7 @@ const RoutingBOMManager = () => {
                                 <div className="p-2.5 bg-slate-100/80 rounded-xl text-xs font-bold text-slate-700 flex justify-between items-center mt-2 border border-slate-200/60">
                                   <span>إجمالي تكلفة خامات هذه المرحلة:</span>
                                   <span className="font-black text-emerald-700 text-sm">
-                                    {step.materials.reduce((sum: number, m: any) => {
+                                    {step.materials.reduce((sum: number, m: Record<string, any>) => {
                                       const p = (allProducts as any[])?.find(x => x.id === m.raw_material_id);
                                       const c = Number(p?.cost || p?.purchase_price || 0);
                                       return sum + (Number(m.quantity_required || 0) * c);

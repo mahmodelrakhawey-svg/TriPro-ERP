@@ -107,7 +107,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       // نُعلِّم القيود الافتتاحية
       const openingEntryIds = new Set<string>();
 
-      glLines?.forEach((line: any) => {
+      glLines?.forEach((line: Record<string, any>) => {
         const debitVal  = Number(line.debit  || 0);
         const creditVal = Number(line.credit || 0);
         totalGlDebit  += debitVal;
@@ -260,7 +260,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       if (userOrgId) subQuery = subQuery.eq('organization_id', userOrgId);
       const subcontractorsList = (subBillRes as any).data ? (await subQuery).data : [];
       
-      subcontractorsList?.forEach((sub: any) => {
+      subcontractorsList?.forEach((sub: Record<string, any>) => {
         if (sub.supplier_id) {
           subToSupplierMap.set(sub.id, sub.supplier_id);
         }
@@ -280,7 +280,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       // ============================================================
       let subBillingsNormalized: any[] = [];
       if (!subBillRes.error && subBillRes.data) {
-        subBillingsNormalized = subBillRes.data.map((sb: any) => {
+        subBillingsNormalized = subBillRes.data.map((sb: Record<string, any>) => {
           const rawSub = sb.subcontractor_contracts?.subcontractors;
           const subId = sb.subcontractor_contracts?.subcontractor_id || rawSub?.id;
           const mappedSupplierId = (subId ? subToSupplierMap.get(subId) : null) || rawSub?.supplier_id || null;
@@ -305,7 +305,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         if (userOrgId) basicBillQ = basicBillQ.eq('organization_id', userOrgId);
         const { data: basicBillings } = await basicBillQ;
         if (basicBillings) {
-          subBillingsNormalized = basicBillings.map((sb: any) => ({
+          subBillingsNormalized = basicBillings.map((sb: Record<string, any>) => ({
             id:                       sb.id,
             billing_number:           sb.billing_number,
             net_amount:               Number(sb.net_amount  || 0),
@@ -684,7 +684,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
   const [extractedSupplierName, setExtractedSupplierName] = useState('');
 
-  const openFixModal = (entry: any) => {
+  const openFixModal = (entry: Record<string, any>) => {
     setEntryToFix(entry);
     const desc = entry.description || '';
     const match = desc.match(/للمورد\s+([^\s]+)/i) || desc.match(/مورد\s+([^\s]+)/i) || desc.match(/طرف\s+([^\s]+)/i) || desc.match(/إلى\s+([^\s]+)/i);

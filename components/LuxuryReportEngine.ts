@@ -22,7 +22,7 @@ const escapeHtml = (str: string | null | undefined): string => {
  * supporting Arabic text shaping, custom fonts (Cairo), and RTL/LTR layout dynamically.
  */
 export const LuxuryReportEngine = {
-  generatePDF: async (data: any, type: 'invoice' | 'discharge', lang: 'ar' | 'en' = 'ar') => {
+  generatePDF: async (data: Record<string, any>, type: 'invoice' | 'discharge', lang: 'ar' | 'en' = 'ar') => {
     // 1. Create a hidden printing container
     const printContainer = document.createElement('div');
     printContainer.id = 'luxury-print-container';
@@ -307,7 +307,7 @@ export const LuxuryReportEngine = {
             </tr>
           </thead>
           <tbody>
-            ${(data.billing_items || []).map((item: any) => `
+            ${(data.billing_items || []).map((item: Record<string, any>) => `
               <tr>
                 <td>${escapeHtml(item.description)}</td>
                 <td style="text-align: center;">${Number(item.quantity || 0)}</td>
@@ -325,7 +325,7 @@ export const LuxuryReportEngine = {
         </div>
       `;
     } else if (type === 'discharge') {
-      const notes = data.clinical_notes?.map((cn: any) => cn.assessment).filter(Boolean).join('\n') || t.noNotes;
+      const notes = data.clinical_notes?.map((cn: Record<string, any>) => cn.assessment).filter(Boolean).join('\n') || t.noNotes;
       const recommendations = data.clinical_notes?.map((cn: any) => cn.plan).filter(Boolean).join('\n') 
         || data.visit?.plan 
         || (lang === 'ar' ? 'يرجى مراجعة الطبيب المعالج بعد أسبوعين أو عند الضرورة.' : 'Please follow up with the attending doctor in two weeks or as necessary.');
@@ -363,7 +363,7 @@ export const LuxuryReportEngine = {
         ${data.medications && data.medications.length > 0 ? `
           <div class="luxury-title">${t.medicationsTitle}</div>
           <ol class="list-container">
-            ${data.medications.map((med: any) => `
+            ${data.medications.map((med: Record<string, any>) => `
               <li class="list-item">
                 <strong>${escapeHtml(med.drug_name)}</strong> 
                 ${med.qty ? ` - ${lang === 'ar' ? 'الكمية: ' + Number(med.qty) : 'Qty: ' + Number(med.qty)}` : ''}
@@ -377,7 +377,7 @@ export const LuxuryReportEngine = {
         ${data.lab_results && data.lab_results.length > 0 ? `
           <div class="luxury-title">${t.labsTitle}</div>
           <ul class="list-container" style="list-style-type: square;">
-            ${data.lab_results.map((lab: any) => `
+            ${data.lab_results.map((lab: Record<string, any>) => `
               <li class="list-item"><strong>${escapeHtml(lab.test)}</strong>: ${escapeHtml(lab.result)}</li>
             `).join('')}
           </ul>

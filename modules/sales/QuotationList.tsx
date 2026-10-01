@@ -128,7 +128,7 @@ export const QuotationList = () => {
     return { totalAmount, acceptedCount, sentCount, draftCount, count: filteredQuotations.length };
   }, [filteredQuotations]);
 
-  const handleDelete = async (quote: any) => {
+  const handleDelete = async (quote: Record<string, any>) => {
     if (!window.confirm(`هل أنت متأكد من حذف عرض السعر رقم (${quote.quotation_number})؟`)) {
       return;
     }
@@ -150,7 +150,7 @@ export const QuotationList = () => {
     }
   };
 
-  const handleConvertToInvoice = async (quote: any) => {
+  const handleConvertToInvoice = async (quote: Record<string, any>) => {
     try {
       await supabase.from('quotations').update({ status: 'converted' }).eq('id', quote.id);
     } catch (e) {
@@ -164,7 +164,7 @@ export const QuotationList = () => {
           quotationNumber: quote.quotation_number,
           customerId: quote.customer_id,
           notes: `محول من عرض السعر رقم: ${quote.quotation_number}`,
-          items: (quote.quotation_items || []).map((i: any) => ({
+          items: (quote.quotation_items || []).map((i: Record<string, any>) => ({
             productId: i.product_id,
             quantity: i.quantity,
             unitPrice: i.unit_price,
@@ -175,7 +175,7 @@ export const QuotationList = () => {
     });
   };
 
-  const handlePrint = (quote: any) => {
+  const handlePrint = (quote: Record<string, any>) => {
     setQuoteToPrint({
       quotationNumber: quote.quotation_number,
       date: quote.quotation_date,
@@ -198,7 +198,7 @@ export const QuotationList = () => {
     }, 200);
   };
 
-  const handleShareWhatsApp = (quote: any) => {
+  const handleShareWhatsApp = (quote: Record<string, any>) => {
     const phone = quote.customers?.phone ? quote.customers.phone.replace(/[^0-9]/g, '') : '';
     const message = `مرحباً ${quote.customers?.name || 'عميلنا العزيز'},\nيسرنا تقديم عرض الأسعار رقم: ${quote.quotation_number}\nالتاريخ: ${quote.quotation_date}\nتاريخ السريان حتى: ${quote.expiry_date || 'غير محدد'}\nإجمالي العرض: ${Number(quote.total_amount).toLocaleString()} ${settings.currency || 'ج.م'}\nشكراً لاهتمامكم ونرحب باستفساراتكم في أي وقت.`;
     

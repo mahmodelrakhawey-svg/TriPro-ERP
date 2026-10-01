@@ -10,7 +10,7 @@ import SupplierSearchSelect from '../../components/SupplierSearchSelect';
 
 // 🚀 أداة استعلام تجلب جميع السجلات بأمان متجاوزة سقف الـ 1000 في Supabase عبر التجزئة التتابعية
 async function fetchCompleteDataset<T>(
-  queryBuilder: (from: number, to: number) => Promise<{ data: T[] | null; error: any }>
+  queryBuilder: (from: number, to: number) => Promise<{ data: T[] | null; error: unknown }>
 ): Promise<T[]> {
   const CHUNK_SIZE = 1000;
   let allRows: T[] = [];
@@ -245,9 +245,9 @@ const SupplierStatement = () => {
         }));
 
         // إضافة القيود الافتتاحية المسجلة للمورد في دفتر اليومية
-        openingEntries?.forEach((line: any) => {
+        openingEntries?.forEach((line: Record<string, any>) => {
             const isDuplicate = allTrans.some(t => {
-                const clean = (r: any) => r?.toString().trim().toUpperCase()
+                const clean = (r: unknown) => r?.toString().trim().toUpperCase()
                     .replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '') || '';
                 return clean(t.ref) === clean(line.journal_entries.reference);
             });
@@ -264,10 +264,10 @@ const SupplierStatement = () => {
             }
         });
 
-        manualEntries?.forEach((line: any) => {
+        manualEntries?.forEach((line: Record<string, any>) => {
             // 🛡️ منع تكرار المستندات إذا كانت مسجلة بالفعل (مثل الشيكات أو الفواتير)
             const isDuplicate = allTrans.some(t => {
-                const clean = (r: any) => r?.toString().trim().toUpperCase()
+                const clean = (r: unknown) => r?.toString().trim().toUpperCase()
                     .replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '') || '';
                 const r1 = clean(t.ref);
                 const r2 = clean(line.journal_entries.reference);
@@ -482,7 +482,7 @@ const SupplierStatement = () => {
                                 <td colSpan={6} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
                                 <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
                             </tr>
-                            {displayedTransactions.map((t: any, idx) => (
+                            {displayedTransactions.map((t: Record<string, any>, idx) => (
                                 <tr key={t.id || idx} className="hover:bg-slate-50 transition-colors">
                                     <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
                                     <td className="p-4 font-mono font-bold text-emerald-600">
@@ -506,7 +506,7 @@ const SupplierStatement = () => {
                                 <td colSpan={6} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
                                 <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
                             </tr>
-                            {transactions.map((t: any, idx) => (
+                            {transactions.map((t: Record<string, any>, idx) => (
                                 <tr key={t.id || idx}>
                                     <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
                                     <td className="p-4 font-mono font-bold text-emerald-600">

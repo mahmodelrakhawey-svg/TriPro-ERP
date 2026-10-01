@@ -77,7 +77,7 @@ const SupplierManager = () => {
                 const statsMap: Record<string, any> = {};
                 let count = 0;
 
-                serverStats.forEach((row: any) => {
+                serverStats.forEach((row: Record<string, any>) => {
                     count = Number(row.total_count || 0);
                     list.push({
                         id: row.supplier_id,
@@ -293,7 +293,7 @@ const SupplierManager = () => {
         });
 
         // ربط القيود اليدوية بالموردين (بالمعرف أو بالاسم في البيان أو بالمرجع)
-        manualEntriesRes.data?.forEach((je: any) => {
+        manualEntriesRes.data?.forEach((je: Record<string, any>) => {
             const desc = (je.description || '').toLowerCase();
             const ref = (je.reference || '').toLowerCase();
             const docId = je.related_document_id;
@@ -451,7 +451,7 @@ const SupplierManager = () => {
     let sortableItems = [...suppliers];
     if (sortConfig) {
       sortableItems.sort((a, b) => {
-        let valA: any, valB: any;
+        let valA: string | number, valB: string | number;
         switch (sortConfig.key) {
           case 'balance': valA = stats[a.id]?.balance ?? 0; valB = stats[b.id]?.balance ?? 0; break;
           case 'totalPurchases': valA = stats[a.id]?.totalPurchases ?? 0; valB = stats[b.id]?.totalPurchases ?? 0; break;

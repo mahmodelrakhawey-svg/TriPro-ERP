@@ -149,7 +149,7 @@ export const SalesOrders: React.FC = () => {
   }, [filteredOrders]);
 
   // تعميد أمر البيع
-  const handleConfirm = async (order: any) => {
+  const handleConfirm = async (order: Record<string, any>) => {
     setConfirmingId(order.id);
     try {
       const { error } = await supabase
@@ -168,7 +168,7 @@ export const SalesOrders: React.FC = () => {
     }
   };
 
-  const handleDelete = async (order: any) => {
+  const handleDelete = async (order: Record<string, any>) => {
     if (!window.confirm(`هل أنت متأكد من حذف أمر البيع رقم (${order.order_number})؟`)) {
       return;
     }
@@ -190,7 +190,7 @@ export const SalesOrders: React.FC = () => {
     }
   };
 
-  const openConvertModal = (order: any) => {
+  const openConvertModal = (order: Record<string, any>) => {
     setSelectedOrderForConvert(order);
     const initialWh = settings.defaultWarehouseId || (warehouses.length > 0 ? warehouses[0].id : '');
     setTargetWarehouseId(initialWh);
@@ -223,7 +223,7 @@ export const SalesOrders: React.FC = () => {
     }
   };
 
-  const handlePrint = (order: any) => {
+  const handlePrint = (order: Record<string, any>) => {
     setOrderToPrint({
       orderNumber: order.order_number,
       date: order.order_date,
@@ -232,7 +232,7 @@ export const SalesOrders: React.FC = () => {
       notes: order.notes,
       totalAmount: order.total_amount,
       taxAmount: order.tax_amount,
-      items: (order.sales_order_items || []).map((i: any) => ({
+      items: (order.sales_order_items || []).map((i: Record<string, any>) => ({
         name: i.products?.name || 'صنف',
         quantity: i.quantity,
         unitPrice: i.unit_price,
@@ -246,7 +246,7 @@ export const SalesOrders: React.FC = () => {
     }, 200);
   };
 
-  const handleShareWhatsApp = (order: any) => {
+  const handleShareWhatsApp = (order: Record<string, any>) => {
     const phone = order.customers?.phone ? order.customers.phone.replace(/[^0-9]/g, '') : '';
     const message = `مرحباً ${order.customers?.name || 'عميلنا العزيز'},\nنود إخطاركم بتأكيد وتعميد أمر البيع رقم: ${order.order_number}\nالتاريخ: ${order.order_date}\nتاريخ التسليم المتوقع: ${order.expected_delivery_date || 'حسب الاتفاق'}\nإجمالي المبلغ: ${Number(order.total_amount).toLocaleString()} ${settings.currency || 'ج.م'}\nالحالة: ${order.status === 'confirmed' ? 'معمد وجاري التجهيز' : 'مسجل'}\nشكراً لتعاملكم معنا.`;
     

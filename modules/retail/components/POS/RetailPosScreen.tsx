@@ -665,7 +665,7 @@ export default function RetailPosScreen() {
         await offlineService.seedFallbackProducts(DEFAULT_OFFLINE_PRODUCTS);
       }
 
-      let activeShiftDb: any = null;
+      let activeShiftDb: Record<string, any> | null = null;
       const cachedShift = secureStorage.getItem<any>(`tripro_shift_${currentUser.id}`);
       if (cachedShift) {
         const parsed = typeof cachedShift === 'string' ? JSON.parse(cachedShift) : cachedShift;
@@ -717,7 +717,7 @@ export default function RetailPosScreen() {
 
       if (activeShiftDb) {
         setActiveShift(activeShiftDb);
-        const resolvedTerm = activeShiftDb.pos_terminals || (termData && termData.find((t: any) => t.id === activeShiftDb.terminal_id)) || (termData && termData.length > 0 ? termData[0] : null);
+        const resolvedTerm = activeShiftDb.pos_terminals || (termData && termData.find((t: Record<string, any>) => t.id === activeShiftDb.terminal_id)) || (termData && termData.length > 0 ? termData[0] : null);
         setSelectedTerminal(resolvedTerm);
         secureStorage.setItem(`tripro_shift_${currentUser.id}`, activeShiftDb);
       } else if (termData && termData.length > 0) {
@@ -778,7 +778,7 @@ export default function RetailPosScreen() {
 
         if (alreadyOpen && alreadyOpen.id) {
           setActiveShift(alreadyOpen);
-          const resolvedTerm = alreadyOpen.pos_terminals || (terminals && terminals.find((t: any) => t.id === alreadyOpen.terminal_id)) || termToUse;
+          const resolvedTerm = alreadyOpen.pos_terminals || (terminals && terminals.find((t: Record<string, any>) => t.id === alreadyOpen.terminal_id)) || termToUse;
           setSelectedTerminal(resolvedTerm);
           secureStorage.setItem(`tripro_shift_${currentUser.id}`, alreadyOpen);
           showToast('تم العثور على وردية مفتوحة واستئنافها بنجاح ✅', 'success');
@@ -808,8 +808,8 @@ export default function RetailPosScreen() {
       const validUserId = (currentUser?.id && isValidUUID(currentUser.id)) ? currentUser.id : null;
 
       // 🛡️ 2. استدعاء start_pos_shift مع دعم ذكي لتعدد التواقيع (Overload Ambiguity Resilience)
-      let newShift: any = null;
-      let rpcError: any = null;
+      let newShift: Record<string, any> | null = null;
+      let rpcError: Record<string, any> | null = null;
 
       // المحاولة الأولى: تمرير 6 معاملات (النمط الكامل مع معرّف الجهاز والمنظمة)
       const res6 = await supabase.rpc('start_pos_shift', {
@@ -924,7 +924,7 @@ export default function RetailPosScreen() {
   };
 
   // 💵 Calculate and refresh real-time drawer balance and shift financials
-  const refreshShiftFinancials = useCallback(async (currentShift?: any) => {
+  const refreshShiftFinancials = useCallback(async (currentShift?: Record<string, any>) => {
     const shift = currentShift || activeShift;
     if (!shift || !shift.id) {
       setShiftFinancials({ cashSales: 0, cashReturns: 0, cashDrops: 0, drawerCash: 0 });
@@ -1056,7 +1056,7 @@ export default function RetailPosScreen() {
           (p.sku && p.sku.toLowerCase().includes(q)) ||
           (p.barcode && p.barcode.toLowerCase().includes(q)) ||
           (p.barcode2 && p.barcode2.toLowerCase().includes(q)) ||
-          (Array.isArray((p as any).unit_barcodes) && (p as any).unit_barcodes.some((ub: any) => ub.barcode && ub.barcode.toLowerCase().includes(q)))
+          (Array.isArray((p as any).unit_barcodes) && (p as any).unit_barcodes.some((ub: Record<string, any>) => ub.barcode && ub.barcode.toLowerCase().includes(q)))
         )
         .limit(10)
         .toArray();

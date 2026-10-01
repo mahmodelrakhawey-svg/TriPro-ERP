@@ -42,7 +42,7 @@ export const exportProductsToExcel = async ({
 }: {
   targetOrgId?: string | null;
   categories: any[];
-  queryModifier: (query: any) => any;
+  queryModifier: (query: Record<string, any>) => Record<string, any>;
   showToast: (msg: string, type?: string) => void;
   setIsExporting: (val: boolean) => void;
 }) => {
@@ -134,7 +134,7 @@ export const exportScalePLUToExcel = async (showToast: (msg: string, type?: stri
       return;
     }
 
-    const pluData = (scaleItems || []).map((item: any, idx: number) => {
+    const pluData = (scaleItems || []).map((item: Record<string, any>, idx: number) => {
       const rawCode = (item.sku || '').replace(/\D/g, '');
       const pluNumber = item.plu_number || (rawCode ? parseInt(rawCode, 10) : (idx + 1));
       const paddedPlu = String(pluNumber).padStart(5, '0');
@@ -270,7 +270,7 @@ export const importRecipesFromExcel = async ({
       };
 
       for (const rawRow of data as any[]) {
-        const row: any = {};
+        const row: Record<string, any> = {};
         Object.keys(rawRow).forEach(key => {
           row[key.trim()] = rawRow[key];
         });
@@ -493,7 +493,7 @@ export const importProductsFromExcel = async ({
   categories: any[];
   contextAccounts: any[];
   getSystemAccount: (key: string) => any;
-  addEntry: (entry: any) => Promise<any>;
+  addEntry: (entry: Record<string, any>) => Promise<unknown>;
   queryClient: any;
   refreshData: () => Promise<void>;
   showToast: (msg: string, type?: string) => void;
@@ -914,7 +914,7 @@ export const updateProductPricesFromExcel = async ({
           }
 
           // مطابقة الصنف (الكود أولاً ثم الباركود ثم الاسم)
-          let matched: any = null;
+          let matched: Record<string, any> | null = null;
           if (sku && skuMap.has(String(sku).trim().toLowerCase())) {
             matched = skuMap.get(String(sku).trim().toLowerCase());
           } else if (barcode && barcodeMap.has(String(barcode).trim())) {
