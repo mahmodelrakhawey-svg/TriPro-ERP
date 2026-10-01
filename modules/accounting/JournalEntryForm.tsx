@@ -160,7 +160,7 @@ const JournalEntryForm = () => {
     let processedValue = value;
     if (field === 'debit' || field === 'credit') {
         // السماح بالقيم النصية أثناء الكتابة لمنع مشاكل العلامة العشرية والمسح
-        if (value === '' || /^\d*\.?\d*$/.test(value)) {
+        if (value === '' || /^\d*\.?\d*$/.test(String(value || ''))) {
             processedValue = value;
         } else {
             return;

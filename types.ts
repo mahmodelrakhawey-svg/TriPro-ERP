@@ -723,6 +723,8 @@ export interface SelectedModifier {
 }
 
 export interface OrderItem {
+  id?: string;
+  localId?: string;
   productId: string;
   name: string;
   quantity: number;
