@@ -142,7 +142,7 @@ export default function EndOfServiceCalculator() {
       // 1. Employees
       let empList: { id: string; name: string; basic_salary?: number; hire_date?: string }[] = [];
       if (contextEmployees && contextEmployees.length > 0) {
-        empList = contextEmployees.map((e: any) => ({
+        empList = contextEmployees.map((e: Record<string, any>) => ({
           id: e.id,
           name: e.name || e.full_name || 'موظف',
           basic_salary: e.basic_salary || e.salary || 6000,
@@ -150,7 +150,7 @@ export default function EndOfServiceCalculator() {
         }));
       } else {
         const { data: eData } = await supabase.from('employees').select('id, name, basic_salary, hire_date').eq('organization_id', orgId);
-        empList = (eData || []).map((e: any) => ({
+        empList = (eData || []).map((e: Record<string, any>) => ({
           id: e.id,
           name: e.name || 'موظف',
           basic_salary: e.basic_salary || 6000,
@@ -170,10 +170,10 @@ export default function EndOfServiceCalculator() {
         logger.warn('hr_end_of_service_settlements table notice:', error.message);
         setSettlements([]);
       } else {
-        setSettlements((data || []).map((d: any) => ({
+        setSettlements((data || []).map((d: Record<string, any>) => ({
           ...d,
           employee_name: empList.find(e => e.id === d.employee_id)?.name || 'موظف'
-        })));
+        })) as SettlementRecord[]);
       }
     } catch (err) {
       logger.error(err);

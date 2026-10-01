@@ -44,7 +44,7 @@ const EmployeeManager = () => {
   // 🛡️ عزل نطاق الإشراف مباشرة في دليل الموظفين كصمام أمان مزدوج
   const userHrScope = currentUser?.hr_scope || (currentUser as any)?.user_metadata?.hr_scope || 'all';
 
-  const isFactoryDept = (dept: any) => {
+  const isFactoryDept = (dept: unknown) => {
     const d = String(dept || '').trim().toLowerCase();
     return d === 'المصنع' || d === 'مصنع' || d === 'factory';
   };
@@ -107,7 +107,7 @@ const EmployeeManager = () => {
     setPositionFilter('all');
   };
 
-  const handleOpenModal = (employee?: any) => {
+  const handleOpenModal = (employee?: Record<string, any>) => {
     if (employee) {
       setEditingId(employee.id);
       setFormData({
@@ -213,7 +213,7 @@ const EmployeeManager = () => {
 
       if (fetchErr) throw fetchErr;
 
-      const existingNames = new Set((existingEmployees || []).map((e: any) => e.full_name?.trim()));
+      const existingNames = new Set((existingEmployees || []).map((e: Record<string, any>) => e.full_name?.trim()));
       const toInsert = FACTORY_EMPLOYEES_LIST
         .filter(name => !existingNames.has(name.trim()))
         .map(name => ({

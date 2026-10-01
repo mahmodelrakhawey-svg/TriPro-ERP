@@ -229,7 +229,7 @@ const ProjectComprehensiveReport: React.FC<ProjectComprehensiveReportProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {milestones.map((m: any) => (
+                  {milestones.map((m: Record<string, any>) => (
                     <tr key={m.id} className="border-b border-gray-100 last:border-b-0">
                       <td className="py-2 px-4">{m.title}</td>
                       <td className="py-2 px-4">{m.expected_start_date}</td>
@@ -251,7 +251,7 @@ const ProjectComprehensiveReport: React.FC<ProjectComprehensiveReportProps> = ({
           <h4 className="text-xl font-bold text-gray-800 flex items-center gap-2"><ImageIcon className="text-purple-600" /> صور الموقع الأخيرة</h4>
           {dailyReports && dailyReports.length > 0 ? (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {dailyReports.map((report: any, idx: number) => report.site_images && report.site_images[0] && (
+              {dailyReports.map((report: Record<string, any>, idx: number) => report.site_images && report.site_images[0] && (
                 <div key={idx} className="bg-gray-100 rounded-lg overflow-hidden shadow-sm">
                   <img src={report.site_images[0]} alt="Site" className="w-full h-48 object-cover" />
                   <div className="p-3">
@@ -281,7 +281,7 @@ const ProjectComprehensiveReport: React.FC<ProjectComprehensiveReportProps> = ({
                   </tr>
                 </thead>
                 <tbody>
-                  {subPerformance.map((sub: any) => (
+                  {subPerformance.map((sub: Record<string, any>) => (
                     <tr key={sub.subcontractor_id} className="border-b border-gray-100 last:border-b-0">
                       <td className="py-2 px-4">{sub.name}</td>
                       <td className="py-2 px-4">{sub.specialty}</td>

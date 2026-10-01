@@ -86,10 +86,10 @@ export default function AttendanceManager() {
       // 1. Employees
       let empList: { id: string; name: string }[] = [];
       if (contextEmployees && contextEmployees.length > 0) {
-        empList = contextEmployees.map((e: any) => ({ id: e.id, name: e.name || e.full_name || 'موظف' }));
+        empList = contextEmployees.map((e: Record<string, any>) => ({ id: e.id, name: e.name || e.full_name || 'موظف' }));
       } else {
         const { data: eData } = await supabase.from('employees').select('id, name').eq('organization_id', orgId);
-        empList = (eData || []).map((e: any) => ({ id: e.id, name: e.name || 'موظف' }));
+        empList = (eData || []).map((e: Record<string, any>) => ({ id: e.id, name: e.name || 'موظف' }));
       }
       setEmployeesList(empList);
 
@@ -109,10 +109,10 @@ export default function AttendanceManager() {
         logger.warn('hr_attendance_logs table notice:', error.message);
         setLogs([]);
       } else {
-        setLogs((data || []).map((d: any) => ({
+        setLogs((data || []).map((d: Record<string, any>) => ({
           ...d,
           employee_name: empList.find(e => e.id === d.employee_id)?.name || 'موظف'
-        })));
+        })) as AttendanceLog[]);
       }
     } catch (err) {
       logger.error(err);

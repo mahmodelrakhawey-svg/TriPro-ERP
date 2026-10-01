@@ -59,7 +59,7 @@ export const LabDashboard: React.FC = () => {
                 }
               }
 
-              const testMaster = cachedLabMasters.find((t: any) => t.id === o.test_id);
+              const testMaster = cachedLabMasters.find((t: Record<string, any>) => t.id === o.test_id);
 
               offlineOrders.push({
                 id: `queued-lab-${batch.id}-${index++}`,
@@ -242,7 +242,7 @@ export const LabDashboard: React.FC = () => {
     { title: 'الفحص المطلوب', dataIndex: ['hims_lab_tests', 'test_name'] },
     { 
       title: 'حالة السداد بالخزينة', 
-      render: (record: any) => {
+      render: (record: Record<string, any>) => {
         const visitBilling = record.hims_visits?.hims_billing;
         const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
         if (billing?.insurance_provider_id) {
@@ -256,7 +256,7 @@ export const LabDashboard: React.FC = () => {
         );
       }
     },
-    { title: 'إجراء', render: (record: any) => {
+    { title: 'إجراء', render: (record: Record<string, any>) => {
       const visitBilling = record.hims_visits?.hims_billing;
       const billing = Array.isArray(visitBilling) ? visitBilling[0] : visitBilling;
       const isPaid = billing?.payment_status === 'paid' || billing?.insurance_provider_id;

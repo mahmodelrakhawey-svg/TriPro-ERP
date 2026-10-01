@@ -58,7 +58,7 @@ const DoctorManager: React.FC = () => {
         }
     }, [orgId]);
 
-    const handleSaveDoctor = async (values: any) => {
+    const handleSaveDoctor = async (values: Record<string, any>) => {
         setLoading(true);
         try {
             if (editingDoctor) {
@@ -99,7 +99,7 @@ const DoctorManager: React.FC = () => {
         }
     };
 
-    const handleOpenEdit = (record: any) => {
+    const handleOpenEdit = (record: Record<string, any>) => {
         setEditingDoctor(record);
         form.setFieldsValue({
             employee_id: record.profile_id,
@@ -123,7 +123,7 @@ const DoctorManager: React.FC = () => {
         { title: 'الحالة', dataIndex: 'is_active', render: (active: boolean) => <Tag color={active ? 'green' : 'red'}>{active ? 'نشط' : 'غير نشط'}</Tag> },
         { 
             title: 'إجراءات', 
-            render: (_: any, record: any) => (
+            render: (_: unknown, record: Record<string, any>) => (
                 <Space>
                     <Button 
                         type="text" 

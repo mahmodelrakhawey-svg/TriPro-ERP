@@ -81,7 +81,7 @@ const MedicalBilling: React.FC = () => {
   const columns = [
     {
       title: 'المريض',
-      render: (r: any) => (
+      render: (r: Record<string, any>) => (
         <div>
           <div className="font-bold text-slate-800">{r.hims_patients?.full_name || 'مريض غير مسجل'}</div>
           <div className="text-[10px] text-slate-400">زيارة: {r.visit_id.substring(0, 8)}</div>
@@ -114,7 +114,7 @@ const MedicalBilling: React.FC = () => {
     },
     {
       title: 'المتبقي المستحق',
-      render: (r: any) => {
+      render: (r: Record<string, any>) => {
         const remaining = Math.max(0, (r.total_amount || 0) - (r.patient_paid_amount || 0) - (r.insurance_covered_amount || 0));
         return remaining > 0 ? (
           <b className="text-rose-600 font-bold">{remaining.toLocaleString()} EGP</b>
@@ -125,7 +125,7 @@ const MedicalBilling: React.FC = () => {
     },
     {
       title: 'الإجراء',
-      render: (record: any) => (
+      render: (record: Record<string, any>) => (
         <button 
           onClick={() => setVisitId(record.visit_id)}
           className="bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center justify-center gap-1 transition-colors duration-150 border-none shadow-sm cursor-pointer"

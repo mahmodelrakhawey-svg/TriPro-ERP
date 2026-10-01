@@ -38,7 +38,7 @@ export const HIMSServicesManager: React.FC = () => {
 
   useEffect(() => { fetchData(); }, [currentUser]);
 
-  const handleSave = async (values: any) => {
+  const handleSave = async (values: Record<string, any>) => {
     const orgId = await fetchOrgId();
     if (!orgId) return message.error("لم يتم العثور على معرف المؤسسة");
 
@@ -81,7 +81,7 @@ export const HIMSServicesManager: React.FC = () => {
     { title: 'الوحدة', dataIndex: 'unit' },
     {
       title: 'إجراءات',
-      render: (_: any, record: any) => (
+      render: (_: unknown, record: Record<string, any>) => (
         <Space>
           <Button icon={<EditOutlined />} onClick={() => { setEditingItem(record); form.setFieldsValue(record); setIsModalVisible(true); }} />
           <Popconfirm title="حذف هذا النوع؟" onConfirm={() => handleDelete(record.id, 'lab')}><Button danger icon={<DeleteOutlined />} /></Popconfirm>
@@ -95,7 +95,7 @@ export const HIMSServicesManager: React.FC = () => {
     { title: 'السعر', dataIndex: 'price', render: (v: number) => `${v.toLocaleString()} EGP` },
     {
       title: 'إجراءات',
-      render: (_: any, record: any) => (
+      render: (_: unknown, record: Record<string, any>) => (
         <Space>
           <Button icon={<EditOutlined />} onClick={() => { setEditingItem(record); form.setFieldsValue(record); setIsModalVisible(true); }} />
           <Popconfirm title="حذف؟" onConfirm={() => handleDelete(record.id, 'rad')}><Button danger icon={<DeleteOutlined />} /></Popconfirm>
