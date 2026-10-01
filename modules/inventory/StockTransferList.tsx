@@ -248,7 +248,12 @@ const StockTransferList = () => {
                         </div>
                         <div><span className="text-slate-500 block">من:</span> <span className="font-bold">{getWarehouseName(selectedTransfer.from_warehouse_id)}</span></div>
                         <div><span className="text-slate-500 block">إلى:</span> <span className="font-bold">{getWarehouseName(selectedTransfer.to_warehouse_id)}</span></div>
-                        {selectedTransfer.notes && <div className="col-span-2"><span className="text-slate-500 block">ملاحظات:</span> <span className="font-bold">{selectedTransfer.notes}</span></div>}
+                        {selectedTransfer.notes && (
+                          <div className="col-span-2 bg-blue-50/60 p-3 rounded-xl border border-blue-100">
+                            <span className="text-blue-800 text-xs font-bold block mb-1">البيان وتفاصيل التعبئة والوحدات:</span>
+                            <span className="font-bold text-slate-800 text-xs whitespace-pre-line leading-relaxed">{selectedTransfer.notes}</span>
+                          </div>
+                        )}
                     </div>
 
                     <table className="w-full text-right border rounded-lg overflow-hidden">

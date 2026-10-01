@@ -218,8 +218,26 @@ export const ProductSearchSelect: React.FC<ProductSearchSelectProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!isOpen) {
+        setIsOpen(true);
+        return;
+      }
+      if (showAllOption && highlightedIndex === 0) {
+        handleSelect(null);
+      } else {
+        const itemIdx = showAllOption ? highlightedIndex - 1 : highlightedIndex;
+        if (visibleItems[itemIdx]) {
+          handleSelect(visibleItems[itemIdx].product);
+        }
+      }
+      return;
+    }
+
     if (!isOpen) {
-      if (e.key === 'ArrowDown' || e.key === 'Enter') {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
         setIsOpen(true);
       }
       return;
@@ -235,17 +253,8 @@ export const ProductSearchSelect: React.FC<ProductSearchSelectProps> = ({
       e.preventDefault();
       setHighlightedIndex(prev => (prev > 0 ? prev - 1 : maxIndex));
       scrollHighlightedIntoView(highlightedIndex - 1);
-    } else if (e.key === 'Enter') {
-      e.preventDefault();
-      if (showAllOption && highlightedIndex === 0) {
-        handleSelect(null);
-      } else {
-        const itemIdx = showAllOption ? highlightedIndex - 1 : highlightedIndex;
-        if (visibleItems[itemIdx]) {
-          handleSelect(visibleItems[itemIdx].product);
-        }
-      }
     } else if (e.key === 'Escape') {
+      e.preventDefault();
       setIsOpen(false);
     }
   };

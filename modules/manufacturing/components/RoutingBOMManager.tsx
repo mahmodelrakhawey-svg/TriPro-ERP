@@ -6,11 +6,210 @@ import { useToast } from '../../../context/ToastContext';
 import {
   Factory, Plus, Trash2, Save, Loader2, Edit, X, Layers, Settings,
   Clock, Package, CheckSquare, Square, GripVertical, Info, DollarSign, Paperclip, Download,
-  ChevronDown, ChevronUp, Star, FileSpreadsheet, Upload
+  ChevronDown, ChevronUp, Star, FileSpreadsheet, Upload,
+  Calculator, Scale, Sparkles, Box, Check, HelpCircle, CornerDownLeft
 } from 'lucide-react';
 import SearchableSelect from '../../../components/SearchableSelect';
 import { exportSingleProductBOMToExcel, exportMasterBOMToExcel } from '../utils/bomExportUtils';
 import { BOMImportModal } from './BOMImportModal';
+import { secureStorage } from '../../../utils/securityMiddleware';
+
+export interface SavedPackagingHierarchy {
+  bulkUnitName: string;
+  mediumUnitsPerBulk: number;
+  mediumUnitName: string;
+  smallUnitsPerMedium: number;
+  smallUnitName: string;
+  baseQtyPerSmallUnit: number;
+}
+
+export interface RecipeUnitOption {
+  unitName: string;
+  label: string;
+  ratio: number;
+  note?: string;
+  category?: 'base' | 'culinary' | 'packaging' | 'system';
+}
+
+export function getRawMaterialRecipeUnits(rawProd: any, systemUoms: any[] = []): RecipeUnitOption[] {
+  if (!rawProd) return [];
+  const base = (rawProd.unit || 'وحدة').trim();
+  const options: RecipeUnitOption[] = [];
+
+  // 1. الوحدة الأساسية للصنف في المخزن
+  options.push({
+    unitName: base,
+    label: `${base} (الوحدة الأساسية للمخزن)`,
+    ratio: 1,
+    note: 'الوحدة المعتمدة في بطاقة الصنف بالمخزن',
+    category: 'base'
+  });
+
+  const isWeight = /كجم|كيلو|kg|جرام|جم|gram/i.test(base);
+  const isVolume = /لتر|مل|liter|ml/i.test(base);
+
+  // 2. وحدات الأوزان ومعايير الشيف
+  if (isWeight) {
+    if (!/^(جرام|جم|gram)$/i.test(base)) {
+      options.push({
+        unitName: 'جرام',
+        label: 'جرام (جم) - 1/1000 كجم',
+        ratio: 0.001,
+        note: '1000 جرام = 1 كجم',
+        category: 'culinary'
+      });
+      options.push({
+        unitName: 'ملعقة صغيرة (5 جم)',
+        label: 'ملعقة صغيرة (5 جرام)',
+        ratio: 0.005,
+        note: 'معيار 5 جرام تقريباً',
+        category: 'culinary'
+      });
+      options.push({
+        unitName: 'ملعقة كبيرة (15 جم)',
+        label: 'ملعقة كبيرة (15 جرام)',
+        ratio: 0.015,
+        note: 'معيار 15 جرام تقريباً',
+        category: 'culinary'
+      });
+      options.push({
+        unitName: 'أوقية / أونصة (28.35 جم)',
+        label: 'أوقية / أونصة (28.35 جم)',
+        ratio: 0.02835,
+        note: '28.35 جرام',
+        category: 'culinary'
+      });
+    } else {
+      options.push({
+        unitName: 'كجم',
+        label: 'كيلوجرام (1000 جم)',
+        ratio: 1000,
+        note: '1 كجم = 1000 جرام',
+        category: 'culinary'
+      });
+    }
+  }
+
+  // 3. وحدات السوائل والأحجام
+  if (isVolume) {
+    if (!/^(مل|مليلتر|ml)$/i.test(base)) {
+      options.push({
+        unitName: 'مل',
+        label: 'مل (مليلتر) - 1/1000 لتر',
+        ratio: 0.001,
+        note: '1000 مل = 1 لتر',
+        category: 'culinary'
+      });
+      options.push({
+        unitName: 'ملعقة كبيرة (15 مل)',
+        label: 'ملعقة كبيرة (15 مل)',
+        ratio: 0.015,
+        note: 'معيار 15 مل تقريباً',
+        category: 'culinary'
+      });
+      options.push({
+        unitName: 'كوب معياري (240 مل)',
+        label: 'كوب معياري (240 مل)',
+        ratio: 0.240,
+        note: 'كوب 240 مل',
+        category: 'culinary'
+      });
+    } else {
+      options.push({
+        unitName: 'لتر',
+        label: 'لتر (1000 مل)',
+        ratio: 1000,
+        note: '1 لتر = 1000 مل',
+        category: 'culinary'
+      });
+    }
+  }
+
+  // 4. استرجاع شجرة التعبئة المحفوظة للصنف
+  try {
+    const savedHierarchy = secureStorage.getItem<SavedPackagingHierarchy>(`tripro_pkg_hierarchy_${rawProd.id}`);
+    if (savedHierarchy) {
+      const smallQty = Number(savedHierarchy.baseQtyPerSmallUnit) || 1;
+      const medQty = (Number(savedHierarchy.smallUnitsPerMedium) || 1) * smallQty;
+      const bulkQty = (Number(savedHierarchy.mediumUnitsPerBulk) || 1) * medQty;
+
+      if (savedHierarchy.smallUnitName && !options.some(o => o.unitName === savedHierarchy.smallUnitName)) {
+        options.push({
+          unitName: savedHierarchy.smallUnitName,
+          label: `${savedHierarchy.smallUnitName} (= ${smallQty} ${base})`,
+          ratio: smallQty,
+          note: `وحدة تجزئة صغرى (${smallQty} ${base})`,
+          category: 'packaging'
+        });
+      }
+
+      if (savedHierarchy.mediumUnitName && savedHierarchy.mediumUnitName !== savedHierarchy.smallUnitName && !options.some(o => o.unitName === savedHierarchy.mediumUnitName)) {
+        options.push({
+          unitName: savedHierarchy.mediumUnitName,
+          label: `${savedHierarchy.mediumUnitName} (= ${savedHierarchy.smallUnitsPerMedium} ${savedHierarchy.smallUnitName})`,
+          ratio: medQty,
+          note: `عبوة وسيطة (${medQty} ${base})`,
+          category: 'packaging'
+        });
+      }
+
+      if (savedHierarchy.bulkUnitName && savedHierarchy.bulkUnitName !== savedHierarchy.mediumUnitName && !options.some(o => o.unitName === savedHierarchy.bulkUnitName)) {
+        options.push({
+          unitName: savedHierarchy.bulkUnitName,
+          label: `${savedHierarchy.bulkUnitName} (= ${bulkQty} ${base})`,
+          ratio: bulkQty,
+          note: `طرد كلي (${bulkQty} ${base})`,
+          category: 'packaging'
+        });
+      }
+    }
+
+    // 5. استرجاع العبوات الفردية المخصصة للصنف
+    const savedRules = secureStorage.getItem<any[]>(`tripro_pkg_rules_${rawProd.id}`);
+    if (Array.isArray(savedRules)) {
+      savedRules.forEach(r => {
+        if (!options.some(o => o.unitName === r.unitName)) {
+          options.push({
+            unitName: r.unitName,
+            label: `${r.unitName} (= ${r.ratio} ${base})`,
+            ratio: Number(r.ratio) || 1,
+            note: r.packagingNote,
+            category: 'packaging'
+          });
+        }
+      });
+    }
+  } catch (e) {
+    console.error('Error reading packaging for recipe:', e);
+  }
+
+  // 6. مطابقة وحدات النظام العامة (UoMs)
+  if (Array.isArray(systemUoms)) {
+    systemUoms.forEach(u => {
+      let ratio = Number(u.ratio) || 1;
+      if (u.uom_type === 'smaller' && ratio > 0) ratio = 1 / ratio;
+      if (!options.some(o => o.unitName === u.name)) {
+        if (isWeight && /جرام|جم|كيلو|كجم|شيكارة|صفيحة|كيس|علبة|علبه|قالب/i.test(u.name)) {
+          options.push({
+            unitName: u.name,
+            label: `${u.name} (نظام: ${ratio} ${base})`,
+            ratio,
+            category: 'system'
+          });
+        } else if (isVolume && /مل|لتر|جالون|زجاجة/i.test(u.name)) {
+          options.push({
+            unitName: u.name,
+            label: `${u.name} (نظام: ${ratio} ${base})`,
+            ratio,
+            category: 'system'
+          });
+        }
+      }
+    });
+  }
+
+  return options;
+}
 
 interface WorkCenter {
   id: string;
@@ -99,10 +298,174 @@ const RoutingBOMManager = () => {
 
   const [openStepId, setOpenStepId] = useState<string | null>(null); // For expanding/collapsing step details
 
-  const [newMaterial, setNewMaterial] = useState<{ raw_material_id: string; quantity_required: number }>({
-    raw_material_id: '',
-    quantity_required: 0,
-  });
+  const [systemUoms, setSystemUoms] = useState<any[]>([]);
+
+  // 🧪 حالة المادة الخام المراد إضافتها في المرحلة مع دعم التحويل التلقائي للوحدات
+  const [selectedRawId, setSelectedRawId] = useState<string>('');
+  const [ingredientEnteredQty, setIngredientEnteredQty] = useState<number>(1);
+  const [ingredientSelectedUnit, setIngredientSelectedUnit] = useState<string>('');
+  const [ingredientUnitRatio, setIngredientUnitRatio] = useState<number>(1);
+
+  // 🧮 حاسبة عبوات وتجزئة الوصفة السريعة (كرتونة ← علب ← أظرف...)
+  const [isRecipeCalcModalOpen, setIsRecipeCalcModalOpen] = useState<boolean>(false);
+  const [recipeCalcBulkName, setRecipeCalcBulkName] = useState<string>('كرتونة');
+  const [recipeCalcMedUnitsPerBulk, setRecipeCalcMedUnitsPerBulk] = useState<number>(12);
+  const [recipeCalcMedName, setRecipeCalcMedName] = useState<string>('علبة');
+  const [recipeCalcSmallUnitsPerMed, setRecipeCalcSmallUnitsPerMed] = useState<number>(50);
+  const [recipeCalcSmallName, setRecipeCalcSmallName] = useState<string>('ظرف');
+  const [recipeCalcBaseQtyPerSmall, setRecipeCalcBaseQtyPerSmall] = useState<number>(1);
+  const [recipeCalcTargetTier, setRecipeCalcTargetTier] = useState<'small' | 'medium' | 'bulk'>('small');
+  const [recipeCalcWithdrawalQty, setRecipeCalcWithdrawalQty] = useState<number>(1);
+  const [activeStepIdForPackaging, setActiveStepIdForPackaging] = useState<string | null>(null);
+
+  // جلب وحدات النظام العامة UoMs
+  useEffect(() => {
+    const fetchSystemUoms = async () => {
+      try {
+        let q = supabase.from('uoms').select('*');
+        if (orgId) q = q.eq('organization_id', orgId);
+        const { data } = await q;
+        if (data) setSystemUoms(data);
+      } catch (e) {
+        console.error('Error fetching system uoms:', e);
+      }
+    };
+    fetchSystemUoms();
+  }, [orgId]);
+
+  // المادة الخام المختارة حالياً
+  const selectedRawProduct = useMemo(() => {
+    return (allProducts as any[])?.find(p => p.id === selectedRawId);
+  }, [allProducts, selectedRawId]);
+
+  // قائمة الوحدات والمعايير المتاحة للصنف المختار (جرامات، أظرف، علب، ملاعق، أكواب...)
+  const rawAvailableUnits = useMemo(() => {
+    return getRawMaterialRecipeUnits(selectedRawProduct, systemUoms);
+  }, [selectedRawProduct, systemUoms]);
+
+  // تعيين الوحدة الافتراضية الذكية عند تغيير المادة الخام
+  useEffect(() => {
+    if (selectedRawProduct && rawAvailableUnits.length > 0) {
+      const base = (selectedRawProduct.unit || '').trim();
+      const isWeight = /كجم|كيلو|kg/i.test(base);
+      const isVolume = /لتر|liter/i.test(base);
+
+      const gramOpt = rawAvailableUnits.find(u => u.unitName === 'جرام');
+      const mlOpt = rawAvailableUnits.find(u => u.unitName === 'مل');
+      const packOpt = rawAvailableUnits.find(u => u.category === 'packaging');
+
+      if (isWeight && gramOpt) {
+        setIngredientSelectedUnit(gramOpt.unitName);
+        setIngredientUnitRatio(gramOpt.ratio);
+        setIngredientEnteredQty(100);
+      } else if (isVolume && mlOpt) {
+        setIngredientSelectedUnit(mlOpt.unitName);
+        setIngredientUnitRatio(mlOpt.ratio);
+        setIngredientEnteredQty(250);
+      } else if (packOpt) {
+        setIngredientSelectedUnit(packOpt.unitName);
+        setIngredientUnitRatio(packOpt.ratio);
+        setIngredientEnteredQty(1);
+      } else {
+        const firstOpt = rawAvailableUnits[0];
+        setIngredientSelectedUnit(firstOpt.unitName);
+        setIngredientUnitRatio(firstOpt.ratio);
+        setIngredientEnteredQty(1);
+      }
+    }
+  }, [selectedRawProduct, rawAvailableUnits]);
+
+  // الكمية المعيارية المحسوبة بالمخزن = المقدار المدخل * معامل الوحدة
+  const calculatedIngredientBaseQty = useMemo(() => {
+    const entered = Number(ingredientEnteredQty) || 0;
+    const ratio = Number(ingredientUnitRatio) || 1;
+    return Math.round(entered * ratio * 10000) / 10000;
+  }, [ingredientEnteredQty, ingredientUnitRatio]);
+
+  // التكلفة التقديرية لهذا المقدار في الوجبة
+  const estimatedIngredientCost = useMemo(() => {
+    if (!selectedRawProduct) return 0;
+    const unitCost = Number(selectedRawProduct.cost || selectedRawProduct.purchase_price || 0);
+    return Math.round(calculatedIngredientBaseQty * unitCost * 100) / 100;
+  }, [selectedRawProduct, calculatedIngredientBaseQty]);
+
+  // فتح حاسبة العبوات السريعة للصنف
+  const handleOpenRecipePackagingModal = (stepId: string) => {
+    if (!selectedRawProduct) {
+      showToast('الرجاء اختيار المادة الخام أولاً لحساب عبواتها ومقاديرها', 'warning');
+      return;
+    }
+    setActiveStepIdForPackaging(stepId);
+
+    try {
+      const savedHierarchy = secureStorage.getItem<SavedPackagingHierarchy>(`tripro_pkg_hierarchy_${selectedRawProduct.id}`);
+      if (savedHierarchy) {
+        setRecipeCalcBulkName(savedHierarchy.bulkUnitName || 'كرتونة');
+        setRecipeCalcMedUnitsPerBulk(savedHierarchy.mediumUnitsPerBulk || 12);
+        setRecipeCalcMedName(savedHierarchy.mediumUnitName || 'علبة');
+        setRecipeCalcSmallUnitsPerMed(savedHierarchy.smallUnitsPerMedium || 50);
+        setRecipeCalcSmallName(savedHierarchy.smallUnitName || 'ظرف');
+        setRecipeCalcBaseQtyPerSmall(savedHierarchy.baseQtyPerSmallUnit || 1);
+      } else {
+        setRecipeCalcBulkName('كرتونة');
+        setRecipeCalcMedUnitsPerBulk(12);
+        setRecipeCalcMedName('علبة');
+        setRecipeCalcSmallUnitsPerMed(50);
+        setRecipeCalcSmallName('ظرف');
+        setRecipeCalcBaseQtyPerSmall(1);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+
+    setIsRecipeCalcModalOpen(true);
+  };
+
+  // تطبيق ناتج حاسبة العبوات على المقدار
+  const handleApplyRecipePackaging = () => {
+    if (!selectedRawProduct) return;
+
+    const cleanBulk = recipeCalcBulkName.trim() || 'كرتونة';
+    const cleanMed = recipeCalcMedName.trim() || 'علبة';
+    const cleanSmall = recipeCalcSmallName.trim() || 'ظرف';
+    const medPerBulk = Math.max(1, Number(recipeCalcMedUnitsPerBulk) || 1);
+    const smallPerMed = Math.max(1, Number(recipeCalcSmallUnitsPerMed) || 1);
+    const qtyPerSmall = Math.max(0.0001, Number(recipeCalcBaseQtyPerSmall) || 1);
+
+    const hierarchyData: SavedPackagingHierarchy = {
+      bulkUnitName: cleanBulk,
+      mediumUnitsPerBulk: medPerBulk,
+      mediumUnitName: cleanMed,
+      smallUnitsPerMedium: smallPerMed,
+      smallUnitName: cleanSmall,
+      baseQtyPerSmallUnit: qtyPerSmall
+    };
+
+    try {
+      secureStorage.setItem(`tripro_pkg_hierarchy_${selectedRawProduct.id}`, hierarchyData);
+    } catch (e) {
+      console.error(e);
+    }
+
+    let appliedUnit = cleanSmall;
+    let appliedRatio = qtyPerSmall;
+    let appliedQty = Number(recipeCalcWithdrawalQty) || 1;
+
+    if (recipeCalcTargetTier === 'medium') {
+      appliedUnit = cleanMed;
+      appliedRatio = smallPerMed * qtyPerSmall;
+    } else if (recipeCalcTargetTier === 'bulk') {
+      appliedUnit = cleanBulk;
+      appliedRatio = medPerBulk * smallPerMed * qtyPerSmall;
+    }
+
+    setIngredientSelectedUnit(appliedUnit);
+    setIngredientUnitRatio(appliedRatio);
+    setIngredientEnteredQty(appliedQty);
+    setIsRecipeCalcModalOpen(false);
+
+    showToast(`تم ضبط المقدار: ${appliedQty} ${appliedUnit} (= ${(appliedQty * appliedRatio).toFixed(4)} ${selectedRawProduct.unit || 'وحدة'})`, 'success');
+  };
 
   const productOptions: any[] = useMemo(() => {
     return (allProducts as any[])
@@ -504,7 +867,13 @@ const RoutingBOMManager = () => {
   };
 
   // --- Step Material Management (BOM) ---
-  const handleAddMaterialToStep = async (stepId: string, rawMaterialId: string, quantity: number) => {
+  const handleAddMaterialToStep = async (
+    stepId: string, 
+    rawMaterialId: string, 
+    quantity: number,
+    recipeUnitName?: string,
+    recipeEnteredQty?: number
+  ) => {
     if (!rawMaterialId || quantity <= 0) {
       showToast('الرجاء اختيار مادة خام أو منتج وسيط وتحديد كمية صحيحة', 'warning');
       return;
@@ -530,12 +899,20 @@ const RoutingBOMManager = () => {
           : step
       );
       setRoutingSteps(nextSteps);
-      setNewMaterial({ raw_material_id: '', quantity_required: 0 }); // Clear form
+      setSelectedRawId('');
+      setIngredientEnteredQty(1);
+
       const targetProdId = selectedProductId || currentRouting?.product_id;
       if (targetProdId) {
         await syncRoutingToBOM(targetProdId, nextSteps);
       }
-      showToast('تم إضافة المكون للمرحلة ومزامنة شجرة المكونات بنجاح', 'success');
+
+      const prod = (allProducts as any[])?.find(p => p.id === rawMaterialId);
+      const detailMsg = recipeUnitName && recipeEnteredQty 
+        ? ` (${recipeEnteredQty} ${recipeUnitName} = ${preciseQuantity} ${prod?.unit || 'وحدة'})`
+        : ` (${preciseQuantity} ${prod?.unit || 'وحدة'})`;
+
+      showToast(`تمت إضافة المكون: ${prod?.name || ''}${detailMsg}`, 'success');
     } catch (error: any) {
       showToast('فشل إضافة المكون للمرحلة: ' + error.message, 'error');
     } finally {
@@ -1120,68 +1497,184 @@ const RoutingBOMManager = () => {
                                 <table className="w-full text-right text-sm">
                                   <thead>
                                     <tr className="bg-gray-50 text-gray-500 text-xs uppercase">
-                                      <th className="p-2">المادة الخام</th>
-                                      <th className="p-2 text-center">الكمية</th>
+                                      <th className="p-2">المادة الخام / المكون</th>
+                                      <th className="p-2 text-center">الكمية بالمخزن</th>
                                       <th className="p-2 text-center">الوحدة</th>
+                                      <th className="p-2 text-center">تكلفة المكون</th>
                                       <th className="p-2 text-center">إجراءات</th>
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {step.materials.map(mat => (
-                                      <tr key={mat.id} className="border-b hover:bg-gray-50">
-                                        <td className="p-2 font-medium">{mat.products?.name}</td>
-                                        <td className="p-2 text-center">
-                                          <input
-                                            type="number"
-                                            value={mat.quantity_required}
-                                            onChange={e => handleUpdateMaterialQuantity(mat.id, step.id, parseFloat(e.target.value))}
-                                            className="w-20 border rounded-lg p-1 text-center"
-                                            min="0.0001"
-                                            step="0.0001"
-                                          />
-                                        </td>
-                                        <td className="p-2 text-center text-gray-500">{mat.products?.unit}</td>
-                                        <td className="p-2 text-center">
-                                          <button onClick={() => handleDeleteMaterial(mat.id, step.id)} className="text-red-600 hover:text-red-800">
-                                            <Trash2 size={16} />
-                                          </button>
-                                        </td>
-                                      </tr>
-                                    ))}
+                                    {step.materials.map(mat => {
+                                      const rawProd = (allProducts as any[])?.find(p => p.id === mat.raw_material_id);
+                                      const unitCost = Number(rawProd?.cost || rawProd?.purchase_price || 0);
+                                      const itemCost = Math.round(Number(mat.quantity_required || 0) * unitCost * 100) / 100;
+                                      const baseUnit = mat.products?.unit || rawProd?.unit || 'وحدة';
+
+                                      let helperNote = '';
+                                      if (/كجم|كيلو|kg/i.test(baseUnit)) {
+                                        const inGrams = Math.round(mat.quantity_required * 1000 * 10) / 10;
+                                        helperNote = `(= ${inGrams} جرام)`;
+                                      } else if (/لتر|liter/i.test(baseUnit)) {
+                                        const inMl = Math.round(mat.quantity_required * 1000 * 10) / 10;
+                                        helperNote = `(= ${inMl} مل)`;
+                                      }
+
+                                      return (
+                                        <tr key={mat.id} className="border-b hover:bg-gray-50/80 transition-colors">
+                                          <td className="p-2 font-bold text-slate-800">
+                                            <div>{mat.products?.name || rawProd?.name}</div>
+                                            {helperNote && (
+                                              <span className="text-[11px] font-bold text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">
+                                                {helperNote}
+                                              </span>
+                                            )}
+                                          </td>
+                                          <td className="p-2 text-center">
+                                            <input
+                                              type="number"
+                                              value={mat.quantity_required}
+                                              onChange={e => handleUpdateMaterialQuantity(mat.id, step.id, parseFloat(e.target.value) || 0)}
+                                              className="w-24 border rounded-lg p-1 text-center font-black text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none"
+                                              min="0.0001"
+                                              step="0.0001"
+                                            />
+                                          </td>
+                                          <td className="p-2 text-center text-gray-500 font-bold text-xs">{baseUnit}</td>
+                                          <td className="p-2 text-center font-bold text-emerald-700 text-xs">{itemCost.toFixed(2)} ج.م</td>
+                                          <td className="p-2 text-center">
+                                            <button onClick={() => handleDeleteMaterial(mat.id, step.id)} className="text-red-500 hover:text-red-700 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="حذف المكون">
+                                              <Trash2 size={16} />
+                                            </button>
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
                                   </tbody>
                                 </table>
                               ) : (
                                 <div className="text-center text-gray-500 py-2">لا توجد مواد خام أو منتجات وسيطة معرفة لهذه المرحلة.</div>
                               )}
 
-                              {/* Add new material form */}
-                              <div className="flex gap-2 mt-4">
-                                <div className="flex-1">
-                                  <SearchableSelect
-                                    options={rawMaterialOptions}
-                                    value={newMaterial.raw_material_id} // Bind to newMaterial state
-                                    onChange={(val) => setNewMaterial(prev => ({ ...prev, raw_material_id: val }))}
-                                    placeholder="اختر مادة خام أو منتج وسيط..."
-                                  />
+                              {/* إجمالي تكلفة خامات المرحلة */}
+                              {step.materials && step.materials.length > 0 && (
+                                <div className="p-2.5 bg-slate-100/80 rounded-xl text-xs font-bold text-slate-700 flex justify-between items-center mt-2 border border-slate-200/60">
+                                  <span>إجمالي تكلفة خامات هذه المرحلة:</span>
+                                  <span className="font-black text-emerald-700 text-sm">
+                                    {step.materials.reduce((sum: number, m: any) => {
+                                      const p = (allProducts as any[])?.find(x => x.id === m.raw_material_id);
+                                      const c = Number(p?.cost || p?.purchase_price || 0);
+                                      return sum + (Number(m.quantity_required || 0) * c);
+                                    }, 0).toFixed(2)} ج.م
+                                  </span>
                                 </div>
-                                <input
-                                  type="number"
-                                  value={newMaterial.quantity_required}
-                                  onChange={e => {
-                                    setNewMaterial(prev => ({ ...prev, quantity_required: parseFloat(e.target.value) }));
-                                  }}
-                                  placeholder="الكمية"
-                                  className="w-24 border rounded-lg p-2 focus:ring-2 focus:ring-blue-500 outline-none"
-                                  min="0.0001"
-                                  step="0.0001"
-                                />
-                                <button
-                                  onClick={() => handleAddMaterialToStep(step.id, newMaterial.raw_material_id, newMaterial.quantity_required)}
-                                  disabled={!newMaterial.raw_material_id || newMaterial.quantity_required <= 0 || saving}
-                                  className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
-                                >
-                                  <Plus size={18} /> إضافة
-                                </button>
+                              )}
+
+                              {/* نموذج إضافة خامة ذكي بمحول الوحدات الفوري وحاسبة التعبئة */}
+                              <div className="bg-slate-50 border border-slate-200/90 rounded-2xl p-3.5 mt-4 space-y-2.5">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                                    <Plus size={15} className="text-blue-600" /> إضافة مقدار مادة خام أو منتج وسيط لهذه المرحلة:
+                                  </span>
+                                  {selectedRawProduct && (
+                                    <span className="text-[11px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-lg">
+                                      الوحدة المعتمدة بالمخزن: ({selectedRawProduct.unit || 'وحدة'})
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {/* اختيار الخامة */}
+                                  <div className="flex-1 min-w-[220px]">
+                                    <SearchableSelect
+                                      options={rawMaterialOptions}
+                                      value={selectedRawId}
+                                      onChange={(val) => setSelectedRawId(val)}
+                                      placeholder="اختر مادة خام أو منتج وسيط..."
+                                    />
+                                  </div>
+
+                                  {/* إدخال المقدار بوحدة الشيف */}
+                                  <div className="w-24">
+                                    <input
+                                      type="number"
+                                      value={ingredientEnteredQty}
+                                      onChange={e => setIngredientEnteredQty(parseFloat(e.target.value) || 0)}
+                                      placeholder="المقدار"
+                                      className="w-full border border-slate-200 rounded-xl p-2 text-center font-black text-slate-800 focus:ring-2 focus:ring-blue-500 outline-none bg-white text-sm"
+                                      min="0.0001"
+                                      step="any"
+                                    />
+                                  </div>
+
+                                  {/* قائمة الوحدات المنسدلة الذكية */}
+                                  <div className="w-52">
+                                    <select
+                                      value={ingredientSelectedUnit}
+                                      onChange={e => {
+                                        const u = rawAvailableUnits.find(opt => opt.unitName === e.target.value);
+                                        if (u) {
+                                          setIngredientSelectedUnit(u.unitName);
+                                          setIngredientUnitRatio(u.ratio);
+                                        }
+                                      }}
+                                      disabled={!selectedRawProduct}
+                                      className="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-white focus:ring-2 focus:ring-blue-500 outline-none text-slate-800 disabled:bg-slate-100"
+                                    >
+                                      {rawAvailableUnits.map((u, i) => (
+                                        <option key={i} value={u.unitName}>{u.label}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  {/* زر حاسبة العبوات السريعة */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenRecipePackagingModal(step.id)}
+                                    disabled={!selectedRawProduct}
+                                    className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-indigo-50 text-indigo-600 disabled:opacity-40 transition-colors shadow-xs"
+                                    title="حاسبة العبوات والأظرف والتجزئة السريعة"
+                                  >
+                                    <Calculator size={18} />
+                                  </button>
+
+                                  {/* زر الإضافة */}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddMaterialToStep(
+                                      step.id,
+                                      selectedRawId,
+                                      calculatedIngredientBaseQty,
+                                      ingredientSelectedUnit,
+                                      ingredientEnteredQty
+                                    )}
+                                    disabled={!selectedRawId || calculatedIngredientBaseQty <= 0 || saving}
+                                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white px-5 py-2.5 rounded-xl font-bold disabled:opacity-50 flex items-center gap-1.5 shadow-sm transition-all"
+                                  >
+                                    <Plus size={18} /> إضافة للمرحلة
+                                  </button>
+                                </div>
+
+                                {/* شريط المعاينة الحية الفورية للمقدار والتكلفة */}
+                                {selectedRawProduct && (
+                                  <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl text-xs font-bold animate-in fade-in">
+                                    <div className="flex items-center gap-1.5 text-blue-900">
+                                      <Sparkles size={14} className="text-indigo-600 shrink-0" />
+                                      <span>المقدار بالوصفة:</span>
+                                      <span className="text-indigo-700 font-black">{ingredientEnteredQty} {ingredientSelectedUnit}</span>
+                                      <span className="text-slate-400">⬅️</span>
+                                      <span>المعادل بالمخزن:</span>
+                                      <span className="bg-white px-2 py-0.5 rounded-lg text-emerald-800 font-black border border-emerald-200">
+                                        {calculatedIngredientBaseQty} {selectedRawProduct.unit || 'وحدة'}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-1 text-slate-700">
+                                      <DollarSign size={13} className="text-emerald-600" />
+                                      <span>تكلفة المقدار:</span>
+                                      <span className="text-slate-900 font-black">{estimatedIngredientCost.toFixed(2)} ج.م</span>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
                             </div>
 
@@ -1254,6 +1747,204 @@ const RoutingBOMManager = () => {
           }
         }}
       />
+
+      {/* 🧮 نافذة حاسبة عبوات وتجزئة الوصفة السريعة */}
+      {isRecipeCalcModalOpen && selectedRawProduct && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-lg w-full overflow-hidden space-y-0">
+            {/* Header */}
+            <div className="p-5 bg-gradient-to-r from-indigo-600 via-blue-600 to-purple-700 text-white flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-white/10 rounded-xl">
+                  <Calculator size={22} />
+                </div>
+                <div>
+                  <h3 className="font-black text-base">حاسبة تعبئة وتجزئة خامات الوصفة</h3>
+                  <p className="text-xs text-blue-100">
+                    الخامة: <strong className="text-white">{selectedRawProduct.name}</strong> | وحدة المخزن: ({selectedRawProduct.unit || 'وحدة'})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsRecipeCalcModalOpen(false)}
+                className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              <div className="bg-blue-50/70 p-3 rounded-xl border border-blue-100 text-xs text-blue-900 leading-relaxed">
+                حدد مستويات تعبئة هذه المادة الخام مرة واحدة، وسيقوم النظام بحفظها في بطاقة الصنف وحساب أي مقدار بالوصفة تلقائياً:
+              </div>
+
+              {/* المستوى 1: الطرد الأكبر */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 space-y-2">
+                <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                  <Box size={14} className="text-indigo-600" />
+                  المستوى 1: الطرد الأكبر (وحدة التوريد)
+                </span>
+                <input
+                  type="text"
+                  value={recipeCalcBulkName}
+                  onChange={e => setRecipeCalcBulkName(e.target.value)}
+                  placeholder="مثلاً: كرتونة"
+                  className="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-white outline-none focus:border-indigo-500"
+                />
+              </div>
+
+              {/* المستوى 2: العبوة الوسيطة */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 space-y-2">
+                <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                  <Layers size={14} className="text-indigo-600" />
+                  المستوى 2: العبوة الوسيطة (العلب/البواكي الداخلية)
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">اسم العبوة</label>
+                    <input
+                      type="text"
+                      value={recipeCalcMedName}
+                      onChange={e => setRecipeCalcMedName(e.target.value)}
+                      placeholder="مثلاً: علبة أو باكت"
+                      className="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-white outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">كم {recipeCalcMedName || 'عبوة'} بالطرد؟</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={recipeCalcMedUnitsPerBulk}
+                      onChange={e => setRecipeCalcMedUnitsPerBulk(parseInt(e.target.value) || 1)}
+                      className="w-full border border-slate-200 rounded-xl p-2 text-xs font-black text-center bg-white outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* المستوى 3: وحدة التجزئة الصغرى */}
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200/80 space-y-2">
+                <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
+                  <CornerDownLeft size={14} className="text-indigo-600" />
+                  المستوى 3: وحدة التجزئة والصرف الصغرى
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">اسم الوحدة الصغرى</label>
+                    <input
+                      type="text"
+                      value={recipeCalcSmallName}
+                      onChange={e => setRecipeCalcSmallName(e.target.value)}
+                      placeholder="مثلاً: ظرف أو كيس"
+                      className="w-full border border-slate-200 rounded-xl p-2 text-xs font-bold bg-white outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">العدد بالـ {recipeCalcMedName || 'عبوة'}</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={recipeCalcSmallUnitsPerMed}
+                      onChange={e => setRecipeCalcSmallUnitsPerMed(parseInt(e.target.value) || 1)}
+                      className="w-full border border-slate-200 rounded-xl p-2 text-xs font-black text-center bg-white outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">سعة الوحدة ({selectedRawProduct.unit || 'وحدة'})</label>
+                    <input
+                      type="number"
+                      min="0.0001"
+                      step="any"
+                      value={recipeCalcBaseQtyPerSmall}
+                      onChange={e => setRecipeCalcBaseQtyPerSmall(parseFloat(e.target.value) || 1)}
+                      className="w-full border border-slate-200 rounded-xl p-2 text-xs font-black text-center bg-white outline-none focus:border-indigo-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* المعاينة الحية */}
+              <div className="p-3 bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-200 rounded-xl text-xs space-y-1 font-bold text-slate-800">
+                <span className="text-indigo-900 font-black flex items-center gap-1">
+                  <Sparkles size={13} className="text-indigo-600" /> ملخص شجرة التعبئة للصنف:
+                </span>
+                <div>
+                  📦 1 {recipeCalcBulkName} = {recipeCalcMedUnitsPerBulk} {recipeCalcMedName} = {recipeCalcMedUnitsPerBulk * recipeCalcSmallUnitsPerMed} {recipeCalcSmallName}
+                </div>
+                <div className="text-purple-700">
+                  🔹 1 {recipeCalcMedName} = {recipeCalcSmallUnitsPerMed} {recipeCalcSmallName}
+                </div>
+              </div>
+
+              {/* المقدار المطلوب بالوصفة */}
+              <div className="p-3.5 bg-slate-100/90 rounded-2xl space-y-2 border border-slate-200">
+                <label className="block text-xs font-black text-slate-800">المقدار المطلوب وضعه في هذه المرحلة:</label>
+                <div className="flex items-center gap-2">
+                  <div className="grid grid-cols-3 gap-1.5 flex-1 text-xs font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setRecipeCalcTargetTier('small')}
+                      className={`p-2 rounded-xl border text-center transition-all ${
+                        recipeCalcTargetTier === 'small' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      {recipeCalcSmallName || 'ظرف'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRecipeCalcTargetTier('medium')}
+                      className={`p-2 rounded-xl border text-center transition-all ${
+                        recipeCalcTargetTier === 'medium' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      {recipeCalcMedName || 'علبة'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRecipeCalcTargetTier('bulk')}
+                      className={`p-2 rounded-xl border text-center transition-all ${
+                        recipeCalcTargetTier === 'bulk' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-700 border-slate-200'
+                      }`}
+                    >
+                      {recipeCalcBulkName || 'كرتونة'}
+                    </button>
+                  </div>
+                  <input
+                    type="number"
+                    min="0.001"
+                    step="any"
+                    value={recipeCalcWithdrawalQty}
+                    onChange={e => setRecipeCalcWithdrawalQty(parseFloat(e.target.value) || 0)}
+                    placeholder="العدد"
+                    className="w-20 border border-slate-200 rounded-xl p-2 text-center text-sm font-black bg-white outline-none focus:border-indigo-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setIsRecipeCalcModalOpen(false)}
+                className="px-4 py-2.5 rounded-xl text-slate-600 font-bold hover:bg-slate-200 text-xs transition-colors"
+              >
+                إلغاء
+              </button>
+              <button
+                type="button"
+                onClick={handleApplyRecipePackaging}
+                className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs shadow-md transition-all flex items-center gap-1.5"
+              >
+                <Check size={16} /> تطبيق على المقادير
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
