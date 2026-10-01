@@ -14,16 +14,16 @@ import { secureStorage } from '../utils/securityMiddleware';
 export interface SupplierOption {
   id: string;
   name: string;
-  code?: string;
-  phone?: string;
-  tax_number?: string;
-  taxId?: string;
-  address?: string;
-  contact_person?: string;
-  contactPerson?: string;
-  opening_balance?: number;
-  balance?: number;
-  email?: string;
+  code?: string | null;
+  phone?: string | null;
+  tax_number?: string | null;
+  taxId?: string | null;
+  address?: string | null;
+  contact_person?: string | null;
+  contactPerson?: string | null;
+  opening_balance?: number | null;
+  balance?: number | null;
+  email?: string | null;
   [key: string]: any;
 }
 

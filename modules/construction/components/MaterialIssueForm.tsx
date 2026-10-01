@@ -199,7 +199,7 @@ const MaterialIssueForm: React.FC<Props> = ({ projectId, onClose, onSuccess }) =
                 {items.map((item, idx) => (
                   <tr key={idx} className="hover:bg-slate-50/50">
                     <td className="p-2">
-                      <SearchableSelect options={products.filter(p => p.item_type !== 'SERVICE').map(p => ({ id: p.id, name: p.name, code: p.sku }))} value={item.productId} onChange={val => updateItem(idx, 'productId', val)} placeholder="ابحث عن صنف..." />
+                      <SearchableSelect options={products.filter(p => p.item_type !== 'SERVICE').map(p => ({ id: p.id, name: p.name, code: p.sku || undefined }))} value={item.productId} onChange={val => updateItem(idx, 'productId', val)} placeholder="ابحث عن صنف..." />
                     </td>
                     <td className="p-2">
                       <select 

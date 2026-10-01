@@ -101,15 +101,15 @@ export interface Account {
 
 // سطر القيد المحاسبي في الواجهة
 export interface JournalEntryLine {
-  account_id: string;
+  account_id?: string;
   description?: string;
   debit: number;
   credit: number;
-  cost_center_id?: string;
+  cost_center_id?: string | null;
   // خصائص إضافية
   accountId?: string;
   accountName?: string;
-  costCenterId?: string;
+  costCenterId?: string | null;
   accountCode?: string;
 }
 
@@ -300,19 +300,19 @@ export interface Customer {
 export interface Supplier {
   id: string;
   name: string;
-  code?: string;
-  contactPerson?: string;
-  phone?: string;
-  taxId?: string;
-  address?: string;
-  email?: string;
+  code?: string | null;
+  contactPerson?: string | null;
+  phone?: string | null;
+  taxId?: string | null;
+  address?: string | null;
+  email?: string | null;
   account_id?: string | null;
-  // خصائص إضافية
-  tax_number?: string;
-  contact_person?: string;
-  opening_balance?: number;
-  balance?: number;
-  credit_limit?: number;
+  tax_number?: string | null;
+  contact_person?: string | null;
+  opening_balance?: number | null;
+  balance?: number | null;
+  credit_limit?: number | null;
+  organization_id?: string | null;
 }
 
 export interface Warehouse {
@@ -340,7 +340,6 @@ export interface Product {
   wholesale_price?: number;
   half_wholesale_price?: number;
   cost: number;
-  sku?: string;
   barcode?: string | null;
   barcode2?: string | null;
   unit_barcodes?: Array<{ uom_id?: string; barcode: string; price?: number; uom_name?: string }>;
@@ -348,13 +347,18 @@ export interface Product {
   stock?: number;
   warehouse_stock?: { [warehouseId: string]: number };
   min_stock_level?: number;
-  category_id?: string;
+  category_id?: string | null;
+  sku?: string | null;
+  description?: string | null;
+  labor_cost?: number;
+  overhead_cost?: number;
+  mfg_type?: string | null;
   category?: string;
   supplier_id?: string | null;
   is_manufactured?: boolean;
   bom?: { productId: string; quantity: number }[];
   product_type: string;
-  item_type?: 'STOCK' | 'SERVICE' | 'MANUFACTURED';
+  item_type?: 'STOCK' | 'SERVICE' | 'MANUFACTURED' | 'RAW_MATERIAL' | string;
   purchase_price?: number;
   unit?: string;
   base_uom_id?: string | null;
@@ -366,11 +370,12 @@ export interface Product {
   warehouseStock?: { [warehouseId: string]: number };
   sales_price?: number;
   sale_price?: number;
-  expiry_date?: string;
-  offer_price?: number;
-  offer_start_date?: string;
-  offer_end_date?: string;
-  offer_max_qty?: number;
+  expiry_date?: string | null;
+  is_overhead_percentage?: boolean;
+  offer_price?: number | null;
+  offer_start_date?: string | null;
+  offer_end_date?: string | null;
+  offer_max_qty?: number | null;
   station_id?: string | null;
   prep_time_minutes?: number;
   is_86?: boolean;
@@ -381,9 +386,9 @@ export interface Product {
   quantity?: number;
   min_order_quantity?: number;
   // 🏛️ متطلبات الفاتورة الإلكترونية المصرية (ETA e-Invoicing)
-  item_code_type?: 'GS1' | 'EGS';
-  egs_code?: string;
-  eta_unit_code?: string;
+  item_code_type?: 'GS1' | 'EGS' | null;
+  egs_code?: string | null;
+  eta_unit_code?: string | null;
   // 🏷️ نسبة ضريبة خاصة للصنف (تتجاوز الإعداد العام للشركة)
   tax_rate_override?: number | null;
 }
@@ -429,7 +434,7 @@ export interface Invoice {
   tax_amount: number;
   total_amount: number;
   paid_amount?: number;
-  status: 'paid' | 'unpaid' | 'partial' | 'overdue' | 'draft';
+  status?: 'paid' | 'unpaid' | 'partial' | 'overdue' | 'draft' | string;
   notes?: string;
   related_journal_entry_id?: string;
   // خصائص إضافية
@@ -500,6 +505,8 @@ export interface StockTransaction {
 }
 
 export interface Cheque {
+  attachments?: any[];
+  organization_id?: string | null;
   id: string;
   cheque_number: string;
   type: 'incoming' | 'outgoing';
@@ -521,8 +528,9 @@ export interface Asset {
   id: string;
   name: string;
   asset_account_id: string;
-  accumulated_depreciation_account_id: string;
-  depreciation_expense_account_id: string;
+  accumulated_depreciation_account_id?: string | null;
+  depreciation_expense_account_id?: string | null;
+  useful_life?: number;
   purchase_date: string;
   purchase_cost: number;
   salvage_value: number;
@@ -556,7 +564,9 @@ export interface Employee {
     housing_allowance: number;
     transport_allowance: number;
     other_allowance: number;
-    status: 'active' | 'terminated';
+    status?: 'active' | 'terminated' | string;
+  hire_date?: string;
+  notes?: string;
   department?: string;
   salary?: number;
 }

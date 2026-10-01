@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization, HrScope, Customer, Supplier, Warehouse, Category, Product, Salesperson } from '../types';
+import { Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization, HrScope, Customer, Supplier, Warehouse, Category, Product, Salesperson, Invoice, Employee, Cheque, Asset } from '../types';
 import { useToast } from '../context/ToastContext';
 import { secureStorage } from '../utils/securityMiddleware';
 import { logger } from '../utils/logger';
@@ -93,31 +93,31 @@ interface AccountingContextType {
   getSystemAccount: (key: string) => any;
   updateVoucher: (id: string, updates: any) => Promise<boolean>;
   getAccountBalanceInPeriod: (id: string, start: string, end: string) => Promise<number>;
-  addAccount: (acc: any) => Promise<any>;
-  updateAccount: (id: string, updates: any) => Promise<void>;
+  addAccount: (acc: Partial<Account>) => Promise<any>;
+  updateAccount: (id: string, updates: Partial<Account>) => Promise<void>;
   deleteAccount: (id: string, reason?: string) => Promise<{ success: boolean; message?: string }>;
   clearTransactions: () => Promise<void>;
   emptyRecycleBin: (table: string) => Promise<void>;
   saveBudget: (budget: any) => Promise<void>;
   // --- دوال المخزون ---
   recalculateStock: (productId?: string) => Promise<void>;
-  addProduct: (product: any) => Promise<any>;
-  updateProduct: (id: string, updates: any) => Promise<void>;
+  addProduct: (product: Partial<Product>) => Promise<any>;
+  updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string, reason?: string) => Promise<void>;
   addStockTransfer: (transfer: any) => Promise<void>;
   approveStockTransfer: (id: string) => Promise<void>;
   cancelStockTransfer: (id: string) => Promise<void>;
-  addWarehouse: (warehouse: any) => Promise<void>;
-  updateWarehouse: (id: string, updates: any) => Promise<void>;
+  addWarehouse: (warehouse: Partial<Warehouse>) => Promise<void>;
+  updateWarehouse: (id: string, updates: Partial<Warehouse>) => Promise<void>;
   deleteWarehouse: (id: string) => Promise<void>;
   addWastage: (wastage: any) => Promise<boolean>;
   produceItem: (id: string, qty: number, whId: string, date: string, cost: number, ref: string) => Promise<any>;
   // --- دوال المبيعات والمشتريات ---
-  addCustomer: (customer: any) => Promise<any>;
-  updateCustomer: (id: string, updates: any) => Promise<void>;
+  addCustomer: (customer: Partial<Customer>) => Promise<any>;
+  updateCustomer: (id: string, updates: Partial<Customer>) => Promise<void>;
   deleteCustomer: (id: string, reason?: string) => Promise<void>;
-  addSupplier: (supplier: any) => Promise<any>;
-  updateSupplier: (id: string, updates: any) => Promise<void>;
+  addSupplier: (supplier: Partial<Supplier>) => Promise<any>;
+  updateSupplier: (id: string, updates: Partial<Supplier>) => Promise<void>;
   deleteSupplier: (id: string, reason?: string) => Promise<void>;
   approveInvoice: (id: string, orgId?: string, warehouseId?: string) => Promise<boolean>;
   unpostSalesInvoice: (id: string, orgId?: string) => Promise<boolean>;
@@ -129,13 +129,13 @@ interface AccountingContextType {
   addOpeningBalanceTransaction: (id: string, type: string, amount: number, date: string, name: string) => Promise<void>;
   addPaymentVoucher: (voucher: any) => Promise<void>;
   // --- دوال الأصول والشيكات ---
-  addAsset: (asset: any) => Promise<void>;
-  updateAsset: (id: string, updates: any) => Promise<void>;
+  addAsset: (asset: Partial<Asset>) => Promise<void>;
+  updateAsset: (id: string, updates: Partial<Asset>) => Promise<void>;
   deleteAsset: (id: string) => Promise<void>;
   runDepreciation: (id?: string, amount?: number, date?: string) => Promise<void>;
   revaluateAsset: (id: string, val: number, date: string, accId: string) => Promise<void>;
-  addCheque: (cheque: any) => Promise<void>;
-  updateCheque: (id: string, cheque: any) => Promise<void>;
+  addCheque: (cheque: Partial<Cheque>) => Promise<void>;
+  updateCheque: (id: string, cheque: Partial<Cheque>) => Promise<void>;
   deleteCheque: (id: string) => Promise<void>;
   updateChequeStatus: (id: string, status: string, date: string, bankId?: string) => Promise<void>;
   addTransfer: (transfer: any) => Promise<void>;
@@ -145,8 +145,8 @@ interface AccountingContextType {
   permanentDeleteItem: (table: string, id: string) => Promise<{ success: boolean; message?: string }>;
   exportJournalToCSV: () => void;
   // --- دوال الموارد البشرية ---
-  addEmployee: (employee: any) => Promise<void>;
-  updateEmployee: (id: string, updates: any) => Promise<void>;
+  addEmployee: (employee: Partial<Employee>) => Promise<void>;
+  updateEmployee: (id: string, updates: Partial<Employee>) => Promise<void>;
   deleteEmployee: (id: string, reason?: string) => Promise<void>;
   runPayroll: (month: number, year: number, date: string, treasuryId: string, data: any[], orgId?: string) => Promise<void>;
   runPayrollAccrual: (month: number, year: number, date: string, data: any[], orgId?: string) => Promise<any>;
@@ -177,12 +177,12 @@ interface AccountingContextType {
   reopenFinancialYear: (year: number) => Promise<boolean>;
   exportData: () => Promise<void>;
   // --- دوال الديمو ---
-  addDemoEntry: (entry: any) => void;
+  addDemoEntry: (entry: Partial<JournalEntry>) => void;
   addDemoPaymentVoucher: (voucher: any) => void;
   addDemoReceiptVoucher: (voucher: any) => void;
-  addDemoInvoice: (invoice: any) => void;
-  postDemoSalesInvoice: (invoice: any) => void;
-  addDemoPurchaseInvoice: (invoice: any) => void;
+  addDemoInvoice: (invoice: Partial<Invoice>) => void;
+  postDemoSalesInvoice: (invoice: Partial<Invoice>) => void;
+  addDemoPurchaseInvoice: (invoice: Partial<Invoice>) => void;
   deleteOrganization: (orgId: string) => Promise<{ success: boolean; message?: string }>;
   selectedFiscalYear: number;
   setSelectedFiscalYear: (year: number) => void;
@@ -864,13 +864,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const { data } = await supabase.rpc('get_account_balance_in_period', { p_account_id: id, p_start_date: start, p_end_date: end, p_org_id: currentSelectedOrgId });
     return data || 0;
   };
-  const addAccount = async (acc: any) => { 
+  const addAccount = async (acc: Partial<Account>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { data, error } = await supabase.from('accounts').insert({ ...acc, organization_id: targetOrgId }).select().single(); 
     if (error) throw error;
     await refreshData(); return data; 
   };
-  const updateAccount = async (id: string, updates: any) => { await supabase.from('accounts').update(updates).eq('id', id); refreshData(); };
+  const updateAccount = async (id: string, updates: Partial<Account>) => { await supabase.from('accounts').update(updates).eq('id', id); refreshData(); };
   const deleteAccount = async (id: string, reason?: string) => { const { error } = await supabase.from('accounts').delete().eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
   const clearTransactions = async () => { await supabase.rpc('clear_all_transactions'); refreshData(); };
   const emptyRecycleBin = async (table: string) => { await supabase.rpc('empty_recycle_bin', { p_table_name: table }); refreshData(); };
@@ -895,9 +895,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       showToast('تم تحديث المخزون بنجاح ✅', 'success');
       await refreshData(); // 🚀 الانتظار ضروري لتحديث الحالة قبل إغلاق اللودر في الواجهة
     }
-  };  const addProduct = async (data: any) => { 
+  };  const addProduct = async (data: Partial<Product>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const payload = { ...data, organization_id: targetOrgId };
+    const payload: any = { ...data, organization_id: targetOrgId };
     
     // إزالة الحقول غير الموجودة في جدول الأصناف بقاعدة البيانات
     const firstProd = products.length > 0 ? products[0] : null;
@@ -935,8 +935,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (error) throw error;
     await refreshData(); return p; 
   };
-  const updateProduct = async (id: string, data: any) => { 
-    const payload = { ...data };
+  const updateProduct = async (id: string, data: Partial<Product>) => { 
+    const payload: any = { ...data };
     
     // إزالة الحقول غير الموجودة في جدول الأصناف بقاعدة البيانات
     const firstProd = products.length > 0 ? products[0] : null;
@@ -991,13 +991,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     refreshData(); 
   };
   const cancelStockTransfer = async (id: string) => { await supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id); showToast('تم إلغاء طلب التحويل', 'info'); refreshData(); };
-  const addWarehouse = async (data: any) => { 
+  const addWarehouse = async (data: Partial<Warehouse>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { error } = await supabase.from('warehouses').insert({ ...data, organization_id: targetOrgId }); 
     if (error) throw error;
     await refreshData(); 
   };
-   const updateWarehouse = async (id: string, data: any) => { 
+   const updateWarehouse = async (id: string, data: Partial<Warehouse>) => { 
     const { error } = await supabase.from('warehouses').update(data).eq('id', id);
     if (error) throw error;
     refreshData(); 
@@ -1020,13 +1020,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const produceItem = async (id: string, qty: number, whId: string, date: string, cost: number, ref: string) => { return await supabase.rpc('mfg_create_order_direct', { p_product_id: id, p_qty: qty, p_warehouse_id: whId, p_date: date, p_additional_cost: cost, p_reference: ref }); };
 
   // Sales & Purchases
-  const addCustomer = async (data: any) => { 
+  const addCustomer = async (data: Partial<Customer>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { data: c, error } = await supabase.from('customers').insert({ ...data, organization_id: targetOrgId }).select().single(); 
     if (error) throw error;
     await refreshData(); return c; 
   };
-  const updateCustomer = async (id: string, data: any) => { 
+  const updateCustomer = async (id: string, data: Partial<Customer>) => { 
     const { error } = await supabase.from('customers').update(data).eq('id', id);
     if (error) throw error;
     refreshData(); 
@@ -1036,7 +1036,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (error) throw error;
     refreshData(); 
   };
-  const addSupplier = async (data: any) => { 
+  const addSupplier = async (data: Partial<Supplier>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { data: s, error } = await supabase.from('suppliers').insert({ ...data, organization_id: targetOrgId }).select().single(); 
     if (error) {
@@ -1047,7 +1047,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await refreshData();
     return s; 
   };
-    const updateSupplier = async (id: string, data: any) => { 
+    const updateSupplier = async (id: string, data: Partial<Supplier>) => { 
     const { error } = await supabase.from('suppliers').update(data).eq('id', id);
     if (error) throw error;
     refreshData(); 
@@ -1422,7 +1422,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     await refreshData(); 
   };
-  const updateAsset = async (id: string, updates: any) => {
+  const updateAsset = async (id: string, updates: Partial<Asset>) => {
     const { error } = await supabase.from('assets').update(updates).eq('id', id);
     if (error) throw error;
     await refreshData();
@@ -1453,14 +1453,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const runDepreciation = async (id?: string, amount?: number, date?: string) => { await supabase.rpc('run_monthly_depreciation', { p_asset_id: id, p_amount: amount, p_date: date }); refreshData(); };
   const revaluateAsset = async (id: string, val: number, date: string, accId: string) => { await supabase.from('assets').update({ current_value: val }).eq('id', id); refreshData(); };
-  const addCheque = async (cheque: any) => { 
+  const addCheque = async (cheque: Partial<Cheque>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { error } = await supabase.from('cheques').insert({ ...cheque, organization_id: targetOrgId }); 
     if (error) throw error;
     await refreshData(); 
   };
 
-  const updateCheque = async (id: string, cheque: any) => {
+  const updateCheque = async (id: string, cheque: Partial<Cheque>) => {
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { error } = await supabase
       .from('cheques')
@@ -1892,13 +1892,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   // HR
-  const addEmployee = async (data: any) => { 
+  const addEmployee = async (data: Partial<Employee>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { error } = await supabase.from('employees').insert({ ...data, organization_id: targetOrgId }); 
     if (error) throw error;
     await refreshData(); 
   };
-  const updateEmployee = async (id: string, data: any) => { await supabase.from('employees').update(data).eq('id', id); refreshData(); };
+  const updateEmployee = async (id: string, data: Partial<Employee>) => { await supabase.from('employees').update(data).eq('id', id); refreshData(); };
   const deleteEmployee = async (id: string, reason?: string) => { await supabase.from('employees').update({ status: 'terminated', notes: reason }).eq('id', id); refreshData(); };
   const runPayroll = async (month: number, year: number, date: string, treasuryId: string, data: any[], orgId?: string) => {
     const { error } = await supabase.rpc('run_payroll_rpc', {

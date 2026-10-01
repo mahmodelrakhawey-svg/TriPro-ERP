@@ -100,7 +100,7 @@ class HappyHourService {
   public evaluateProductPrice(
     productId: string,
     originalPrice: number,
-    categoryId?: string,
+    categoryId?: string | null,
     schedules?: HappyHourSchedule[]
   ): { finalPrice: number; discountPct: number; isHappyHour: boolean; ruleName?: string } {
     const activeSchedules = schedules || this.getLocalSchedules();
