@@ -140,7 +140,7 @@ export async function resolveScannedBarcode(
     if (!matchedProduct) {
       for (const p of allCached) {
         if (Array.isArray((p as any).unit_barcodes)) {
-          const foundUom = (p as any).unit_barcodes.find((ub: any) => {
+          const foundUom = (p as Record<string, any>).unit_barcodes.find((ub: Record<string, any>) => {
             const ubCode = (ub.barcode || '').trim().toLowerCase();
             return searchCodes.includes(ubCode);
           });
@@ -156,7 +156,7 @@ export async function resolveScannedBarcode(
         }
       }
     } else if (Array.isArray((matchedProduct as any).unit_barcodes)) {
-      const foundUom = (matchedProduct as any).unit_barcodes.find((ub: any) => {
+      const foundUom = (matchedProduct as Record<string, any>).unit_barcodes.find((ub: Record<string, any>) => {
         const ubCode = (ub.barcode || '').trim().toLowerCase();
         return searchCodes.includes(ubCode);
       });
@@ -194,7 +194,7 @@ export async function resolveScannedBarcode(
         if (allOnline && allOnline.length > 0) {
           for (const p of allOnline) {
             if (Array.isArray(p.unit_barcodes)) {
-              const foundUom = p.unit_barcodes.find((ub: any) => {
+              const foundUom = p.unit_barcodes.find((ub: Record<string, any>) => {
                 const ubCode = (ub.barcode || '').trim().toLowerCase();
                 return searchCodes.includes(ubCode);
               });

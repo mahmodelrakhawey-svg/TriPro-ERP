@@ -71,9 +71,9 @@ const WastageReport = () => {
             // تجميع كميات الهالك لكل صنف
             const wastedQtyMap: Record<string, number> = {};
             if (adjustmentsData && !adjError) {
-                adjustmentsData.forEach((adj: any) => {
+                adjustmentsData.forEach((adj: Record<string, any>) => {
                     const items = adj.stock_adjustment_items || [];
-                    items.forEach((item: any) => {
+                    items.forEach((item: Record<string, any>) => {
                         const pid = item.product_id;
                         const qty = Math.abs(Number(item.quantity) || 0);
                         wastedQtyMap[pid] = (wastedQtyMap[pid] || 0) + qty;
@@ -82,7 +82,7 @@ const WastageReport = () => {
             }
 
             // بناء تقرير انحراف التكلفة لكل الأصناف التي بها هالك أو فارق بين سعر الشراء والتكلفة المرجحة
-            const calculatedList: WastageItemAnalysis[] = (products || []).map((p: any) => {
+            const calculatedList: WastageItemAnalysis[] = (products || []).map((p: Record<string, any>) => {
                 const purchasePrice = Number(p.purchase_price || p.purchasePrice || p.cost || 0);
                 const wac = Number(p.weighted_average_cost || p.cost || purchasePrice);
                 const currentStock = Number(p.stock_quantity || p.stock || 0);

@@ -1,3 +1,4 @@
+type DynamicParam = any;
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { logger } from '../../utils/logger';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -248,7 +249,7 @@ const StockTransfer = () => {
 
     // 3. فحص باركودات الوحدات unit_barcodes
     if (selectedProductObj.unit_barcodes && Array.isArray(selectedProductObj.unit_barcodes)) {
-      selectedProductObj.unit_barcodes.forEach((ub: any) => {
+      selectedProductObj.unit_barcodes.forEach((ub: Record<string, any>) => {
         const uName = ub.uom_name?.trim();
         if (uName && !rules.some(r => r.unitName === uName)) {
           let ratio = 1;
@@ -512,7 +513,7 @@ const StockTransfer = () => {
 
   // التنفيذ الفعلي لإضافة البند للجدول
   const executeAddItem = (
-    product: any, 
+    product: Record<string, any>, 
     qtyVal: number, 
     uName: string, 
     convRatio: number, 
@@ -609,7 +610,7 @@ const StockTransfer = () => {
     }
 
     // البحث عن الصنف بالباركود أو الكود
-    let matchedUomBarcode: any = null;
+    let matchedUomBarcode: DynamicParam = null;
     const matched = products.find(p => {
       if (p.barcode && p.barcode.trim().toLowerCase() === scanned.toLowerCase()) return true;
       if (p.barcode2 && p.barcode2.trim().toLowerCase() === scanned.toLowerCase()) return true;

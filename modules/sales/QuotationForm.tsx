@@ -1,3 +1,4 @@
+type DynamicParam = any;
 import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
@@ -127,7 +128,7 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
         status: quote.status || 'draft'
       });
 
-      const formattedItems = (quote.quotation_items || []).map((item: any) => ({
+      const formattedItems = (quote.quotation_items || []).map((item: Record<string, any>) => ({
         id: item.id,
         productId: item.product_id,
         productName: item.products?.name || 'صنف',
@@ -208,7 +209,7 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
     showToast('تم فتح نموذج عرض سعر جديد ➕', 'info');
   };
 
-  const addItem = (product: any) => {
+  const addItem = (product: Record<string, any>) => {
     let priceToUse = product.sales_price || 0;
     if (pricingTier === 'wholesale') priceToUse = product.wholesalePrice || product.sales_price || 0;
     if (pricingTier === 'half') priceToUse = product.halfWholesalePrice || product.sales_price || 0;
@@ -229,7 +230,7 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
     setProductSearch('');
   };
 
-  const updateItem = (index: number, field: string, value: any) => {
+  const updateItem = (index: number, field: string, value: DynamicParam) => {
     const newItems = [...items];
     let processedValue = value;
     if (field === 'quantity' || field === 'unitPrice') processedValue = parseFloat(value) || 0;

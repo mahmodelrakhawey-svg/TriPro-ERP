@@ -74,13 +74,13 @@ return;
         ]);
 
         const profileNameMap: Record<string, string> = {};
-        (profilesRes.data || []).forEach((p: any) => {
+        (profilesRes.data || []).forEach((p: Record<string, any>) => {
           profileNameMap[p.id] = p.full_name || 'مستخدم';
         });
 
         const userSalesMap: Record<string, { user_id: string; user_name: string; total_orders: number; total_sales: number }> = {};
 
-        (ordersRes.data || []).forEach((ord: any) => {
+        (ordersRes.data || []).forEach((ord: Record<string, any>) => {
           const uId = ord.user_id || 'unassigned';
           if (!userSalesMap[uId]) {
             userSalesMap[uId] = {
@@ -94,7 +94,7 @@ return;
           userSalesMap[uId].total_sales += Number(ord.grand_total || 0);
         });
 
-        (invoicesRes.data || []).forEach((inv: any) => {
+        (invoicesRes.data || []).forEach((inv: Record<string, any>) => {
           const uId = inv.salesperson_id || inv.user_id || 'unassigned';
           if (!userSalesMap[uId]) {
             userSalesMap[uId] = {

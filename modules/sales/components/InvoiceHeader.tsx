@@ -131,7 +131,7 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                 onChange={(e) => {
                   setCustomerSearchTerm(e.target.value);
                   setShowCustomerDropdown(true);
-                  if (e.target.value === '') setFormData((prev: any) => ({ ...prev, customerId: '' }));
+                  if (e.target.value === '') setFormData((prev: Record<string, any>) => ({ ...prev, customerId: '' }));
                 }}
                 onFocus={() => setShowCustomerDropdown(true)}
                 onBlur={() => setTimeout(() => setShowCustomerDropdown(false), 200)}
@@ -143,7 +143,7 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                 <button 
                   type="button"
                   onClick={() => {
-                    setFormData((prev: any) => ({ ...prev, customerId: '' }));
+                    setFormData((prev: Record<string, any>) => ({ ...prev, customerId: '' }));
                     setCustomerSearchTerm('');
                   }}
                   className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500"
@@ -164,7 +164,7 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                   <div 
                     key={c.id}
                     onMouseDown={() => {
-                      setFormData((prev: any) => ({ ...prev, customerId: c.id }));
+                      setFormData((prev: Record<string, any>) => ({ ...prev, customerId: c.id }));
                       setCustomerSearchTerm(c.name);
                       setShowCustomerDropdown(false);
                     }}

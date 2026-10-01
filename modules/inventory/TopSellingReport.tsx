@@ -84,7 +84,7 @@ const TopSellingReport = () => {
       // 2. تجميع البيانات
       const productMap: Record<string, TopProduct> = {};
 
-      items?.forEach((item: any) => {
+      items?.forEach((item: Record<string, any>) => {
         if (!item.product_id || !item.products) return;
 
         if (!productMap[item.product_id]) {
@@ -102,7 +102,7 @@ const TopSellingReport = () => {
       });
 
       // دمج مبيعات المطاعم
-      restItems?.forEach((item: any) => {
+      restItems?.forEach((item: Record<string, any>) => {
         if (!item.product_id || !item.products) return;
 
         if (!productMap[item.product_id]) {
@@ -119,7 +119,7 @@ const TopSellingReport = () => {
       });
 
       // دمج مبيعات المستشفيات
-      himsItems?.forEach((item: any) => {
+      himsItems?.forEach((item: Record<string, any>) => {
         if (!item.product_id || !item.products) return;
 
         if (!productMap[item.product_id]) {

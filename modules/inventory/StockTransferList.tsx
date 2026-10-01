@@ -73,7 +73,7 @@ const StockTransferList = () => {
     return warehouses.find(w => w.id === id)?.name || 'مستودع غير معروف';
   };
 
-  const handleViewDetails = (transfer: any) => {
+  const handleViewDetails = (transfer: Record<string, any>) => {
     setSelectedTransfer(transfer);
     setIsModalOpen(true);
   };
@@ -95,7 +95,7 @@ const StockTransferList = () => {
         ['الصنف', 'الكمية', 'الوحدة'] // Table header
     ];
 
-    const itemsData = selectedTransfer.stock_transfer_items.map((item: any) => [
+    const itemsData = selectedTransfer.stock_transfer_items.map((item: Record<string, any>) => [
         item.products?.name || 'صنف محذوف',
         item.quantity,
         item.products?.unit || '-'
@@ -265,7 +265,7 @@ const StockTransferList = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y">
-                            {selectedTransfer.stock_transfer_items.map((item: any, idx: number) => (
+                            {selectedTransfer.stock_transfer_items.map((item: Record<string, any>, idx: number) => (
                                 <tr key={idx}>
                                     <td className="p-3">{item.products?.name || 'صنف محذوف'}</td>
                                     <td className="p-3 font-bold">{item.quantity} <span className="text-xs font-normal text-slate-500">{item.products?.unit || ''}</span></td>

@@ -92,16 +92,16 @@ const RestaurantProfitReport = () => {
         .lte('orders.created_at', `${endDate}T23:59:59`);
 
       const salesMap: Record<string, number> = {};
-      salesItems?.forEach((item: any) => {
+      salesItems?.forEach((item: Record<string, any>) => {
           salesMap[item.product_id] = (salesMap[item.product_id] || 0) + Number(item.quantity);
       });
 
       // 3. حساب التكلفة والربحية لكل وجبة
-      const processedData: MealProfit[] = products.map((product: any) => {
-          const productRecipes = boms?.filter((b: any) => b.product_id === product.id) || [];
+      const processedData: MealProfit[] = products.map((product: Record<string, any>) => {
+          const productRecipes = boms?.filter((b: Record<string, any>) => b.product_id === product.id) || [];
           let totalIngredientsCost = 0;
           
-          productRecipes.forEach((recipe: any) => {
+          productRecipes.forEach((recipe: Record<string, any>) => {
               const ingredient = recipe.products;
               // تحسين: الاعتماد الصارم على التكلفة المرجحة لضمان دقة COGS
               const unitCost = Number(

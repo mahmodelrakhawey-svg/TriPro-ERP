@@ -117,7 +117,7 @@ export const CreditNoteList = () => {
     return { totalAmount, totalTax, count, postedCount };
   }, [filteredNotes]);
 
-  const handleDelete = async (note: any) => {
+  const handleDelete = async (note: Record<string, any>) => {
     if (!window.confirm(`هل أنت متأكد من حذف الإشعار الدائن رقم (${note.credit_note_number})؟\nسيتم إلغاء القيد المحاسبي وعكس التسوية بالكامل.`)) {
       return;
     }
@@ -142,7 +142,7 @@ export const CreditNoteList = () => {
     }
   };
 
-  const handlePrint = (note: any) => {
+  const handlePrint = (note: Record<string, any>) => {
     setNoteToPrint({
       noteNumber: note.credit_note_number,
       date: note.note_date,
@@ -160,7 +160,7 @@ export const CreditNoteList = () => {
     }, 200);
   };
 
-  const handleShareWhatsApp = (note: any) => {
+  const handleShareWhatsApp = (note: Record<string, any>) => {
     const phone = note.customers?.phone ? note.customers.phone.replace(/[^0-9]/g, '') : '';
     const message = `مرحباً ${note.customers?.name || 'عميلنا العزيز'},\nنود إخطاركم بصدور إشعار دائن وتسوية رقم: ${note.credit_note_number}\nالتاريخ: ${note.note_date}\nالمبلغ الإجمالي: ${Number(note.total_amount).toLocaleString()} ${settings.currency || 'ج.م'}\nالبيان: ${note.notes || '-'}\nتم تخفيض المبلغ من مديونيتكم. شكراً لتعاملكم معنا.`;
     

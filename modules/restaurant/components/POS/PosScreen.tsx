@@ -453,7 +453,7 @@ const PosScreen = () => {
             return;
         }
 
-        const items: OrderItem[] = (order.order_items || []).map((item: any) => ({
+        const items: OrderItem[] = (order.order_items || []).map((item: Record<string, any>) => ({
             id: item.id,
             productId: item.product_id,
             name: item.products?.name || 'صنف',
@@ -600,7 +600,7 @@ const PosScreen = () => {
     // التعديل العادي للأصناف غير المحفوظة
     setActiveOrder(prevOrder => {
       if (!prevOrder) return null;
-      const newItems = prevOrder.items.map((item: any) => {
+      const newItems = prevOrder.items.map((item: OrderItem) => {
         if (item.localId === itemId || item.id === itemId) {
           const minQty = item.savedQuantity ?? 0;
           const newQty = Math.max(minQty, item.quantity + change);

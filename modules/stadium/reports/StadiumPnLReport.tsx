@@ -118,8 +118,8 @@ export const StadiumPnLReport: React.FC = () => {
         let adminTotal = 0;
         let otherTotal = 0;
 
-        entries.forEach((entry: any) => {
-          (entry.journal_lines || []).forEach((line: any) => {
+        entries.forEach((entry: Record<string, any>) => {
+          (entry.journal_lines || []).forEach((line: Record<string, any>) => {
             const code = String(line.accounts?.code || '');
             const netCredit = Number(line.credit || 0) - Number(line.debit || 0); // صافي حركة الإيراد الدائن
             const netDebit = Number(line.debit || 0) - Number(line.credit || 0);  // صافي حركة المصروف المدين
@@ -471,7 +471,7 @@ export const StadiumPnLReport: React.FC = () => {
               <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
               <XAxis dataKey="name" />
               <YAxis />
-              <Tooltip formatter={(val: any) => [`${Number(val).toLocaleString()} ج.م`]} />
+              <Tooltip formatter={(val: unknown) => [`${Number(val).toLocaleString()} ج.م`]} />
               <Legend />
               <Bar dataKey="إجمالي الإيرادات" fill="#10b981" radius={[6, 6, 0, 0]} />
               <Bar dataKey="إجمالي المصروفات" fill="#ef4444" radius={[6, 6, 0, 0]} />

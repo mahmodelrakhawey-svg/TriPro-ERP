@@ -176,7 +176,7 @@ const SupplierManager = () => {
 
           if (!rpcError && serverStats && Array.isArray(serverStats)) {
             const statsMap: Record<string, any> = {};
-            serverStats.forEach((row: any) => {
+            serverStats.forEach((row: Record<string, any>) => {
               statsMap[row.supplier_id] = {
                 balance: Number(row.balance || 0),
                 totalPurchases: Number(row.total_purchases || 0),
@@ -315,7 +315,7 @@ const SupplierManager = () => {
         const pvNumberToSupp: Record<string, string> = {};
         payRes.data?.forEach(p => { if (p.voucher_number) pvNumberToSupp[p.voucher_number] = p.supplier_id; });
 
-        manualEntriesRes.data?.forEach((je: any) => {
+        manualEntriesRes.data?.forEach((je: Record<string, any>) => {
             if (je.reference) {
                 const matchedInvSupp = invNumberToSupp[je.reference];
                 if (matchedInvSupp) {

@@ -1,3 +1,4 @@
+type DynamicParam = any;
 import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
@@ -121,7 +122,7 @@ const PurchaseReturnForm = () => {
 
       if (invItems && invItems.length > 0) {
         const inv = { purchase_invoice_items: invItems };
-        const mapped = (inv.purchase_invoice_items || []).map((item: any) => {
+        const mapped = (inv.purchase_invoice_items || []).map((item: Record<string, any>) => {
           const prod = products.find(p => p.id === item.product_id);
           const pTax = (prod as any)?.tax_rate_override;
           const itemTaxRate = (item.tax_rate !== undefined && item.tax_rate !== null)
@@ -185,7 +186,7 @@ const PurchaseReturnForm = () => {
         status: ret.status || 'draft'
       });
 
-      const formattedItems = (ret.purchase_return_items || []).map((item: any) => {
+      const formattedItems = (ret.purchase_return_items || []).map((item: Record<string, any>) => {
         const prod = item.products || products.find(p => p.id === item.product_id);
         const pTax = prod?.tax_rate_override;
         const itemTaxRate = (item.tax_rate !== undefined && item.tax_rate !== null)
@@ -277,7 +278,7 @@ const PurchaseReturnForm = () => {
     showToast('تم فتح نموذج مرتجع مشتريات جديد ➕', 'info');
   };
 
-  const handleItemChange = (index: number, field: string, value: any) => {
+  const handleItemChange = (index: number, field: string, value: DynamicParam) => {
     const newItems = [...items];
     newItems[index][field] = value;
 

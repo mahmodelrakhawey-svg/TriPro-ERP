@@ -133,7 +133,7 @@ export const ExpoScreen: React.FC = () => {
       .filter(o => filterType === 'ALL' || o.order_type === filterType)
       .filter(o => o.status !== 'COMPLETED' && o.status !== 'CANCELLED')
       .map(o => {
-        const items: KitchenTicketItemDetail[] = (o.order_items || []).map((oi: any) => {
+        const items: KitchenTicketItemDetail[] = (o.order_items || []).map((oi: Record<string, any>) => {
           const matchingProduct = products.find(p => p.id === oi.product_id);
           const prodStationId = oi.products?.station_id || (matchingProduct as any)?.station_id;
           const st = prodStationId ? stationsMap[prodStationId] : null;
@@ -171,7 +171,7 @@ export const ExpoScreen: React.FC = () => {
         const completionPct = totalItems > 0 ? (readyItems / totalItems) * 100 : 0;
 
         const sessionObj = Array.isArray(o.table_sessions) ? o.table_sessions[0] : o.table_sessions;
-        const matchedTable = restaurantTables?.find((t: any) => t.id === sessionObj?.table_id);
+        const matchedTable = restaurantTables?.find((t: Record<string, any>) => t.id === sessionObj?.table_id);
         const resolvedTableName =
           sessionObj?.restaurant_tables?.name ||
           matchedTable?.name ||
@@ -199,7 +199,7 @@ export const ExpoScreen: React.FC = () => {
     try {
       const targetOrder = orders.find(o => o.id === orderId);
       if (targetOrder && targetOrder.order_items) {
-        const itemIds = targetOrder.order_items.map((oi: any) => oi.id);
+        const itemIds = targetOrder.order_items.map((oi: Record<string, any>) => oi.id);
         await supabase.from('kitchen_orders').update({ status: 'SERVED' }).in('order_item_id', itemIds);
         itemIds.forEach((id: string) => {
           kitchenStationService.updateTicketItemStatus(id, 'SERVED');

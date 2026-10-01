@@ -311,7 +311,7 @@ export const StadiumExpenseReport: React.FC = () => {
                 <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                 <XAxis dataKey="label" angle={-15} textAnchor="end" interval={0} tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip formatter={(val: any) => [`${Number(val).toLocaleString()} ج.م`, 'المصروف']} />
+                <Tooltip formatter={(val: unknown) => [`${Number(val).toLocaleString()} ج.م`, 'المصروف']} />
                 <Bar dataKey="value" fill="#f59e0b" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -333,13 +333,13 @@ export const StadiumExpenseReport: React.FC = () => {
                     cx="50%"
                     cy="50%"
                     outerRadius={80}
-                    label={(entry: any) => entry.name || entry.label}
+                    label={(entry: Record<string, any>) => entry.name || entry.label}
                   >
                     {chartData.map((_, index) => (
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(val: any) => [`${Number(val).toLocaleString()} ج.م`, 'المبلغ']} />
+                  <Tooltip formatter={(val: unknown) => [`${Number(val).toLocaleString()} ج.م`, 'المبلغ']} />
                 </PieChart>
               </ResponsiveContainer>
             ) : (
