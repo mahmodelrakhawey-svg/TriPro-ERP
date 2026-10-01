@@ -35,6 +35,9 @@ import {
   setOfflineTableOrder
 } from './accountingConstants';
 
+type DynamicQuery = any;
+type DynamicParam = any;
+
 export {
   SYSTEM_ACCOUNTS,
   DEFAULT_OFFLINE_ORG,
@@ -89,28 +92,28 @@ interface AccountingContextType {
   // --- دالة الصلاحيات ---
   can: (module: string, action: string) => boolean;
   // --- الدوال المحاسبية ---
-  addEntry: (entry: any) => Promise<void>;
+  addEntry: (entry: DynamicParam) => Promise<void>;
   getSystemAccount: (key: string) => any;
-  updateVoucher: (id: string, updates: any) => Promise<boolean>;
+  updateVoucher: (id: string, updates: DynamicParam) => Promise<boolean>;
   getAccountBalanceInPeriod: (id: string, start: string, end: string) => Promise<number>;
   addAccount: (acc: Partial<Account>) => Promise<any>;
   updateAccount: (id: string, updates: Partial<Account>) => Promise<void>;
   deleteAccount: (id: string, reason?: string) => Promise<{ success: boolean; message?: string }>;
   clearTransactions: () => Promise<void>;
   emptyRecycleBin: (table: string) => Promise<void>;
-  saveBudget: (budget: any) => Promise<void>;
+  saveBudget: (budget: DynamicParam) => Promise<void>;
   // --- دوال المخزون ---
   recalculateStock: (productId?: string) => Promise<void>;
   addProduct: (product: Partial<Product>) => Promise<any>;
   updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string, reason?: string) => Promise<void>;
-  addStockTransfer: (transfer: any) => Promise<void>;
+  addStockTransfer: (transfer: DynamicParam) => Promise<void>;
   approveStockTransfer: (id: string) => Promise<void>;
   cancelStockTransfer: (id: string) => Promise<void>;
   addWarehouse: (warehouse: Partial<Warehouse>) => Promise<void>;
   updateWarehouse: (id: string, updates: Partial<Warehouse>) => Promise<void>;
   deleteWarehouse: (id: string) => Promise<void>;
-  addWastage: (wastage: any) => Promise<boolean>;
+  addWastage: (wastage: DynamicParam) => Promise<boolean>;
   produceItem: (id: string, qty: number, whId: string, date: string, cost: number, ref: string) => Promise<any>;
   // --- دوال المبيعات والمشتريات ---
   addCustomer: (customer: Partial<Customer>) => Promise<any>;
@@ -127,7 +130,7 @@ interface AccountingContextType {
   deletePurchaseInvoice: (id: string, orgId?: string) => Promise<boolean>;
   convertPoToInvoice: (poId: string, warehouseId?: string, orgId?: string) => Promise<void>;
   addOpeningBalanceTransaction: (id: string, type: string, amount: number, date: string, name: string) => Promise<void>;
-  addPaymentVoucher: (voucher: any) => Promise<void>;
+  addPaymentVoucher: (voucher: DynamicParam) => Promise<void>;
   // --- دوال الأصول والشيكات ---
   addAsset: (asset: Partial<Asset>) => Promise<void>;
   updateAsset: (id: string, updates: Partial<Asset>) => Promise<void>;
@@ -138,8 +141,8 @@ interface AccountingContextType {
   updateCheque: (id: string, cheque: Partial<Cheque>) => Promise<void>;
   deleteCheque: (id: string) => Promise<void>;
   updateChequeStatus: (id: string, status: string, date: string, bankId?: string) => Promise<void>;
-  addTransfer: (transfer: any) => Promise<void>;
-  updateTransfer: (id: string, transfer: any) => Promise<void>;
+  addTransfer: (transfer: DynamicParam) => Promise<void>;
+  updateTransfer: (id: string, transfer: DynamicParam) => Promise<void>;
   deleteTransfer: (id: string) => Promise<void>;
   restoreItem: (table: string, id: string) => Promise<{ success: boolean; message?: string }>;
   permanentDeleteItem: (table: string, id: string) => Promise<{ success: boolean; message?: string }>;
@@ -158,12 +161,12 @@ interface AccountingContextType {
   cancelReservation: (tableId: string) => Promise<void>;
   transferTableSession: (sessionId: string, targetTableId: string) => Promise<boolean>;
   mergeTableSessions: (sourceId: string, targetId: string) => Promise<boolean>;
-  createRestaurantOrder: (payload: any) => Promise<string>;
+  createRestaurantOrder: (payload: DynamicParam) => Promise<string>;
   getOpenTableOrder: (tableId: string) => Promise<any>;
   completeRestaurantOrder: (orderId: string, method: string, total: number, accountId: string | null, warehouseId?: string) => Promise<void>;
   processSplitPayment: (orderId: string, items: any[], method: string, total: number, accountId: string) => Promise<boolean>;
-  addRestaurantTable: (data: any) => Promise<void>;
-  updateRestaurantTable: (id: string, data: any) => Promise<void>;
+  addRestaurantTable: (data: DynamicParam) => Promise<void>;
+  updateRestaurantTable: (id: string, data: DynamicParam) => Promise<void>;
   deleteRestaurantTable: (id: string) => Promise<void>;
   updateKitchenOrderStatus: (id: string, status: string) => Promise<void>;
   startShift: (amount: number) => Promise<void>;
@@ -178,8 +181,8 @@ interface AccountingContextType {
   exportData: () => Promise<void>;
   // --- دوال الديمو ---
   addDemoEntry: (entry: Partial<JournalEntry>) => void;
-  addDemoPaymentVoucher: (voucher: any) => void;
-  addDemoReceiptVoucher: (voucher: any) => void;
+  addDemoPaymentVoucher: (voucher: DynamicParam) => void;
+  addDemoReceiptVoucher: (voucher: DynamicParam) => void;
   addDemoInvoice: (invoice: Partial<Invoice>) => void;
   postDemoSalesInvoice: (invoice: Partial<Invoice>) => void;
   addDemoPurchaseInvoice: (invoice: Partial<Invoice>) => void;
@@ -211,9 +214,9 @@ export { useGeneralLedgerDomain } from './domains/GeneralLedgerContext';
  */
 async function fetchAllTableRecords<T = any>(
   tableName: string,
-  filterFn: (query: any) => any,
+  filterFn: (query: DynamicQuery) => DynamicQuery,
   pageSize = 1000
-): Promise<{ data: T[]; error: any }> {
+): Promise<{ data: T[]; error: DynamicParam }> {
   let allData: T[] = [];
   let from = 0;
   let hasMore = true;
@@ -264,7 +267,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, []);
 
   useEffect(() => {
-    const handleOrgChange = (e: any) => {
+    const handleOrgChange = (e: DynamicParam) => {
       const newOrgId = e.detail?.orgId || null;
       setCurrentSelectedOrgIdState(prev => (prev !== newOrgId ? newOrgId : prev));
     };
@@ -387,7 +390,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setOrganization(effectiveOrgObj);
     setOrganizations([effectiveOrgObj]);
     setCurrentSelectedOrgId(effectiveOfflineOrgId);
-    setAccounts(DEFAULT_OFFLINE_ACCOUNTS.map((a: any) => ({ ...a, isGroup: Boolean(a.is_group ?? a.isGroup) })));
+    setAccounts(DEFAULT_OFFLINE_ACCOUNTS.map((a: Record<string, any>) => ({ ...a, isGroup: Boolean(a.is_group ?? a.isGroup) })));
     setProducts(DEFAULT_OFFLINE_PRODUCTS);
     setRestaurantTables(DEFAULT_OFFLINE_TABLES);
     setMenuCategories(DEFAULT_OFFLINE_CATEGORIES);
@@ -397,7 +400,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setSuppliers([{ id: 'sup-main', name: 'مورد عام معتمد', phone: '01000000000' }]);
 
     // استرجاع الوردية المفتوحة محلياً أو إنشاء وردية جاهزة للعمل
-    let localShift: any = null;
+    let localShift: Record<string, any> | null = null;
     try {
       localShift = secureStorage.getItem<any>('tripro_offline_current_shift');
     } catch (e) {}
@@ -436,12 +439,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     try {
       // جلب بيانات المنظمة والبروفايل
-      let profile: any = null;
+      let profile: DynamicParam = null;
       try {
         const { data: pData, error: profileError } = await supabase.from('profiles').select('*, organizations(*)').eq('id', authUser.id).single();
         if (!profileError && pData) {
           profile = pData;
-          setCurrentUser(profile);
+          setCurrentUser(profile as UserProfile);
         }
       } catch (pErr) {
         logger.warn('Could not fetch online profile, using fallback:', pErr);
@@ -489,7 +492,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // جلب الإعدادات وتوحيد الحقول
       const { data: sett } = await supabase.rpc('get_current_company_settings', { p_org_id: fetchOrgId }).maybeSingle();
       
-      const normalizeSettings = (raw: any) => {
+      const normalizeSettings = (raw: Record<string, any>) => {
         if (!raw || typeof raw !== 'object') return {};
         
         let vatRateNum = 14;
@@ -620,11 +623,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         supabase.from('budgets').select('*').eq('organization_id', fetchOrgId)
       ]);
 
-      const loadedAccounts = (accs.data && accs.data.length > 0) ? accs.data.map((acc: any) => ({
+      const loadedAccounts = (accs.data && accs.data.length > 0) ? accs.data.map((acc: Record<string, any>) => ({
         ...acc,
         isGroup: Boolean(acc.is_group ?? acc.isGroup),
         type: acc.type ? acc.type.toUpperCase() : acc.type
-      })) : DEFAULT_OFFLINE_ACCOUNTS.map((acc: any) => ({
+      })) : DEFAULT_OFFLINE_ACCOUNTS.map((acc: Record<string, any>) => ({
         ...acc,
         isGroup: Boolean(acc.is_group ?? acc.isGroup)
       }));
@@ -640,16 +643,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const rawEmployees = emps.data || [];
       const userHrScope = (profile as any)?.hr_scope || (authUser as any)?.hr_scope || (authUser as any)?.user_metadata?.hr_scope || 'all';
 
-      const isFactoryDept = (dept: any) => {
+      const isFactoryDept = (dept: unknown) => {
         const d = String(dept || '').trim().toLowerCase();
         return d === 'المصنع' || d === 'مصنع' || d === 'factory';
       };
 
       let scopedEmployees = rawEmployees;
       if (userHrScope === 'factory') {
-        scopedEmployees = rawEmployees.filter((e: any) => isFactoryDept(e.department));
+        scopedEmployees = rawEmployees.filter((e: Record<string, any>) => isFactoryDept(e.department));
       } else if (userHrScope === 'branches') {
-        scopedEmployees = rawEmployees.filter((e: any) => !isFactoryDept(e.department));
+        scopedEmployees = rawEmployees.filter((e: Record<string, any>) => !isFactoryDept(e.department));
       }
 
       setEmployees(scopedEmployees);
@@ -747,14 +750,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     return { data: data || [], count: count || 0 };
   }, [currentSelectedOrgId, currentUser?.organization_id]); 
-  const addEntry = async (entry: any) => {
+  const addEntry = async (entry: DynamicParam) => {
     const targetOrgId = entry.p_org_id || entry.organization_id || currentSelectedOrgId || currentUser?.organization_id;
     const sanitizedLines = (entry.lines || [])
-      .filter((l: any) => {
+      .filter((l: Record<string, any>) => {
         const accId = l.accountId || l.account_id;
         return accId && typeof accId === 'string' && accId.trim() !== '' && (Number(l.debit) > 0 || Number(l.credit) > 0);
       })
-      .map((l: any) => ({
+      .map((l: Record<string, any>) => ({
         accountId: l.accountId || l.account_id,
         account_id: l.accountId || l.account_id,
         debit: Number(l.debit || 0),
@@ -767,7 +770,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return;
     }
 
-    const payload: any = {
+    const payload: Record<string, any> = {
       date: entry.date || new Date().toISOString().split('T')[0],
       description: entry.description || null,
       reference: entry.reference || null,
@@ -874,7 +877,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const deleteAccount = async (id: string, reason?: string) => { const { error } = await supabase.from('accounts').delete().eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
   const clearTransactions = async () => { await supabase.rpc('clear_all_transactions'); refreshData(); };
   const emptyRecycleBin = async (table: string) => { await supabase.rpc('empty_recycle_bin', { p_table_name: table }); refreshData(); };
-  const saveBudget = async (budget: any) => { 
+  const saveBudget = async (budget: Record<string, any>) => { 
     const { error } = await supabase.from('budgets').upsert(budget); 
     if (error) {
       showToast('فشل حفظ الموازنة: ' + error.message, 'error');
@@ -897,7 +900,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };  const addProduct = async (data: Partial<Product>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const payload: any = { ...data, organization_id: targetOrgId };
+    const payload: Record<string, any> = { ...data, organization_id: targetOrgId };
     
     // إزالة الحقول غير الموجودة في جدول الأصناف بقاعدة البيانات
     const firstProd = products.length > 0 ? products[0] : null;
@@ -908,8 +911,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (!('eta_unit_code' in firstProd)) delete payload.eta_unit_code;
     }
 
-    let p: any = null;
-    let error: any = null;
+    let p: DynamicParam = null;
+    let error: DynamicParam = null;
 
     // محاولة الإدخال مع معالجة ديناميكية لأي عمود مفقود من قاعدة البيانات
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -936,7 +939,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await refreshData(); return p; 
   };
   const updateProduct = async (id: string, data: Partial<Product>) => { 
-    const payload: any = { ...data };
+    const payload: Record<string, any> = { ...data };
     
     // إزالة الحقول غير الموجودة في جدول الأصناف بقاعدة البيانات
     const firstProd = products.length > 0 ? products[0] : null;
@@ -947,7 +950,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (!('eta_unit_code' in firstProd)) delete payload.eta_unit_code;
     }
 
-    let error: any = null;
+    let error: DynamicParam = null;
 
     // محاولة التحديث مع معالجة ديناميكية لأي عمود مفقود من قاعدة البيانات
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -980,7 +983,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     showToast('تم نقل الصنف إلى سلة المحذوفات', 'success');
     refreshData(); 
   };
-  const addStockTransfer = async (data: any) => { 
+  const addStockTransfer = async (data: DynamicParam) => { 
     const { error } = await supabase.from('stock_transfers').insert(data);
     if (error) throw error;
     refreshData(); 
@@ -1007,7 +1010,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (error) throw error;
     refreshData(); 
   };
-  const addWastage = async (data: any) => { 
+  const addWastage = async (data: Record<string, any>) => { 
     const { error } = await supabase.rpc('record_wastage', data); 
     if (error) {
       showToast('فشل تسجيل الهالك: ' + error.message, 'error');
@@ -1185,7 +1188,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       refreshData();
     }
   };
-  const addPaymentVoucher = async (data: any) => { 
+  const addPaymentVoucher = async (data: DynamicParam) => { 
     const { data: { session } } = await supabase.auth.getSession();
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id || (currentUser as any)?.user_metadata?.org_id;
     const supplierId = data.partyId || data.supplierId || data.supplier_id;
@@ -1361,7 +1364,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   // Assets & Cheques
-  const addAsset = async (assetData: any) => { 
+  const addAsset = async (assetData: DynamicParam) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     
     // 1. فصل تعليمات القيد المحاسبي عن بيانات الجدول الفعلية لتجنب خطأ 400
@@ -1644,7 +1647,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     await refreshData(); 
   };     
-  const addTransfer = async (transfer: any) => { 
+  const addTransfer = async (transfer: Record<string, any>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const targetUserId = currentUser?.id;
     const { error } = await supabase.rpc('add_treasury_transfer', {
@@ -1660,7 +1663,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await refreshData(); 
   };
 
-  const updateTransfer = async (id: string, transfer: any) => {
+  const updateTransfer = async (id: string, transfer: Record<string, any>) => {
     try {
       const { error } = await supabase.rpc('update_treasury_transfer', {
         p_journal_entry_id: id,
@@ -1860,11 +1863,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       const XLSX = await import('xlsx');
-      const accountMap = new Map((accounts || []).map((a: any) => [a.id, a]));
+      const accountMap = new Map((accounts || []).map((a: Account | Record<string, any>) => [a.id, a]));
 
       const flatData: any[] = [];
-      data.forEach((entry: any) => {
-        (entry.journal_lines || []).forEach((line: any) => {
+      data.forEach((entry: Record<string, any>) => {
+        (entry.journal_lines || []).forEach((line: Record<string, any>) => {
           const acc = accountMap.get(line.account_id);
           flatData.push({
             'التاريخ': entry.transaction_date,
@@ -1956,12 +1959,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   // --- Demo Stubs ---
-  const addDemoEntry = (e: any) => logger.log('Demo Entry:', e);
-  const addDemoPaymentVoucher = (v: any) => logger.log('Demo Payment:', v);
-  const addDemoReceiptVoucher = (v: any) => logger.log('Demo Receipt:', v);
-  const addDemoInvoice = (i: any) => logger.log('Demo Invoice:', i);
-  const postDemoSalesInvoice = (inv: any) => logger.log('Demo Post Invoice:', inv);
-  const addDemoPurchaseInvoice = (i: any) => logger.log('Demo Purchase:', i);
+  const addDemoEntry = (e: Partial<JournalEntry> | Record<string, any>) => logger.log('Demo Entry:', e);
+  const addDemoPaymentVoucher = (v: Record<string, any>) => logger.log('Demo Payment:', v);
+  const addDemoReceiptVoucher = (v: Record<string, any>) => logger.log('Demo Receipt:', v);
+  const addDemoInvoice = (i: Partial<Invoice> | Record<string, any>) => logger.log('Demo Invoice:', i);
+  const postDemoSalesInvoice = (inv: Partial<Invoice> | Record<string, any>) => logger.log('Demo Post Invoice:', inv);
+  const addDemoPurchaseInvoice = (i: Partial<Invoice> | Record<string, any>) => logger.log('Demo Purchase:', i);
 
   // --- Restaurant Functions ---
   const finalizeProductionOrder = async (id: string, status: string, notes: string) => {
@@ -2053,7 +2056,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const createRestaurantOrder = async (payload: any) => {
+  const createRestaurantOrder = async (payload: Record<string, any>) => {
     const targetOrgId = getEffectiveOrgId();
     
     if (!navigator.onLine || isDemo) {
@@ -2064,7 +2067,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       if (effectiveTableId) {
         const existing = getOfflineTableOrders()[effectiveTableId] || {};
-        const formattedItems = (payload.p_items || []).map((item: any, idx: number) => ({
+        const formattedItems = (payload.p_items || []).map((item: Record<string, any>, idx: number) => ({
           id: item.id || ('item-' + Date.now() + '-' + idx),
           productId: item.product_id,
           name: item.name || products.find(p => p.id === item.product_id)?.name || 'صنف',
@@ -2153,7 +2156,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           .maybeSingle();
 
         if (order?.id && order.order_items && order.order_items.length > 0) {
-          const formattedItems = order.order_items.map((oi: any) => ({
+          const formattedItems = order.order_items.map((oi: Record<string, any>) => ({
             id: oi.id,
             productId: oi.product_id,
             name: oi.products?.name || 'صنف',
@@ -2236,7 +2239,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const addRestaurantTable = async (data: any) => { 
+  const addRestaurantTable = async (data: Record<string, any>) => { 
     const targetOrgId = getEffectiveOrgId();
     if (!navigator.onLine || isDemo) {
       const newT = { ...data, id: 'tbl-' + Date.now(), organization_id: targetOrgId, status: data.status || 'AVAILABLE' };
@@ -2254,7 +2257,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       showToast('تمت إضافة الطاولة بنجاح (محلياً)', 'success');
     }
   };
-  const updateRestaurantTable = async (id: string, data: any) => { 
+  const updateRestaurantTable = async (id: string, data: Record<string, any>) => { 
     if (!navigator.onLine || isDemo) {
       setRestaurantTables(prev => prev.map(t => t.id === id ? { ...t, ...data } : t));
       showToast('تم تحديث بيانات الطاولة بنجاح', 'success');
