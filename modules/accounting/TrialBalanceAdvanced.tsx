@@ -11,6 +11,7 @@ import html2canvas from 'html2canvas';
 import ReportHeader from '../../components/ReportHeader';
 import { journalAuditService } from '../../services/journalAuditService';
 import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
+import { Account } from '../../types';
 
 const TrialBalanceAdvanced = () => {
   const { accounts, settings, refreshData, currentUser, currentSelectedOrgId, entries, selectedFiscalYear, fiscalYearRange } = useAccounting();
