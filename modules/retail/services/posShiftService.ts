@@ -73,7 +73,7 @@ export async function getLiveShiftFinancials(
       cashReturns = Number(summary.cash_returns) || 0;
     } else {
       // Fallback: جلب المبيعات النقدية مباشرة من الطلبات فقط إذا كان shift.id صالحاً
-      let ordQuery: any = supabase
+      let ordQuery: Record<string, any> = supabase
         .from('orders')
         .select('grand_total, payment_method, status')
         .eq('shift_id', shift.id);
@@ -84,14 +84,14 @@ export async function getLiveShiftFinancials(
       const { data: ords } = await ordQuery;
       const safeOrds = Array.isArray(ords) ? ords : [];
       cashSales = safeOrds
-        .filter((o: any) => !o.payment_method || o.payment_method === 'CASH')
-        .reduce((sum: number, o: any) => sum + Number(o.grand_total || 0), 0);
+        .filter((o: Record<string, any>) => !o.payment_method || o.payment_method === 'CASH')
+        .reduce((sum: number, o: Record<string, any>) => sum + Number(o.grand_total || 0), 0);
     }
 
     // 2. التحقق من المرتجعات النقدية بشكل صريح لضمان الدقة
     if (cashReturns === 0 && userId && isValidUUID(userId)) {
       try {
-        let retQuery: any = supabase
+        let retQuery: Record<string, any> = supabase
           .from('sales_returns')
           .select('total_amount, notes, user_id, created_at')
           .eq('user_id', userId);
@@ -105,11 +105,11 @@ export async function getLiveShiftFinancials(
 
         if (safeRetRows.length > 0) {
           cashReturns = safeRetRows
-            .filter((r: any) => {
+            .filter((r: Record<string, any>) => {
               const isCash = !r.notes || r.notes.includes('نقدي') || r.notes.includes('CASH');
               return isCash;
             })
-            .reduce((sum: number, r: any) => sum + Number(r.total_amount || 0), 0);
+            .reduce((sum: number, r: Record<string, any>) => sum + Number(r.total_amount || 0), 0);
         }
       } catch (e) {
         logger.warn('Could not query sales_returns for shift balance:', e);
@@ -198,7 +198,7 @@ export async function calculateClosingShiftSummary(
 
       if (safeRetRows.length > 0) {
         detectedCashReturns = safeRetRows
-          .filter((r: any) => !r.notes || r.notes.includes('نقدي') || r.notes.includes('CASH'))
+          .filter((r: Record<string, any>) => !r.notes || r.notes.includes('نقدي') || r.notes.includes('CASH'))
           .reduce((sum: number, r: any) => sum + Number(r.total_amount || 0), 0);
       }
     } catch (reErr) {

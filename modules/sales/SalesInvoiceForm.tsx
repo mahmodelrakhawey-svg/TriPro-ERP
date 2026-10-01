@@ -267,7 +267,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               return;
           }
 
-          const customer: any = customers.find(c => c.id === formData.customerId);
+          const customer: Record<string, any> | undefined = customers.find(c => c.id === formData.customerId);
           if (!customer) {
               setCustomerBalance(0);
               return;
@@ -408,7 +408,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               .neq('status', 'draft');
 
           const today = new Date().toISOString().split('T')[0];
-          const overdueInvoices = overdueData?.filter((inv: any) => 
+          const overdueInvoices = overdueData?.filter((inv: Record<string, any>) => 
               inv.status !== 'paid' && 
               inv.due_date && 
               inv.due_date < today && 
@@ -509,7 +509,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
       const { data: itemsData } = await supabase.from('invoice_items').select('*, products(name, sku, base_uom_id, sale_uom_id)').eq('invoice_id', fullInv.id);
       if (itemsData) {
-        setItems(itemsData.map((i: any) => ({
+        setItems(itemsData.map((i: Record<string, any>) => ({
           id: i.id,
           productId: i.product_id,
           product_id: i.product_id,
@@ -550,7 +550,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         notes: quote.notes || ''
       }));
       if (quote.items && quote.items.length > 0) {
-        setItems(quote.items.map((i: any, idx: number) => ({
+        setItems(quote.items.map((i: Record<string, any>, idx: number) => ({
           id: Date.now().toString() + idx,
           productId: i.productId,
           product_id: i.productId,
@@ -911,7 +911,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const remainingBalance = Math.max(0, totalAmount - formData.paidAmount);
 
   // 🎁 التحقق مما إذا كان هناك عرض هايبر ماركت سارٍ على صنف معين
-  const getProductHypermarketOffer = (product: any): PromotionRule | undefined => {
+  const getProductHypermarketOffer = (product: Record<string, any>): PromotionRule | undefined => {
     if (!retailPromotions || retailPromotions.length === 0) return undefined;
     const now = formData.date || new Date().toISOString().split('T')[0];
     return retailPromotions.find(p => {
@@ -943,7 +943,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   }, [productSearchTerm, products]);
 
   // 🏷️ دالة التحقق من سريان العرض على الصنف
-  const isOfferActive = (product: any, invDate?: string) => {
+  const isOfferActive = (product: Record<string, any>, invDate?: string) => {
       const targetDate = invDate || formData.date || new Date().toISOString().split('T')[0];
       const offerPrice = Number(product.offer_price || product.offerPrice || 0);
       if (offerPrice > 0) {
@@ -960,7 +960,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       return false;
   };
 
-  const getProductPrice = (product: any, invDate?: string) => {
+  const getProductPrice = (product: Record<string, any>, invDate?: string) => {
       // 🏷️ إذا كان هناك عرض ساري على الصنف، يتم تطبيق سعر العرض تلقائياً
       if (isOfferActive(product, invDate)) {
           return Number(product.offer_price || product.offerPrice);
@@ -1031,7 +1031,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       if (!product) {
         for (const p of products) {
           if (Array.isArray((p as any).unit_barcodes)) {
-            const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === code);
+            const foundUom = (p as any).unit_barcodes.find((ub: Record<string, any>) => ub.barcode && ub.barcode.trim().toLowerCase() === code);
             if (foundUom) {
               product = p;
               matchedUomInfo = {
@@ -1045,7 +1045,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         }
       } else if (Array.isArray((product as any).unit_barcodes)) {
         // If product matched directly, check if it was specifically a unit barcode
-        const foundUom = (product as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === code);
+        const foundUom = (product as any).unit_barcodes.find((ub: Record<string, any>) => ub.barcode && ub.barcode.trim().toLowerCase() === code);
         if (foundUom) {
           matchedUomInfo = {
             uom_name: foundUom.uom_name,
@@ -1065,11 +1065,11 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     }
   };
 
-  const handleItemChange = (index: number, field: string, value: any) => {
+  const handleItemChange = (index: number, field: string, value: unknown) => {
     const newItems = [...items];
     let processedValue = value;
-    if (field === 'quantity') processedValue = Math.max(0.01, parseFloat(value) || 0);
-    else if (field === 'unitPrice') processedValue = Math.max(0, parseFloat(value) || 0);
+    if (field === 'quantity') processedValue = Math.max(0.01, parseFloat(String(value || 0)) || 0);
+    else if (field === 'unitPrice') processedValue = Math.max(0, parseFloat(String(value || 0)) || 0);
     
     // تحديث البيانات والوحدة الافتراضية عند تغيير الصنف يدوياً (للتوافق المطلق)
     if (field === 'productId') {

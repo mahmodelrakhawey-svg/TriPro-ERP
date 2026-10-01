@@ -7,7 +7,7 @@ import { useToast } from '../../../../context/ToastContext';
 interface PosReturnModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (returnSummary: any) => void;
+  onSuccess: (returnSummary: Record<string, any>) => void;
   orgId: string;
   cashierId: string;
   cashierName: string;
@@ -96,9 +96,9 @@ export default function PosReturnModal({
     }
   };
 
-  const setupOrderForReturn = (order: any) => {
+  const setupOrderForReturn = (order: Record<string, any>) => {
     setOriginalInvoice(order);
-    const items: ReturnItem[] = (order.order_items || []).map((it: any) => ({
+    const items: ReturnItem[] = (order.order_items || []).map((it: Record<string, any>) => ({
       product_id: it.product_id,
       name: it.products?.name || 'صنف',
       sku: it.products?.sku || '',
@@ -121,7 +121,7 @@ export default function PosReturnModal({
     setItemsToReturn([]);
 
     try {
-      let foundOrder: any = null;
+      let foundOrder: Record<string, any> | null = null;
 
       // 1. Search in POS orders table
       // A. Exact match by order_number
@@ -195,7 +195,7 @@ export default function PosReturnModal({
             total_amount: exactInv.total_amount,
             customer_id: exactInv.customer_id,
             is_pos_order: false,
-            order_items: (exactInv.invoice_items || []).map((it: any) => ({
+            order_items: (exactInv.invoice_items || []).map((it: Record<string, any>) => ({
               product_id: it.product_id,
               quantity: it.quantity,
               unit_price: it.unit_price,
@@ -218,7 +218,7 @@ export default function PosReturnModal({
               total_amount: uuidInv.total_amount,
               customer_id: uuidInv.customer_id,
               is_pos_order: false,
-              order_items: (uuidInv.invoice_items || []).map((it: any) => ({
+              order_items: (uuidInv.invoice_items || []).map((it: Record<string, any>) => ({
                 product_id: it.product_id,
                 quantity: it.quantity,
                 unit_price: it.unit_price,
@@ -244,7 +244,7 @@ export default function PosReturnModal({
               total_amount: inv.total_amount,
               customer_id: inv.customer_id,
               is_pos_order: false,
-              order_items: (inv.invoice_items || []).map((it: any) => ({
+              order_items: (inv.invoice_items || []).map((it: Record<string, any>) => ({
                 product_id: it.product_id,
                 quantity: it.quantity,
                 unit_price: it.unit_price,
@@ -298,7 +298,7 @@ export default function PosReturnModal({
       // Create return record in database
       const returnNumber = `RET-${Date.now().toString().slice(-6)}`;
       const effectiveWarehouseId = warehouseId || originalInvoice?.warehouse_id || null;
-      const returnPayload: any = {
+      const returnPayload: Record<string, any> = {
         organization_id: orgId,
         return_number: returnNumber,
         original_invoice_id: originalInvoice.is_pos_order ? null : originalInvoice.id,
@@ -309,7 +309,7 @@ export default function PosReturnModal({
         notes: `مرتجع كاشير ${originalInvoice.is_pos_order ? 'لطلب' : 'لفاتورة'} ${originalInvoice.order_number} بواسطة ${cashierName} [السبب: ${returnReason}] - طريقة الاسترداد: ${refundMethod === 'CASH' ? 'نقدي' : 'رصيد عميل'}${shiftId ? ` [الوردية: ${shiftId}]` : ''}`
       };
 
-      let retRec: any = null;
+      let retRec: Record<string, any> | null = null;
       const { data: insertData, error: retErr } = await supabase
         .from('sales_returns')
         .insert(returnPayload)

@@ -315,7 +315,7 @@ const PosScreen = () => {
         if (error) throw error;
         if (!order) return null;
 
-        const items: any[] = (order.order_items || []).map((item: any) => ({
+        const items: any[] = (order.order_items || []).map((item: Record<string, any>) => ({
             id: item.id,
             productId: item.product_id,
             name: item.products?.name,
@@ -336,7 +336,7 @@ const PosScreen = () => {
   const clearOrder = () => {
     if (!activeOrder) return;
     // إذا كانت الطاولة بها طلبات مرسلة للمطبخ، نطلب تصريح المشرف أولاً لمنع مسح طاولات عليها حساب
-    if (activeOrder.items && activeOrder.items.some((it: any) => (it.savedQuantity || 0) > 0)) {
+    if (activeOrder.items && activeOrder.items.some((it: Record<string, any>) => (it.savedQuantity || 0) > 0)) {
       requireSupervisorAuth(
         `تصريح إلغاء طاولة مشغولة (${activeOrder.tableName})`,
         'قم بتمرير كارت باركود المشرف أو إدخال الرمز السري لإلغاء وتفريغ الطاولة بالكامل',
@@ -570,7 +570,7 @@ const PosScreen = () => {
 
   const updateOrderItem = (itemId: string, change: number) => {
     if (!activeOrder) return;
-    const targetItem = activeOrder.items.find((item: any) => item.localId === itemId || item.id === itemId);
+    const targetItem = activeOrder.items.find((item: Record<string, any>) => item.localId === itemId || item.id === itemId);
     if (!targetItem) return;
 
     // 🛡️ إذا كانت العملية هي إنقاص أو إلغاء صنف تم إرساله مسبقاً للمطبخ (savedQuantity)
@@ -581,7 +581,7 @@ const PosScreen = () => {
         () => {
           setActiveOrder(prevOrder => {
             if (!prevOrder) return null;
-            const newItems = prevOrder.items.map((item: any) => {
+            const newItems = prevOrder.items.map((item) => {
               if (item.localId === itemId || item.id === itemId) {
                 const newQty = item.quantity - 1;
                 const newSaved = Math.max(0, (item.savedQuantity || 0) - 1);
@@ -665,7 +665,7 @@ const PosScreen = () => {
       }));
 
     setIsSubmitting(true);
-    let orderPayload: any = null;
+    let orderPayload: Record<string, any> | null = null;
     try {
        // --- OFFLINE MODE CHANGE ---
        orderPayload = {
@@ -941,7 +941,7 @@ const PosScreen = () => {
       setEditingTable(table);
     };
 
-    const handleSaveUpdatedTable = async (id: string, data: any) => {
+    const handleSaveUpdatedTable = async (id: string, data: Record<string, any>) => {
       await updateRestaurantTable(id, data);
       setEditingTable(null);
     };
@@ -1043,7 +1043,7 @@ const PosScreen = () => {
     }
   };
 
-  const handleSelectCustomer = (customer: any) => {
+  const handleSelectCustomer = (customer: Record<string, any>) => {
     if (activeOrder) {
       setActiveOrder({ ...activeOrder, customer: { id: customer.id, name: customer.name, phone: customer.phone, address: customer.address } });
     }

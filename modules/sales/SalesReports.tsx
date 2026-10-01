@@ -42,7 +42,7 @@ const SalesReports = () => {
   // Fetch Sales & Restaurant Data on date/filter change
   const fetchSalesData = async () => {
     if (currentUser?.role === 'demo') {
-        const mappedDemo = (invoices || []).map((inv: any) => ({
+        const mappedDemo = (invoices || []).map((inv: Record<string, any>) => ({
             id: inv.id,
             invoiceNumber: inv.invoiceNumber || inv.invoice_number,
             date: inv.date || inv.invoice_date,
@@ -52,7 +52,7 @@ const SalesReports = () => {
             warehouseId: inv.warehouseId || inv.warehouse_id,
             status: inv.status,
             source: 'showroom',
-            items: (inv.items || []).map((i: any) => ({
+            items: (inv.items || []).map((i: Record<string, any>) => ({
                 productId: i.productId || i.product_id,
                 productName: i.productName || i.name || 'صنف',
                 productSku: i.productSku || i.sku || '-',
@@ -90,7 +90,7 @@ const SalesReports = () => {
             .lte('invoice_date', endDate);
 
         if (!invError && invData) {
-            const mappedShowroom = invData.map((inv: any) => ({
+            const mappedShowroom = invData.map((inv: Record<string, any>) => ({
                 id: inv.id,
                 invoiceNumber: inv.invoice_number,
                 date: inv.invoice_date,
@@ -100,7 +100,7 @@ const SalesReports = () => {
                 warehouseId: inv.warehouse_id,
                 status: inv.status,
                 source: 'showroom',
-                items: (inv.invoice_items || []).map((i: any) => ({
+                items: (inv.invoice_items || []).map((i: Record<string, any>) => ({
                     productId: i.product_id,
                     productName: i.products?.name || 'صنف',
                     productSku: i.products?.sku || '-',
@@ -127,7 +127,7 @@ const SalesReports = () => {
             .lte('created_at', `${endDate}T23:59:59`);
 
         if (!ordError && ordData) {
-            const mappedOrders = ordData.map((o: any) => ({
+            const mappedOrders = ordData.map((o: Record<string, any>) => ({
                 id: o.id,
                 invoiceNumber: o.order_number,
                 date: o.created_at ? o.created_at.split('T')[0] : '',
@@ -137,7 +137,7 @@ const SalesReports = () => {
                 warehouseId: o.warehouse_id,
                 status: o.status,
                 source: 'restaurant',
-                items: (o.order_items || []).map((i: any) => ({
+                items: (o.order_items || []).map((i: Record<string, any>) => ({
                     productId: i.product_id,
                     productName: i.products?.name || 'وجبة/صنف',
                     productSku: i.products?.sku || '-',
@@ -163,7 +163,7 @@ const SalesReports = () => {
     const allSales = [...showroomInvoices, ...restaurantOrders];
 
     // 1. Filter Combined Sales
-    const filteredInvoices = allSales.filter((inv: any) => {
+    const filteredInvoices = allSales.filter((inv: Record<string, any>) => {
         const matchSalesperson = salespersonId === 'all' || inv.salespersonId === salespersonId;
         const matchCustomer = customerId === 'all' || inv.customerId === customerId;
         const matchDate = inv.date >= startDate && inv.date <= endDate;
@@ -187,7 +187,7 @@ const SalesReports = () => {
     let totalRevenue = 0;
     let totalItems = 0;
 
-    filteredInvoices.forEach((inv: any) => {
+    filteredInvoices.forEach((inv: Record<string, any>) => {
         const invTotal = Number(inv.totalAmount || 0);
         totalRevenue += invTotal;
         
@@ -214,7 +214,7 @@ const SalesReports = () => {
         salespersonStatsMap[sid].total += invTotal;
 
         // --- Product Stats ---
-        (inv.items || []).forEach((item: any) => {
+        (inv.items || []).forEach((item: Record<string, any>) => {
             if (!item.productId) return;
             const itemQty = Number(item.quantity || 0);
             const itemTotal = Number(item.total || 0);

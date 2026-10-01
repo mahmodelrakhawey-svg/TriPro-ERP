@@ -54,7 +54,7 @@ const JournalEntryForm = () => {
       
       // إصلاح: التحقق من وجود الأسطر والتعامل مع التسميات المختلفة للحقول
       const linesData = entryToEdit.lines || [];
-      const formattedLines = linesData.map((line: any) => ({
+      const formattedLines = linesData.map((line: Record<string, any>) => ({
         account_id: line.accountId || line.account_id || '',
         debit: line.debit || 0,
         credit: line.credit || 0,
@@ -132,7 +132,7 @@ const JournalEntryForm = () => {
     fetchRecentEntries(templateSearchTerm);
   };
 
-  const handleSelectTemplate = (ent: any) => {
+  const handleSelectTemplate = (ent: Record<string, any>) => {
     setEditingId(null);
     setDate(new Date().toISOString().split('T')[0]);
     setDescription(ent.description || '');
@@ -154,7 +154,7 @@ const JournalEntryForm = () => {
     toast.success(`تم استنساخ أطراف القيد (${ent.reference || ''}) بنجاح. يمكنك الآن تعديل الأرقام والبيان.`);
   };
 
-  const handleLineChange = (index: number, field: keyof JournalEntryLine, value: any) => {
+  const handleLineChange = (index: number, field: keyof JournalEntryLine, value: unknown) => {
     const newLines = [...lines];
     
     let processedValue = value;
@@ -234,7 +234,7 @@ const JournalEntryForm = () => {
       const result = createJournalEntrySchema.safeParse(validationData);
 
       if (!result.success) {
-        const formattedErrors: any = {};
+        const formattedErrors: Record<string, string> = {};
         result.error.issues.forEach(issue => {
           // `issue.path` can be ['lines', 0, 'account_id'] or ['reference']
           const pathKey = issue.path.join('.');
@@ -298,7 +298,7 @@ const JournalEntryForm = () => {
         if (result && result.lines) {
             setDescription(result.description || aiPrompt);
             
-            const newLines: Partial<JournalEntryLine>[] = result.lines.map((l: any) => {
+            const newLines: Partial<JournalEntryLine>[] = result.lines.map((l: Record<string, any>) => {
                 const acc = accounts.find(a => a.code === l.accountCode);
                 return {
                     account_id: acc ? acc.id : '',
@@ -660,8 +660,8 @@ const JournalEntryForm = () => {
                   لم يتم العثور على قيود مطابقة.
                 </div>
               ) : (
-                recentEntries.map((ent: any) => {
-                  const total = (ent.journal_lines || []).reduce((sum: number, l: any) => sum + (Number(l.debit) || 0), 0);
+                recentEntries.map((ent: Record<string, any>) => {
+                  const total = (ent.journal_lines || []).reduce((sum: number, l: Record<string, any>) => sum + (Number(l.debit) || 0), 0);
                   const linesCount = ent.journal_lines?.length || 0;
                   return (
                     <div 

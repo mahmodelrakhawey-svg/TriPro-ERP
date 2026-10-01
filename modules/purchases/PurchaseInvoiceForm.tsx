@@ -167,7 +167,7 @@ const PurchaseInvoiceForm = () => {
         discountValue: Number(fullInv.discount_value) || (Number(fullInv.discount_amount) > 0 ? Number(fullInv.discount_amount) : 0),
       });
 
-      const formattedItems = (fullInv.purchase_invoice_items || []).map((i: any) => {
+      const formattedItems = (fullInv.purchase_invoice_items || []).map((i: Record<string, any>) => {
         const itemProd = i.products;
         const pTax = itemProd?.tax_rate_override;
         const itemTaxRate = (i.tax_rate !== undefined && i.tax_rate !== null)
@@ -286,7 +286,7 @@ const PurchaseInvoiceForm = () => {
         if (savedDraft) {
           const parsed = typeof savedDraft === 'string' ? JSON.parse(savedDraft) : savedDraft;
           if (parsed.items && parsed.items.length > 0) {
-            const hydrated = parsed.items.map((it: any) => {
+            const hydrated = parsed.items.map((it: Record<string, any>) => {
               if (it.taxRate !== undefined && it.taxRate !== null) return it;
               const prod = products.find(p => p.id === it.productId);
               const pTax = prod ? (prod as any).tax_rate_override : undefined;
@@ -457,7 +457,7 @@ const PurchaseInvoiceForm = () => {
           if (!exactMatch) {
             for (const p of products) {
               if (Array.isArray((p as any).unit_barcodes)) {
-                const foundUom = (p as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === term);
+                const foundUom = (p as any).unit_barcodes.find((ub: Record<string, any>) => ub.barcode && ub.barcode.trim().toLowerCase() === term);
                 if (foundUom) {
                   exactMatch = p;
                   matchedUomInfo = {
@@ -470,7 +470,7 @@ const PurchaseInvoiceForm = () => {
               }
             }
           } else if (Array.isArray((exactMatch as any).unit_barcodes)) {
-            const foundUom = (exactMatch as any).unit_barcodes.find((ub: any) => ub.barcode && ub.barcode.trim().toLowerCase() === term);
+            const foundUom = (exactMatch as any).unit_barcodes.find((ub: Record<string, any>) => ub.barcode && ub.barcode.trim().toLowerCase() === term);
             if (foundUom) {
               matchedUomInfo = {
                 uom_name: foundUom.uom_name,
@@ -488,7 +488,7 @@ const PurchaseInvoiceForm = () => {
       }
   };
 
-  const handleApplyOCRData = (ocrResult: any) => {
+  const handleApplyOCRData = (ocrResult: Record<string, any>) => {
     setFormData(prev => ({
       ...prev,
       supplierId: ocrResult.supplierId || prev.supplierId,
@@ -498,7 +498,7 @@ const PurchaseInvoiceForm = () => {
     }));
 
     if (ocrResult.items && ocrResult.items.length > 0) {
-      const itemsWithTax = ocrResult.items.map((it: any) => {
+      const itemsWithTax = ocrResult.items.map((it: Record<string, any>) => {
         const prod = products.find(p => p.id === it.productId || p.name === it.productName);
         const pTax = prod ? (prod as any).tax_rate_override : undefined;
         const taxRate = it.taxRate !== undefined
@@ -513,20 +513,20 @@ const PurchaseInvoiceForm = () => {
     }
   };
 
-  const handleItemChange = (index: number, field: string, value: any) => {
+  const handleItemChange = (index: number, field: string, value: unknown) => {
     const newItems = [...items];
     newItems[index][field] = value;
 
     if (field === 'discount') {
       const gross = (Number(newItems[index].quantity) || 0) * (Number(newItems[index].unitPrice) || 0);
-      const disc = Math.max(0, parseFloat(value) || 0);
+      const disc = Math.max(0, parseFloat(String(value || 0)) || 0);
       newItems[index].discount = disc;
       newItems[index].discountPercent = gross > 0 ? Number(((disc / gross) * 100).toFixed(2)) : 0;
     }
 
     if (field === 'discountPercent') {
       const gross = (Number(newItems[index].quantity) || 0) * (Number(newItems[index].unitPrice) || 0);
-      const pct = Math.max(0, Math.min(100, parseFloat(value) || 0));
+      const pct = Math.max(0, Math.min(100, parseFloat(String(value || 0)) || 0));
       newItems[index].discountPercent = pct;
       newItems[index].discount = Number(((gross * pct) / 100).toFixed(2));
     }
@@ -564,7 +564,7 @@ const PurchaseInvoiceForm = () => {
     }
 
     if (field === 'taxRate') {
-      newItems[index].taxRate = Math.max(0, Math.min(100, parseFloat(value) || 0));
+      newItems[index].taxRate = Math.max(0, Math.min(100, parseFloat(String(value || 0)) || 0));
     }
 
     const currentGross = (Number(newItems[index].quantity) || 0) * (Number(newItems[index].unitPrice) || 0);
@@ -810,7 +810,7 @@ const PurchaseInvoiceForm = () => {
             }
           }
 
-          let safeInvoiceData: any = { ...invoiceData, related_journal_entry_id: null };
+          let safeInvoiceData: Record<string, any> = { ...invoiceData, related_journal_entry_id: null };
           let { error: updateError } = await supabase.from('purchase_invoices').update(safeInvoiceData).eq('id', editingId);
 
           if (updateError && updateError.code === '42703') {
@@ -836,7 +836,7 @@ const PurchaseInvoiceForm = () => {
           if (itemsError) throw itemsError;
 
         } else {
-          let safeInvoiceData: any = { ...invoiceData };
+          let safeInvoiceData: Record<string, any> = { ...invoiceData };
           let { data: invoice, error: insertError } = await supabase.from('purchase_invoices').insert(safeInvoiceData).select().single();
           if (insertError && insertError.code === '42703') {
             delete safeInvoiceData.discount_type;
