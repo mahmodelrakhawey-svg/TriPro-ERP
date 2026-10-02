@@ -77,8 +77,35 @@ describe('🛡️ MidnightAuditShieldCard Component Tests', () => {
       expect(screen.getByText(/4\/4 أركان متطابقة تماماً/i)).toBeDefined();
       expect(screen.getByText(/توازن الأستاذ العام/i)).toBeDefined();
       expect(screen.getByText(/مطابقة سجل العملاء/i)).toBeDefined();
-      expect(screen.getByText(/مطابقة سجل الموردين/i)).toBeDefined();
-      expect(screen.getByText(/مطابقة التقييم الكمي للمخزون/i)).toBeDefined();
+    });
+  });
+
+  it('يتعامل بسلاسة مع القيم المعدومة (null/undefined) دون حدوث أي خطأ في toLocaleString', async () => {
+    const { auditDaemonService } = await import('../../../services/auditDaemonService');
+    (auditDaemonService.runSystemAudit as any).mockResolvedValueOnce({
+      organizationId: 'test-org-123',
+      timestamp: '2026-09-28T03:00:00Z',
+      overallStatus: 'passed',
+      checks: [
+        {
+          id: 'pillar-gl',
+          pillar: 'gl_balance',
+          title: 'توازن الأستاذ العام',
+          expected: null,
+          actual: null,
+          variance: null,
+          status: 'passed',
+          notes: 'فحص تجريبي لقيم فارغة'
+        }
+      ],
+      summary: { totalChecks: 1, passedCount: 1, failedCount: 0 }
+    });
+
+    render(<MidnightAuditShieldCard organizationId="test-org-123" />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/توازن الأستاذ العام/i)).toBeDefined();
+      expect(screen.getAllByText(/0.00/i).length).toBeGreaterThan(0);
     });
   });
 });

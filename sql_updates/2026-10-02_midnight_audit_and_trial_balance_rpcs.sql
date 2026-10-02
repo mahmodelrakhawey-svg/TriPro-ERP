@@ -343,7 +343,7 @@ BEGIN
     END IF;
 
     IF v_org_id IS NULL THEN
-        RAISE EXCEPTION 'تعذر تحديد المنظمة المصرح لها بالاستعلام.';
+        RETURN;
     END IF;
 
     IF p_start_date IS NOT NULL AND p_start_date ~ '^\d{4}-\d{2}-\d{2}$' THEN

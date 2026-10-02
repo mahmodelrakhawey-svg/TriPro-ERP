@@ -176,19 +176,19 @@ export const MidnightAuditShieldCard: React.FC<MidnightAuditShieldCardProps> = (
                 <div className="flex justify-between text-slate-500">
                   <span>القيمة الدفترية:</span>
                   <span className="font-mono font-semibold text-slate-700">
-                    {check.expected.toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.م
+                    {(Number(check.expected) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.م
                   </span>
                 </div>
                 <div className="flex justify-between text-slate-500">
                   <span>قيمة السجل/الأستاذ:</span>
                   <span className="font-mono font-semibold text-slate-700">
-                    {check.actual.toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.م
+                    {(Number(check.actual) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.م
                   </span>
                 </div>
                 <div className="flex justify-between pt-1 border-t border-slate-200/60 font-bold">
                   <span className="text-slate-600">الفارق:</span>
                   <span className={`font-mono ${isPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
-                    {check.variance === 0 ? '0.00 ج.م (مطابق تماماً)' : `${check.variance.toFixed(2)} ج.م`}
+                    {(Number(check.variance) || 0) === 0 ? '0.00 ج.م (مطابق تماماً)' : `${(Number(check.variance) || 0).toFixed(2)} ج.م`}
                   </span>
                 </div>
               </div>
