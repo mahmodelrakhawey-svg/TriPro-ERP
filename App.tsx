@@ -332,7 +332,6 @@ import {
   LazyLoadingFallback,
   ErrorBoundary
 } from './components/AppGuardsAndLayout';
-import { DevEnvironmentBanner } from './components/DevEnvironmentBanner';
 
 
 /** 🏗️ مكون وسيط لإدارة تدفق شاشات المقاولين عند الدخول من القائمة الجانبية **/
@@ -466,7 +465,6 @@ const MainLayout = () => {
                 onCloseMobile={() => setIsMobileSidebarOpen(false)}
             />
             <div className="flex-1 flex flex-col min-w-0 h-screen print:h-auto print:block print:overflow-visible">
-                <DevEnvironmentBanner />
                 <DemoBanner />
                 <DemoWelcomeModal />
                 <DemoTour />
