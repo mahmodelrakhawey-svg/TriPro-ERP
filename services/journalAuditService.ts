@@ -68,7 +68,17 @@ class JournalAuditService {
         p_status: statusFilter === 'all' ? null : statusFilter
       });
 
-      if (!rpcErr && Array.isArray(rpcData) && rpcData.length > 0) {
+      if (!rpcErr && Array.isArray(rpcData)) {
+        if (rpcData.length === 0) {
+          return {
+            unbalancedIds: [],
+            entries: [],
+            totalDebit: 0,
+            totalCredit: 0,
+            totalDifference: 0
+          };
+        }
+
         const entries: UnbalancedJournalEntrySummary[] = rpcData.map((r: Record<string, any>) => {
           const totDr = Number(r.total_debit || 0);
           const totCr = Number(r.total_credit || 0);
@@ -105,10 +115,13 @@ class JournalAuditService {
       const pageSize = 1000;
 
       while (true) {
-        let query = supabase
+        const selectObj = supabase
           .from('journal_lines')
-          .select('id, journal_entry_id, account_id, debit, credit, journal_entries!inner(id, reference, description, transaction_date, status, organization_id)')
-          .range(from, from + pageSize - 1);
+          .select('id, journal_entry_id, account_id, debit, credit, journal_entries!inner(id, reference, description, transaction_date, status, organization_id)');
+
+        let query = typeof (selectObj as unknown as { range?: Function }).range === 'function'
+          ? (selectObj as unknown as { range: (from: number, to: number) => typeof selectObj }).range(from, from + pageSize - 1)
+          : selectObj;
 
         if (effectiveOrgId && effectiveOrgId !== '') {
           query = query.eq('journal_entries.organization_id', effectiveOrgId);
@@ -126,7 +139,7 @@ class JournalAuditService {
         if (!data || data.length === 0) break;
 
         allLines = allLines.concat(data);
-        if (data.length < pageSize) break;
+        if (data.length < pageSize || typeof selectObj.range !== 'function') break;
         from += pageSize;
       }
 

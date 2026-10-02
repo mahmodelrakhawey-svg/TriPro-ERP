@@ -51,9 +51,10 @@ vi.mock('../../supabaseClient', () => {
       return {
         select: vi.fn().mockReturnThis(),
         eq: vi.fn().mockReturnThis(),
+        is: vi.fn().mockReturnThis(),
         then: vi.fn((cb: any) =>
           Promise.resolve({
-            data: [{ stock: 100, cost_price: 250 }],
+            data: [{ stock: 100, cost: 250, cost_price: 250 }],
             error: null,
           }).then(cb)
         ),

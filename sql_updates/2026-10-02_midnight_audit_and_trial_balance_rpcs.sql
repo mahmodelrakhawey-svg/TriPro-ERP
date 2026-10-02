@@ -2,17 +2,33 @@
 -- TriPro ERP — Server-Side Financial Audit & Trial Balance RPCs
 -- sql_updates/2026-10-02_midnight_audit_and_trial_balance_rpcs.sql
 -- ==============================================================================
--- 1. دالة الفحص المحاسبي الليلي الشامل (get_financial_audit_summary):
+-- 1. دالة درع النزاهة والتدقيق المحاسبي (get_financial_audit_summary):
 --    تحسب توازن الأستاذ العام، ومطابقة العملاء، والموردين، وتقييم المخزون ذرياً
 --    على مستوى محرك PostgreSQL خلال أقل من 5ms دون أي حد لعدد الأسطر (No 1,000 Row Cutoff).
 --
--- 2. دالة ميزان المراجعة المجمع (get_trial_balance_summary_rpc):
+-- 2. دالة كشف القيود غير المتوازنة (get_unbalanced_journal_entries):
+--    تكتشف أي قيد محاسبي به فرق بين المدين والدائن مع إرجاع معرف القيد ورقم الفاتورة/المستند.
+--
+-- 3. دالة ميزان المراجعة المجمع (get_trial_balance_summary_rpc):
 --    تجميع أرصدة وحركات ميزان المراجعة مع عزل المنظمات التام ودعم التواريخ المرنة.
 -- ==============================================================================
 
+-- 🛡️ تنظيف التوقيعات السابقة لتفادي أي تعارض في PostgREST
+DROP FUNCTION IF EXISTS public.get_financial_audit_summary(uuid);
+DROP FUNCTION IF EXISTS public.get_financial_audit_summary(text);
+
+DROP FUNCTION IF EXISTS public.get_unbalanced_journal_entries(uuid, text);
+DROP FUNCTION IF EXISTS public.get_unbalanced_journal_entries(text, text);
+
+DROP FUNCTION IF EXISTS public.get_trial_balance_summary_rpc(uuid, date, date);
+DROP FUNCTION IF EXISTS public.get_trial_balance_summary_rpc(text, text, text);
+DROP FUNCTION IF EXISTS public.get_trial_balance_summary_rpc(uuid, text, text);
+
+-- ==============================================================================
 -- 🛡️ 1. دالة درع النزاهة والتدقيق المحاسبي (Midnight Financial Integrity Audit RPC)
+-- ==============================================================================
 CREATE OR REPLACE FUNCTION public.get_financial_audit_summary(
-    p_org_id uuid DEFAULT NULL
+    p_org_id text DEFAULT NULL
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -41,8 +57,13 @@ DECLARE
     v_overall_status text := 'passed';
     v_checks jsonb := '[]'::jsonb;
 BEGIN
-    -- 🛡️ تحديد المنظمة
-    v_org_id := COALESCE(p_org_id, public.get_my_org());
+    -- 🛡️ التحقق المرن من المنظمة دون أي أخطاء صيغة UUID
+    IF p_org_id IS NOT NULL AND p_org_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+        v_org_id := p_org_id::uuid;
+    ELSE
+        v_org_id := public.get_my_org();
+    END IF;
+
     IF v_org_id IS NULL THEN
         RETURN jsonb_build_object(
             'success', false,
@@ -106,7 +127,8 @@ BEGIN
     -- =========================================================================
     SELECT COALESCE(SUM(balance), 0) INTO v_customers_balance
     FROM public.customers
-    WHERE organization_id = v_org_id;
+    WHERE organization_id = v_org_id
+      AND deleted_at IS NULL;
 
     SELECT COALESCE(balance, v_customers_balance) INTO v_ar_gl_balance
     FROM public.accounts
@@ -146,7 +168,8 @@ BEGIN
     -- =========================================================================
     SELECT COALESCE(SUM(balance), 0) INTO v_suppliers_balance
     FROM public.suppliers
-    WHERE organization_id = v_org_id;
+    WHERE organization_id = v_org_id
+      AND deleted_at IS NULL;
 
     SELECT COALESCE(balance, v_suppliers_balance) INTO v_ap_gl_balance
     FROM public.accounts
@@ -183,11 +206,12 @@ BEGIN
 
     -- =========================================================================
     -- الركن الرابع: مطابقة تقييم المخزون الكمي مع حساب البضاعة بالأستاذ العام
+    -- (الاعتماد على حقل cost الأصلي وتصفية deleted_at IS NULL)
     -- =========================================================================
-    SELECT COALESCE(SUM(COALESCE(stock, 0) * COALESCE(cost_price, 0)), 0) INTO v_stock_valuation
+    SELECT COALESCE(SUM(COALESCE(stock, 0) * COALESCE(cost, 0)), 0) INTO v_stock_valuation
     FROM public.products
     WHERE organization_id = v_org_id
-      AND is_active = true;
+      AND deleted_at IS NULL;
 
     SELECT COALESCE(balance, v_stock_valuation) INTO v_inv_gl_balance
     FROM public.accounts
@@ -233,11 +257,63 @@ BEGIN
 END;
 $$;
 
--- 📊 2. دالة ميزان المراجعة المجمع (Trial Balance Summary RPC)
+-- ==============================================================================
+-- 🔍 2. دالة كشف القيود غير المتوازنة (Unbalanced Journal Entries RPC)
+-- ==============================================================================
+CREATE OR REPLACE FUNCTION public.get_unbalanced_journal_entries(
+  p_org_id text DEFAULT NULL,
+  p_status text DEFAULT NULL
+)
+RETURNS TABLE (
+  entry_id uuid,
+  reference text,
+  description text,
+  transaction_date date,
+  status text,
+  total_debit numeric,
+  total_credit numeric,
+  difference numeric
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_org_id uuid;
+BEGIN
+  IF p_org_id IS NOT NULL AND p_org_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+    v_org_id := p_org_id::uuid;
+  ELSE
+    v_org_id := public.get_my_org();
+  END IF;
+
+  RETURN QUERY
+  SELECT 
+    je.id AS entry_id,
+    je.reference,
+    je.description,
+    je.transaction_date,
+    je.status,
+    COALESCE(SUM(jl.debit), 0)::numeric(19,4) AS total_debit,
+    COALESCE(SUM(jl.credit), 0)::numeric(19,4) AS total_credit,
+    (COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0))::numeric(19,4) AS difference
+  FROM public.journal_entries je
+  JOIN public.journal_lines jl ON jl.journal_entry_id = je.id
+  WHERE (v_org_id IS NULL OR je.organization_id = v_org_id)
+    AND (p_status IS NULL OR je.status = p_status)
+  GROUP BY je.id, je.reference, je.description, je.transaction_date, je.status
+  HAVING ABS(COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0)) > 0.005
+  ORDER BY ABS(COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0)) DESC;
+END;
+$$;
+
+-- ==============================================================================
+-- 📊 3. دالة ميزان المراجعة المجمع (Trial Balance Summary RPC)
+-- ==============================================================================
 CREATE OR REPLACE FUNCTION public.get_trial_balance_summary_rpc(
-    p_org_id uuid DEFAULT NULL,
-    p_start_date date DEFAULT '1970-01-01',
-    p_end_date date DEFAULT CURRENT_DATE
+    p_org_id text DEFAULT NULL,
+    p_start_date text DEFAULT NULL,
+    p_end_date text DEFAULT NULL
 )
 RETURNS TABLE (
     account_id uuid,
@@ -260,13 +336,27 @@ DECLARE
     v_start_date date;
     v_end_date date;
 BEGIN
-    v_org_id := COALESCE(p_org_id, public.get_my_org());
+    IF p_org_id IS NOT NULL AND p_org_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
+        v_org_id := p_org_id::uuid;
+    ELSE
+        v_org_id := public.get_my_org();
+    END IF;
+
     IF v_org_id IS NULL THEN
         RAISE EXCEPTION 'تعذر تحديد المنظمة المصرح لها بالاستعلام.';
     END IF;
 
-    v_start_date := COALESCE(p_start_date, '1970-01-01'::date);
-    v_end_date := COALESCE(p_end_date, CURRENT_DATE);
+    IF p_start_date IS NOT NULL AND p_start_date ~ '^\d{4}-\d{2}-\d{2}$' THEN
+        v_start_date := p_start_date::date;
+    ELSE
+        v_start_date := '1970-01-01'::date;
+    END IF;
+
+    IF p_end_date IS NOT NULL AND p_end_date ~ '^\d{4}-\d{2}-\d{2}$' THEN
+        v_end_date := p_end_date::date;
+    ELSE
+        v_end_date := CURRENT_DATE;
+    END IF;
 
     RETURN QUERY
     WITH tx AS (
@@ -317,6 +407,9 @@ BEGIN
 END;
 $$;
 
+-- ==============================================================================
 -- 🛡️ منح الصلاحيات للأدوار المصرح بها
-GRANT EXECUTE ON FUNCTION public.get_financial_audit_summary(uuid) TO authenticated, anon;
-GRANT EXECUTE ON FUNCTION public.get_trial_balance_summary_rpc(uuid, date, date) TO authenticated, anon;
+-- ==============================================================================
+GRANT EXECUTE ON FUNCTION public.get_financial_audit_summary(text) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION public.get_unbalanced_journal_entries(text, text) TO authenticated, anon;
+GRANT EXECUTE ON FUNCTION public.get_trial_balance_summary_rpc(text, text, text) TO authenticated, anon;

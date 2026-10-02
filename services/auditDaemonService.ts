@@ -48,7 +48,7 @@ class AuditDaemonService {
     // المحاولة الأولى الفائقة: عبر دالة RPC المباشرة بقاعدة البيانات
     try {
       const { data, error } = await supabase.rpc('get_financial_audit_summary', {
-        p_org_id: orgId
+        p_org_id: orgId || null
       });
 
       if (!error && data?.success && Array.isArray(data.checks)) {
@@ -263,12 +263,15 @@ class AuditDaemonService {
     try {
       const { data: products } = await supabase
         .from('products')
-        .select('stock, cost_price')
+        .select('stock, cost')
         .eq('organization_id', orgId)
-        .eq('is_active', true);
+        .is('deleted_at', null);
 
       const totalStockValuation = (products || []).reduce(
-        (sum, p) => sum + (Number(p.stock) || 0) * (Number(p.cost_price) || 0),
+        (sum, p: { stock?: number; cost?: number; cost_price?: number }) => {
+          const unitCost = Number(p.cost !== undefined ? p.cost : p.cost_price) || 0;
+          return sum + (Number(p.stock) || 0) * unitCost;
+        },
         0
       );
 
