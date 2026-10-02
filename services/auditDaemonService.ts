@@ -15,6 +15,7 @@
  */
 
 import { supabase } from '../supabaseClient';
+import { journalAuditService } from './journalAuditService';
 
 export interface AuditCheckItem {
   id: string;
@@ -84,28 +85,64 @@ class AuditDaemonService {
     };
 
     try {
-      const { data: lines, error: linesErr } = await supabase
+      // 🛡️ الاستعلام الشامل لكافة أسطر القيود المرحلة بنظام التقطيع (Chunking) لمنع قطع الـ 1000 سطر
+      let totalDebit = 0;
+      let totalCredit = 0;
+      let lines: Array<{ debit: number; credit: number }> = [];
+
+      const queryObj = supabase
         .from('journal_lines')
-        .select('debit, credit, journal_entries!inner(status, is_posted)')
+        .select('debit, credit, journal_entries!inner(status)')
         .eq('organization_id', orgId)
         .eq('journal_entries.status', 'posted');
 
-      if (!linesErr && lines) {
-        const totalDebit = lines.reduce((sum, l) => sum + (Number(l.debit) || 0), 0);
-        const totalCredit = lines.reduce((sum, l) => sum + (Number(l.credit) || 0), 0);
-        const variance = Math.abs(totalDebit - totalCredit);
+      if (typeof (queryObj as any).range === 'function') {
+        let from = 0;
+        const pageSize = 1000;
+        while (true) {
+          const { data: chunk, error: chunkErr } = await supabase
+            .from('journal_lines')
+            .select('debit, credit, journal_entries!inner(status)')
+            .eq('organization_id', orgId)
+            .eq('journal_entries.status', 'posted')
+            .range(from, from + pageSize - 1);
 
-        glCheck.expected = Number(totalDebit.toFixed(2));
-        glCheck.actual = Number(totalCredit.toFixed(2));
-        glCheck.variance = Number(variance.toFixed(2));
-
-        if (variance > 0.05) {
-          glCheck.status = 'failed';
-          glCheck.notes = `يوجد عدم توازن في الأستاذ العام بقيمة ${variance.toFixed(2)} ج.م`;
-        } else {
-          glCheck.status = 'passed';
-          glCheck.notes = `الأستاذ العام متوازن تماماً: مدين (${totalDebit.toLocaleString()}) = دائن (${totalCredit.toLocaleString()})`;
+          if (chunkErr || !chunk || chunk.length === 0) break;
+          lines = lines.concat(chunk as any);
+          if (chunk.length < pageSize) break;
+          from += pageSize;
         }
+      } else {
+        const { data } = await queryObj;
+        if (data) lines = data as any;
+      }
+
+      if (lines && lines.length > 0) {
+        totalDebit = lines.reduce((sum, l) => sum + (Number(l.debit) || 0), 0);
+        totalCredit = lines.reduce((sum, l) => sum + (Number(l.credit) || 0), 0);
+      }
+
+      // التحقق المتقاطع مع فحص اليومية المتوازن الشامل
+      let unbalancedCount = 0;
+      try {
+        const unbalancedAudit = await journalAuditService.findUnbalancedEntries(orgId, 'posted');
+        unbalancedCount = unbalancedAudit.unbalancedIds.length;
+      } catch (_) {
+        unbalancedCount = 0;
+      }
+
+      const variance = Math.abs(totalDebit - totalCredit);
+      glCheck.expected = Number(totalDebit.toFixed(2));
+      glCheck.actual = Number(totalCredit.toFixed(2));
+
+      if (variance > 0.05 || unbalancedCount > 0) {
+        glCheck.variance = Number(variance.toFixed(2));
+        glCheck.status = 'failed';
+        glCheck.notes = `يوجد عدم توازن في الأستاذ العام بقيمة ${variance.toFixed(2)} ج.م`;
+      } else {
+        glCheck.variance = 0;
+        glCheck.status = 'passed';
+        glCheck.notes = `الأستاذ العام متوازن تماماً: مدين (${Number(totalDebit.toFixed(2)).toLocaleString()} ج.م) = دائن (${Number(totalCredit.toFixed(2)).toLocaleString()} ج.م)`;
       }
     } catch (_) {
       glCheck.status = 'warning';

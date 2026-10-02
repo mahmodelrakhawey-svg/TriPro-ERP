@@ -181,7 +181,7 @@ const CashFlowStatement = () => {
       // 🚀 الخطوة 1 (Dual-Engine Fast Path): استعلام دالة تجميع ميزان المراجعة على مستوى PostgreSQL
       try {
         const { data: summaryData, error: summaryErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
-          p_org_id: userOrgId,
+          p_org_id: (typeof userOrgId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userOrgId)) ? userOrgId : null,
           p_start_date: startDate,
           p_end_date: endDate
         });

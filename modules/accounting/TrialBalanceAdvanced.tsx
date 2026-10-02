@@ -116,9 +116,12 @@ const TrialBalanceAdvanced = () => {
 
       // 🚀 الخطوة 1 (Dual-Engine Fast Path): استعلام دالة التجميع السريعة على مستوى PostgreSQL
       let rpcSuccess = false;
+      const isUuid = (val: unknown): boolean => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+      const validOrgId = isUuid(userOrgId) ? userOrgId : null;
+
       try {
         const { data: rpcData, error: rpcErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
-          p_org_id: userOrgId,
+          p_org_id: validOrgId,
           p_start_date: startDate || '1970-01-01',
           p_end_date: endDate || new Date().toISOString().split('T')[0]
         });

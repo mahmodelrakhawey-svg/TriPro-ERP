@@ -99,7 +99,7 @@ const BalanceSheet: React.FC = () => {
       let rpcSuccess = false;
       try {
         const { data: summaryData, error: summaryErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
-          p_org_id: userOrgId,
+          p_org_id: (typeof userOrgId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userOrgId)) ? userOrgId : null,
           p_start_date: currentYearStart,
           p_end_date: asOfDate
         });
@@ -109,7 +109,7 @@ const BalanceSheet: React.FC = () => {
 
           if (isComparative) {
             const { data: priorSummaryData, error: priorSummaryErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
-              p_org_id: userOrgId,
+              p_org_id: (typeof userOrgId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userOrgId)) ? userOrgId : null,
               p_start_date: priorYearStart,
               p_end_date: priorAsOfDate
             });
