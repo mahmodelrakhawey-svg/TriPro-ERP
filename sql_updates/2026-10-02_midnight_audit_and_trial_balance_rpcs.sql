@@ -31,6 +31,209 @@ END;
 $$;
 
 -- ==============================================================================
+-- 🛡️ 0.5. دالة حساب رصيد المورد الفردي (get_supplier_balance) - منع الازدواج بالأسماء الجزئية
+-- ==============================================================================
+CREATE OR REPLACE FUNCTION public.get_supplier_balance(p_supplier_id uuid, p_org_id uuid)
+RETURNS numeric
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_supplier_name         TEXT := '';
+    v_opening_balance       NUMERIC := 0;
+    v_gross_invoices        NUMERIC := 0;
+    v_immediate_payments    NUMERIC := 0;
+    v_sub_billings          NUMERIC := 0;
+    v_payments              NUMERIC := 0;
+    v_cheques               NUMERIC := 0;
+    v_returns               NUMERIC := 0;
+    v_debit_notes           NUMERIC := 0;
+    v_manual_credit         NUMERIC := 0;
+    v_manual_debit          NUMERIC := 0;
+    v_has_op_journal        BOOLEAN := false;
+    v_op_journal_amount     NUMERIC := 0;
+BEGIN
+    -- أ. جلب بيانات بطاقة المورد
+    SELECT COALESCE(opening_balance, 0), COALESCE(name, '')
+      INTO v_opening_balance, v_supplier_name
+      FROM public.suppliers
+     WHERE id = p_supplier_id AND (organization_id = p_org_id OR p_org_id IS NULL);
+
+    -- ب. إجمالي فواتير المشتريات المرحلة
+    SELECT COALESCE(SUM(total_amount), 0)
+      INTO v_gross_invoices
+      FROM public.purchase_invoices
+     WHERE supplier_id = p_supplier_id
+       AND (organization_id = p_org_id OR p_org_id IS NULL)
+       AND status NOT IN ('draft', 'cancelled');
+
+    -- ج. المبالغ المسددة فوراً من داخل فواتير المشتريات
+    SELECT COALESCE(SUM(COALESCE(paid_amount, 0)), 0)
+      INTO v_immediate_payments
+      FROM public.purchase_invoices
+     WHERE supplier_id = p_supplier_id
+       AND (organization_id = p_org_id OR p_org_id IS NULL)
+       AND status NOT IN ('draft', 'cancelled');
+
+    -- د. مستخلصات مقاولي الباطن
+    IF EXISTS (
+      SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'subcontractor_billings'
+    ) AND EXISTS (
+      SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'subcontractors' AND column_name = 'supplier_id'
+    ) THEN
+        SELECT COALESCE(SUM(sb.net_amount), 0)
+          INTO v_sub_billings
+          FROM public.subcontractor_billings sb
+          JOIN public.subcontractor_contracts sc ON (sb.contract_id = sc.id)
+          JOIN public.subcontractors s ON sc.subcontractor_id = s.id
+         WHERE s.supplier_id = p_supplier_id
+           AND (sb.organization_id = p_org_id OR p_org_id IS NULL)
+           AND sb.status NOT IN ('draft', 'cancelled');
+    END IF;
+
+    -- هـ. سندات الصرف المستقلة (غير الشيكات)
+    SELECT COALESCE(SUM(amount), 0)
+      INTO v_payments
+      FROM public.payment_vouchers
+     WHERE supplier_id = p_supplier_id
+       AND (organization_id = p_org_id OR p_org_id IS NULL)
+       AND COALESCE(payment_method, 'cash') != 'cheque'
+       AND (voucher_number NOT LIKE 'CHQ-%' OR voucher_number IS NULL);
+
+    -- و. الشيكات الصادرة غير المرفوضة
+    IF EXISTS (
+      SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'cheques'
+    ) THEN
+        SELECT COALESCE(SUM(amount), 0)
+          INTO v_cheques
+          FROM public.cheques
+         WHERE party_id = p_supplier_id
+           AND (organization_id = p_org_id OR p_org_id IS NULL)
+           AND type = 'outgoing'
+           AND status != 'rejected';
+    END IF;
+
+    -- ز. مرتجعات المشتريات
+    SELECT COALESCE(SUM(total_amount), 0)
+      INTO v_returns
+      FROM public.purchase_returns
+     WHERE supplier_id = p_supplier_id
+       AND (organization_id = p_org_id OR p_org_id IS NULL)
+       AND status NOT IN ('draft', 'cancelled');
+
+    -- ح. الإشعارات المدينة
+    IF EXISTS (
+      SELECT 1 FROM information_schema.tables
+       WHERE table_schema = 'public' AND table_name = 'debit_notes'
+    ) THEN
+        SELECT COALESCE(SUM(total_amount), 0)
+          INTO v_debit_notes
+          FROM public.debit_notes
+         WHERE supplier_id = p_supplier_id
+           AND (organization_id = p_org_id OR p_org_id IS NULL)
+           AND status = 'posted';
+    END IF;
+
+    -- ط. فحص قيود الرصيد الافتتاحي في اليومية (منع التطابق الجزئي للأسماء الأقصر مثل "العمري" مع "أمين العمريطي")
+    SELECT 
+        COUNT(*) > 0,
+        COALESCE(SUM(jl.credit - jl.debit), 0)
+      INTO v_has_op_journal, v_op_journal_amount
+      FROM public.journal_entries je
+      JOIN public.journal_lines jl ON jl.journal_entry_id = je.id
+      JOIN public.accounts a ON a.id = jl.account_id
+     WHERE (je.organization_id = p_org_id OR p_org_id IS NULL OR je.organization_id IS NULL)
+       AND (je.status IS NULL OR je.status NOT IN ('cancelled', 'rejected'))
+       AND (
+           je.related_document_id = p_supplier_id
+           OR je.reference = 'OP-SUPP-' || p_supplier_id::text
+           OR (
+               v_supplier_name != '' 
+               AND (je.description ILIKE '%' || TRIM(v_supplier_name) || '%' OR je.reference ILIKE '%' || TRIM(v_supplier_name) || '%')
+               AND NOT EXISTS (
+                   SELECT 1 FROM public.suppliers s2 
+                   WHERE (s2.organization_id = p_org_id OR p_org_id IS NULL)
+                     AND s2.id != p_supplier_id 
+                     AND s2.deleted_at IS NULL
+                     AND (je.description ILIKE '%' || TRIM(s2.name) || '%' OR je.reference ILIKE '%' || TRIM(s2.name) || '%')
+                     AND LENGTH(TRIM(s2.name)) > LENGTH(TRIM(v_supplier_name))
+               )
+           )
+       )
+       AND (
+           je.description ILIKE '%رصيد افتتاحي%' 
+           OR je.reference ILIKE 'OP-%' 
+           OR je.reference ILIKE 'OB-%'
+           OR je.related_document_type = 'opening_balance'
+       )
+       AND (
+           a.code = '201' OR a.code LIKE '201%' OR a.code = '2101' OR a.code LIKE '2101%' 
+           OR a.code = '221' OR a.code LIKE '221%' OR a.name ILIKE '%الموردين%' OR a.name ILIKE '%موردين%'
+       );
+
+    -- ي. قيود اليومية اليدوية والتسويات المؤثرة على حساب المورد
+    SELECT 
+        COALESCE(SUM(jl.credit), 0),
+        COALESCE(SUM(jl.debit), 0)
+      INTO v_manual_credit, v_manual_debit
+      FROM public.journal_entries je
+      JOIN public.journal_lines jl ON jl.journal_entry_id = je.id
+      JOIN public.accounts a ON a.id = jl.account_id
+     WHERE (je.organization_id = p_org_id OR p_org_id IS NULL OR je.organization_id IS NULL)
+       AND (je.status IS NULL OR je.status NOT IN ('cancelled', 'rejected'))
+       AND (
+           je.related_document_id = p_supplier_id
+           OR (
+               v_supplier_name != '' 
+               AND (je.description ILIKE '%' || TRIM(v_supplier_name) || '%' OR je.reference ILIKE '%' || TRIM(v_supplier_name) || '%')
+               AND NOT EXISTS (
+                   SELECT 1 FROM public.suppliers s2 
+                   WHERE (s2.organization_id = p_org_id OR p_org_id IS NULL)
+                     AND s2.id != p_supplier_id 
+                     AND s2.deleted_at IS NULL
+                     AND (je.description ILIKE '%' || TRIM(s2.name) || '%' OR je.reference ILIKE '%' || TRIM(s2.name) || '%')
+                     AND LENGTH(TRIM(s2.name)) > LENGTH(TRIM(v_supplier_name))
+               )
+           )
+       )
+       AND (je.related_document_type IS NULL OR je.related_document_type NOT IN ('purchase_invoice', 'payment_voucher', 'purchase_return', 'debit_note', 'cheque', 'opening_balance'))
+       AND (je.reference IS NULL OR (
+           je.reference NOT LIKE 'PINV-%' 
+           AND je.reference NOT LIKE 'PUR-%' 
+           AND je.reference NOT LIKE 'PV-%' 
+           AND je.reference NOT LIKE 'PR-%' 
+           AND je.reference NOT LIKE 'DN-%' 
+           AND je.reference NOT LIKE 'CHQ-%'
+           AND je.reference NOT LIKE 'OP-%'
+           AND je.reference NOT LIKE 'OB-%'
+       ))
+       AND (je.description IS NULL OR je.description NOT ILIKE '%رصيد افتتاحي%')
+       AND (
+           a.code = '201' OR a.code LIKE '201%' OR a.code = '2101' OR a.code LIKE '2101%' 
+           OR a.code = '221' OR a.code LIKE '221%' OR a.name ILIKE '%الموردين%' OR a.name ILIKE '%موردين%'
+       );
+
+    -- ك. المعادلة المحاسبية الشاملة
+    RETURN (CASE WHEN v_has_op_journal THEN v_op_journal_amount ELSE v_opening_balance END)
+         + v_gross_invoices 
+         + v_sub_billings 
+         + v_manual_credit
+         - (v_immediate_payments + v_payments + v_cheques + v_returns + v_debit_notes + v_manual_debit);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_supplier_balance(uuid, uuid) TO authenticated, service_role, anon;
+
+-- تحديث وتصحيح أرصدة الموردين فوراً في جدول suppliers لمنع أي ازدواج ناتج عن مطابقة الأسماء السابقة
+UPDATE public.suppliers s
+   SET balance = public.get_supplier_balance(s.id, s.organization_id)
+ WHERE s.deleted_at IS NULL;
+
+-- ==============================================================================
 -- 🛡️ 1. دالة درع النزاهة والتدقيق المحاسبي (Midnight Financial Integrity Audit RPC)
 -- ==============================================================================
 CREATE OR REPLACE FUNCTION public.get_financial_audit_summary(

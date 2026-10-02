@@ -226,7 +226,7 @@ class AuditDaemonService {
         .from('accounts')
         .select('balance')
         .eq('organization_id', orgId)
-        .or('code.eq.2211,code.eq.221')
+        .or('code.eq.201,code.eq.221,code.eq.2211,code.eq.2101')
         .maybeSingle();
 
       const glApBalance = Number(apAccount?.balance || totalSupplierBalances);
