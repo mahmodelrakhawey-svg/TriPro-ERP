@@ -140,7 +140,7 @@ BEGIN
     WHERE organization_id = v_org_id
       AND deleted_at IS NULL;
 
-    -- جلب رصيد المدينين الفعلي من الأستاذ العام (المدين - الدائن)
+    -- جلب رصيد المدينين الفعلي من الأستاذ العام (المدين - الدائن) لحساب العملاء التجاريين فقط (1221)
     SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::numeric INTO v_ar_gl_balance
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
@@ -148,10 +148,11 @@ BEGIN
     WHERE je.organization_id = v_org_id
       AND je.status = 'posted'
       AND (
-          a.code = '122' OR a.code LIKE '122%' 
+          a.code = '1221' OR a.code LIKE '1221%' 
           OR a.code = '1241' OR a.code LIKE '124%' 
-          OR a.name ILIKE '%عملا%'
-      );
+          OR (a.name ILIKE '%عملا%' AND a.name NOT ILIKE '%سلف%' AND a.name NOT ILIKE '%عهد%' AND a.name NOT ILIKE '%شيك%')
+      )
+      AND a.code NOT IN ('1222', '1223', '1224', '1225', '1226', '1227');
 
     IF v_ar_gl_balance = 0 AND v_customers_balance = 0 THEN
         v_ar_gl_balance := 0;
@@ -159,7 +160,12 @@ BEGIN
         SELECT COALESCE(SUM(balance), 0)::numeric INTO v_ar_gl_balance
         FROM public.accounts
         WHERE organization_id = v_org_id
-          AND (code = '122' OR code LIKE '122%' OR code = '1241' OR code LIKE '124%' OR name ILIKE '%عملا%');
+          AND (
+              code = '1221' OR code LIKE '1221%' 
+              OR code = '1241' OR code LIKE '124%' 
+              OR (name ILIKE '%عملا%' AND name NOT ILIKE '%سلف%' AND name NOT ILIKE '%عهد%')
+          )
+          AND code NOT IN ('1222', '1223', '1224', '1225', '1226', '1227');
     END IF;
 
     v_ar_variance := ABS(v_customers_balance - v_ar_gl_balance);
@@ -209,7 +215,9 @@ BEGIN
           OR a.code = '221' OR a.code LIKE '221%'
           OR a.code = '2101' OR a.code LIKE '2101%'
           OR a.name ILIKE '%مورد%'
-      );
+      )
+      AND a.code NOT IN ('222', '2221', '2212')
+      AND a.name NOT ILIKE '%أوراق دفع%';
 
     -- في حال عدم وجود قيود مرحلة للموردين، فحص الأرصدة المجمعة من جدول الحسابات
     IF v_ap_gl_balance = 0 THEN
@@ -221,7 +229,9 @@ BEGIN
               OR code = '221' OR code LIKE '221%'
               OR code = '2101' OR code LIKE '2101%'
               OR name ILIKE '%مورد%'
-          );
+          )
+          AND code NOT IN ('222', '2221', '2212')
+          AND name NOT ILIKE '%أوراق دفع%';
         v_ap_gl_balance := ABS(v_ap_gl_balance);
     END IF;
 
