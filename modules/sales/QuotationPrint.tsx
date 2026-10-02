@@ -84,7 +84,7 @@ export const QuotationPrint: React.FC<QuotationPrintProps> = ({ quoteData, compa
             </tr>
         </thead>
         <tbody className="divide-y divide-slate-200 text-sm">
-            {items.map((item: any, index: number) => (
+            {items.map((item: Record<string, any>, index: number) => (
                 <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                     <td className="py-2 px-3 text-slate-500 font-bold">{index + 1}</td>
                     <td className="py-2 px-3 font-bold text-slate-900">{item.productName || item.name || item.products?.name || 'N/A'}</td>

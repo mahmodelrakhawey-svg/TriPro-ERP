@@ -79,7 +79,7 @@ const RestaurantSalesReport = () => {
       if (itemsErr) throw itemsErr;
 
       const salesMap: Record<string, ReportItem> = {};
-      orderItems?.forEach((item: any) => {
+      orderItems?.forEach((item: Record<string, any>) => {
         const name = item.products?.name || 'صنف غير محدد';
         const category = item.products?.item_categories?.name || 'عام';
         const key = `${name}_${category}`;

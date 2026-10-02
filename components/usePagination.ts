@@ -24,7 +24,7 @@ export interface PaginationResult<T> {
 export function usePagination<T>(
   tableName: string,
   options: PaginationOptions = {},
-  queryModifier?: (query: any) => any
+  queryModifier?: (query: Record<string, any>) => Record<string, any> | unknown
 ): PaginationResult<T> {
   const [data, setData] = useState<T[]>([]);
   const [page, setPage] = useState(1);
@@ -33,7 +33,7 @@ export function usePagination<T>(
   const [error, setError] = useState<string | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
 
-  // تخزين الـ queryModifier في مرجع لمنع الحلقات اللانهائية إذا كانت الوظيفة غير مستقرة
+  // ØªØ®Ø²ÙŠÙ† Ø§Ù„Ù€ queryModifier ÙÙŠ Ù…Ø±Ø¬Ø¹ Ù„Ù…Ù†Ø¹ Ø§Ù„Ø­Ù„Ù‚Ø§Øª Ø§Ù„Ù„Ø§Ù†Ù‡Ø§Ø¦ÙŠØ© Ø¥Ø°Ø§ ÙƒØ§Ù†Øª Ø§Ù„ÙˆØ¸ÙŠÙØ© ØºÙŠØ± Ù…Ø³ØªÙ‚Ø±Ø©
   const queryModifierRef = useRef(queryModifier);
 
   const {
@@ -44,7 +44,7 @@ export function usePagination<T>(
     organizationId
   } = options;
 
-  // تحديث المرجع عند تغيير الدالة وإعادة جلب البيانات مع ضبط الصفحة على الأولى
+  // ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù…Ø±Ø¬Ø¹ Ø¹Ù†Ø¯ ØªØºÙŠÙŠØ± Ø§Ù„Ø¯Ø§Ù„Ø© ÙˆØ¥Ø¹Ø§Ø¯Ø© Ø¬Ù„Ø¨ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù…Ø¹ Ø¶Ø¨Ø· Ø§Ù„ØµÙØ­Ø© Ø¹Ù„Ù‰ Ø§Ù„Ø£ÙˆÙ„Ù‰
   useEffect(() => {
     queryModifierRef.current = queryModifier;
     setPage(1);
@@ -58,7 +58,7 @@ export function usePagination<T>(
     try {
       const { data: { session } } = await supabase.auth.getSession();
       
-      // 🛡️ حماية فورية: إذا لم توجد جلسة نشطة، توقف تماماً ولا ترسل طلبات لقاعدة البيانات
+      // ðŸ›¡ï¸ Ø­Ù…Ø§ÙŠØ© ÙÙˆØ±ÙŠØ©: Ø¥Ø°Ø§ Ù„Ù… ØªÙˆØ¬Ø¯ Ø¬Ù„Ø³Ø© Ù†Ø´Ø·Ø©ØŒ ØªÙˆÙ‚Ù ØªÙ…Ø§Ù…Ø§Ù‹ ÙˆÙ„Ø§ ØªØ±Ø³Ù„ Ø·Ù„Ø¨Ø§Øª Ù„Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
       if (!session || !session.user) {
         setLoading(false);
         return;
@@ -67,7 +67,7 @@ export function usePagination<T>(
       let userOrgId = organizationId || session.user.user_metadata?.org_id;
       let userRole = session.user.user_metadata?.role;
 
-      // إذا لم يكن متوفراً في الميتاداتا، يتم جلبه كإجراء احتياطي من جدول profiles
+      // Ø¥Ø°Ø§ Ù„Ù… ÙŠÙƒÙ† Ù…ØªÙˆÙØ±Ø§Ù‹ ÙÙŠ Ø§Ù„Ù…ÙŠØªØ§Ø¯Ø§ØªØ§ØŒ ÙŠØªÙ… Ø¬Ù„Ø¨Ù‡ ÙƒØ¥Ø¬Ø±Ø§Ø¡ Ø§Ø­ØªÙŠØ§Ø·ÙŠ Ù…Ù† Ø¬Ø¯ÙˆÙ„ profiles
       if (!userOrgId) {
         const { data: profileData } = await supabase
           .from('profiles')
@@ -85,18 +85,18 @@ export function usePagination<T>(
         .from(tableName)
         .select(select, { count: 'exact' });
 
-      // إذا لم يكن سوبر أدمن، يجب التأكد من وجود معرف شركة
+      // Ø¥Ø°Ø§ Ù„Ù… ÙŠÙƒÙ† Ø³ÙˆØ¨Ø± Ø£Ø¯Ù…Ù†ØŒ ÙŠØ¬Ø¨ Ø§Ù„ØªØ£ÙƒØ¯ Ù…Ù† ÙˆØ¬ÙˆØ¯ Ù…Ø¹Ø±Ù Ø´Ø±ÙƒØ©
       if (!userOrgId && userRole !== 'super_admin') {
-        throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
+        throw new Error('ØªØ¹Ø°Ø± ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ù…Ù†Ø¸Ù…Ø© Ø§Ù„ØªØ§Ø¨Ø¹ Ù„Ù‡Ø§. ÙŠØ±Ø¬Ù‰ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.');
       }
 
-      // تطبيق التصفية فقط إذا كان المعرف موجوداً وصحيحاً (وليس نصاً فارغاً)
+      // ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„ØªØµÙÙŠØ© ÙÙ‚Ø· Ø¥Ø°Ø§ ÙƒØ§Ù† Ø§Ù„Ù…Ø¹Ø±Ù Ù…ÙˆØ¬ÙˆØ¯Ø§Ù‹ ÙˆØµØ­ÙŠØ­Ø§Ù‹ (ÙˆÙ„ÙŠØ³ Ù†ØµØ§Ù‹ ÙØ§Ø±ØºØ§Ù‹)
       if (userOrgId && userOrgId !== "") {
         query = query.eq('organization_id', userOrgId);
       }
 
       if (queryModifierRef.current) {
-        query = queryModifierRef.current(query);
+        query = queryModifierRef.current(query) as typeof query;
       }
 
       if (orderBy) {
@@ -117,7 +117,7 @@ export function usePagination<T>(
       setData((resultData as T[]) || []);
       setTotalCount(count || 0);
     } catch (err) {
-      // تجاهل الأخطاء الناتجة عن إلغاء الطلب يدوياً
+      // ØªØ¬Ø§Ù‡Ù„ Ø§Ù„Ø£Ø®Ø·Ø§Ø¡ Ø§Ù„Ù†Ø§ØªØ¬Ø© Ø¹Ù† Ø¥Ù„ØºØ§Ø¡ Ø§Ù„Ø·Ù„Ø¨ ÙŠØ¯ÙˆÙŠØ§Ù‹
 
       if (err.name === 'AbortError' || err.message?.includes('AbortError')) return;
       
@@ -132,7 +132,7 @@ export function usePagination<T>(
     const controller = new AbortController();
     fetchData(controller.signal);
     
-    // تنظيف الطلبات عند فك المكون أو تغيير التبعيات
+    // ØªÙ†Ø¸ÙŠÙ Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ø¹Ù†Ø¯ ÙÙƒ Ø§Ù„Ù…ÙƒÙˆÙ† Ø£Ùˆ ØªØºÙŠÙŠØ± Ø§Ù„ØªØ¨Ø¹ÙŠØ§Øª
     return () => controller.abort();
   }, [fetchData]);
 

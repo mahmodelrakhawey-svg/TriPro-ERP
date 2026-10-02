@@ -53,9 +53,9 @@ const TaxReturnReport = () => {
                 const inRes = await getAccountBalanceInPeriod(inputVatAcc.id, startDate, endDate);
 
                 // 🛡️ دالة مساعدة لاستخراج القيمة العددية من ردود Supabase المتنوعة (رقم، مصفوفة، أو كائن)
-                const extractAmount = (res: any) => {
+                const extractAmount = (res: Record<string, any> | number | unknown) => {
                     if (Array.isArray(res)) res = res[0];
-                    if (res && typeof res === 'object') return Number(res.balance ?? res.amount ?? res.net ?? Object.values(res)[0] ?? 0);
+                    if (res && typeof res === 'object') { const r = res as Record<string, any>; return Number(r.balance ?? r.amount ?? r.net ?? Object.values(r)[0] ?? 0); }
                     return Number(res || 0);
                 };
 

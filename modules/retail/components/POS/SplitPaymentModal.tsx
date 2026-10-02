@@ -20,7 +20,7 @@ interface SplitPaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
   totalAmount: number;
-  selectedCustomer: any | null;
+  selectedCustomer: Record<string, any> | null;
   currencySymbol: string;
   onConfirm: (details: SplitPaymentDetails) => void;
   couponDiscount?: number;

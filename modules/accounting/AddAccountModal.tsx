@@ -8,7 +8,7 @@ interface AddAccountModalProps {
   isOpen: boolean;
   onClose: () => void;
   onAccountAdded?: () => void;
-  accountToEdit?: any | null;
+  accountToEdit?: Record<string, any> | null;
 }
 
 const AddAccountModal: React.FC<AddAccountModalProps> = ({ isOpen, onClose, onAccountAdded, accountToEdit }) => {

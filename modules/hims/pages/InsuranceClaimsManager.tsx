@@ -1,4 +1,4 @@
-import { logger } from '../../../utils/logger';
+﻿import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Table, Button, Tag, Space, message, Statistic, Divider, Modal, Select, Empty, Tabs } from 'antd';
@@ -26,17 +26,17 @@ export const InsuranceClaimsManager: React.FC = () => {
     setLoading(true);
 
     try {
-      // جلب شركات التأمين المتاحة
+      // Ø¬Ù„Ø¨ Ø´Ø±ÙƒØ§Øª Ø§Ù„ØªØ£Ù…ÙŠÙ† Ø§Ù„Ù…ØªØ§Ø­Ø©
       const { data: providersData, error: providersError } = await supabase
         .from('customers')
         .select('id, name')
         .eq('organization_id', currentUser.organization_id)
         .eq('customer_type', 'insurance_provider');
 
-      if (providersError) message.error('فشل جلب شركات التأمين');
+      if (providersError) message.error('ÙØ´Ù„ Ø¬Ù„Ø¨ Ø´Ø±ÙƒØ§Øª Ø§Ù„ØªØ£Ù…ÙŠÙ†');
       else setInsuranceProviders(providersData || []);
 
-      // 🛡️ إضافة organization_id filter — كان يُسرّب فواتير كل المستشفيات!
+      // ðŸ›¡ï¸ Ø¥Ø¶Ø§ÙØ© organization_id filter â€” ÙƒØ§Ù† ÙŠÙØ³Ø±Ù‘Ø¨ ÙÙˆØ§ØªÙŠØ± ÙƒÙ„ Ø§Ù„Ù…Ø³ØªØ´ÙÙŠØ§Øª!
       const billQuery = supabase
         .from('hims_billing')
         .select('*, hims_patients(full_name), insurance:insurance_provider_id(name)')
@@ -48,12 +48,12 @@ export const InsuranceClaimsManager: React.FC = () => {
       const { data, error: billError } = await billQuery;
       if (billError) throw billError;
 
-      // فلترة حسب شركة التأمين المختارة (في الـ client لتحسين UX)
+      // ÙÙ„ØªØ±Ø© Ø­Ø³Ø¨ Ø´Ø±ÙƒØ© Ø§Ù„ØªØ£Ù…ÙŠÙ† Ø§Ù„Ù…Ø®ØªØ§Ø±Ø© (ÙÙŠ Ø§Ù„Ù€ client Ù„ØªØ­Ø³ÙŠÙ† UX)
       const filteredData = selectedInsuranceProvider && selectedInsuranceProvider !== 'all'
         ? data?.filter(bill => bill.insurance_provider_id === selectedInsuranceProvider)
         : data;
 
-      // جلب المطالبات المرسلة
+      // Ø¬Ù„Ø¨ Ø§Ù„Ù…Ø·Ø§Ù„Ø¨Ø§Øª Ø§Ù„Ù…Ø±Ø³Ù„Ø©
       const { data: claims, error: claimsError } = await supabase
         .from('hims_insurance_claims')
         .select('*, insurance:insurance_provider_id(name)')
@@ -67,23 +67,23 @@ export const InsuranceClaimsManager: React.FC = () => {
 
       if (finalPending.length === 0) {
         finalPending = [
-          { id: '11111111-1111-4111-a111-888888888881', hims_patients: { full_name: 'أحمد محمود علي' }, insurance: { name: 'شركة بوبا للتأمين (Bupa)' }, insurance_covered_amount: 4800, created_at: new Date().toISOString() },
-          { id: '11111111-1111-4111-a111-888888888882', hims_patients: { full_name: 'سارة إبراهيم الشريف' }, insurance: { name: 'مصر للتأمين الطبي' }, insurance_covered_amount: 3200, created_at: new Date().toISOString() },
-          { id: '11111111-1111-4111-a111-888888888883', hims_patients: { full_name: 'محمد عبد الرحمن خالد' }, insurance: { name: 'شركة تسيير (Taseer)' }, insurance_covered_amount: 6100, created_at: new Date().toISOString() }
+          { id: '11111111-1111-4111-a111-888888888881', hims_patients: { full_name: 'Ø£Ø­Ù…Ø¯ Ù…Ø­Ù…ÙˆØ¯ Ø¹Ù„ÙŠ' }, insurance: { name: 'Ø´Ø±ÙƒØ© Ø¨ÙˆØ¨Ø§ Ù„Ù„ØªØ£Ù…ÙŠÙ† (Bupa)' }, insurance_covered_amount: 4800, created_at: new Date().toISOString() },
+          { id: '11111111-1111-4111-a111-888888888882', hims_patients: { full_name: 'Ø³Ø§Ø±Ø© Ø¥Ø¨Ø±Ø§Ù‡ÙŠÙ… Ø§Ù„Ø´Ø±ÙŠÙ' }, insurance: { name: 'Ù…ØµØ± Ù„Ù„ØªØ£Ù…ÙŠÙ† Ø§Ù„Ø·Ø¨ÙŠ' }, insurance_covered_amount: 3200, created_at: new Date().toISOString() },
+          { id: '11111111-1111-4111-a111-888888888883', hims_patients: { full_name: 'Ù…Ø­Ù…Ø¯ Ø¹Ø¨Ø¯ Ø§Ù„Ø±Ø­Ù…Ù† Ø®Ø§Ù„Ø¯' }, insurance: { name: 'Ø´Ø±ÙƒØ© ØªØ³ÙŠÙŠØ± (Taseer)' }, insurance_covered_amount: 6100, created_at: new Date().toISOString() }
         ];
       }
 
       if (finalSubmitted.length === 0) {
         finalSubmitted = [
-          { id: '11111111-1111-4111-a111-999999999991', batch_reference: 'CLAIM-BATCH-20260801', insurance: { name: 'شركة بوبا للتأمين (Bupa)' }, total_claim_amount: 24500, submission_date: new Date().toISOString() },
-          { id: '11111111-1111-4111-a111-999999999992', batch_reference: 'CLAIM-BATCH-20260805', insurance: { name: 'مصر للتأمين الطبي' }, total_claim_amount: 18200, submission_date: new Date().toISOString() }
+          { id: '11111111-1111-4111-a111-999999999991', batch_reference: 'CLAIM-BATCH-20260801', insurance: { name: 'Ø´Ø±ÙƒØ© Ø¨ÙˆØ¨Ø§ Ù„Ù„ØªØ£Ù…ÙŠÙ† (Bupa)' }, total_claim_amount: 24500, submission_date: new Date().toISOString() },
+          { id: '11111111-1111-4111-a111-999999999992', batch_reference: 'CLAIM-BATCH-20260805', insurance: { name: 'Ù…ØµØ± Ù„Ù„ØªØ£Ù…ÙŠÙ† Ø§Ù„Ø·Ø¨ÙŠ' }, total_claim_amount: 18200, submission_date: new Date().toISOString() }
         ];
       }
 
       setPendingBills(finalPending);
       setSubmittedClaims(finalSubmitted);
     } catch (err) {
-      message.error('حدث خطأ أثناء جلب البيانات: ' + (err?.message || ''));
+      message.error('Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª: ' + (err?.message || ''));
     } finally {
       setLoading(false);
     }
@@ -93,14 +93,14 @@ export const InsuranceClaimsManager: React.FC = () => {
 
   const generateBatchClaim = async () => {
     if (pendingBills.length === 0 || !selectedInsuranceProvider || selectedInsuranceProvider === 'all') {
-      return message.warning('يرجى اختيار شركة تأمين محددة وتوفر فواتير معلقة لتوليد المطالبة.');
+      return message.warning('ÙŠØ±Ø¬Ù‰ Ø§Ø®ØªÙŠØ§Ø± Ø´Ø±ÙƒØ© ØªØ£Ù…ÙŠÙ† Ù…Ø­Ø¯Ø¯Ø© ÙˆØªÙˆÙØ± ÙÙˆØ§ØªÙŠØ± Ù…Ø¹Ù„Ù‚Ø© Ù„ØªÙˆÙ„ÙŠØ¯ Ø§Ù„Ù…Ø·Ø§Ù„Ø¨Ø©.');
     }
     
     setLoading(true);
     const batchRef = `CLAIM-BATCH-${Date.now()}`;
 
     try {
-      // 🚀 استدعاء العقل المدبر في قاعدة البيانات لتجميع المطالبة في عملية واحدة
+      // ðŸš€ Ø§Ø³ØªØ¯Ø¹Ø§Ø¡ Ø§Ù„Ø¹Ù‚Ù„ Ø§Ù„Ù…Ø¯Ø¨Ø± ÙÙŠ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù„ØªØ¬Ù…ÙŠØ¹ Ø§Ù„Ù…Ø·Ø§Ù„Ø¨Ø© ÙÙŠ Ø¹Ù…Ù„ÙŠØ© ÙˆØ§Ø­Ø¯Ø©
       const { data: claimId, error } = await supabase.rpc('hims_create_insurance_batch', {
         p_insurance_provider_id: selectedInsuranceProvider,
         p_batch_ref: batchRef
@@ -108,37 +108,37 @@ export const InsuranceClaimsManager: React.FC = () => {
 
       if (error) throw error;
 
-      message.success(`تم توليد مطالبة مجمعة بنجاح ✅ مرجع: ${batchRef}`);
+      message.success(`ØªÙ… ØªÙˆÙ„ÙŠØ¯ Ù…Ø·Ø§Ù„Ø¨Ø© Ù…Ø¬Ù…Ø¹Ø© Ø¨Ù†Ø¬Ø§Ø­ âœ… Ù…Ø±Ø¬Ø¹: ${batchRef}`);
       await fetchPendingInsuranceBills();
     } catch (err) {
-      message.error('فشل تجميع المطالبة: ' + err.message);
+      message.error('ÙØ´Ù„ ØªØ¬Ù…ÙŠØ¹ Ø§Ù„Ù…Ø·Ø§Ù„Ø¨Ø©: ' + err.message);
     } finally {
       setLoading(false);
     }
   };
 
   const handleSettleClaim = async () => {
-    if (!settleBankAcc) return message.warning('يرجى اختيار الحساب البنكي للتحصيل');
-    setLoading(true); // يجب أن يكون هنا
+    if (!settleBankAcc) return message.warning('ÙŠØ±Ø¬Ù‰ Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ø­Ø³Ø§Ø¨ Ø§Ù„Ø¨Ù†ÙƒÙŠ Ù„Ù„ØªØ­ØµÙŠÙ„');
+    setLoading(true); // ÙŠØ¬Ø¨ Ø£Ù† ÙŠÙƒÙˆÙ† Ù‡Ù†Ø§
     try {
       await himsService.settleInsuranceClaim(
         selectedClaim.id,
-        selectedClaim.total_claim_amount, // نفترض تحصيل المبلغ بالكامل
+        selectedClaim.total_claim_amount, // Ù†ÙØªØ±Ø¶ ØªØ­ØµÙŠÙ„ Ø§Ù„Ù…Ø¨Ù„Øº Ø¨Ø§Ù„ÙƒØ§Ù…Ù„
         settleBankAcc
       );
-      message.success('تمت تسوية المطالبة وترحيل المبلغ للبنك بنجاح ✅');
+      message.success('ØªÙ…Øª ØªØ³ÙˆÙŠØ© Ø§Ù„Ù…Ø·Ø§Ù„Ø¨Ø© ÙˆØªØ±Ø­ÙŠÙ„ Ø§Ù„Ù…Ø¨Ù„Øº Ù„Ù„Ø¨Ù†Ùƒ Ø¨Ù†Ø¬Ø§Ø­ âœ…');
       setIsSettleModalOpen(false);
       fetchPendingInsuranceBills();
     } catch (error) {
-      message.error(error.message || 'فشل في تسوية المطالبة');
+      message.error(error.message || 'ÙØ´Ù„ ÙÙŠ ØªØ³ÙˆÙŠØ© Ø§Ù„Ù…Ø·Ø§Ù„Ø¨Ø©');
     } finally {
-      setLoading(false); // يجب أن يكون هنا
+      setLoading(false); // ÙŠØ¬Ø¨ Ø£Ù† ÙŠÙƒÙˆÙ† Ù‡Ù†Ø§
     }
   };
 
-  const exportClaimToXML = async (claim: any) => {
+  const exportClaimToXML = async (claim: Record<string, any>) => {
     setLoading(true);
-    message.loading({ content: 'جاري توليد ملف XML للمطالبة... ⏳', key: 'xml_export' });
+    message.loading({ content: 'Ø¬Ø§Ø±ÙŠ ØªÙˆÙ„ÙŠØ¯ Ù…Ù„Ù XML Ù„Ù„Ù…Ø·Ø§Ù„Ø¨Ø©... â³', key: 'xml_export' });
     try {
       const { data: bills, error: billsError } = await supabase
         .from('hims_billing')
@@ -157,11 +157,11 @@ export const InsuranceClaimsManager: React.FC = () => {
       if (billsError) throw billsError;
 
       if (!bills || bills.length === 0) {
-        message.warning({ content: 'لا توجد فواتير مرتبطة بهذه المطالبة للتصدير.', key: 'xml_export' });
+        message.warning({ content: 'Ù„Ø§ ØªÙˆØ¬Ø¯ ÙÙˆØ§ØªÙŠØ± Ù…Ø±ØªØ¨Ø·Ø© Ø¨Ù‡Ø°Ù‡ Ø§Ù„Ù…Ø·Ø§Ù„Ø¨Ø© Ù„Ù„ØªØµØ¯ÙŠØ±.', key: 'xml_export' });
         return;
       }
 
-      // 🛡️ تحييد XSS: كل بيانات المريض والخدمات تمر عبر sanitizeXml قبل الإدراج في XML
+      // ðŸ›¡ï¸ ØªØ­ÙŠÙŠØ¯ XSS: ÙƒÙ„ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø±ÙŠØ¶ ÙˆØ§Ù„Ø®Ø¯Ù…Ø§Øª ØªÙ…Ø± Ø¹Ø¨Ø± sanitizeXml Ù‚Ø¨Ù„ Ø§Ù„Ø¥Ø¯Ø±Ø§Ø¬ ÙÙŠ XML
       let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
       xml += `<Claim.Request>\n`;
 
@@ -210,7 +210,7 @@ export const InsuranceClaimsManager: React.FC = () => {
       xml += `  </Claims>\n`;
       xml += `</Claim.Request>\n`;
 
-      // تنزيل الملف مع تنظيف الـ Object URL لمنع Memory Leak
+      // ØªÙ†Ø²ÙŠÙ„ Ø§Ù„Ù…Ù„Ù Ù…Ø¹ ØªÙ†Ø¸ÙŠÙ Ø§Ù„Ù€ Object URL Ù„Ù…Ù†Ø¹ Memory Leak
       const blob = new Blob([xml], { type: 'application/xml;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -219,13 +219,13 @@ export const InsuranceClaimsManager: React.FC = () => {
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      // 🛡️ تنظيف Memory Leak: حذف الـ Object URL بعد التنزيل
+      // ðŸ›¡ï¸ ØªÙ†Ø¸ÙŠÙ Memory Leak: Ø­Ø°Ù Ø§Ù„Ù€ Object URL Ø¨Ø¹Ø¯ Ø§Ù„ØªÙ†Ø²ÙŠÙ„
       setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-      message.success({ content: 'تم تصدير ملف XML بنجاح ✅', key: 'xml_export' });
+      message.success({ content: 'ØªÙ… ØªØµØ¯ÙŠØ± Ù…Ù„Ù XML Ø¨Ù†Ø¬Ø§Ø­ âœ…', key: 'xml_export' });
     } catch (e) {
       logger.error('[InsuranceClaims] XML export error:', e);
-      message.error({ content: `فشل تصدير XML: ${e.message}`, key: 'xml_export' });
+      message.error({ content: `ÙØ´Ù„ ØªØµØ¯ÙŠØ± XML: ${e.message}`, key: 'xml_export' });
     } finally {
       setLoading(false);
     }
@@ -236,17 +236,17 @@ export const InsuranceClaimsManager: React.FC = () => {
       <Card className="rounded-3xl shadow-lg border-none">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-black m-0 flex items-center gap-2">
-            <SafetyCertificateOutlined className="text-blue-600" /> إدارة مطالبات التأمين الطبي
+            <SafetyCertificateOutlined className="text-blue-600" /> Ø¥Ø¯Ø§Ø±Ø© Ù…Ø·Ø§Ù„Ø¨Ø§Øª Ø§Ù„ØªØ£Ù…ÙŠÙ† Ø§Ù„Ø·Ø¨ÙŠ
           </h2>
           <div className="flex items-center gap-2">
-            <label className="text-sm font-bold text-slate-600">شركة التأمين:</label>
+            <label className="text-sm font-bold text-slate-600">Ø´Ø±ÙƒØ© Ø§Ù„ØªØ£Ù…ÙŠÙ†:</label>
             <Select
               style={{ width: 200 }}
-              placeholder="اختر شركة التأمين"
+              placeholder="Ø§Ø®ØªØ± Ø´Ø±ÙƒØ© Ø§Ù„ØªØ£Ù…ÙŠÙ†"
               onChange={setSelectedInsuranceProvider}
               value={selectedInsuranceProvider}
               options={[
-                { label: 'كل الشركات', value: 'all' },
+                { label: 'ÙƒÙ„ Ø§Ù„Ø´Ø±ÙƒØ§Øª', value: 'all' },
                 ...insuranceProviders.map(provider => ({
                   label: provider.name,
                   value: provider.id
@@ -262,54 +262,54 @@ export const InsuranceClaimsManager: React.FC = () => {
             disabled={pendingBills.length === 0}
             className="bg-indigo-600 border-none rounded-xl"
           >
-            توليد مطالبة مجمعة (Batch)
+            ØªÙˆÙ„ÙŠØ¯ Ù…Ø·Ø§Ù„Ø¨Ø© Ù…Ø¬Ù…Ø¹Ø© (Batch)
           </Button>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <Statistic title="عدد الفواتير المعلقة" value={pendingBills.length} prefix={<DollarOutlined />} />
+          <Statistic title="Ø¹Ø¯Ø¯ Ø§Ù„ÙÙˆØ§ØªÙŠØ± Ø§Ù„Ù…Ø¹Ù„Ù‚Ø©" value={pendingBills.length} prefix={<DollarOutlined />} />
           <Statistic 
-            title="إجمالي المبلغ المستحق من التأمين" 
+            title="Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø¨Ù„Øº Ø§Ù„Ù…Ø³ØªØ­Ù‚ Ù…Ù† Ø§Ù„ØªØ£Ù…ÙŠÙ†" 
             value={pendingBills.reduce((acc, curr) => acc + curr.insurance_covered_amount, 0)} 
             suffix="EGP" 
             styles={{ content: { color: '#1890ff', fontWeight: 'bold' } }}
           />
-          <Statistic title="المطالبات المفتوحة" value={submittedClaims.length} suffix="مطالبة" />
+          <Statistic title="Ø§Ù„Ù…Ø·Ø§Ù„Ø¨Ø§Øª Ø§Ù„Ù…ÙØªÙˆØ­Ø©" value={submittedClaims.length} suffix="Ù…Ø·Ø§Ù„Ø¨Ø©" />
         </div>
 
         <Tabs defaultActiveKey="1" items={[
           {
             key: '1',
-            label: <span><SendOutlined /> فواتير بانتظار التجميع</span>,
+            label: <span><SendOutlined /> ÙÙˆØ§ØªÙŠØ± Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„ØªØ¬Ù…ÙŠØ¹</span>,
             children: (
               <Table 
                 dataSource={pendingBills} 
                 rowKey="id"
                 columns={[
-                  { title: 'المريض', dataIndex: ['hims_patients', 'full_name'] },
-                  { title: 'شركة التأمين', dataIndex: ['insurance', 'name'], render: (name) => <Tag color="blue">{name}</Tag> },
-                  { title: 'المبلغ المغطى', dataIndex: 'insurance_covered_amount', render: (v) => <b className="text-blue-600">{v?.toLocaleString()} {settings?.currency || 'EGP'}</b> },
-                  { title: 'تاريخ الفاتورة', dataIndex: 'created_at', render: (d) => new Date(d).toLocaleDateString('ar-EG') },
+                  { title: 'Ø§Ù„Ù…Ø±ÙŠØ¶', dataIndex: ['hims_patients', 'full_name'] },
+                  { title: 'Ø´Ø±ÙƒØ© Ø§Ù„ØªØ£Ù…ÙŠÙ†', dataIndex: ['insurance', 'name'], render: (name) => <Tag color="blue">{name}</Tag> },
+                  { title: 'Ø§Ù„Ù…Ø¨Ù„Øº Ø§Ù„Ù…ØºØ·Ù‰', dataIndex: 'insurance_covered_amount', render: (v) => <b className="text-blue-600">{v?.toLocaleString()} {settings?.currency || 'EGP'}</b> },
+                  { title: 'ØªØ§Ø±ÙŠØ® Ø§Ù„ÙØ§ØªÙˆØ±Ø©', dataIndex: 'created_at', render: (d) => new Date(d).toLocaleDateString('ar-EG') },
                 ]}
               />
             )
           },
           {
             key: '2',
-            label: <span><HistoryOutlined /> مطالبات تم إرسالها</span>,
+            label: <span><HistoryOutlined /> Ù…Ø·Ø§Ù„Ø¨Ø§Øª ØªÙ… Ø¥Ø±Ø³Ø§Ù„Ù‡Ø§</span>,
             children: (
               <Table 
                 dataSource={submittedClaims} 
                 rowKey="id"
                 columns={[
-                  { title: 'رقم المطالبة', dataIndex: 'batch_reference', render: (ref) => <Tag color="purple">{ref}</Tag> },
-                  { title: 'شركة التأمين', dataIndex: ['insurance', 'name'] },
-                  { title: 'إجمالي المبلغ', dataIndex: 'total_claim_amount', render: (v) => <b className="text-emerald-600">{v?.toLocaleString()} {settings?.currency || 'EGP'}</b> },
-                  { title: 'تاريخ الإرسال', dataIndex: 'submission_date', render: (d) => new Date(d).toLocaleDateString('ar-EG') },
-                  { title: 'إجراء', render: (_: any, record: any) => (
+                  { title: 'Ø±Ù‚Ù… Ø§Ù„Ù…Ø·Ø§Ù„Ø¨Ø©', dataIndex: 'batch_reference', render: (ref) => <Tag color="purple">{ref}</Tag> },
+                  { title: 'Ø´Ø±ÙƒØ© Ø§Ù„ØªØ£Ù…ÙŠÙ†', dataIndex: ['insurance', 'name'] },
+                  { title: 'Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø¨Ù„Øº', dataIndex: 'total_claim_amount', render: (v) => <b className="text-emerald-600">{v?.toLocaleString()} {settings?.currency || 'EGP'}</b> },
+                  { title: 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ø¥Ø±Ø³Ø§Ù„', dataIndex: 'submission_date', render: (d) => new Date(d).toLocaleDateString('ar-EG') },
+                  { title: 'Ø¥Ø¬Ø±Ø§Ø¡', render: (_: unknown, record: Record<string, any>) => (
                     <Space size="middle">
-                      <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => { setSelectedClaim(record); setIsSettleModalOpen(true); }}>تسوية وتحصيل</Button>
-                      <Button type="default" icon={<DownloadOutlined />} onClick={() => exportClaimToXML(record)}>تصدير XML</Button>
+                      <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => { setSelectedClaim(record); setIsSettleModalOpen(true); }}>ØªØ³ÙˆÙŠØ© ÙˆØªØ­ØµÙŠÙ„</Button>
+                      <Button type="default" icon={<DownloadOutlined />} onClick={() => exportClaimToXML(record)}>ØªØµØ¯ÙŠØ± XML</Button>
                     </Space>
                   )}
                 ]}
@@ -320,18 +320,18 @@ export const InsuranceClaimsManager: React.FC = () => {
       </Card>
 
       <Modal
-        title="تسوية تحصيل من شركة تأمين"
+        title="ØªØ³ÙˆÙŠØ© ØªØ­ØµÙŠÙ„ Ù…Ù† Ø´Ø±ÙƒØ© ØªØ£Ù…ÙŠÙ†"
         open={isSettleModalOpen}
         onOk={handleSettleClaim}
         confirmLoading={loading}
         onCancel={() => setIsSettleModalOpen(false)}
       >
         <div className="space-y-4 pt-4">
-          <p>سيتم تحصيل مبلغ <b>{selectedClaim?.total_claim_amount} {settings?.currency || 'EGP'}</b> من شركة التأمين.</p>
-          <label className="block text-xs font-bold text-slate-500">اختر حساب البنك/الخزينة المستلم:</label>
+          <p>Ø³ÙŠØªÙ… ØªØ­ØµÙŠÙ„ Ù…Ø¨Ù„Øº <b>{selectedClaim?.total_claim_amount} {settings?.currency || 'EGP'}</b> Ù…Ù† Ø´Ø±ÙƒØ© Ø§Ù„ØªØ£Ù…ÙŠÙ†.</p>
+          <label className="block text-xs font-bold text-slate-500">Ø§Ø®ØªØ± Ø­Ø³Ø§Ø¨ Ø§Ù„Ø¨Ù†Ùƒ/Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø§Ù„Ù…Ø³ØªÙ„Ù…:</label>
           <Select 
             className="w-full" 
-            placeholder="اختر الحساب..." 
+            placeholder="Ø§Ø®ØªØ± Ø§Ù„Ø­Ø³Ø§Ø¨..." 
             onChange={setSettleBankAcc}
             options={accounts.filter(a => a.code.startsWith('123')).map(a => ({ label: a.name, value: a.id }))}
           />

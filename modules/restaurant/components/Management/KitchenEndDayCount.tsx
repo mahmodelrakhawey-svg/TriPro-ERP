@@ -54,7 +54,7 @@ const KitchenEndDayCount = () => {
         const productsSource = latestProducts || products;
 
         const warehouseProducts = productsSource
-            .map((p: any) => {
+            .map((p: Record<string, any>) => {
                 let currentQty = 0;
                 let wStock = p.warehouse_stock || {};
                 if (wStock && typeof wStock === 'object' && wStock[warehouseId] !== undefined) {

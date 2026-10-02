@@ -37,7 +37,7 @@ export const DischargeManager: React.FC<{ visitId: string, onSuccess: () => void
         warningsList.push(`⚠️ المريض مسجل له عمليات جراحية لم تكتمل بعد: ${surgeriesRes.data.map(s => s.surgery_name).join(', ')}`);
       }
       if (labsRes.data && labsRes.data.length > 0) {
-        const names = labsRes.data.map((l: any) => l.hims_lab_tests?.test_name).filter(Boolean);
+        const names = labsRes.data.map((l: Record<string, any>) => l.hims_lab_tests?.test_name).filter(Boolean);
         warningsList.push(`⚠️ تحاليل مخبرية معلقة لم تسجل نتيجتها بعد: ${names.length > 0 ? names.join(', ') : 'تحاليل قيد الانتظار'}`);
       }
       if (radsRes.data && radsRes.data.length > 0) {

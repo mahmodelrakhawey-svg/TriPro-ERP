@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+﻿import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { 
@@ -24,27 +24,27 @@ const TransferForm = () => {
     description: ''
   });
 
-  // تصفية حسابات النقدية والبنوك (الأصول المتداولة - استبعاد الحسابات الرئيسية والتجميعية قطيعاً)
+  // ØªØµÙÙŠØ© Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ù†Ù‚Ø¯ÙŠØ© ÙˆØ§Ù„Ø¨Ù†ÙˆÙƒ (Ø§Ù„Ø£ØµÙˆÙ„ Ø§Ù„Ù…ØªØ¯Ø§ÙˆÙ„Ø© - Ø§Ø³ØªØ¨Ø¹Ø§Ø¯ Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© ÙˆØ§Ù„ØªØ¬Ù…ÙŠØ¹ÙŠØ© Ù‚Ø·ÙŠØ¹Ø§Ù‹)
   const treasuryAccounts = useMemo(() => accounts.filter(a => 
     !(a.isGroup || a.is_group) &&
     a.code !== '123' && a.code !== '12' && a.code !== '1' && (
       a.code.startsWith('123') || a.code.startsWith('101') || 
-      a.name.includes('خزينة') || 
-      a.name.includes('نقد') || 
-      a.name.includes('بنك') || 
-      a.name.includes('صندوق')
+      a.name.includes('Ø®Ø²ÙŠÙ†Ø©') || 
+      a.name.includes('Ù†Ù‚Ø¯') || 
+      a.name.includes('Ø¨Ù†Ùƒ') || 
+      a.name.includes('ØµÙ†Ø¯ÙˆÙ‚')
     )
   ), [accounts]);
 
-  // فلترة وتحضير التحويلات المالية من قيود اليومية المتاحة في السياق
+  // ÙÙ„ØªØ±Ø© ÙˆØªØ­Ø¶ÙŠØ± Ø§Ù„ØªØ­ÙˆÙŠÙ„Ø§Øª Ø§Ù„Ù…Ø§Ù„ÙŠØ© Ù…Ù† Ù‚ÙŠÙˆØ¯ Ø§Ù„ÙŠÙˆÙ…ÙŠØ© Ø§Ù„Ù…ØªØ§Ø­Ø© ÙÙŠ Ø§Ù„Ø³ÙŠØ§Ù‚
   const treasuryTransfers = useMemo(() => {
     return (entries || [])
       .filter(entry => entry.reference && entry.reference.startsWith('TRF-'))
       .map(entry => {
         const lines = entry.journal_lines || [];
-        // سطر الدائن هو الحساب المصدر (نقصت أمواله)
+        // Ø³Ø·Ø± Ø§Ù„Ø¯Ø§Ø¦Ù† Ù‡Ùˆ Ø§Ù„Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ØµØ¯Ø± (Ù†Ù‚ØµØª Ø£Ù…ÙˆØ§Ù„Ù‡)
         const sourceLine = lines.find(l => Number(l.credit) > 0);
-        // سطر المدين هو الحساب المستلم (زادت أمواله)
+        // Ø³Ø·Ø± Ø§Ù„Ù…Ø¯ÙŠÙ† Ù‡Ùˆ Ø§Ù„Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…Ø³ØªÙ„Ù… (Ø²Ø§Ø¯Øª Ø£Ù…ÙˆØ§Ù„Ù‡)
         const destLine = lines.find(l => Number(l.debit) > 0);
         
         const sourceAccount = accounts.find(a => a.id === sourceLine?.account_id);
@@ -57,15 +57,15 @@ const TransferForm = () => {
           reference: entry.reference,
           amount: sourceLine ? Number(sourceLine.credit) : (destLine ? Number(destLine.debit) : 0),
           sourceAccountId: sourceLine?.account_id || '',
-          sourceAccountName: sourceAccount ? `${sourceAccount.name} (${sourceAccount.code})` : 'غير معروف',
+          sourceAccountName: sourceAccount ? `${sourceAccount.name} (${sourceAccount.code})` : 'ØºÙŠØ± Ù…Ø¹Ø±ÙˆÙ',
           destinationAccountId: destLine?.account_id || '',
-          destinationAccountName: destinationAccount ? `${destinationAccount.name} (${destinationAccount.code})` : 'غير معروف',
+          destinationAccountName: destinationAccount ? `${destinationAccount.name} (${destinationAccount.code})` : 'ØºÙŠØ± Ù…Ø¹Ø±ÙˆÙ',
         };
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [entries, accounts]);
 
-  // فلترة حسب البحث السريع
+  // ÙÙ„ØªØ±Ø© Ø­Ø³Ø¨ Ø§Ù„Ø¨Ø­Ø« Ø§Ù„Ø³Ø±ÙŠØ¹
   const filteredTransfers = useMemo(() => {
     if (!searchTerm.trim()) return treasuryTransfers;
     const term = searchTerm.toLowerCase();
@@ -90,7 +90,7 @@ const TransferForm = () => {
     setEditingId(null);
   };
 
-  const handleEditInit = (transfer: any) => {
+  const handleEditInit = (transfer: Record<string, any>) => {
     setFormData({
       date: transfer.date,
       sourceAccountId: transfer.sourceAccountId,
@@ -106,10 +106,10 @@ const TransferForm = () => {
     setLoading(true);
     try {
       await deleteTransfer(id);
-      showToast('تم التراجع عن التحويل المالي وحذف القيد بنجاح 🗑️', 'success');
+      showToast('ØªÙ… Ø§Ù„ØªØ±Ø§Ø¬Ø¹ Ø¹Ù† Ø§Ù„ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ù…Ø§Ù„ÙŠ ÙˆØ­Ø°Ù Ø§Ù„Ù‚ÙŠØ¯ Ø¨Ù†Ø¬Ø§Ø­ ðŸ—‘ï¸', 'success');
       setDeleteConfirmId(null);
     } catch (error) {
-      showToast('فشل التراجع عن التحويل: ' + error.message, 'error');
+      showToast('ÙØ´Ù„ Ø§Ù„ØªØ±Ø§Ø¬Ø¹ Ø¹Ù† Ø§Ù„ØªØ­ÙˆÙŠÙ„: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -119,12 +119,12 @@ const TransferForm = () => {
     e.preventDefault();
 
     const transferSchema = z.object({
-        sourceAccountId: z.string().min(1, 'الرجاء اختيار الحساب المصدر'),
-        destinationAccountId: z.string().min(1, 'الرجاء اختيار الحساب المستلم'),
-        amount: z.number().min(0.01, 'المبلغ يجب أن يكون أكبر من 0'),
-        date: z.string().min(1, 'التاريخ مطلوب'),
+        sourceAccountId: z.string().min(1, 'Ø§Ù„Ø±Ø¬Ø§Ø¡ Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ØµØ¯Ø±'),
+        destinationAccountId: z.string().min(1, 'Ø§Ù„Ø±Ø¬Ø§Ø¡ Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…Ø³ØªÙ„Ù…'),
+        amount: z.number().min(0.01, 'Ø§Ù„Ù…Ø¨Ù„Øº ÙŠØ¬Ø¨ Ø£Ù† ÙŠÙƒÙˆÙ† Ø£ÙƒØ¨Ø± Ù…Ù† 0'),
+        date: z.string().min(1, 'Ø§Ù„ØªØ§Ø±ÙŠØ® Ù…Ø·Ù„ÙˆØ¨'),
     }).refine(data => data.sourceAccountId !== data.destinationAccountId, {
-        message: "لا يمكن التحويل لنفس الحساب",
+        message: "Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø§Ù„ØªØ­ÙˆÙŠÙ„ Ù„Ù†ÙØ³ Ø§Ù„Ø­Ø³Ø§Ø¨",
         path: ["destinationAccountId"]
     });
 
@@ -144,16 +144,16 @@ const TransferForm = () => {
     try {
         if (editingId) {
           await updateTransfer(editingId, { ...formData, amount: Number(formData.amount) });
-          showToast('تم تعديل التحويل المالي وتحديث الأرصدة بنجاح ✅', 'success');
+          showToast('ØªÙ… ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ù…Ø§Ù„ÙŠ ÙˆØªØ­Ø¯ÙŠØ« Ø§Ù„Ø£Ø±ØµØ¯Ø© Ø¨Ù†Ø¬Ø§Ø­ âœ…', 'success');
           resetForm();
           setActiveTab('history');
         } else {
           await addTransfer({ ...formData, amount: Number(formData.amount) });
-          showToast('تم التحويل المالي بنجاح ✅', 'success');
+          showToast('ØªÙ… Ø§Ù„ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ù…Ø§Ù„ÙŠ Ø¨Ù†Ø¬Ø§Ø­ âœ…', 'success');
           resetForm();
         }
     } catch (error) {
-        showToast('فشل العملية: ' + error.message, 'error');
+        showToast('ÙØ´Ù„ Ø§Ù„Ø¹Ù…Ù„ÙŠØ©: ' + error.message, 'error');
     } finally {
         setLoading(false);
     }
@@ -164,12 +164,12 @@ const TransferForm = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
             <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-                <ArrowRightLeft className="text-blue-600" /> تحويل نقدية
+                <ArrowRightLeft className="text-blue-600" /> ØªØ­ÙˆÙŠÙ„ Ù†Ù‚Ø¯ÙŠØ©
             </h2>
-            <p className="text-slate-500">نقل الأموال بين الخزائن والبنوك وإدارة قيودها</p>
+            <p className="text-slate-500">Ù†Ù‚Ù„ Ø§Ù„Ø£Ù…ÙˆØ§Ù„ Ø¨ÙŠÙ† Ø§Ù„Ø®Ø²Ø§Ø¦Ù† ÙˆØ§Ù„Ø¨Ù†ÙˆÙƒ ÙˆØ¥Ø¯Ø§Ø±Ø© Ù‚ÙŠÙˆØ¯Ù‡Ø§</p>
         </div>
 
-        {/* أزرار التبويب */}
+        {/* Ø£Ø²Ø±Ø§Ø± Ø§Ù„ØªØ¨ÙˆÙŠØ¨ */}
         <div className="bg-slate-100 p-1.5 rounded-xl flex gap-1 border border-slate-200/50 self-end md:self-auto">
           <button
             onClick={() => { setActiveTab('new'); if (!editingId) resetForm(); }}
@@ -180,7 +180,7 @@ const TransferForm = () => {
             }`}
           >
             {editingId ? <Edit size={16} /> : <Plus size={16} />}
-            <span>{editingId ? 'تعديل التحويل' : 'تحويل جديد'}</span>
+            <span>{editingId ? 'ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„ØªØ­ÙˆÙŠÙ„' : 'ØªØ­ÙˆÙŠÙ„ Ø¬Ø¯ÙŠØ¯'}</span>
           </button>
           <button
             onClick={() => setActiveTab('history')}
@@ -191,7 +191,7 @@ const TransferForm = () => {
             }`}
           >
             <History size={16} />
-            <span>سجل التحويلات</span>
+            <span>Ø³Ø¬Ù„ Ø§Ù„ØªØ­ÙˆÙŠÙ„Ø§Øª</span>
             {treasuryTransfers.length > 0 && (
               <span className="bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full text-xs font-black">
                 {treasuryTransfers.length}
@@ -207,17 +207,17 @@ const TransferForm = () => {
             <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded-lg flex justify-between items-center text-sm font-bold">
               <span className="flex items-center gap-2">
                 <AlertCircle size={18} />
-                أنت تقوم الآن بتعديل التحويل المالي ذو الرقم المرجعي الموضح في سجل التحويلات.
+                Ø£Ù†Øª ØªÙ‚ÙˆÙ… Ø§Ù„Ø¢Ù† Ø¨ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ù…Ø§Ù„ÙŠ Ø°Ùˆ Ø§Ù„Ø±Ù‚Ù… Ø§Ù„Ù…Ø±Ø¬Ø¹ÙŠ Ø§Ù„Ù…ÙˆØ¶Ø­ ÙÙŠ Ø³Ø¬Ù„ Ø§Ù„ØªØ­ÙˆÙŠÙ„Ø§Øª.
               </span>
               <button type="button" onClick={resetForm} className="text-blue-600 hover:text-blue-800 flex items-center gap-1">
-                <X size={16} /> إلغاء التعديل
+                <X size={16} /> Ø¥Ù„ØºØ§Ø¡ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„
               </button>
             </div>
           )}
 
           <div className="grid grid-cols-1 gap-6">
               <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">التاريخ</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Ø§Ù„ØªØ§Ø±ÙŠØ®</label>
                   <input 
                     type="date" 
                     required 
@@ -229,7 +229,7 @@ const TransferForm = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                      <label className="block text-sm font-bold text-slate-700 mb-1">من حساب (المصدر)</label>
+                      <label className="block text-sm font-bold text-slate-700 mb-1">Ù…Ù† Ø­Ø³Ø§Ø¨ (Ø§Ù„Ù…ØµØ¯Ø±)</label>
                       <div className="relative">
                         <select 
                           required 
@@ -237,14 +237,14 @@ const TransferForm = () => {
                           value={formData.sourceAccountId} 
                           onChange={e => setFormData({...formData, sourceAccountId: e.target.value})}
                         >
-                            <option value="">-- اختر --</option>
+                            <option value="">-- Ø§Ø®ØªØ± --</option>
                             {treasuryAccounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.code})</option>)}
                         </select>
                         <Building2 className="absolute left-3 top-3 text-slate-400 pointer-events-none" size={18} />
                       </div>
                   </div>
                   <div>
-                      <label className="block text-sm font-bold text-slate-700 mb-1">إلى حساب (المستلم)</label>
+                      <label className="block text-sm font-bold text-slate-700 mb-1">Ø¥Ù„Ù‰ Ø­Ø³Ø§Ø¨ (Ø§Ù„Ù…Ø³ØªÙ„Ù…)</label>
                       <div className="relative">
                         <select 
                           required 
@@ -252,7 +252,7 @@ const TransferForm = () => {
                           value={formData.destinationAccountId} 
                           onChange={e => setFormData({...formData, destinationAccountId: e.target.value})}
                         >
-                            <option value="">-- اختر --</option>
+                            <option value="">-- Ø§Ø®ØªØ± --</option>
                             {treasuryAccounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.code})</option>)}
                         </select>
                         <Building2 className="absolute left-3 top-3 text-slate-400 pointer-events-none" size={18} />
@@ -261,7 +261,7 @@ const TransferForm = () => {
               </div>
 
               <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">المبلغ</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Ø§Ù„Ù…Ø¨Ù„Øº</label>
                   <div className="relative">
                       <input 
                         type="number" 
@@ -278,13 +278,13 @@ const TransferForm = () => {
               </div>
 
               <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">ملاحظات</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">Ù…Ù„Ø§Ø­Ø¸Ø§Øª</label>
                   <input 
                     type="text" 
                     className="w-full border rounded-lg p-2.5 outline-none focus:border-blue-500" 
                     value={formData.description} 
                     onChange={e => setFormData({...formData, description: e.target.value})} 
-                    placeholder="سبب التحويل..." 
+                    placeholder="Ø³Ø¨Ø¨ Ø§Ù„ØªØ­ÙˆÙŠÙ„..." 
                   />
               </div>
           </div>
@@ -296,7 +296,7 @@ const TransferForm = () => {
                   onClick={resetForm}
                   className="border border-slate-200 text-slate-600 px-6 py-3 rounded-lg font-bold hover:bg-slate-50"
                 >
-                  إلغاء
+                  Ø¥Ù„ØºØ§Ø¡
                 </button>
               )}
               <button 
@@ -305,18 +305,18 @@ const TransferForm = () => {
                 className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg hover:bg-blue-700 flex items-center gap-2 disabled:opacity-50"
               >
                   {loading ? <Loader2 className="animate-spin" /> : <Save size={20} />} 
-                  <span>{editingId ? 'تحديث التحويل' : 'إتمام التحويل'}</span>
+                  <span>{editingId ? 'ØªØ­Ø¯ÙŠØ« Ø§Ù„ØªØ­ÙˆÙŠÙ„' : 'Ø¥ØªÙ…Ø§Ù… Ø§Ù„ØªØ­ÙˆÙŠÙ„'}</span>
               </button>
           </div>
         </form>
       ) : (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col space-y-4 p-6">
-          {/* محرك البحث السريع */}
+          {/* Ù…Ø­Ø±Ùƒ Ø§Ù„Ø¨Ø­Ø« Ø§Ù„Ø³Ø±ÙŠØ¹ */}
           <div className="relative">
             <Search className="absolute right-4 top-3 text-slate-400" size={20} />
             <input 
               type="text" 
-              placeholder="البحث في التحويلات السابقة بالتاريخ، المبلغ، الملاحظات، أو الحسابات..." 
+              placeholder="Ø§Ù„Ø¨Ø­Ø« ÙÙŠ Ø§Ù„ØªØ­ÙˆÙŠÙ„Ø§Øª Ø§Ù„Ø³Ø§Ø¨Ù‚Ø© Ø¨Ø§Ù„ØªØ§Ø±ÙŠØ®ØŒ Ø§Ù„Ù…Ø¨Ù„ØºØŒ Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø§ØªØŒ Ø£Ùˆ Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª..." 
               value={searchTerm} 
               onChange={e => setSearchTerm(e.target.value)} 
               className="w-full border rounded-xl px-12 py-2.5 outline-none focus:border-blue-500 bg-slate-50 font-bold text-slate-700 text-sm" 
@@ -326,21 +326,21 @@ const TransferForm = () => {
           {filteredTransfers.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-slate-400 space-y-3">
               <History size={48} className="text-slate-300" />
-              <p className="font-bold text-slate-500">لا توجد تحويلات مالية سابقة مطابقة للبحث</p>
+              <p className="font-bold text-slate-500">Ù„Ø§ ØªÙˆØ¬Ø¯ ØªØ­ÙˆÙŠÙ„Ø§Øª Ù…Ø§Ù„ÙŠØ© Ø³Ø§Ø¨Ù‚Ø© Ù…Ø·Ø§Ø¨Ù‚Ø© Ù„Ù„Ø¨Ø­Ø«</p>
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-right border-collapse">
                 <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs font-black uppercase tracking-wider">
                   <tr>
-                    <th className="py-4 px-4">كود العملية</th>
-                    <th className="py-4 px-4">التاريخ</th>
-                    <th className="py-4 px-4">من حساب (المصدر)</th>
-                    <th className="py-4 px-4 text-center">→</th>
-                    <th className="py-4 px-4">إلى حساب (المستلم)</th>
-                    <th className="py-4 px-4 text-center">المبلغ</th>
-                    <th className="py-4 px-4">ملاحظات</th>
-                    <th className="py-4 px-4 text-center w-28">إجراءات</th>
+                    <th className="py-4 px-4">ÙƒÙˆØ¯ Ø§Ù„Ø¹Ù…Ù„ÙŠØ©</th>
+                    <th className="py-4 px-4">Ø§Ù„ØªØ§Ø±ÙŠØ®</th>
+                    <th className="py-4 px-4">Ù…Ù† Ø­Ø³Ø§Ø¨ (Ø§Ù„Ù…ØµØ¯Ø±)</th>
+                    <th className="py-4 px-4 text-center">â†’</th>
+                    <th className="py-4 px-4">Ø¥Ù„Ù‰ Ø­Ø³Ø§Ø¨ (Ø§Ù„Ù…Ø³ØªÙ„Ù…)</th>
+                    <th className="py-4 px-4 text-center">Ø§Ù„Ù…Ø¨Ù„Øº</th>
+                    <th className="py-4 px-4">Ù…Ù„Ø§Ø­Ø¸Ø§Øª</th>
+                    <th className="py-4 px-4 text-center w-28">Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-sm">
@@ -364,14 +364,14 @@ const TransferForm = () => {
                           <button 
                             onClick={() => handleEditInit(transfer)}
                             className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="تعديل التحويل"
+                            title="ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„ØªØ­ÙˆÙŠÙ„"
                           >
                             <Edit size={16} />
                           </button>
                           <button 
                             onClick={() => setDeleteConfirmId(transfer.id)}
                             className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                            title="التراجع عن التحويل"
+                            title="Ø§Ù„ØªØ±Ø§Ø¬Ø¹ Ø¹Ù† Ø§Ù„ØªØ­ÙˆÙŠÙ„"
                           >
                             <Trash2 size={16} />
                           </button>
@@ -386,7 +386,7 @@ const TransferForm = () => {
         </div>
       )}
 
-      {/* مودال التأكيد على التراجع والحذف */}
+      {/* Ù…ÙˆØ¯Ø§Ù„ Ø§Ù„ØªØ£ÙƒÙŠØ¯ Ø¹Ù„Ù‰ Ø§Ù„ØªØ±Ø§Ø¬Ø¹ ÙˆØ§Ù„Ø­Ø°Ù */}
       {deleteConfirmId && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white rounded-2xl shadow-xl border border-slate-100 max-w-md w-full p-6 space-y-6">
@@ -394,11 +394,11 @@ const TransferForm = () => {
               <div className="p-2.5 bg-red-50 rounded-xl">
                 <AlertCircle size={24} />
               </div>
-              <h3 className="text-lg font-bold">تأكيد التراجع عن التحويل المالي</h3>
+              <h3 className="text-lg font-bold">ØªØ£ÙƒÙŠØ¯ Ø§Ù„ØªØ±Ø§Ø¬Ø¹ Ø¹Ù† Ø§Ù„ØªØ­ÙˆÙŠÙ„ Ø§Ù„Ù…Ø§Ù„ÙŠ</h3>
             </div>
             
             <p className="text-slate-600 text-sm leading-relaxed">
-              هل أنت متأكد من رغبتك في التراجع عن هذه العملية؟ سيتم حذف القيود اليومية المحاسبية المرتبطة بالتحويل نهائياً وإعادة احتساب الأرصدة المتأثرة تلقائياً. لا يمكن التراجع عن هذا الإجراء لاحقاً.
+              Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø±ØºØ¨ØªÙƒ ÙÙŠ Ø§Ù„ØªØ±Ø§Ø¬Ø¹ Ø¹Ù† Ù‡Ø°Ù‡ Ø§Ù„Ø¹Ù…Ù„ÙŠØ©ØŸ Ø³ÙŠØªÙ… Ø­Ø°Ù Ø§Ù„Ù‚ÙŠÙˆØ¯ Ø§Ù„ÙŠÙˆÙ…ÙŠØ© Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠØ© Ø§Ù„Ù…Ø±ØªØ¨Ø·Ø© Ø¨Ø§Ù„ØªØ­ÙˆÙŠÙ„ Ù†Ù‡Ø§Ø¦ÙŠØ§Ù‹ ÙˆØ¥Ø¹Ø§Ø¯Ø© Ø§Ø­ØªØ³Ø§Ø¨ Ø§Ù„Ø£Ø±ØµØ¯Ø© Ø§Ù„Ù…ØªØ£Ø«Ø±Ø© ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹. Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø§Ù„ØªØ±Ø§Ø¬Ø¹ Ø¹Ù† Ù‡Ø°Ø§ Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡ Ù„Ø§Ø­Ù‚Ø§Ù‹.
             </p>
 
             <div className="flex items-center justify-end gap-3 pt-2">
@@ -408,7 +408,7 @@ const TransferForm = () => {
                 disabled={loading}
                 className="px-4 py-2 border border-slate-200 rounded-lg font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-50 text-sm"
               >
-                إلغاء
+                Ø¥Ù„ØºØ§Ø¡
               </button>
               <button 
                 type="button" 
@@ -417,7 +417,7 @@ const TransferForm = () => {
                 className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold flex items-center gap-1.5 disabled:opacity-50 text-sm shadow-md shadow-red-100"
               >
                 {loading ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
-                <span>نعم، تراجع واحذف</span>
+                <span>Ù†Ø¹Ù…ØŒ ØªØ±Ø§Ø¬Ø¹ ÙˆØ§Ø­Ø°Ù</span>
               </button>
             </div>
           </div>

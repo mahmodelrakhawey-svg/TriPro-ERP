@@ -1,4 +1,4 @@
-import { logger } from '../../../utils/logger';
+﻿import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -17,11 +17,11 @@ const CashClosingForm = () => {
   const [lastClosings, setLastClosings] = useState<any[]>([]);
   const { showToast } = useToast();
 
-  // تصفية حسابات النقدية/الصناديق فقط
+  // ØªØµÙÙŠØ© Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ù†Ù‚Ø¯ÙŠØ©/Ø§Ù„ØµÙ†Ø§Ø¯ÙŠÙ‚ ÙÙ‚Ø·
   const cashAccounts = useMemo(() => {
     return accounts.filter(a => 
       !a.isGroup && 
-      (a.code.startsWith('123') || a.code.startsWith('1101') || a.name.includes('صندوق') || a.name.includes('خزينة') || a.name.includes('Cash'))
+      (a.code.startsWith('123') || a.code.startsWith('1101') || a.name.includes('ØµÙ†Ø¯ÙˆÙ‚') || a.name.includes('Ø®Ø²ÙŠÙ†Ø©') || a.name.includes('Cash'))
     );
   }, [accounts]);
 
@@ -39,7 +39,7 @@ const CashClosingForm = () => {
   }, [selectedAccountId]);
 
   const fetchAccountData = async () => {
-    // التحقق من وضع الديمو أو معرف غير صالح لتجنب أخطاء قاعدة البيانات
+    // Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ÙˆØ¶Ø¹ Ø§Ù„Ø¯ÙŠÙ…Ùˆ Ø£Ùˆ Ù…Ø¹Ø±Ù ØºÙŠØ± ØµØ§Ù„Ø­ Ù„ØªØ¬Ù†Ø¨ Ø£Ø®Ø·Ø§Ø¡ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(selectedAccountId);
     if (currentUser?.role === 'demo' || !isUuid) {
         setSystemBalance(12500);
@@ -50,8 +50,8 @@ const CashClosingForm = () => {
 
     setLoading(true);
     try {
-      // 1. حساب الرصيد الحالي للنظام (من جميع القيود المرحلة)
-      // ملاحظة: نستخدم استعلام مباشر لضمان الدقة بدلاً من الاعتماد على الذاكرة
+      // 1. Ø­Ø³Ø§Ø¨ Ø§Ù„Ø±ØµÙŠØ¯ Ø§Ù„Ø­Ø§Ù„ÙŠ Ù„Ù„Ù†Ø¸Ø§Ù… (Ù…Ù† Ø¬Ù…ÙŠØ¹ Ø§Ù„Ù‚ÙŠÙˆØ¯ Ø§Ù„Ù…Ø±Ø­Ù„Ø©)
+      // Ù…Ù„Ø§Ø­Ø¸Ø©: Ù†Ø³ØªØ®Ø¯Ù… Ø§Ø³ØªØ¹Ù„Ø§Ù… Ù…Ø¨Ø§Ø´Ø± Ù„Ø¶Ù…Ø§Ù† Ø§Ù„Ø¯Ù‚Ø© Ø¨Ø¯Ù„Ø§Ù‹ Ù…Ù† Ø§Ù„Ø§Ø¹ØªÙ…Ø§Ø¯ Ø¹Ù„Ù‰ Ø§Ù„Ø°Ø§ÙƒØ±Ø©
       const { data: lines, error } = await supabase
         .from('journal_lines')
         .select('debit, credit, journal_entries!inner(transaction_date, status)')
@@ -65,9 +65,9 @@ const CashClosingForm = () => {
       let todayOut = 0;
       const today = new Date().toISOString().split('T')[0];
 
-      lines?.forEach((line: any) => {
-        // طبيعة حساب الصندوق مدين (Debit)
-        // الرصيد = المدين - الدائن
+      lines?.forEach((line: Record<string, any>) => {
+        // Ø·Ø¨ÙŠØ¹Ø© Ø­Ø³Ø§Ø¨ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ Ù…Ø¯ÙŠÙ† (Debit)
+        // Ø§Ù„Ø±ØµÙŠØ¯ = Ø§Ù„Ù…Ø¯ÙŠÙ† - Ø§Ù„Ø¯Ø§Ø¦Ù†
         balance += (Number(line.debit) - Number(line.credit));
 
         if (line.journal_entries.transaction_date === today) {
@@ -78,7 +78,7 @@ const CashClosingForm = () => {
 
       setSystemBalance(balance);
       setTodayMovement({ in: todayIn, out: todayOut });
-      // تعيين الرصيد الفعلي الافتراضي ليكون مطابقاً للنظام
+      // ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ø±ØµÙŠØ¯ Ø§Ù„ÙØ¹Ù„ÙŠ Ø§Ù„Ø§ÙØªØ±Ø§Ø¶ÙŠ Ù„ÙŠÙƒÙˆÙ† Ù…Ø·Ø§Ø¨Ù‚Ø§Ù‹ Ù„Ù„Ù†Ø¸Ø§Ù…
       if (actualBalance === '') setActualBalance(balance);
 
     } catch (error) {
@@ -112,18 +112,18 @@ const CashClosingForm = () => {
     if (actualBalance === '') return;
 
     if (currentUser?.role === 'demo') {
-        showToast('تم إقفال الصندوق بنجاح ✅ (محاكاة)', 'success');
+        showToast('ØªÙ… Ø¥Ù‚ÙØ§Ù„ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ Ø¨Ù†Ø¬Ø§Ø­ âœ… (Ù…Ø­Ø§ÙƒØ§Ø©)', 'success');
         setNotes('');
         return;
     }
 
     const difference = Number(actualBalance) - systemBalance;
 
-    // 🛑 ميزة أمان: منع الإقفال إذا كان العجز كبيراً جداً
+    // ðŸ›‘ Ù…ÙŠØ²Ø© Ø£Ù…Ø§Ù†: Ù…Ù†Ø¹ Ø§Ù„Ø¥Ù‚ÙØ§Ù„ Ø¥Ø°Ø§ ÙƒØ§Ù† Ø§Ù„Ø¹Ø¬Ø² ÙƒØ¨ÙŠØ±Ø§Ù‹ Ø¬Ø¯Ø§Ù‹
     // @ts-ignore
     const MAX_ALLOWED_DEFICIT = settings.maxCashDeficitLimit || 500; 
     if (difference < 0 && Math.abs(difference) > MAX_ALLOWED_DEFICIT) {
-        // تسجيل المحاولة المرفوضة
+        // ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ø§Ù„Ù…Ø±ÙÙˆØ¶Ø©
         try {
             await supabase.from('rejected_cash_closings').insert({
                 rejection_date: new Date().toISOString(),
@@ -131,7 +131,7 @@ const CashClosingForm = () => {
                 system_balance: systemBalance,
                 actual_balance: Number(actualBalance),
                 difference: difference,
-                notes: `محاولة إقفال بعجز يتجاوز الحد: ${notes}`,
+                notes: `Ù…Ø­Ø§ÙˆÙ„Ø© Ø¥Ù‚ÙØ§Ù„ Ø¨Ø¹Ø¬Ø² ÙŠØªØ¬Ø§ÙˆØ² Ø§Ù„Ø­Ø¯: ${notes}`,
                 rejected_by: currentUser?.id,
                 max_allowed_deficit: MAX_ALLOWED_DEFICIT
             });
@@ -140,7 +140,7 @@ const CashClosingForm = () => {
         }
 
         showToast(
-          `لا يمكن إتمام عملية الإقفال لأن العجز (${Math.abs(difference).toLocaleString()}) يتجاوز الحد المسموح به`,
+          `Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø¥ØªÙ…Ø§Ù… Ø¹Ù…Ù„ÙŠØ© Ø§Ù„Ø¥Ù‚ÙØ§Ù„ Ù„Ø£Ù† Ø§Ù„Ø¹Ø¬Ø² (${Math.abs(difference).toLocaleString()}) ÙŠØªØ¬Ø§ÙˆØ² Ø§Ù„Ø­Ø¯ Ø§Ù„Ù…Ø³Ù…ÙˆØ­ Ø¨Ù‡`,
           'warning'
         );
         return;
@@ -161,30 +161,30 @@ const CashClosingForm = () => {
 
       if (error) throw error;
 
-      // 🌟 إنشاء قيد تسوية آلي في حال وجود فرق (عجز أو زيادة)
+      // ðŸŒŸ Ø¥Ù†Ø´Ø§Ø¡ Ù‚ÙŠØ¯ ØªØ³ÙˆÙŠØ© Ø¢Ù„ÙŠ ÙÙŠ Ø­Ø§Ù„ ÙˆØ¬ÙˆØ¯ ÙØ±Ù‚ (Ø¹Ø¬Ø² Ø£Ùˆ Ø²ÙŠØ§Ø¯Ø©)
       if (Math.abs(difference) > 0.01) {
         const isOverage = difference > 0;
         
         let adjustmentAccount;
 
-        // 1. البحث في إعدادات الربط (للعجز)
+        // 1. Ø§Ù„Ø¨Ø­Ø« ÙÙŠ Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ø±Ø¨Ø· (Ù„Ù„Ø¹Ø¬Ø²)
         if (!isOverage && settings.accountMappings?.CASH_SHORTAGE) {
             adjustmentAccount = accounts.find(a => a.id === settings.accountMappings.CASH_SHORTAGE);
         }
 
-        // 2. البحث بالكود الافتراضي: 421 (زيادة) أو 541 (عجز)
+        // 2. Ø§Ù„Ø¨Ø­Ø« Ø¨Ø§Ù„ÙƒÙˆØ¯ Ø§Ù„Ø§ÙØªØ±Ø§Ø¶ÙŠ: 421 (Ø²ÙŠØ§Ø¯Ø©) Ø£Ùˆ 541 (Ø¹Ø¬Ø²)
         if (!adjustmentAccount) {
             const adjustmentCode = isOverage ? '421' : '541';
             adjustmentAccount = accounts.find(a => a.code === adjustmentCode);
         }
         
-        // 3. محاولة البحث بالاسم في حال عدم تطابق الكود (مع استبعاد حسابات الضرائب)
+        // 3. Ù…Ø­Ø§ÙˆÙ„Ø© Ø§Ù„Ø¨Ø­Ø« Ø¨Ø§Ù„Ø§Ø³Ù… ÙÙŠ Ø­Ø§Ù„ Ø¹Ø¯Ù… ØªØ·Ø§Ø¨Ù‚ Ø§Ù„ÙƒÙˆØ¯ (Ù…Ø¹ Ø§Ø³ØªØ¨Ø¹Ø§Ø¯ Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ø¶Ø±Ø§Ø¦Ø¨)
         if (!adjustmentAccount) {
            adjustmentAccount = accounts.find(a => 
              (isOverage 
-               ? (a.name?.includes('إيرادات أخرى') || a.name?.includes('زيادة الصندوق') || a.name?.includes('إيرادات متنوعة') || a.name?.includes('أرباح'))
-               : (a.name?.includes('عجز الصندوق') || a.name?.includes('عجز الخزينة') || a.name?.includes('فروقات الخزينة') || a.name?.includes('فروقات الصندوق'))
-             ) && !a.name?.includes('ضريب') && !a.code?.startsWith('223')
+               ? (a.name?.includes('Ø¥ÙŠØ±Ø§Ø¯Ø§Øª Ø£Ø®Ø±Ù‰') || a.name?.includes('Ø²ÙŠØ§Ø¯Ø© Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚') || a.name?.includes('Ø¥ÙŠØ±Ø§Ø¯Ø§Øª Ù…ØªÙ†ÙˆØ¹Ø©') || a.name?.includes('Ø£Ø±Ø¨Ø§Ø­'))
+               : (a.name?.includes('Ø¹Ø¬Ø² Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚') || a.name?.includes('Ø¹Ø¬Ø² Ø§Ù„Ø®Ø²ÙŠÙ†Ø©') || a.name?.includes('ÙØ±ÙˆÙ‚Ø§Øª Ø§Ù„Ø®Ø²ÙŠÙ†Ø©') || a.name?.includes('ÙØ±ÙˆÙ‚Ø§Øª Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚'))
+             ) && !a.name?.includes('Ø¶Ø±ÙŠØ¨') && !a.code?.startsWith('223')
            );
         }
 
@@ -193,32 +193,32 @@ const CashClosingForm = () => {
             const lines: any[] = [];
             
             if (isOverage) {
-                // زيادة: من ح/ الصندوق (مدين) إلى ح/ الإيرادات (دائن)
-                lines.push({ accountId: selectedAccountId, debit: absDiff, credit: 0, description: `زيادة في الصندوق - إقفال ${new Date().toLocaleDateString('ar-EG')}` });
-                lines.push({ accountId: adjustmentAccount.id, debit: 0, credit: absDiff, description: `تسوية زيادة صندوق - ${notes}` });
+                // Ø²ÙŠØ§Ø¯Ø©: Ù…Ù† Ø­/ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ (Ù…Ø¯ÙŠÙ†) Ø¥Ù„Ù‰ Ø­/ Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª (Ø¯Ø§Ø¦Ù†)
+                lines.push({ accountId: selectedAccountId, debit: absDiff, credit: 0, description: `Ø²ÙŠØ§Ø¯Ø© ÙÙŠ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ - Ø¥Ù‚ÙØ§Ù„ ${new Date().toLocaleDateString('ar-EG')}` });
+                lines.push({ accountId: adjustmentAccount.id, debit: 0, credit: absDiff, description: `ØªØ³ÙˆÙŠØ© Ø²ÙŠØ§Ø¯Ø© ØµÙ†Ø¯ÙˆÙ‚ - ${notes}` });
             } else {
-                // عجز: من ح/ المصروفات (مدين) إلى ح/ الصندوق (دائن)
-                lines.push({ accountId: adjustmentAccount.id, debit: absDiff, credit: 0, description: `تسوية عجز صندوق - ${notes}` });
-                lines.push({ accountId: selectedAccountId, debit: 0, credit: absDiff, description: `عجز في الصندوق - إقفال ${new Date().toLocaleDateString('ar-EG')}` });
+                // Ø¹Ø¬Ø²: Ù…Ù† Ø­/ Ø§Ù„Ù…ØµØ±ÙˆÙØ§Øª (Ù…Ø¯ÙŠÙ†) Ø¥Ù„Ù‰ Ø­/ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ (Ø¯Ø§Ø¦Ù†)
+                lines.push({ accountId: adjustmentAccount.id, debit: absDiff, credit: 0, description: `ØªØ³ÙˆÙŠØ© Ø¹Ø¬Ø² ØµÙ†Ø¯ÙˆÙ‚ - ${notes}` });
+                lines.push({ accountId: selectedAccountId, debit: 0, credit: absDiff, description: `Ø¹Ø¬Ø² ÙÙŠ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ - Ø¥Ù‚ÙØ§Ù„ ${new Date().toLocaleDateString('ar-EG')}` });
             }
 
             await addEntry({
                 date: new Date().toISOString().split('T')[0],
-                description: `تسوية فروقات صندوق (إقفال يومي) - ${isOverage ? 'زيادة' : 'عجز'}`,
+                description: `ØªØ³ÙˆÙŠØ© ÙØ±ÙˆÙ‚Ø§Øª ØµÙ†Ø¯ÙˆÙ‚ (Ø¥Ù‚ÙØ§Ù„ ÙŠÙˆÙ…ÙŠ) - ${isOverage ? 'Ø²ÙŠØ§Ø¯Ø©' : 'Ø¹Ø¬Ø²'}`,
                 reference: `CASH-ADJ-${Date.now().toString().slice(-6)}`,
                 status: 'posted',
                 lines: lines as any[]
             });
         } else {
-            showToast('تنبيه: تم حفظ الإقفال ولكن لم يتم إنشاء قيد التسوية لعدم العثور على حسابات التسوية (512 أو 421).', 'warning');
+            showToast('ØªÙ†Ø¨ÙŠÙ‡: ØªÙ… Ø­ÙØ¸ Ø§Ù„Ø¥Ù‚ÙØ§Ù„ ÙˆÙ„ÙƒÙ† Ù„Ù… ÙŠØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ù‚ÙŠØ¯ Ø§Ù„ØªØ³ÙˆÙŠØ© Ù„Ø¹Ø¯Ù… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„ØªØ³ÙˆÙŠØ© (512 Ø£Ùˆ 421).', 'warning');
         }
       }
 
-      showToast('تم إقفال الصندوق بنجاح ✅', 'success');
+      showToast('ØªÙ… Ø¥Ù‚ÙØ§Ù„ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ Ø¨Ù†Ø¬Ø§Ø­ âœ…', 'success');
       setNotes('');
       fetchLastClosings();
     } catch (error) {
-      showToast('حدث خطأ: ' + error.message, 'error');
+      showToast('Ø­Ø¯Ø« Ø®Ø·Ø£: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }
@@ -233,8 +233,8 @@ const CashClosingForm = () => {
           <Wallet size={32} />
         </div>
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">إقفال الصندوق اليومي</h2>
-          <p className="text-slate-500">مطابقة الرصيد الفعلي مع رصيد النظام وتسجيل العجز أو الزيادة</p>
+          <h2 className="text-2xl font-bold text-slate-800">Ø¥Ù‚ÙØ§Ù„ Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ Ø§Ù„ÙŠÙˆÙ…ÙŠ</h2>
+          <p className="text-slate-500">Ù…Ø·Ø§Ø¨Ù‚Ø© Ø§Ù„Ø±ØµÙŠØ¯ Ø§Ù„ÙØ¹Ù„ÙŠ Ù…Ø¹ Ø±ØµÙŠØ¯ Ø§Ù„Ù†Ø¸Ø§Ù… ÙˆØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¹Ø¬Ø² Ø£Ùˆ Ø§Ù„Ø²ÙŠØ§Ø¯Ø©</p>
         </div>
       </div>
 
@@ -243,7 +243,7 @@ const CashClosingForm = () => {
         <div className="md:col-span-2 space-y-6">
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
             <div className="mb-6">
-              <label className="block text-sm font-bold text-slate-700 mb-2">اختر الصندوق / الخزينة</label>
+              <label className="block text-sm font-bold text-slate-700 mb-2">Ø§Ø®ØªØ± Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚ / Ø§Ù„Ø®Ø²ÙŠÙ†Ø©</label>
               <select 
                 value={selectedAccountId}
                 onChange={(e) => setSelectedAccountId(e.target.value)}
@@ -257,23 +257,23 @@ const CashClosingForm = () => {
 
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                <span className="text-xs font-bold text-slate-400 uppercase">وارد اليوم</span>
+                <span className="text-xs font-bold text-slate-400 uppercase">ÙˆØ§Ø±Ø¯ Ø§Ù„ÙŠÙˆÙ…</span>
                 <div className="text-xl font-black text-emerald-600 mt-1">+{todayMovement.in.toLocaleString()}</div>
               </div>
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                <span className="text-xs font-bold text-slate-400 uppercase">صادر اليوم</span>
+                <span className="text-xs font-bold text-slate-400 uppercase">ØµØ§Ø¯Ø± Ø§Ù„ÙŠÙˆÙ…</span>
                 <div className="text-xl font-black text-red-600 mt-1">-{todayMovement.out.toLocaleString()}</div>
               </div>
             </div>
 
             <div className="space-y-4">
               <div className="flex justify-between items-center bg-blue-50 p-4 rounded-xl border border-blue-100">
-                <span className="font-bold text-blue-900">رصيد النظام الحالي:</span>
+                <span className="font-bold text-blue-900">Ø±ØµÙŠØ¯ Ø§Ù„Ù†Ø¸Ø§Ù… Ø§Ù„Ø­Ø§Ù„ÙŠ:</span>
                 <span className="text-2xl font-black text-blue-700">{loading ? '...' : systemBalance.toLocaleString()}</span>
               </div>
 
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">الرصيد الفعلي (الجرد)</label>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Ø§Ù„Ø±ØµÙŠØ¯ Ø§Ù„ÙØ¹Ù„ÙŠ (Ø§Ù„Ø¬Ø±Ø¯)</label>
                 <div className="relative">
                   <input 
                     type="number" 
@@ -290,19 +290,19 @@ const CashClosingForm = () => {
                 <div className={`p-4 rounded-xl flex items-center gap-3 ${difference > 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
                   <AlertCircle size={20} />
                   <span className="font-bold">
-                    {difference > 0 ? `يوجد زيادة بقيمة ${difference.toLocaleString()}` : `يوجد عجز بقيمة ${Math.abs(difference).toLocaleString()}`}
+                    {difference > 0 ? `ÙŠÙˆØ¬Ø¯ Ø²ÙŠØ§Ø¯Ø© Ø¨Ù‚ÙŠÙ…Ø© ${difference.toLocaleString()}` : `ÙŠÙˆØ¬Ø¯ Ø¹Ø¬Ø² Ø¨Ù‚ÙŠÙ…Ø© ${Math.abs(difference).toLocaleString()}`}
                   </span>
                 </div>
               )}
 
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-2">ملاحظات</label>
+                <label className="block text-sm font-bold text-slate-700 mb-2">Ù…Ù„Ø§Ø­Ø¸Ø§Øª</label>
                 <textarea 
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   className="w-full border border-slate-300 rounded-xl px-4 py-3 focus:outline-none focus:border-emerald-500"
                   rows={2}
-                  placeholder="أي ملاحظات حول الإقفال..."
+                  placeholder="Ø£ÙŠ Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø­ÙˆÙ„ Ø§Ù„Ø¥Ù‚ÙØ§Ù„..."
                 ></textarea>
               </div>
 
@@ -311,7 +311,7 @@ const CashClosingForm = () => {
                 disabled={saving || loading}
                 className="w-full bg-emerald-600 text-white py-4 rounded-xl font-black text-lg hover:bg-emerald-700 transition-colors shadow-lg shadow-emerald-200 flex items-center justify-center gap-2"
               >
-                {saving ? <Loader2 className="animate-spin" /> : <Save />} حفظ الإقفال
+                {saving ? <Loader2 className="animate-spin" /> : <Save />} Ø­ÙØ¸ Ø§Ù„Ø¥Ù‚ÙØ§Ù„
               </button>
             </div>
           </div>
@@ -320,14 +320,14 @@ const CashClosingForm = () => {
         {/* History Section */}
         <div className="space-y-4">
           <h3 className="font-bold text-slate-700 flex items-center gap-2">
-            <History size={18} /> آخر عمليات الإقفال
+            <History size={18} /> Ø¢Ø®Ø± Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„Ø¥Ù‚ÙØ§Ù„
           </h3>
           <div className="space-y-3">
             {lastClosings.map((closing) => (
               <div key={closing.id} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
                 <div className="text-xs text-slate-400 mb-1">{new Date(closing.closing_date).toLocaleDateString('ar-EG')}</div>
                 <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm font-bold text-slate-600">الرصيد الفعلي:</span>
+                  <span className="text-sm font-bold text-slate-600">Ø§Ù„Ø±ØµÙŠØ¯ Ø§Ù„ÙØ¹Ù„ÙŠ:</span>
                   <span className="font-mono font-bold">{closing.actual_balance.toLocaleString()}</span>
                 </div>
                 {closing.difference !== 0 ? (
@@ -336,13 +336,13 @@ const CashClosingForm = () => {
                   </div>
                 ) : (
                   <div className="text-xs font-bold px-2 py-1 rounded-lg inline-block bg-slate-100 text-slate-600">
-                    <CheckCircle size={12} className="inline ml-1" /> مطابق
+                    <CheckCircle size={12} className="inline ml-1" /> Ù…Ø·Ø§Ø¨Ù‚
                   </div>
                 )}
               </div>
             ))}
             {lastClosings.length === 0 && (
-              <div className="text-center text-slate-400 py-8 text-sm">لا توجد سجلات سابقة</div>
+              <div className="text-center text-slate-400 py-8 text-sm">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø³Ø¬Ù„Ø§Øª Ø³Ø§Ø¨Ù‚Ø©</div>
             )}
           </div>
         </div>

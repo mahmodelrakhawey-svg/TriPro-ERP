@@ -82,11 +82,11 @@ const ConstructionDashboard = () => {
       if (error) throw error;
 
       // جلب التوقعات المالية لكل مشروع
-      const projectsWithForecasts = await Promise.all((data || []).map(async (p: any) => {
+      const projectsWithForecasts = await Promise.all((data || []).map(async (p: Record<string, any>) => {
         // 🛡️ صمام أمان: التأكد من أن project_id صالح قبل استدعاء RPC
         if (!p.project_id || typeof p.project_id !== 'string' || p.project_id.length !== 36) {
           logger.warn(`Skipping RPC calls for invalid project_id: ${p.project_id} for project ${p.project_name}`);
-          return { ...p, forecast: null, health: 0, sCurve: [], cashFlow: null } as ProjectPerformance;
+          return { ...p, forecast: null, health: 0, sCurve: [], cashFlow: null } as unknown as ProjectPerformance;
         }
 
         const { data: forecast, error: forecastError } = await supabase.rpc('mfg_predict_project_completion_cost', { p_project_id: p.project_id });

@@ -70,7 +70,7 @@ export const SelfOrderingKiosk: React.FC = () => {
 
   const cartTotal = cart.reduce((sum, it) => sum + it.quantity * it.unitPrice, 0);
 
-  const handleAddToCart = (product: any) => {
+  const handleAddToCart = (product: Record<string, any>) => {
     const existing = cart.find(c => c.productId === product.id && !c.notes);
     if (existing) {
       setCart(cart.map(c => (c === existing ? { ...c, quantity: c.quantity + 1 } : c)));

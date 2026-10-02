@@ -225,7 +225,7 @@ export default function StadiumDashboard() {
                 <CartesianGrid strokeDasharray="3 3" opacity={0.5} />
                 <XAxis dataKey="month" />
                 <YAxis />
-                <RechartsTooltip formatter={(value: any) => formatCurrency(Number(value || 0))} />
+                <RechartsTooltip formatter={(value: number | string | undefined) => formatCurrency(Number(value || 0))} />
                 <Bar dataKey="الإيرادات" fill="#16a34a" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
@@ -255,7 +255,7 @@ export default function StadiumDashboard() {
                       <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                     ))}
                   </Pie>
-                  <RechartsTooltip formatter={(value: any) => formatCurrency(Number(value || 0))} />
+                  <RechartsTooltip formatter={(value: number | string | undefined) => formatCurrency(Number(value || 0))} />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>

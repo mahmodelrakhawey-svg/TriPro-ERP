@@ -64,7 +64,7 @@ export const ETATracker: React.FC = () => {
   const [selectedQrInvoice, setSelectedQrInvoice] = useState<ETAInvoice | null>(null);
 
   // Local signer health state
-  const [signerHealth, setSignerHealth] = useState<{ online: boolean; message: string; details?: any } | null>(null);
+  const [signerHealth, setSignerHealth] = useState<{ online: boolean; message: string; details?: Record<string, any> } | null>(null);
   const [checkingSigner, setCheckingSigner] = useState(false);
 
   // Company settings (environment)
@@ -77,7 +77,7 @@ export const ETATracker: React.FC = () => {
     setCheckingSigner(true);
     try {
       const res = await etaService.checkLocalSignerHealth();
-      setSignerHealth(res);
+      setSignerHealth(res as { online: boolean; message: string; details?: Record<string, any> });
       if (res.online) {
         showToast(res.message, 'success');
       } else {
@@ -129,7 +129,7 @@ export const ETATracker: React.FC = () => {
 
       if (invErr) throw invErr;
 
-      const formatted: ETAInvoice[] = (invData || []).map((inv: any) => ({
+      const formatted: ETAInvoice[] = (invData || []).map((inv: Record<string, any>) => ({
         id: inv.id,
         invoice_number: inv.invoice_number,
         invoice_date: inv.invoice_date,

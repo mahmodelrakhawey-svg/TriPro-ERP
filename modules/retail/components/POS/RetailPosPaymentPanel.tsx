@@ -4,8 +4,8 @@ import { PosCartItem } from '../../hooks/usePosCart';
 import { RetailCoupon } from '../../services/couponService';
 
 export interface RetailPosPaymentPanelProps {
-  selectedCustomer: any;
-  setSelectedCustomer: (cust: any) => void;
+  selectedCustomer: Record<string, any> | null;
+  setSelectedCustomer: (cust: Record<string, any> | null) => void;
   customerSearch: string;
   setCustomerSearch: (val: string) => void;
   customerResults: any[];

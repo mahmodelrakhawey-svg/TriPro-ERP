@@ -126,7 +126,7 @@ const OfferBeneficiariesReport = () => {
             customerName: cust?.name || 'عميل المطعم (صالة/سفري)',
             customerPhone: cust?.phone,
             discountAmount: Number(ord.discount_amount || 0),
-            items: (ord.order_items || []).map((i: any) => {
+            items: (ord.order_items || []).map((i: Record<string, any>) => {
               const prod = productMap[i.product_id];
               const originalPrice = Number(prod?.sales_price || prod?.price || i.unit_price || 0);
               const offerPrice = Number(prod?.offer_price || 0);
@@ -237,7 +237,7 @@ const OfferBeneficiariesReport = () => {
     salesRecords.forEach(inv => {
       if (selectedCustomerId !== 'all' && inv.customerId !== selectedCustomerId) return;
 
-      inv.items?.forEach((item: any) => {
+      inv.items?.forEach((item: Record<string, any>) => {
         const originalPrice = item.originalPrice > 0 ? item.originalPrice : item.soldPrice;
         const isOffer = (item.offerPrice > 0 && Math.abs(item.soldPrice - item.offerPrice) < 0.01) || 
                         (item.soldPrice < originalPrice);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
 import { FileText, Upload, Trash2, Download, Paperclip, Loader2, X, Image as ImageIcon } from 'lucide-react';
@@ -30,7 +30,7 @@ const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose 
   const fetchAttachments = async () => {
     setLoading(true);
     let query = supabase.from('project_attachments').select('*').eq('project_id', projectId);
-    // 🏗️ التحقق بذكاء: هل هو مستخلص عميل أم مقاول باطن؟
+    // ðŸ—ï¸ Ø§Ù„ØªØ­Ù‚Ù‚ Ø¨Ø°ÙƒØ§Ø¡: Ù‡Ù„ Ù‡Ùˆ Ù…Ø³ØªØ®Ù„Øµ Ø¹Ù…ÙŠÙ„ Ø£Ù… Ù…Ù‚Ø§ÙˆÙ„ Ø¨Ø§Ø·Ù†ØŸ
     if (billingId) {
       query = query.or(`billing_id.eq.${billingId},sub_billing_id.eq.${billingId}`);
     }
@@ -56,8 +56,8 @@ const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose 
 
       const { data: { publicUrl } } = supabase.storage.from('project-assets').getPublicUrl(filePath);
 
-      // 🏗️ تحديد العمود الصحيح للحفظ
-      const insertData: any = {
+      // ðŸ—ï¸ ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ø¹Ù…ÙˆØ¯ Ø§Ù„ØµØ­ÙŠØ­ Ù„Ù„Ø­ÙØ¸
+      const insertData: Record<string, any> = {
         project_id: projectId,
         file_name: file.name,
         file_url: publicUrl,
@@ -65,15 +65,15 @@ const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose 
         file_size: file.size
       };
       
-      // إذا كان المعرف يبدأ بـ 'SUB' أو تم تمريره من واجهة المقاولين (منطقياً)
-      // هنا نعتمد على البروب الممرر
+      // Ø¥Ø°Ø§ ÙƒØ§Ù† Ø§Ù„Ù…Ø¹Ø±Ù ÙŠØ¨Ø¯Ø£ Ø¨Ù€ 'SUB' Ø£Ùˆ ØªÙ… ØªÙ…Ø±ÙŠØ±Ù‡ Ù…Ù† ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„Ù…Ù‚Ø§ÙˆÙ„ÙŠÙ† (Ù…Ù†Ø·Ù‚ÙŠØ§Ù‹)
+      // Ù‡Ù†Ø§ Ù†Ø¹ØªÙ…Ø¯ Ø¹Ù„Ù‰ Ø§Ù„Ø¨Ø±ÙˆØ¨ Ø§Ù„Ù…Ù…Ø±Ø±
       if (billingId) insertData.sub_billing_id = billingId; 
       else insertData.billing_id = billingId;
 
       const { error: dbError } = await supabase.from('project_attachments').insert([insertData]);
 
       if (dbError) throw dbError;
-      showToast('تم رفع المستند بنجاف ✅', 'success');
+      showToast('ØªÙ… Ø±ÙØ¹ Ø§Ù„Ù…Ø³ØªÙ†Ø¯ Ø¨Ù†Ø¬Ø§Ù âœ…', 'success');
       fetchAttachments();
     } catch (err) {
       showToast(err.message, 'error');
@@ -83,12 +83,12 @@ const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose 
   };
 
   const deleteAttachment = async (id: string, url: string) => {
-    if (!window.confirm('هل تريد حذف هذا المستند؟')) return;
+    if (!window.confirm('Ù‡Ù„ ØªØ±ÙŠØ¯ Ø­Ø°Ù Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªÙ†Ø¯ØŸ')) return;
     try {
       const { error } = await supabase.from('project_attachments').delete().eq('id', id);
       if (error) throw error;
       setAttachments(attachments.filter(a => a.id !== id));
-      showToast('تم الحذف بنجاح', 'success');
+      showToast('ØªÙ… Ø§Ù„Ø­Ø°Ù Ø¨Ù†Ø¬Ø§Ø­', 'success');
     } catch (err) { showToast(err.message, 'error'); }
   };
 
@@ -97,7 +97,7 @@ const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose 
       <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
         <div className="p-6 bg-slate-50 border-b flex justify-between items-center">
           <h3 className="font-black text-xl text-slate-800 flex items-center gap-2">
-            <Paperclip className="text-blue-600" /> {billingId ? 'مرفقات المستخلص' : 'مرفقات المشروع العامة'}
+            <Paperclip className="text-blue-600" /> {billingId ? 'Ù…Ø±ÙÙ‚Ø§Øª Ø§Ù„Ù…Ø³ØªØ®Ù„Øµ' : 'Ù…Ø±ÙÙ‚Ø§Øª Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ Ø§Ù„Ø¹Ø§Ù…Ø©'}
           </h3>
           <button onClick={onClose} className="p-2 hover:bg-white rounded-full transition-colors"><X size={24} /></button>
         </div>
@@ -106,7 +106,7 @@ const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose 
           <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-200 rounded-2xl cursor-pointer hover:bg-slate-50 transition-all mb-6">
             <div className="flex flex-col items-center justify-center pt-5 pb-6">
               {uploading ? <Loader2 className="animate-spin text-blue-600" /> : <Upload className="text-slate-400 mb-2" />}
-              <p className="text-sm font-bold text-slate-500">اضغط لرفع نسخة من المستند (PDF, صور)</p>
+              <p className="text-sm font-bold text-slate-500">Ø§Ø¶ØºØ· Ù„Ø±ÙØ¹ Ù†Ø³Ø®Ø© Ù…Ù† Ø§Ù„Ù…Ø³ØªÙ†Ø¯ (PDF, ØµÙˆØ±)</p>
             </div>
             <input type="file" className="hidden" onChange={handleUpload} disabled={uploading} />
           </label>
@@ -115,7 +115,7 @@ const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose 
             {loading ? (
               <div className="flex justify-center py-4"><Loader2 className="animate-spin text-slate-300" /></div>
             ) : attachments.length === 0 ? (
-              <p className="text-center text-slate-400 text-sm py-4">لا توجد مرفقات حالياً</p>
+              <p className="text-center text-slate-400 text-sm py-4">Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ø±ÙÙ‚Ø§Øª Ø­Ø§Ù„ÙŠØ§Ù‹</p>
             ) : (
               attachments.map(file => (
                 <div key={file.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100 group">
@@ -149,7 +149,7 @@ const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose 
         </div>
         
         <div className="p-4 bg-slate-50 border-t text-center">
-          <button onClick={onClose} className="text-sm font-bold text-slate-500 hover:text-slate-700">إغلاق</button>
+          <button onClick={onClose} className="text-sm font-bold text-slate-500 hover:text-slate-700">Ø¥ØºÙ„Ø§Ù‚</button>
         </div>
       </div>
     </div>

@@ -184,7 +184,7 @@ export const QuotationList = () => {
       notes: quote.notes,
       totalAmount: quote.total_amount,
       taxAmount: quote.tax_amount,
-      items: (quote.quotation_items || []).map((i: any) => ({
+      items: (quote.quotation_items || []).map((i: Record<string, any>) => ({
         name: i.products?.name || 'صنف',
         quantity: i.quantity,
         unitPrice: i.unit_price,

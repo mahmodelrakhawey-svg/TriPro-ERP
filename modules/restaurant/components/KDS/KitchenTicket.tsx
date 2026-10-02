@@ -33,7 +33,7 @@ export const KitchenTicket = React.forwardRef<HTMLDivElement, KitchenTicketProps
             {/* Modifiers */}
             {item.selectedModifiers && item.selectedModifiers.length > 0 && (
               <div className="mt-1 pr-2 flex flex-col gap-1">
-                {item.selectedModifiers.map((mod: any, idx: number) => (
+                {item.selectedModifiers.map((mod: Record<string, any>, idx: number) => (
                   <div key={idx} className="text-base font-bold text-black flex items-center">
                     <span className="inline-block w-4 font-black">+</span> 
                     + {mod.name}

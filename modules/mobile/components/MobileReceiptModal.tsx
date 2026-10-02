@@ -247,7 +247,7 @@ export const MobileReceiptModal: React.FC<MobileReceiptModalProps> = ({
             </tr>
           </thead>
           <tbody>
-            {(invoice.items || []).map((it: any, idx: number) => (
+            {(invoice.items || []).map((it: Record<string, any>, idx: number) => (
               <tr key={idx} className="border-b border-gray-200 border-dotted">
                 <td className="py-1 font-medium leading-tight">{it.name}</td>
                 <td className="py-1 text-center font-bold">{it.quantity}</td>

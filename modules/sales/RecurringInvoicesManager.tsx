@@ -256,7 +256,7 @@ export const RecurringInvoicesManager: React.FC = () => {
   };
 
   // تعديل سطر صنف
-  const handleItemChange = (index: number, field: keyof RecurringInvoiceItem, val: any) => {
+  const handleItemChange = (index: number, field: keyof RecurringInvoiceItem, val: string | number | undefined) => {
     const newItems = [...items];
     const item = { ...newItems[index], [field]: val };
 

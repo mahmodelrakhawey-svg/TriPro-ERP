@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -9,7 +9,7 @@ interface Contract {
   contract_name: string;
   total_value: number;
   retention_percentage: number;
-  advance_payment_balance?: number; // 🏗️ جديد
+  advance_payment_balance?: number; // ðŸ—ï¸ Ø¬Ø¯ÙŠØ¯
   status: string;
   project_name?: string;
   subcontractor_name?: string;
@@ -36,7 +36,7 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
     retention_percentage: 5
   });
 
-  // حالة صرف دفعة مقدمة
+  // Ø­Ø§Ù„Ø© ØµØ±Ù Ø¯ÙØ¹Ø© Ù…Ù‚Ø¯Ù…Ø©
   const [isDisbursingAdvance, setIsDisbursingAdvance] = useState(false);
   const [advanceTargetContract, setAdvanceTargetContract] = useState<Contract | null>(null);
   const [advanceData, setAdvanceData] = useState({
@@ -48,7 +48,7 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
 
   const { showToast } = useToast();
 
-  // تصفية حسابات النقدية والبنوك
+  // ØªØµÙÙŠØ© Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ù†Ù‚Ø¯ÙŠØ© ÙˆØ§Ù„Ø¨Ù†ÙˆÙƒ
   const cashAndBankAccounts = (accounts || []).filter(acc => {
     if (acc.isGroup || acc.is_group) return false;
     const code = String(acc.code || '');
@@ -58,9 +58,9 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
     return (
       type.includes('cash') || type.includes('bank') ||
       code.startsWith('123') || code.startsWith('101') || code.startsWith('1101') ||
-      name.includes('صندوق') || name.includes('خزينة') || name.includes('خزينه') ||
-      name.includes('نقد') || name.includes('بنك') || name.includes('مصرف') ||
-      name.includes('محفظة') || name.includes('كاش')
+      name.includes('ØµÙ†Ø¯ÙˆÙ‚') || name.includes('Ø®Ø²ÙŠÙ†Ø©') || name.includes('Ø®Ø²ÙŠÙ†Ù‡') ||
+      name.includes('Ù†Ù‚Ø¯') || name.includes('Ø¨Ù†Ùƒ') || name.includes('Ù…ØµØ±Ù') ||
+      name.includes('Ù…Ø­ÙØ¸Ø©') || name.includes('ÙƒØ§Ø´')
     );
   });
 
@@ -75,10 +75,10 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
     e.preventDefault();
     if (!advanceTargetContract) return;
     if (advanceData.amount <= 0) {
-      return showToast('يجب أن يكون مبلغ الدفعة المقدمة أكبر من صفر', 'warning');
+      return showToast('ÙŠØ¬Ø¨ Ø£Ù† ÙŠÙƒÙˆÙ† Ù…Ø¨Ù„Øº Ø§Ù„Ø¯ÙØ¹Ø© Ø§Ù„Ù…Ù‚Ø¯Ù…Ø© Ø£ÙƒØ¨Ø± Ù…Ù† ØµÙØ±', 'warning');
     }
     if (!advanceData.source_account_id) {
-      return showToast('يرجى تحديد حساب الخزينة أو البنك المصروف منه', 'warning');
+      return showToast('ÙŠØ±Ø¬Ù‰ ØªØ­Ø¯ÙŠØ¯ Ø­Ø³Ø§Ø¨ Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø£Ùˆ Ø§Ù„Ø¨Ù†Ùƒ Ø§Ù„Ù…ØµØ±ÙˆÙ Ù…Ù†Ù‡', 'warning');
     }
 
     setLoading(true);
@@ -92,19 +92,19 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
       });
 
       if (error) throw error;
-      showToast('تم صرف الدفعة المقدمة للمقاول وتوليد القيد المحاسبي بنجاح ✅', 'success');
+      showToast('ØªÙ… ØµØ±Ù Ø§Ù„Ø¯ÙØ¹Ø© Ø§Ù„Ù…Ù‚Ø¯Ù…Ø© Ù„Ù„Ù…Ù‚Ø§ÙˆÙ„ ÙˆØªÙˆÙ„ÙŠØ¯ Ø§Ù„Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠ Ø¨Ù†Ø¬Ø§Ø­ âœ…', 'success');
       setIsDisbursingAdvance(false);
       setAdvanceTargetContract(null);
       setAdvanceData({ amount: 0, source_account_id: '', date: new Date().toISOString().split('T')[0], notes: '' });
       fetchContracts();
     } catch (error) {
-      showToast('خطأ في صرف الدفعة المقدمة: ' + error.message, 'error');
+      showToast('Ø®Ø·Ø£ ÙÙŠ ØµØ±Ù Ø§Ù„Ø¯ÙØ¹Ø© Ø§Ù„Ù…Ù‚Ø¯Ù…Ø©: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
   };
 
-  // حساب إجمالي قيمة العقد تلقائياً عند تغيير البنود
+  // Ø­Ø³Ø§Ø¨ Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ù‚ÙŠÙ…Ø© Ø§Ù„Ø¹Ù‚Ø¯ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¹Ù†Ø¯ ØªØºÙŠÙŠØ± Ø§Ù„Ø¨Ù†ÙˆØ¯
   useEffect(() => {
     if (!isItemized) return;
     const sum = contractItems.reduce((acc, item) => acc + (Number(item.quantity || 0) * Number(item.unit_price || 0)), 0);
@@ -112,10 +112,10 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
   }, [contractItems, isItemized]);
 
   const addContractItem = () => {
-    setContractItems([...contractItems, { item_name: '', unit: 'م3', quantity: 0, unit_price: 0 }]);
+    setContractItems([...contractItems, { item_name: '', unit: 'Ù…3', quantity: 0, unit_price: 0 }]);
   };
 
-  const updateContractItem = (index: number, field: string, value: any) => {
+  const updateContractItem = (index: number, field: string, value: string | number | undefined) => {
     const updated = [...contractItems];
     updated[index] = { ...updated[index], [field]: value };
     setContractItems(updated);
@@ -155,7 +155,7 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
     e.preventDefault();
     setLoading(true);
     try {
-      // 1. إنشاء العقد
+      // 1. Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¹Ù‚Ø¯
       const { data: contractData, error: contractError } = await supabase
         .from('subcontractor_contracts')
         .insert([{
@@ -172,7 +172,7 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
 
       if (contractError) throw contractError;
 
-      // 2. حفظ البنود في جدول subcontractor_contract_items إذا كان عقداً تفصيلياً
+      // 2. Ø­ÙØ¸ Ø§Ù„Ø¨Ù†ÙˆØ¯ ÙÙŠ Ø¬Ø¯ÙˆÙ„ subcontractor_contract_items Ø¥Ø°Ø§ ÙƒØ§Ù† Ø¹Ù‚Ø¯Ø§Ù‹ ØªÙØµÙŠÙ„ÙŠØ§Ù‹
       if (isItemized && contractItems.length > 0) {
         const { error: itemsError } = await supabase
           .from('subcontractor_contract_items')
@@ -189,7 +189,7 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
         if (itemsError) throw itemsError;
       }
 
-      showToast('تم إنشاء العقد بنجاح ✅', 'success');
+      showToast('ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø¹Ù‚Ø¯ Ø¨Ù†Ø¬Ø§Ø­ âœ…', 'success');
       setIsCreating(false);
       setContractItems([]);
       setIsItemized(false);
@@ -211,9 +211,9 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
           <div>
             <h1 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
               <FileText className="text-purple-600" />
-              عقود مقاول الباطن
+              Ø¹Ù‚ÙˆØ¯ Ù…Ù‚Ø§ÙˆÙ„ Ø§Ù„Ø¨Ø§Ø·Ù†
             </h1>
-            <p className="text-gray-500 mt-1">إدارة الارتباطات المالية للمشاريع</p>
+            <p className="text-gray-500 mt-1">Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø§Ø±ØªØ¨Ø§Ø·Ø§Øª Ø§Ù„Ù…Ø§Ù„ÙŠØ© Ù„Ù„Ù…Ø´Ø§Ø±ÙŠØ¹</p>
           </div>
         </div>
         <button 
@@ -231,7 +231,7 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
           className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-all shadow-lg shadow-purple-100"
         >
           <Plus size={20} />
-          عقد جديد
+          Ø¹Ù‚Ø¯ Ø¬Ø¯ÙŠØ¯
         </button>
       </div>
 
@@ -240,24 +240,24 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh]">
             <div className="p-6 border-b flex justify-between items-center bg-gray-50">
               <h3 className="font-bold text-xl text-gray-800 flex items-center gap-2">
-                <Plus className="text-purple-600" size={24} /> إنشاء عقد مقاول باطن
+                <Plus className="text-purple-600" size={24} /> Ø¥Ù†Ø´Ø§Ø¡ Ø¹Ù‚Ø¯ Ù…Ù‚Ø§ÙˆÙ„ Ø¨Ø§Ø·Ù†
               </h3>
               <button onClick={() => setIsCreating(false)} className="text-gray-400 hover:text-gray-600 transition-colors"><X size={24} /></button>
             </div>
             <form onSubmit={handleCreateContract} className="p-6 space-y-4 overflow-y-auto">
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">اسم العقد / التوصيف</label>
-                <input type="text" required value={newContract.contract_name} onChange={e => setNewContract({...newContract, contract_name: e.target.value})} className="w-full p-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500" placeholder="مثلاً: أعمال السباكة - عمارة A" />
+                <label className="block text-sm font-bold text-gray-700 mb-1">Ø§Ø³Ù… Ø§Ù„Ø¹Ù‚Ø¯ / Ø§Ù„ØªÙˆØµÙŠÙ</label>
+                <input type="text" required value={newContract.contract_name} onChange={e => setNewContract({...newContract, contract_name: e.target.value})} className="w-full p-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500" placeholder="Ù…Ø«Ù„Ø§Ù‹: Ø£Ø¹Ù…Ø§Ù„ Ø§Ù„Ø³Ø¨Ø§ÙƒØ© - Ø¹Ù…Ø§Ø±Ø© A" />
               </div>
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1">المشروع المرتبط</label>
+                <label className="block text-sm font-bold text-gray-700 mb-1">Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ Ø§Ù„Ù…Ø±ØªØ¨Ø·</label>
                 <select required value={newContract.project_id} onChange={e => setNewContract({...newContract, project_id: e.target.value})} className="w-full p-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500 bg-white">
-                  <option value="">-- اختر المشروع --</option>
+                  <option value="">-- Ø§Ø®ØªØ± Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ --</option>
                   {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
 
-              {/* خيار بنود العقد التفصيلية */}
+              {/* Ø®ÙŠØ§Ø± Ø¨Ù†ÙˆØ¯ Ø§Ù„Ø¹Ù‚Ø¯ Ø§Ù„ØªÙØµÙŠÙ„ÙŠØ© */}
               <div className="flex items-center gap-2 py-1">
                 <input 
                   type="checkbox" 
@@ -266,26 +266,26 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
                   onChange={e => {
                     setIsItemized(e.target.checked);
                     if (e.target.checked && contractItems.length === 0) {
-                      setContractItems([{ item_name: '', unit: 'م3', quantity: 0, unit_price: 0 }]);
+                      setContractItems([{ item_name: '', unit: 'Ù…3', quantity: 0, unit_price: 0 }]);
                     }
                   }}
                   className="rounded border-gray-300 text-purple-600 focus:ring-purple-500 cursor-pointer"
                 />
                 <label htmlFor="isItemizedCheckbox" className="text-sm font-bold text-gray-700 cursor-pointer select-none">
-                  عقد تفصيلي بالبنود (جدول الكميات)
+                  Ø¹Ù‚Ø¯ ØªÙØµÙŠÙ„ÙŠ Ø¨Ø§Ù„Ø¨Ù†ÙˆØ¯ (Ø¬Ø¯ÙˆÙ„ Ø§Ù„ÙƒÙ…ÙŠØ§Øª)
                 </label>
               </div>
 
               {isItemized && (
                 <div className="border border-purple-100 rounded-xl p-3 bg-purple-50/20 space-y-3">
                   <div className="flex justify-between items-center">
-                    <span className="text-xs font-black text-purple-700">بنود العقد التفصيلية</span>
+                    <span className="text-xs font-black text-purple-700">Ø¨Ù†ÙˆØ¯ Ø§Ù„Ø¹Ù‚Ø¯ Ø§Ù„ØªÙØµÙŠÙ„ÙŠØ©</span>
                     <button
                       type="button"
                       onClick={addContractItem}
                       className="text-xs bg-purple-600 text-white px-2 py-1 rounded-md hover:bg-purple-700 font-bold"
                     >
-                      + إضافة بند للعقد
+                      + Ø¥Ø¶Ø§ÙØ© Ø¨Ù†Ø¯ Ù„Ù„Ø¹Ù‚Ø¯
                     </button>
                   </div>
                   <div className="space-y-2 max-h-48 overflow-y-auto">
@@ -295,28 +295,28 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
                           type="text" required
                           value={item.item_name}
                           onChange={e => updateContractItem(index, 'item_name', e.target.value)}
-                          placeholder="اسم البند"
+                          placeholder="Ø§Ø³Ù… Ø§Ù„Ø¨Ù†Ø¯"
                           className="flex-1 p-1.5 border rounded outline-none"
                         />
                         <input
                           type="text" required
                           value={item.unit}
                           onChange={e => updateContractItem(index, 'unit', e.target.value)}
-                          placeholder="الوحدة"
+                          placeholder="Ø§Ù„ÙˆØ­Ø¯Ø©"
                           className="w-12 p-1.5 border rounded text-center outline-none"
                         />
                         <input
                           type="number" required min="0.01" step="any"
                           value={item.quantity || ''}
                           onChange={e => updateContractItem(index, 'quantity', parseFloat(e.target.value) || 0)}
-                          placeholder="الكمية"
+                          placeholder="Ø§Ù„ÙƒÙ…ÙŠØ©"
                           className="w-16 p-1.5 border rounded text-center outline-none"
                         />
                         <input
                           type="number" required min="0.01" step="any"
                           value={item.unit_price || ''}
                           onChange={e => updateContractItem(index, 'unit_price', parseFloat(e.target.value) || 0)}
-                          placeholder="السعر"
+                          placeholder="Ø§Ù„Ø³Ø¹Ø±"
                           className="w-20 p-1.5 border rounded text-center outline-none"
                         />
                         <button
@@ -334,7 +334,7 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">قيمة العقد الإجمالية</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Ù‚ÙŠÙ…Ø© Ø§Ù„Ø¹Ù‚Ø¯ Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠØ©</label>
                   <input 
                     type="number" required 
                     readOnly={isItemized} 
@@ -344,12 +344,12 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1">نسبة محتجز الضمان %</label>
+                  <label className="block text-sm font-bold text-gray-700 mb-1">Ù†Ø³Ø¨Ø© Ù…Ø­ØªØ¬Ø² Ø§Ù„Ø¶Ù…Ø§Ù† %</label>
                   <input type="number" required value={newContract.retention_percentage} onChange={e => setNewContract({...newContract, retention_percentage: parseFloat(e.target.value) || 0})} className="w-full p-2.5 border rounded-xl outline-none focus:ring-2 focus:ring-purple-500" />
                 </div>
               </div>
               <button type="submit" disabled={loading} className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all">
-                {loading ? <Loader2 className="animate-spin" /> : <><Save size={20} /> حفظ العقد</>}
+                {loading ? <Loader2 className="animate-spin" /> : <><Save size={20} /> Ø­ÙØ¸ Ø§Ù„Ø¹Ù‚Ø¯</>}
               </button>
             </form>
           </div>
@@ -371,25 +371,25 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
                 <span className={`px-2 py-1 rounded text-xs font-medium ${
                   contract.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'
                 }`}>
-                  {contract.status === 'active' ? 'ساري' : 'مكتمل'}
+                  {contract.status === 'active' ? 'Ø³Ø§Ø±ÙŠ' : 'Ù…ÙƒØªÙ…Ù„'}
                 </span>
               </div>
 
               <h3 className="text-lg font-bold text-gray-800 mb-1">{contract.contract_name}</h3>
               <p className="text-sm text-gray-500 mb-4 flex items-center gap-1">
-                المشروع: <span className="text-gray-700 font-medium">{contract.project_name}</span>
+                Ø§Ù„Ù…Ø´Ø±ÙˆØ¹: <span className="text-gray-700 font-medium">{contract.project_name}</span>
               </p>
               
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div className="bg-gray-50 p-3 rounded-xl">
-                  <span className="text-xs text-gray-400 block mb-1">قيمة العقد</span>
+                  <span className="text-xs text-gray-400 block mb-1">Ù‚ÙŠÙ…Ø© Ø§Ù„Ø¹Ù‚Ø¯</span>
                   <div className="font-bold text-gray-800 flex items-center gap-1">
                     <DollarSign size={14} className="text-gray-400" />
                     {contract.total_value.toLocaleString()}
                   </div>
                 </div>
                 <div className="bg-gray-50 p-3 rounded-xl">
-                  <span className="text-xs text-gray-400 block mb-1">نسبة المحتجز</span>
+                  <span className="text-xs text-gray-400 block mb-1">Ù†Ø³Ø¨Ø© Ø§Ù„Ù…Ø­ØªØ¬Ø²</span>
                   <div className="font-bold text-purple-600 flex items-center gap-1">
                     <Percent size={14} />
                     {contract.retention_percentage}%
@@ -397,12 +397,12 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
                 </div>
               </div>
 
-              {/* 🏗️ عرض رصيد الدفعة المقدمة المتبقي */}
+              {/* ðŸ—ï¸ Ø¹Ø±Ø¶ Ø±ØµÙŠØ¯ Ø§Ù„Ø¯ÙØ¹Ø© Ø§Ù„Ù…Ù‚Ø¯Ù…Ø© Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ */}
               {contract.advance_payment_balance !== undefined && contract.advance_payment_balance > 0 ? (
                 <div className="mb-4 p-3 bg-blue-50 rounded-xl border border-blue-100 flex justify-between items-center">
-                  <span className="text-xs font-bold text-blue-600">الدفعة المقدمة المتبقية:</span>
+                  <span className="text-xs font-bold text-blue-600">Ø§Ù„Ø¯ÙØ¹Ø© Ø§Ù„Ù…Ù‚Ø¯Ù…Ø© Ø§Ù„Ù…ØªØ¨Ù‚ÙŠØ©:</span>
                   <span className="font-black text-blue-700 font-mono">
-                    {contract.advance_payment_balance.toLocaleString()} ج.م
+                    {contract.advance_payment_balance.toLocaleString()} Ø¬.Ù…
                   </span>
                 </div>
               ) : null}
@@ -415,20 +415,20 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
                       amount: 0,
                       source_account_id: '',
                       date: new Date().toISOString().split('T')[0],
-                      notes: `دفعة مقدمة لعقد: ${contract.contract_name}`
+                      notes: `Ø¯ÙØ¹Ø© Ù…Ù‚Ø¯Ù…Ø© Ù„Ø¹Ù‚Ø¯: ${contract.contract_name}`
                     });
                     setIsDisbursingAdvance(true);
                   }}
                   className="bg-emerald-50 hover:bg-emerald-600 hover:text-white text-emerald-700 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 border border-emerald-200 shadow-sm"
                 >
-                  <Coins size={15} /> صرف دفعة مقدمة
+                  <Coins size={15} /> ØµØ±Ù Ø¯ÙØ¹Ø© Ù…Ù‚Ø¯Ù…Ø©
                 </button>
 
                 <button
                   onClick={() => onViewBillings(contract.id)}
                   className="bg-purple-50 hover:bg-purple-600 hover:text-white text-purple-700 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 border border-purple-200 shadow-sm"
                 >
-                  <FileText size={15} /> المستخلصات
+                  <FileText size={15} /> Ø§Ù„Ù…Ø³ØªØ®Ù„ØµØ§Øª
                 </button>
               </div>
             </div>
@@ -437,19 +437,19 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
           {contracts.length === 0 && (
             <div className="col-span-full bg-white rounded-3xl p-16 text-center border-2 border-dashed border-gray-100">
               <FileText size={48} className="mx-auto text-gray-200 mb-4" />
-              <p className="text-gray-500">لا توجد عقود مسجلة لهذا المقاول</p>
+              <p className="text-gray-500">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¹Ù‚ÙˆØ¯ Ù…Ø³Ø¬Ù„Ø© Ù„Ù‡Ø°Ø§ Ø§Ù„Ù…Ù‚Ø§ÙˆÙ„</p>
             </div>
           )}
         </div>
       )}
 
-      {/* مودال صرف دفعة مقدمة لمقاول الباطن */}
+      {/* Ù…ÙˆØ¯Ø§Ù„ ØµØ±Ù Ø¯ÙØ¹Ø© Ù…Ù‚Ø¯Ù…Ø© Ù„Ù…Ù‚Ø§ÙˆÙ„ Ø§Ù„Ø¨Ø§Ø·Ù† */}
       {isDisbursingAdvance && advanceTargetContract && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 rtl text-right">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-6 bg-emerald-50 border-b border-emerald-100 flex justify-between items-center">
               <h3 className="font-black text-emerald-800 flex items-center gap-2">
-                <Coins size={22} className="text-emerald-600" /> صرف دفعة مقدمة لمقاول الباطن
+                <Coins size={22} className="text-emerald-600" /> ØµØ±Ù Ø¯ÙØ¹Ø© Ù…Ù‚Ø¯Ù…Ø© Ù„Ù…Ù‚Ø§ÙˆÙ„ Ø§Ù„Ø¨Ø§Ø·Ù†
               </h3>
               <button onClick={() => setIsDisbursingAdvance(false)} className="text-emerald-400 hover:text-emerald-600">
                 <X size={24} />
@@ -458,12 +458,12 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
 
             <form onSubmit={handleDisburseAdvance} className="p-8 space-y-5">
               <div className="bg-emerald-50/50 p-3 rounded-xl border border-emerald-100 text-xs text-emerald-800">
-                <p className="font-bold">عقد: {advanceTargetContract.contract_name}</p>
-                <p className="text-emerald-600 mt-0.5">مشروع: {advanceTargetContract.project_name}</p>
+                <p className="font-bold">Ø¹Ù‚Ø¯: {advanceTargetContract.contract_name}</p>
+                <p className="text-emerald-600 mt-0.5">Ù…Ø´Ø±ÙˆØ¹: {advanceTargetContract.project_name}</p>
               </div>
 
               <div>
-                <label className="block text-xs font-black text-gray-400 uppercase mb-2">مبلغ الدفعة المقدمة (ج.م) *</label>
+                <label className="block text-xs font-black text-gray-400 uppercase mb-2">Ù…Ø¨Ù„Øº Ø§Ù„Ø¯ÙØ¹Ø© Ø§Ù„Ù…Ù‚Ø¯Ù…Ø© (Ø¬.Ù…) *</label>
                 <div className="relative">
                   <input 
                     type="number" required min="0.01" step="0.01"
@@ -477,26 +477,26 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
               </div>
 
               <div>
-                <label className="block text-xs font-black text-gray-400 uppercase mb-2">حساب الصرف (الخزينة أو البنك) *</label>
+                <label className="block text-xs font-black text-gray-400 uppercase mb-2">Ø­Ø³Ø§Ø¨ Ø§Ù„ØµØ±Ù (Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø£Ùˆ Ø§Ù„Ø¨Ù†Ùƒ) *</label>
                 <select 
                   required
                   value={advanceData.source_account_id}
                   onChange={e => setAdvanceData({ ...advanceData, source_account_id: e.target.value })}
                   className="w-full border-2 border-gray-100 rounded-2xl p-3 focus:border-emerald-500 outline-none font-bold bg-white"
                 >
-                  <option value="">-- اختر الخزينة أو البنك المصروف منه --</option>
+                  <option value="">-- Ø§Ø®ØªØ± Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø£Ùˆ Ø§Ù„Ø¨Ù†Ùƒ Ø§Ù„Ù…ØµØ±ÙˆÙ Ù…Ù†Ù‡ --</option>
                   {cashAndBankAccounts.map(acc => (
                     <option key={acc.id} value={acc.id}>
                       {acc.code} - {acc.name}
                     </option>
                   ))}
                 </select>
-                <p className="text-[11px] text-gray-400 mt-1">سيتم توليد قيد: من ح/ دفعات مقدمة للمقاولين (1245) إلى ح/ الخزينة أو البنك</p>
+                <p className="text-[11px] text-gray-400 mt-1">Ø³ÙŠØªÙ… ØªÙˆÙ„ÙŠØ¯ Ù‚ÙŠØ¯: Ù…Ù† Ø­/ Ø¯ÙØ¹Ø§Øª Ù…Ù‚Ø¯Ù…Ø© Ù„Ù„Ù…Ù‚Ø§ÙˆÙ„ÙŠÙ† (1245) Ø¥Ù„Ù‰ Ø­/ Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø£Ùˆ Ø§Ù„Ø¨Ù†Ùƒ</p>
               </div>
 
               <div className="grid grid-cols-1 gap-4">
                 <div>
-                  <label className="block text-xs font-black text-gray-400 uppercase mb-2">تاريخ الصرف</label>
+                  <label className="block text-xs font-black text-gray-400 uppercase mb-2">ØªØ§Ø±ÙŠØ® Ø§Ù„ØµØ±Ù</label>
                   <input 
                     type="date" required
                     value={advanceData.date}
@@ -505,13 +505,13 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-black text-gray-400 uppercase mb-2">ملاحظات / البيان</label>
+                  <label className="block text-xs font-black text-gray-400 uppercase mb-2">Ù…Ù„Ø§Ø­Ø¸Ø§Øª / Ø§Ù„Ø¨ÙŠØ§Ù†</label>
                   <input 
                     type="text"
                     value={advanceData.notes}
                     onChange={e => setAdvanceData({ ...advanceData, notes: e.target.value })}
                     className="w-full border-2 border-gray-100 rounded-2xl p-3 focus:border-emerald-500 outline-none font-medium text-sm"
-                    placeholder="ملاحظات حول الدفعة المقدمة..."
+                    placeholder="Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø­ÙˆÙ„ Ø§Ù„Ø¯ÙØ¹Ø© Ø§Ù„Ù…Ù‚Ø¯Ù…Ø©..."
                   />
                 </div>
               </div>
@@ -521,7 +521,7 @@ const SubcontractorContractsManager: React.FC<Props> = ({ subcontractorId, onBac
                 disabled={loading} 
                 className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-4 rounded-2xl font-black shadow-lg shadow-emerald-100 transition-all flex items-center justify-center gap-2"
               >
-                {loading ? <Loader2 className="animate-spin" /> : <><Save size={20} /> تأكيد وصرف الدفعة المقدمة</>}
+                {loading ? <Loader2 className="animate-spin" /> : <><Save size={20} /> ØªØ£ÙƒÙŠØ¯ ÙˆØµØ±Ù Ø§Ù„Ø¯ÙØ¹Ø© Ø§Ù„Ù…Ù‚Ø¯Ù…Ø©</>}
               </button>
             </form>
           </div>

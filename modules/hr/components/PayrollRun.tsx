@@ -1,4 +1,4 @@
-import { logger } from '../../../utils/logger';
+﻿import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
@@ -93,14 +93,14 @@ const PayrollRun = () => {
   // Payslip Modal State
   const [selectedPayslip, setSelectedPayslip] = useState<PayslipData | null>(null);
 
-  // مزامنة السنة المختارة مع السنة المالية للنظام
+  // Ù…Ø²Ø§Ù…Ù†Ø© Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø®ØªØ§Ø±Ø© Ù…Ø¹ Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø§Ù„ÙŠØ© Ù„Ù„Ù†Ø¸Ø§Ù…
   useEffect(() => {
     if (selectedFiscalYear) {
       setSelectedYear(selectedFiscalYear);
     }
   }, [selectedFiscalYear]);
 
-  // جلب الخزائن والبنوك المتاحة
+  // Ø¬Ù„Ø¨ Ø§Ù„Ø®Ø²Ø§Ø¦Ù† ÙˆØ§Ù„Ø¨Ù†ÙˆÙƒ Ø§Ù„Ù…ØªØ§Ø­Ø©
   useEffect(() => {
     const fetchTreasuries = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -110,7 +110,7 @@ const PayrollRun = () => {
         .from('accounts')
         .select('id, name, code')
         .ilike('type', '%asset%')
-        .or('code.like.123%,code.like.101%,name.ilike.%صندوق%,name.ilike.%خزينة%,name.ilike.%بنك%');
+        .or('code.like.123%,code.like.101%,name.ilike.%ØµÙ†Ø¯ÙˆÙ‚%,name.ilike.%Ø®Ø²ÙŠÙ†Ø©%,name.ilike.%Ø¨Ù†Ùƒ%');
       
       if (userOrgId) {
         query = query.eq('organization_id', userOrgId);
@@ -121,7 +121,7 @@ const PayrollRun = () => {
     fetchTreasuries();
   }, [currentSelectedOrgId, currentUser]);
 
-  // فحص ما إذا كان هناك مسير مسجل سابقاً لنفس الشهر والسنة
+  // ÙØ­Øµ Ù…Ø§ Ø¥Ø°Ø§ ÙƒØ§Ù† Ù‡Ù†Ø§Ùƒ Ù…Ø³ÙŠØ± Ù…Ø³Ø¬Ù„ Ø³Ø§Ø¨Ù‚Ø§Ù‹ Ù„Ù†ÙØ³ Ø§Ù„Ø´Ù‡Ø± ÙˆØ§Ù„Ø³Ù†Ø©
   const fetchExistingPayroll = async (month: number, year: number) => {
     setCheckingExisting(true);
     try {
@@ -150,16 +150,16 @@ const PayrollRun = () => {
         if (payroll.payment_date) setPaymentDate(payroll.payment_date);
         if (payroll.treasury_account_id) setTreasuryId(payroll.treasury_account_id);
 
-        // جلب بنود المسير المسجلة إذا كانت الشاشة فارغة
+        // Ø¬Ù„Ø¨ Ø¨Ù†ÙˆØ¯ Ø§Ù„Ù…Ø³ÙŠØ± Ø§Ù„Ù…Ø³Ø¬Ù„Ø© Ø¥Ø°Ø§ ÙƒØ§Ù†Øª Ø§Ù„Ø´Ø§Ø´Ø© ÙØ§Ø±ØºØ©
         const { data: items } = await supabase
           .from('payroll_items')
           .select('*, employees(full_name, position, department)')
           .eq('payroll_id', payroll.id);
 
         if (items && items.length > 0) {
-          const mappedItems: PayrollItem[] = items.map((it: any) => ({
+          const mappedItems: PayrollItem[] = items.map((it: Record<string, any>) => ({
             employee_id: it.employee_id,
-            full_name: it.employees?.full_name || 'موظف',
+            full_name: it.employees?.full_name || 'Ù…ÙˆØ¸Ù',
             department: it.employees?.department || '-',
             gross_salary: Number(it.gross_salary || 0),
             additions: Number(it.additions || 0),
@@ -195,40 +195,40 @@ const PayrollRun = () => {
     try {
       const targetOrg = currentSelectedOrgId || (currentUser as any)?.organization_id;
 
-      // التحقق من وجود مسير سابق لنفس الشهر
+      // Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† ÙˆØ¬ÙˆØ¯ Ù…Ø³ÙŠØ± Ø³Ø§Ø¨Ù‚ Ù„Ù†ÙØ³ Ø§Ù„Ø´Ù‡Ø±
       if (existingPayroll?.status === 'paid') {
-        if (!window.confirm(`تنبيه: مسير رواتب شهر ${selectedMonth}/${selectedYear} تم صرفه بالكامل مسبقاً.\nهل تريد إعادة احتساب وتجهيز البيانات؟`)) {
+        if (!window.confirm(`ØªÙ†Ø¨ÙŠÙ‡: Ù…Ø³ÙŠØ± Ø±ÙˆØ§ØªØ¨ Ø´Ù‡Ø± ${selectedMonth}/${selectedYear} ØªÙ… ØµØ±ÙÙ‡ Ø¨Ø§Ù„ÙƒØ§Ù…Ù„ Ù…Ø³Ø¨Ù‚Ø§Ù‹.\nÙ‡Ù„ ØªØ±ÙŠØ¯ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ø­ØªØ³Ø§Ø¨ ÙˆØªØ¬Ù‡ÙŠØ² Ø§Ù„Ø¨ÙŠØ§Ù†Ø§ØªØŸ`)) {
           setLoading(false);
           return;
         }
       } else if (existingPayroll?.status === 'accrued') {
-        if (!window.confirm(`تنبيه: يوجد مسير مسجل كـ [استحقاق معتمد] لشهر ${selectedMonth}/${selectedYear}.\nهل تريد إعادة احتساب البيانات وتحديث قيد الاستحقاق؟`)) {
+        if (!window.confirm(`ØªÙ†Ø¨ÙŠÙ‡: ÙŠÙˆØ¬Ø¯ Ù…Ø³ÙŠØ± Ù…Ø³Ø¬Ù„ ÙƒÙ€ [Ø§Ø³ØªØ­Ù‚Ø§Ù‚ Ù…Ø¹ØªÙ…Ø¯] Ù„Ø´Ù‡Ø± ${selectedMonth}/${selectedYear}.\nÙ‡Ù„ ØªØ±ÙŠØ¯ Ø¥Ø¹Ø§Ø¯Ø© Ø§Ø­ØªØ³Ø§Ø¨ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª ÙˆØªØ­Ø¯ÙŠØ« Ù‚ÙŠØ¯ Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚ØŸ`)) {
           setLoading(false);
           return;
         }
       }
 
-      // تحديد النطاق الزمني لشهر المسير
+      // ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ù†Ø·Ø§Ù‚ Ø§Ù„Ø²Ù…Ù†ÙŠ Ù„Ø´Ù‡Ø± Ø§Ù„Ù…Ø³ÙŠØ±
       const monthStartStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
       const lastDayNumber = new Date(selectedYear, selectedMonth, 0).getDate();
       const monthEndStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(lastDayNumber).padStart(2, '0')}`;
 
-      // 🛡️ عزل نطاق الإشراف للموارد البشرية والرواتب (HR Supervisory Scope)
+      // ðŸ›¡ï¸ Ø¹Ø²Ù„ Ù†Ø·Ø§Ù‚ Ø§Ù„Ø¥Ø´Ø±Ø§Ù Ù„Ù„Ù…ÙˆØ§Ø±Ø¯ Ø§Ù„Ø¨Ø´Ø±ÙŠØ© ÙˆØ§Ù„Ø±ÙˆØ§ØªØ¨ (HR Supervisory Scope)
       let empQuery = supabase.from('employees').select('*').eq('status', 'active').eq('organization_id', targetOrg);
       const hrScope = currentUser?.hr_scope || (currentUser as any)?.user_metadata?.hr_scope || 'all';
 
-      const isFactoryDept = (dept: any) => {
+      const isFactoryDept = (dept: Record<string, any>) => {
         const d = String(dept || '').trim().toLowerCase();
-        return d === 'المصنع' || d === 'مصنع' || d === 'factory';
+        return d === 'Ø§Ù„Ù…ØµÙ†Ø¹' || d === 'Ù…ØµÙ†Ø¹' || d === 'factory';
       };
 
       if (hrScope === 'factory') {
-        empQuery = empQuery.in('department', ['المصنع', 'مصنع']);
+        empQuery = empQuery.in('department', ['Ø§Ù„Ù…ØµÙ†Ø¹', 'Ù…ØµÙ†Ø¹']);
       } else if (hrScope === 'branches') {
-        empQuery = empQuery.not('department', 'in', '("المصنع","مصنع")');
+        empQuery = empQuery.not('department', 'in', '("Ø§Ù„Ù…ØµÙ†Ø¹","Ù…ØµÙ†Ø¹")');
       }
 
-      // جلب البيانات بالتوازي: الموظفين، السلف، الإجازات، الحضور، الجزاءات والمكافآت
+      // Ø¬Ù„Ø¨ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø¨Ø§Ù„ØªÙˆØ§Ø²ÙŠ: Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ†ØŒ Ø§Ù„Ø³Ù„ÙØŒ Ø§Ù„Ø¥Ø¬Ø§Ø²Ø§ØªØŒ Ø§Ù„Ø­Ø¶ÙˆØ±ØŒ Ø§Ù„Ø¬Ø²Ø§Ø¡Ø§Øª ÙˆØ§Ù„Ù…ÙƒØ§ÙØ¢Øª
       const [empRes, advRes, leavesRes, attRes, penRes] = await Promise.all([
         empQuery,
         supabase.from('employee_advances').select('*').eq('status', 'paid').is('payroll_item_id', null).eq('organization_id', targetOrg),
@@ -254,11 +254,11 @@ const PayrollRun = () => {
         const dailyRate = basicSalary > 0 ? basicSalary / 30 : 0;
         const hourlyRate = dailyRate > 0 ? dailyRate / 8 : 0;
 
-        // أ) السلف غير المخصومة
+        // Ø£) Ø§Ù„Ø³Ù„Ù ØºÙŠØ± Ø§Ù„Ù…Ø®ØµÙˆÙ…Ø©
         const empAdvances = advances.filter(adv => adv.employee_id === emp.id);
         const totalAdvances = empAdvances.reduce((sum, adv) => sum + Number(adv.amount || 0), 0);
 
-        // ب) الإجازات بدون راتب المعتمدة لشهر المسير
+        // Ø¨) Ø§Ù„Ø¥Ø¬Ø§Ø²Ø§Øª Ø¨Ø¯ÙˆÙ† Ø±Ø§ØªØ¨ Ø§Ù„Ù…Ø¹ØªÙ…Ø¯Ø© Ù„Ø´Ù‡Ø± Ø§Ù„Ù…Ø³ÙŠØ±
         const empUnpaidLeaves = approvedLeaves.filter(
           l => l.employee_id === emp.id && (l.leave_type === 'UNPAID' || l.is_paid === false)
         );
@@ -280,7 +280,7 @@ const PayrollRun = () => {
 
         const unpaidLeaveDeduction = Math.round(totalUnpaidLeaveDays * dailyRate * 100) / 100;
 
-        // ج) سجلات الغياب غير المبرر وساعات الإضافي
+        // Ø¬) Ø³Ø¬Ù„Ø§Øª Ø§Ù„ØºÙŠØ§Ø¨ ØºÙŠØ± Ø§Ù„Ù…Ø¨Ø±Ø± ÙˆØ³Ø§Ø¹Ø§Øª Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ
         const empAttendance = attendanceLogs.filter(att => att.employee_id === emp.id);
         const absenceDays = empAttendance.filter(a => a.status === 'ABSENT').length;
         const absenceDeduction = Math.round(absenceDays * dailyRate * 100) / 100;
@@ -288,7 +288,7 @@ const PayrollRun = () => {
         const totalOvertimeHours = empAttendance.reduce((sum, a) => sum + Number(a.overtime_hours || 0), 0);
         const overtimePay = Math.round(totalOvertimeHours * hourlyRate * 1.5 * 100) / 100;
 
-        // د) الجزاءات والمكافآت المعتمدة خلال الشهر
+        // Ø¯) Ø§Ù„Ø¬Ø²Ø§Ø¡Ø§Øª ÙˆØ§Ù„Ù…ÙƒØ§ÙØ¢Øª Ø§Ù„Ù…Ø¹ØªÙ…Ø¯Ø© Ø®Ù„Ø§Ù„ Ø§Ù„Ø´Ù‡Ø±
         const empPenaltiesRewards = penaltiesRewards.filter(pr => {
           if (pr.employee_id !== emp.id) return false;
           if (pr.status && pr.status !== 'APPROVED') return false;
@@ -304,11 +304,11 @@ const PayrollRun = () => {
           .filter(pr => pr.type === 'REWARD')
           .reduce((sum, pr) => sum + Number(pr.calculated_amount || pr.amount_value || (pr as any).amount || 0), 0);
 
-        // هـ) التجميع النهائي للإضافي والاستقطاعات
+        // Ù‡Ù€) Ø§Ù„ØªØ¬Ù…ÙŠØ¹ Ø§Ù„Ù†Ù‡Ø§Ø¦ÙŠ Ù„Ù„Ø¥Ø¶Ø§ÙÙŠ ÙˆØ§Ù„Ø§Ø³ØªÙ‚Ø·Ø§Ø¹Ø§Øª
         const additions = overtimePay + totalRewardAmount;
         const otherDeductions = unpaidLeaveDeduction + absenceDeduction + totalPenaltyAmount;
 
-        // و) ضريبة كسب العمل التقديرية (افتراضياً 0 أو حسب الإعدادات)
+        // Ùˆ) Ø¶Ø±ÙŠØ¨Ø© ÙƒØ³Ø¨ Ø§Ù„Ø¹Ù…Ù„ Ø§Ù„ØªÙ‚Ø¯ÙŠØ±ÙŠØ© (Ø§ÙØªØ±Ø§Ø¶ÙŠØ§Ù‹ 0 Ø£Ùˆ Ø­Ø³Ø¨ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª)
         const payrollTax = 0;
 
         const netSalary = Math.max(0, Math.round((basicSalary + additions - totalAdvances - otherDeductions - payrollTax) * 100) / 100);
@@ -334,10 +334,10 @@ const PayrollRun = () => {
       });
 
       setPayrollData(preparedData);
-      showToast(`تم احتساب مسير رواتب شهر ${selectedMonth}/${selectedYear} بنجاح لعدد ${preparedData.length} موظف.`, 'success');
+      showToast(`ØªÙ… Ø§Ø­ØªØ³Ø§Ø¨ Ù…Ø³ÙŠØ± Ø±ÙˆØ§ØªØ¨ Ø´Ù‡Ø± ${selectedMonth}/${selectedYear} Ø¨Ù†Ø¬Ø§Ø­ Ù„Ø¹Ø¯Ø¯ ${preparedData.length} Ù…ÙˆØ¸Ù.`, 'success');
     } catch (err) {
       logger.error(err);
-      showToast('حدث خطأ أثناء احتساب المسير: ' + err.message, 'error');
+      showToast('Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø§Ø­ØªØ³Ø§Ø¨ Ø§Ù„Ù…Ø³ÙŠØ±: ' + err.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -383,34 +383,34 @@ const PayrollRun = () => {
     }));
   };
 
-  // التحقق من الحسابات المطلوبة
+  // Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ù…Ø·Ù„ÙˆØ¨Ø©
   const checkRequiredAccounts = async () => {
     const requiredAccounts = [
-      { code: SYSTEM_ACCOUNTS.SALARIES_EXPENSE, name: 'الرواتب والأجور' },
-      { code: SYSTEM_ACCOUNTS.EMPLOYEE_BONUSES, name: 'مكافآت وحوافز' },
-      { code: SYSTEM_ACCOUNTS.EMPLOYEE_DEDUCTIONS, name: 'خصومات وجزاءات' },
-      { code: SYSTEM_ACCOUNTS.EMPLOYEE_ADVANCES, name: 'سلف الموظفين' },
-      { code: SYSTEM_ACCOUNTS.PAYROLL_TAX, name: 'ضريبة كسب العمل' },
-      { code: SYSTEM_ACCOUNTS.ACCRUED_SALARIES, name: 'رواتب وأجور مستحقة' }
+      { code: SYSTEM_ACCOUNTS.SALARIES_EXPENSE, name: 'Ø§Ù„Ø±ÙˆØ§ØªØ¨ ÙˆØ§Ù„Ø£Ø¬ÙˆØ±' },
+      { code: SYSTEM_ACCOUNTS.EMPLOYEE_BONUSES, name: 'Ù…ÙƒØ§ÙØ¢Øª ÙˆØ­ÙˆØ§ÙØ²' },
+      { code: SYSTEM_ACCOUNTS.EMPLOYEE_DEDUCTIONS, name: 'Ø®ØµÙˆÙ…Ø§Øª ÙˆØ¬Ø²Ø§Ø¡Ø§Øª' },
+      { code: SYSTEM_ACCOUNTS.EMPLOYEE_ADVANCES, name: 'Ø³Ù„Ù Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ†' },
+      { code: SYSTEM_ACCOUNTS.PAYROLL_TAX, name: 'Ø¶Ø±ÙŠØ¨Ø© ÙƒØ³Ø¨ Ø§Ù„Ø¹Ù…Ù„' },
+      { code: SYSTEM_ACCOUNTS.ACCRUED_SALARIES, name: 'Ø±ÙˆØ§ØªØ¨ ÙˆØ£Ø¬ÙˆØ± Ù…Ø³ØªØ­Ù‚Ø©' }
     ];
 
     const missingAccounts = requiredAccounts.filter(req => !accounts.find(a => a.code === req.code));
 
     if (missingAccounts.length > 0) {
       const confirmCreate = window.confirm(
-        `عذراً، لا يمكن إتمام العملية.\nالحسابات التالية غير موجودة في الدليل المحاسبي:\n${missingAccounts.map(a => `- ${a.name} (كود: ${a.code})`).join('\n')}\n\nهل تريد إنشاء هذه الحسابات تلقائياً الآن؟`
+        `Ø¹Ø°Ø±Ø§Ù‹ØŒ Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø¥ØªÙ…Ø§Ù… Ø§Ù„Ø¹Ù…Ù„ÙŠØ©.\nØ§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„ØªØ§Ù„ÙŠØ© ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø© ÙÙŠ Ø§Ù„Ø¯Ù„ÙŠÙ„ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠ:\n${missingAccounts.map(a => `- ${a.name} (ÙƒÙˆØ¯: ${a.code})`).join('\n')}\n\nÙ‡Ù„ ØªØ±ÙŠØ¯ Ø¥Ù†Ø´Ø§Ø¡ Ù‡Ø°Ù‡ Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø§Ù„Ø¢Ù†ØŸ`
       );
 
       if (confirmCreate) {
         try {
           const result = await createMissingSystemAccounts();
           if (result?.success) {
-            showToast(result.message + "\nتم تحديث الحسابات بنجاح. يمكنك الآن إعادة المحاولة.", 'success');
+            showToast(result.message + "\nØªÙ… ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ø¨Ù†Ø¬Ø§Ø­. ÙŠÙ…ÙƒÙ†Ùƒ Ø§Ù„Ø¢Ù† Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø©.", 'success');
           } else {
-            showToast('تم تحديث دليل الحسابات. يرجى المحاولة مرة أخرى.', 'info');
+            showToast('ØªÙ… ØªØ­Ø¯ÙŠØ« Ø¯Ù„ÙŠÙ„ Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª. ÙŠØ±Ø¬Ù‰ Ø§Ù„Ù…Ø­Ø§ÙˆÙ„Ø© Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.', 'info');
           }
         } catch (error) {
-          showToast('حدث خطأ أثناء إنشاء الحسابات: ' + error.message, 'error');
+          showToast('Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª: ' + error.message, 'error');
         }
       }
       return false;
@@ -418,7 +418,7 @@ const PayrollRun = () => {
     return true;
   };
 
-  // 1️⃣ إثبات قيد الاستحقاق (نهاية الشهر - حـ/ 2251)
+  // 1ï¸âƒ£ Ø¥Ø«Ø¨Ø§Øª Ù‚ÙŠØ¯ Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚ (Ù†Ù‡Ø§ÙŠØ© Ø§Ù„Ø´Ù‡Ø± - Ø­Ù€/ 2251)
   const handleRunAccrual = async () => {
     const accrualValidation = payrollAccrualSchema.safeParse({
       hasData: payrollData.length > 0,
@@ -434,7 +434,7 @@ const PayrollRun = () => {
     for (const item of payrollData) {
       const itemValidationResult = payrollItemSchema.safeParse(item);
       if (!itemValidationResult.success) {
-        showToast(`خطأ في بيانات الموظف ${item.full_name}: ${itemValidationResult.error.issues[0].message}`, 'warning');
+        showToast(`Ø®Ø·Ø£ ÙÙŠ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…ÙˆØ¸Ù ${item.full_name}: ${itemValidationResult.error.issues[0].message}`, 'warning');
         return;
       }
     }
@@ -442,11 +442,11 @@ const PayrollRun = () => {
     const accountsOk = await checkRequiredAccounts();
     if (!accountsOk) return;
 
-    const confirmMsg = `تأكيد ترحيل قيد استحقاق الرواتب لشهر ${selectedMonth}/${selectedYear}:\n` +
-      `- تاريخ الاستحقاق: ${accrualDate}\n` +
-      `- إجمالي الصافي المستحق: ${totals.net.toLocaleString()} ج.م\n` +
-      `- الحساب الدائن: (2251) رواتب وأجور مستحقة\n\n` +
-      `💡 ملاحظة: يثبت هذا القيد مصروف الرواتب بنهاية الشهر دون خصم أي نقدية من الخزينة حتى تاريخ الصرف الفعلي.\n\nهل تريد المتابعة؟`;
+    const confirmMsg = `ØªØ£ÙƒÙŠØ¯ ØªØ±Ø­ÙŠÙ„ Ù‚ÙŠØ¯ Ø§Ø³ØªØ­Ù‚Ø§Ù‚ Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ù„Ø´Ù‡Ø± ${selectedMonth}/${selectedYear}:\n` +
+      `- ØªØ§Ø±ÙŠØ® Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚: ${accrualDate}\n` +
+      `- Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„ØµØ§ÙÙŠ Ø§Ù„Ù…Ø³ØªØ­Ù‚: ${totals.net.toLocaleString()} Ø¬.Ù…\n` +
+      `- Ø§Ù„Ø­Ø³Ø§Ø¨ Ø§Ù„Ø¯Ø§Ø¦Ù†: (2251) Ø±ÙˆØ§ØªØ¨ ÙˆØ£Ø¬ÙˆØ± Ù…Ø³ØªØ­Ù‚Ø©\n\n` +
+      `ðŸ’¡ Ù…Ù„Ø§Ø­Ø¸Ø©: ÙŠØ«Ø¨Øª Ù‡Ø°Ø§ Ø§Ù„Ù‚ÙŠØ¯ Ù…ØµØ±ÙˆÙ Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ø¨Ù†Ù‡Ø§ÙŠØ© Ø§Ù„Ø´Ù‡Ø± Ø¯ÙˆÙ† Ø®ØµÙ… Ø£ÙŠ Ù†Ù‚Ø¯ÙŠØ© Ù…Ù† Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø­ØªÙ‰ ØªØ§Ø±ÙŠØ® Ø§Ù„ØµØ±Ù Ø§Ù„ÙØ¹Ù„ÙŠ.\n\nÙ‡Ù„ ØªØ±ÙŠØ¯ Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø©ØŸ`;
 
     if (!window.confirm(confirmMsg)) return;
 
@@ -461,20 +461,20 @@ const PayrollRun = () => {
         orgId
       );
 
-      showToast(`تم ترحيل قيد استحقاق رواتب شهر ${selectedMonth}/${selectedYear} بنجاح (حـ/ 2251 دائن) 📋✅`, 'success');
+      showToast(`ØªÙ… ØªØ±Ø­ÙŠÙ„ Ù‚ÙŠØ¯ Ø§Ø³ØªØ­Ù‚Ø§Ù‚ Ø±ÙˆØ§ØªØ¨ Ø´Ù‡Ø± ${selectedMonth}/${selectedYear} Ø¨Ù†Ø¬Ø§Ø­ (Ø­Ù€/ 2251 Ø¯Ø§Ø¦Ù†) ðŸ“‹âœ…`, 'success');
       await fetchExistingPayroll(selectedMonth, selectedYear);
     } catch (error) {
       logger.error(error);
-      showToast('فشل ترحيل قيد الاستحقاق: ' + error.message, 'error');
+      showToast('ÙØ´Ù„ ØªØ±Ø­ÙŠÙ„ Ù‚ÙŠØ¯ Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚: ' + error.message, 'error');
     } finally {
       setSavingAccrual(false);
     }
   };
 
-  // 2️⃣ صرف الرواتب المستحقة وترحيل قيد النقدية
+  // 2ï¸âƒ£ ØµØ±Ù Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ø§Ù„Ù…Ø³ØªØ­Ù‚Ø© ÙˆØªØ±Ø­ÙŠÙ„ Ù‚ÙŠØ¯ Ø§Ù„Ù†Ù‚Ø¯ÙŠØ©
   const handlePayAccrued = async () => {
     if (!existingPayroll && payrollData.length === 0) {
-      showToast('لا توجد بيانات مسير للصرف.', 'warning');
+      showToast('Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª Ù…Ø³ÙŠØ± Ù„Ù„ØµØ±Ù.', 'warning');
       return;
     }
 
@@ -489,16 +489,16 @@ const PayrollRun = () => {
     }
 
     const treasuryObj = treasuryAccounts.find(t => t.id === treasuryId);
-    const treasuryName = treasuryObj ? `${treasuryObj.name} (${treasuryObj.code || ''})` : 'الخزينة المحددة';
+    const treasuryName = treasuryObj ? `${treasuryObj.name} (${treasuryObj.code || ''})` : 'Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø§Ù„Ù…Ø­Ø¯Ø¯Ø©';
     const netAmount = existingPayroll?.total_net_salary || totals.net;
 
-    const confirmMsg = `تأكيد صرف الرواتب وترحيل قيد النقدية:\n` +
-      `- عن شهر: ${selectedMonth}/${selectedYear}\n` +
-      `- تاريخ الصرف الفعلي: ${paymentDate}\n` +
-      `- المبلغ المنصرف: ${Number(netAmount).toLocaleString()} ج.م\n` +
-      `- حساب الصرف: ${treasuryName}\n` +
-      `- القيد المحاسبي: من حـ/ 2251 (رواتب مستحقة) إلى حـ/ ${treasuryName}\n\n` +
-      `هل تريد إتمام الصرف الآن؟`;
+    const confirmMsg = `ØªØ£ÙƒÙŠØ¯ ØµØ±Ù Ø§Ù„Ø±ÙˆØ§ØªØ¨ ÙˆØªØ±Ø­ÙŠÙ„ Ù‚ÙŠØ¯ Ø§Ù„Ù†Ù‚Ø¯ÙŠØ©:\n` +
+      `- Ø¹Ù† Ø´Ù‡Ø±: ${selectedMonth}/${selectedYear}\n` +
+      `- ØªØ§Ø±ÙŠØ® Ø§Ù„ØµØ±Ù Ø§Ù„ÙØ¹Ù„ÙŠ: ${paymentDate}\n` +
+      `- Ø§Ù„Ù…Ø¨Ù„Øº Ø§Ù„Ù…Ù†ØµØ±Ù: ${Number(netAmount).toLocaleString()} Ø¬.Ù…\n` +
+      `- Ø­Ø³Ø§Ø¨ Ø§Ù„ØµØ±Ù: ${treasuryName}\n` +
+      `- Ø§Ù„Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠ: Ù…Ù† Ø­Ù€/ 2251 (Ø±ÙˆØ§ØªØ¨ Ù…Ø³ØªØ­Ù‚Ø©) Ø¥Ù„Ù‰ Ø­Ù€/ ${treasuryName}\n\n` +
+      `Ù‡Ù„ ØªØ±ÙŠØ¯ Ø¥ØªÙ…Ø§Ù… Ø§Ù„ØµØ±Ù Ø§Ù„Ø¢Ù†ØŸ`;
 
     if (!window.confirm(confirmMsg)) return;
 
@@ -506,7 +506,7 @@ const PayrollRun = () => {
     try {
       const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
 
-      // إذا لم يكن المسير مستحقاً بعد، يتم ترحيل قيد الاستحقاق أولاً
+      // Ø¥Ø°Ø§ Ù„Ù… ÙŠÙƒÙ† Ø§Ù„Ù…Ø³ÙŠØ± Ù…Ø³ØªØ­Ù‚Ø§Ù‹ Ø¨Ø¹Ø¯ØŒ ÙŠØªÙ… ØªØ±Ø­ÙŠÙ„ Ù‚ÙŠØ¯ Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚ Ø£ÙˆÙ„Ø§Ù‹
       if (!existingPayroll || existingPayroll.status !== 'accrued') {
         await runPayrollAccrual(selectedMonth, selectedYear, accrualDate, payrollData, orgId);
       }
@@ -520,17 +520,17 @@ const PayrollRun = () => {
         orgId
       });
 
-      showToast(`تم صرف رواتب شهر ${selectedMonth}/${selectedYear} بنجاح وترحيل قيد النقدية من ${treasuryName} 💰✅`, 'success');
+      showToast(`ØªÙ… ØµØ±Ù Ø±ÙˆØ§ØªØ¨ Ø´Ù‡Ø± ${selectedMonth}/${selectedYear} Ø¨Ù†Ø¬Ø§Ø­ ÙˆØªØ±Ø­ÙŠÙ„ Ù‚ÙŠØ¯ Ø§Ù„Ù†Ù‚Ø¯ÙŠØ© Ù…Ù† ${treasuryName} ðŸ’°âœ…`, 'success');
       await fetchExistingPayroll(selectedMonth, selectedYear);
     } catch (error) {
       logger.error(error);
-      showToast('فشل صرف الرواتب: ' + error.message, 'error');
+      showToast('ÙØ´Ù„ ØµØ±Ù Ø§Ù„Ø±ÙˆØ§ØªØ¨: ' + error.message, 'error');
     } finally {
       setSavingPayment(false);
     }
   };
 
-  // 3️⃣ الصرف المباشر الفوري (استحقاق + نقدية بخطوة واحدة)
+  // 3ï¸âƒ£ Ø§Ù„ØµØ±Ù Ø§Ù„Ù…Ø¨Ø§Ø´Ø± Ø§Ù„ÙÙˆØ±ÙŠ (Ø§Ø³ØªØ­Ù‚Ø§Ù‚ + Ù†Ù‚Ø¯ÙŠØ© Ø¨Ø®Ø·ÙˆØ© ÙˆØ§Ø­Ø¯Ø©)
   const handleRunPayrollDirect = async () => {
     const generalValidationResult = payrollRunSchema.safeParse({
       treasuryId,
@@ -547,7 +547,7 @@ const PayrollRun = () => {
     for (const item of payrollData) {
       const itemValidationResult = payrollItemSchema.safeParse(item);
       if (!itemValidationResult.success) {
-        showToast(`خطأ في بيانات الموظف ${item.full_name}: ${itemValidationResult.error.issues[0].message}`, 'warning');
+        showToast(`Ø®Ø·Ø£ ÙÙŠ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…ÙˆØ¸Ù ${item.full_name}: ${itemValidationResult.error.issues[0].message}`, 'warning');
         return;
       }
     }
@@ -556,9 +556,9 @@ const PayrollRun = () => {
     if (!accountsOk) return;
 
     const treasuryObj = treasuryAccounts.find(t => t.id === treasuryId);
-    const treasuryName = treasuryObj ? `${treasuryObj.name} (${treasuryObj.code || ''})` : 'الخزينة المحددة';
+    const treasuryName = treasuryObj ? `${treasuryObj.name} (${treasuryObj.code || ''})` : 'Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø§Ù„Ù…Ø­Ø¯Ø¯Ø©';
 
-    if (!window.confirm(`هل أنت متأكد من صرف مسير الرواتب مباشرة وخصم (${totals.net.toLocaleString()} ج.م) فورياً من ${treasuryName}؟`)) return;
+    if (!window.confirm(`Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† ØµØ±Ù Ù…Ø³ÙŠØ± Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ù…Ø¨Ø§Ø´Ø±Ø© ÙˆØ®ØµÙ… (${totals.net.toLocaleString()} Ø¬.Ù…) ÙÙˆØ±ÙŠØ§Ù‹ Ù…Ù† ${treasuryName}ØŸ`)) return;
 
     setSavingPayment(true);
     try {
@@ -573,11 +573,11 @@ const PayrollRun = () => {
         orgId
       );
 
-      showToast('تم تنفيذ مسير الرواتب وترحيل القيد المحاسبي بنجاح 💰✅', 'success');
+      showToast('ØªÙ… ØªÙ†ÙÙŠØ° Ù…Ø³ÙŠØ± Ø§Ù„Ø±ÙˆØ§ØªØ¨ ÙˆØªØ±Ø­ÙŠÙ„ Ø§Ù„Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠ Ø¨Ù†Ø¬Ø§Ø­ ðŸ’°âœ…', 'success');
       await fetchExistingPayroll(selectedMonth, selectedYear);
     } catch (error) {
       logger.error(error);
-      showToast('فشل تنفيذ المسير: ' + error.message, 'error');
+      showToast('ÙØ´Ù„ ØªÙ†ÙÙŠØ° Ø§Ù„Ù…Ø³ÙŠØ±: ' + error.message, 'error');
     } finally {
       setSavingPayment(false);
     }
@@ -594,7 +594,7 @@ const PayrollRun = () => {
 
   const filteredPayrollData = useMemo(() => {
     if (selectedDepartment === 'all') return payrollData;
-    return payrollData.filter(p => (p.department || 'بدون فرع').trim() === selectedDepartment);
+    return payrollData.filter(p => (p.department || 'Ø¨Ø¯ÙˆÙ† ÙØ±Ø¹').trim() === selectedDepartment);
   }, [payrollData, selectedDepartment]);
 
   const totals = useMemo(() => {
@@ -625,77 +625,77 @@ const PayrollRun = () => {
     );
   }, [filteredPayrollData]);
 
-  // تصدير كشف مسير الرواتب إلى Excel بدقة متناهية وتنسيق احترافي
+  // ØªØµØ¯ÙŠØ± ÙƒØ´Ù Ù…Ø³ÙŠØ± Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ø¥Ù„Ù‰ Excel Ø¨Ø¯Ù‚Ø© Ù…ØªÙ†Ø§Ù‡ÙŠØ© ÙˆØªÙ†Ø³ÙŠÙ‚ Ø§Ø­ØªØ±Ø§ÙÙŠ
   const handleExportExcel = () => {
     if (filteredPayrollData.length === 0) {
-      showToast('لا توجد بيانات مسير للتصدير، يرجى تجهيز المسير أولاً', 'warning');
+      showToast('Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª Ù…Ø³ÙŠØ± Ù„Ù„ØªØµØ¯ÙŠØ±ØŒ ÙŠØ±Ø¬Ù‰ ØªØ¬Ù‡ÙŠØ² Ø§Ù„Ù…Ø³ÙŠØ± Ø£ÙˆÙ„Ø§Ù‹', 'warning');
       return;
     }
 
     const rows = filteredPayrollData.map((item, idx) => ({
-      'م': idx + 1,
-      'اسم الموظف': item.full_name,
-      'الفرع / القسم': item.department && item.department !== '-' ? item.department : 'بدون فرع',
-      'الراتب الأساسي (ج.م)': Number(item.gross_salary) || 0,
-      'ساعات الإضافي': Number(item.overtime_hours) || 0,
-      'قيمة الإضافي والمكافآت (ج.م)': Number(item.additions) || 0,
-      'أيام إجازة بدون راتب': Number(item.unpaid_leave_days) || 0,
-      'خصم إجازات بدون راتب (ج.م)': Number(item.unpaid_leave_deduction) || 0,
-      'أيام الغياب': Number(item.absence_days) || 0,
-      'خصومات أخرى وجزاءات (ج.م)': Number(item.other_deductions) || 0,
-      'السلف المخصومة (ج.م)': Number(item.advances_deducted) || 0,
-      'ضريبة كسب العمل (ج.م)': Number(item.payroll_tax) || 0,
-      'صافي الراتب المستحق (ج.م)': Number(item.net_salary) || 0
+      'Ù…': idx + 1,
+      'Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ¸Ù': item.full_name,
+      'Ø§Ù„ÙØ±Ø¹ / Ø§Ù„Ù‚Ø³Ù…': item.department && item.department !== '-' ? item.department : 'Ø¨Ø¯ÙˆÙ† ÙØ±Ø¹',
+      'Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ (Ø¬.Ù…)': Number(item.gross_salary) || 0,
+      'Ø³Ø§Ø¹Ø§Øª Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ': Number(item.overtime_hours) || 0,
+      'Ù‚ÙŠÙ…Ø© Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ ÙˆØ§Ù„Ù…ÙƒØ§ÙØ¢Øª (Ø¬.Ù…)': Number(item.additions) || 0,
+      'Ø£ÙŠØ§Ù… Ø¥Ø¬Ø§Ø²Ø© Ø¨Ø¯ÙˆÙ† Ø±Ø§ØªØ¨': Number(item.unpaid_leave_days) || 0,
+      'Ø®ØµÙ… Ø¥Ø¬Ø§Ø²Ø§Øª Ø¨Ø¯ÙˆÙ† Ø±Ø§ØªØ¨ (Ø¬.Ù…)': Number(item.unpaid_leave_deduction) || 0,
+      'Ø£ÙŠØ§Ù… Ø§Ù„ØºÙŠØ§Ø¨': Number(item.absence_days) || 0,
+      'Ø®ØµÙˆÙ…Ø§Øª Ø£Ø®Ø±Ù‰ ÙˆØ¬Ø²Ø§Ø¡Ø§Øª (Ø¬.Ù…)': Number(item.other_deductions) || 0,
+      'Ø§Ù„Ø³Ù„Ù Ø§Ù„Ù…Ø®ØµÙˆÙ…Ø© (Ø¬.Ù…)': Number(item.advances_deducted) || 0,
+      'Ø¶Ø±ÙŠØ¨Ø© ÙƒØ³Ø¨ Ø§Ù„Ø¹Ù…Ù„ (Ø¬.Ù…)': Number(item.payroll_tax) || 0,
+      'ØµØ§ÙÙŠ Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ù…Ø³ØªØ­Ù‚ (Ø¬.Ù…)': Number(item.net_salary) || 0
     }));
 
-    // إضافة صف الإجمالي
+    // Ø¥Ø¶Ø§ÙØ© ØµÙ Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ
     rows.push({
-      'م': '' as any,
-      'اسم الموظف': `الإجمالي ${selectedDepartment !== 'all' ? `(${selectedDepartment})` : 'العام'} (${filteredPayrollData.length} موظف)`,
-      'الفرع / القسم': selectedDepartment !== 'all' ? selectedDepartment : 'كل الفروع والأقسام',
-      'الراتب الأساسي (ج.م)': displayedTotals.gross,
-      'ساعات الإضافي': filteredPayrollData.reduce((s, i) => s + (Number(i.overtime_hours) || 0), 0),
-      'قيمة الإضافي والمكافآت (ج.م)': displayedTotals.additions,
-      'أيام إجازة بدون راتب': filteredPayrollData.reduce((s, i) => s + (Number(i.unpaid_leave_days) || 0), 0),
-      'خصم إجازات بدون راتب (ج.م)': filteredPayrollData.reduce((s, i) => s + (Number(i.unpaid_leave_deduction) || 0), 0),
-      'أيام الغياب': filteredPayrollData.reduce((s, i) => s + (Number(i.absence_days) || 0), 0),
-      'خصومات أخرى وجزاءات (ج.م)': displayedTotals.deductions,
-      'السلف المخصومة (ج.م)': displayedTotals.advances,
-      'ضريبة كسب العمل (ج.م)': displayedTotals.taxes,
-      'صافي الراتب المستحق (ج.م)': displayedTotals.net
+      'Ù…': '' as any,
+      'Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ¸Ù': `Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ ${selectedDepartment !== 'all' ? `(${selectedDepartment})` : 'Ø§Ù„Ø¹Ø§Ù…'} (${filteredPayrollData.length} Ù…ÙˆØ¸Ù)`,
+      'Ø§Ù„ÙØ±Ø¹ / Ø§Ù„Ù‚Ø³Ù…': selectedDepartment !== 'all' ? selectedDepartment : 'ÙƒÙ„ Ø§Ù„ÙØ±ÙˆØ¹ ÙˆØ§Ù„Ø£Ù‚Ø³Ø§Ù…',
+      'Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ (Ø¬.Ù…)': displayedTotals.gross,
+      'Ø³Ø§Ø¹Ø§Øª Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ': filteredPayrollData.reduce((s, i) => s + (Number(i.overtime_hours) || 0), 0),
+      'Ù‚ÙŠÙ…Ø© Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ ÙˆØ§Ù„Ù…ÙƒØ§ÙØ¢Øª (Ø¬.Ù…)': displayedTotals.additions,
+      'Ø£ÙŠØ§Ù… Ø¥Ø¬Ø§Ø²Ø© Ø¨Ø¯ÙˆÙ† Ø±Ø§ØªØ¨': filteredPayrollData.reduce((s, i) => s + (Number(i.unpaid_leave_days) || 0), 0),
+      'Ø®ØµÙ… Ø¥Ø¬Ø§Ø²Ø§Øª Ø¨Ø¯ÙˆÙ† Ø±Ø§ØªØ¨ (Ø¬.Ù…)': filteredPayrollData.reduce((s, i) => s + (Number(i.unpaid_leave_deduction) || 0), 0),
+      'Ø£ÙŠØ§Ù… Ø§Ù„ØºÙŠØ§Ø¨': filteredPayrollData.reduce((s, i) => s + (Number(i.absence_days) || 0), 0),
+      'Ø®ØµÙˆÙ…Ø§Øª Ø£Ø®Ø±Ù‰ ÙˆØ¬Ø²Ø§Ø¡Ø§Øª (Ø¬.Ù…)': displayedTotals.deductions,
+      'Ø§Ù„Ø³Ù„Ù Ø§Ù„Ù…Ø®ØµÙˆÙ…Ø© (Ø¬.Ù…)': displayedTotals.advances,
+      'Ø¶Ø±ÙŠØ¨Ø© ÙƒØ³Ø¨ Ø§Ù„Ø¹Ù…Ù„ (Ø¬.Ù…)': displayedTotals.taxes,
+      'ØµØ§ÙÙŠ Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ù…Ø³ØªØ­Ù‚ (Ø¬.Ù…)': displayedTotals.net
     });
 
     const ws = XLSX.utils.json_to_sheet(rows);
 
     ws['!cols'] = [
-      { wch: 6 },  // م
-      { wch: 26 }, // اسم الموظف
-      { wch: 20 }, // الفرع / القسم
-      { wch: 18 }, // الراتب الأساسي
-      { wch: 14 }, // ساعات الإضافي
-      { wch: 22 }, // قيمة الإضافي والمكافآت
-      { wch: 18 }, // أيام إجازة بدون راتب
-      { wch: 22 }, // خصم إجازات بدون راتب
-      { wch: 12 }, // أيام الغياب
-      { wch: 22 }, // خصومات أخرى وجزاءات
-      { wch: 18 }, // السلف المخصومة
-      { wch: 18 }, // ضريبة كسب العمل
-      { wch: 22 }  // صافي الراتب المستحق
+      { wch: 6 },  // Ù…
+      { wch: 26 }, // Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ¸Ù
+      { wch: 20 }, // Ø§Ù„ÙØ±Ø¹ / Ø§Ù„Ù‚Ø³Ù…
+      { wch: 18 }, // Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ
+      { wch: 14 }, // Ø³Ø§Ø¹Ø§Øª Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ
+      { wch: 22 }, // Ù‚ÙŠÙ…Ø© Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ ÙˆØ§Ù„Ù…ÙƒØ§ÙØ¢Øª
+      { wch: 18 }, // Ø£ÙŠØ§Ù… Ø¥Ø¬Ø§Ø²Ø© Ø¨Ø¯ÙˆÙ† Ø±Ø§ØªØ¨
+      { wch: 22 }, // Ø®ØµÙ… Ø¥Ø¬Ø§Ø²Ø§Øª Ø¨Ø¯ÙˆÙ† Ø±Ø§ØªØ¨
+      { wch: 12 }, // Ø£ÙŠØ§Ù… Ø§Ù„ØºÙŠØ§Ø¨
+      { wch: 22 }, // Ø®ØµÙˆÙ…Ø§Øª Ø£Ø®Ø±Ù‰ ÙˆØ¬Ø²Ø§Ø¡Ø§Øª
+      { wch: 18 }, // Ø§Ù„Ø³Ù„Ù Ø§Ù„Ù…Ø®ØµÙˆÙ…Ø©
+      { wch: 18 }, // Ø¶Ø±ÙŠØ¨Ø© ÙƒØ³Ø¨ Ø§Ù„Ø¹Ù…Ù„
+      { wch: 22 }  // ØµØ§ÙÙŠ Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ù…Ø³ØªØ­Ù‚
     ];
 
     const wb = XLSX.utils.book_new();
     const deptSuffix = selectedDepartment !== 'all' ? `_${selectedDepartment}` : '';
-    XLSX.utils.book_append_sheet(wb, ws, `مسير_${selectedMonth}_${selectedYear}`);
-    XLSX.writeFile(wb, `مسير_رواتب_شهر_${selectedMonth}_سنة_${selectedYear}${deptSuffix}.xlsx`);
-    showToast(`تم تصدير مسير رواتب شهر ${selectedMonth}/${selectedYear} لعدد ${filteredPayrollData.length} موظف إلى Excel بنجاح ✅`, 'success');
+    XLSX.utils.book_append_sheet(wb, ws, `Ù…Ø³ÙŠØ±_${selectedMonth}_${selectedYear}`);
+    XLSX.writeFile(wb, `Ù…Ø³ÙŠØ±_Ø±ÙˆØ§ØªØ¨_Ø´Ù‡Ø±_${selectedMonth}_Ø³Ù†Ø©_${selectedYear}${deptSuffix}.xlsx`);
+    showToast(`ØªÙ… ØªØµØ¯ÙŠØ± Ù…Ø³ÙŠØ± Ø±ÙˆØ§ØªØ¨ Ø´Ù‡Ø± ${selectedMonth}/${selectedYear} Ù„Ø¹Ø¯Ø¯ ${filteredPayrollData.length} Ù…ÙˆØ¸Ù Ø¥Ù„Ù‰ Excel Ø¨Ù†Ø¬Ø§Ø­ âœ…`, 'success');
   };
 
   if (currentUser?.role === 'demo') {
     return (
       <div className="flex flex-col items-center justify-center h-96 text-slate-500 bg-white rounded-3xl border border-slate-200 shadow-sm">
         <Banknote size={64} className="mb-4 text-slate-300" />
-        <h2 className="text-xl font-bold text-slate-700">مسير الرواتب غير متاح</h2>
-        <p className="text-sm mt-2">لا يمكن الوصول لبيانات الرواتب في النسخة التجريبية.</p>
+        <h2 className="text-xl font-bold text-slate-700">Ù…Ø³ÙŠØ± Ø§Ù„Ø±ÙˆØ§ØªØ¨ ØºÙŠØ± Ù…ØªØ§Ø­</h2>
+        <p className="text-sm mt-2">Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø§Ù„ÙˆØµÙˆÙ„ Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø±ÙˆØ§ØªØ¨ ÙÙŠ Ø§Ù„Ù†Ø³Ø®Ø© Ø§Ù„ØªØ¬Ø±ÙŠØ¨ÙŠØ©.</p>
       </div>
     );
   }
@@ -710,10 +710,10 @@ const PayrollRun = () => {
           </div>
           <div>
             <h2 className="text-2xl font-black text-slate-800">
-              مسير الرواتب والأجور الشهري (Payroll Processing)
+              Ù…Ø³ÙŠØ± Ø§Ù„Ø±ÙˆØ§ØªØ¨ ÙˆØ§Ù„Ø£Ø¬ÙˆØ± Ø§Ù„Ø´Ù‡Ø±ÙŠ (Payroll Processing)
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              يدعم إثبات قيد الاستحقاق في نهاية الشهر (حـ/ 2251) ثم تنفيذ قيد الصرف الفعلي من الخزينة/البنك
+              ÙŠØ¯Ø¹Ù… Ø¥Ø«Ø¨Ø§Øª Ù‚ÙŠØ¯ Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚ ÙÙŠ Ù†Ù‡Ø§ÙŠØ© Ø§Ù„Ø´Ù‡Ø± (Ø­Ù€/ 2251) Ø«Ù… ØªÙ†ÙÙŠØ° Ù‚ÙŠØ¯ Ø§Ù„ØµØ±Ù Ø§Ù„ÙØ¹Ù„ÙŠ Ù…Ù† Ø§Ù„Ø®Ø²ÙŠÙ†Ø©/Ø§Ù„Ø¨Ù†Ùƒ
             </p>
           </div>
         </div>
@@ -724,8 +724,8 @@ const PayrollRun = () => {
               ? 'bg-amber-50 text-amber-800 border-amber-200'
               : 'bg-sky-50 text-sky-800 border-sky-200'
           }`}>
-            <span>نطاق إشراف المسير:</span>
-            <span>{currentUser.hr_scope === 'factory' ? '🏭 طاقم المصنع فقط' : '🏪 طاقم الفروع فقط'}</span>
+            <span>Ù†Ø·Ø§Ù‚ Ø¥Ø´Ø±Ø§Ù Ø§Ù„Ù…Ø³ÙŠØ±:</span>
+            <span>{currentUser.hr_scope === 'factory' ? 'ðŸ­ Ø·Ø§Ù‚Ù… Ø§Ù„Ù…ØµÙ†Ø¹ ÙÙ‚Ø·' : 'ðŸª Ø·Ø§Ù‚Ù… Ø§Ù„ÙØ±ÙˆØ¹ ÙÙ‚Ø·'}</span>
           </div>
         )}
       </div>
@@ -735,7 +735,7 @@ const PayrollRun = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 items-end">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5 text-blue-600" /> عن شهر
+              <Calendar className="w-3.5 h-3.5 text-blue-600" /> Ø¹Ù† Ø´Ù‡Ø±
             </label>
             <select
               value={selectedMonth}
@@ -743,8 +743,8 @@ const PayrollRun = () => {
               className="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-blue-500"
             >
               {[
-                '1 - يناير', '2 - فبراير', '3 - مارس', '4 - أبريل', '5 - مايو', '6 - يونيو',
-                '7 - يوليو', '8 - أغسطس', '9 - سبتمبر', '10 - أكتوبر', '11 - نوفمبر', '12 - ديسمبر'
+                '1 - ÙŠÙ†Ø§ÙŠØ±', '2 - ÙØ¨Ø±Ø§ÙŠØ±', '3 - Ù…Ø§Ø±Ø³', '4 - Ø£Ø¨Ø±ÙŠÙ„', '5 - Ù…Ø§ÙŠÙˆ', '6 - ÙŠÙˆÙ†ÙŠÙˆ',
+                '7 - ÙŠÙˆÙ„ÙŠÙˆ', '8 - Ø£ØºØ³Ø·Ø³', '9 - Ø³Ø¨ØªÙ…Ø¨Ø±', '10 - Ø£ÙƒØªÙˆØ¨Ø±', '11 - Ù†ÙˆÙÙ…Ø¨Ø±', '12 - Ø¯ÙŠØ³Ù…Ø¨Ø±'
               ].map((mName, i) => (
                 <option key={i + 1} value={i + 1}>{mName}</option>
               ))}
@@ -752,7 +752,7 @@ const PayrollRun = () => {
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1.5">السنة المالية</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1.5">Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø§Ù„ÙŠØ©</label>
             <input
               type="number"
               value={selectedYear}
@@ -763,7 +763,7 @@ const PayrollRun = () => {
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
-              <Clock className="w-3.5 h-3.5 text-indigo-600" /> تاريخ الاستحقاق (نهاية الشهر)
+              <Clock className="w-3.5 h-3.5 text-indigo-600" /> ØªØ§Ø±ÙŠØ® Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚ (Ù†Ù‡Ø§ÙŠØ© Ø§Ù„Ø´Ù‡Ø±)
             </label>
             <input
               type="date"
@@ -775,7 +775,7 @@ const PayrollRun = () => {
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
-              <Calendar className="w-3.5 h-3.5 text-emerald-600" /> تاريخ الصرف الفعلي
+              <Calendar className="w-3.5 h-3.5 text-emerald-600" /> ØªØ§Ø±ÙŠØ® Ø§Ù„ØµØ±Ù Ø§Ù„ÙØ¹Ù„ÙŠ
             </label>
             <input
               type="date"
@@ -787,14 +787,14 @@ const PayrollRun = () => {
 
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1">
-              <Wallet className="w-3.5 h-3.5 text-emerald-600" /> حساب الصرف (الخزينة/البنك)
+              <Wallet className="w-3.5 h-3.5 text-emerald-600" /> Ø­Ø³Ø§Ø¨ Ø§Ù„ØµØ±Ù (Ø§Ù„Ø®Ø²ÙŠÙ†Ø©/Ø§Ù„Ø¨Ù†Ùƒ)
             </label>
             <select
               value={treasuryId}
               onChange={e => setTreasuryId(e.target.value)}
               className="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="">-- اختر حساب الصرف --</option>
+              <option value="">-- Ø§Ø®ØªØ± Ø­Ø³Ø§Ø¨ Ø§Ù„ØµØ±Ù --</option>
               {treasuryAccounts.map(acc => (
                 <option key={acc.id} value={acc.id}>{acc.name} {acc.code ? `(${acc.code})` : ''}</option>
               ))}
@@ -806,19 +806,19 @@ const PayrollRun = () => {
           <div className="text-xs text-slate-500">
             {checkingExisting ? (
               <span className="flex items-center gap-1 text-slate-400">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" /> جاري التحقق من حالة المسير...
+                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Ø¬Ø§Ø±ÙŠ Ø§Ù„ØªØ­Ù‚Ù‚ Ù…Ù† Ø­Ø§Ù„Ø© Ø§Ù„Ù…Ø³ÙŠØ±...
               </span>
             ) : existingPayroll?.status === 'paid' ? (
               <span className="text-emerald-700 font-bold flex items-center gap-1">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" /> مسير شهر {selectedMonth}/{selectedYear} منصرف ومرحل بالكامل بتاريخ {existingPayroll.payment_date}
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Ù…Ø³ÙŠØ± Ø´Ù‡Ø± {selectedMonth}/{selectedYear} Ù…Ù†ØµØ±Ù ÙˆÙ…Ø±Ø­Ù„ Ø¨Ø§Ù„ÙƒØ§Ù…Ù„ Ø¨ØªØ§Ø±ÙŠØ® {existingPayroll.payment_date}
               </span>
             ) : existingPayroll?.status === 'accrued' ? (
               <span className="text-amber-700 font-bold flex items-center gap-1">
-                <Clock className="w-4 h-4 text-amber-600" /> مسير شهر {selectedMonth}/{selectedYear} مسجل كـ [قيد استحقاق معتمد] بتاريخ {existingPayroll.accrual_date} (بانتظار الصرف)
+                <Clock className="w-4 h-4 text-amber-600" /> Ù…Ø³ÙŠØ± Ø´Ù‡Ø± {selectedMonth}/{selectedYear} Ù…Ø³Ø¬Ù„ ÙƒÙ€ [Ù‚ÙŠØ¯ Ø§Ø³ØªØ­Ù‚Ø§Ù‚ Ù…Ø¹ØªÙ…Ø¯] Ø¨ØªØ§Ø±ÙŠØ® {existingPayroll.accrual_date} (Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„ØµØ±Ù)
               </span>
             ) : (
               <span className="text-slate-500">
-                💡 اضغط "تجهيز واحتساب المسير" لجلب الموظفين والبدلات والسلف والإضافي تلقائياً.
+                ðŸ’¡ Ø§Ø¶ØºØ· "ØªØ¬Ù‡ÙŠØ² ÙˆØ§Ø­ØªØ³Ø§Ø¨ Ø§Ù„Ù…Ø³ÙŠØ±" Ù„Ø¬Ù„Ø¨ Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ† ÙˆØ§Ù„Ø¨Ø¯Ù„Ø§Øª ÙˆØ§Ù„Ø³Ù„Ù ÙˆØ§Ù„Ø¥Ø¶Ø§ÙÙŠ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹.
               </span>
             )}
           </div>
@@ -829,10 +829,10 @@ const PayrollRun = () => {
                 type="button"
                 onClick={handleExportExcel}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition active:scale-95"
-                title="تصدير مسير الرواتب إلى Excel"
+                title="ØªØµØ¯ÙŠØ± Ù…Ø³ÙŠØ± Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ø¥Ù„Ù‰ Excel"
               >
                 <FileSpreadsheet className="w-4 h-4" />
-                <span>تصدير المسير Excel</span>
+                <span>ØªØµØ¯ÙŠØ± Ø§Ù„Ù…Ø³ÙŠØ± Excel</span>
               </button>
             )}
             <button
@@ -841,7 +841,7 @@ const PayrollRun = () => {
               className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-md shadow-blue-600/20 transition active:scale-95"
             >
               {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-              {existingPayroll ? 'إعادة احتساب وتجهيز المسير' : 'تجهيز واحتساب المسير'}
+              {existingPayroll ? 'Ø¥Ø¹Ø§Ø¯Ø© Ø§Ø­ØªØ³Ø§Ø¨ ÙˆØªØ¬Ù‡ÙŠØ² Ø§Ù„Ù…Ø³ÙŠØ±' : 'ØªØ¬Ù‡ÙŠØ² ÙˆØ§Ø­ØªØ³Ø§Ø¨ Ø§Ù„Ù…Ø³ÙŠØ±'}
             </button>
           </div>
         </div>
@@ -856,16 +856,16 @@ const PayrollRun = () => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-slate-800 text-sm">مسير معتمد كـ استحقاق (بانتظار الصرف)</span>
-                <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-amber-300">قيد استحقاق مسجل</span>
+                <span className="font-bold text-slate-800 text-sm">Ù…Ø³ÙŠØ± Ù…Ø¹ØªÙ…Ø¯ ÙƒÙ€ Ø§Ø³ØªØ­Ù‚Ø§Ù‚ (Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„ØµØ±Ù)</span>
+                <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-amber-300">Ù‚ÙŠØ¯ Ø§Ø³ØªØ­Ù‚Ø§Ù‚ Ù…Ø³Ø¬Ù„</span>
               </div>
               <p className="text-xs text-slate-600 mt-0.5">
-                تم إثبات مصروف الرواتب لشهر {selectedMonth}/{selectedYear} بتاريخ ({existingPayroll.accrual_date}) ومحمل على حـ/ 2251 (رواتب وأجور مستحقة) بإجمالي صافي <strong className="text-amber-800 font-mono">{Number(existingPayroll.total_net_salary).toLocaleString()} ج.م</strong>.
+                ØªÙ… Ø¥Ø«Ø¨Ø§Øª Ù…ØµØ±ÙˆÙ Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ù„Ø´Ù‡Ø± {selectedMonth}/{selectedYear} Ø¨ØªØ§Ø±ÙŠØ® ({existingPayroll.accrual_date}) ÙˆÙ…Ø­Ù…Ù„ Ø¹Ù„Ù‰ Ø­Ù€/ 2251 (Ø±ÙˆØ§ØªØ¨ ÙˆØ£Ø¬ÙˆØ± Ù…Ø³ØªØ­Ù‚Ø©) Ø¨Ø¥Ø¬Ù…Ø§Ù„ÙŠ ØµØ§ÙÙŠ <strong className="text-amber-800 font-mono">{Number(existingPayroll.total_net_salary).toLocaleString()} Ø¬.Ù…</strong>.
               </p>
             </div>
           </div>
           <div className="text-xs text-slate-600 font-semibold bg-white/70 px-3 py-1.5 rounded-xl border border-amber-200">
-            الصرف: حدد الخزينة وتاريخ الصرف ثم اضغط "صرف الرواتب وترحيل قيد النقدية" أدناه 👇
+            Ø§Ù„ØµØ±Ù: Ø­Ø¯Ø¯ Ø§Ù„Ø®Ø²ÙŠÙ†Ø© ÙˆØªØ§Ø±ÙŠØ® Ø§Ù„ØµØ±Ù Ø«Ù… Ø§Ø¶ØºØ· "ØµØ±Ù Ø§Ù„Ø±ÙˆØ§ØªØ¨ ÙˆØªØ±Ø­ÙŠÙ„ Ù‚ÙŠØ¯ Ø§Ù„Ù†Ù‚Ø¯ÙŠØ©" Ø£Ø¯Ù†Ø§Ù‡ ðŸ‘‡
           </div>
         </div>
       )}
@@ -878,11 +878,11 @@ const PayrollRun = () => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-slate-800 text-sm">تم صرف المسير وترحيل قيد النقدية بالكامل</span>
-                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-emerald-300">منصرف ومغلق</span>
+                <span className="font-bold text-slate-800 text-sm">ØªÙ… ØµØ±Ù Ø§Ù„Ù…Ø³ÙŠØ± ÙˆØªØ±Ø­ÙŠÙ„ Ù‚ÙŠØ¯ Ø§Ù„Ù†Ù‚Ø¯ÙŠØ© Ø¨Ø§Ù„ÙƒØ§Ù…Ù„</span>
+                <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-emerald-300">Ù…Ù†ØµØ±Ù ÙˆÙ…ØºÙ„Ù‚</span>
               </div>
               <p className="text-xs text-slate-600 mt-0.5">
-                تم صرف هذا المسير بتاريخ ({existingPayroll.payment_date || 'مسجل'}) بإجمالي صافي <strong className="text-emerald-800 font-mono">{Number(existingPayroll.total_net_salary).toLocaleString()} ج.م</strong>.
+                ØªÙ… ØµØ±Ù Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ÙŠØ± Ø¨ØªØ§Ø±ÙŠØ® ({existingPayroll.payment_date || 'Ù…Ø³Ø¬Ù„'}) Ø¨Ø¥Ø¬Ù…Ø§Ù„ÙŠ ØµØ§ÙÙŠ <strong className="text-emerald-800 font-mono">{Number(existingPayroll.total_net_salary).toLocaleString()} Ø¬.Ù…</strong>.
               </p>
             </div>
           </div>
@@ -894,7 +894,7 @@ const PayrollRun = () => {
         <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 ml-2">
             <Building2 className="w-4 h-4 text-indigo-600" />
-            <span>تصفية حسب الفرع / القسم:</span>
+            <span>ØªØµÙÙŠØ© Ø­Ø³Ø¨ Ø§Ù„ÙØ±Ø¹ / Ø§Ù„Ù‚Ø³Ù…:</span>
           </div>
           <button
             type="button"
@@ -905,13 +905,13 @@ const PayrollRun = () => {
                 : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
             }`}
           >
-            <span>كل الفروع والأقسام</span>
+            <span>ÙƒÙ„ Ø§Ù„ÙØ±ÙˆØ¹ ÙˆØ§Ù„Ø£Ù‚Ø³Ø§Ù…</span>
             <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedDepartment === 'all' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'}`}>
               {payrollData.length}
             </span>
           </button>
           {departments.map((dept) => {
-            const count = payrollData.filter(p => (p.department || 'بدون فرع').trim() === dept).length;
+            const count = payrollData.filter(p => (p.department || 'Ø¨Ø¯ÙˆÙ† ÙØ±Ø¹').trim() === dept).length;
             const isSelected = selectedDepartment === dept;
             return (
               <button
@@ -938,44 +938,44 @@ const PayrollRun = () => {
       {filteredPayrollData.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
           <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
-            <span className="text-[11px] text-slate-500 font-bold block">إجمالي الأساسي</span>
+            <span className="text-[11px] text-slate-500 font-bold block">Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ</span>
             <span className="text-sm font-black text-slate-800 font-mono mt-1 block">
-              {displayedTotals.gross.toLocaleString()} ج.م
+              {displayedTotals.gross.toLocaleString()} Ø¬.Ù…
             </span>
           </div>
 
           <div className="bg-white p-3.5 rounded-2xl border border-emerald-100 shadow-sm">
-            <span className="text-[11px] text-emerald-700 font-bold block">إجمالي الإضافي (+)</span>
+            <span className="text-[11px] text-emerald-700 font-bold block">Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ (+)</span>
             <span className="text-sm font-black text-emerald-600 font-mono mt-1 block">
-              +{displayedTotals.additions.toLocaleString()} ج.م
+              +{displayedTotals.additions.toLocaleString()} Ø¬.Ù…
             </span>
           </div>
 
           <div className="bg-white p-3.5 rounded-2xl border border-rose-100 shadow-sm">
-            <span className="text-[11px] text-rose-700 font-bold block">السلف المستقطعة (-)</span>
+            <span className="text-[11px] text-rose-700 font-bold block">Ø§Ù„Ø³Ù„Ù Ø§Ù„Ù…Ø³ØªÙ‚Ø·Ø¹Ø© (-)</span>
             <span className="text-sm font-black text-rose-600 font-mono mt-1 block">
-              -{displayedTotals.advances.toLocaleString()} ج.م
+              -{displayedTotals.advances.toLocaleString()} Ø¬.Ù…
             </span>
           </div>
 
           <div className="bg-white p-3.5 rounded-2xl border border-rose-100 shadow-sm">
-            <span className="text-[11px] text-rose-700 font-bold block">الخصومات والجزاءات (-)</span>
+            <span className="text-[11px] text-rose-700 font-bold block">Ø§Ù„Ø®ØµÙˆÙ…Ø§Øª ÙˆØ§Ù„Ø¬Ø²Ø§Ø¡Ø§Øª (-)</span>
             <span className="text-sm font-black text-rose-600 font-mono mt-1 block">
-              -{displayedTotals.deductions.toLocaleString()} ج.م
+              -{displayedTotals.deductions.toLocaleString()} Ø¬.Ù…
             </span>
           </div>
 
           <div className="bg-white p-3.5 rounded-2xl border border-rose-100 shadow-sm">
-            <span className="text-[11px] text-rose-700 font-bold block">ضريبة كسب العمل (-)</span>
+            <span className="text-[11px] text-rose-700 font-bold block">Ø¶Ø±ÙŠØ¨Ø© ÙƒØ³Ø¨ Ø§Ù„Ø¹Ù…Ù„ (-)</span>
             <span className="text-sm font-black text-rose-600 font-mono mt-1 block">
-              -{displayedTotals.taxes.toLocaleString()} ج.م
+              -{displayedTotals.taxes.toLocaleString()} Ø¬.Ù…
             </span>
           </div>
 
           <div className="bg-emerald-50 p-3.5 rounded-2xl border border-emerald-200 shadow-sm">
-            <span className="text-[11px] text-emerald-800 font-bold block">صافي الرواتب المستحق</span>
+            <span className="text-[11px] text-emerald-800 font-bold block">ØµØ§ÙÙŠ Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ø§Ù„Ù…Ø³ØªØ­Ù‚</span>
             <span className="text-base font-black text-emerald-700 font-mono mt-1 block">
-              {displayedTotals.net.toLocaleString()} ج.م
+              {displayedTotals.net.toLocaleString()} Ø¬.Ù…
             </span>
           </div>
         </div>
@@ -987,15 +987,15 @@ const PayrollRun = () => {
           <table className="w-full text-right border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50/75 border-b border-slate-200 text-slate-600 font-bold">
-                <th className="p-3.5">الموظف</th>
-                <th className="p-3.5 text-center">الفرع / القسم</th>
-                <th className="p-3.5 text-center">الراتب الأساسي</th>
-                <th className="p-3.5 text-center">إضافي ومكافآت (+)</th>
-                <th className="p-3.5 text-center">السلف (-)</th>
-                <th className="p-3.5 text-center">ضريبة كسب عمل (-)</th>
-                <th className="p-3.5 text-center">خصومات وجزاءات (-)</th>
-                <th className="p-3.5 text-center bg-emerald-50/50 text-emerald-800">صافي المستحق</th>
-                <th className="p-3.5 text-center">إجراءات</th>
+                <th className="p-3.5">Ø§Ù„Ù…ÙˆØ¸Ù</th>
+                <th className="p-3.5 text-center">Ø§Ù„ÙØ±Ø¹ / Ø§Ù„Ù‚Ø³Ù…</th>
+                <th className="p-3.5 text-center">Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ</th>
+                <th className="p-3.5 text-center">Ø¥Ø¶Ø§ÙÙŠ ÙˆÙ…ÙƒØ§ÙØ¢Øª (+)</th>
+                <th className="p-3.5 text-center">Ø§Ù„Ø³Ù„Ù (-)</th>
+                <th className="p-3.5 text-center">Ø¶Ø±ÙŠØ¨Ø© ÙƒØ³Ø¨ Ø¹Ù…Ù„ (-)</th>
+                <th className="p-3.5 text-center">Ø®ØµÙˆÙ…Ø§Øª ÙˆØ¬Ø²Ø§Ø¡Ø§Øª (-)</th>
+                <th className="p-3.5 text-center bg-emerald-50/50 text-emerald-800">ØµØ§ÙÙŠ Ø§Ù„Ù…Ø³ØªØ­Ù‚</th>
+                <th className="p-3.5 text-center">Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -1010,8 +1010,8 @@ const PayrollRun = () => {
                         <span>{emp.full_name}</span>
                         {(emp.overtime_hours > 0 || (emp.reward_amount || 0) > 0) && (
                           <div className="flex items-center gap-1 mt-0.5 text-[10px] text-emerald-600">
-                            {emp.overtime_hours > 0 && <span>إضافي {emp.overtime_hours} س</span>}
-                            {(emp.reward_amount || 0) > 0 && <span>• مكافأة {emp.reward_amount} ج</span>}
+                            {emp.overtime_hours > 0 && <span>Ø¥Ø¶Ø§ÙÙŠ {emp.overtime_hours} Ø³</span>}
+                            {(emp.reward_amount || 0) > 0 && <span>â€¢ Ù…ÙƒØ§ÙØ£Ø© {emp.reward_amount} Ø¬</span>}
                           </div>
                         )}
                       </div>
@@ -1021,7 +1021,7 @@ const PayrollRun = () => {
                   <td className="p-3.5 text-center">
                     <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold border border-slate-200 inline-flex items-center gap-1">
                       <Building2 className="w-3 h-3 text-slate-400" />
-                      {emp.department && emp.department !== '-' ? emp.department : 'بدون فرع'}
+                      {emp.department && emp.department !== '-' ? emp.department : 'Ø¨Ø¯ÙˆÙ† ÙØ±Ø¹'}
                     </span>
                   </td>
 
@@ -1069,13 +1069,13 @@ const PayrollRun = () => {
                     />
                     {emp.unpaid_leave_days > 0 && (
                       <span className="text-[10px] text-rose-600 block mt-0.5">
-                        خصم {emp.unpaid_leave_days} يوم إجازة ({emp.unpaid_leave_deduction.toFixed(2)} ج)
+                        Ø®ØµÙ… {emp.unpaid_leave_days} ÙŠÙˆÙ… Ø¥Ø¬Ø§Ø²Ø© ({emp.unpaid_leave_deduction.toFixed(2)} Ø¬)
                       </span>
                     )}
                   </td>
 
                   <td className="p-3.5 text-center font-mono font-black text-sm text-emerald-700 bg-emerald-50/30">
-                    {emp.net_salary.toLocaleString()} ج.م
+                    {emp.net_salary.toLocaleString()} Ø¬.Ù…
                   </td>
 
                   <td className="p-3.5 text-center">
@@ -1096,9 +1096,9 @@ const PayrollRun = () => {
                         company_name: organization?.name
                       })}
                       className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border rounded-lg text-[10px] font-bold inline-flex items-center gap-1 transition"
-                      title="طباعة قسيمة الراتب"
+                      title="Ø·Ø¨Ø§Ø¹Ø© Ù‚Ø³ÙŠÙ…Ø© Ø§Ù„Ø±Ø§ØªØ¨"
                     >
-                      <Printer className="w-3 h-3 text-blue-600" /> مفردات
+                      <Printer className="w-3 h-3 text-blue-600" /> Ù…ÙØ±Ø¯Ø§Øª
                     </button>
                   </td>
                 </tr>
@@ -1109,12 +1109,12 @@ const PayrollRun = () => {
                   <td colSpan={9} className="p-10 text-center text-slate-400 space-y-2">
                     <Info className="w-8 h-8 text-slate-300 mx-auto" />
                     <p className="font-bold text-slate-600">
-                      {payrollData.length === 0 ? 'لم يتم تجهيز المسير بعد' : 'لا يوجد موظفون في هذا الفرع / القسم'}
+                      {payrollData.length === 0 ? 'Ù„Ù… ÙŠØªÙ… ØªØ¬Ù‡ÙŠØ² Ø§Ù„Ù…Ø³ÙŠØ± Ø¨Ø¹Ø¯' : 'Ù„Ø§ ÙŠÙˆØ¬Ø¯ Ù…ÙˆØ¸ÙÙˆÙ† ÙÙŠ Ù‡Ø°Ø§ Ø§Ù„ÙØ±Ø¹ / Ø§Ù„Ù‚Ø³Ù…'}
                     </p>
                     <p className="text-[11px] text-slate-400">
                       {payrollData.length === 0 
-                        ? 'حدد الشهر والسنة ثم اضغط على "تجهيز واحتساب المسير" لجلب بيانات الموظفين والبدلات والسلف والغياب آلياً.'
-                        : 'يمكنك اختيار "كل الفروع والأقسام" لعرض كافة موظفي المسير.'}
+                        ? 'Ø­Ø¯Ø¯ Ø§Ù„Ø´Ù‡Ø± ÙˆØ§Ù„Ø³Ù†Ø© Ø«Ù… Ø§Ø¶ØºØ· Ø¹Ù„Ù‰ "ØªØ¬Ù‡ÙŠØ² ÙˆØ§Ø­ØªØ³Ø§Ø¨ Ø§Ù„Ù…Ø³ÙŠØ±" Ù„Ø¬Ù„Ø¨ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ† ÙˆØ§Ù„Ø¨Ø¯Ù„Ø§Øª ÙˆØ§Ù„Ø³Ù„Ù ÙˆØ§Ù„ØºÙŠØ§Ø¨ Ø¢Ù„ÙŠØ§Ù‹.'
+                        : 'ÙŠÙ…ÙƒÙ†Ùƒ Ø§Ø®ØªÙŠØ§Ø± "ÙƒÙ„ Ø§Ù„ÙØ±ÙˆØ¹ ÙˆØ§Ù„Ø£Ù‚Ø³Ø§Ù…" Ù„Ø¹Ø±Ø¶ ÙƒØ§ÙØ© Ù…ÙˆØ¸ÙÙŠ Ø§Ù„Ù…Ø³ÙŠØ±.'}
                     </p>
                   </td>
                 </tr>
@@ -1130,8 +1130,8 @@ const PayrollRun = () => {
           <div className="text-xs text-slate-600 flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-600" />
             <span>
-              إجمالي الموظفين: <strong>{payrollData.length}</strong> | إجمالي صافي الرواتب:{' '}
-              <strong className="text-emerald-700 font-mono text-sm">{totals.net.toLocaleString()} ج.م</strong>
+              Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ†: <strong>{payrollData.length}</strong> | Ø¥Ø¬Ù…Ø§Ù„ÙŠ ØµØ§ÙÙŠ Ø§Ù„Ø±ÙˆØ§ØªØ¨:{' '}
+              <strong className="text-emerald-700 font-mono text-sm">{totals.net.toLocaleString()} Ø¬.Ù…</strong>
             </span>
           </div>
 
@@ -1140,15 +1140,15 @@ const PayrollRun = () => {
               type="button"
               onClick={handleExportExcel}
               className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition active:scale-95"
-              title="تصدير مسير الرواتب إلى Excel"
+              title="ØªØµØ¯ÙŠØ± Ù…Ø³ÙŠØ± Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ø¥Ù„Ù‰ Excel"
             >
               <FileSpreadsheet className="w-4 h-4" />
-              <span>تصدير Excel</span>
+              <span>ØªØµØ¯ÙŠØ± Excel</span>
             </button>
             {existingPayroll?.status === 'paid' ? (
               <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 border border-emerald-200 px-5 py-2.5 rounded-xl text-xs font-bold">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                تم صرف هذا المسير وترحيل قيد النقدية بالكامل ✅
+                ØªÙ… ØµØ±Ù Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ÙŠØ± ÙˆØªØ±Ø­ÙŠÙ„ Ù‚ÙŠØ¯ Ø§Ù„Ù†Ù‚Ø¯ÙŠØ© Ø¨Ø§Ù„ÙƒØ§Ù…Ù„ âœ…
               </div>
             ) : existingPayroll?.status === 'accrued' ? (
               <>
@@ -1156,10 +1156,10 @@ const PayrollRun = () => {
                   onClick={handleRunAccrual}
                   disabled={savingAccrual || savingPayment}
                   className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border border-slate-300 transition"
-                  title="إعادة احتساب وتحديث قيد الاستحقاق بقيم المسير المعروضة"
+                  title="Ø¥Ø¹Ø§Ø¯Ø© Ø§Ø­ØªØ³Ø§Ø¨ ÙˆØªØ­Ø¯ÙŠØ« Ù‚ÙŠØ¯ Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚ Ø¨Ù‚ÙŠÙ… Ø§Ù„Ù…Ø³ÙŠØ± Ø§Ù„Ù…Ø¹Ø±ÙˆØ¶Ø©"
                 >
                   {savingAccrual ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                  تحديث قيد الاستحقاق
+                  ØªØ­Ø¯ÙŠØ« Ù‚ÙŠØ¯ Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚
                 </button>
 
                 <button
@@ -1168,29 +1168,29 @@ const PayrollRun = () => {
                   className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/25 transition"
                 >
                   {savingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
-                  {savingPayment ? 'جاري تنفيذ قيد الصرف...' : 'صرف الرواتب وترحيل قيد النقدية (حـ/ 2251 ← الخزينة/البنك)'}
+                  {savingPayment ? 'Ø¬Ø§Ø±ÙŠ ØªÙ†ÙÙŠØ° Ù‚ÙŠØ¯ Ø§Ù„ØµØ±Ù...' : 'ØµØ±Ù Ø§Ù„Ø±ÙˆØ§ØªØ¨ ÙˆØªØ±Ø­ÙŠÙ„ Ù‚ÙŠØ¯ Ø§Ù„Ù†Ù‚Ø¯ÙŠØ© (Ø­Ù€/ 2251 â† Ø§Ù„Ø®Ø²ÙŠÙ†Ø©/Ø§Ù„Ø¨Ù†Ùƒ)'}
                 </button>
               </>
             ) : (
               <>
-                {/* زر إثبات قيد الاستحقاق المنفصل */}
+                {/* Ø²Ø± Ø¥Ø«Ø¨Ø§Øª Ù‚ÙŠØ¯ Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚ Ø§Ù„Ù…Ù†ÙØµÙ„ */}
                 <button
                   onClick={handleRunAccrual}
                   disabled={savingAccrual || savingPayment}
                   className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-lg shadow-indigo-600/25 transition"
                 >
                   {savingAccrual ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  {savingAccrual ? 'جاري ترحيل الاستحقاق...' : '1. إثبات قيد الاستحقاق (حـ/ 2251 رواتب مستحقة)'}
+                  {savingAccrual ? 'Ø¬Ø§Ø±ÙŠ ØªØ±Ø­ÙŠÙ„ Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚...' : '1. Ø¥Ø«Ø¨Ø§Øª Ù‚ÙŠØ¯ Ø§Ù„Ø§Ø³ØªØ­Ù‚Ø§Ù‚ (Ø­Ù€/ 2251 Ø±ÙˆØ§ØªØ¨ Ù…Ø³ØªØ­Ù‚Ø©)'}
                 </button>
 
-                {/* زر الصرف المباشر الفوري */}
+                {/* Ø²Ø± Ø§Ù„ØµØ±Ù Ø§Ù„Ù…Ø¨Ø§Ø´Ø± Ø§Ù„ÙÙˆØ±ÙŠ */}
                 <button
                   onClick={handleRunPayrollDirect}
                   disabled={savingPayment || savingAccrual}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/25 transition"
                 >
                   {savingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Banknote className="w-4 h-4" />}
-                  {savingPayment ? 'جاري الصرف المباشر...' : '2. صرف مباشر فوري (استحقاق + نقدية)'}
+                  {savingPayment ? 'Ø¬Ø§Ø±ÙŠ Ø§Ù„ØµØ±Ù Ø§Ù„Ù…Ø¨Ø§Ø´Ø±...' : '2. ØµØ±Ù Ù…Ø¨Ø§Ø´Ø± ÙÙˆØ±ÙŠ (Ø§Ø³ØªØ­Ù‚Ø§Ù‚ + Ù†Ù‚Ø¯ÙŠØ©)'}
                 </button>
               </>
             )}

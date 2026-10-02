@@ -2,9 +2,9 @@ import React from 'react';
 import { Coins, Loader2 } from 'lucide-react';
 
 export interface RetailPosShiftOpenViewProps {
-  terminals: any[];
-  selectedTerminal: any;
-  setSelectedTerminal: (terminal: any) => void;
+  terminals: Record<string, any>[];
+  selectedTerminal: Record<string, any> | null;
+  setSelectedTerminal: (terminal: Record<string, any> | null) => void;
   openingBalance: number;
   setOpeningBalance: (val: number) => void;
   currencySymbol: string;
@@ -49,7 +49,7 @@ export const RetailPosShiftOpenView: React.FC<RetailPosShiftOpenViewProps> = ({
                 value={selectedTerminal?.id || ''}
                 onChange={(e) => {
                   const selected = terminals.find(t => t.id === e.target.value);
-                  setSelectedTerminal(selected);
+                  setSelectedTerminal(selected ?? null);
                 }}
               >
                 <option value="">-- اختر الكاشير --</option>

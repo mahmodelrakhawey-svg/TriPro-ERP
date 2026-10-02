@@ -347,7 +347,7 @@ export default function VendorContractsManager() {
         // فلترة الحسابات الفرعية القابلة للترحيل فقط (ليست رئيسية/تجميعية)
         const leafAccounts = accounts.filter(a => !a.isGroup && !a.is_group);
 
-        const getLeaf = (acc: any) => {
+        const getLeaf = (acc: Record<string, any> | null | undefined) => {
           if (!acc) return null;
           if (!acc.isGroup && !acc.is_group) return acc.id;
           const child = accounts.find(ch => (ch.parent_id === acc.id || ch.parentId === acc.id) && !ch.isGroup && !ch.is_group);

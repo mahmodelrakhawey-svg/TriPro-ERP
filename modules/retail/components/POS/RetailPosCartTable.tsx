@@ -10,6 +10,7 @@ import {
   Sparkles 
 } from 'lucide-react';
 import { PosCartItem, isItemOfferActive, getItemEffectivePrice } from '../../hooks/usePosCart';
+import type { CachedProduct } from '../../../../services/offlineService';
 
 export interface RetailPosCartTableProps {
   barcodeInput: string;
@@ -19,7 +20,7 @@ export interface RetailPosCartTableProps {
   searchQuery: string;
   setSearchQuery: (val: string) => void;
   searchResults: any[];
-  addToCart: (product: any) => void;
+  addToCart: (product: CachedProduct) => void;
   pricingTier: 'retail' | 'wholesale' | 'half';
   setPricingTier: (tier: 'retail' | 'wholesale' | 'half') => void;
   cart: PosCartItem[];

@@ -1,10 +1,10 @@
-/**
+﻿/**
  * ==============================================================================
- * TriPro ERP — Sales Domain Context & Hook
+ * TriPro ERP â€” Sales Domain Context & Hook
  * context/domains/SalesContext.tsx
  * ==============================================================================
- * مخصص لإدارة المبيعات، فواتير العملاء، المرتجعات، ومناديب المبيعات.
- * يدعم الاستخدام المباشر أو عبر واجهة AccountingContext الموحدة بنمط Facade.
+ * Ù…Ø®ØµØµ Ù„Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§ØªØŒ ÙÙˆØ§ØªÙŠØ± Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ØŒ Ø§Ù„Ù…Ø±ØªØ¬Ø¹Ø§ØªØŒ ÙˆÙ…Ù†Ø§Ø¯ÙŠØ¨ Ø§Ù„Ù…Ø¨ÙŠØ¹Ø§Øª.
+ * ÙŠØ¯Ø¹Ù… Ø§Ù„Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„Ù…Ø¨Ø§Ø´Ø± Ø£Ùˆ Ø¹Ø¨Ø± ÙˆØ§Ø¬Ù‡Ø© AccountingContext Ø§Ù„Ù…ÙˆØ­Ø¯Ø© Ø¨Ù†Ù…Ø· Facade.
  * ==============================================================================
  */
 
@@ -17,7 +17,7 @@ export interface SalesDomainState {
   approveInvoice: (id: string, orgId?: string, warehouseId?: string) => Promise<boolean>;
   unpostSalesInvoice: (id: string, orgId?: string) => Promise<boolean>;
   deleteSalesInvoice: (id: string, orgId?: string) => Promise<boolean>;
-  addCustomer: (customer: any) => Promise<any>;
+  addCustomer: (customer: Record<string, any>) => Promise<Record<string, any>>;
 }
 
 export const useSalesDomain = (): SalesDomainState => {

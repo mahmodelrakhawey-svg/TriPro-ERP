@@ -31,7 +31,7 @@ const DraftJournalsList = () => {
           description: entry.description,
           reference: entry.reference,
           status: entry.status,
-          lines: entry.journal_lines.map((line: any) => ({
+          lines: entry.journal_lines.map((line: Record<string, any>) => ({
             id: line.id,
             accountId: line.account_id,
             accountName: accounts.find(a => a.id === line.account_id)?.name || '',

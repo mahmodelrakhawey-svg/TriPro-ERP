@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Table, Button, Card, Tag, Select, message, Row, Col, Statistic } from 'antd';
 import { LoginOutlined, BankOutlined } from '@ant-design/icons';
@@ -14,7 +14,7 @@ export const AdmissionManager: React.FC = () => {
   const fetchData = async () => {
     if (!organization?.id) return;
     setLoading(true);
-    // جلب الحالات التي تحتاج تنويم ولم تُسكن بعد
+    // Ø¬Ù„Ø¨ Ø§Ù„Ø­Ø§Ù„Ø§Øª Ø§Ù„ØªÙŠ ØªØ­ØªØ§Ø¬ ØªÙ†ÙˆÙŠÙ… ÙˆÙ„Ù… ØªÙØ³ÙƒÙ† Ø¨Ø¹Ø¯
     const { data: visits } = await supabase
       .from('hims_visits')
       .select('*, hims_patients(full_name)')
@@ -22,7 +22,7 @@ export const AdmissionManager: React.FC = () => {
       .eq('visit_type', 'inpatient')
       .eq('status', 'triaged');
 
-    // جلب الأسرة المتاحة
+    // Ø¬Ù„Ø¨ Ø§Ù„Ø£Ø³Ø±Ø© Ø§Ù„Ù…ØªØ§Ø­Ø©
     const { data: beds } = await supabase
       .from('hims_beds')
       .select('*, hims_wards(name)')
@@ -37,7 +37,7 @@ export const AdmissionManager: React.FC = () => {
   useEffect(() => { 
     fetchData(); 
 
-    // 📡 تفعيل المراقبة اللحظية لضمان تحديث قائمة الأسرة والزيارات فوراً
+    // ðŸ“¡ ØªÙØ¹ÙŠÙ„ Ø§Ù„Ù…Ø±Ø§Ù‚Ø¨Ø© Ø§Ù„Ù„Ø­Ø¸ÙŠØ© Ù„Ø¶Ù…Ø§Ù† ØªØ­Ø¯ÙŠØ« Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø£Ø³Ø±Ø© ÙˆØ§Ù„Ø²ÙŠØ§Ø±Ø§Øª ÙÙˆØ±Ø§Ù‹
     const channel = supabase.channel('hims-admission-sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'hims_beds' }, () => {
         fetchData();
@@ -53,7 +53,7 @@ export const AdmissionManager: React.FC = () => {
   }, [organization?.id]);
 
   const handleAdmission = async (visitId: string, bedId: string) => {
-    if (!bedId) return message.warning('يرجى اختيار السرير أولاً');
+    if (!bedId) return message.warning('ÙŠØ±Ø¬Ù‰ Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ø³Ø±ÙŠØ± Ø£ÙˆÙ„Ø§Ù‹');
     
     const { error } = await supabase.rpc('hims_admit_patient', {
       p_visit_id: visitId,
@@ -62,32 +62,32 @@ export const AdmissionManager: React.FC = () => {
 
     if (error) message.error(error.message);
     else {
-      message.success('تم تسكين المريض بنجاح ✅');
+      message.success('ØªÙ… ØªØ³ÙƒÙŠÙ† Ø§Ù„Ù…Ø±ÙŠØ¶ Ø¨Ù†Ø¬Ø§Ø­ âœ…');
       fetchData();
     }
   };
 
   const columns = [
-    { title: 'المريض', dataIndex: ['hims_patients', 'full_name'] },
-    { title: 'تاريخ الطلب', dataIndex: 'created_at', render: (d: string) => new Date(d).toLocaleString('ar-EG') },
-    { title: 'السرير المقترح', render: (_: any, record: any) => (
+    { title: 'Ø§Ù„Ù…Ø±ÙŠØ¶', dataIndex: ['hims_patients', 'full_name'] },
+    { title: 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ø·Ù„Ø¨', dataIndex: 'created_at', render: (d: string) => new Date(d).toLocaleString('ar-EG') },
+    { title: 'Ø§Ù„Ø³Ø±ÙŠØ± Ø§Ù„Ù…Ù‚ØªØ±Ø­', render: (_: unknown, record: Record<string, any>) => (
       <Select 
         style={{ width: 200 }} 
-        placeholder="اختر سريراً متاحاً" 
+        placeholder="Ø§Ø®ØªØ± Ø³Ø±ÙŠØ±Ø§Ù‹ Ù…ØªØ§Ø­Ø§Ù‹" 
         onChange={(val) => setSelectedBeds(prev => ({ ...prev, [record.id]: val }))}
         options={availableBeds.map(bed => ({
-          label: `${bed.hims_wards.name} - سرير ${bed.bed_number}`,
+          label: `${bed.hims_wards.name} - Ø³Ø±ÙŠØ± ${bed.bed_number}`,
           value: bed.id
         }))}
       />
     )},
-    { title: 'إجراء', render: (record: any) => (
+    { title: 'Ø¥Ø¬Ø±Ø§Ø¡', render: (record: Record<string, any>) => (
       <Button 
         type="primary" 
         icon={<LoginOutlined />} 
         onClick={() => handleAdmission(record.id, selectedBeds[record.id])}
       >
-        إتمام التسكين
+        Ø¥ØªÙ…Ø§Ù… Ø§Ù„ØªØ³ÙƒÙŠÙ†
       </Button>
     )}
   ];
@@ -96,13 +96,13 @@ export const AdmissionManager: React.FC = () => {
     <div className="p-6 rtl text-right">
       <Row gutter={16} className="mb-6">
         <Col span={12}>
-          <Card className="rounded-2xl shadow-sm"><Statistic title="حالات بانتظار أسرة" value={pendingVisits.length} prefix={<BankOutlined />} styles={{ content: { color: '#faad14' } }} /></Card>
+          <Card className="rounded-2xl shadow-sm"><Statistic title="Ø­Ø§Ù„Ø§Øª Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø£Ø³Ø±Ø©" value={pendingVisits.length} prefix={<BankOutlined />} styles={{ content: { color: '#faad14' } }} /></Card>
         </Col>
         <Col span={12}>
-          <Card className="rounded-2xl shadow-sm"><Statistic title="أسرة متاحة حالياً" value={availableBeds.length} styles={{ content: { color: '#52c41a' } }} /></Card>
+          <Card className="rounded-2xl shadow-sm"><Statistic title="Ø£Ø³Ø±Ø© Ù…ØªØ§Ø­Ø© Ø­Ø§Ù„ÙŠØ§Ù‹" value={availableBeds.length} styles={{ content: { color: '#52c41a' } }} /></Card>
         </Col>
       </Row>
-      <Card title={<b>إدارة تسكين المرضى المنومين 🏥</b>} className="rounded-3xl shadow-lg border-none">
+      <Card title={<b>Ø¥Ø¯Ø§Ø±Ø© ØªØ³ÙƒÙŠÙ† Ø§Ù„Ù…Ø±Ø¶Ù‰ Ø§Ù„Ù…Ù†ÙˆÙ…ÙŠÙ† ðŸ¥</b>} className="rounded-3xl shadow-lg border-none">
         <Table dataSource={pendingVisits} columns={columns} rowKey="id" loading={loading} />
       </Card>
     </div>

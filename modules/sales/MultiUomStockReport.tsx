@@ -63,12 +63,12 @@ const MultiUomStockReport = () => {
       if (prodErr) throw prodErr;
 
       const computed: any[] = [];
-      prods?.forEach((p: any) => {
+      prods?.forEach((p: Record<string, any>) => {
         const baseQty = Number(p.stock || 0);
         const baseUomName = p.uoms?.name || p.unit || 'قطعة';
 
         if (p.product_uom_conversions && p.product_uom_conversions.length > 0) {
-          p.product_uom_conversions.forEach((conv: any) => {
+          p.product_uom_conversions.forEach((conv: Record<string, any>) => {
             const ratio = Number(conv.ratio) || 1;
             computed.push({
               warehouse_name: 'المخزن العام',

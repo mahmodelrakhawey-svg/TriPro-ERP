@@ -98,10 +98,10 @@ export default function PriceEscalationCalculator() {
         logger.warn('project_price_escalations table notice:', error.message);
         setClaims([]);
       } else {
-        setClaims((data || []).map((d: any) => ({
+        setClaims((data || []).map((d: Record<string, any>) => ({
           ...d,
           project_name: currentProjects.find(p => p.id === d.project_id)?.name || 'مشروع عام'
-        })));
+        })) as unknown as EscalationClaim[]);
       }
     } catch (err) {
       logger.error(err);

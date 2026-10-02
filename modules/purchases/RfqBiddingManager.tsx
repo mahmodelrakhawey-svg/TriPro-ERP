@@ -144,7 +144,7 @@ export const RfqBiddingManager: React.FC = () => {
     ]);
   };
 
-  const handleRfqItemChange = (index: number, field: keyof PurchaseRfqItem, val: any) => {
+  const handleRfqItemChange = (index: number, field: keyof PurchaseRfqItem, val: string | number | undefined) => {
     const newItems = [...rfqItems];
     const item = { ...newItems[index], [field]: val };
     if (field === 'product_id') {

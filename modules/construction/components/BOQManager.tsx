@@ -50,7 +50,7 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
   const addItem = () => {
     setItems([...items, { 
       item_name: '', 
-      unit: 'م3', 
+      unit: 'Ù…3', 
       estimated_quantity: 0, 
       unit_price: 0,
       material_cost_per_unit: 0,
@@ -60,7 +60,7 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
     }]);
   };
 
-  const updateItem = (index: number, field: keyof BOQItem, value: any) => {
+  const updateItem = (index: number, field: keyof BOQItem, value: string | number | boolean | undefined) => {
     const newItems = [...items];
     newItems[index] = { ...newItems[index], [field]: value };
     setItems(newItems);
@@ -80,12 +80,12 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
 
     try {
       setLoading(true);
-      if (!organization?.id) throw new Error('فشل تحديد المنظمة النشطة');
+      if (!organization?.id) throw new Error('ÙØ´Ù„ ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ù…Ù†Ø¸Ù…Ø© Ø§Ù„Ù†Ø´Ø·Ø©');
 
-      // استخدام upsert بدلاً من الحذف والإضافة للحفاظ على سلامة البيانات والربط
+      // Ø§Ø³ØªØ®Ø¯Ø§Ù… upsert Ø¨Ø¯Ù„Ø§Ù‹ Ù…Ù† Ø§Ù„Ø­Ø°Ù ÙˆØ§Ù„Ø¥Ø¶Ø§ÙØ© Ù„Ù„Ø­ÙØ§Ø¸ Ø¹Ù„Ù‰ Ø³Ù„Ø§Ù…Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª ÙˆØ§Ù„Ø±Ø¨Ø·
       const { error } = await supabase.from('project_boq').upsert(
         items.map(item => {
-          // نستبعد فقط الحقول المحسوبة والجمالية، ونحافظ على الـ id إذا كان موجوداً، أو نولد معرفاً جديداً إذا كان فارغاً
+          // Ù†Ø³ØªØ¨Ø¹Ø¯ ÙÙ‚Ø· Ø§Ù„Ø­Ù‚ÙˆÙ„ Ø§Ù„Ù…Ø­Ø³ÙˆØ¨Ø© ÙˆØ§Ù„Ø¬Ù…Ø§Ù„ÙŠØ©ØŒ ÙˆÙ†Ø­Ø§ÙØ¸ Ø¹Ù„Ù‰ Ø§Ù„Ù€ id Ø¥Ø°Ø§ ÙƒØ§Ù† Ù…ÙˆØ¬ÙˆØ¯Ø§Ù‹ØŒ Ø£Ùˆ Ù†ÙˆÙ„Ø¯ Ù…Ø¹Ø±ÙØ§Ù‹ Ø¬Ø¯ÙŠØ¯Ø§Ù‹ Ø¥Ø°Ø§ ÙƒØ§Ù† ÙØ§Ø±ØºØ§Ù‹
           const { total_price, created_at, showAnalysis, ...rest } = item as any;
           return {
             ...rest, 
@@ -94,12 +94,12 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
             organization_id: organization.id 
           };
         }),
-        { onConflict: 'id' } // التحديث يتم بناءً على معرف البند
+        { onConflict: 'id' } // Ø§Ù„ØªØ­Ø¯ÙŠØ« ÙŠØªÙ… Ø¨Ù†Ø§Ø¡Ù‹ Ø¹Ù„Ù‰ Ù…Ø¹Ø±Ù Ø§Ù„Ø¨Ù†Ø¯
       );
 
       if (error) throw error;
-      showToast('تم حفظ المقايسة بنجاح', 'success');
-      fetchBOQ(); // إعادة جلب البيانات لمزامنة الـ IDs الجديدة من السيرفر
+      showToast('ØªÙ… Ø­ÙØ¸ Ø§Ù„Ù…Ù‚Ø§ÙŠØ³Ø© Ø¨Ù†Ø¬Ø§Ø­', 'success');
+      fetchBOQ(); // Ø¥Ø¹Ø§Ø¯Ø© Ø¬Ù„Ø¨ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù„Ù…Ø²Ø§Ù…Ù†Ø© Ø§Ù„Ù€ IDs Ø§Ù„Ø¬Ø¯ÙŠØ¯Ø© Ù…Ù† Ø§Ù„Ø³ÙŠØ±ÙØ±
     } catch (error) {
       showToast(error.message, 'error');
     } finally {
@@ -116,14 +116,14 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
           <button onClick={onBack} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
             <ArrowRight size={24} />
           </button>
-          <h2 className="text-xl font-bold text-gray-800">مقايسة بنود المشروع (BOQ)</h2>
+          <h2 className="text-xl font-bold text-gray-800">Ù…Ù‚Ø§ÙŠØ³Ø© Ø¨Ù†ÙˆØ¯ Ø§Ù„Ù…Ø´Ø±ÙˆØ¹ (BOQ)</h2>
         </div>
         <div className="flex gap-2">
           <button onClick={addItem} className="flex items-center gap-2 border border-blue-600 text-blue-600 px-4 py-2 rounded-lg hover:bg-blue-50">
-            <Plus size={18} /> إضافة بند
+            <Plus size={18} /> Ø¥Ø¶Ø§ÙØ© Ø¨Ù†Ø¯
           </button>
           <button onClick={saveBOQ} disabled={loading} className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 shadow-md">
-            <Save size={18} /> حفظ التغييرات
+            <Save size={18} /> Ø­ÙØ¸ Ø§Ù„ØªØºÙŠÙŠØ±Ø§Øª
           </button>
         </div>
       </div>
@@ -132,11 +132,11 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
         <table className="w-full text-right">
           <thead className="bg-gray-50 border-b">
             <tr>
-              <th className="p-4 text-sm font-bold text-gray-600">البند / التحليل</th>
-              <th className="p-4 text-sm font-bold text-gray-600">الوحدة</th>
-              <th className="p-4 text-sm font-bold text-gray-600">الكمية التقديرية</th>
-              <th className="p-4 text-sm font-bold text-gray-600 text-blue-600">سعر البيع المقدر</th>
-              <th className="p-4 text-sm font-bold text-gray-600">الإجمالي</th>
+              <th className="p-4 text-sm font-bold text-gray-600">Ø§Ù„Ø¨Ù†Ø¯ / Ø§Ù„ØªØ­Ù„ÙŠÙ„</th>
+              <th className="p-4 text-sm font-bold text-gray-600">Ø§Ù„ÙˆØ­Ø¯Ø©</th>
+              <th className="p-4 text-sm font-bold text-gray-600">Ø§Ù„ÙƒÙ…ÙŠØ© Ø§Ù„ØªÙ‚Ø¯ÙŠØ±ÙŠØ©</th>
+              <th className="p-4 text-sm font-bold text-gray-600 text-blue-600">Ø³Ø¹Ø± Ø§Ù„Ø¨ÙŠØ¹ Ø§Ù„Ù…Ù‚Ø¯Ø±</th>
+              <th className="p-4 text-sm font-bold text-gray-600">Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ</th>
               <th className="p-4 text-sm font-bold text-gray-600"></th>
             </tr>
           </thead>
@@ -148,19 +148,19 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
                     <button 
                       onClick={() => updateItem(index, 'showAnalysis', !item.showAnalysis)}
                       className="p-1 hover:bg-white rounded text-blue-600 shadow-sm transition-all"
-                      title="تحليل سعر البند"
+                      title="ØªØ­Ù„ÙŠÙ„ Ø³Ø¹Ø± Ø§Ù„Ø¨Ù†Ø¯"
                     >
                       {item.showAnalysis ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                     </button>
                     <input 
                       type="text" 
                       className="w-full border-none focus:ring-0 bg-transparent p-1 font-bold text-slate-700" 
-                      placeholder="مثال: توريد وصب خرسانة عادية"
+                      placeholder="Ù…Ø«Ø§Ù„: ØªÙˆØ±ÙŠØ¯ ÙˆØµØ¨ Ø®Ø±Ø³Ø§Ù†Ø© Ø¹Ø§Ø¯ÙŠØ©"
                       value={item.item_name}
                       onChange={(e) => updateItem(index, 'item_name', e.target.value)}
                     />
                   </td>
-                  {/* ... باقي أعمدة الصف الأساسي ... */}
+                  {/* ... Ø¨Ø§Ù‚ÙŠ Ø£Ø¹Ù…Ø¯Ø© Ø§Ù„ØµÙ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ ... */}
                 <td className="p-3">
                   <input 
                     type="text" 
@@ -182,7 +182,7 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
                     type="number" 
                     className="w-24 border-none focus:ring-0 bg-transparent p-1 font-black text-blue-600" 
                     value={item.unit_price}
-                    readOnly={item.showAnalysis} // منع التعديل اليدوي إذا كان التحليل مفتوحاً لضمان الدقة
+                    readOnly={item.showAnalysis} // Ù…Ù†Ø¹ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„ÙŠØ¯ÙˆÙŠ Ø¥Ø°Ø§ ÙƒØ§Ù† Ø§Ù„ØªØ­Ù„ÙŠÙ„ Ù…ÙØªÙˆØ­Ø§Ù‹ Ù„Ø¶Ù…Ø§Ù† Ø§Ù„Ø¯Ù‚Ø©
                     onChange={(e) => updateItem(index, 'unit_price', parseFloat(e.target.value))}
                   />
                 </td>
@@ -195,25 +195,25 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
                   </button>
                 </td>
               </tr>
-              {/* صف تحليل السعر */}
+              {/* ØµÙ ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ø³Ø¹Ø± */}
               {item.showAnalysis && (
                 <tr className="bg-blue-50/20 animate-in slide-in-from-top-2 duration-200">
                   <td colSpan={6} className="p-4 border-b border-blue-100">
                     <div className="grid grid-cols-4 gap-6 px-10">
                       <div>
-                        <label className="block text-[10px] font-black text-blue-400 uppercase mb-1">تكلفة المواد / وحدة</label>
+                        <label className="block text-[10px] font-black text-blue-400 uppercase mb-1">ØªÙƒÙ„ÙØ© Ø§Ù„Ù…ÙˆØ§Ø¯ / ÙˆØ­Ø¯Ø©</label>
                         <input type="number" className="w-full bg-white border border-blue-100 rounded-lg p-2 text-sm font-bold" value={item.material_cost_per_unit} onChange={(e) => updateItem(index, 'material_cost_per_unit', parseFloat(e.target.value))} />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-blue-400 uppercase mb-1">تكلفة العمالة / وحدة</label>
+                        <label className="block text-[10px] font-black text-blue-400 uppercase mb-1">ØªÙƒÙ„ÙØ© Ø§Ù„Ø¹Ù…Ø§Ù„Ø© / ÙˆØ­Ø¯Ø©</label>
                         <input type="number" className="w-full bg-white border border-blue-100 rounded-lg p-2 text-sm font-bold" value={item.labor_cost_per_unit} onChange={(e) => updateItem(index, 'labor_cost_per_unit', parseFloat(e.target.value))} />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-blue-400 uppercase mb-1">مصاريف غير مباشرة / وحدة</label>
+                        <label className="block text-[10px] font-black text-blue-400 uppercase mb-1">Ù…ØµØ§Ø±ÙŠÙ ØºÙŠØ± Ù…Ø¨Ø§Ø´Ø±Ø© / ÙˆØ­Ø¯Ø©</label>
                         <input type="number" className="w-full bg-white border border-blue-100 rounded-lg p-2 text-sm font-bold" value={item.overhead_cost_per_unit} onChange={(e) => updateItem(index, 'overhead_cost_per_unit', parseFloat(e.target.value))} />
                       </div>
                       <div>
-                        <label className="block text-[10px] font-black text-emerald-500 uppercase mb-1">نسبة الربح المستهدفة (%)</label>
+                        <label className="block text-[10px] font-black text-emerald-500 uppercase mb-1">Ù†Ø³Ø¨Ø© Ø§Ù„Ø±Ø¨Ø­ Ø§Ù„Ù…Ø³ØªÙ‡Ø¯ÙØ© (%)</label>
                         <input type="number" className="w-full bg-white border border-emerald-100 rounded-lg p-2 text-sm font-black text-emerald-600" value={item.profit_margin_pct} onChange={(e) => updateItem(index, 'profit_margin_pct', parseFloat(e.target.value))} />
                       </div>
                     </div>
@@ -225,8 +225,8 @@ const BOQManager: React.FC<Props> = ({ projectId, onBack }) => {
           </tbody>
           <tfoot className="bg-blue-50 font-bold">
             <tr>
-              <td colSpan={4} className="p-4 text-left">إجمالي قيمة المقايسة التقديرية:</td>
-              <td className="p-4 text-blue-700 text-lg">{totalProject.toLocaleString()} ج.م</td>
+              <td colSpan={4} className="p-4 text-left">Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ù‚ÙŠÙ…Ø© Ø§Ù„Ù…Ù‚Ø§ÙŠØ³Ø© Ø§Ù„ØªÙ‚Ø¯ÙŠØ±ÙŠØ©:</td>
+              <td className="p-4 text-blue-700 text-lg">{totalProject.toLocaleString()} Ø¬.Ù…</td>
               <td></td>
             </tr>
           </tfoot>

@@ -41,7 +41,7 @@ const StartShiftModal = ({ isOpen, onConfirm }: { isOpen: boolean, onConfirm: (a
 };
 
 
-const CloseShiftModal = ({ isOpen, onClose, onConfirm, summary, isLoading }: { isOpen: boolean, onClose: () => void, onConfirm: (amount: number, notes: string) => void, summary: any, isLoading: boolean }) => {
+const CloseShiftModal = ({ isOpen, onClose, onConfirm, summary, isLoading }: { isOpen: boolean, onClose: () => void, onConfirm: (amount: number, notes: string) => void, summary: Record<string, any>, isLoading: boolean }) => {
   const [actualCash, setActualCash] = useState(0);
   const [notes, setNotes] = useState('');
   

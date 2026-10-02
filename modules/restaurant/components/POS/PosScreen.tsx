@@ -615,13 +615,13 @@ const PosScreen = () => {
   const handleUpdateItemNotes = (itemId: string, notes: string) => {
     setActiveOrder(prevOrder => {
       if (!prevOrder) return null;
-      const newItems = prevOrder.items.map((item: any) => {
+      const newItems = prevOrder.items.map((item: Record<string, any>) => {
         if (item.localId === itemId || item.id === itemId) {
           return { ...item, notes: notes };
         }
         return item;
       });
-      return { ...prevOrder, items: newItems };
+      return { ...prevOrder, items: newItems as OrderItem[] };
     });
   };
 

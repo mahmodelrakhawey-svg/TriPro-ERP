@@ -938,7 +938,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           (p.sku && p.sku.toLowerCase().includes(term)) ||
           (p.barcode && p.barcode.toLowerCase().includes(term)) ||
           ((p as any).barcode2 && (p as any).barcode2.toLowerCase().includes(term)) ||
-          (Array.isArray((p as any).unit_barcodes) && (p as any).unit_barcodes.some((ub: any) => ub.barcode && ub.barcode.toLowerCase().includes(term)))
+          (Array.isArray((p as any).unit_barcodes) && (p as any).unit_barcodes.some((ub: Record<string, any>) => ub.barcode && ub.barcode.toLowerCase().includes(term)))
       ).slice(0, 8);
   }, [productSearchTerm, products]);
 

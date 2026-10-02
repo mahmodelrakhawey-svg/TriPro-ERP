@@ -65,7 +65,7 @@ const MultiCurrencyStatement = () => {
       const type = String(account?.type || '').toLowerCase();
       const isDebitNature = ['asset', 'expense', 'أصول', 'مصروفات'].some(t => type.includes(t));
 
-      data?.forEach((line: any) => {
+      data?.forEach((line: Record<string, any>) => {
           const date = line.journal_entry.transaction_date;
           const debit = Number(line.debit);
           const credit = Number(line.credit);

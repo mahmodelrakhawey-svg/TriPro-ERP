@@ -87,7 +87,7 @@ const BankReconciliationForm = () => {
     entries?.forEach(entry => { // إضافة علامة الاستفهام (?) هنا للتحقق من أن entries ليس null أو undefined
         if (entry.status === 'posted') {
             const entryLines = entry.journal_lines || entry.lines || [];
-            entryLines?.forEach((line: any) => { // 🛡️ إضافة حماية هنا أيضاً لأن بعض القيود قد لا تحتوي على مصفوفة lines
+            entryLines?.forEach((line: Record<string, any>) => { // 🛡️ إضافة حماية هنا أيضاً لأن بعض القيود قد لا تحتوي على مصفوفة lines
                 const lineAccountId = line.account_id || line.accountId;
                 // التحقق من الحساب واستبعاد ما تم تسويته سابقاً
                 if (lineAccountId === selectedAccountId && line.id && !allPreviouslyReconciledIds.has(line.id)) {

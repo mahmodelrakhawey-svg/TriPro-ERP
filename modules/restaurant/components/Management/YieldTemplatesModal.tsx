@@ -103,7 +103,7 @@ export const YieldTemplatesModal: React.FC<YieldTemplatesModalProps> = ({
     }));
   };
 
-  const handleItemChange = (index: number, field: keyof ButcheringTemplateItem, value: any) => {
+  const handleItemChange = (index: number, field: keyof ButcheringTemplateItem, value: string | number | boolean | undefined) => {
     setFormData(prev => {
       const newItems = [...(prev.items || [])];
       newItems[index] = { ...newItems[index], [field]: value };

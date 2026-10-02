@@ -1,7 +1,7 @@
-import { useQuery, keepPreviousData } from '@tanstack/react-query';
+﻿import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { supabase } from '../../services/supabaseClient';
 
-// 1. جلب المنتجات
+// 1. Ø¬Ù„Ø¨ Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª
 export const useProducts = () => {
   return useQuery({
     queryKey: ['products'],
@@ -21,14 +21,14 @@ export const useProducts = () => {
       if (error) throw error;
       return data;
     },
-    staleTime: 1000 * 60 * 5, // 5 دقائق
+    staleTime: 1000 * 60 * 5, // 5 Ø¯Ù‚Ø§Ø¦Ù‚
   });
 };
 
-// 2. جلب العملاء (مع دعم البحث في السيرفر)
+// 2. Ø¬Ù„Ø¨ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ (Ù…Ø¹ Ø¯Ø¹Ù… Ø§Ù„Ø¨Ø­Ø« ÙÙŠ Ø§Ù„Ø³ÙŠØ±ÙØ±)
 export const useCustomers = (searchTerm: string = '') => {
   return useQuery({
-    queryKey: ['customers', searchTerm], // إعادة الجلب عند تغيير كلمة البحث
+    queryKey: ['customers', searchTerm], // Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø¬Ù„Ø¨ Ø¹Ù†Ø¯ ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ø¨Ø­Ø«
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       const userOrgId = user?.user_metadata?.org_id;
@@ -54,7 +54,7 @@ export const useCustomers = (searchTerm: string = '') => {
   });
 };
 
-// 5. جلب القيود اليومية مع الترحيل والبحث
+// 5. Ø¬Ù„Ø¨ Ø§Ù„Ù‚ÙŠÙˆØ¯ Ø§Ù„ÙŠÙˆÙ…ÙŠØ© Ù…Ø¹ Ø§Ù„ØªØ±Ø­ÙŠÙ„ ÙˆØ§Ù„Ø¨Ø­Ø«
 export const useJournalEntries = (page: number = 1, pageSize: number = 20, searchTerm: string = '') => {
   return useQuery({
     queryKey: ['journal_entries', page, pageSize, searchTerm],
@@ -87,7 +87,7 @@ export const useJournalEntries = (page: number = 1, pageSize: number = 20, searc
   });
 };
 
-// 7. جلب أعلى المنتجات مبيعاً
+// 7. Ø¬Ù„Ø¨ Ø£Ø¹Ù„Ù‰ Ø§Ù„Ù…Ù†ØªØ¬Ø§Øª Ù…Ø¨ÙŠØ¹Ø§Ù‹
 export const useTopSellingProducts = (limit: number = 5) => {
   return useQuery({
     queryKey: ['top_selling_products', limit],
@@ -101,7 +101,7 @@ export const useTopSellingProducts = (limit: number = 5) => {
         .from('invoice_items')
         .select('product_id, quantity, products(name, sku)')
         .not('product_id', 'is', null)
-        .eq('organization_id', userOrgId); // تصفية مباشرة لضمان عدم تسرب أصناف من شركات أخرى
+        .eq('organization_id', userOrgId); // ØªØµÙÙŠØ© Ù…Ø¨Ø§Ø´Ø±Ø© Ù„Ø¶Ù…Ø§Ù† Ø¹Ø¯Ù… ØªØ³Ø±Ø¨ Ø£ØµÙ†Ø§Ù Ù…Ù† Ø´Ø±ÙƒØ§Øª Ø£Ø®Ø±Ù‰
 
       if (error) throw error;
 
@@ -131,7 +131,7 @@ export const useTopSellingProducts = (limit: number = 5) => {
   });
 };
 
-// 8. جلب أعلى العملاء شراءً
+// 8. Ø¬Ù„Ø¨ Ø£Ø¹Ù„Ù‰ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ Ø´Ø±Ø§Ø¡Ù‹
 export const useTopCustomers = (limit: number = 5) => {
   return useQuery({
     queryKey: ['top_customers', limit],
@@ -174,7 +174,7 @@ export const useTopCustomers = (limit: number = 5) => {
   });
 };
 
-// 9. جلب أوامر الشراء مع الترحيل والبحث
+// 9. Ø¬Ù„Ø¨ Ø£ÙˆØ§Ù…Ø± Ø§Ù„Ø´Ø±Ø§Ø¡ Ù…Ø¹ Ø§Ù„ØªØ±Ø­ÙŠÙ„ ÙˆØ§Ù„Ø¨Ø­Ø«
 export const usePurchaseOrders = (page: number = 1, pageSize: number = 20, searchTerm: string = '') => {
   return useQuery({
     queryKey: ['purchase_orders', page, pageSize, searchTerm],
@@ -207,7 +207,7 @@ export const usePurchaseOrders = (page: number = 1, pageSize: number = 20, searc
   });
 };
 
-// 10. جلب ملخص الفواتير للوحة القيادة (آخر 5)
+// 10. Ø¬Ù„Ø¨ Ù…Ù„Ø®Øµ Ø§Ù„ÙÙˆØ§ØªÙŠØ± Ù„Ù„ÙˆØ­Ø© Ø§Ù„Ù‚ÙŠØ§Ø¯Ø© (Ø¢Ø®Ø± 5)
 export const useRecentInvoices = () => {
   return useQuery({
     queryKey: ['recent_invoices'],
@@ -225,7 +225,7 @@ export const useRecentInvoices = () => {
         .limit(5);
       
       if (error) throw error;
-      return data.map((inv: any) => ({
+      return data.map((inv: Record<string, any>) => ({
         id: inv.id,
         invoiceNumber: inv.invoice_number,
         date: inv.invoice_date,
@@ -238,7 +238,7 @@ export const useRecentInvoices = () => {
   });
 };
 
-// 11. جلب إحصائيات الشهر الحالي
+// 11. Ø¬Ù„Ø¨ Ø¥Ø­ØµØ§Ø¦ÙŠØ§Øª Ø§Ù„Ø´Ù‡Ø± Ø§Ù„Ø­Ø§Ù„ÙŠ
 export const useMonthlyStats = () => {
   return useQuery({
     queryKey: ['monthly_stats'],
@@ -264,7 +264,7 @@ export const useMonthlyStats = () => {
   });
 };
 
-// 4. جلب الفواتير مع الترحيل والبحث
+// 4. Ø¬Ù„Ø¨ Ø§Ù„ÙÙˆØ§ØªÙŠØ± Ù…Ø¹ Ø§Ù„ØªØ±Ø­ÙŠÙ„ ÙˆØ§Ù„Ø¨Ø­Ø«
 export const useInvoices = (page: number = 1, pageSize: number = 20, searchTerm: string = '') => {
   return useQuery({
     queryKey: ['invoices', page, pageSize, searchTerm],
@@ -293,14 +293,14 @@ export const useInvoices = (page: number = 1, pageSize: number = 20, searchTerm:
       if (error) throw error;
       return { data, count };
     },
-    placeholderData: keepPreviousData, // الحفاظ على البيانات السابقة أثناء جلب الصفحة التالية
+    placeholderData: keepPreviousData, // Ø§Ù„Ø­ÙØ§Ø¸ Ø¹Ù„Ù‰ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø³Ø§Ø¨Ù‚Ø© Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ø§Ù„ØµÙØ­Ø© Ø§Ù„ØªØ§Ù„ÙŠØ©
   });
 };
 
-// 3. جلب الموردين (مع دعم البحث في السيرفر)
+// 3. Ø¬Ù„Ø¨ Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ† (Ù…Ø¹ Ø¯Ø¹Ù… Ø§Ù„Ø¨Ø­Ø« ÙÙŠ Ø§Ù„Ø³ÙŠØ±ÙØ±)
 export const useSuppliers = (searchTerm: string = '') => {
   return useQuery({
-    queryKey: ['suppliers', searchTerm], // إعادة الجلب عند تغيير كلمة البحث
+    queryKey: ['suppliers', searchTerm], // Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø¬Ù„Ø¨ Ø¹Ù†Ø¯ ØªØºÙŠÙŠØ± ÙƒÙ„Ù…Ø© Ø§Ù„Ø¨Ø­Ø«
     queryFn: async () => {
       const { data: { user } } = await supabase.auth.getUser();
       const userOrgId = user?.user_metadata?.org_id;
@@ -326,7 +326,7 @@ export const useSuppliers = (searchTerm: string = '') => {
   });
 };
 
-// 6. جلب تنبيهات المخزون المنخفض
+// 6. Ø¬Ù„Ø¨ ØªÙ†Ø¨ÙŠÙ‡Ø§Øª Ø§Ù„Ù…Ø®Ø²ÙˆÙ† Ø§Ù„Ù…Ù†Ø®ÙØ¶
 export const useLowStockProducts = (threshold: number = 5) => {
   return useQuery({
     queryKey: ['low_stock_products', threshold],
@@ -347,6 +347,6 @@ export const useLowStockProducts = (threshold: number = 5) => {
       if (error) throw error;
       return data || [];
     },
-    staleTime: 1000 * 60 * 10, // تحديث كل 10 دقائق
+    staleTime: 1000 * 60 * 10, // ØªØ­Ø¯ÙŠØ« ÙƒÙ„ 10 Ø¯Ù‚Ø§Ø¦Ù‚
   });
 };

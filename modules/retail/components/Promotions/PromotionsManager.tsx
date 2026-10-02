@@ -136,7 +136,7 @@ export default function PromotionsManager() {
 
       // 2. Try save to Supabase with fallback for missing columns
       try {
-        const payload: any = {
+        const payload: Record<string, any> = {
           id: newPromo.id,
           organization_id: orgId,
           name: newPromo.name,

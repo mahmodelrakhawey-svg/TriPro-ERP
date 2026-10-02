@@ -1,10 +1,10 @@
-import { logger } from '../utils/logger';
+﻿import { logger } from '../utils/logger';
 import { jsPDF } from 'jspdf';
 import html2canvas from 'html2canvas';
 
 /**
- * 🛡️ XSS Protection: تحييد الحروف الخاصة في HTML
- * يجب استخدامها على كل البيانات الديناميكية قبل الحقن في innerHTML
+ * ðŸ›¡ï¸ XSS Protection: ØªØ­ÙŠÙŠØ¯ Ø§Ù„Ø­Ø±ÙˆÙ Ø§Ù„Ø®Ø§ØµØ© ÙÙŠ HTML
+ * ÙŠØ¬Ø¨ Ø§Ø³ØªØ®Ø¯Ø§Ù…Ù‡Ø§ Ø¹Ù„Ù‰ ÙƒÙ„ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø¯ÙŠÙ†Ø§Ù…ÙŠÙƒÙŠØ© Ù‚Ø¨Ù„ Ø§Ù„Ø­Ù‚Ù† ÙÙŠ innerHTML
  */
 const escapeHtml = (str: string | null | undefined): string => {
   if (str === null || str === undefined) return '';
@@ -41,33 +41,33 @@ export const LuxuryReportEngine = {
 
     // Translations catalog
     const t = {
-      invoiceTitle: lang === 'ar' ? 'فاتورة علاج ضريبية' : 'Medical Tax Invoice',
-      dischargeTitle: lang === 'ar' ? 'ملخص خروج طبي (Discharge Summary)' : 'Medical Discharge Summary',
-      vatLabel: lang === 'ar' ? 'رقم التسجيل الضريبي للمنشأة:' : 'Hospital VAT No:',
-      patientName: lang === 'ar' ? 'اسم المريض:' : 'Patient Name:',
-      nationalId: lang === 'ar' ? 'الرقم القومي:' : 'National ID / Passport:',
-      bloodType: lang === 'ar' ? 'فصيلة الدم:' : 'Blood Type:',
-      dateLabel: lang === 'ar' ? 'التاريخ:' : 'Date:',
-      dischargeDateLabel: lang === 'ar' ? 'تاريخ الخروج:' : 'Discharge Date:',
-      doctorLabel: lang === 'ar' ? 'الطبيب المعالج:' : 'Attending Doctor:',
-      supervisingDoctorLabel: lang === 'ar' ? 'الطبيب المشرف:' : 'Supervising Doctor:',
-      servicesTitle: lang === 'ar' ? 'تفاصيل الخدمات الطبية والرعاية' : 'Detailed Services & Clinical Care',
-      serviceDesc: lang === 'ar' ? 'وصف الخدمة' : 'Service Description',
-      qty: lang === 'ar' ? 'الكمية' : 'Qty',
-      unitPrice: lang === 'ar' ? 'سعر الوحدة' : 'Unit Price',
-      total: lang === 'ar' ? 'الإجمالي' : 'Total',
-      netPayable: lang === 'ar' ? 'الصافي المستحق للدفع:' : 'Net Payable Amount:',
-      clinicalSummaryTitle: lang === 'ar' ? 'الملخص السريري والتشخيص النهائي' : 'Clinical Summary & Final Diagnosis',
-      finalDiagnosis: lang === 'ar' ? 'التشخيص النهائي (Final Diagnosis):' : 'Final Diagnosis:',
-      clinicalNotes: lang === 'ar' ? 'الملاحظات الطبية (Clinical Notes):' : 'Clinical Notes:',
-      medicationsTitle: lang === 'ar' ? 'الأدوية الموصوفة للمنزل عند الخروج' : 'Discharge Medications',
-      labsTitle: lang === 'ar' ? 'نتائج التحاليل والفحوصات الهامة' : 'Key Lab & Diagnostic Results',
-      recommendationsTitle: lang === 'ar' ? 'توصيات المتابعة والنصائح الطبية' : 'Follow-up Recommendations & Plan',
-      signature: lang === 'ar' ? 'توقيع الطبيب المعالج:' : 'Attending Doctor Signature:',
-      signatureNote: lang === 'ar' ? '(مستند معتمد إلكترونياً ولا يحتاج لختم)' : '(Electronically verified document, no stamp required)',
-      footerLine: lang === 'ar' ? 'هذا المستند معتمد إلكترونياً. امسح الرمز للتأكد من صحة البيانات.' : 'This document is electronically verified. Scan to authenticate.',
-      noDiagnosis: lang === 'ar' ? 'حالة مستقرة - خروج طبي عادي.' : 'Stable condition - normal medical discharge.',
-      noNotes: lang === 'ar' ? 'لا توجد ملاحظات سريرية مسجلة.' : 'No clinical notes recorded.'
+      invoiceTitle: lang === 'ar' ? 'ÙØ§ØªÙˆØ±Ø© Ø¹Ù„Ø§Ø¬ Ø¶Ø±ÙŠØ¨ÙŠØ©' : 'Medical Tax Invoice',
+      dischargeTitle: lang === 'ar' ? 'Ù…Ù„Ø®Øµ Ø®Ø±ÙˆØ¬ Ø·Ø¨ÙŠ (Discharge Summary)' : 'Medical Discharge Summary',
+      vatLabel: lang === 'ar' ? 'Ø±Ù‚Ù… Ø§Ù„ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¶Ø±ÙŠØ¨ÙŠ Ù„Ù„Ù…Ù†Ø´Ø£Ø©:' : 'Hospital VAT No:',
+      patientName: lang === 'ar' ? 'Ø§Ø³Ù… Ø§Ù„Ù…Ø±ÙŠØ¶:' : 'Patient Name:',
+      nationalId: lang === 'ar' ? 'Ø§Ù„Ø±Ù‚Ù… Ø§Ù„Ù‚ÙˆÙ…ÙŠ:' : 'National ID / Passport:',
+      bloodType: lang === 'ar' ? 'ÙØµÙŠÙ„Ø© Ø§Ù„Ø¯Ù…:' : 'Blood Type:',
+      dateLabel: lang === 'ar' ? 'Ø§Ù„ØªØ§Ø±ÙŠØ®:' : 'Date:',
+      dischargeDateLabel: lang === 'ar' ? 'ØªØ§Ø±ÙŠØ® Ø§Ù„Ø®Ø±ÙˆØ¬:' : 'Discharge Date:',
+      doctorLabel: lang === 'ar' ? 'Ø§Ù„Ø·Ø¨ÙŠØ¨ Ø§Ù„Ù…Ø¹Ø§Ù„Ø¬:' : 'Attending Doctor:',
+      supervisingDoctorLabel: lang === 'ar' ? 'Ø§Ù„Ø·Ø¨ÙŠØ¨ Ø§Ù„Ù…Ø´Ø±Ù:' : 'Supervising Doctor:',
+      servicesTitle: lang === 'ar' ? 'ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø®Ø¯Ù…Ø§Øª Ø§Ù„Ø·Ø¨ÙŠØ© ÙˆØ§Ù„Ø±Ø¹Ø§ÙŠØ©' : 'Detailed Services & Clinical Care',
+      serviceDesc: lang === 'ar' ? 'ÙˆØµÙ Ø§Ù„Ø®Ø¯Ù…Ø©' : 'Service Description',
+      qty: lang === 'ar' ? 'Ø§Ù„ÙƒÙ…ÙŠØ©' : 'Qty',
+      unitPrice: lang === 'ar' ? 'Ø³Ø¹Ø± Ø§Ù„ÙˆØ­Ø¯Ø©' : 'Unit Price',
+      total: lang === 'ar' ? 'Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ' : 'Total',
+      netPayable: lang === 'ar' ? 'Ø§Ù„ØµØ§ÙÙŠ Ø§Ù„Ù…Ø³ØªØ­Ù‚ Ù„Ù„Ø¯ÙØ¹:' : 'Net Payable Amount:',
+      clinicalSummaryTitle: lang === 'ar' ? 'Ø§Ù„Ù…Ù„Ø®Øµ Ø§Ù„Ø³Ø±ÙŠØ±ÙŠ ÙˆØ§Ù„ØªØ´Ø®ÙŠØµ Ø§Ù„Ù†Ù‡Ø§Ø¦ÙŠ' : 'Clinical Summary & Final Diagnosis',
+      finalDiagnosis: lang === 'ar' ? 'Ø§Ù„ØªØ´Ø®ÙŠØµ Ø§Ù„Ù†Ù‡Ø§Ø¦ÙŠ (Final Diagnosis):' : 'Final Diagnosis:',
+      clinicalNotes: lang === 'ar' ? 'Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø§Ù„Ø·Ø¨ÙŠØ© (Clinical Notes):' : 'Clinical Notes:',
+      medicationsTitle: lang === 'ar' ? 'Ø§Ù„Ø£Ø¯ÙˆÙŠØ© Ø§Ù„Ù…ÙˆØµÙˆÙØ© Ù„Ù„Ù…Ù†Ø²Ù„ Ø¹Ù†Ø¯ Ø§Ù„Ø®Ø±ÙˆØ¬' : 'Discharge Medications',
+      labsTitle: lang === 'ar' ? 'Ù†ØªØ§Ø¦Ø¬ Ø§Ù„ØªØ­Ø§Ù„ÙŠÙ„ ÙˆØ§Ù„ÙØ­ÙˆØµØ§Øª Ø§Ù„Ù‡Ø§Ù…Ø©' : 'Key Lab & Diagnostic Results',
+      recommendationsTitle: lang === 'ar' ? 'ØªÙˆØµÙŠØ§Øª Ø§Ù„Ù…ØªØ§Ø¨Ø¹Ø© ÙˆØ§Ù„Ù†ØµØ§Ø¦Ø­ Ø§Ù„Ø·Ø¨ÙŠØ©' : 'Follow-up Recommendations & Plan',
+      signature: lang === 'ar' ? 'ØªÙˆÙ‚ÙŠØ¹ Ø§Ù„Ø·Ø¨ÙŠØ¨ Ø§Ù„Ù…Ø¹Ø§Ù„Ø¬:' : 'Attending Doctor Signature:',
+      signatureNote: lang === 'ar' ? '(Ù…Ø³ØªÙ†Ø¯ Ù…Ø¹ØªÙ…Ø¯ Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠØ§Ù‹ ÙˆÙ„Ø§ ÙŠØ­ØªØ§Ø¬ Ù„Ø®ØªÙ…)' : '(Electronically verified document, no stamp required)',
+      footerLine: lang === 'ar' ? 'Ù‡Ø°Ø§ Ø§Ù„Ù…Ø³ØªÙ†Ø¯ Ù…Ø¹ØªÙ…Ø¯ Ø¥Ù„ÙƒØªØ±ÙˆÙ†ÙŠØ§Ù‹. Ø§Ù…Ø³Ø­ Ø§Ù„Ø±Ù…Ø² Ù„Ù„ØªØ£ÙƒØ¯ Ù…Ù† ØµØ­Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª.' : 'This document is electronically verified. Scan to authenticate.',
+      noDiagnosis: lang === 'ar' ? 'Ø­Ø§Ù„Ø© Ù…Ø³ØªÙ‚Ø±Ø© - Ø®Ø±ÙˆØ¬ Ø·Ø¨ÙŠ Ø¹Ø§Ø¯ÙŠ.' : 'Stable condition - normal medical discharge.',
+      noNotes: lang === 'ar' ? 'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù…Ù„Ø§Ø­Ø¸Ø§Øª Ø³Ø±ÙŠØ±ÙŠØ© Ù…Ø³Ø¬Ù„Ø©.' : 'No clinical notes recorded.'
     };
 
     // Inject fonts and luxury stylesheet
@@ -256,8 +256,8 @@ export const LuxuryReportEngine = {
     `;
     printContainer.appendChild(style);
 
-    // 2. Safe variable mapping with robust fallbacks + 🛡️ XSS escaping
-    const patientName = escapeHtml(data.patient?.full_name || data.patient_info?.name || (lang === 'ar' ? 'غير معروف' : 'Unknown'));
+    // 2. Safe variable mapping with robust fallbacks + ðŸ›¡ï¸ XSS escaping
+    const patientName = escapeHtml(data.patient?.full_name || data.patient_info?.name || (lang === 'ar' ? 'ØºÙŠØ± Ù…Ø¹Ø±ÙˆÙ' : 'Unknown'));
     const patientFile = escapeHtml(data.patient?.national_id || data.patient?.id || data.patient_info?.file_no || 'N/A');
     const patientBlood = escapeHtml(data.patient?.blood_type || data.patient_info?.blood || 'N/A');
     
@@ -268,8 +268,8 @@ export const LuxuryReportEngine = {
       day: 'numeric'
     });
     
-    const doctorName = escapeHtml(data.visit?.doctor_name || data.visit_details?.doctor || (lang === 'ar' ? 'غير محدد' : 'Unassigned'));
-    const hospitalName = escapeHtml(data.hospital_info?.name || (lang === 'ar' ? 'مستشفى الرخاوي التخصصي' : 'Al-Rakhawey Hospital'));
+    const doctorName = escapeHtml(data.visit?.doctor_name || data.visit_details?.doctor || (lang === 'ar' ? 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯' : 'Unassigned'));
+    const hospitalName = escapeHtml(data.hospital_info?.name || (lang === 'ar' ? 'Ù…Ø³ØªØ´ÙÙ‰ Ø§Ù„Ø±Ø®Ø§ÙˆÙŠ Ø§Ù„ØªØ®ØµØµÙŠ' : 'Al-Rakhawey Hospital'));
     const hospitalVat = escapeHtml(data.hospital_info?.vat || 'N/A');
 
     // 3. Assemble HTML template based on report type
@@ -326,9 +326,9 @@ export const LuxuryReportEngine = {
       `;
     } else if (type === 'discharge') {
       const notes = data.clinical_notes?.map((cn: Record<string, any>) => cn.assessment).filter(Boolean).join('\n') || t.noNotes;
-      const recommendations = data.clinical_notes?.map((cn: any) => cn.plan).filter(Boolean).join('\n') 
+      const recommendations = data.clinical_notes?.map((cn: Record<string, any>) => cn.plan).filter(Boolean).join('\n') 
         || data.visit?.plan 
-        || (lang === 'ar' ? 'يرجى مراجعة الطبيب المعالج بعد أسبوعين أو عند الضرورة.' : 'Please follow up with the attending doctor in two weeks or as necessary.');
+        || (lang === 'ar' ? 'ÙŠØ±Ø¬Ù‰ Ù…Ø±Ø§Ø¬Ø¹Ø© Ø§Ù„Ø·Ø¨ÙŠØ¨ Ø§Ù„Ù…Ø¹Ø§Ù„Ø¬ Ø¨Ø¹Ø¯ Ø£Ø³Ø¨ÙˆØ¹ÙŠÙ† Ø£Ùˆ Ø¹Ù†Ø¯ Ø§Ù„Ø¶Ø±ÙˆØ±Ø©.' : 'Please follow up with the attending doctor in two weeks or as necessary.');
 
       mainContent = `
         <div class="luxury-header">
@@ -366,7 +366,7 @@ export const LuxuryReportEngine = {
             ${data.medications.map((med: Record<string, any>) => `
               <li class="list-item">
                 <strong>${escapeHtml(med.drug_name)}</strong> 
-                ${med.qty ? ` - ${lang === 'ar' ? 'الكمية: ' + Number(med.qty) : 'Qty: ' + Number(med.qty)}` : ''}
+                ${med.qty ? ` - ${lang === 'ar' ? 'Ø§Ù„ÙƒÙ…ÙŠØ©: ' + Number(med.qty) : 'Qty: ' + Number(med.qty)}` : ''}
                 ${med.dosage ? ` | ${escapeHtml(med.dosage)}` : ''} 
                 ${med.frequency ? ` (${escapeHtml(med.frequency)})` : ''}
               </li>
@@ -402,7 +402,7 @@ export const LuxuryReportEngine = {
         ${visitId ? `
           <div class="qr-code-block" style="text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px;">
             <img src="${qrImgSrc}" alt="QR verification" style="width: 80px; height: 80px; object-fit: contain;" />
-            <div style="font-size: 9px; color: #64748b; font-weight: bold; margin-top: 2px;">مسح للتحقق والصرف 📱</div>
+            <div style="font-size: 9px; color: #64748b; font-weight: bold; margin-top: 2px;">Ù…Ø³Ø­ Ù„Ù„ØªØ­Ù‚Ù‚ ÙˆØ§Ù„ØµØ±Ù ðŸ“±</div>
           </div>
         ` : ''}
         <div class="security-badge">
@@ -452,7 +452,7 @@ export const LuxuryReportEngine = {
       logger.error('LuxuryReportEngine: Error generating PDF', error);
       throw error;
     } finally {
-      // 6. Clean up the DOM — مع التأكد من وجود العنصر لمنع الأخطاء
+      // 6. Clean up the DOM â€” Ù…Ø¹ Ø§Ù„ØªØ£ÙƒØ¯ Ù…Ù† ÙˆØ¬ÙˆØ¯ Ø§Ù„Ø¹Ù†ØµØ± Ù„Ù…Ù†Ø¹ Ø§Ù„Ø£Ø®Ø·Ø§Ø¡
       if (document.body.contains(printContainer)) {
         document.body.removeChild(printContainer);
       }

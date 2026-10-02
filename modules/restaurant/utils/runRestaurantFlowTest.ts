@@ -160,7 +160,7 @@ export const runRestaurantModuleTest = async () => {
 
     // Get created modifiers
     const middleModifier = (insertedSizes || []).find((m: Record<string, any>) => m.name === 'وسط') || { id: 'temp-mid-id' };
-    const cheeseModifier = (insertedToppings || []).find((m: any) => m.name === 'جبنة إضافية') || { id: 'temp-cheese-id' };
+    const cheeseModifier = (insertedToppings || []).find((m: Record<string, any>) => m.name === 'جبنة إضافية') || { id: 'temp-cheese-id' };
 
     const itemsToSend = [{
       productId: product.id,

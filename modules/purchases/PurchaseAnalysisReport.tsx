@@ -91,7 +91,7 @@ export default function PurchaseAnalysisReport() {
       const itemMap: Record<string, ItemAnalysis> = {};
       const processedOrders = new Set<string>();
 
-      data?.forEach((item: any) => {
+      data?.forEach((item: Record<string, any>) => {
         if (!item.purchase_invoices || !item.products) return;
 
         const supplierId = item.purchase_invoices.supplier_id;

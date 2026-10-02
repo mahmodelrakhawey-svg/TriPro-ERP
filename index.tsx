@@ -12,7 +12,7 @@ if (process.env.NODE_ENV === 'production') {
 }
 
 // مكون صائد الأخطاء (Error Boundary) لمنع الشاشة البيضاء
-class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: any}> {
+class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasError: boolean, error: Error | null}> {
   constructor(props: {children: React.ReactNode}) {
     super(props);
     this.state = { hasError: false, error: null };

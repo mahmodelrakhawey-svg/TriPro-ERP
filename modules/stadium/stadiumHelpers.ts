@@ -25,7 +25,7 @@ import { DEFAULT_STADIUM_ACCOUNTING } from './stadium.types';
  * يُعيد organization_id من المستخدم الحالي بأمان.
  * يُرجع null إذا لم يكن المستخدم مسجلاً أو لا ينتمي لمنظمة.
  */
-export function getStadiumOrgId(currentUser: any): string | null {
+export function getStadiumOrgId(currentUser: Record<string, any> | null | undefined): string | null {
   if (!currentUser) return null;
   return currentUser.organization_id || null;
 }
@@ -123,7 +123,7 @@ export async function checkBookingConflict(
   const newStart = startTime;
   const newEnd = endTime;
 
-  return existing.some((booking: any) => {
+  return existing.some((booking: Record<string, any>) => {
     const existStart = booking.start_time;
     const existEnd = booking.end_time;
     // تعارض إذا بدأ الجديد قبل نهاية الموجود وانتهى بعد بداية الموجود

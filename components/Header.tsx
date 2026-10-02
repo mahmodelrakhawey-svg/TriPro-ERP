@@ -1,4 +1,4 @@
-import { logger } from '../utils/logger';
+﻿import { logger } from '../utils/logger';
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
@@ -28,7 +28,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
     const [notificationCenterOpen, setNotificationCenterOpen] = useState(false);
     const { unreadCount, refreshNotifications } = useNotifications();
 
-    // حالة إظهار/إخفاء شريط تبويبات الشاشات المفتوحة
+    // Ø­Ø§Ù„Ø© Ø¥Ø¸Ù‡Ø§Ø±/Ø¥Ø®ÙØ§Ø¡ Ø´Ø±ÙŠØ· ØªØ¨ÙˆÙŠØ¨Ø§Øª Ø§Ù„Ø´Ø§Ø´Ø§Øª Ø§Ù„Ù…ÙØªÙˆØ­Ø©
     const [showTabsBar, setShowTabsBar] = useState<boolean>(() => {
         try {
             const saved = secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled');
@@ -39,8 +39,8 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
     });
 
     useEffect(() => {
-        const handleTabsToggle = (e: any) => {
-            const val = e.detail !== undefined ? e.detail : (secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled') !== false);
+        const handleTabsToggle = (e: Event) => {
+            const val = (e as CustomEvent).detail !== undefined ? (e as CustomEvent).detail : (secureStorage.getItem<boolean>('tripro_workspace_tabs_enabled') !== false);
             setShowTabsBar(val);
         };
         window.addEventListener('workspace-tabs-visibility-changed', handleTabsToggle);
@@ -76,7 +76,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
                 setCurrentUser(profile);
             }
           } catch (e) {
-            if (process.env.NODE_ENV === 'development') logger.error(`فشل تحميل بيانات المستخدم: ${e.message}`);
+            if (process.env.NODE_ENV === 'development') logger.error(`ÙØ´Ù„ ØªØ­Ù…ÙŠÙ„ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…: ${e.message}`);
           }
         };
         fetchUserData();
@@ -84,7 +84,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
 
     const handleReturnToAdmin = async () => {
         const originalOrgId = secureStorage.getItem('admin_original_org_id');
-        // إذا لم توجد قيمة، نمسح المفتاح ونغلق المهمة
+        // Ø¥Ø°Ø§ Ù„Ù… ØªÙˆØ¬Ø¯ Ù‚ÙŠÙ…Ø©ØŒ Ù†Ù…Ø³Ø­ Ø§Ù„Ù…ÙØªØ§Ø­ ÙˆÙ†ØºÙ„Ù‚ Ø§Ù„Ù…Ù‡Ù…Ø©
         if (!originalOrgId) {
             secureStorage.removeItem('admin_original_org_id');
             return;
@@ -95,19 +95,19 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
             const { data: { user } } = await supabase.auth.getUser();
             if (!user) return;
 
-            // إذا كانت القيمة 'main' تعني العودة للوضع بدون شركة (Super Admin)
+            // Ø¥Ø°Ø§ ÙƒØ§Ù†Øª Ø§Ù„Ù‚ÙŠÙ…Ø© 'main' ØªØ¹Ù†ÙŠ Ø§Ù„Ø¹ÙˆØ¯Ø© Ù„Ù„ÙˆØ¶Ø¹ Ø¨Ø¯ÙˆÙ† Ø´Ø±ÙƒØ© (Super Admin)
             let targetOrgId = originalOrgId === 'main' ? null : originalOrgId;
 
-            // 1. العودة للمنظمة الأصلية في قاعدة البيانات
+            // 1. Ø§Ù„Ø¹ÙˆØ¯Ø© Ù„Ù„Ù…Ù†Ø¸Ù…Ø© Ø§Ù„Ø£ØµÙ„ÙŠØ© ÙÙŠ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
             const { error: updateError } = await supabase
                 .from('profiles')
                 .update({ organization_id: targetOrgId })
                 .eq('id', user.id);
 
-            // 🛡️ إذا فشل التحديث بسبب حذف الشركة (خطأ المفتاح الأجنبي 23503)
+            // ðŸ›¡ï¸ Ø¥Ø°Ø§ ÙØ´Ù„ Ø§Ù„ØªØ­Ø¯ÙŠØ« Ø¨Ø³Ø¨Ø¨ Ø­Ø°Ù Ø§Ù„Ø´Ø±ÙƒØ© (Ø®Ø·Ø£ Ø§Ù„Ù…ÙØªØ§Ø­ Ø§Ù„Ø£Ø¬Ù†Ø¨ÙŠ 23503)
             if (updateError) {
                 if (updateError.code === '23503') {
-                    targetOrgId = null; // العودة للوضع الحر
+                    targetOrgId = null; // Ø§Ù„Ø¹ÙˆØ¯Ø© Ù„Ù„ÙˆØ¶Ø¹ Ø§Ù„Ø­Ø±
                     await supabase
                         .from('profiles')
                         .update({ organization_id: null })
@@ -117,16 +117,16 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
                 }
             }
 
-            // 2. تحديث الـ Metadata لضمان تحديث الـ Token (JWT)
+            // 2. ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù€ Metadata Ù„Ø¶Ù…Ø§Ù† ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù€ Token (JWT)
             await supabase.auth.updateUser({
                 data: { ...user.user_metadata, org_id: targetOrgId }
             });
 
             secureStorage.removeItem('admin_original_org_id');
-            window.location.reload(); // إعادة تحميل النظام بالهوية الأصلية
+            window.location.reload(); // Ø¥Ø¹Ø§Ø¯Ø© ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù†Ø¸Ø§Ù… Ø¨Ø§Ù„Ù‡ÙˆÙŠØ© Ø§Ù„Ø£ØµÙ„ÙŠØ©
         } catch (error) {
             logger.error("Error returning to admin:", error);
-            // 🛡️ صمام أمان: إذا فشلت العودة لأي سبب (مثل حذف الشركة)، نمسح المفتاح لفك تعليق المستخدم
+            // ðŸ›¡ï¸ ØµÙ…Ø§Ù… Ø£Ù…Ø§Ù†: Ø¥Ø°Ø§ ÙØ´Ù„Øª Ø§Ù„Ø¹ÙˆØ¯Ø© Ù„Ø£ÙŠ Ø³Ø¨Ø¨ (Ù…Ø«Ù„ Ø­Ø°Ù Ø§Ù„Ø´Ø±ÙƒØ©)ØŒ Ù†Ù…Ø³Ø­ Ø§Ù„Ù…ÙØªØ§Ø­ Ù„ÙÙƒ ØªØ¹Ù„ÙŠÙ‚ Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…
             if (secureStorage.getItem('admin_original_org_id')) {
                 secureStorage.removeItem('admin_original_org_id');
                 window.location.reload();
@@ -136,7 +136,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
         }
     };
 
-    // --- تحسين الديمو: تفعيل الجولة التعريفية ---
+    // --- ØªØ­Ø³ÙŠÙ† Ø§Ù„Ø¯ÙŠÙ…Ùˆ: ØªÙØ¹ÙŠÙ„ Ø§Ù„Ø¬ÙˆÙ„Ø© Ø§Ù„ØªØ¹Ø±ÙŠÙÙŠØ© ---
     useEffect(() => {
         if (currentUser?.role === 'demo') {
             const tourSeen = secureStorage.getItem('demo_tour_seen');
@@ -164,13 +164,13 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
         };
     }, [userMenuRef]);
     
-    // عداد تنازلي للديمو
+    // Ø¹Ø¯Ø§Ø¯ ØªÙ†Ø§Ø²Ù„ÙŠ Ù„Ù„Ø¯ÙŠÙ…Ùˆ
     useEffect(() => {
         if (currentUser?.role === 'demo') {
             const calculateTimeLeft = () => {
                 const now = new Date();
                 const nextReset = new Date();
-                nextReset.setHours(24, 0, 0, 0); // منتصف الليل القادم
+                nextReset.setHours(24, 0, 0, 0); // Ù…Ù†ØªØµÙ Ø§Ù„Ù„ÙŠÙ„ Ø§Ù„Ù‚Ø§Ø¯Ù…
                 
                 const diff = nextReset.getTime() - now.getTime();
                 
@@ -196,7 +196,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
                         type="button"
                         onClick={onToggleMobileSidebar}
                         className="p-2 -mr-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl lg:hidden focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-                        title="فتح القائمة الجانبية"
+                        title="ÙØªØ­ Ø§Ù„Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø¬Ø§Ù†Ø¨ÙŠØ©"
                     >
                         <Menu size={22} />
                     </button>
@@ -218,44 +218,44 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
                         className="flex items-center gap-2 bg-rose-600 text-white px-4 py-2 rounded-xl font-black text-sm hover:bg-rose-700 transition-all shadow-lg shadow-rose-200 animate-pulse"
                     >
                         {isReturning ? <Loader2 size={18} className="animate-spin" /> : <ArrowLeftCircle size={18} />}
-                        <span>العودة للنظام الرئيسي</span>
+                        <span>Ø§Ù„Ø¹ÙˆØ¯Ø© Ù„Ù„Ù†Ø¸Ø§Ù… Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ</span>
                     </button>
                 )}
 
                 {currentUser?.role === 'demo' && (
                     <>
-                        <div className="hidden lg:flex items-center gap-2 bg-amber-100 text-amber-800 px-3 py-2 rounded-lg text-xs font-bold border border-amber-200 shadow-sm" title="سيتم مسح البيانات تلقائياً عند انتهاء العداد">
+                        <div className="hidden lg:flex items-center gap-2 bg-amber-100 text-amber-800 px-3 py-2 rounded-lg text-xs font-bold border border-amber-200 shadow-sm" title="Ø³ÙŠØªÙ… Ù…Ø³Ø­ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¹Ù†Ø¯ Ø§Ù†ØªÙ‡Ø§Ø¡ Ø§Ù„Ø¹Ø¯Ø§Ø¯">
                             <Clock size={14} />
-                            <span>إعادة الضبط: {timeLeft}</span>
+                            <span>Ø¥Ø¹Ø§Ø¯Ø© Ø§Ù„Ø¶Ø¨Ø·: {timeLeft}</span>
                         </div>
                         <a 
-                            href="https://wa.me/201008495405?text=مرحباً، أرغب في شراء النسخة الكاملة من برنامج TriPro ERP"
+                            href="https://wa.me/201008495405?text=Ù…Ø±Ø­Ø¨Ø§Ù‹ØŒ Ø£Ø±ØºØ¨ ÙÙŠ Ø´Ø±Ø§Ø¡ Ø§Ù„Ù†Ø³Ø®Ø© Ø§Ù„ÙƒØ§Ù…Ù„Ø© Ù…Ù† Ø¨Ø±Ù†Ø§Ù…Ø¬ TriPro ERP"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="hidden md:flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors shadow-sm"
                         >
                             <ShoppingCart size={18} />
-                            <span>شراء النسخة الكاملة</span>
+                            <span>Ø´Ø±Ø§Ø¡ Ø§Ù„Ù†Ø³Ø®Ø© Ø§Ù„ÙƒØ§Ù…Ù„Ø©</span>
                         </a>
                         <a 
-                            href="https://wa.me/201008495405?text=مرحباً، أود الاستفسار عن برنامج TriPro ERP"
+                            href="https://wa.me/201008495405?text=Ù…Ø±Ø­Ø¨Ø§Ù‹ØŒ Ø£ÙˆØ¯ Ø§Ù„Ø§Ø³ØªÙØ³Ø§Ø± Ø¹Ù† Ø¨Ø±Ù†Ø§Ù…Ø¬ TriPro ERP"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="hidden md:flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-green-700 transition-colors shadow-sm"
                         >
                             <MessageCircle size={18} />
-                            <span>تواصل معنا</span>
+                            <span>ØªÙˆØ§ØµÙ„ Ù…Ø¹Ù†Ø§</span>
                         </a>
                     </>
                 )}
 
-                {/* 📅 محدد ومؤشر السنة المالية النشطة */}
+                {/* ðŸ“… Ù…Ø­Ø¯Ø¯ ÙˆÙ…Ø¤Ø´Ø± Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø§Ù„ÙŠØ© Ø§Ù„Ù†Ø´Ø·Ø© */}
                 <div 
                   className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-xl transition-all shadow-sm"
-                  title={`السنة المالية المحددة في النظام: ${selectedFiscalYear}`}
+                  title={`Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø§Ù„ÙŠØ© Ø§Ù„Ù…Ø­Ø¯Ø¯Ø© ÙÙŠ Ø§Ù„Ù†Ø¸Ø§Ù…: ${selectedFiscalYear}`}
                 >
                     <Calendar size={15} className="text-blue-600 shrink-0" />
-                    <span className="text-xs font-bold text-slate-500 hidden sm:inline">السنة:</span>
+                    <span className="text-xs font-bold text-slate-500 hidden sm:inline">Ø§Ù„Ø³Ù†Ø©:</span>
                     <select 
                       value={selectedFiscalYear}
                       onChange={(e) => {
@@ -267,41 +267,41 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
                     >
                       {[2029, 2028, 2027, 2026, 2025, 2024, 2023].map(y => (
                         <option key={y} value={y}>
-                          {y} {settings?.lastClosedYear && y <= settings.lastClosedYear ? '(مغلقة 🔒)' : '(نشطة 🟢)'}
+                          {y} {settings?.lastClosedYear && y <= settings.lastClosedYear ? '(Ù…ØºÙ„Ù‚Ø© ðŸ”’)' : '(Ù†Ø´Ø·Ø© ðŸŸ¢)'}
                         </option>
                       ))}
                     </select>
                     <span 
                       className={`w-2 h-2 rounded-full ${settings?.lastClosedYear && selectedFiscalYear <= settings.lastClosedYear ? 'bg-amber-500' : 'bg-emerald-500 ring-2 ring-emerald-200 animate-pulse'}`}
-                      title={settings?.lastClosedYear && selectedFiscalYear <= settings.lastClosedYear ? 'سنة مغلقة محاسبياً' : 'سنة مالية نشطة ومفتوحة للتسجيل'}
+                      title={settings?.lastClosedYear && selectedFiscalYear <= settings.lastClosedYear ? 'Ø³Ù†Ø© Ù…ØºÙ„Ù‚Ø© Ù…Ø­Ø§Ø³Ø¨ÙŠØ§Ù‹' : 'Ø³Ù†Ø© Ù…Ø§Ù„ÙŠØ© Ù†Ø´Ø·Ø© ÙˆÙ…ÙØªÙˆØ­Ø© Ù„Ù„ØªØ³Ø¬ÙŠÙ„'}
                     ></span>
                 </div>
 
                 <div className="flex items-center gap-3 text-sm text-slate-500">
-                    <div className="flex items-center gap-2 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => refreshData()} title="تحديث البيانات">
+                    <div className="flex items-center gap-2 cursor-pointer hover:text-amber-600 transition-colors" onClick={() => refreshData()} title="ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª">
                         {isLoading ? (
                             <Loader2 size={14} className="animate-spin text-blue-600" />
                         ) : (
                             <RefreshCw size={14} />
                         )}
                         <span>
-                            آخر تحديث: {lastUpdated ? lastUpdated.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '...'}
+                            Ø¢Ø®Ø± ØªØ­Ø¯ÙŠØ«: {lastUpdated ? lastUpdated.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '...'}
                         </span>
                     </div>
                     <button 
                         onClick={() => {
-                            if (window.confirm('هل أنت متأكد من مسح التخزين المؤقت (Cache) وإعادة تحميل البيانات بالكامل من الخادم؟')) {
+                            if (window.confirm('Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ù…Ø³Ø­ Ø§Ù„ØªØ®Ø²ÙŠÙ† Ø§Ù„Ù…Ø¤Ù‚Øª (Cache) ÙˆØ¥Ø¹Ø§Ø¯Ø© ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø¨Ø§Ù„ÙƒØ§Ù…Ù„ Ù…Ù† Ø§Ù„Ø®Ø§Ø¯Ù…ØŸ')) {
                                 clearCache();
                             }
                         }}
                         className="text-slate-400 hover:text-red-500 transition-colors p-1" 
-                        title="مسح الكاش وإعادة التحميل بالكامل"
+                        title="Ù…Ø³Ø­ Ø§Ù„ÙƒØ§Ø´ ÙˆØ¥Ø¹Ø§Ø¯Ø© Ø§Ù„ØªØ­Ù…ÙŠÙ„ Ø¨Ø§Ù„ÙƒØ§Ù…Ù„"
                     >
                         <Trash2 size={14} />
                     </button>
                 </div>
 
-                {/* زر إظهار / إخفاء شريط تبويبات الشاشات المفتوحة */}
+                {/* Ø²Ø± Ø¥Ø¸Ù‡Ø§Ø± / Ø¥Ø®ÙØ§Ø¡ Ø´Ø±ÙŠØ· ØªØ¨ÙˆÙŠØ¨Ø§Øª Ø§Ù„Ø´Ø§Ø´Ø§Øª Ø§Ù„Ù…ÙØªÙˆØ­Ø© */}
                 <button
                     type="button"
                     onClick={toggleTabsBar}
@@ -310,22 +310,22 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 hover:border-emerald-400' 
                             : 'bg-slate-50 text-slate-400 border-slate-200 hover:bg-slate-100 hover:text-slate-600'
                     }`}
-                    title={showTabsBar ? "شريط التبويبات مفعّل (انقر للإخفاء)" : "شريط التبويبات معطّل (انقر للتفعيل)"}
+                    title={showTabsBar ? "Ø´Ø±ÙŠØ· Ø§Ù„ØªØ¨ÙˆÙŠØ¨Ø§Øª Ù…ÙØ¹Ù‘Ù„ (Ø§Ù†Ù‚Ø± Ù„Ù„Ø¥Ø®ÙØ§Ø¡)" : "Ø´Ø±ÙŠØ· Ø§Ù„ØªØ¨ÙˆÙŠØ¨Ø§Øª Ù…Ø¹Ø·Ù‘Ù„ (Ø§Ù†Ù‚Ø± Ù„Ù„ØªÙØ¹ÙŠÙ„)"}
                 >
                     <Layers size={15} className={showTabsBar ? "text-emerald-600" : "text-slate-400"} />
-                    <span className="hidden md:inline">{showTabsBar ? "شريط التبويبات" : "التبويبات معطلة"}</span>
+                    <span className="hidden md:inline">{showTabsBar ? "Ø´Ø±ÙŠØ· Ø§Ù„ØªØ¨ÙˆÙŠØ¨Ø§Øª" : "Ø§Ù„ØªØ¨ÙˆÙŠØ¨Ø§Øª Ù…Ø¹Ø·Ù„Ø©"}</span>
                 </button>
 
-                {/* 📱 زر وضع الموبايل الميداني (PWA Mobile Companion) - يظهر فقط لمن لديه الصلاحية */}
+                {/* ðŸ“± Ø²Ø± ÙˆØ¶Ø¹ Ø§Ù„Ù…ÙˆØ¨Ø§ÙŠÙ„ Ø§Ù„Ù…ÙŠØ¯Ø§Ù†ÙŠ (PWA Mobile Companion) - ÙŠØ¸Ù‡Ø± ÙÙ‚Ø· Ù„Ù…Ù† Ù„Ø¯ÙŠÙ‡ Ø§Ù„ØµÙ„Ø§Ø­ÙŠØ© */}
                 {can('mobile', 'view') && (
                     <button
                         type="button"
                         onClick={() => navigate('/mobile')}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-bold transition-all shadow-xs"
-                        title="فتح تطبيق الموبايل الميداني (ماسح الباركود بالكاميرا، فواتير المندوب، ولوحة تحكم المدير)"
+                        title="ÙØªØ­ ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„Ù…ÙˆØ¨Ø§ÙŠÙ„ Ø§Ù„Ù…ÙŠØ¯Ø§Ù†ÙŠ (Ù…Ø§Ø³Ø­ Ø§Ù„Ø¨Ø§Ø±ÙƒÙˆØ¯ Ø¨Ø§Ù„ÙƒØ§Ù…ÙŠØ±Ø§ØŒ ÙÙˆØ§ØªÙŠØ± Ø§Ù„Ù…Ù†Ø¯ÙˆØ¨ØŒ ÙˆÙ„ÙˆØ­Ø© ØªØ­ÙƒÙ… Ø§Ù„Ù…Ø¯ÙŠØ±)"
                     >
                         <Smartphone size={15} className="text-indigo-600" />
-                        <span className="hidden sm:inline">تطبيق الموبايل</span>
+                        <span className="hidden sm:inline">ØªØ·Ø¨ÙŠÙ‚ Ø§Ù„Ù…ÙˆØ¨Ø§ÙŠÙ„</span>
                     </button>
                 )}
 
@@ -334,7 +334,7 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
                     <button 
                         onClick={() => setNotificationCenterOpen(true)}
                         className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors"
-                        title="الإخطارات الذكية"
+                        title="Ø§Ù„Ø¥Ø®Ø·Ø§Ø±Ø§Øª Ø§Ù„Ø°ÙƒÙŠØ©"
                     >
                         <Bell size={20} />
                         {unreadCount > 0 && (
@@ -370,19 +370,19 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
                             <div className="p-1">
                                 <Link to="/profile" onClick={() => setIsUserMenuOpen(false)} className="w-full text-right flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded-lg">
                                     <UserCircle size={16} />
-                                    <span>ملفي الشخصي</span>
+                                    <span>Ù…Ù„ÙÙŠ Ø§Ù„Ø´Ø®ØµÙŠ</span>
                                 </Link>
                                 <Link to="/settings" onClick={() => setIsUserMenuOpen(false)} className="w-full text-right flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded-lg">
                                     <Settings size={16} />
-                                    <span>الإعدادات</span>
+                                    <span>Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª</span>
                                 </Link>
                                 <Link to="/about" onClick={() => setIsUserMenuOpen(false)} className="w-full text-right flex items-center gap-3 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 rounded-lg">
                                     <Info size={16} />
-                                    <span>حول البرنامج</span>
+                                    <span>Ø­ÙˆÙ„ Ø§Ù„Ø¨Ø±Ù†Ø§Ù…Ø¬</span>
                                 </Link>
                                 <button onClick={logout} className="w-full text-right flex items-center gap-3 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg">
                                     <LogOut size={16} />
-                                    <span>تسجيل الخروج</span>
+                                    <span>ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø®Ø±ÙˆØ¬</span>
                                 </button>
                             </div>
                         </div>

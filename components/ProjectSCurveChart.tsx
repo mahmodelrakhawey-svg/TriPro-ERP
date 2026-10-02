@@ -62,7 +62,7 @@ const ProjectSCurveChart: React.FC<Props> = ({ projectId }) => {
     return (
       <div className="flex flex-col items-center justify-center h-64 bg-slate-50 rounded-xl border border-dashed border-slate-300">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
-        <p className="text-slate-500 font-medium">جاري تحليل منحنيات الأداء...</p>
+        <p className="text-slate-500 font-medium">Ø¬Ø§Ø±ÙŠ ØªØ­Ù„ÙŠÙ„ Ù…Ù†Ø­Ù†ÙŠØ§Øª Ø§Ù„Ø£Ø¯Ø§Ø¡...</p>
       </div>
     );
   }
@@ -70,7 +70,7 @@ const ProjectSCurveChart: React.FC<Props> = ({ projectId }) => {
   if (error) {
     return (
       <div className="p-4 bg-red-50 text-red-600 rounded-lg border border-red-200">
-        خطأ في تحميل البيانات: {error}
+        Ø®Ø·Ø£ ÙÙŠ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª: {error}
       </div>
     );
   }
@@ -79,7 +79,7 @@ const ProjectSCurveChart: React.FC<Props> = ({ projectId }) => {
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
       <div className="flex items-center gap-2 mb-6">
         <TrendingUp className="w-5 h-5 text-blue-600" />
-        <h3 className="text-lg font-bold text-slate-800">تحليل منحنى S-Curve</h3>
+        <h3 className="text-lg font-bold text-slate-800">ØªØ­Ù„ÙŠÙ„ Ù…Ù†Ø­Ù†Ù‰ S-Curve</h3>
         {healthScore !== null && (
           <div 
             className={`
@@ -89,7 +89,7 @@ const ProjectSCurveChart: React.FC<Props> = ({ projectId }) => {
                 'bg-red-100 text-red-700'}
             `}
           >
-            صحة المشروع: {healthScore}%
+            ØµØ­Ø© Ø§Ù„Ù…Ø´Ø±ÙˆØ¹: {healthScore}%
           </div>
         )}
       </div>
@@ -113,17 +113,17 @@ const ProjectSCurveChart: React.FC<Props> = ({ projectId }) => {
             />
             <Tooltip 
               contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }}
-              formatter={(value: any) => [Number(value || 0).toLocaleString(), '']}
+              formatter={(value: number | string | undefined) => [Number(value || 0).toLocaleString(), '']}
             />
             <Legend verticalAlign="top" align="right" height={36} iconType="circle" />
             
-            <Line type="monotone" dataKey="cumulative_planned" name="المخطط (PV)" stroke="#3b82f6" strokeWidth={3} dot={false} />
-            <Line type="monotone" dataKey="cumulative_earned" name="المكتسب (EV)" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} />
-            <Line type="monotone" dataKey="cumulative_actual" name="الفعلي (AC)" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" />
+            <Line type="monotone" dataKey="cumulative_planned" name="Ø§Ù„Ù…Ø®Ø·Ø· (PV)" stroke="#3b82f6" strokeWidth={3} dot={false} />
+            <Line type="monotone" dataKey="cumulative_earned" name="Ø§Ù„Ù…ÙƒØªØ³Ø¨ (EV)" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} />
+            <Line type="monotone" dataKey="cumulative_actual" name="Ø§Ù„ÙØ¹Ù„ÙŠ (AC)" stroke="#ef4444" strokeWidth={2} strokeDasharray="5 5" />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <p className="mt-4 text-xs text-slate-400 text-center italic">توضح الرسوم البيانية التراكمية مدى الالتزام بالميزانية والجدول الزمني للمشروع</p>
+      <p className="mt-4 text-xs text-slate-400 text-center italic">ØªÙˆØ¶Ø­ Ø§Ù„Ø±Ø³ÙˆÙ… Ø§Ù„Ø¨ÙŠØ§Ù†ÙŠØ© Ø§Ù„ØªØ±Ø§ÙƒÙ…ÙŠØ© Ù…Ø¯Ù‰ Ø§Ù„Ø§Ù„ØªØ²Ø§Ù… Ø¨Ø§Ù„Ù…ÙŠØ²Ø§Ù†ÙŠØ© ÙˆØ§Ù„Ø¬Ø¯ÙˆÙ„ Ø§Ù„Ø²Ù…Ù†ÙŠ Ù„Ù„Ù…Ø´Ø±ÙˆØ¹</p>
     </div>
   );
 };

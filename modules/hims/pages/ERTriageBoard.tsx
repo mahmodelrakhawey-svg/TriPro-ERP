@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+﻿import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Table, Tag, Badge, Typography, Row, Col, Progress, Empty } from 'antd';
 import { AlertOutlined, ClockCircleOutlined, UserOutlined, WarningOutlined } from '@ant-design/icons';
@@ -24,17 +24,17 @@ export const ERTriageBoard: React.FC = () => {
   useEffect(() => {
     if (currentUser?.organization_id) {
       fetchERQueue();
-      const interval = setInterval(fetchERQueue, 10000); // تحديث كل 10 ثواني
+      const interval = setInterval(fetchERQueue, 10000); // ØªØ­Ø¯ÙŠØ« ÙƒÙ„ 10 Ø«ÙˆØ§Ù†ÙŠ
       return () => clearInterval(interval);
     }
   }, [currentUser?.organization_id]);
 
   const getTriageTag = (level: string) => {
-    const config: any = {
-      level_1_resuscitation: { color: '#f5222d', label: 'إنعاش فوري 🔴' },
-      level_2_emergent: { color: '#fa8c16', label: 'طارئ جداً 🟠' },
-      level_3_urgent: { color: '#fadb14', label: 'عاجل 🟡' },
-      level_5_non_urgent: { color: '#52c41a', label: 'مستقر 🟢' }
+    const config: Record<string, Record<string, any>> = {
+      level_1_resuscitation: { color: '#f5222d', label: 'Ø¥Ù†Ø¹Ø§Ø´ ÙÙˆØ±ÙŠ ðŸ”´' },
+      level_2_emergent: { color: '#fa8c16', label: 'Ø·Ø§Ø±Ø¦ Ø¬Ø¯Ø§Ù‹ ðŸŸ ' },
+      level_3_urgent: { color: '#fadb14', label: 'Ø¹Ø§Ø¬Ù„ ðŸŸ¡' },
+      level_5_non_urgent: { color: '#52c41a', label: 'Ù…Ø³ØªÙ‚Ø± ðŸŸ¢' }
     };
     return <Tag color={config[level]?.color} className="font-bold">{config[level]?.label || level}</Tag>;
   };
@@ -42,11 +42,11 @@ export const ERTriageBoard: React.FC = () => {
   const getWaitingTime = (checkInTime: string) => {
     const diffInMinutes = dayjs().diff(dayjs(checkInTime), 'minute');
     if (diffInMinutes < 60) {
-      return `${diffInMinutes} دقيقة`;
+      return `${diffInMinutes} Ø¯Ù‚ÙŠÙ‚Ø©`;
     }
     const hours = Math.floor(diffInMinutes / 60);
     const mins = diffInMinutes % 60;
-    return `${hours} ساعة و ${mins} دقيقة`;
+    return `${hours} Ø³Ø§Ø¹Ø© Ùˆ ${mins} Ø¯Ù‚ÙŠÙ‚Ø©`;
   };
 
   const isWaitCritical = (level: string, checkInTime: string) => {
@@ -62,11 +62,11 @@ export const ERTriageBoard: React.FC = () => {
     <div className="p-6 bg-slate-900 min-h-screen rtl text-right text-white">
       <div className="flex justify-between items-center mb-8 border-b border-slate-700 pb-4">
         <Typography.Title level={2} style={{ color: '#fff', margin: 0 }}>
-          <AlertOutlined className="text-red-500 animate-pulse" /> لوحة المراقبة الحية للطوارئ (ER Board)
+          <AlertOutlined className="text-red-500 animate-pulse" /> Ù„ÙˆØ­Ø© Ø§Ù„Ù…Ø±Ø§Ù‚Ø¨Ø© Ø§Ù„Ø­ÙŠØ© Ù„Ù„Ø·ÙˆØ§Ø±Ø¦ (ER Board)
         </Typography.Title>
         <div className="flex gap-4">
-          <Badge status="error" text={<span className="text-white">حالات حرجة: {cases.filter(c => c.triage_level === 'level_1_resuscitation').length}</span>} />
-          <Badge status="processing" text={<span className="text-white">إجمالي الحالات النشطة: {cases.length}</span>} />
+          <Badge status="error" text={<span className="text-white">Ø­Ø§Ù„Ø§Øª Ø­Ø±Ø¬Ø©: {cases.filter(c => c.triage_level === 'level_1_resuscitation').length}</span>} />
+          <Badge status="processing" text={<span className="text-white">Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø­Ø§Ù„Ø§Øª Ø§Ù„Ù†Ø´Ø·Ø©: {cases.length}</span>} />
         </div>
       </div>
 
@@ -89,34 +89,34 @@ export const ERTriageBoard: React.FC = () => {
                       <h3 className="text-xl font-black text-white m-0 flex items-center gap-2">
                         <UserOutlined className="text-blue-400" /> {c.hims_patients?.full_name}
                       </h3>
-                      <p className="text-slate-400 text-xs mt-1">العمر: {c.hims_patients?.dob ? dayjs().diff(c.hims_patients?.dob, 'year') : 'غير معروف'} سنة</p>
+                      <p className="text-slate-400 text-xs mt-1">Ø§Ù„Ø¹Ù…Ø±: {c.hims_patients?.dob ? dayjs().diff(c.hims_patients?.dob, 'year') : 'ØºÙŠØ± Ù…Ø¹Ø±ÙˆÙ'} Ø³Ù†Ø©</p>
                     </div>
                     {getTriageTag(c.triage_level)}
                   </div>
 
                   <div className="bg-slate-700/50 p-3 rounded-xl mb-4 border border-slate-600">
-                    <p className="text-xs text-slate-400 mb-1 font-bold">الشكوى الرئيسية:</p>
-                    <p className="text-sm italic text-slate-200">"{c.chief_complaint || 'لم يتم التسجيل'}"</p>
+                    <p className="text-xs text-slate-400 mb-1 font-bold">Ø§Ù„Ø´ÙƒÙˆÙ‰ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ©:</p>
+                    <p className="text-sm italic text-slate-200">"{c.chief_complaint || 'Ù„Ù… ÙŠØªÙ… Ø§Ù„ØªØ³Ø¬ÙŠÙ„'}"</p>
                   </div>
 
                   <div className="flex justify-between items-center mb-3 text-xs border-b border-slate-700/40 pb-2">
                     <div className="flex items-center gap-1.5 text-slate-400">
                       <ClockCircleOutlined />
-                      <span>دخول: {dayjs(c.check_in_time).format('HH:mm')}</span>
+                      <span>Ø¯Ø®ÙˆÙ„: {dayjs(c.check_in_time).format('HH:mm')}</span>
                     </div>
                     <div className={`font-bold flex items-center gap-1 ${critical ? 'text-red-500 animate-pulse' : 'text-amber-500'}`}>
                       {critical && <WarningOutlined />}
-                      <span>الانتظار: {getWaitingTime(c.check_in_time)}</span>
+                      <span>Ø§Ù„Ø§Ù†ØªØ¸Ø§Ø±: {getWaitingTime(c.check_in_time)}</span>
                     </div>
                   </div>
 
                   <div className="flex justify-between items-center">
                     <Tag color={c.status === 'in_consultation' ? 'processing' : 'default'} className="rounded-lg px-2.5 py-0.5">
-                      {c.status === 'triaged' ? 'بانتظار الطبيب' : 'قيد الفحص'}
+                      {c.status === 'triaged' ? 'Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„Ø·Ø¨ÙŠØ¨' : 'Ù‚ÙŠØ¯ Ø§Ù„ÙØ­Øµ'}
                     </Tag>
                     {critical && (
                       <span className="text-[10px] text-red-400 font-bold bg-red-950/40 px-2 py-0.5 rounded-full border border-red-500/20">
-                        تنبيه: تأخر الفحص! 🚨
+                        ØªÙ†Ø¨ÙŠÙ‡: ØªØ£Ø®Ø± Ø§Ù„ÙØ­Øµ! ðŸš¨
                       </span>
                     )}
                   </div>
@@ -128,7 +128,7 @@ export const ERTriageBoard: React.FC = () => {
       ) : (
         <div className="flex flex-col items-center justify-center min-h-[400px] bg-slate-800 rounded-3xl p-12 border border-slate-700 border-dashed text-center">
           <Empty 
-            description={<span className="text-slate-400 text-lg">لا توجد حالات طوارئ نشطة حالياً بقسم الاستقبال 👍</span>}
+            description={<span className="text-slate-400 text-lg">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø­Ø§Ù„Ø§Øª Ø·ÙˆØ§Ø±Ø¦ Ù†Ø´Ø·Ø© Ø­Ø§Ù„ÙŠØ§Ù‹ Ø¨Ù‚Ø³Ù… Ø§Ù„Ø§Ø³ØªÙ‚Ø¨Ø§Ù„ ðŸ‘</span>}
             image={Empty.PRESENTED_IMAGE_SIMPLE}
           />
         </div>

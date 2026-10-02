@@ -137,10 +137,10 @@ export default function RfiSubmittalManager() {
         logger.warn('project_rfis table notice:', rfiErr.message);
         setRfis([]);
       } else {
-        setRfis((rfiData || []).map((d: any) => ({
+        setRfis((rfiData || []).map((d: Record<string, any>) => ({
           ...d,
           project_name: currentProjects.find(p => p.id === d.project_id)?.name || 'مشروع عام'
-        })));
+        })) as unknown as RfiItem[]);
       }
 
       // 2. Fetch Submittals
@@ -151,10 +151,10 @@ export default function RfiSubmittalManager() {
         logger.warn('project_submittals table notice:', subErr.message);
         setSubmittals([]);
       } else {
-        setSubmittals((subData || []).map((d: any) => ({
+        setSubmittals((subData || []).map((d: Record<string, any>) => ({
           ...d,
           project_name: currentProjects.find(p => p.id === d.project_id)?.name || 'مشروع عام'
-        })));
+        })) as unknown as SubmittalItem[]);
       }
 
     } catch (err) {

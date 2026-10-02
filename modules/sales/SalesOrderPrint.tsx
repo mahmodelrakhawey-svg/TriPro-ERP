@@ -84,7 +84,7 @@ export const SalesOrderPrint: React.FC<SalesOrderPrintProps> = ({ orderData, com
             </tr>
         </thead>
         <tbody className="divide-y divide-slate-200 text-sm">
-            {items.map((item: any, index: number) => (
+            {items.map((item: Record<string, any>, index: number) => (
                 <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
                     <td className="py-2 px-3 text-slate-500 font-bold">{index + 1}</td>
                     <td className="py-2 px-3 font-bold text-slate-900">{item.name || item.productName || item.products?.name || 'N/A'}</td>

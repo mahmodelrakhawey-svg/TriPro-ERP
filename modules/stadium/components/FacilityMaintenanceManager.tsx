@@ -133,7 +133,7 @@ export const FacilityMaintenanceManager: React.FC = () => {
   }, [orgId, search, statusFilter, facilityFilter]);
 
 
-  const onSaveTicket = async (data: any) => {
+  const onSaveTicket = async (data: Record<string, any>) => {
     if (!orgId) return;
     const actualCost = parseFloat(data.actual_cost) || 0;
     const isCompleted = data.status === 'completed';
@@ -192,7 +192,7 @@ export const FacilityMaintenanceManager: React.FC = () => {
       notesText = `${notesText ? notesText + ' | ' : ''}قيد صرف: ${journalId}`;
     }
 
-    const ticketPayload: any = {
+    const ticketPayload: Record<string, any> = {
       organization_id: orgId,
       facility_id: data.facility_id,
       ticket_number: ticketNumber,

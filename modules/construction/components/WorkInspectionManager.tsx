@@ -95,10 +95,10 @@ export default function WorkInspectionManager() {
         logger.warn('project_inspection_requests table notice:', error.message);
         setInspections([]);
       } else {
-        setInspections((data || []).map((d: any) => ({
+        setInspections((data || []).map((d: Record<string, any>) => ({
           ...d,
           project_name: currentProjects.find(p => p.id === d.project_id)?.name || 'مشروع غير محدد'
-        })));
+        })) as unknown as InspectionRequest[]);
       }
     } catch (err) {
       logger.error(err);

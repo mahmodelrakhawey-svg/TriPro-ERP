@@ -331,7 +331,7 @@ const SupplierManager = () => {
         });
 
         const suppliersWithOpeningEntry = new Set<string>();
-        manualEntriesRes.data?.forEach((je: any) => {
+        manualEntriesRes.data?.forEach((je: Record<string, any>) => {
             const desc = (je.description || '').toLowerCase();
             const ref = (je.reference || '').toLowerCase();
             const isOpening = je.related_document_type === 'opening_balance' || ref.startsWith('op-supp-') || ref.startsWith('ob-') || desc.includes('رصيد افتتاحي');

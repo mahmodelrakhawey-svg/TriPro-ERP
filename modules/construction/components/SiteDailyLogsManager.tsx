@@ -135,7 +135,7 @@ export default function SiteDailyLogsManager() {
         logger.warn('project_daily_logs table notice:', error.message);
         setLogs([]);
       } else {
-        const mapped: DailyLog[] = (data || []).map((d: any) => {
+        const mapped: DailyLog[] = (data || []).map((d: Record<string, any>) => {
           const proj = currentProjects.find(p => p.id === d.project_id);
           return {
             ...d,
@@ -145,7 +145,7 @@ export default function SiteDailyLogsManager() {
             work_executed: Array.isArray(d.work_executed) ? d.work_executed : [],
             materials_received: Array.isArray(d.materials_received) ? d.materials_received : []
           };
-        });
+        }) as unknown as DailyLog[];
         setLogs(mapped);
       }
     } catch (err) {

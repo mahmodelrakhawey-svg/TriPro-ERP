@@ -19,8 +19,8 @@ export interface ScaleConfig {
 }
 
 class ScaleService {
-  private port: any | null = null;
-  private reader: any | null = null;
+  private port: Record<string, any> | null = null;
+  private reader: Record<string, any> | null = null;
   private readableStreamClosed: Promise<void> | null = null;
   private isReading: boolean = false;
   private listeners: ((reading: ScaleReading) => void)[] = [];
@@ -48,6 +48,7 @@ class ScaleService {
       // طلب إذن اختيار منفذ COM / USB من المستخدم
       this.port = await (navigator as any).serial.requestPort();
       
+      if (!this.port) throw new Error('فشل الحصول على منفذ التسلسلي.');
       await this.port.open({
         baudRate: config.baudRate || 9600,
         dataBits: config.dataBits || 8,

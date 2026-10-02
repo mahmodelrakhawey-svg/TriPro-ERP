@@ -12,7 +12,7 @@ export const SalesInvoicePrint = ({ invoice, companySettings }: SalesInvoicePrin
 
   // استخراج وتوحيد بنود الأصناف من أي صيغة تأتي بها الفاتورة
   const rawItems = invoice.items || invoice.invoice_items || [];
-  const itemsList = rawItems.map((item: any) => {
+  const itemsList = rawItems.map((item: Record<string, any>) => {
     const pName = item.productName || item.product_name || item.products?.name || item.name || 'صنف';
     const uName = item.uomName || item.uom_name || item.uoms?.name || item.products?.uoms?.name || item.products?.uom?.name || item.products?.unit || '-';
     const qty = Number(item.quantity || 0);
@@ -107,7 +107,7 @@ export const SalesInvoicePrint = ({ invoice, companySettings }: SalesInvoicePrin
             </tr>
         </thead>
         <tbody className="divide-y divide-slate-200">
-            {itemsList.map((item: any, index: number) => (
+            {itemsList.map((item: Record<string, any>, index: number) => (
                 <tr key={index} className="border-b border-slate-100">
                     <td className="py-2.5 px-3 text-center text-slate-500">{index + 1}</td>
                     <td className="py-2.5 px-3 font-bold text-slate-900">{item.productName}</td>
