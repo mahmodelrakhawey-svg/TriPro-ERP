@@ -140,11 +140,27 @@ BEGIN
     WHERE organization_id = v_org_id
       AND deleted_at IS NULL;
 
-    SELECT COALESCE(balance, v_customers_balance)::numeric INTO v_ar_gl_balance
-    FROM public.accounts
-    WHERE organization_id = v_org_id
-      AND (code = '1241' OR code = '122' OR code = '1221')
-    LIMIT 1;
+    -- جلب رصيد المدينين الفعلي من الأستاذ العام (المدين - الدائن)
+    SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::numeric INTO v_ar_gl_balance
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = v_org_id
+      AND je.status = 'posted'
+      AND (
+          a.code = '122' OR a.code LIKE '122%' 
+          OR a.code = '1241' OR a.code LIKE '124%' 
+          OR a.name ILIKE '%عملا%'
+      );
+
+    IF v_ar_gl_balance = 0 AND v_customers_balance = 0 THEN
+        v_ar_gl_balance := 0;
+    ELSIF v_ar_gl_balance = 0 THEN
+        SELECT COALESCE(SUM(balance), 0)::numeric INTO v_ar_gl_balance
+        FROM public.accounts
+        WHERE organization_id = v_org_id
+          AND (code = '122' OR code LIKE '122%' OR code = '1241' OR code LIKE '124%' OR name ILIKE '%عملا%');
+    END IF;
 
     v_ar_variance := ABS(v_customers_balance - v_ar_gl_balance);
 
@@ -181,12 +197,35 @@ BEGIN
     WHERE organization_id = v_org_id
       AND deleted_at IS NULL;
 
-    SELECT COALESCE(balance, v_suppliers_balance)::numeric INTO v_ap_gl_balance
-    FROM public.accounts
-    WHERE organization_id = v_org_id
-      AND (code = '2211' OR code = '221')
-    LIMIT 1;
+    -- جلب رصيد الدائنين الفعلي من الأستاذ العام (الدائن - المدين)
+    SELECT COALESCE(SUM(jl.credit - jl.debit), 0)::numeric INTO v_ap_gl_balance
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = v_org_id
+      AND je.status = 'posted'
+      AND (
+          a.code = '201' OR a.code LIKE '201%'
+          OR a.code = '221' OR a.code LIKE '221%'
+          OR a.code = '2101' OR a.code LIKE '2101%'
+          OR a.name ILIKE '%مورد%'
+      );
 
+    -- في حال عدم وجود قيود مرحلة للموردين، فحص الأرصدة المجمعة من جدول الحسابات
+    IF v_ap_gl_balance = 0 THEN
+        SELECT COALESCE(SUM(balance), 0)::numeric INTO v_ap_gl_balance
+        FROM public.accounts
+        WHERE organization_id = v_org_id
+          AND (
+              code = '201' OR code LIKE '201%'
+              OR code = '221' OR code LIKE '221%'
+              OR code = '2101' OR code LIKE '2101%'
+              OR name ILIKE '%مورد%'
+          );
+        v_ap_gl_balance := ABS(v_ap_gl_balance);
+    END IF;
+
+    -- في حال تطابق الدفاتر أو كان رصيد الدائنين يطابق سجل الموردين
     v_ap_variance := ABS(v_suppliers_balance - v_ap_gl_balance);
 
     IF v_ap_variance > 0.05 THEN
@@ -216,18 +255,37 @@ BEGIN
 
     -- =========================================================================
     -- الركن الرابع: مطابقة تقييم المخزون الكمي مع حساب البضاعة بالأستاذ العام
-    -- (الاعتماد على حقل cost الأصلي وتصفية deleted_at IS NULL)
     -- =========================================================================
     SELECT COALESCE(SUM(COALESCE(stock, 0) * COALESCE(cost, 0)), 0)::numeric INTO v_stock_valuation
     FROM public.products
     WHERE organization_id = v_org_id
       AND deleted_at IS NULL;
 
-    SELECT COALESCE(balance, v_stock_valuation)::numeric INTO v_inv_gl_balance
-    FROM public.accounts
-    WHERE organization_id = v_org_id
-      AND (code = '1030' OR code = '10301' OR code = '103')
-    LIMIT 1;
+    -- جلب رصيد بضاعة المخزون الفعلي من الأستاذ العام (المدين - الدائن)
+    SELECT COALESCE(SUM(jl.debit - jl.credit), 0)::numeric INTO v_inv_gl_balance
+    FROM public.journal_lines jl
+    JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+    JOIN public.accounts a ON jl.account_id = a.id
+    WHERE je.organization_id = v_org_id
+      AND je.status = 'posted'
+      AND (
+          a.code = '103' OR a.code LIKE '103%'
+          OR a.code = '121' OR a.code LIKE '121%'
+          OR a.code = '1213'
+          OR (a.type ILIKE '%asset%' AND (a.name ILIKE '%مخزون%' OR a.name ILIKE '%خامات%' OR a.name ILIKE '%بضاعة%'))
+      );
+
+    IF v_inv_gl_balance = 0 THEN
+        SELECT COALESCE(SUM(balance), 0)::numeric INTO v_inv_gl_balance
+        FROM public.accounts
+        WHERE organization_id = v_org_id
+          AND (
+              code = '103' OR code LIKE '103%'
+              OR code = '121' OR code LIKE '121%'
+              OR code = '1213'
+              OR (type ILIKE '%asset%' AND (name ILIKE '%مخزون%' OR name ILIKE '%خامات%' OR name ILIKE '%بضاعة%'))
+          );
+    END IF;
 
     v_inv_variance := ABS(v_stock_valuation - v_inv_gl_balance);
 
