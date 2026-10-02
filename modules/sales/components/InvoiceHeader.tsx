@@ -44,6 +44,7 @@ export interface InvoiceHeaderProps {
   warehouses: any[];
   pricingTier: 'retail' | 'wholesale' | 'half';
   setPricingTier: (tier: 'retail' | 'wholesale' | 'half') => void;
+  isQuickMode?: boolean;
 }
 
 export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
@@ -67,6 +68,7 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
   warehouses,
   pricingTier,
   setPricingTier,
+  isQuickMode = false,
 }) => {
   return (
     <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
@@ -229,20 +231,22 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
 
         {/* Salesperson & Warehouse & Date Selection */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
-              <UserCheck className="text-indigo-500" size={16} /> البائع المسؤول
-            </label>
-            <select 
-              required
-              value={formData.salespersonId}
-              onChange={(e) => setFormData({...formData, salespersonId: e.target.value})}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none bg-white"
-            >
-              <option value="">اختر البائع...</option>
-              {salespeople.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
-          </div>
+          {!isQuickMode && (
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                <UserCheck className="text-indigo-500" size={16} /> البائع المسؤول
+              </label>
+              <select 
+                required
+                value={formData.salespersonId}
+                onChange={(e) => setFormData({...formData, salespersonId: e.target.value})}
+                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none bg-white"
+              >
+                <option value="">اختر البائع...</option>
+                {salespeople.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
+          )}
           <div className="space-y-2">
             <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
               <Warehouse className="text-amber-500" size={16} /> مستودع الصرف
@@ -257,7 +261,7 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
               {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
           </div>
-          <div className="space-y-2 sm:col-span-2">
+          <div className={`space-y-2 ${isQuickMode ? 'sm:col-span-1' : 'sm:col-span-2'}`}>
             <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
               <Calendar className="text-purple-500" size={16} /> التاريخ
             </label>
@@ -269,31 +273,33 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
               className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none"
             />
           </div>
-          <div className="space-y-2">
-            <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
-              <CircleDollarSign className="text-green-500" size={16} /> العملة
-            </label>
-            <div className="flex gap-2">
-              <select 
-                value={formData.currency}
-                onChange={(e) => setFormData({...formData, currency: e.target.value})}
-                className="w-2/3 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none bg-white"
-              >
-                <option value="EGP">EGP</option>
-                <option value="SAR">SAR</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-              </select>
-              <input 
-                type="number" 
-                value={formData.exchangeRate}
-                onChange={(e) => setFormData({...formData, exchangeRate: parseFloat(e.target.value)})}
-                className="w-1/3 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none text-center"
-                placeholder="سعر الصرف"
-                step="0.01"
-              />
+          {!isQuickMode && (
+            <div className="space-y-2">
+              <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                <CircleDollarSign className="text-green-500" size={16} /> العملة
+              </label>
+              <div className="flex gap-2">
+                <select 
+                  value={formData.currency}
+                  onChange={(e) => setFormData({...formData, currency: e.target.value})}
+                  className="w-2/3 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none bg-white"
+                >
+                  <option value="EGP">EGP</option>
+                  <option value="SAR">SAR</option>
+                  <option value="USD">USD</option>
+                  <option value="EUR">EUR</option>
+                </select>
+                <input 
+                  type="number" 
+                  value={formData.exchangeRate}
+                  onChange={(e) => setFormData({...formData, exchangeRate: parseFloat(e.target.value)})}
+                  className="w-1/3 border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:border-blue-500 outline-none text-center"
+                  placeholder="سعر الصرف"
+                  step="0.01"
+                />
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
       
@@ -319,17 +325,19 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
           </div>
         </div>
         
-        <div className="flex items-center gap-4">
-          <div className="text-sm">
-            <span className="text-slate-400">تاريخ الاستحقاق:</span>
-            <input 
-              type="date" 
-              value={formData.dueDate}
-              onChange={e => setFormData({...formData, dueDate: e.target.value})}
-              className="mr-2 border-b border-slate-200 bg-transparent focus:border-blue-500 outline-none font-bold text-slate-700"
-            />
+        {!isQuickMode && (
+          <div className="flex items-center gap-4">
+            <div className="text-sm">
+              <span className="text-slate-400">تاريخ الاستحقاق:</span>
+              <input 
+                type="date" 
+                value={formData.dueDate}
+                onChange={e => setFormData({...formData, dueDate: e.target.value})}
+                className="mr-2 border-b border-slate-200 bg-transparent focus:border-blue-500 outline-none font-bold text-slate-700"
+              />
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

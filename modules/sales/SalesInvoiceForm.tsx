@@ -8,7 +8,7 @@ import {
     ArrowDown, Calculator, UserCheck, Printer, Loader2, CheckCircle,
     Edit, RefreshCw, FileText, Landmark, Unlock, Undo2,
     ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, List,
-    Sparkles, Gift, Tag
+    Sparkles, Gift, Tag, Zap
 } from 'lucide-react';
 import { InvoiceItem, Product } from '../../types';
 import { supabase } from '../../supabaseClient';
@@ -60,6 +60,9 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   });
 
   const [pricingTier, setPricingTier] = useState<'retail' | 'wholesale' | 'half'>('retail');
+  const [isQuickMode, setIsQuickMode] = useState<boolean>(() => {
+    return secureStorage.getItem<boolean>('tripro_sales_quick_mode', false) ?? false;
+  });
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [showProductResults, setShowProductResults] = useState(false);
   const [items, setItems] = useState<any[]>([]);
@@ -1960,6 +1963,24 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center gap-2 print:hidden">
+          {/* ⚡ Quick Showroom Mode Toggle Button */}
+          <button
+            type="button"
+            onClick={() => {
+              const next = !isQuickMode;
+              setIsQuickMode(next);
+              secureStorage.setItem('tripro_sales_quick_mode', next);
+            }}
+            className={`px-3 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-all shadow-sm ${
+              isQuickMode
+                ? 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-500/20 ring-2 ring-amber-300'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+            }`}
+            title={isQuickMode ? 'التحويل إلى الوضع المحاسبي المتقدم' : 'التحويل إلى وضع المعارض السريع'}
+          >
+            <Zap size={15} className={isQuickMode ? 'fill-current text-white animate-pulse' : 'text-amber-500'} />
+            {isQuickMode ? 'وضع المعارض السريع ⚡' : 'الوضع المتقدم ⚙️'}
+          </button>
           <button 
             type="button" 
             onClick={() => navigate('/invoices-list')} 
@@ -2084,6 +2105,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               warehouses={warehouses}
               pricingTier={pricingTier}
               setPricingTier={setPricingTier}
+              isQuickMode={isQuickMode}
             />
 
             {/* Invoice Items Management */}
