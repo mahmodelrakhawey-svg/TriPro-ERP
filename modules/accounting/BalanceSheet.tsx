@@ -98,20 +98,28 @@ const BalanceSheet: React.FC = () => {
       // 🚀 الخطوة 1 (Dual-Engine Fast Path): استعلام دالة التجميع السريعة على مستوى PostgreSQL
       let rpcSuccess = false;
       try {
+        const isUuid = (val: unknown): boolean => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+        const validOrgId = isUuid(userOrgId) ? userOrgId : null;
+        const validStart = (typeof currentYearStart === 'string' && /^\d{4}-\d{2}-\d{2}/.test(currentYearStart)) ? currentYearStart.slice(0, 10) : '1970-01-01';
+        const validEnd = (typeof asOfDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(asOfDate)) ? asOfDate.slice(0, 10) : new Date().toISOString().split('T')[0];
+
         const { data: summaryData, error: summaryErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
-          p_org_id: (typeof userOrgId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userOrgId)) ? userOrgId : null,
-          p_start_date: currentYearStart,
-          p_end_date: asOfDate
+          p_org_id: validOrgId,
+          p_start_date: validStart,
+          p_end_date: validEnd
         });
 
         if (!summaryErr && Array.isArray(summaryData) && summaryData.length > 0) {
           setRpcSummary(summaryData);
 
           if (isComparative) {
+            const validPriorStart = (typeof priorYearStart === 'string' && /^\d{4}-\d{2}-\d{2}/.test(priorYearStart)) ? priorYearStart.slice(0, 10) : '1970-01-01';
+            const validPriorEnd = (typeof priorAsOfDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(priorAsOfDate)) ? priorAsOfDate.slice(0, 10) : new Date().toISOString().split('T')[0];
+
             const { data: priorSummaryData, error: priorSummaryErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
-              p_org_id: (typeof userOrgId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userOrgId)) ? userOrgId : null,
-              p_start_date: priorYearStart,
-              p_end_date: priorAsOfDate
+              p_org_id: validOrgId,
+              p_start_date: validPriorStart,
+              p_end_date: validPriorEnd
             });
             if (!priorSummaryErr && Array.isArray(priorSummaryData)) {
               setPriorRpcSummary(priorSummaryData);
@@ -123,6 +131,8 @@ const BalanceSheet: React.FC = () => {
           rpcSuccess = true;
           setLedgerLines([]);
           setPriorLedgerLines([]);
+        } else if (summaryErr) {
+          logger.warn('[BalanceSheet] Server RPC warning, utilizing chunked engine:', summaryErr.message || summaryErr);
         }
       } catch (rpcEx) {
         logger.warn('[BalanceSheet] Server-side RPC failed, falling back to chunked query:', rpcEx);

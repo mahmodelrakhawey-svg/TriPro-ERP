@@ -131,6 +131,8 @@ const TrialBalanceAdvanced = () => {
           rpcSuccess = true;
           // تصفير أسطر اليومية المحلية لتوفير الذاكرة والشبكة
           setLedgerLines([]);
+        } else if (rpcErr) {
+          logger.warn('[TrialBalance] Server RPC warning, utilizing chunked engine:', rpcErr.message || rpcErr);
         }
       } catch (rpcEx) {
         logger.warn('[TrialBalance] Server RPC unavailable, falling back to chunked query:', rpcEx);

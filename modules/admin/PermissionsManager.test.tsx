@@ -112,10 +112,11 @@ describe('🛡️ PermissionsManager UI & RPC Integration Tests', () => {
   it('يجب استدعاء RPC sync_role_permissions مع المعرفات الصحيحة عند تعديل الصلاحيات والضغط على حفظ', async () => {
     render(<PermissionsManager />);
 
-    // انتظار تحميل البيانات
+    // انتظار تحميل البيانات ودور المستخدم وصلاحياته الأولية
     await waitFor(() => {
       expect(screen.getByText('دور تجريبي')).toBeDefined();
       expect(screen.getByText('عرض المبيعات')).toBeDefined();
+      expect(screen.getByText(/1 \/ 2/)).toBeDefined();
     });
 
     // النقر على صلاحية 'عرض المبيعات' لتغيير الحالة وتفعيل زر الحفظ

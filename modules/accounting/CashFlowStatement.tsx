@@ -180,10 +180,15 @@ const CashFlowStatement = () => {
 
       // 🚀 الخطوة 1 (Dual-Engine Fast Path): استعلام دالة تجميع ميزان المراجعة على مستوى PostgreSQL
       try {
+        const isUuid = (val: unknown): boolean => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+        const validOrgId = isUuid(userOrgId) ? userOrgId : null;
+        const validStart = (typeof startDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(startDate)) ? startDate.slice(0, 10) : `${selectedFiscalYear || 2026}-01-01`;
+        const validEnd = (typeof endDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(endDate)) ? endDate.slice(0, 10) : `${selectedFiscalYear || 2026}-12-31`;
+
         const { data: summaryData, error: summaryErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
-          p_org_id: (typeof userOrgId === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(userOrgId)) ? userOrgId : null,
-          p_start_date: (typeof startDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(startDate)) ? startDate : `${selectedFiscalYear || 2026}-01-01`,
-          p_end_date: (typeof endDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(endDate)) ? endDate : `${selectedFiscalYear || 2026}-12-31`
+          p_org_id: validOrgId,
+          p_start_date: validStart,
+          p_end_date: validEnd
         });
 
         if (!summaryErr && Array.isArray(summaryData) && summaryData.length > 0) {
@@ -199,6 +204,8 @@ const CashFlowStatement = () => {
             }
           });
           rpcSuccess = true;
+        } else if (summaryErr) {
+          logger.warn('[CashFlowStatement] Server RPC warning, utilizing chunked engine:', summaryErr.message || summaryErr);
         }
       } catch (rpcEx) {
         logger.warn('[CashFlowStatement] Server-side RPC failed, falling back to chunked query:', rpcEx);

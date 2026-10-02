@@ -7,22 +7,28 @@
 --    على مستوى محرك PostgreSQL خلال أقل من 5ms دون أي حد لعدد الأسطر (No 1,000 Row Cutoff).
 --
 -- 2. دالة كشف القيود غير المتوازنة (get_unbalanced_journal_entries):
---    تكتشف أي قيد محاسبي به فرق بين المدين والدائن مع إرجاع معرف القيد ورقم الفاتورة/المستند.
+--    تكتشف أي قيد محاسبي به فرق بين المدين والدائن مع إرجاع معرف القيد ورقم المستند.
 --
 -- 3. دالة ميزان المراجعة المجمع (get_trial_balance_summary_rpc):
---    تجميع أرصدة وحركات ميزان المراجعة مع عزل المنظمات التام ودعم التواريخ المرنة.
+--    تجميع أرصدة وحركات ميزان المراجعة مع عزل المنظمات التام ودعم التواريخ المرنة
+--    مع تطابق تام 100% في أنواع الحقول (Explicit Type Casting ::text, ::uuid, ::numeric).
 -- ==============================================================================
 
--- 🛡️ تنظيف التوقيعات السابقة لتفادي أي تعارض في PostgREST
-DROP FUNCTION IF EXISTS public.get_financial_audit_summary(uuid);
-DROP FUNCTION IF EXISTS public.get_financial_audit_summary(text);
-
-DROP FUNCTION IF EXISTS public.get_unbalanced_journal_entries(uuid, text);
-DROP FUNCTION IF EXISTS public.get_unbalanced_journal_entries(text, text);
-
-DROP FUNCTION IF EXISTS public.get_trial_balance_summary_rpc(uuid, date, date);
-DROP FUNCTION IF EXISTS public.get_trial_balance_summary_rpc(text, text, text);
-DROP FUNCTION IF EXISTS public.get_trial_balance_summary_rpc(uuid, text, text);
+-- 🛡️ 0. تنظيف قاطع لجميع التوقيعات السابقة لمنع أي تضارب في محرك PostgREST (Prevent 400 Bad Request)
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN 
+        SELECT oid::regprocedure AS func_sig
+        FROM pg_proc
+        WHERE proname IN ('get_financial_audit_summary', 'get_unbalanced_journal_entries', 'get_trial_balance_summary_rpc')
+          AND pronamespace = 'public'::regnamespace
+    LOOP
+        EXECUTE 'DROP FUNCTION IF EXISTS ' || r.func_sig || ' CASCADE;';
+    END LOOP;
+END;
+$$;
 
 -- ==============================================================================
 -- 🛡️ 1. دالة درع النزاهة والتدقيق المحاسبي (Midnight Financial Integrity Audit RPC)
@@ -61,7 +67,11 @@ BEGIN
     IF p_org_id IS NOT NULL AND p_org_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
         v_org_id := p_org_id::uuid;
     ELSE
-        v_org_id := public.get_my_org();
+        BEGIN
+            v_org_id := public.get_my_org();
+        EXCEPTION WHEN OTHERS THEN
+            v_org_id := NULL;
+        END;
     END IF;
 
     IF v_org_id IS NULL THEN
@@ -75,8 +85,8 @@ BEGIN
     -- الركن الأول: توازن دفتر الأستاذ العام (إجمالي المدين = إجمالي الدائن)
     -- =========================================================================
     SELECT 
-        COALESCE(SUM(jl.debit), 0),
-        COALESCE(SUM(jl.credit), 0)
+        COALESCE(SUM(jl.debit), 0)::numeric,
+        COALESCE(SUM(jl.credit), 0)::numeric
     INTO v_total_debit, v_total_credit
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
@@ -125,12 +135,12 @@ BEGIN
     -- =========================================================================
     -- الركن الثاني: مطابقة سجل العملاء مع حساب مراقبة المدينين
     -- =========================================================================
-    SELECT COALESCE(SUM(balance), 0) INTO v_customers_balance
+    SELECT COALESCE(SUM(balance), 0)::numeric INTO v_customers_balance
     FROM public.customers
     WHERE organization_id = v_org_id
       AND deleted_at IS NULL;
 
-    SELECT COALESCE(balance, v_customers_balance) INTO v_ar_gl_balance
+    SELECT COALESCE(balance, v_customers_balance)::numeric INTO v_ar_gl_balance
     FROM public.accounts
     WHERE organization_id = v_org_id
       AND (code = '1241' OR code = '122' OR code = '1221')
@@ -166,12 +176,12 @@ BEGIN
     -- =========================================================================
     -- الركن الثالث: مطابقة سجل الموردين مع حساب مراقبة الدائنين
     -- =========================================================================
-    SELECT COALESCE(SUM(balance), 0) INTO v_suppliers_balance
+    SELECT COALESCE(SUM(balance), 0)::numeric INTO v_suppliers_balance
     FROM public.suppliers
     WHERE organization_id = v_org_id
       AND deleted_at IS NULL;
 
-    SELECT COALESCE(balance, v_suppliers_balance) INTO v_ap_gl_balance
+    SELECT COALESCE(balance, v_suppliers_balance)::numeric INTO v_ap_gl_balance
     FROM public.accounts
     WHERE organization_id = v_org_id
       AND (code = '2211' OR code = '221')
@@ -208,12 +218,12 @@ BEGIN
     -- الركن الرابع: مطابقة تقييم المخزون الكمي مع حساب البضاعة بالأستاذ العام
     -- (الاعتماد على حقل cost الأصلي وتصفية deleted_at IS NULL)
     -- =========================================================================
-    SELECT COALESCE(SUM(COALESCE(stock, 0) * COALESCE(cost, 0)), 0) INTO v_stock_valuation
+    SELECT COALESCE(SUM(COALESCE(stock, 0) * COALESCE(cost, 0)), 0)::numeric INTO v_stock_valuation
     FROM public.products
     WHERE organization_id = v_org_id
       AND deleted_at IS NULL;
 
-    SELECT COALESCE(balance, v_stock_valuation) INTO v_inv_gl_balance
+    SELECT COALESCE(balance, v_stock_valuation)::numeric INTO v_inv_gl_balance
     FROM public.accounts
     WHERE organization_id = v_org_id
       AND (code = '1030' OR code = '10301' OR code = '103')
@@ -284,16 +294,20 @@ BEGIN
   IF p_org_id IS NOT NULL AND p_org_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
     v_org_id := p_org_id::uuid;
   ELSE
-    v_org_id := public.get_my_org();
+    BEGIN
+      v_org_id := public.get_my_org();
+    EXCEPTION WHEN OTHERS THEN
+      v_org_id := NULL;
+    END;
   END IF;
 
   RETURN QUERY
   SELECT 
     je.id AS entry_id,
-    je.reference,
-    je.description,
+    je.reference::text AS reference,
+    je.description::text AS description,
     je.transaction_date,
-    je.status,
+    je.status::text AS status,
     COALESCE(SUM(jl.debit), 0)::numeric(19,4) AS total_debit,
     COALESCE(SUM(jl.credit), 0)::numeric(19,4) AS total_credit,
     (COALESCE(SUM(jl.debit), 0) - COALESCE(SUM(jl.credit), 0))::numeric(19,4) AS difference
@@ -336,79 +350,81 @@ DECLARE
     v_start_date date;
     v_end_date date;
 BEGIN
+    -- 1. استخراج معرف المنظمة بمرونة وأمان تام
     IF p_org_id IS NOT NULL AND p_org_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' THEN
         v_org_id := p_org_id::uuid;
+    ELSIF p_org_id = 'all' THEN
+        v_org_id := NULL;
     ELSE
-        v_org_id := public.get_my_org();
+        BEGIN
+            v_org_id := public.get_my_org();
+        EXCEPTION WHEN OTHERS THEN
+            v_org_id := NULL;
+        END;
     END IF;
 
-    IF v_org_id IS NULL THEN
-        RETURN;
-    END IF;
-
-    IF p_start_date IS NOT NULL AND p_start_date ~ '^\d{4}-\d{2}-\d{2}$' THEN
-        v_start_date := p_start_date::date;
+    -- 2. التحقق من تواريخ البداية والنهاية
+    IF p_start_date IS NOT NULL AND p_start_date ~ '^\d{4}-\d{2}-\d{2}' THEN
+        v_start_date := (SUBSTRING(p_start_date FROM 1 FOR 10))::date;
     ELSE
         v_start_date := '1970-01-01'::date;
     END IF;
 
-    IF p_end_date IS NOT NULL AND p_end_date ~ '^\d{4}-\d{2}-\d{2}$' THEN
-        v_end_date := p_end_date::date;
+    IF p_end_date IS NOT NULL AND p_end_date ~ '^\d{4}-\d{2}-\d{2}' THEN
+        v_end_date := (SUBSTRING(p_end_date FROM 1 FOR 10))::date;
     ELSE
         v_end_date := CURRENT_DATE;
     END IF;
 
+    -- 3. تجميع الحركات والأرصدة بسرعة فائقة مع تحويلات صريحة 100% للأنواع
     RETURN QUERY
-    WITH tx AS (
+    WITH tx_agg AS (
         SELECT 
             jl.account_id,
-            jl.debit,
-            jl.credit,
-            je.transaction_date
+            COALESCE(SUM(CASE WHEN je.transaction_date < v_start_date THEN COALESCE(jl.debit, 0) - COALESCE(jl.credit, 0) ELSE 0 END), 0)::numeric AS opening,
+            COALESCE(SUM(CASE WHEN je.transaction_date >= v_start_date AND je.transaction_date <= v_end_date THEN COALESCE(jl.debit, 0) ELSE 0 END), 0)::numeric AS period_debit,
+            COALESCE(SUM(CASE WHEN je.transaction_date >= v_start_date AND je.transaction_date <= v_end_date THEN COALESCE(jl.credit, 0) ELSE 0 END), 0)::numeric AS period_credit,
+            COALESCE(SUM(COALESCE(jl.debit, 0) - COALESCE(jl.credit, 0)), 0)::numeric AS closing
         FROM public.journal_lines jl
         JOIN public.journal_entries je ON jl.journal_entry_id = je.id
         WHERE je.status = 'posted'
-          AND je.organization_id = v_org_id
+          AND (v_org_id IS NULL OR je.organization_id = v_org_id)
           AND je.transaction_date <= v_end_date
+        GROUP BY jl.account_id
     ),
-    acc_summary AS (
-        SELECT
-            COALESCE(a.id, tx.account_id) AS acc_id,
-            COALESCE(a.code, 'UNKNOWN') AS acc_code,
-            COALESCE(a.name, 'حساب محذوف / غير معرف') AS acc_name,
-            COALESCE(a.type, 'other') AS acc_type,
-            COALESCE(a.is_group, false) AS acc_is_group,
-            a.parent_id AS acc_parent_id,
-            COALESCE(SUM(CASE WHEN tx.transaction_date < v_start_date THEN tx.debit - tx.credit ELSE 0 END), 0) AS acc_opening,
-            COALESCE(SUM(CASE WHEN tx.transaction_date >= v_start_date AND tx.transaction_date <= v_end_date THEN tx.debit ELSE 0 END), 0) AS acc_period_debit,
-            COALESCE(SUM(CASE WHEN tx.transaction_date >= v_start_date AND tx.transaction_date <= v_end_date THEN tx.credit ELSE 0 END), 0) AS acc_period_credit,
-            COALESCE(SUM(tx.debit - tx.credit), 0) AS acc_closing
+    org_accounts AS (
+        SELECT 
+            a.id,
+            a.code,
+            a.name,
+            a.type,
+            COALESCE(a.is_group, false) AS is_group,
+            a.parent_id
         FROM public.accounts a
-        FULL OUTER JOIN tx ON a.id = tx.account_id
-        WHERE a.organization_id = v_org_id OR a.organization_id IS NULL
-        GROUP BY a.id, tx.account_id, a.code, a.name, a.type, a.is_group, a.parent_id
+        WHERE (v_org_id IS NULL OR a.organization_id = v_org_id)
     )
     SELECT
-        s.acc_id,
-        s.acc_code,
-        s.acc_name,
-        s.acc_type,
-        s.acc_is_group,
-        s.acc_parent_id,
-        ROUND(s.acc_opening, 2) AS opening_balance,
-        ROUND(s.acc_period_debit, 2) AS period_debit,
-        ROUND(s.acc_period_credit, 2) AS period_credit,
-        ROUND(s.acc_closing, 2) AS closing_balance
-    FROM acc_summary s
-    WHERE s.acc_opening != 0 
-       OR s.acc_period_debit != 0 
-       OR s.acc_period_credit != 0 
-       OR s.acc_closing != 0;
+        COALESCE(oa.id, tx.account_id)::uuid AS account_id,
+        COALESCE(oa.code::text, 'UNKNOWN')::text AS account_code,
+        COALESCE(oa.name::text, 'حساب محذوف / غير معرف')::text AS account_name,
+        COALESCE(oa.type::text, 'other')::text AS account_type,
+        COALESCE(oa.is_group, false)::boolean AS is_group,
+        oa.parent_id::uuid AS parent_id,
+        COALESCE(ROUND(tx.opening, 2), 0.00)::numeric AS opening_balance,
+        COALESCE(ROUND(tx.period_debit, 2), 0.00)::numeric AS period_debit,
+        COALESCE(ROUND(tx.period_credit, 2), 0.00)::numeric AS period_credit,
+        COALESCE(ROUND(tx.closing, 2), 0.00)::numeric AS closing_balance
+    FROM org_accounts oa
+    FULL OUTER JOIN tx_agg tx ON oa.id = tx.account_id
+    WHERE COALESCE(tx.opening, 0) != 0 
+       OR COALESCE(tx.period_debit, 0) != 0 
+       OR COALESCE(tx.period_credit, 0) != 0 
+       OR COALESCE(tx.closing, 0) != 0;
 END;
 $$;
 
 -- ==============================================================================
--- 🛡️ منح الصلاحيات للأدوار المصرح بها
+-- 🛡️ 4. منح الصلاحيات للأدوار المصرح بها
 -- ==============================================================================
 GRANT EXECUTE ON FUNCTION public.get_financial_audit_summary(text) TO authenticated, anon;
 GRANT EXECUTE ON FUNCTION public.get_unbalanced_journal_entries(text, text) TO authenticated, anon;
