@@ -8,6 +8,7 @@ import { ProductProvider, useProductDomain } from '../context/domains/ProductCon
 import { SalesProvider, useSalesDomain } from '../context/domains/SalesContext';
 import { GeneralLedgerProvider, useGeneralLedgerDomain } from '../context/domains/GeneralLedgerContext';
 import { SettingsProvider, useSettingsDomain } from '../context/domains/AccountingSettingsContext';
+import { Cheque, Product } from '../types';
 
 describe('Domain Context Providers & Hooks Integration (اختبار تكامل موفري النطاقات)', () => {
   it('CustomerProvider يوفر بيانات العملاء ودوال الإدارة بشكل سليم', () => {
@@ -47,7 +48,7 @@ describe('Domain Context Providers & Hooks Integration (اختبار تكامل 
   it('BankingProvider يوفر الشيكات وسندات الصرف والقبض', () => {
     const mockCheques = [
       { id: 'ch1', cheque_number: 'CHQ-9901', amount: 50000, status: 'RECEIVED' as const }
-    ];
+    ] as unknown as Cheque[];
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <BankingProvider initialCheques={mockCheques}>
@@ -64,7 +65,7 @@ describe('Domain Context Providers & Hooks Integration (اختبار تكامل 
   it('ProductProvider يوفر المنتجات والمستودعات والتصنيفات', () => {
     const mockProducts = [
       { id: 'p1', name: 'جاتوه سواريه مشكل', price: 250, cost: 150, stock: 100 }
-    ];
+    ] as unknown as Product[];
 
     const wrapper = ({ children }: { children: React.ReactNode }) => (
       <ProductProvider initialProducts={mockProducts}>

@@ -142,11 +142,16 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
   }, [orgId, fetchProducts, fetchWarehouses, fetchCategories, fetchTransfers]);
 
   const recalculateStock = useCallback(async (productId?: string): Promise<void> => {
-    if (productId) {
-      await supabase.rpc('recalculate_product_stock', { p_product_id: productId });
+    try {
+      await supabase.rpc('recalculate_stock_rpc', {
+        p_product_id: productId || null,
+        p_org_id: orgId || null
+      });
+    } catch (err) {
+      logger.error('Error recalculating stock in ProductProvider:', err);
     }
     await fetchProducts();
-  }, [fetchProducts]);
+  }, [orgId, fetchProducts]);
 
   const addProduct = useCallback(async (product: Partial<Product>): Promise<Product | null> => {
     if (!orgId) return null;
