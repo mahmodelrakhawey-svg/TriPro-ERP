@@ -1,4 +1,4 @@
-﻿import { logger } from '../../../utils/logger';
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
@@ -17,7 +17,7 @@ const PayrollReport = () => {
   const [payrollSummary, setPayrollSummary] = useState<any>(null);
   const [selectedPayslip, setSelectedPayslip] = useState<PayslipData | null>(null);
 
-  // Ù…Ø²Ø§Ù…Ù†Ø© Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø®ØªØ§Ø±Ø© Ù…Ø¹ Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø§Ù„ÙŠØ© Ù„Ù„Ù†Ø¸Ø§Ù…
+  // مزامنة السنة المختارة مع السنة المالية للنظام
   useEffect(() => {
     if (selectedFiscalYear) {
       setSelectedYear(selectedFiscalYear);
@@ -31,12 +31,12 @@ const PayrollReport = () => {
       const userOrgId = session?.user?.user_metadata?.org_id;
 
       if (!userOrgId) {
-        showToast('ØªØ¹Ø°Ø± ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ù…Ù†Ø¸Ù…Ø© Ø§Ù„ØªØ§Ø¨Ø¹ Ù„Ù‡Ø§. ÙŠØ±Ø¬Ù‰ ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„ Ù…Ø±Ø© Ø£Ø®Ø±Ù‰.', 'error');
+        showToast('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.', 'error');
         setLoading(false);
         return;
       }
 
-      // 1. Ø¬Ù„Ø¨ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø³ÙŠØ± Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠ Ù„Ù„Ø´Ù‡Ø± ÙˆØ§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø­Ø¯Ø¯ÙŠÙ†
+      // 1. جلب بيانات المسير الرئيسي للشهر والسنة المحددين
       const { data: payrollsList, error: payrollError } = await supabase
         .from('payrolls')
         .select('*')
@@ -49,7 +49,7 @@ const PayrollReport = () => {
       if (payrollsList && payrollsList.length > 0) {
         const payrollIds = payrollsList.map(p => p.id);
         
-        // 2. Ø¬Ù„Ø¨ ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ù„Ù„Ù…ÙˆØ¸ÙÙŠÙ† Ù…Ø¹ Ø§Ù„Ù‚Ø³Ù…
+        // 2. جلب تفاصيل الرواتب للموظفين مع القسم
         const { data: items, error: itemsError } = await supabase
           .from('payroll_items')
           .select('*, employees(full_name, position, department)')
@@ -58,12 +58,12 @@ const PayrollReport = () => {
 
         if (itemsError) throw itemsError;
 
-        // ØªØ·Ø¨ÙŠÙ‚ Ø¹Ø²Ù„ Ù†Ø·Ø§Ù‚ Ø§Ù„Ø¥Ø´Ø±Ø§Ù (HR Scope)
+        // تطبيق عزل نطاق الإشراف (HR Scope)
         const hrScope = currentUser?.hr_scope || (currentUser as any)?.user_metadata?.hr_scope || 'all';
 
-        const isFactoryDept = (dept: Record<string, any>) => {
+        const isFactoryDept = (dept: unknown) => {
           const d = String(dept || '').trim().toLowerCase();
-          return d === 'Ø§Ù„Ù…ØµÙ†Ø¹' || d === 'Ù…ØµÙ†Ø¹' || d === 'factory';
+          return d === 'المصنع' || d === 'مصنع' || d === 'factory';
         };
 
         let filteredItems = items || [];
@@ -73,7 +73,7 @@ const PayrollReport = () => {
           filteredItems = filteredItems.filter(item => !isFactoryDept(item.employees?.department));
         }
 
-        // Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…Ù„Ø®Øµ Ø¨Ù†Ø§Ø¡ Ø¹Ù„Ù‰ Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ† Ø§Ù„Ù…ØªØ§Ø­ÙŠÙ† Ù„Ù„Ù…Ø³ØªØ®Ø¯Ù… ÙÙ‚Ø·
+        // حساب الملخص بناء على الموظفين المتاحين للمستخدم فقط
         const summary = filteredItems.reduce((acc, curr) => ({
             ...acc,
             total_gross_salary: acc.total_gross_salary + Number(curr.gross_salary || 0),
@@ -91,7 +91,7 @@ const PayrollReport = () => {
       }
     } catch (error) {
       logger.error('Error fetching payroll report:', error);
-      showToast('Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø¬Ù„Ø¨ Ø§Ù„ØªÙ‚Ø±ÙŠØ±: ' + error.message, 'error');
+      showToast('حدث خطأ أثناء جلب التقرير: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -103,8 +103,8 @@ const PayrollReport = () => {
 
   const handlePrintSlip = (item: Record<string, any>) => {
     setSelectedPayslip({
-      employee_name: item.employees?.full_name || 'Ù…ÙˆØ¸Ù',
-      job_title: item.employees?.position || 'Ù…ÙˆØ¸Ù',
+      employee_name: item.employees?.full_name || 'موظف',
+      job_title: item.employees?.position || 'موظف',
       department: item.employees?.department || '-',
       month: selectedMonth,
       year: selectedYear,
@@ -118,69 +118,69 @@ const PayrollReport = () => {
     });
   };
 
-  // ØªØµØ¯ÙŠØ± ÙƒØ´Ù Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ø¥Ù„Ù‰ Excel
+  // تصدير كشف الرواتب إلى Excel
   const handleExportExcel = () => {
     if (!payrollData || payrollData.length === 0) {
-      showToast('Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª Ø±ÙˆØ§ØªØ¨ Ù„Ù„ØªØµØ¯ÙŠØ± ÙÙŠ Ù‡Ø°Ø§ Ø§Ù„Ø´Ù‡Ø±', 'warning');
+      showToast('لا توجد بيانات رواتب للتصدير في هذا الشهر', 'warning');
       return;
     }
 
     const rows = payrollData.map((item, idx) => ({
-      'Ù…': idx + 1,
-      'Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ¸Ù': item.employees?.full_name || 'Ù…ÙˆØ¸Ù',
-      'Ø§Ù„Ù‚Ø³Ù… / Ø§Ù„ÙØ±Ø¹': item.employees?.department || '-',
-      'Ø§Ù„Ù…Ø³Ù…Ù‰ Ø§Ù„ÙˆØ¸ÙŠÙÙŠ': item.employees?.position || '-',
-      'Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ (Ø¬.Ù…)': Number(item.gross_salary) || 0,
-      'Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ ÙˆØ§Ù„Ø¨Ø¯Ù„Ø§Øª (Ø¬.Ù…)': Number(item.additions) || 0,
-      'Ø§Ù„Ø³Ù„Ù Ø§Ù„Ù…Ø®ØµÙˆÙ…Ø© (Ø¬.Ù…)': Number(item.advances_deducted) || 0,
-      'Ø¶Ø±ÙŠØ¨Ø© ÙƒØ³Ø¨ Ø§Ù„Ø¹Ù…Ù„ (Ø¬.Ù…)': Number(item.payroll_tax) || 0,
-      'Ø§Ø³ØªÙ‚Ø·Ø§Ø¹Ø§Øª Ø£Ø®Ø±Ù‰ (Ø¬.Ù…)': Number(item.other_deductions) || 0,
-      'ØµØ§ÙÙŠ Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ù…Ø³ØªØ­Ù‚ (Ø¬.Ù…)': Number(item.net_salary) || 0
+      'م': idx + 1,
+      'اسم الموظف': item.employees?.full_name || 'موظف',
+      'القسم / الفرع': item.employees?.department || '-',
+      'المسمى الوظيفي': item.employees?.position || '-',
+      'الراتب الأساسي (ج.م)': Number(item.gross_salary) || 0,
+      'الإضافي والبدلات (ج.م)': Number(item.additions) || 0,
+      'السلف المخصومة (ج.م)': Number(item.advances_deducted) || 0,
+      'ضريبة كسب العمل (ج.م)': Number(item.payroll_tax) || 0,
+      'استقطاعات أخرى (ج.م)': Number(item.other_deductions) || 0,
+      'صافي الراتب المستحق (ج.م)': Number(item.net_salary) || 0
     }));
 
     if (payrollSummary) {
       rows.push({
-        'Ù…': '' as any,
-        'Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ¸Ù': `Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø¹Ø§Ù… (${payrollData.length} Ù…ÙˆØ¸Ù)`,
-        'Ø§Ù„Ù‚Ø³Ù… / Ø§Ù„ÙØ±Ø¹': '',
-        'Ø§Ù„Ù…Ø³Ù…Ù‰ Ø§Ù„ÙˆØ¸ÙŠÙÙŠ': '',
-        'Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ (Ø¬.Ù…)': payrollSummary.total_gross_salary,
-        'Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ ÙˆØ§Ù„Ø¨Ø¯Ù„Ø§Øª (Ø¬.Ù…)': payrollSummary.total_additions,
-        'Ø§Ù„Ø³Ù„Ù Ø§Ù„Ù…Ø®ØµÙˆÙ…Ø© (Ø¬.Ù…)': payrollData.reduce((s, i) => s + Number(i.advances_deducted || 0), 0),
-        'Ø¶Ø±ÙŠØ¨Ø© ÙƒØ³Ø¨ Ø§Ù„Ø¹Ù…Ù„ (Ø¬.Ù…)': payrollSummary.total_payroll_tax,
-        'Ø§Ø³ØªÙ‚Ø·Ø§Ø¹Ø§Øª Ø£Ø®Ø±Ù‰ (Ø¬.Ù…)': payrollData.reduce((s, i) => s + Number(i.other_deductions || 0), 0),
-        'ØµØ§ÙÙŠ Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ù…Ø³ØªØ­Ù‚ (Ø¬.Ù…)': payrollSummary.total_net_salary
+        'م': '' as any,
+        'اسم الموظف': `الإجمالي العام (${payrollData.length} موظف)`,
+        'القسم / الفرع': '',
+        'المسمى الوظيفي': '',
+        'الراتب الأساسي (ج.م)': payrollSummary.total_gross_salary,
+        'الإضافي والبدلات (ج.م)': payrollSummary.total_additions,
+        'السلف المخصومة (ج.م)': payrollData.reduce((s, i) => s + Number(i.advances_deducted || 0), 0),
+        'ضريبة كسب العمل (ج.م)': payrollSummary.total_payroll_tax,
+        'استقطاعات أخرى (ج.م)': payrollData.reduce((s, i) => s + Number(i.other_deductions || 0), 0),
+        'صافي الراتب المستحق (ج.م)': payrollSummary.total_net_salary
       });
     }
 
     const ws = XLSX.utils.json_to_sheet(rows);
 
     ws['!cols'] = [
-      { wch: 6 },  // Ù…
-      { wch: 25 }, // Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ¸Ù
-      { wch: 18 }, // Ø§Ù„Ù‚Ø³Ù…
-      { wch: 18 }, // Ø§Ù„Ù…Ø³Ù…Ù‰ Ø§Ù„ÙˆØ¸ÙŠÙÙŠ
-      { wch: 18 }, // Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ
-      { wch: 20 }, // Ø§Ù„Ø¥Ø¶Ø§ÙÙŠ ÙˆØ§Ù„Ø¨Ø¯Ù„Ø§Øª
-      { wch: 18 }, // Ø§Ù„Ø³Ù„Ù Ø§Ù„Ù…Ø®ØµÙˆÙ…Ø©
-      { wch: 18 }, // Ø¶Ø±ÙŠØ¨Ø© ÙƒØ³Ø¨ Ø§Ù„Ø¹Ù…Ù„
-      { wch: 18 }, // Ø§Ø³ØªÙ‚Ø·Ø§Ø¹Ø§Øª Ø£Ø®Ø±Ù‰
-      { wch: 22 }  // ØµØ§ÙÙŠ Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ù…Ø³ØªØ­Ù‚
+      { wch: 6 },  // م
+      { wch: 25 }, // اسم الموظف
+      { wch: 18 }, // القسم
+      { wch: 18 }, // المسمى الوظيفي
+      { wch: 18 }, // الراتب الأساسي
+      { wch: 20 }, // الإضافي والبدلات
+      { wch: 18 }, // السلف المخصومة
+      { wch: 18 }, // ضريبة كسب العمل
+      { wch: 18 }, // استقطاعات أخرى
+      { wch: 22 }  // صافي الراتب المستحق
     ];
 
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, `ÙƒØ´Ù_Ø±ÙˆØ§ØªØ¨_${selectedMonth}_${selectedYear}`);
-    XLSX.writeFile(wb, `ÙƒØ´Ù_Ø±ÙˆØ§ØªØ¨_Ø´Ù‡Ø±_${selectedMonth}_Ø³Ù†Ø©_${selectedYear}.xlsx`);
-    showToast(`ØªÙ… ØªØµØ¯ÙŠØ± ÙƒØ´Ù Ø±ÙˆØ§ØªØ¨ Ø´Ù‡Ø± ${selectedMonth}/${selectedYear} Ø¥Ù„Ù‰ Excel Ø¨Ù†Ø¬Ø§Ø­ âœ…`, 'success');
+    XLSX.utils.book_append_sheet(wb, ws, `كشف_رواتب_${selectedMonth}_${selectedYear}`);
+    XLSX.writeFile(wb, `كشف_رواتب_شهر_${selectedMonth}_سنة_${selectedYear}.xlsx`);
+    showToast(`تم تصدير كشف رواتب شهر ${selectedMonth}/${selectedYear} إلى Excel بنجاح ✅`, 'success');
   };
 
-  // Ø­Ù…Ø§ÙŠØ© Ø§Ù„ØµÙØ­Ø© Ù…Ù† Ù…Ø³ØªØ®Ø¯Ù… Ø§Ù„Ø¯ÙŠÙ…Ùˆ
+  // حماية الصفحة من مستخدم الديمو
   if (currentUser?.role === 'demo') {
       return (
           <div className="flex flex-col items-center justify-center h-96 text-slate-500 bg-white rounded-3xl border border-slate-200 shadow-sm">
               <FileText size={64} className="mb-4 text-slate-300" />
-              <h2 className="text-xl font-bold text-slate-700">ÙƒØ´Ù Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ù…Ø­Ø¬ÙˆØ¨</h2>
-              <p className="text-sm mt-2">Ø§Ù„ØªÙ‚Ø§Ø±ÙŠØ± Ø§Ù„Ù…Ø§Ù„ÙŠØ© Ø§Ù„Ø®Ø§ØµØ© Ø¨Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ† ØºÙŠØ± Ù…ØªØ§Ø­Ø© ÙÙŠ Ø§Ù„Ù†Ø³Ø®Ø© Ø§Ù„ØªØ¬Ø±ÙŠØ¨ÙŠØ©.</p>
+              <h2 className="text-xl font-bold text-slate-700">كشف الرواتب محجوب</h2>
+              <p className="text-sm mt-2">التقارير المالية الخاصة بالموظفين غير متاحة في النسخة التجريبية.</p>
           </div>
       );
   }
@@ -190,7 +190,7 @@ const PayrollReport = () => {
       <div className="flex justify-between items-center print:hidden">
         <div className="flex items-center gap-3">
           <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <FileText className="text-blue-600" /> ÙƒØ´Ù Ø±ÙˆØ§ØªØ¨ Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ†
+            <FileText className="text-blue-600" /> كشف رواتب الموظفين
           </h2>
           {currentUser?.hr_scope && currentUser?.hr_scope !== 'all' && (
             <span className={`px-3 py-1 rounded-full text-xs font-black border ${
@@ -198,7 +198,7 @@ const PayrollReport = () => {
                 ? 'bg-amber-50 text-amber-800 border-amber-200'
                 : 'bg-sky-50 text-sky-800 border-sky-200'
             }`}>
-              {currentUser.hr_scope === 'factory' ? 'ðŸ­ Ø·Ø§Ù‚Ù… Ø§Ù„Ù…ØµÙ†Ø¹ ÙÙ‚Ø·' : 'ðŸª Ø·Ø§Ù‚Ù… Ø§Ù„ÙØ±ÙˆØ¹ ÙÙ‚Ø·'}
+              {currentUser.hr_scope === 'factory' ? '🏭 طاقم المصنع فقط' : '🏪 طاقم الفروع فقط'}
             </span>
           )}
         </div>
@@ -207,30 +207,30 @@ const PayrollReport = () => {
             onClick={handleExportExcel} 
             disabled={loading || payrollData.length === 0}
             className="bg-emerald-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-700 disabled:opacity-50 transition shadow-sm font-bold text-sm"
-            title="ØªØµØ¯ÙŠØ± ÙƒØ´Ù Ø§Ù„Ø±ÙˆØ§ØªØ¨ Ø¥Ù„Ù‰ Excel"
+            title="تصدير كشف الرواتب إلى Excel"
           >
-            <FileSpreadsheet size={18} /> ØªØµØ¯ÙŠØ± Excel
+            <FileSpreadsheet size={18} /> تصدير Excel
           </button>
           <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-700 font-bold text-sm">
-            <Printer size={18} /> Ø·Ø¨Ø§Ø¹Ø© Ø§Ù„ÙƒØ´Ù
+            <Printer size={18} /> طباعة الكشف
           </button>
         </div>
       </div>
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-end gap-4 print:hidden">
           <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">Ø¹Ù† Ø´Ù‡Ø±</label>
+              <label className="block text-sm font-bold text-slate-700 mb-1">عن شهر</label>
               <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="w-full border rounded-lg p-2">
                   {[...Array(12)].map((_, i) => <option key={i+1} value={i+1}>{i+1}</option>)}
               </select>
           </div>
           <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">Ø³Ù†Ø©</label>
+              <label className="block text-sm font-bold text-slate-700 mb-1">سنة</label>
               <input type="number" value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="w-full border rounded-lg p-2" />
           </div>
           <div className="flex-1">
              <button onClick={fetchPayrollData} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-100 flex items-center gap-2">
-                <Search size={18} /> Ø¹Ø±Ø¶ Ø§Ù„ØªÙ‚Ø±ÙŠØ±
+                <Search size={18} /> عرض التقرير
              </button>
           </div>
       </div>
@@ -238,7 +238,7 @@ const PayrollReport = () => {
       <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 print:shadow-none print:border-none">
         <div className="text-center mb-8 hidden print:block">
             <h1 className="text-2xl font-bold text-slate-900">{settings.companyName}</h1>
-            <h2 className="text-xl text-slate-600 mt-2">ÙƒØ´Ù Ø±ÙˆØ§ØªØ¨ Ø´Ù‡Ø± {selectedMonth} / {selectedYear}</h2>
+            <h2 className="text-xl text-slate-600 mt-2">كشف رواتب شهر {selectedMonth} / {selectedYear}</h2>
         </div>
 
         {loading ? (
@@ -248,21 +248,21 @@ const PayrollReport = () => {
                 <table className="w-full text-right border-collapse">
                     <thead className="bg-slate-50 text-slate-600 font-bold text-sm border-y-2 border-slate-200">
                         <tr>
-                            <th className="p-3 border-b">Ø§Ù„Ù…ÙˆØ¸Ù</th>
-                            <th className="p-3 border-b">Ø§Ù„ÙØ±Ø¹ / Ø§Ù„Ù‚Ø³Ù…</th>
-                            <th className="p-3 border-b">Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ</th>
-                            <th className="p-3 border-b text-emerald-700">Ø¥Ø¶Ø§ÙÙŠ (+)</th>
-                            <th className="p-3 border-b text-red-700">Ø¶Ø±ÙŠØ¨Ø© (-)</th>
-                            <th className="p-3 border-b text-red-700">Ø®ØµÙˆÙ…Ø§Øª (-)</th>
-                            <th className="p-3 border-b text-red-700">Ø³Ù„Ù (-)</th>
-                            <th className="p-3 border-b">ØµØ§ÙÙŠ Ø§Ù„Ø±Ø§ØªØ¨</th>
-                            <th className="p-3 border-b print:hidden">Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª</th>
+                            <th className="p-3 border-b">الموظف</th>
+                            <th className="p-3 border-b">الفرع / القسم</th>
+                            <th className="p-3 border-b">الراتب الأساسي</th>
+                            <th className="p-3 border-b text-emerald-700">إضافي (+)</th>
+                            <th className="p-3 border-b text-red-700">ضريبة (-)</th>
+                            <th className="p-3 border-b text-red-700">خصومات (-)</th>
+                            <th className="p-3 border-b text-red-700">سلف (-)</th>
+                            <th className="p-3 border-b">صافي الراتب</th>
+                            <th className="p-3 border-b print:hidden">إجراءات</th>
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                         {payrollData.map((item) => (
                     item && <tr key={item.id}>
-                        <td className="p-3 font-bold">{item.employees?.full_name || 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯'} <span className="text-xs font-normal text-slate-500 block">{item.employees?.position || 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯'}</span></td>
+                        <td className="p-3 font-bold">{item.employees?.full_name || 'غير محدد'} <span className="text-xs font-normal text-slate-500 block">{item.employees?.position || 'غير محدد'}</span></td>
                         <td className="p-3 text-slate-600 font-medium text-sm">
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700">
                                 {item.employees?.department || '-'}
@@ -275,7 +275,7 @@ const PayrollReport = () => {
                         <td className="p-3 text-red-600">{(item.advances_deducted || 0).toLocaleString()}</td>
                         <td className="p-3 font-bold text-slate-900 bg-slate-50">{(item.net_salary || 0).toLocaleString()}</td>
                         <td className="p-3 print:hidden">
-                            <button onClick={() => handlePrintSlip(item)} className="text-slate-400 hover:text-blue-600 p-1" title="Ø·Ø¨Ø§Ø¹Ø© Ù‚Ø³ÙŠÙ…Ø©">
+                            <button onClick={() => handlePrintSlip(item)} className="text-slate-400 hover:text-blue-600 p-1" title="طباعة قسيمة">
                                 <Receipt size={18} />
                             </button>
                         </td>
@@ -284,7 +284,7 @@ const PayrollReport = () => {
                     </tbody>
                     <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300">
                         <tr>
-                            <td className="p-3" colSpan={2}>Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ</td>
+                            <td className="p-3" colSpan={2}>الإجمالي</td>
                             <td className="p-3">{payrollSummary.total_gross_salary.toLocaleString()}</td>
                             <td className="p-3 text-emerald-700">{payrollSummary.total_additions.toLocaleString()}</td>
                             <td className="p-3 text-red-700">{payrollSummary.total_payroll_tax.toLocaleString()}</td>
@@ -297,22 +297,22 @@ const PayrollReport = () => {
                 
                 <div className="mt-12 flex justify-between text-center print:flex hidden">
                     <div>
-                        <p className="font-bold text-slate-600 mb-8">Ø§Ù„Ù…Ø­Ø§Ø³Ø¨</p>
+                        <p className="font-bold text-slate-600 mb-8">المحاسب</p>
                         <p>..................</p>
                     </div>
                     <div>
-                        <p className="font-bold text-slate-600 mb-8">Ø§Ù„Ù…Ø¯ÙŠØ± Ø§Ù„Ù…Ø§Ù„ÙŠ</p>
+                        <p className="font-bold text-slate-600 mb-8">المدير المالي</p>
                         <p>..................</p>
                     </div>
                     <div>
-                        <p className="font-bold text-slate-600 mb-8">Ø§Ù„Ù…Ø¯ÙŠØ± Ø§Ù„Ø¹Ø§Ù…</p>
+                        <p className="font-bold text-slate-600 mb-8">المدير العام</p>
                         <p>..................</p>
                     </div>
                 </div>
             </>
         ) : (
             <div className="py-12 text-center text-slate-400 border-2 border-dashed rounded-lg">
-                Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¨ÙŠØ§Ù†Ø§Øª Ø±ÙˆØ§ØªØ¨ Ù…Ø³Ø¬Ù„Ø© Ù„Ù‡Ø°Ø§ Ø§Ù„Ø´Ù‡Ø±
+                لا توجد بيانات رواتب مسجلة لهذا الشهر
             </div>
         )}
       </div>

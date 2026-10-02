@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { logger } from '../../../utils/logger';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -41,17 +41,17 @@ const PaymentVoucherForm = () => {
   const [existingAttachments, setExistingAttachments] = useState<any[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   
-  // Ø¥Ø¶Ø§ÙØ© Ø­Ø§Ù„Ø© Ù„Ù„Ø±ØµÙŠØ¯ Ø§Ù„Ù„Ø­Ø¸ÙŠ Ø§Ù„Ù…Ø¨Ø§Ø´Ø± Ù…Ù† Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
+  // إضافة حالة للرصيد اللحظي المباشر من قاعدة البيانات
   const [dynamicBalance, setDynamicBalance] = useState<number | null>(null);
   const [supplierSearchTerm, setSupplierSearchTerm] = useState('');
 
-  // ÙÙˆØ§ØªÙŠØ± Ø§Ù„Ù…Ø´ØªØ±ÙŠØ§Øª Ø§Ù„Ù…Ø¹Ù„Ù‚Ø© Ù„Ù„Ù…ÙˆØ±Ø¯ Ø§Ù„Ù…Ø®ØªØ§Ø±
+  // فواتير المشتريات المعلقة للمورد المختار
   const [unpaidInvoices, setUnpaidInvoices] = useState<any[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
   const [showInvoicesPanel, setShowInvoicesPanel] = useState(true);
 
-  // Ø¬Ù„Ø¨ ÙÙˆØ§ØªÙŠØ± Ø§Ù„Ù…Ø´ØªØ±ÙŠØ§Øª Ø§Ù„Ù…Ø³ØªØ­Ù‚Ø© Ù„Ù„Ù…ÙˆØ±Ø¯ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ ÙÙˆØ± Ø§Ø®ØªÙŠØ§Ø±Ù‡
+  // جلب فواتير المشتريات المستحقة للمورد تلقائياً فور اختياره
   useEffect(() => {
     const fetchUnpaidInvoices = async () => {
       if (!formData.supplierId) {
@@ -85,7 +85,7 @@ const PaymentVoucherForm = () => {
         }
       } catch (err) {
         logger.error('Error fetching unpaid invoices:', err);
-        showToast('ØªØ¹Ø°Ø± Ø¬Ù„Ø¨ ÙÙˆØ§ØªÙŠØ± Ø§Ù„Ù…ÙˆØ±Ø¯ ØºÙŠØ± Ø§Ù„Ù…Ø³Ø¯Ø¯Ø©: ' + (err?.message || ''), 'warning');
+        showToast('تعذر جلب فواتير المورد غير المسددة: ' + (err?.message || ''), 'warning');
       } finally {
         setLoadingInvoices(false);
       }
@@ -104,12 +104,12 @@ const PaymentVoucherForm = () => {
     setFormData(prev => ({
       ...prev,
       amount: remaining,
-      notes: `Ø³Ø¯Ø§Ø¯ ÙØ§ØªÙˆØ±Ø© Ù…Ø´ØªØ±ÙŠØ§Øª Ø±Ù‚Ù… ${invoice.invoice_number || invoice.id?.slice(0, 8)}`
+      notes: `سداد فاتورة مشتريات رقم ${invoice.invoice_number || invoice.id?.slice(0, 8)}`
     }));
-    showToast(`ØªÙ… ØªØ¹ÙŠÙŠÙ† Ù…Ø¨Ù„Øº Ø§Ù„ÙØ§ØªÙˆØ±Ø© (${remaining.toLocaleString()} ${formData.currency}) ÙˆØªØ­Ø¯ÙŠØ« Ø§Ù„Ø¨ÙŠØ§Ù† ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹`, 'info');
+    showToast(`تم تعيين مبلغ الفاتورة (${remaining.toLocaleString()} ${formData.currency}) وتحديث البيان تلقائياً`, 'info');
   };
 
-  // Ø§Ø³ØªØ®Ø±Ø§Ø¬ Ù…Ø¹Ù„Ù…Ø§Øª Ø§Ù„Ø±Ø§Ø¨Ø· Ø¥Ù† ÙˆØ¬Ø¯Øª
+  // استخراج معلمات الرابط إن وجدت
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const preSupplierId = params.get('supplierId');
@@ -125,14 +125,14 @@ const PaymentVoucherForm = () => {
     }
   }, [location.search]);
 
-  // ØªØµÙÙŠØ© Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ† Ø¨Ù†Ø§Ø¡Ù‹ Ø¹Ù„Ù‰ Ù†Øµ Ø§Ù„Ø¨Ø­Ø«
+  // تصفية الموردين بناءً على نص البحث
   const filteredSuppliers = useMemo(() => {
     return suppliers.filter(s => 
       (s.name || '').toLowerCase().includes(supplierSearchTerm.toLowerCase())
     );
   }, [suppliers, supplierSearchTerm]);
 
-  // Ø¬Ù„Ø¨ Ø§Ù„Ø±ØµÙŠØ¯ Ø§Ù„Ø­Ù‚ÙŠÙ‚ÙŠ ÙÙˆØ± Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ù…ÙˆØ±Ø¯ Ù„Ø¶Ù…Ø§Ù† Ø§Ù„Ù…Ø·Ø§Ø¨Ù‚Ø© Ù…Ø¹ ÙƒØ´Ù Ø§Ù„Ø­Ø³Ø§Ø¨
+  // جلب الرصيد الحقيقي فور اختيار المورد لضمان المطابقة مع كشف الحساب
   useEffect(() => {
     const getRealBalance = async () => {
       if (!formData.supplierId) { setDynamicBalance(null); return; }
@@ -153,7 +153,7 @@ const PaymentVoucherForm = () => {
           return;
       }
 
-      // ðŸ›¡ï¸ Ø§Ù„Ø­Ù„ Ø§Ù„Ø´Ø§Ù…Ù„ ÙˆØ§Ù„Ù…ÙˆØ­Ø¯: Ø­Ø³Ø§Ø¨ Ø§Ù„Ø±ØµÙŠØ¯ Ø§Ù„ÙØ¹Ù„ÙŠ Ù„Ù„Ù…ÙˆØ±Ø¯ Ù…Ø¨Ø§Ø´Ø±Ø© Ù„ÙŠØªØ·Ø§Ø¨Ù‚ 100% Ù…Ø¹ ÙƒØ´Ù Ø§Ù„Ø­Ø³Ø§Ø¨ ÙˆØ§Ù„Ø£Ø³ØªØ§Ø° Ø§Ù„Ø¹Ø§Ù…
+      // 🛡️ الحل الشامل والموحد: حساب الرصيد الفعلي للمورد مباشرة ليتطابق 100% مع كشف الحساب والأستاذ العام
       const [
           pinvRes, payRes, pretRes, dnRes, chqRes, subRes, rebRes, manualJRes
       ] = await Promise.all([
@@ -172,7 +172,7 @@ const PaymentVoucherForm = () => {
             .ilike('journal_entries.description', `%${supplier.name}%`)
       ]);
 
-      // Ø­Ø³Ø§Ø¨ Ù…Ø³ØªØ®Ù„ØµØ§Øª Ù…Ù‚Ø§ÙˆÙ„ÙŠ Ø§Ù„Ø¨Ø§Ø·Ù†
+      // حساب مستخلصات مقاولي الباطن
       let contractorBillings = 0;
       if (subRes.data && subRes.data.length > 0) {
         const subIds = subRes.data.map(s => s.id);
@@ -204,7 +204,7 @@ const PaymentVoucherForm = () => {
       const totalCheques = chqRes.data?.reduce((sum, c) => sum + Number(c.amount || 0), 0) || 0;
       const totalRebates = rebRes.data?.reduce((sum, r) => sum + Number(r.total_claim_amount || 0), 0) || 0;
 
-      // Ù‚ÙŠÙˆØ¯ ØªØ³ÙˆÙŠØ© ÙŠØ¯ÙˆÙŠØ© Ø£Ø®Ø±Ù‰ (Ø¨Ø§Ø³ØªØ«Ù†Ø§Ø¡ Ø§Ù„Ø¨ÙˆØ§Ù†Øµ ÙˆØ§Ù„ÙÙˆØ§ØªÙŠØ± ÙˆØ§Ù„Ø´ÙŠÙƒØ§Øª Ø§Ù„Ù…Ø³Ø¬Ù„Ø©)
+      // قيود تسوية يدوية أخرى (باستثناء البوانص والفواتير والشيكات المسجلة)
       const otherManualDebit = (manualJRes.data as any[])
         ?.filter((l: Record<string, any>) => {
           const jEntry = Array.isArray(l.journal_entries) ? l.journal_entries[0] : l.journal_entries;
@@ -236,7 +236,7 @@ const PaymentVoucherForm = () => {
   useEffect(() => {
     supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
       if (error) {
-        logger.error("ÙØ´Ù„ Ø¬Ù„Ø¨ Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ø´Ø±ÙƒØ© Ø¹Ø¨Ø± RPC:", error);
+        logger.error("فشل جلب إعدادات الشركة عبر RPC:", error);
       } else {
         setCompanySettings(data);
       }
@@ -254,15 +254,15 @@ const PaymentVoucherForm = () => {
 
   const paymentVouchers = vouchers.filter(v => v.type === 'payment');
 
-  // ØªØµÙÙŠØ© Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ø®Ø²ÙŠÙ†Ø© ÙˆØ§Ù„Ø¨Ù†ÙˆÙƒ Ù…Ù† Ø§Ù„Ø³ÙŠØ§Ù‚ Ù…Ø¨Ø§Ø´Ø±Ø© Ù„Ø¶Ù…Ø§Ù† Ø§Ù„ØªØ­Ø¯ÙŠØ« Ø§Ù„ÙÙˆØ±ÙŠ (Ø§Ø³ØªØ¨Ø¹Ø§Ø¯ Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© ÙˆØ§Ù„ØªØ¬Ù…ÙŠØ¹ÙŠØ© Ù‚Ø·ÙŠØ¹Ø§Ù‹)
+  // تصفية حسابات الخزينة والبنوك من السياق مباشرة لضمان التحديث الفوري (استبعاد الحسابات الرئيسية والتجميعية قطيعاً)
   const treasuryAccounts = useMemo(() => {
     return accounts.filter(a => 
       !(a.isGroup || a.is_group) &&
       a.code !== '123' && a.code !== '12' && a.code !== '1' && (
-        a.name.includes('ØµÙ†Ø¯ÙˆÙ‚') || 
-        a.name.includes('Ø®Ø²ÙŠÙ†Ø©') || 
-        a.name.includes('Ø¨Ù†Ùƒ') || 
-        a.name.includes('Ù†Ù‚Ø¯') ||
+        a.name.includes('صندوق') || 
+        a.name.includes('خزينة') || 
+        a.name.includes('بنك') || 
+        a.name.includes('نقد') ||
         a.name.includes('Cash') ||
         a.name.includes('Bank') ||
         a.code.startsWith('123') || a.code.startsWith('101')
@@ -270,7 +270,7 @@ const PaymentVoucherForm = () => {
     );
   }, [accounts]);
 
-  // ØªØ­Ù…ÙŠÙ„ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø³Ù†Ø¯ Ø¹Ù†Ø¯ Ø§Ù„ØªÙˆØ¬ÙŠÙ‡ Ù…Ù† Ø§Ù„Ø³Ø¬Ù„ Ù„Ù„ØªØ¹Ø¯ÙŠÙ„
+  // تحميل بيانات السند عند التوجيه من السجل للتعديل
   useEffect(() => {
     if (location.state && location.state.voucherToEdit) {
       loadVoucher(location.state.voucherToEdit);
@@ -298,7 +298,7 @@ const PaymentVoucherForm = () => {
       costCenterId: data.cost_center_id || ''
       });
 
-      // Ø¬Ù„Ø¨ Ø§Ù„Ù…Ø±ÙÙ‚Ø§Øª Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø©
+      // جلب المرفقات المحفوظة
       const { data: atts } = await supabase.from('payment_voucher_attachments').select('*').eq('voucher_id', voucher.id);
       setExistingAttachments(atts || []);
     }
@@ -365,7 +365,7 @@ const PaymentVoucherForm = () => {
       URL.revokeObjectURL(url);
     } catch (err) {
       logger.error('Error downloading:', err);
-      showToast('ÙØ´Ù„ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ù„Ù', 'error');
+      showToast('فشل تحميل الملف', 'error');
     }
   };
 
@@ -391,13 +391,13 @@ const PaymentVoucherForm = () => {
   const handleWhatsApp = () => {
     const supplier = suppliers.find(s => s.id === formData.supplierId);
     if (!supplier || !supplier.phone) {
-      showToast('Ø±Ù‚Ù… Ù‡Ø§ØªÙ Ø§Ù„Ù…ÙˆØ±Ø¯ ØºÙŠØ± Ù…ØªÙˆÙØ± ÙÙŠ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ©', 'warning');
+      showToast('رقم هاتف المورد غير متوفر في البيانات الأساسية', 'warning');
       return;
     }
     
-    const message = `*Ø³Ù†Ø¯ ØµØ±Ù Ø¬Ø¯ÙŠØ¯*\n\nÙ…Ø±Ø­Ø¨Ø§Ù‹ ${supplier.name}ØŒ\nØªÙ… ØµØ±Ù Ù…Ø¨Ù„Øº: *${Number(formData.amount).toLocaleString()} ${formData.currency}*\nØ±Ù‚Ù… Ø§Ù„Ø³Ù†Ø¯: ${formData.voucherNumber}\nØ§Ù„ØªØ§Ø±ÙŠØ®: ${formData.date}\n${formData.notes ? 'Ø§Ù„Ø¨ÙŠØ§Ù†: ' + formData.notes : ''}\n\nØ´ÙƒØ±Ø§Ù‹ Ù„ØªØ¹Ø§Ù…Ù„ÙƒÙ… Ù…Ø¹Ù†Ø§.`;
+    const message = `*سند صرف جديد*\n\nمرحباً ${supplier.name}،\nتم صرف مبلغ: *${Number(formData.amount).toLocaleString()} ${formData.currency}*\nرقم السند: ${formData.voucherNumber}\nالتاريخ: ${formData.date}\n${formData.notes ? 'البيان: ' + formData.notes : ''}\n\nشكراً لتعاملكم معنا.`;
     
-    // ØªÙ†Ø¸ÙŠÙ Ø±Ù‚Ù… Ø§Ù„Ù‡Ø§ØªÙ Ù…Ù† Ø§Ù„Ø±Ù…ÙˆØ² ØºÙŠØ± Ø§Ù„Ø±Ù‚Ù…ÙŠØ©
+    // تنظيف رقم الهاتف من الرموز غير الرقمية
     const phone = supplier.phone.replace(/[^0-9]/g, '');
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
@@ -408,7 +408,7 @@ const PaymentVoucherForm = () => {
     if (isSubmittingRef.current || loading) return;
     setErrors({});
 
-    // Ø¥Ø¹Ø¯Ø§Ø¯ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù„Ù„ØªØ­Ù‚Ù‚
+    // إعداد البيانات للتحقق
     const validationData = {
       amount: Number(formData.amount),
       date: formData.date,
@@ -424,7 +424,7 @@ const PaymentVoucherForm = () => {
         const formattedErrors: Record<string, string> = {};
         result.error.issues.forEach(issue => { formattedErrors[String(issue.path[0])] = issue.message; });
         setErrors(formattedErrors);
-        showToast('ÙŠØ±Ø¬Ù‰ ØªØµØ­ÙŠØ­ Ø§Ù„Ø£Ø®Ø·Ø§Ø¡ ÙÙŠ Ø§Ù„Ù†Ù…ÙˆØ°Ø¬', 'error');
+        showToast('يرجى تصحيح الأخطاء في النموذج', 'error');
         return;
     }
     setLoading(true);
@@ -448,7 +448,7 @@ const PaymentVoucherForm = () => {
             costCenterId: formData.costCenterId
         };
         addDemoPaymentVoucher(demoVoucher);
-        showToast('ØªÙ… Ø­ÙØ¸ Ø³Ù†Ø¯ Ø§Ù„ØµØ±Ù (Ø¯ÙŠÙ…Ùˆ) Ø¨Ù†Ø¬Ø§Ø­ âœ…', 'success');
+        showToast('تم حفظ سند الصرف (ديمو) بنجاح ✅', 'success');
         handleNew();
         isSubmittingRef.current = false;
         setLoading(false);
@@ -464,12 +464,12 @@ const PaymentVoucherForm = () => {
 
         if (isEditing && currentVoucherId) {
           if (!isAdmin && !can('treasury', 'update') && !can('treasury', 'manage')) {
-              showToast('Ù„ÙŠØ³ Ù„Ø¯ÙŠÙƒ ØµÙ„Ø§Ø­ÙŠØ© ØªØ¹Ø¯ÙŠÙ„ Ø³Ù†Ø¯Ø§Øª Ø§Ù„ØµØ±Ù', 'error');
+              showToast('ليس لديك صلاحية تعديل سندات الصرف', 'error');
               setLoading(false);
               return;
           }
               
-          // 1. ØªØ­Ø¯ÙŠØ« Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø³Ù†Ø¯ ÙÙŠ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª ÙˆØ¬Ù„Ø¨ Ø¨ÙŠØ§Ù†Ø§ØªÙ‡ Ø§Ù„Ù…Ø­Ø¯Ø«Ø©
+          // 1. تحديث بيانات السند في قاعدة البيانات وجلب بياناته المحدثة
           const { data: voucherData, error: vErr } = await supabase
               .from('payment_vouchers')
               .update({
@@ -489,7 +489,7 @@ const PaymentVoucherForm = () => {
 
           if (vErr) throw vErr;
 
-          // ðŸš€ Ø§Ù„Ø­Ù„ Ø§Ù„Ø¬Ø°Ø±ÙŠ: Ø§Ø³ØªØ¯Ø¹Ø§Ø¡ Ø§Ù„Ø¯Ø§Ù„Ø© Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠØ© Ø§Ù„Ù…ÙˆØ­Ø¯Ø© Ù„Ø¥Ø¹Ø§Ø¯Ø© ØªØ±Ø­ÙŠÙ„ Ø§Ù„Ù‚ÙŠØ¯ Ø¨Ø´ÙƒÙ„ ØµØ­ÙŠØ­ ÙˆÙ…ØªÙˆØ§Ø²Ù†
+          // 🚀 الحل الجذري: استدعاء الدالة المحاسبية الموحدة لإعادة ترحيل القيد بشكل صحيح ومتوازن
           const supplierAcc = getSystemAccount('SUPPLIERS');
           if (supplierAcc) {
               await supabase.rpc('approve_payment_voucher', { 
@@ -498,9 +498,9 @@ const PaymentVoucherForm = () => {
               });
           }
 
-          showToast('ØªÙ… ØªØ¹Ø¯ÙŠÙ„ Ø³Ù†Ø¯ Ø§Ù„ØµØ±Ù Ø¨Ù†Ø¬Ø§Ø­ âœ…', 'success');
+          showToast('تم تعديل سند الصرف بنجاح ✅', 'success');
           
-          // ðŸš€ Ø¥ØµÙ„Ø§Ø­: Ø§Ù„ØªÙˆÙ‚Ù Ù‡Ù†Ø§ Ø¨Ø¹Ø¯ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„ Ù„Ù…Ù†Ø¹ ØªÙƒØ±Ø§Ø± Ø§Ù„Ø³Ù†Ø¯
+          // 🚀 إصلاح: التوقف هنا بعد التعديل لمنع تكرار السند
           setLoading(false);
           navigate('/payment-vouchers-list');
           return;
@@ -508,25 +508,25 @@ const PaymentVoucherForm = () => {
 
 
         if (!isAdmin && !can('treasury', 'create') && !can('treasury', 'payment_create')) {
-            showToast('Ù„ÙŠØ³ Ù„Ø¯ÙŠÙƒ ØµÙ„Ø§Ø­ÙŠØ© Ø¥Ù†Ø´Ø§Ø¡ Ø³Ù†Ø¯Ø§Øª ØµØ±Ù', 'error');
+            showToast('ليس لديك صلاحية إنشاء سندات صرف', 'error');
             setLoading(false);
             return;
         }
 
-        // Ø§Ù„Ø¨Ø­Ø« Ø¹Ù† Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ† (201)
+        // البحث عن حساب الموردين (201)
         const supplierAcc = getSystemAccount('SUPPLIERS');
 
         if (!supplierAcc) {
-            showToast('Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ø­Ø³Ø§Ø¨ "Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†" (201) ÙÙŠ Ø§Ù„Ø¯Ù„ÙŠÙ„ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠ.', 'error');
+            showToast('لم يتم العثور على حساب "الموردين" (201) في الدليل المحاسبي.', 'error');
             setLoading(false);
             return;
         }
 
-        // Ø¬Ù„Ø¨ Ù…Ø¹Ø±Ù Ø§Ù„Ù…Ù†Ø¸Ù…Ø© Ù…Ø¹ ØµÙ…Ø§Ù… Ø£Ù…Ø§Ù† ÙÙŠ Ø­Ø§Ù„ ÙÙ‚Ø¯Ø§Ù†Ù‡ Ù…Ù† Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…
+        // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
         const orgId = (currentUser as any)?.organization_id || 
                      (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
 
-        // 1. Ø­ÙØ¸ Ø³Ù†Ø¯ Ø§Ù„ØµØ±Ù ÙÙŠ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
+        // 1. حفظ سند الصرف في قاعدة البيانات
         const { data: voucherData, error: voucherError } = await supabase.from('payment_vouchers').insert({
             voucher_number: voucherNumber,
             payment_date: formData.date,
@@ -542,14 +542,14 @@ const PaymentVoucherForm = () => {
         }).select().single();
 
         if (voucherError) {
-            // ðŸ›¡ï¸ Ø§Ù„Ù‚ÙÙ„ Ø§Ù„Ø­Ø¯ÙŠØ¯ÙŠ: Ù…Ù†Ø¹ ØªÙƒØ±Ø§Ø± Ø£Ø±Ù‚Ø§Ù… Ø³Ù†Ø¯Ø§Øª Ø§Ù„ØµØ±Ù
+            // 🛡️ القفل الحديدي: منع تكرار أرقام سندات الصرف
             if (voucherError.code === '23505') {
-                throw new Error('Ø±Ù‚Ù… Ø§Ù„Ø³Ù†Ø¯ Ù‡Ø°Ø§ Ù…Ø³Ø¬Ù„ Ù…Ø³Ø¨Ù‚Ø§Ù‹ Ù„Ù‡Ø°Ù‡ Ø§Ù„Ø´Ø±ÙƒØ©.');
+                throw new Error('رقم السند هذا مسجل مسبقاً لهذه الشركة.');
             }
             throw voucherError;
         }
 
-        // 1.5. Ø±ÙØ¹ Ø§Ù„Ù…Ø±ÙÙ‚Ø§Øª (Ø¥Ø°Ø§ ÙˆØ¬Ø¯Øª)
+        // 1.5. رفع المرفقات (إذا وجدت)
         if (attachments.length > 0 && voucherData) {
             for (const file of attachments) {
                 const fileExt = file.name.split('.').pop();
@@ -557,14 +557,14 @@ const PaymentVoucherForm = () => {
                 const filePath = `vouchers/${fileName}`;
 
                 const { error: uploadError } = await supabase.storage
-                    .from('documents') // Ø§Ø³Ù… Ø§Ù„Ù€ Bucket
+                    .from('documents') // اسم الـ Bucket
                     .upload(filePath, file);
 
                 if (uploadError) {
                     logger.error('Upload failed:', uploadError);
-                    showToast(`ØªÙ… Ø­ÙØ¸ Ø§Ù„Ø³Ù†Ø¯ ÙˆÙ„ÙƒÙ† ÙØ´Ù„ Ø±ÙØ¹ Ø§Ù„Ù…Ø±ÙÙ‚: ${file.name}. Ø§Ù„Ø³Ø¨Ø¨: ${uploadError.message}`, 'warning');
+                    showToast(`تم حفظ السند ولكن فشل رفع المرفق: ${file.name}. السبب: ${uploadError.message}`, 'warning');
                 } else {
-                    // Ø­ÙØ¸ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø±ÙÙ‚ ÙÙŠ Ø§Ù„Ø¬Ø¯ÙˆÙ„ Ø§Ù„Ø¬Ø¯ÙŠØ¯
+                    // حفظ بيانات المرفق في الجدول الجديد
                     await supabase.from('payment_voucher_attachments').insert({
                         voucher_id: voucherData.id,
                         file_path: filePath,
@@ -576,7 +576,7 @@ const PaymentVoucherForm = () => {
             }
         }
 
-        // 1.8. ØªØ­Ø¯ÙŠØ« ÙØ§ØªÙˆØ±Ø© Ø§Ù„Ù…Ø´ØªØ±ÙŠØ§Øª Ø§Ù„Ù…Ø±ØªØ¨Ø·Ø© Ø¨Ø§Ù„Ø³Ø¯Ø§Ø¯ Ø¥Ù† ÙˆØ¬Ø¯Øª
+        // 1.8. تحديث فاتورة المشتريات المرتبطة بالسداد إن وجدت
         if (selectedInvoiceId && voucherData) {
             try {
                 const { data: currentInv } = await supabase
@@ -595,36 +595,36 @@ const PaymentVoucherForm = () => {
                 }
             } catch (invErr) {
                 logger.error('Failed to update purchase invoice status:', invErr);
-                showToast('ØªÙ… Ø­ÙØ¸ Ø§Ù„Ø³Ù†Ø¯ ÙˆÙ„ÙƒÙ† ØªØ¹Ø°Ø± ØªØ­Ø¯ÙŠØ« Ø­Ø§Ù„Ø© Ø³Ø¯Ø§Ø¯ ÙØ§ØªÙˆØ±Ø© Ø§Ù„Ù…Ø´ØªØ±ÙŠØ§Øª: ' + (invErr?.message || ''), 'warning');
+                showToast('تم حفظ السند ولكن تعذر تحديث حالة سداد فاتورة المشتريات: ' + (invErr?.message || ''), 'warning');
             }
         }
 
-        // 2. Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠ (Ù…Ø­Ø§ÙˆÙ„Ø© Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„Ø¯Ø§Ù„Ø© Ø§Ù„Ø¢Ù…Ù†Ø©ØŒ Ø«Ù… Ø§Ù„Ø¨Ø¯ÙŠÙ„ Ø§Ù„ÙŠØ¯ÙˆÙŠ)
+        // 2. إنشاء القيد المحاسبي (محاولة استخدام الدالة الآمنة، ثم البديل اليدوي)
         try {
             const { error: rpcError } = await supabase.rpc('approve_payment_voucher', { p_voucher_id: voucherData.id, p_debit_account_id: supplierAcc.id });
             if (rpcError) throw rpcError;
         } catch (err) {
             logger.warn("RPC failed, falling back to manual entry:", err);
-            // ÙÙŠ Ø­Ø§Ù„ ÙØ´Ù„ Ø§Ù„Ø¯Ø§Ù„Ø© (Ù…Ø«Ù„Ø§Ù‹ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯Ø©)ØŒ Ù†Ù‚ÙˆÙ… Ø¨Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù‚ÙŠØ¯ ÙŠØ¯ÙˆÙŠØ§Ù‹ Ù„Ø¶Ù…Ø§Ù† Ø³Ù„Ø§Ù…Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
+            // في حال فشل الدالة (مثلاً غير موجودة)، نقوم بإنشاء القيد يدوياً لضمان سلامة البيانات
             await addEntry({
                 date: formData.date,
                 reference: voucherNumber,
-                description: formData.notes || `Ø³Ù†Ø¯ ØµØ±Ù Ù„Ù„Ù…ÙˆØ±Ø¯`,
+                description: formData.notes || `سند صرف للمورد`,
                 lines: [
-                    { account_id: supplierAcc.id, accountId: supplierAcc.id, debit: formData.amount, credit: 0, description: `ØµØ±Ù Ù„Ù„Ù…ÙˆØ±Ø¯`, costCenterId: formData.costCenterId || null },
-                    { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: `Ø³Ù†Ø¯ ØµØ±Ù Ø±Ù‚Ù… ${voucherNumber}` }
+                    { account_id: supplierAcc.id, accountId: supplierAcc.id, debit: formData.amount, credit: 0, description: `صرف للمورد`, costCenterId: formData.costCenterId || null },
+                    { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: `سند صرف رقم ${voucherNumber}` }
                 ]
             });
         }
 
-        showToast('ØªÙ… Ø­ÙØ¸ Ø³Ù†Ø¯ Ø§Ù„ØµØ±Ù ÙˆØªØ±Ø­ÙŠÙ„ Ø§Ù„Ù‚ÙŠØ¯ Ø¨Ù†Ø¬Ø§Ø­', 'success');
+        showToast('تم حفظ سند الصرف وترحيل القيد بنجاح', 'success');
         handleNew();
         setAttachments([]);
         setErrors({});
 
     } catch (error) {
         logger.error('Error saving payment voucher:', error);
-        showToast(error?.message || 'ÙØ´Ù„ Ø­ÙØ¸ Ø³Ù†Ø¯ Ø§Ù„ØµØ±Ù', 'error');
+        showToast(error?.message || 'فشل حفظ سند الصرف', 'error');
     } finally {
         isSubmittingRef.current = false;
         setLoading(false);
@@ -634,27 +634,27 @@ const PaymentVoucherForm = () => {
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in">
       <div className={voucherToPrint ? 'print:hidden' : ''}>
-      {/* Ø´Ø±ÙŠØ· Ø§Ù„Ø£Ø¯ÙˆØ§Øª */}
+      {/* شريط الأدوات */}
       <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-slate-200">
         <div className="flex items-center gap-2">
-          <button onClick={handlePrevious} className="p-2 hover:bg-slate-100 rounded-full text-slate-600" title="Ø§Ù„Ø³Ø§Ø¨Ù‚">
+          <button onClick={handlePrevious} className="p-2 hover:bg-slate-100 rounded-full text-slate-600" title="السابق">
             <ArrowRight className="w-5 h-5" />
           </button>
-          <button onClick={handleNext} className="p-2 hover:bg-slate-100 rounded-full text-slate-600" title="Ø§Ù„ØªØ§Ù„ÙŠ">
+          <button onClick={handleNext} className="p-2 hover:bg-slate-100 rounded-full text-slate-600" title="التالي">
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div className="h-6 w-px bg-slate-300 mx-2"></div>
           <button onClick={handleNew} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-bold text-sm">
             <Plus className="w-4 h-4" />
-            <span>Ø³Ù†Ø¯ Ø¬Ø¯ÙŠØ¯</span>
+            <span>سند جديد</span>
           </button>
-          <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-bold text-sm" title="Ø·Ø¨Ø§Ø¹Ø© Ø§Ù„Ø³Ù†Ø¯ Ø§Ù„Ø­Ø§Ù„ÙŠ">
+          <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-bold text-sm" title="طباعة السند الحالي">
             <Printer className="w-4 h-4" />
-            <span>Ø·Ø¨Ø§Ø¹Ø©</span>
+            <span>طباعة</span>
           </button>
-          <button onClick={handleWhatsApp} className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 font-bold text-sm" title="Ø¥Ø±Ø³Ø§Ù„ Ø¹Ø¨Ø± ÙˆØ§ØªØ³Ø§Ø¨">
+          <button onClick={handleWhatsApp} className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 font-bold text-sm" title="إرسال عبر واتساب">
             <MessageCircle className="w-4 h-4" />
-            <span>ÙˆØ§ØªØ³Ø§Ø¨</span>
+            <span>واتساب</span>
           </button>
         </div>
 
@@ -669,7 +669,7 @@ const PaymentVoucherForm = () => {
                }}
                value={currentVoucherId || ''}
              >
-               <option value="">Ø¨Ø­Ø« Ø¹Ù† Ø³Ù†Ø¯...</option>
+               <option value="">بحث عن سند...</option>
                {paymentVouchers.map(v => (
                  <option key={v.id} value={v.id}>{v.voucherNumber || v.voucher_number} - {v.amount}</option>
                ))}
@@ -680,7 +680,7 @@ const PaymentVoucherForm = () => {
 
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <ArrowUpRight className="text-blue-600" /> {isEditing ? 'ØªØ¹Ø¯ÙŠÙ„ Ø³Ù†Ø¯ ØµØ±Ù' : 'Ø³Ù†Ø¯ ØµØ±Ù Ø¬Ø¯ÙŠØ¯'}
+            <ArrowUpRight className="text-blue-600" /> {isEditing ? 'تعديل سند صرف' : 'سند صرف جديد'}
         </h2>
       </div>
 
@@ -695,7 +695,7 @@ const PaymentVoucherForm = () => {
       >
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Ø§Ù„Ù…ÙˆØ±Ø¯ Ø§Ù„Ø°ÙƒÙŠ Ø§Ù„ÙØ§Ø¦Ù‚ */}
+            {/* المورد الذكي الفائق */}
             <div className="md:col-span-2">
                 <SupplierSearchSelect
                     value={formData.supplierId}
@@ -711,8 +711,8 @@ const PaymentVoucherForm = () => {
                         }
                     }}
                     suppliers={suppliers}
-                    label="ØµØ±Ù Ù„Ù„Ù…ÙˆØ±Ø¯ (Ø§Ù„Ù…Ø³ØªÙÙŠØ¯)"
-                    placeholder="Ø§Ø¨Ø­Ø« Ø¹Ù† Ù…ÙˆØ±Ø¯ Ø¨Ø§Ù„Ø§Ø³Ù…ØŒ Ø§Ù„ÙƒÙˆØ¯ØŒ Ø§Ù„Ù‡Ø§ØªÙØŒ Ø£Ùˆ Ø§Ù„Ø±Ù‚Ù… Ø§Ù„Ø¶Ø±ÙŠØ¨ÙŠ..."
+                    label="صرف للمورد (المستفيد)"
+                    placeholder="ابحث عن مورد بالاسم، الكود، الهاتف، أو الرقم الضريبي..."
                     required
                     theme="blue"
                     showBalance={true}
@@ -722,17 +722,17 @@ const PaymentVoucherForm = () => {
                 />
                 {errors.partyId && <p className="text-red-500 text-xs mt-1 font-bold">{errors.partyId}</p>}
 
-                {/* Ù„ÙˆØ­Ø© ÙÙˆØ§ØªÙŠØ± Ø§Ù„Ù…Ø´ØªØ±ÙŠØ§Øª Ø§Ù„Ù…Ø¹Ù„Ù‚Ø© Ù„Ù„Ù…ÙˆØ±Ø¯ Ø§Ù„Ù…Ø®ØªØ§Ø± */}
+                {/* لوحة فواتير المشتريات المعلقة للمورد المختار */}
                 {formData.supplierId && unpaidInvoices.length > 0 && (
                     <div className="mt-3 p-4 bg-blue-50/70 border border-blue-200 rounded-2xl animate-in fade-in slide-in-from-top-2">
                         <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
                             <div className="flex items-center gap-2 flex-wrap">
                                 <Receipt className="text-blue-600 w-5 h-5" />
                                 <span className="text-xs font-black text-blue-900">
-                                    ÙÙˆØ§ØªÙŠØ± Ø§Ù„Ù…Ø´ØªØ±ÙŠØ§Øª Ø§Ù„Ù…Ø³ØªØ­Ù‚Ø© Ø¹Ù„Ù‰ Ù‡Ø°Ø§ Ø§Ù„Ù…ÙˆØ±Ø¯ ({unpaidInvoices.length} ÙÙˆØ§ØªÙŠØ± Ù…Ø¹Ù„Ù‚Ø©)
+                                    فواتير المشتريات المستحقة على هذا المورد ({unpaidInvoices.length} فواتير معلقة)
                                 </span>
                                 <span className="text-[11px] font-bold text-blue-700 bg-blue-100 px-2 py-0.5 rounded-full font-mono">
-                                    Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ: {unpaidInvoices.reduce((sum, inv) => sum + (Number(inv.total_amount || 0) - Number(inv.paid_amount || 0)), 0).toLocaleString()} {formData.currency}
+                                    المتبقي الإجمالي: {unpaidInvoices.reduce((sum, inv) => sum + (Number(inv.total_amount || 0) - Number(inv.paid_amount || 0)), 0).toLocaleString()} {formData.currency}
                                 </span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -742,14 +742,14 @@ const PaymentVoucherForm = () => {
                                         onClick={() => setSelectedInvoiceId(null)}
                                         className="text-xs font-bold text-slate-600 hover:text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-slate-200 shadow-2xs transition-colors"
                                     >
-                                        Ø¥Ù„ØºØ§Ø¡ Ø§Ù„ØªØ®ØµÙŠØµ (Ø³Ø¯Ø§Ø¯ Ø¹Ø§Ù… Ø¹Ù„Ù‰ Ø§Ù„Ø­Ø³Ø§Ø¨)
+                                        إلغاء التخصيص (سداد عام على الحساب)
                                     </button>
                                 )}
                                 <button
                                     type="button"
                                     onClick={() => setShowInvoicesPanel(!showInvoicesPanel)}
                                     className="text-blue-600 hover:text-blue-800 p-1"
-                                    title={showInvoicesPanel ? 'Ø·ÙŠ Ø§Ù„Ù„ÙˆØ­Ø©' : 'Ø¹Ø±Ø¶ Ø§Ù„ÙÙˆØ§ØªÙŠØ±'}
+                                    title={showInvoicesPanel ? 'طي اللوحة' : 'عرض الفواتير'}
                                 >
                                     {showInvoicesPanel ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                                 </button>
@@ -780,18 +780,18 @@ const PaymentVoucherForm = () => {
                                                 </span>
                                             </div>
                                             <div className="flex justify-between items-baseline mt-2">
-                                                <span className={`text-xs font-bold ${isSelected ? 'text-blue-100' : 'text-slate-500'}`}>Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ:</span>
+                                                <span className={`text-xs font-bold ${isSelected ? 'text-blue-100' : 'text-slate-500'}`}>المتبقي:</span>
                                                 <span className={`text-sm font-black font-mono ${isSelected ? 'text-white' : 'text-blue-700'}`}>
                                                     {remaining.toLocaleString()} {formData.currency}
                                                 </span>
                                             </div>
                                             <div className="mt-2 pt-1 border-t border-slate-100/30 flex items-center justify-between text-[11px]">
                                                 <span className={isSelected ? 'text-blue-200' : 'text-slate-400'}>
-                                                    Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ: {Number(inv.total_amount || 0).toLocaleString()}
+                                                    الإجمالي: {Number(inv.total_amount || 0).toLocaleString()}
                                                 </span>
                                                 <span className={`font-bold flex items-center gap-1 ${isSelected ? 'text-yellow-300' : 'text-blue-600'}`}>
                                                     {isSelected ? <CheckCircle2 size={12} /> : null}
-                                                    {isSelected ? 'Ù…Ø­Ø¯Ø¯Ø© Ù„Ù„Ø³Ø¯Ø§Ø¯' : 'Ø§Ø¶ØºØ· Ù„Ù„Ø³Ø¯Ø§Ø¯'}
+                                                    {isSelected ? 'محددة للسداد' : 'اضغط للسداد'}
                                                 </span>
                                             </div>
                                         </div>
@@ -803,16 +803,16 @@ const PaymentVoucherForm = () => {
                 )}
             </div>
 
-            {/* Ø­Ø³Ø§Ø¨ Ø§Ù„ØµØ±Ù */}
+            {/* حساب الصرف */}
             <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">Ù…Ù† Ø­Ø³Ø§Ø¨ (Ø§Ù„Ø®Ø²ÙŠÙ†Ø©/Ø§Ù„Ø¨Ù†Ùƒ)</label>
+                <label className="block text-sm font-bold text-slate-700 mb-1">من حساب (الخزينة/البنك)</label>
                 <div className="relative">
                     <select 
                         value={formData.treasuryId}
                         onChange={(e) => setFormData({...formData, treasuryId: e.target.value})}
                         className={`w-full border rounded-lg px-4 py-3 focus:outline-none appearance-none ${errors.treasuryAccountId ? 'border-red-500 focus:border-red-500' : 'border-slate-300 focus:border-blue-500'}`}
                     >
-                        <option value="">Ø§Ø®ØªØ± Ø§Ù„Ø­Ø³Ø§Ø¨...</option>
+                        <option value="">اختر الحساب...</option>
                         {treasuryAccounts.map(acc => <option key={acc.id} value={acc.id}>{acc.name} ({acc.code})</option>)}
                     </select>
                     <Building2 className="absolute left-3 top-3.5 text-slate-400" size={18} />
@@ -820,9 +820,9 @@ const PaymentVoucherForm = () => {
                 {errors.treasuryAccountId && <p className="text-red-500 text-xs mt-1">{errors.treasuryAccountId}</p>}
             </div>
 
-            {/* Ø§Ù„Ù…Ø¨Ù„Øº */}
+            {/* المبلغ */}
             <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">Ø§Ù„Ù…Ø¨Ù„Øº</label>
+                <label className="block text-sm font-bold text-slate-700 mb-1">المبلغ</label>
                 <div className="relative">
                     <input 
                         type="number" 
@@ -837,9 +837,9 @@ const PaymentVoucherForm = () => {
                 {errors.amount && <p className="text-red-500 text-xs mt-1">{errors.amount}</p>}
             </div>
 
-            {/* Ø§Ù„ØªØ§Ø±ÙŠØ® */}
+            {/* التاريخ */}
             <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">Ø§Ù„ØªØ§Ø±ÙŠØ®</label>
+                <label className="block text-sm font-bold text-slate-700 mb-1">التاريخ</label>
                 <div className="relative">
                     <input 
                         type="date" 
@@ -852,55 +852,55 @@ const PaymentVoucherForm = () => {
                 {errors.date && <p className="text-red-500 text-xs mt-1">{errors.date}</p>}
             </div>
 
-            {/* Ù…Ø±ÙƒØ² Ø§Ù„ØªÙƒÙ„ÙØ© */}
+            {/* مركز التكلفة */}
             <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">Ù…Ø±ÙƒØ² Ø§Ù„ØªÙƒÙ„ÙØ©</label>
+                <label className="block text-sm font-bold text-slate-700 mb-1">مركز التكلفة</label>
                 <div className="relative">
                     <select 
                         value={formData.costCenterId}
                         onChange={(e) => setFormData({...formData, costCenterId: e.target.value})}
                         className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 appearance-none"
                     >
-                        <option value="">Ø¨Ø¯ÙˆÙ† Ù…Ø±ÙƒØ² ØªÙƒÙ„ÙØ©</option>
+                        <option value="">بدون مركز تكلفة</option>
                         {costCenters.map(cc => <option key={cc.id} value={cc.id}>{cc.name}</option>)}
                     </select>
                     <Layers className="absolute left-3 top-3.5 text-slate-400" size={18} />
                 </div>
             </div>
 
-            {/* Ø±Ù‚Ù… Ø§Ù„Ø³Ù†Ø¯ */}
+            {/* رقم السند */}
             <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">Ø±Ù‚Ù… Ø§Ù„Ø³Ù†Ø¯ (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)</label>
+                <label className="block text-sm font-bold text-slate-700 mb-1">رقم السند (اختياري)</label>
                 <input 
                     type="text" 
                     value={formData.voucherNumber}
                     onChange={(e) => setFormData({...formData, voucherNumber: e.target.value})}
-                    placeholder="ØªÙ„Ù‚Ø§Ø¦ÙŠ"
+                    placeholder="تلقائي"
                     className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500"
                 />
             </div>
 
-            {/* Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø¯ÙØ¹ */}
+            {/* طريقة الدفع */}
             <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø¯ÙØ¹</label>
+                <label className="block text-sm font-bold text-slate-700 mb-1">طريقة الدفع</label>
                 <select 
                     value={formData.paymentMethod}
                     onChange={(e) => setFormData({...formData, paymentMethod: e.target.value})}
                     className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500 appearance-none"
                     required
                 >
-                    <option value="cash">Ù†Ù‚Ø¯ÙŠ</option>
-                    <option value="cheque">Ø´ÙŠÙƒ</option>
-                    <option value="transfer">ØªØ­ÙˆÙŠÙ„ Ø¨Ù†ÙƒÙŠ</option>
-                    <option value="card">Ø´Ø¨ÙƒØ©/Ø¨Ø·Ø§Ù‚Ø©</option>
-                    <option value="other">Ø£Ø®Ø±Ù‰</option>
+                    <option value="cash">نقدي</option>
+                    <option value="cheque">شيك</option>
+                    <option value="transfer">تحويل بنكي</option>
+                    <option value="card">شبكة/بطاقة</option>
+                    <option value="other">أخرى</option>
                 </select>
             </div>
 
-            {/* Ø§Ù„Ø¹Ù…Ù„Ø© ÙˆØ³Ø¹Ø± Ø§Ù„ØµØ±Ù */}
+            {/* العملة وسعر الصرف */}
             <div className="space-y-2">
                 <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                    <CircleDollarSign className="text-green-500" size={16} /> Ø§Ù„Ø¹Ù…Ù„Ø©
+                    <CircleDollarSign className="text-green-500" size={16} /> العملة
                 </label>
                 <div className="flex gap-2">
                     <select 
@@ -918,7 +918,7 @@ const PaymentVoucherForm = () => {
                         value={formData.exchangeRate}
                         onChange={(e) => setFormData({...formData, exchangeRate: parseFloat(e.target.value)})}
                         className="w-1/3 border border-slate-300 rounded-lg px-3 py-3 text-sm focus:border-blue-500 outline-none text-center font-bold"
-                        placeholder="Ø³Ø¹Ø± Ø§Ù„ØµØ±Ù"
+                        placeholder="سعر الصرف"
                         step="0.01"
                     />
                 </div>
@@ -926,7 +926,7 @@ const PaymentVoucherForm = () => {
 
             {/* Attachment */}
             <div className="md:col-span-2">
-                <label className="block text-sm font-bold text-slate-700 mb-1">Ø¥Ø±ÙØ§Ù‚ Ù…Ù„Ù (ØµÙˆØ±Ø© Ø´ÙŠÙƒØŒ Ø¥ÙŠØµØ§Ù„...)</label>
+                <label className="block text-sm font-bold text-slate-700 mb-1">إرفاق ملف (صورة شيك، إيصال...)</label>
                 <div className="relative border-2 border-dashed border-slate-200 rounded-lg p-4 text-center">
                     <input 
                         type="file" 
@@ -936,7 +936,7 @@ const PaymentVoucherForm = () => {
                     />
                     <div className="flex flex-col items-center justify-center">
                         <Upload size={24} className="text-slate-400 mb-2" />
-                        <p className="text-sm text-slate-500">Ø§Ø³Ø­Ø¨ Ø§Ù„Ù…Ù„ÙØ§Øª Ø¥Ù„Ù‰ Ù‡Ù†Ø§ Ø£Ùˆ Ø§Ø¶ØºØ· Ù„Ù„Ø§Ø®ØªÙŠØ§Ø±</p>
+                        <p className="text-sm text-slate-500">اسحب الملفات إلى هنا أو اضغط للاختيار</p>
                     </div>
                 </div>
                 {attachments.length > 0 && (
@@ -952,10 +952,10 @@ const PaymentVoucherForm = () => {
                     </div>
                 )}
 
-                {/* Ø¹Ø±Ø¶ Ø§Ù„Ù…Ø±ÙÙ‚Ø§Øª Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø© */}
+                {/* عرض المرفقات المحفوظة */}
                 {existingAttachments.length > 0 && (
                     <div className="mt-4 space-y-2">
-                        <label className="block text-xs font-bold text-slate-500">Ø§Ù„Ù…Ø±ÙÙ‚Ø§Øª Ø§Ù„Ù…Ø­ÙÙˆØ¸Ø© Ø³Ø§Ø¨Ù‚Ø§Ù‹:</label>
+                        <label className="block text-xs font-bold text-slate-500">المرفقات المحفوظة سابقاً:</label>
                         {existingAttachments.map((file) => (
                             <div key={file.id} className="flex items-center justify-between bg-slate-50 p-3 rounded-lg border border-slate-200">
                                 <div className="flex items-center gap-2">
@@ -963,10 +963,10 @@ const PaymentVoucherForm = () => {
                                     <span className="text-sm text-slate-700">{file.file_name}</span>
                                 </div>
                                 <button type="button" onClick={() => previewAttachment(file.file_path)} className="text-slate-600 hover:text-slate-800 p-1 flex items-center gap-1 text-xs font-bold">
-                                    <Eye size={14} /> Ù…Ø¹Ø§ÙŠÙ†Ø©
+                                    <Eye size={14} /> معاينة
                                 </button>
                                 <button type="button" onClick={() => downloadAttachment(file.file_path, file.file_name)} className="text-blue-600 hover:text-blue-800 p-1 flex items-center gap-1 text-xs font-bold">
-                                    <Download size={14} /> ØªØ­Ù…ÙŠÙ„
+                                    <Download size={14} /> تحميل
                                 </button>
                             </div>
                         ))}
@@ -974,16 +974,16 @@ const PaymentVoucherForm = () => {
                 )}
             </div>
 
-            {/* Ù…Ù„Ø§Ø­Ø¸Ø§Øª */}
+            {/* ملاحظات */}
             <div className="md:col-span-2">
-                <label className="block text-sm font-bold text-slate-700 mb-1">Ø§Ù„Ø¨ÙŠØ§Ù† / Ù…Ù„Ø§Ø­Ø¸Ø§Øª</label>
+                <label className="block text-sm font-bold text-slate-700 mb-1">البيان / ملاحظات</label>
                 <div className="relative">
                     <textarea 
                         value={formData.notes}
                         onChange={(e) => setFormData({...formData, notes: e.target.value})}
                         className="w-full border border-slate-300 rounded-lg px-4 py-3 focus:outline-none focus:border-blue-500"
                         rows={3}
-                        placeholder="Ø¹Ø¨Ø§Ø±Ø© Ø¹Ù†..."
+                        placeholder="عبارة عن..."
                     ></textarea>
                     <FileText className="absolute left-3 top-3.5 text-slate-400" size={18} />
                 </div>
@@ -997,7 +997,7 @@ const PaymentVoucherForm = () => {
                 className="bg-slate-800 text-white px-6 py-3 rounded-xl font-bold hover:bg-slate-700 flex items-center gap-2 shadow-lg transition-all transform hover:-translate-y-1 ml-4"
             >
                 <Printer size={20} />
-                Ø·Ø¨Ø§Ø¹Ø© Ø§Ù„Ø³Ù†Ø¯
+                طباعة السند
             </button>
             <button 
                 type="submit" 
@@ -1005,14 +1005,14 @@ const PaymentVoucherForm = () => {
                 className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-700 flex items-center gap-2 shadow-lg shadow-blue-200 transition-all transform hover:-translate-y-1"
             >
                 {loading ? <Loader2 className="animate-spin" /> : <Save size={20} />}
-                {isEditing ? 'Ø­ÙØ¸ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª' : 'Ø­ÙØ¸ Ø§Ù„Ø³Ù†Ø¯ ÙˆØªØ±Ø­ÙŠÙ„ Ø§Ù„Ù‚ÙŠØ¯'}
+                {isEditing ? 'حفظ التعديلات' : 'حفظ السند وترحيل القيد'}
             </button>
         </div>
 
       </form>
       </div>
 
-      {/* ðŸ•’ Ø³Ø¬Ù„ Ø§Ù„ØªØ¯Ù‚ÙŠÙ‚ ÙˆØ§Ù„ØªØªØ¨Ø¹ Ø§Ù„Ø²Ù…Ù†ÙŠ */}
+      {/* 🕒 سجل التدقيق والتتبع الزمني */}
       {currentVoucherId && (
         <DocumentAuditTimeline
           documentType="payment_voucher"

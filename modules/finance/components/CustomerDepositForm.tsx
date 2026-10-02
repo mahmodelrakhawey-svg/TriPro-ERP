@@ -1,4 +1,4 @@
-﻿import { logger } from '../../../utils/logger';
+import { logger } from '../../../utils/logger';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -16,14 +16,14 @@ const CustomerDepositForm = () => {
   // NEW: State for treasury account search term
   const [treasurySearchTerm, setTreasurySearchTerm] = useState('');
 
-  // ØªØµÙÙŠØ© Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ù†Ù‚Ø¯ÙŠØ© ÙˆØ§Ù„Ø¨Ù†ÙˆÙƒ ÙÙ‚Ø·
+  // تصفية حسابات النقدية والبنوك فقط
   const treasuryAccounts = useMemo(() => accounts.filter(a => 
     !a.isGroup && (
       a.code?.startsWith('123') || a.code?.startsWith('101') || 
-      a.name?.includes('ØµÙ†Ø¯ÙˆÙ‚') || 
-      a.name?.includes('Ø®Ø²ÙŠÙ†Ø©') || 
-      a.name?.includes('Ø¨Ù†Ùƒ') || 
-      a.name?.includes('Ù†Ù‚Ø¯') ||
+      a.name?.includes('صندوق') || 
+      a.name?.includes('خزينة') || 
+      a.name?.includes('بنك') || 
+      a.name?.includes('نقد') ||
       a.name?.toLowerCase().includes('cash') ||
       a.name?.toLowerCase().includes('bank')
     ) // NEW: Filter by search term
@@ -32,17 +32,17 @@ const CustomerDepositForm = () => {
     a.code?.toLowerCase().includes(treasurySearchTerm.toLowerCase())
   ), [accounts, treasurySearchTerm]);
 
-  // Ø­Ø§Ù„Ø© Ù„ØªØ®Ø²ÙŠÙ† Ø§Ù„Ø³Ù†Ø¯Ø§Øª Ø§Ù„Ù…Ø¬Ù„ÙˆØ¨Ø© Ù…Ù† Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
+  // حالة لتخزين السندات المجلوبة من قاعدة البيانات
   const [depositVouchers, setDepositVouchers] = useState<any[]>([]);
 
-  // Ø¬Ù„Ø¨ Ø³Ù†Ø¯Ø§Øª Ø§Ù„ØªØ£Ù…ÙŠÙ† Ù…Ù† Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù…Ø¨Ø§Ø´Ø±Ø© (Ù„ØªØ¬Ø§ÙˆØ² Ø­Ø¯ Ø§Ù„Ù€ 50 ÙÙŠ Ø§Ù„Ø³ÙŠØ§Ù‚)
+  // جلب سندات التأمين من قاعدة البيانات مباشرة (لتجاوز حد الـ 50 في السياق)
   useEffect(() => {
     const fetchVouchers = async () => {
       const { data } = await supabase
         .from('receipt_vouchers')
         .select('*')
-        .ilike('notes', '%ØªØ£Ù…ÙŠÙ†%') // Ø§Ù„Ø¨Ø­Ø« Ø¹Ù† Ø§Ù„Ø³Ù†Ø¯Ø§Øª Ø§Ù„ØªÙŠ ØªØ­ØªÙˆÙŠ Ø¹Ù„Ù‰ ÙƒÙ„Ù…Ø© "ØªØ£Ù…ÙŠÙ†"
-        .order('receipt_date', { ascending: false }); // Ø§Ù„Ø£Ø­Ø¯Ø« Ø£ÙˆÙ„Ø§Ù‹
+        .ilike('notes', '%تأمين%') // البحث عن السندات التي تحتوي على كلمة "تأمين"
+        .order('receipt_date', { ascending: false }); // الأحدث أولاً
       
       if (data) setDepositVouchers(data);
     };
@@ -56,7 +56,7 @@ const CustomerDepositForm = () => {
   useEffect(() => {
     supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
       if (error) {
-        logger.error("ÙØ´Ù„ Ø¬Ù„Ø¨ Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ø´Ø±ÙƒØ© Ø¹Ø¨Ø± RPC:", error);
+        logger.error("فشل جلب إعدادات الشركة عبر RPC:", error);
       } else {
         setCompanySettings(data);
       }
@@ -147,10 +147,10 @@ const CustomerDepositForm = () => {
   const handleWhatsApp = () => {
     const customer = customers.find(c => c.id === formData.customerId);
     if (!customer || !customer.phone) {
-      showToast('Ø±Ù‚Ù… Ù‡Ø§ØªÙ Ø§Ù„Ø¹Ù…ÙŠÙ„ ØºÙŠØ± Ù…ØªÙˆÙØ±', 'warning');
+      showToast('رقم هاتف العميل غير متوفر', 'warning');
       return;
     }
-    const message = `*Ø³Ù†Ø¯ Ù‚Ø¨Ø¶ ØªØ£Ù…ÙŠÙ†*\n\nÙ…Ø±Ø­Ø¨Ø§Ù‹ ${customer.name}ØŒ\nØªÙ… Ø§Ø³ØªÙ„Ø§Ù… Ù…Ø¨Ù„Øº ØªØ£Ù…ÙŠÙ†: *${Number(formData.amount).toLocaleString()} EGP*\nØ±Ù‚Ù… Ø§Ù„Ø³Ù†Ø¯: ${formData.voucherNumber}\nØ§Ù„ØªØ§Ø±ÙŠØ®: ${formData.date}\n\nØ´ÙƒØ±Ø§Ù‹ Ù„ØªØ¹Ø§Ù…Ù„ÙƒÙ… Ù…Ø¹Ù†Ø§.`;
+    const message = `*سند قبض تأمين*\n\nمرحباً ${customer.name}،\nتم استلام مبلغ تأمين: *${Number(formData.amount).toLocaleString()} EGP*\nرقم السند: ${formData.voucherNumber}\nالتاريخ: ${formData.date}\n\nشكراً لتعاملكم معنا.`;
     const phone = customer.phone.replace(/[^0-9]/g, '');
     const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
@@ -160,10 +160,10 @@ const CustomerDepositForm = () => {
     e.preventDefault();
     
     const depositSchema = z.object({
-        customerId: z.string().min(1, 'Ø§Ù„Ø±Ø¬Ø§Ø¡ Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ø¹Ù…ÙŠÙ„'),
-        treasuryAccountId: z.string().min(1, 'Ø§Ù„Ø±Ø¬Ø§Ø¡ Ø§Ø®ØªÙŠØ§Ø± Ø­Ø³Ø§Ø¨ Ø§Ù„Ø¥ÙŠØ¯Ø§Ø¹'),
-        amount: z.number().min(0.01, 'Ø§Ù„Ù…Ø¨Ù„Øº ÙŠØ¬Ø¨ Ø£Ù† ÙŠÙƒÙˆÙ† Ø£ÙƒØ¨Ø± Ù…Ù† 0'),
-        date: z.string().min(1, 'Ø§Ù„ØªØ§Ø±ÙŠØ® Ù…Ø·Ù„ÙˆØ¨'),
+        customerId: z.string().min(1, 'الرجاء اختيار العميل'),
+        treasuryAccountId: z.string().min(1, 'الرجاء اختيار حساب الإيداع'),
+        amount: z.number().min(0.01, 'المبلغ يجب أن يكون أكبر من 0'),
+        date: z.string().min(1, 'التاريخ مطلوب'),
     });
 
     const validationResult = depositSchema.safeParse({
@@ -183,7 +183,7 @@ const CustomerDepositForm = () => {
         let voucherId = currentVoucherId;
 
         if (isEditing && voucherId) {
-             // ØªØ­Ø¯ÙŠØ« Ø³Ù†Ø¯ Ù…ÙˆØ¬ÙˆØ¯
+             // تحديث سند موجود
              const { error: updateError } = await supabase
                 .from('receipt_vouchers')
                 .update({
@@ -191,14 +191,14 @@ const CustomerDepositForm = () => {
                     customer_id: formData.customerId,
                     amount: Number(formData.amount),
                     treasury_account_id: formData.treasuryAccountId,
-                    notes: formData.description || 'Ù‚Ø¨Ø¶ ØªØ£Ù…ÙŠÙ† Ù…Ù† Ø¹Ù…ÙŠÙ„',
+                    notes: formData.description || 'قبض تأمين من عميل',
                     payment_method: formData.paymentMethod
                 })
                 .eq('id', voucherId);
              
              if (updateError) throw updateError;
         } else {
-            // Ø¥Ù†Ø´Ø§Ø¡ Ø³Ù†Ø¯ Ø¬Ø¯ÙŠØ¯ ÙˆØ­ÙØ¸Ù‡ ÙÙŠ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù…Ø¨Ø§Ø´Ø±Ø©
+            // إنشاء سند جديد وحفظه في قاعدة البيانات مباشرة
             const voucherNumber = formData.voucherNumber || `DEP-${Date.now().toString().slice(-6)}`;
             const orgId = (currentUser as any)?.organization_id || 
                          (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
@@ -209,7 +209,7 @@ const CustomerDepositForm = () => {
                 customer_id: formData.customerId,
                 amount: Number(formData.amount),
                 treasury_account_id: formData.treasuryAccountId,
-                notes: formData.description || 'Ù‚Ø¨Ø¶ ØªØ£Ù…ÙŠÙ† Ù…Ù† Ø¹Ù…ÙŠÙ„',
+                notes: formData.description || 'قبض تأمين من عميل',
                 payment_method: formData.paymentMethod,
                 organization_id: orgId
             }).select().single();
@@ -218,10 +218,10 @@ const CustomerDepositForm = () => {
             voucherId = voucherData.id;
         }
 
-        // ðŸ›¡ï¸ Ø§Ø³ØªØ®Ø¯Ø§Ù… Ø§Ù„Ù…Ø­Ø±Ùƒ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠ Ø§Ù„Ù…ÙˆØ­Ø¯ Ù„Ø¶Ù…Ø§Ù† Ù‚ÙŠØ¯ ÙˆØ§Ø­Ø¯ Ø³Ù„ÙŠÙ… ÙˆÙ…Ø±ØªØ¨Ø· Ø¨Ø§Ù„Ø³Ù†Ø¯
-        // Ù†Ù…Ø±Ø± Ø­Ø³Ø§Ø¨ Ø§Ù„ØªØ£Ù…ÙŠÙ†Ø§Øª (226) ÙƒØ·Ø±Ù Ø¯Ø§Ø¦Ù† Ø¨Ø¯Ù„Ø§Ù‹ Ù…Ù† Ø­Ø³Ø§Ø¨ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ (SECURITY_DEPOSIT_ACCOUNT)
+        // 🛡️ استخدام المحرك المحاسبي الموحد لضمان قيد واحد سليم ومرتبط بالسند
+        // نمرر حساب التأمينات (226) كطرف دائن بدلاً من حساب العملاء (SECURITY_DEPOSIT_ACCOUNT)
         const customerDepositsAcc = getSystemAccount('SECURITY_DEPOSIT_ACCOUNT');
-        if (!customerDepositsAcc) throw new Error('Ø­Ø³Ø§Ø¨ ØªØ£Ù…ÙŠÙ†Ø§Øª Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ ØºÙŠØ± Ù…Ø¹Ø±Ù‘Ù ÙÙŠ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª.');
+        if (!customerDepositsAcc) throw new Error('حساب تأمينات العملاء غير معرّف في الإعدادات.');
 
         const { error: rpcError } = await supabase.rpc('approve_receipt_voucher', {
             p_voucher_id: voucherId,
@@ -230,9 +230,9 @@ const CustomerDepositForm = () => {
 
         if (rpcError) throw rpcError;
 
-        showToast(isEditing ? 'ØªÙ… ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ø³Ù†Ø¯ ÙˆØªØ­Ø¯ÙŠØ« Ø§Ù„Ù‚ÙŠØ¯ Ø¨Ù†Ø¬Ø§Ø­ âœ…' : 'ØªÙ… Ø­ÙØ¸ Ø³Ù†Ø¯ ØªØ£Ù…ÙŠÙ† Ø§Ù„Ø¹Ù…ÙŠÙ„ Ø¨Ù†Ø¬Ø§Ø­ âœ…', 'success');
+        showToast(isEditing ? 'تم تعديل السند وتحديث القيد بنجاح ✅' : 'تم حفظ سند تأمين العميل بنجاح ✅', 'success');
             
-            // ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù‚Ø§Ø¦Ù…Ø© Ù…Ø­Ù„ÙŠØ§Ù‹ Ù„Ø¥Ø¸Ù‡Ø§Ø± Ø§Ù„Ø³Ù†Ø¯ Ø§Ù„Ø¬Ø¯ÙŠØ¯ ÙÙˆØ±Ø§Ù‹
+            // تحديث القائمة محلياً لإظهار السند الجديد فوراً
             const { data: newVoucher } = await supabase
                 .from('receipt_vouchers')
                 .select('*')
@@ -247,7 +247,7 @@ const CustomerDepositForm = () => {
             }
         handleNew();
     } catch (error) {
-        showToast('Ø­Ø¯Ø« Ø®Ø·Ø£: ' + error.message, 'error');
+        showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
         setLoading(false);
     }
@@ -255,19 +255,19 @@ const CustomerDepositForm = () => {
 
   return (
     <div className="max-w-4xl mx-auto animate-in fade-in">
-      {/* Ø´Ø±ÙŠØ· Ø§Ù„Ø£Ø¯ÙˆØ§Øª */}
+      {/* شريط الأدوات */}
       <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6">
          <div className="flex items-center gap-2">
-             <button onClick={handlePrevious} disabled={depositVouchers.length === 0 || Boolean(currentVoucherId && depositVouchers.findIndex(v => v.id === currentVoucherId) >= depositVouchers.length - 1)} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 disabled:opacity-30" title="Ø§Ù„Ø³Ø§Ø¨Ù‚ (Ø§Ù„Ø£Ù‚Ø¯Ù…)">
+             <button onClick={handlePrevious} disabled={depositVouchers.length === 0 || Boolean(currentVoucherId && depositVouchers.findIndex(v => v.id === currentVoucherId) >= depositVouchers.length - 1)} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 disabled:opacity-30" title="السابق (الأقدم)">
                 <ArrowRight className="w-5 h-5" />
              </button>
-             <button onClick={handleNext} disabled={depositVouchers.length === 0 || Boolean(currentVoucherId && depositVouchers.findIndex(v => v.id === currentVoucherId) <= 0)} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 disabled:opacity-30" title="Ø§Ù„ØªØ§Ù„ÙŠ (Ø§Ù„Ø£Ø­Ø¯Ø«)">
+             <button onClick={handleNext} disabled={depositVouchers.length === 0 || Boolean(currentVoucherId && depositVouchers.findIndex(v => v.id === currentVoucherId) <= 0)} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 disabled:opacity-30" title="التالي (الأحدث)">
                 <ArrowLeft className="w-5 h-5" />
              </button>
              <div className="h-6 w-px bg-slate-300 mx-2"></div>
              <button onClick={handleNew} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-bold text-sm">
                 <Plus className="w-4 h-4" />
-                <span>Ø³Ù†Ø¯ Ø¬Ø¯ÙŠØ¯</span>
+                <span>سند جديد</span>
              </button>
          </div>
          <div className="relative">
@@ -280,7 +280,7 @@ const CustomerDepositForm = () => {
                }}
                value={currentVoucherId || ''}
              >
-               <option value="">Ø¨Ø­Ø« Ø¹Ù† Ø³Ù†Ø¯ ØªØ£Ù…ÙŠÙ†...</option>
+               <option value="">بحث عن سند تأمين...</option>
                {depositVouchers.map(v => (
                  <option key={v.id} value={v.id}>{v.voucher_number} - {v.amount}</option>
                ))}
@@ -296,8 +296,8 @@ const CustomerDepositForm = () => {
           <ShieldCheck size={24} />
         </div>
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">{isEditing ? 'ØªØ¹Ø¯ÙŠÙ„ Ø³Ù†Ø¯ ØªØ£Ù…ÙŠÙ†' : 'Ø³Ù†Ø¯ Ù‚Ø¨Ø¶ ØªØ£Ù…ÙŠÙ† Ù…Ù† Ø¹Ù…ÙŠÙ„'}</h1>
-          <p className="text-slate-500">ØªØ³Ø¬ÙŠÙ„ Ù…Ø¨Ù„Øº ØªØ£Ù…ÙŠÙ† Ù…Ø³ØªØ±Ø¯ Ù…Ù† Ø§Ù„Ø¹Ù…ÙŠÙ„ (ÙŠØ¸Ù‡Ø± ÙÙŠ Ø§Ù„Ø®ØµÙˆÙ…)</p>
+          <h1 className="text-2xl font-bold text-slate-800">{isEditing ? 'تعديل سند تأمين' : 'سند قبض تأمين من عميل'}</h1>
+          <p className="text-slate-500">تسجيل مبلغ تأمين مسترد من العميل (يظهر في الخصوم)</p>
         </div>
       </div>
 
@@ -306,15 +306,15 @@ const CustomerDepositForm = () => {
         <form onSubmit={handleSubmit} className="space-y-6">
           {isEditing && (
               <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 mb-4">
-                  <span className="text-sm font-bold text-slate-500">Ø±Ù‚Ù… Ø§Ù„Ø³Ù†Ø¯: </span>
+                  <span className="text-sm font-bold text-slate-500">رقم السند: </span>
                   <span className="font-mono font-bold text-indigo-600">{formData.voucherNumber}</span>
               </div>
            )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             
-            {/* Ø§Ù„ØªØ§Ø±ÙŠØ® */}
+            {/* التاريخ */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Ø§Ù„ØªØ§Ø±ÙŠØ®</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">التاريخ</label>
               <input 
                 type="date" 
                 required
@@ -324,31 +324,31 @@ const CustomerDepositForm = () => {
               />
             </div>
 
-            {/* Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ø¹Ù…ÙŠÙ„ */}
+            {/* اختيار العميل */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Ø§Ù„Ø¹Ù…ÙŠÙ„</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">العميل</label>
               <select 
                 required
                 value={formData.customerId}
                 onChange={e => setFormData({...formData, customerId: e.target.value})}
                 className="w-full border border-slate-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <option value="">Ø§Ø®ØªØ± Ø§Ù„Ø¹Ù…ÙŠÙ„...</option>
+                <option value="">اختر العميل...</option>
                 {customers.map(c => (
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
             </div>
 
-            {/* Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ø®Ø²ÙŠÙ†Ø©/Ø§Ù„Ø¨Ù†Ùƒ */}
+            {/* اختيار الخزينة/البنك */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Ø¥ÙŠØ¯Ø§Ø¹ ÙÙŠ (Ø§Ù„Ø®Ø²ÙŠÙ†Ø© / Ø§Ù„Ø¨Ù†Ùƒ)</label> 
+              <label className="block text-sm font-medium text-slate-700 mb-2">إيداع في (الخزينة / البنك)</label> 
               {/* NEW: Search input for treasury accounts */}
               <div className="relative mb-2">
                 <Search className="w-4 h-4 absolute right-3 top-2.5 text-slate-400" />
                 <input
                   type="text"
-                  placeholder="Ø¨Ø­Ø« Ø¹Ù† Ø­Ø³Ø§Ø¨..."
+                  placeholder="بحث عن حساب..."
                   value={treasurySearchTerm}
                   onChange={(e) => setTreasurySearchTerm(e.target.value)}
                   className="w-full border border-slate-300 rounded-lg px-4 py-2 pr-10 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -360,16 +360,16 @@ const CustomerDepositForm = () => {
                 onChange={e => setFormData({...formData, treasuryAccountId: e.target.value})}
                 className="w-full border border-slate-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
               >
-                <option value="">Ø§Ø®ØªØ± Ø§Ù„Ø­Ø³Ø§Ø¨...</option>
+                <option value="">اختر الحساب...</option>
                 {treasuryAccounts.map(a => (
                   <option key={a.id} value={a.id}>{a.name} ({a.code})</option>
                 ))}
               </select>
             </div>
 
-            {/* Ø§Ù„Ù…Ø¨Ù„Øº */}
+            {/* المبلغ */}
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Ù…Ø¨Ù„Øº Ø§Ù„ØªØ£Ù…ÙŠÙ†</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">مبلغ التأمين</label>
               <input 
                 type="number" 
                 required
@@ -382,15 +382,15 @@ const CustomerDepositForm = () => {
               />
             </div>
 
-            {/* Ø§Ù„Ø¨ÙŠØ§Ù† */}
+            {/* البيان */}
             <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-slate-700 mb-2">Ø§Ù„Ø¨ÙŠØ§Ù† / Ù…Ù„Ø§Ø­Ø¸Ø§Øª</label>
+              <label className="block text-sm font-medium text-slate-700 mb-2">البيان / ملاحظات</label>
               <textarea 
                 rows={3}
                 value={formData.description}
                 onChange={e => setFormData({...formData, description: e.target.value})}
                 className="w-full border border-slate-300 rounded-lg px-4 py-2 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Ø´Ø±Ø­ Ù…Ø®ØªØµØ± Ù„Ù„Ø¹Ù…Ù„ÙŠØ©..."
+                placeholder="شرح مختصر للعملية..."
               />
             </div>
           </div>
@@ -401,14 +401,14 @@ const CustomerDepositForm = () => {
                 onClick={handlePrint}
                 className="bg-slate-800 text-white px-6 py-2.5 rounded-lg hover:bg-slate-700 transition-colors flex items-center gap-2 font-bold"
             >
-                <Printer size={18} /> Ø·Ø¨Ø§Ø¹Ø©
+                <Printer size={18} /> طباعة
             </button>
             <button 
                 type="button"
                 onClick={handleWhatsApp}
                 className="bg-green-600 text-white px-6 py-2.5 rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 font-bold"
             >
-                <MessageCircle size={18} /> ÙˆØ§ØªØ³Ø§Ø¨
+                <MessageCircle size={18} /> واتساب
             </button>
             <button 
               type="submit"
@@ -416,7 +416,7 @@ const CustomerDepositForm = () => {
               className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 font-bold shadow-lg shadow-indigo-100 disabled:opacity-50"
             >
               {loading ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-              {isEditing ? 'Ø­ÙØ¸ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª' : 'Ø­ÙØ¸ Ø³Ù†Ø¯ Ø§Ù„ØªØ£Ù…ÙŠÙ†'}
+              {isEditing ? 'حفظ التعديلات' : 'حفظ سند التأمين'}
             </button>
           </div>
         </form>

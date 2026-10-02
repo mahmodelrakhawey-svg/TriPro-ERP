@@ -1,4 +1,4 @@
-﻿import { logger } from '../../../utils/logger';
+import { logger } from '../../../utils/logger';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -42,7 +42,7 @@ const ExpenseVoucherForm = () => {
   useEffect(() => {
     supabase.rpc('get_current_company_settings').maybeSingle().then(({ data, error }) => {
       if (error) {
-        logger.error("ÙØ´Ù„ Ø¬Ù„Ø¨ Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ø´Ø±ÙƒØ© Ø¹Ø¨Ø± RPC:", error);
+        logger.error("فشل جلب إعدادات الشركة عبر RPC:", error);
       } else {
         setCompanySettings(data);
       }
@@ -73,28 +73,28 @@ const ExpenseVoucherForm = () => {
     }
   };
 
-  // ØªØµÙÙŠØ© Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ø®Ø²ÙŠÙ†Ø© ÙˆØ§Ù„Ø¨Ù†ÙˆÙƒ (Ø§Ù„Ø£ØµÙˆÙ„ Ø§Ù„Ù…ØªØ¯Ø§ÙˆÙ„Ø© Ø§Ù„Ù†Ù‚Ø¯ÙŠØ© - Ø§Ø³ØªØ¨Ø¹Ø§Ø¯ Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© ÙˆØ§Ù„ØªØ¬Ù…ÙŠØ¹ÙŠØ© Ù‚Ø·ÙŠØ¹Ø§Ù‹)
+  // تصفية حسابات الخزينة والبنوك (الأصول المتداولة النقدية - استبعاد الحسابات الرئيسية والتجميعية قطيعاً)
   const treasuryAccounts = useMemo(() => accounts.filter(a => {
     if (a.isGroup || a.is_group || a.code === '123' || a.code === '12' || a.code === '1') return false;
     const type = String(a.type || '').toLowerCase();
     const name = a.name.toLowerCase();
     const code = a.code;
     
-    const isAsset = type.includes('asset') || type.includes('Ø£ØµÙˆÙ„') || type === '';
-    const hasKeyword = name.includes('Ù†Ù‚Ø¯') || name.includes('Ø®Ø²ÙŠÙ†Ø©') || name.includes('Ø¨Ù†Ùƒ') || name.includes('ØµÙ†Ø¯ÙˆÙ‚') || name.includes('cash') || name.includes('bank');
+    const isAsset = type.includes('asset') || type.includes('أصول') || type === '';
+    const hasKeyword = name.includes('نقد') || name.includes('خزينة') || name.includes('بنك') || name.includes('صندوق') || name.includes('cash') || name.includes('bank');
     const hasCode = code.startsWith('123') || code.startsWith('101');
 
     return isAsset && (hasKeyword || hasCode);
   }), [accounts]);
 
-  // ØªØµÙÙŠØ© Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ù…ØµØ±ÙˆÙØ§Øª
+  // تصفية حسابات المصروفات
   const expenseAccounts = useMemo(() => accounts.filter(a => {
     if (a.isGroup || a.is_group) return false;
     const type = String(a.type || '').toLowerCase();
     const code = a.code;
     const matchesSearch = (a.name || '').toLowerCase().includes(expenseSearchTerm.toLowerCase()) || 
                          (a.code || '').includes(expenseSearchTerm);
-    return (type.includes('expense') || type.includes('Ù…ØµØ±ÙˆÙ') || code.startsWith('5')) && matchesSearch;
+    return (type.includes('expense') || type.includes('مصروف') || code.startsWith('5')) && matchesSearch;
   }), [accounts, expenseSearchTerm]);
 
   const loadVoucher = async (voucher: Record<string, any>) => {
@@ -195,7 +195,7 @@ const ExpenseVoucherForm = () => {
   };
 
   const handleWhatsApp = () => {
-    const message = `*Ø³Ù†Ø¯ ØµØ±Ù Ù…ØµØ±ÙˆÙ*\n\nØ§Ù„ØªØ§Ø±ÙŠØ®: ${formData.date}\nØ§Ù„Ù…Ø¨Ù„Øº: *${Number(formData.amount).toLocaleString()} EGP*\nØ§Ù„Ø¨ÙŠØ§Ù†: ${formData.description}\n\nØªÙ… Ø§Ù„ØµØ±Ù Ù…Ù† Ø§Ù„Ù†Ø¸Ø§Ù….`;
+    const message = `*سند صرف مصروف*\n\nالتاريخ: ${formData.date}\nالمبلغ: *${Number(formData.amount).toLocaleString()} EGP*\nالبيان: ${formData.description}\n\nتم الصرف من النظام.`;
     const url = `https://wa.me/?text=${encodeURIComponent(message)}`;
     window.open(url, '_blank');
   };
@@ -210,7 +210,7 @@ const ExpenseVoucherForm = () => {
       a.download = fileName;
       a.click();
     } catch (err) {
-      showToast('ÙØ´Ù„ ØªØ­Ù…ÙŠÙ„ Ø§Ù„Ù…Ù„Ù', 'error');
+      showToast('فشل تحميل الملف', 'error');
     }
   };
 
@@ -224,10 +224,10 @@ const ExpenseVoucherForm = () => {
     if (isSubmittingRef.current || loading) return;
     
     const expenseVoucherSchema = z.object({
-        amount: z.number().min(0.01, 'Ø§Ù„Ù…Ø¨Ù„Øº ÙŠØ¬Ø¨ Ø£Ù† ÙŠÙƒÙˆÙ† Ø£ÙƒØ¨Ø± Ù…Ù† 0'),
-        date: z.string().min(1, 'Ø§Ù„ØªØ§Ø±ÙŠØ® Ù…Ø·Ù„ÙˆØ¨'),
-        treasuryAccountId: z.string().min(1, 'Ø§Ù„Ø±Ø¬Ø§Ø¡ Ø§Ø®ØªÙŠØ§Ø± Ø­Ø³Ø§Ø¨ Ø§Ù„ØµØ±Ù'),
-        expenseAccountId: z.string().min(1, 'Ø§Ù„Ø±Ø¬Ø§Ø¡ Ø§Ø®ØªÙŠØ§Ø± Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ØµØ±ÙˆÙ'),
+        amount: z.number().min(0.01, 'المبلغ يجب أن يكون أكبر من 0'),
+        date: z.string().min(1, 'التاريخ مطلوب'),
+        treasuryAccountId: z.string().min(1, 'الرجاء اختيار حساب الصرف'),
+        expenseAccountId: z.string().min(1, 'الرجاء اختيار حساب المصروف'),
     });
 
     const validationResult = expenseVoucherSchema.safeParse({
@@ -252,14 +252,14 @@ const ExpenseVoucherForm = () => {
         addDemoEntry({
             date: formData.date,
             reference: voucherNumber,
-            description: formData.description || `ØµØ±Ù Ù…ØµØ±ÙˆÙ: ${expenseAccountName}`,
+            description: formData.description || `صرف مصروف: ${expenseAccountName}`,
             lines: [
-                { accountId: formData.expenseAccountId, debit: Number(formData.amount), credit: 0, description: `Ù…ØµØ±ÙˆÙ - ${expenseAccountName}`, costCenterId: formData.costCenterId || null },
-                { accountId: formData.treasuryAccountId, debit: 0, credit: Number(formData.amount), description: `Ø³Ù†Ø¯ ØµØ±Ù Ø±Ù‚Ù… ${voucherNumber}` }
+                { accountId: formData.expenseAccountId, debit: Number(formData.amount), credit: 0, description: `مصروف - ${expenseAccountName}`, costCenterId: formData.costCenterId || null },
+                { accountId: formData.treasuryAccountId, debit: 0, credit: Number(formData.amount), description: `سند صرف رقم ${voucherNumber}` }
             ]
         });
 
-        showToast('ØªÙ… Ø­ÙØ¸ Ø³Ù†Ø¯ Ø§Ù„Ù…ØµØ±ÙˆÙ Ø¨Ù†Ø¬Ø§Ø­ (Ù…Ø­Ø§ÙƒØ§Ø©)', 'success');
+        showToast('تم حفظ سند المصروف بنجاح (محاكاة)', 'success');
         handleNew();
         setLoading(false);
         return;
@@ -270,19 +270,19 @@ const ExpenseVoucherForm = () => {
         const expenseAccountName = accounts.find(a => a.id === formData.expenseAccountId)?.name;
         const voucherNumber = formData.voucherNumber || `EXP-${Date.now().toString().slice(-6)}`;
 
-        // Ø¬Ù„Ø¨ Ù…Ø¹Ø±Ù Ø§Ù„Ù…Ù†Ø¸Ù…Ø© Ù…Ø¹ ØµÙ…Ø§Ù… Ø£Ù…Ø§Ù† ÙÙŠ Ø­Ø§Ù„ ÙÙ‚Ø¯Ø§Ù†Ù‡ Ù…Ù† Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø³ØªØ®Ø¯Ù…
+        // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
         const orgId = (currentUser as any)?.organization_id || 
                      (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
 
         if (isEditing && currentVoucherId) {
-            // 1. ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø³Ù†Ø¯ ÙÙŠ Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª ÙˆØ¬Ù„Ø¨ Ù…Ø¹Ø±Ù Ø§Ù„Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø±ØªØ¨Ø·
+            // 1. تحديث السند في قاعدة البيانات وجلب معرف القيد المرتبط
             const { data: voucherData, error: vErr } = await supabase
                 .from('payment_vouchers')
                 .update({
                     payment_date: formData.date,
                     amount: Number(formData.amount),
                     treasury_account_id: formData.treasuryAccountId,
-                    notes: formData.description || `ØµØ±Ù Ù…ØµØ±ÙˆÙ: ${expenseAccountName}`,
+                    notes: formData.description || `صرف مصروف: ${expenseAccountName}`,
                     cost_center_id: formData.costCenterId || null,
                     recipient_name: formData.recipientName
                 })
@@ -292,28 +292,28 @@ const ExpenseVoucherForm = () => {
 
             if (vErr) throw vErr;
 
-            // ØªØ­Ø¯ÙŠØ« Ø§Ù„Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠ Ø§Ù„Ù…Ø±ØªØ¨Ø· Ù„Ø¶Ù…Ø§Ù† Ø§Ù„ØªØ²Ø§Ù…Ù† Ø¨ÙŠÙ† Ø§Ù„Ø³Ù†Ø¯ ÙˆØ§Ù„Ø­Ø³Ø§Ø¨Ø§Øª
+            // تحديث القيد المحاسبي المرتبط لضمان التزامن بين السند والحسابات
             if (voucherData?.related_journal_entry_id) {
                 await supabase.from('journal_entries').update({
                     transaction_date: formData.date,
-                    description: formData.description || `ØµØ±Ù Ù…ØµØ±ÙˆÙ: ${expenseAccountName}`
+                    description: formData.description || `صرف مصروف: ${expenseAccountName}`
                 }).eq('id', voucherData.related_journal_entry_id);
 
-                // ØªØ­Ø¯ÙŠØ« Ø³Ø·Ø± Ø§Ù„Ù…ØµØ±ÙˆÙ (Ø§Ù„Ù…Ø¯ÙŠÙ†)
+                // تحديث سطر المصروف (المدين)
                 await supabase.from('journal_lines').update({
                     account_id: formData.expenseAccountId,
                     debit: Number(formData.amount),
                     cost_center_id: formData.costCenterId || null
                 }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('debit', 0);
 
-                // ØªØ­Ø¯ÙŠØ« Ø³Ø·Ø± Ø§Ù„Ø®Ø²ÙŠÙ†Ø© (Ø§Ù„Ø¯Ø§Ø¦Ù†)
+                // تحديث سطر الخزينة (الدائن)
                 await supabase.from('journal_lines').update({
                     account_id: formData.treasuryAccountId,
                     credit: Number(formData.amount)
                 }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('credit', 0);
             }
 
-            showToast('ØªÙ… ØªØ¹Ø¯ÙŠÙ„ Ø³Ù†Ø¯ Ø§Ù„Ù…ØµØ±ÙˆÙ Ø¨Ù†Ø¬Ø§Ø­ âœ…', 'success');
+            showToast('تم تعديل سند المصروف بنجاح ✅', 'success');
         } else {
             // Create new voucher
             // 1. Insert into payment_vouchers
@@ -322,7 +322,7 @@ const ExpenseVoucherForm = () => {
                 payment_date: formData.date,
                 amount: Number(formData.amount),
                 treasury_account_id: formData.treasuryAccountId,
-                notes: formData.description || `ØµØ±Ù Ù…ØµØ±ÙˆÙ: ${expenseAccountName}`,
+                notes: formData.description || `صرف مصروف: ${expenseAccountName}`,
                 payment_method: 'cash',
                 cost_center_id: formData.costCenterId || null,
                 supplier_id: null, // Explicitly null for expenses
@@ -363,10 +363,10 @@ const ExpenseVoucherForm = () => {
                 await addEntry({
                     date: formData.date,
                     reference: voucherNumber,
-                    description: formData.description || `ØµØ±Ù Ù…ØµØ±ÙˆÙ: ${expenseAccountName}`,
+                    description: formData.description || `صرف مصروف: ${expenseAccountName}`,
                     lines: [
-                        { account_id: formData.expenseAccountId, accountId: formData.expenseAccountId, debit: Number(formData.amount), credit: 0, description: `Ù…ØµØ±ÙˆÙ - ${expenseAccountName}`, costCenterId: formData.costCenterId || null },
-                        { account_id: formData.treasuryAccountId, accountId: formData.treasuryAccountId, debit: 0, credit: Number(formData.amount), description: `Ø³Ù†Ø¯ ØµØ±Ù Ø±Ù‚Ù… ${voucherNumber}` }
+                        { account_id: formData.expenseAccountId, accountId: formData.expenseAccountId, debit: Number(formData.amount), credit: 0, description: `مصروف - ${expenseAccountName}`, costCenterId: formData.costCenterId || null },
+                        { account_id: formData.treasuryAccountId, accountId: formData.treasuryAccountId, debit: 0, credit: Number(formData.amount), description: `سند صرف رقم ${voucherNumber}` }
                     ]
                 });
             }
@@ -382,7 +382,7 @@ const ExpenseVoucherForm = () => {
         if (!isEditing) handleNew();
 
     } catch (error) {
-        showToast('Ø­Ø¯Ø« Ø®Ø·Ø£: ' + error.message, 'error');
+        showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
         isSubmittingRef.current = false;
         setLoading(false);
@@ -394,24 +394,24 @@ const ExpenseVoucherForm = () => {
         {/* Navigation Bar */}
         <div className="flex items-center justify-between bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6">
             <div className="flex items-center gap-2">
-                <button onClick={handlePrevious} disabled={expenseVouchers.length === 0} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 disabled:opacity-50" title="Ø§Ù„Ø³Ø§Ø¨Ù‚">
+                <button onClick={handlePrevious} disabled={expenseVouchers.length === 0} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 disabled:opacity-50" title="السابق">
                     <ArrowRight className="w-5 h-5" />
                 </button>
-                <button onClick={handleNext} disabled={expenseVouchers.length === 0} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 disabled:opacity-50" title="Ø§Ù„ØªØ§Ù„ÙŠ">
+                <button onClick={handleNext} disabled={expenseVouchers.length === 0} className="p-2 hover:bg-slate-100 rounded-full text-slate-600 disabled:opacity-50" title="التالي">
                     <ArrowLeft className="w-5 h-5" />
                 </button>
                 <div className="h-6 w-px bg-slate-300 mx-2"></div>
                 <button onClick={handleNew} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-bold text-sm">
                     <Plus className="w-4 h-4" />
-                    <span>Ø³Ù†Ø¯ Ø¬Ø¯ÙŠØ¯</span>
+                    <span>سند جديد</span>
                 </button>
                 <button onClick={handlePrint} className="flex items-center gap-2 px-4 py-2 bg-slate-50 text-slate-600 rounded-lg hover:bg-slate-100 font-bold text-sm">
                     <Printer className="w-4 h-4" />
-                    <span>Ø·Ø¨Ø§Ø¹Ø©</span>
+                    <span>طباعة</span>
                 </button>
                 <button onClick={handleWhatsApp} className="flex items-center gap-2 px-4 py-2 bg-green-50 text-green-600 rounded-lg hover:bg-green-100 font-bold text-sm">
                     <MessageCircle className="w-4 h-4" />
-                    <span>ÙˆØ§ØªØ³Ø§Ø¨</span>
+                    <span>واتساب</span>
                 </button>
             </div>
             <div className="relative">
@@ -424,7 +424,7 @@ const ExpenseVoucherForm = () => {
                     }}
                     value={currentVoucherId || ''}
                 >
-                    <option value="">Ø¨Ø­Ø« Ø¹Ù† Ø³Ù†Ø¯ Ù…ØµØ±ÙˆÙ...</option>
+                    <option value="">بحث عن سند مصروف...</option>
                     {expenseVouchers.map(v => (
                         <option key={v.id} value={v.id}>{v.voucher_number} - {v.amount}</option>
                     ))}
@@ -435,9 +435,9 @@ const ExpenseVoucherForm = () => {
         <div className="flex items-center justify-between mb-8">
             <div>
                 <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-                    <Wallet className="text-red-600" /> {isEditing ? 'ØªØ¹Ø¯ÙŠÙ„ Ø³Ù†Ø¯ Ù…ØµØ±ÙˆÙ' : 'Ø³Ù†Ø¯ ØµØ±Ù Ù…ØµØ±ÙˆÙ'}
+                    <Wallet className="text-red-600" /> {isEditing ? 'تعديل سند مصروف' : 'سند صرف مصروف'}
                 </h1>
-                <p className="text-slate-500 mt-1">ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ù…ØµØ±ÙˆÙØ§Øª Ø§Ù„Ù†Ø«Ø±ÙŠØ© ÙˆØ§Ù„ØªØ´ØºÙŠÙ„ÙŠØ© ÙˆØµØ±ÙÙ‡Ø§ Ù…Ù† Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø£Ùˆ Ø§Ù„Ø¨Ù†Ùƒ</p>
+                <p className="text-slate-500 mt-1">تسجيل المصروفات النثرية والتشغيلية وصرفها من الخزينة أو البنك</p>
             </div>
         </div>
 
@@ -446,7 +446,7 @@ const ExpenseVoucherForm = () => {
             {success && (
                 <div className="bg-emerald-50 p-4 flex items-center gap-3 text-emerald-700 font-bold border-b border-emerald-100">
                     <CheckCircle size={24} />
-                    ØªÙ… Ø­ÙØ¸ Ø³Ù†Ø¯ Ø§Ù„ØµØ±Ù Ø¨Ù†Ø¬Ø§Ø­!
+                    تم حفظ سند الصرف بنجاح!
                 </div>
             )}
             
@@ -460,11 +460,11 @@ const ExpenseVoucherForm = () => {
                 className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8"
             >
                 
-                {/* Ø§Ù„Ù‚Ø³Ù… Ø§Ù„Ø£ÙŠÙ…Ù†: Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø§Ù„ÙŠØ© */}
+                {/* القسم الأيمن: البيانات المالية */}
                 <div className="space-y-6">
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
-                            <DollarSign size={16} className="text-slate-400"/> Ø§Ù„Ù…Ø¨Ù„Øº
+                            <DollarSign size={16} className="text-slate-400"/> المبلغ
                         </label>
                         <input 
                             type="number" 
@@ -480,7 +480,7 @@ const ExpenseVoucherForm = () => {
 
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
-                            <Calendar size={16} className="text-slate-400"/> Ø§Ù„ØªØ§Ø±ÙŠØ®
+                            <Calendar size={16} className="text-slate-400"/> التاريخ
                         </label>
                         <input 
                             type="date" 
@@ -493,34 +493,34 @@ const ExpenseVoucherForm = () => {
 
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
-                            <User size={16} className="text-slate-400"/> Ø§Ù„Ù…Ø³ØªÙ„Ù… (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)
+                            <User size={16} className="text-slate-400"/> المستلم (اختياري)
                         </label>
                         <input 
                             type="text" 
                             value={formData.recipientName}
                             onChange={e => setFormData({...formData, recipientName: e.target.value})}
                             className="w-full border border-slate-200 rounded-xl px-4 py-3 focus:border-red-500 outline-none font-medium text-slate-600"
-                            placeholder="Ø§Ø³Ù… Ø§Ù„Ø´Ø®Øµ Ø§Ù„Ù…Ø³ØªÙ„Ù…..."
+                            placeholder="اسم الشخص المستلم..."
                         />
                     </div>
 
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
-                            <FileText size={16} className="text-slate-400"/> Ø§Ù„Ø¨ÙŠØ§Ù† / Ø§Ù„ÙˆØµÙ
+                            <FileText size={16} className="text-slate-400"/> البيان / الوصف
                         </label>
                         <textarea 
                             rows={3}
                             value={formData.description}
                             onChange={e => setFormData({...formData, description: e.target.value})}
                             className="w-full border border-slate-200 rounded-xl px-4 py-3 focus:border-red-500 outline-none font-medium text-slate-600 resize-none"
-                            placeholder="Ø§ÙƒØªØ¨ ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ù…ØµØ±ÙˆÙ Ù‡Ù†Ø§..."
+                            placeholder="اكتب تفاصيل المصروف هنا..."
                         ></textarea>
                     </div>
 
                     {/* Attachments */}
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
-                            <Paperclip size={16} className="text-slate-400"/> Ø§Ù„Ù…Ø±ÙÙ‚Ø§Øª
+                            <Paperclip size={16} className="text-slate-400"/> المرفقات
                         </label>
                         <div className="relative border-2 border-dashed border-slate-200 rounded-xl p-4 text-center hover:bg-slate-50 transition-colors">
                             <input 
@@ -531,7 +531,7 @@ const ExpenseVoucherForm = () => {
                             />
                             <div className="flex flex-col items-center justify-center">
                                 <Upload size={20} className="text-slate-400 mb-2" />
-                                <p className="text-xs text-slate-500">Ø§Ø¶ØºØ· Ù„Ø±ÙØ¹ Ù…Ù„ÙØ§Øª</p>
+                                <p className="text-xs text-slate-500">اضغط لرفع ملفات</p>
                             </div>
                         </div>
                         {/* New Attachments List */}
@@ -550,13 +550,13 @@ const ExpenseVoucherForm = () => {
                         {/* Existing Attachments List */}
                         {existingAttachments.length > 0 && (
                             <div className="mt-2 space-y-1">
-                                <p className="text-xs font-bold text-slate-400 mb-1">Ù…Ø±ÙÙ‚Ø§Øª Ø³Ø§Ø¨Ù‚Ø©:</p>
+                                <p className="text-xs font-bold text-slate-400 mb-1">مرفقات سابقة:</p>
                                 {existingAttachments.map((file) => (
                                     <div key={file.id} className="flex items-center justify-between text-xs bg-white p-2 rounded-lg border border-slate-200">
                                         <span className="truncate max-w-[150px] text-slate-600">{file.file_name}</span>
                                         <div className="flex gap-2">
                                             <button type="button" onClick={() => previewAttachment(file.file_path)} className="text-blue-600 hover:text-blue-800 flex items-center gap-1">
-                                                <Eye size={12} /> Ù…Ø¹Ø§ÙŠÙ†Ø©
+                                                <Eye size={12} /> معاينة
                                             </button>
                                             <button type="button" onClick={() => downloadAttachment(file.file_path, file.file_name)} className="text-slate-500 hover:text-slate-700">
                                                 <Download size={12} />
@@ -569,16 +569,16 @@ const ExpenseVoucherForm = () => {
                     </div>
                 </div>
 
-                {/* Ø§Ù„Ù‚Ø³Ù… Ø§Ù„Ø£ÙŠØ³Ø±: Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª */}
+                {/* القسم الأيسر: الحسابات */}
                 <div className="space-y-6 bg-slate-50 p-6 rounded-2xl border border-slate-100">
                     <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">Ø­Ø³Ø§Ø¨ Ø§Ù„Ù…ØµØ±ÙˆÙ (Ø§Ù„Ù…Ø¯ÙŠÙ†)</label>
-                        {/* Ø­Ù‚Ù„ Ø§Ù„Ø¨Ø­Ø« Ø¹Ù† Ø§Ù„Ù…ØµØ±ÙˆÙ */}
+                        <label className="block text-sm font-bold text-slate-700 mb-2">حساب المصروف (المدين)</label>
+                        {/* حقل البحث عن المصروف */}
                         <div className="relative mb-2">
                             <Search className="w-4 h-4 absolute right-3 top-2.5 text-slate-400" />
                             <input 
                                 type="text"
-                                placeholder="Ø¨Ø­Ø« Ø¹Ù† Ù…ØµØ±ÙˆÙ Ø¨Ø§Ù„Ø§Ø³Ù… Ø£Ùˆ Ø§Ù„ÙƒÙˆØ¯..."
+                                placeholder="بحث عن مصروف بالاسم أو الكود..."
                                 value={expenseSearchTerm}
                                 onChange={(e) => setExpenseSearchTerm(e.target.value)}
                                 className="w-full border border-slate-200 rounded-xl px-4 py-2 pr-10 focus:border-red-500 outline-none text-sm bg-white"
@@ -590,7 +590,7 @@ const ExpenseVoucherForm = () => {
                             onChange={e => setFormData({...formData, expenseAccountId: e.target.value})}
                             className="w-full border border-slate-200 rounded-xl px-4 py-3 focus:border-red-500 outline-none bg-white font-bold text-slate-700"
                         >
-                            <option value="">Ø§Ø®ØªØ± Ù†ÙˆØ¹ Ø§Ù„Ù…ØµØ±ÙˆÙ...</option>
+                            <option value="">اختر نوع المصروف...</option>
                             {expenseAccounts.map(acc => (
                                 <option key={acc.id} value={acc.id}>{acc.code} - {acc.name}</option>
                             ))}
@@ -598,14 +598,14 @@ const ExpenseVoucherForm = () => {
                     </div>
 
                     <div>
-                        <label className="block text-sm font-bold text-slate-700 mb-2">ÙŠØµØ±Ù Ù…Ù† (Ø§Ù„Ø¯Ø§Ø¦Ù†)</label>
+                        <label className="block text-sm font-bold text-slate-700 mb-2">يصرف من (الدائن)</label>
                         <select 
                             required
                             value={formData.treasuryAccountId}
                             onChange={e => setFormData({...formData, treasuryAccountId: e.target.value})}
                             className="w-full border border-slate-200 rounded-xl px-4 py-3 focus:border-red-500 outline-none bg-white font-bold text-slate-700"
                         >
-                            <option value="">Ø§Ø®ØªØ± Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø£Ùˆ Ø§Ù„Ø¨Ù†Ùƒ...</option>
+                            <option value="">اختر الخزينة أو البنك...</option>
                             {treasuryAccounts.map(acc => (
                                 <option key={acc.id} value={acc.id}>{acc.name}</option>
                             ))}
@@ -614,14 +614,14 @@ const ExpenseVoucherForm = () => {
 
                     <div>
                         <label className="block text-sm font-bold text-slate-700 mb-2 flex items-center gap-2">
-                            <Building2 size={16} className="text-slate-400"/> Ù…Ø±ÙƒØ² Ø§Ù„ØªÙƒÙ„ÙØ© (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)
+                            <Building2 size={16} className="text-slate-400"/> مركز التكلفة (اختياري)
                         </label>
                         <select 
                             value={formData.costCenterId}
                             onChange={e => setFormData({...formData, costCenterId: e.target.value})}
                             className="w-full border border-slate-200 rounded-xl px-4 py-3 focus:border-red-500 outline-none bg-white font-medium text-slate-600"
                         >
-                            <option value="">Ø¨Ø¯ÙˆÙ† Ù…Ø±ÙƒØ² ØªÙƒÙ„ÙØ©</option>
+                            <option value="">بدون مركز تكلفة</option>
                             {costCenters.map(cc => (
                                 <option key={cc.id} value={cc.id}>{cc.name}</option>
                             ))}
@@ -636,7 +636,7 @@ const ExpenseVoucherForm = () => {
                         className="flex-[2] bg-red-600 text-white py-4 rounded-xl font-black text-lg hover:bg-red-700 transition-all shadow-lg shadow-red-100 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                         {loading ? <Loader2 className="animate-spin" /> : <Save size={20} />}
-                        {isEditing ? 'Ø­ÙØ¸ Ø§Ù„ØªØ¹Ø¯ÙŠÙ„Ø§Øª' : 'Ø­ÙØ¸ Ø³Ù†Ø¯ Ø§Ù„ØµØ±Ù'}
+                        {isEditing ? 'حفظ التعديلات' : 'حفظ سند الصرف'}
                     </button>
                 </div>
 

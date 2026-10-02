@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Card, Calendar, Badge, Modal, Button, Form, Select, DatePicker, Input, Space, Typography, Tag, Tooltip, Alert, Divider, message } from 'antd';
 import { CalendarOutlined, PlusOutlined, UserOutlined, ClockCircleOutlined, InfoCircleOutlined, MedicineBoxOutlined, ReloadOutlined } from '@ant-design/icons';
 import { RefreshCw } from 'lucide-react';
@@ -25,7 +25,7 @@ export const SurgeryScheduler: React.FC = () => {
 
   const fetchSurgeries = useCallback(async () => {
     if (!orgId) {
-      message.warning('Ù„Ø§ ÙŠÙ…ÙƒÙ† ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ù…Ù†Ø¸Ù…Ø©ØŒ ÙŠØ±Ø¬Ù‰ Ø¥Ø¹Ø§Ø¯Ø© ØªØ³Ø¬ÙŠÙ„ Ø§Ù„Ø¯Ø®ÙˆÙ„.');
+      message.warning('لا يمكن تحديد المنظمة، يرجى إعادة تسجيل الدخول.');
       return;
     }
     setLoading(true);
@@ -38,7 +38,7 @@ export const SurgeryScheduler: React.FC = () => {
       if (error) throw error;
       setSurgeries(data || []);
     } catch (err) {
-      message.error('Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª: ' + (err?.message || ''));
+      message.error('خطأ في جلب بيانات العمليات: ' + (err?.message || ''));
     } finally {
       setLoading(false);
     }
@@ -66,7 +66,7 @@ export const SurgeryScheduler: React.FC = () => {
       setDoctors(docsRes.data || []);
       setPendingVisits(visitsRes.data || []);
     } catch (err) {
-      message.error('Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø£Ø·Ø¨Ø§Ø¡ ÙˆØ§Ù„Ø²ÙŠØ§Ø±Ø§Øª: ' + (err?.message || ''));
+      message.error('خطأ في جلب بيانات الأطباء والزيارات: ' + (err?.message || ''));
     }
   }, [orgId]);
 
@@ -96,13 +96,13 @@ export const SurgeryScheduler: React.FC = () => {
       .insert([payload]);
 
     if (error) {
-      // Ù‡Ù†Ø§ Ù†Ù„ØªÙ‚Ø· Ø®Ø·Ø£ Ø§Ù„ØªØ¶Ø§Ø±Ø¨ Ø§Ù„Ù…Ø±Ø³Ù„ Ù…Ù† Trigger Ù‚Ø§Ø¹Ø¯Ø© Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
+      // هنا نلتقط خطأ التضارب المرسل من Trigger قاعدة البيانات
       Modal.error({
-        title: 'ØªØ¶Ø§Ø±Ø¨ ÙÙŠ Ø§Ù„Ø¬Ø¯ÙˆÙ„Ø© âš ï¸',
+        title: 'تضارب في الجدولة ⚠️',
         content: error.message,
       });
     } else {
-      Modal.success({ title: 'ØªÙ…Øª Ø§Ù„Ø¬Ø¯ÙˆÙ„Ø© Ø¨Ù†Ø¬Ø§Ø­ âœ…' });
+      Modal.success({ title: 'تمت الجدولة بنجاح ✅' });
       setIsModalVisible(false);
       form.resetFields();
       fetchSurgeries();
@@ -118,7 +118,7 @@ export const SurgeryScheduler: React.FC = () => {
       type: s.status === 'completed' ? 'success' : s.status === 'in_progress' ? 'processing' : 'warning',
       content: `${dayjs(s.scheduled_start).format('HH:mm')} - ${s.surgery_name}`,
       room: s.room_number,
-      surgeon: s.doctor?.profiles?.full_name || 'Ø·Ø¨ÙŠØ¨ ØºÙŠØ± Ù…Ø­Ø¯Ø¯'
+      surgeon: s.doctor?.profiles?.full_name || 'طبيب غير محدد'
     }));
   };
 
@@ -128,7 +128,7 @@ export const SurgeryScheduler: React.FC = () => {
       <ul className="list-none p-0 m-0 overflow-hidden">
         {listData.map((item) => (
           <li key={item.id}>
-            <Tooltip title={`Ø§Ù„ØºØ±ÙØ©: ${item.room} | Ø§Ù„Ø¬Ø±Ø§Ø­: ${item.surgeon}`}>
+            <Tooltip title={`الغرفة: ${item.room} | الجراح: ${item.surgeon}`}>
               <Badge status={item.type as any} text={item.content} className="text-[10px] block truncate" />
             </Tooltip>
           </li>
@@ -140,26 +140,26 @@ export const SurgeryScheduler: React.FC = () => {
   return (
     <div className="p-6 rtl text-right">
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Ø§Ù„Ø¹Ù…ÙˆØ¯ Ø§Ù„Ø£ÙŠØ³Ø±: Ø§Ù„ØªÙ‚ÙˆÙŠÙ… Ø§Ù„Ø¹Ø§Ù… */}
+        {/* العمود الأيسر: التقويم العام */}
         <div className="lg:col-span-2">
           <Card 
             className="rounded-3xl shadow-lg border-none" 
             title={
               <Space>
                 <CalendarOutlined className="text-indigo-600" />
-                <b className="text-xl">Ù†Ø¸Ø§Ù… Ø¬Ø¯ÙˆÙ„Ø© ØºØ±Ù Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª</b>
+                <b className="text-xl">نظام جدولة غرف العمليات</b>
               </Space>
             }
             extra={
               <Space>
-                <Button icon={<RefreshCw size={16} />} onClick={fetchSurgeries}>ØªØ­Ø¯ÙŠØ«</Button>
-                <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalVisible(true)} className="bg-indigo-600">Ø­Ø¬Ø² Ø¹Ù…Ù„ÙŠØ© Ø¬Ø¯ÙŠØ¯Ø©</Button>
+                <Button icon={<RefreshCw size={16} />} onClick={fetchSurgeries}>تحديث</Button>
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsModalVisible(true)} className="bg-indigo-600">حجز عملية جديدة</Button>
               </Space>
             }
           >
             <Alert 
-              title="Ù†Ø¸Ø§Ù… Ø­Ù…Ø§ÙŠØ© Ø§Ù„ØªØ¶Ø§Ø±Ø¨ Ù†Ø´Ø·" 
-              description="ÙŠÙ‚ÙˆÙ… Ø§Ù„Ù†Ø¸Ø§Ù… ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¨Ù…Ù†Ø¹ Ø­Ø¬Ø² Ù†ÙØ³ Ø§Ù„ØºØ±ÙØ© Ø£Ùˆ Ù†ÙØ³ Ø§Ù„Ø¬Ø±Ø§Ø­ ÙÙŠ Ø£ÙˆÙ‚Ø§Øª Ù…ØªØ¯Ø§Ø®Ù„Ø© Ù„Ø¶Ù…Ø§Ù† Ø³Ù„Ø§Ù…Ø© Ø³ÙŠØ± Ø§Ù„Ø¹Ù…Ù„."
+              title="نظام حماية التضارب نشط" 
+              description="يقوم النظام تلقائياً بمنع حجز نفس الغرفة أو نفس الجراح في أوقات متداخلة لضمان سلامة سير العمل."
               type="info" 
               showIcon 
               icon={<InfoCircleOutlined />}
@@ -169,9 +169,9 @@ export const SurgeryScheduler: React.FC = () => {
           </Card>
         </div>
 
-        {/* Ø§Ù„Ø¹Ù…ÙˆØ¯ Ø§Ù„Ø£ÙŠÙ…Ù†: Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„ÙŠÙˆÙ… ÙˆØ§Ù„ØªØ­ÙƒÙ… ÙÙŠ Ø§Ù„ØªÙ†ÙÙŠØ° */}
+        {/* العمود الأيمن: عمليات اليوم والتحكم في التنفيذ */}
         <div className="lg:col-span-1">
-          <Card title={<b>Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„ÙŠÙˆÙ… Ø§Ù„Ø¬Ø§Ø±ÙŠØ© ðŸ¥</b>} className="rounded-3xl shadow-lg border-none h-full">
+          <Card title={<b>عمليات اليوم الجارية 🏥</b>} className="rounded-3xl shadow-lg border-none h-full">
             <div className="space-y-4">
               {surgeries.filter(s => dayjs(s.scheduled_start).isSame(dayjs(), 'day')).length > 0 ? (
                 surgeries.filter(s => dayjs(s.scheduled_start).isSame(dayjs(), 'day')).map((item: Record<string, any>) => (
@@ -179,12 +179,12 @@ export const SurgeryScheduler: React.FC = () => {
                     <div className="flex justify-between w-full mb-2">
                       <Text strong className="text-indigo-700">{item.surgery_name}</Text>
                       <Tag color={item.status === 'completed' ? 'green' : 'orange'}>
-                        {item.status === 'completed' ? 'Ù…ÙƒØªÙ…Ù„Ø©' : 'Ù…Ø¬Ø¯ÙˆÙ„Ø©'}
+                        {item.status === 'completed' ? 'مكتملة' : 'مجدولة'}
                       </Tag>
                     </div>
                     <div className="text-xs text-slate-500 mb-4 space-y-1">
-                      <div><UserOutlined className="ml-1 text-blue-400" /> Ø§Ù„Ø¬Ø±Ø§Ø­: <b>{item.doctor?.profiles?.full_name || 'ØºÙŠØ± Ù…Ø¹Ø±ÙˆÙ'}</b></div>
-                      <div><ClockCircleOutlined className="ml-1 text-blue-400" /> Ø§Ù„ØªÙˆÙ‚ÙŠØª: {dayjs(item.scheduled_start).format('HH:mm')}</div>
+                      <div><UserOutlined className="ml-1 text-blue-400" /> الجراح: <b>{item.doctor?.profiles?.full_name || 'غير معروف'}</b></div>
+                      <div><ClockCircleOutlined className="ml-1 text-blue-400" /> التوقيت: {dayjs(item.scheduled_start).format('HH:mm')}</div>
                     </div>
                     {item.status === 'scheduled' && (
                       <Button 
@@ -193,12 +193,12 @@ export const SurgeryScheduler: React.FC = () => {
                         icon={<MedicineBoxOutlined />} 
                         onClick={() => setExecutionModal({ visible: true, surgeryId: item.id })}
                         className="bg-emerald-600 border-none h-10 font-bold rounded-lg"
-                      >Ø¨Ø¯Ø¡ Ø§Ù„ØªÙ†ÙÙŠØ° ÙˆØµØ±Ù Ø§Ù„Ù…Ø³ØªÙ‡Ù„ÙƒØ§Øª</Button>
+                      >بدء التنفيذ وصرف المستهلكات</Button>
                     )}
                   </div>
                 ))
               ) : (
-                <div className="text-center py-10 text-slate-400 italic">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø¹Ù…Ù„ÙŠØ§Øª Ù…Ø¬Ø¯ÙˆÙ„Ø© Ù„Ù„ÙŠÙˆÙ…</div>
+                <div className="text-center py-10 text-slate-400 italic">لا توجد عمليات مجدولة لليوم</div>
               )}
             </div>
           </Card>
@@ -206,39 +206,39 @@ export const SurgeryScheduler: React.FC = () => {
       </div>
 
       <Modal
-        title={<b><PlusOutlined /> Ø¬Ø¯ÙˆÙ„Ø© Ø¥Ø¬Ø±Ø§Ø¡ Ø¬Ø±Ø§Ø­ÙŠ Ø¬Ø¯ÙŠØ¯</b>}
+        title={<b><PlusOutlined /> جدولة إجراء جراحي جديد</b>}
         open={isModalVisible}
         onCancel={() => setIsModalVisible(false)}
         onOk={() => form.submit()}
         confirmLoading={loading}
         width={700}
-        okText="ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ø­Ø¬Ø²"
-        cancelText="Ø¥Ù„ØºØ§Ø¡"
+        okText="تأكيد الحجز"
+        cancelText="إلغاء"
       >
         <Form form={form} layout="vertical" onFinish={handleSchedule} className="pt-4">
           <div className="grid grid-cols-2 gap-4">
-            <Form.Item name="visit_id" label="Ø§Ù„Ù…Ø±ÙŠØ¶ (Ù…Ù† Ø§Ù„Ø²ÙŠØ§Ø±Ø§Øª Ø§Ù„Ø­Ø§Ù„ÙŠØ©)" rules={[{ required: true }]}>
-              <Select placeholder="Ø§Ø®ØªØ± Ø§Ù„Ù…Ø±ÙŠØ¶">
+            <Form.Item name="visit_id" label="المريض (من الزيارات الحالية)" rules={[{ required: true }]}>
+              <Select placeholder="اختر المريض">
                 {pendingVisits.map(v => (
                   <Select.Option key={v.id} value={v.id}>{v.hims_patients?.full_name} ({v.visit_type})</Select.Option>
                 ))}
               </Select>
             </Form.Item>
-            <Form.Item name="surgery_name" label="Ø§Ø³Ù… Ø§Ù„Ø¹Ù…Ù„ÙŠØ©" rules={[{ required: true }]}>
-              <Input placeholder="Ù…Ø«Ø§Ù„: Ù‚Ø³Ø·Ø±Ø© Ù‚Ù„Ø¨ÙŠØ©ØŒ Ø§Ø³ØªØ¦ØµØ§Ù„..." />
+            <Form.Item name="surgery_name" label="اسم العملية" rules={[{ required: true }]}>
+              <Input placeholder="مثال: قسطرة قلبية، استئصال..." />
             </Form.Item>
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Form.Item name="doctor_id" label="Ø§Ù„Ø¬Ø±Ø§Ø­ Ø§Ù„Ù…Ø³Ø¤ÙˆÙ„" rules={[{ required: true }]}>
-              <Select placeholder="Ø§Ø®ØªØ± Ø§Ù„Ø¬Ø±Ø§Ø­">
+            <Form.Item name="doctor_id" label="الجراح المسؤول" rules={[{ required: true }]}>
+              <Select placeholder="اختر الجراح">
                 {doctors.map(d => (
                   <Select.Option key={d.id} value={d.id}>{d.profile?.full_name} ({d.specialization})</Select.Option>
                 ))}
               </Select>
             </Form.Item>
-            <Form.Item name="room_number" label="ØºØ±ÙØ© Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª" rules={[{ required: true }]}>
-              <Select placeholder="Ø§Ø®ØªØ± Ø§Ù„ØºØ±ÙØ©">
+            <Form.Item name="room_number" label="غرفة العمليات" rules={[{ required: true }]}>
+              <Select placeholder="اختر الغرفة">
                 {['OR-1', 'OR-2', 'OR-3', 'OR-4', 'Minor-Ops'].map(r => (
                   <Select.Option key={r} value={r}>{r}</Select.Option>
                 ))}
@@ -246,17 +246,17 @@ export const SurgeryScheduler: React.FC = () => {
             </Form.Item>
           </div>
 
-          <Form.Item name="times" label="ÙˆÙ‚Øª Ø§Ù„Ø¨Ø¯Ø§ÙŠØ© ÙˆØ§Ù„Ù†Ù‡Ø§ÙŠØ© Ø§Ù„Ù…ØªÙˆÙ‚Ø¹" rules={[{ required: true }]}>
+          <Form.Item name="times" label="وقت البداية والنهاية المتوقع" rules={[{ required: true }]}>
             <DatePicker.RangePicker showTime className="w-full" format="YYYY-MM-DD HH:mm" />
           </Form.Item>
 
-          <Form.Item name="anaesthetist" label="Ø·Ø¨ÙŠØ¨ Ø§Ù„ØªØ®Ø¯ÙŠØ± (Ø§Ø®ØªÙŠØ§Ø±ÙŠ)">
-            <Input placeholder="Ø§Ø³Ù… Ø·Ø¨ÙŠØ¨ Ø§Ù„ØªØ®Ø¯ÙŠØ±..." />
+          <Form.Item name="anaesthetist" label="طبيب التخدير (اختياري)">
+            <Input placeholder="اسم طبيب التخدير..." />
           </Form.Item>
         </Form>
       </Modal>
 
-      {/* ÙˆØ§Ø¬Ù‡Ø© Ø§Ù„ØªÙ†ÙÙŠØ° Ø§Ù„Ø°ÙƒÙŠØ© Ù„Ø±Ø¨Ø· Ø§Ù„Ù…Ø®Ø²Ù† Ø¨Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª */}
+      {/* واجهة التنفيذ الذكية لربط المخزن بالعمليات */}
       <SurgeryExecutionForm 
         surgeryId={executionModal.surgeryId} 
         visible={executionModal.visible} 

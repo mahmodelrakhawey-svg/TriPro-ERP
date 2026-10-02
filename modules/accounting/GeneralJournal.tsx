@@ -9,7 +9,7 @@ import { useToastNotification } from '../../utils/toastUtils';
 import { usePagination } from '../../components/usePagination';
 import { journalAuditService } from '../../services/journalAuditService';
 
-// Ø§Ù„Ù…ÙƒÙˆÙ†Ø§Øª Ø§Ù„ÙØ±Ø¹ÙŠØ© Ø§Ù„Ù…ÙÙƒÙƒØ©
+// المكونات الفرعية المفككة
 import { getEntrySource } from './components/GeneralJournal/journalSourceClassifier';
 import { printJournalEntry, exportJournalToExcel } from './components/GeneralJournal/journalExportUtils';
 import { JournalAdvancedFilters } from './components/GeneralJournal/JournalAdvancedFilters';
@@ -52,17 +52,17 @@ const GeneralJournal: React.FC = () => {
   const [endDate, setEndDate] = useState(fiscalYearRange.endDate);
   const [ignoreDateFilter, setIgnoreDateFilter] = useState(false);
   
-  // ØªØ­ÙƒÙ… Ø§Ù„ØµÙØ­Ø§Øª ÙˆØ­Ø¬Ù…Ù‡Ø§
+  // تحكم الصفحات وحجمها
   const [pageSize, setPageSize] = useState(20);
 
-  // ÙƒØ´Ù ÙˆØªÙ†Ø¸ÙŠÙ Ù‚ÙŠÙˆØ¯ Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ† Ø§Ù„Ù…Ø­Ø°ÙˆÙÙŠÙ†
+  // كشف وتنظيف قيود الموردين المحذوفين
   const [detectedOrphanEntry, setDetectedOrphanEntry] = useState<any>(null);
   const [isCleaningSuppliers, setIsCleaningSuppliers] = useState(false);
   const [isCleaningDuplicates, setIsCleaningDuplicates] = useState(false);
   const [isCleaningAssets, setIsCleaningAssets] = useState(false);
   const [showCurrencyRevaluation, setShowCurrencyRevaluation] = useState(false);
   
-  // ÙƒØ´Ù Ø§Ù„Ù‚ÙŠÙˆØ¯ ØºÙŠØ± Ø§Ù„Ù…ØªÙˆØ§Ø²Ù†Ø© ÙˆØªØ¯Ù‚ÙŠÙ‚ Ø§Ù„Ø£Ø³ØªØ§Ø° Ø§Ù„Ø¹Ø§Ù…
+  // كشف القيود غير المتوازنة وتدقيق الأستاذ العام
   const [unbalancedAudit, setUnbalancedAudit] = useState<{
     count: number;
     totalDiff: number;
@@ -76,7 +76,7 @@ const GeneralJournal: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Ù…Ø²Ø§Ù…Ù†Ø© Ù†Ø·Ø§Ù‚ Ø§Ù„ØªÙˆØ§Ø±ÙŠØ® ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¹Ù†Ø¯ ØªØºÙŠÙŠØ± Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø§Ù„ÙŠØ© Ø§Ù„Ù…Ø®ØªØ§Ø±Ø© Ù…Ù† Ø´Ø±ÙŠØ· Ø§Ù„Ù†Ø¸Ø§Ù…
+  // مزامنة نطاق التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
   useEffect(() => {
     if (selectedFiscalYear) {
       setStartDate(`${selectedFiscalYear}-01-01`);
@@ -117,7 +117,7 @@ const GeneralJournal: React.FC = () => {
     }
   }, [location.state]);
 
-  // ØªØ£Ø®ÙŠØ± Ø§Ù„Ø¨Ø­Ø«
+  // تأخير البحث
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(searchTerm);
@@ -125,13 +125,13 @@ const GeneralJournal: React.FC = () => {
     return () => clearTimeout(timer);
   }, [searchTerm]);
 
-  // ðŸ” ÙØ­Øµ Ø§Ø³ØªØ¨Ø§Ù‚ÙŠ Ø¹Ù† Ù‚ÙŠØ¯ Ø§Ù„Ù…ÙˆØ±Ø¯ Ø§Ù„Ù…Ø­Ø°ÙˆÙ (Ù…Ø«Ù„ Ø´Ø±ÙƒØ© Ù‡Ø§ÙŠ Ù…ÙƒØ³ Ø¨Ø±ØµÙŠØ¯ 9114)
+  // 🔍 فحص استباقي عن قيد المورد المحذوف (مثل شركة هاي مكس برصيد 9114)
   const checkOrphanSuppliers = useCallback(async () => {
     try {
       const { data: entries } = await supabase
         .from('journal_entries')
         .select('id, reference, description, transaction_date')
-        .or('reference.ilike.%ff424006-cf5e-4b01-bcda-4fe250a67c2a%,description.ilike.%Ù‡Ø§ÙŠ Ù…ÙƒØ³%,description.ilike.%Ù‡Ø§Ù‰ Ù…ÙƒØ³%')
+        .or('reference.ilike.%ff424006-cf5e-4b01-bcda-4fe250a67c2a%,description.ilike.%هاي مكس%,description.ilike.%هاى مكس%')
         .limit(1);
 
       if (entries && entries.length > 0) {
@@ -144,7 +144,7 @@ const GeneralJournal: React.FC = () => {
     }
   }, []);
 
-  // ðŸ” ÙØ­Øµ Ø§Ø³ØªØ¨Ø§Ù‚ÙŠ Ù„ÙƒØ§ÙØ© Ø§Ù„Ù‚ÙŠÙˆØ¯ ØºÙŠØ± Ø§Ù„Ù…ØªÙˆØ§Ø²Ù†Ø© ÙÙŠ Ø§Ù„Ø£Ø³ØªØ§Ø° Ø§Ù„Ø¹Ø§Ù…
+  // 🔍 فحص استباقي لكافة القيود غير المتوازنة في الأستاذ العام
   const checkUnbalancedEntries = useCallback(async () => {
     try {
       setIsAuditingBalance(true);
@@ -171,7 +171,7 @@ const GeneralJournal: React.FC = () => {
     checkUnbalancedEntries();
   }, [checkOrphanSuppliers, checkUnbalancedEntries, currentSelectedOrgId]);
 
-  // Ø§Ù„Ø¨Ø­Ø« Ø§Ù„Ù…ØªÙ‚Ø¯Ù… ÙÙŠ Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª ÙˆØ§Ù„Ù…Ø¨Ø§Ù„Øº ÙˆØ§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø¹Ø¨Ø± Ø§Ù„Ø¬Ø¯Ø§ÙˆÙ„ Ø§Ù„Ù…Ø±ØªØ¨Ø·Ø© ÙˆÙÙ„ØªØ± Ø§Ù„ØªÙˆØ§Ø²Ù†
+  // البحث المتقدم في الحسابات والمبالغ والبيانات عبر الجداول المرتبطة وفلتر التوازن
   useEffect(() => {
     const performSearch = async () => {
       const isUnbalancedFilter = filterStatus === 'unbalanced' || filterStatus === 'posted_unbalanced';
@@ -186,7 +186,7 @@ const GeneralJournal: React.FC = () => {
         const cleanSearch = debouncedSearch.replace(/,/g, '').trim();
         const foundIds = new Set<string>();
 
-        // 1. Ø¥Ø°Ø§ ÙƒØ§Ù† Ø§Ù„ÙÙ„ØªØ± ÙŠØ·Ù„Ø¨ Ø§Ù„Ù‚ÙŠÙˆØ¯ ØºÙŠØ± Ø§Ù„Ù…ØªÙˆØ§Ø²Ù†Ø©
+        // 1. إذا كان الفلتر يطلب القيود غير المتوازنة
         let unbalancedIdsSet: Set<string> | null = null;
         if (isUnbalancedFilter) {
           setIgnoreDateFilter(true);
@@ -197,10 +197,10 @@ const GeneralJournal: React.FC = () => {
           unbalancedIdsSet = new Set(auditRes.unbalancedIds);
         }
 
-        // 2. Ø§Ù„Ø¨Ø­Ø« ÙÙŠ Ø§Ù„Ù‚ÙŠÙˆØ¯ Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© (journal_entries) Ø¨Ø§Ù„Ù…Ø±Ø¬Ø¹ Ø£Ùˆ Ø§Ù„Ø¨ÙŠØ§Ù†
+        // 2. البحث في القيود الرئيسية (journal_entries) بالمرجع أو البيان
         if (cleanSearch) {
-          const norm1 = cleanSearch.replace(/Ù‰/g, 'ÙŠ').replace(/[Ø£Ø¥Ø¢]/g, 'Ø§').replace(/Ø©/g, 'Ù‡');
-          const norm2 = cleanSearch.replace(/ÙŠ/g, 'Ù‰').replace(/Ø§/g, 'Ø£');
+          const norm1 = cleanSearch.replace(/ى/g, 'ي').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه');
+          const norm2 = cleanSearch.replace(/ي/g, 'ى').replace(/ا/g, 'أ');
 
           let entryQuery = supabase
             .from('journal_entries')
@@ -221,7 +221,7 @@ const GeneralJournal: React.FC = () => {
           }
         }
 
-        // 3. Ø§Ù„Ø¨Ø­Ø« ÙÙŠ Ø£Ø³Ø·Ø± Ø§Ù„Ù‚ÙŠÙˆØ¯ (journal_lines) Ø¨Ø§Ù„Ù…Ø¨Ù„Øº Ø£Ùˆ Ø§Ù„Ø­Ø³Ø§Ø¨ Ø£Ùˆ Ø§Ù„ÙˆØµÙ
+        // 3. البحث في أسطر القيود (journal_lines) بالمبلغ أو الحساب أو الوصف
         let linesQuery = supabase
           .from('journal_lines')
           .select('journal_entry_id');
@@ -268,7 +268,7 @@ const GeneralJournal: React.FC = () => {
           }
         }
 
-        // Ø¯Ù…Ø¬ Ø§Ù„Ù†ØªØ§Ø¦Ø¬ Ù…Ø¹ ÙÙ„ØªØ± Ø§Ù„Ù‚ÙŠÙˆØ¯ ØºÙŠØ± Ø§Ù„Ù…ØªÙˆØ§Ø²Ù†Ø©
+        // دمج النتائج مع فلتر القيود غير المتوازنة
         if (isUnbalancedFilter && unbalancedIdsSet !== null) {
           if (cleanSearch || filterAccountId || filterAmount) {
             const intersected = Array.from(foundIds).filter(id => unbalancedIdsSet!.has(id));
@@ -277,7 +277,7 @@ const GeneralJournal: React.FC = () => {
             if (unbalancedIdsSet.size > 0) {
               setMatchingEntryIds(Array.from(unbalancedIdsSet));
             } else {
-              // Ù…Ø³Ø§Ø± ÙØ­Øµ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…Ø­Ù„ÙŠØ© ÙƒØ¥Ø¬Ø±Ø§Ø¡ Ø¥Ø¶Ø§ÙÙŠ
+              // مسار فحص البيانات المحلية كإجراء إضافي
               const localUnbalanced = (contextEntries || []).filter((e: Record<string, any>) => {
                 const dr = (e.journal_lines || e.lines || []).reduce((s: number, l: Record<string, any>) => s + (Number(l.debit) || 0), 0);
                 const cr = (e.journal_lines || e.lines || []).reduce((s: number, l: Record<string, any>) => s + (Number(l.credit) || 0), 0);
@@ -303,7 +303,7 @@ const GeneralJournal: React.FC = () => {
     performSearch();
   }, [debouncedSearch, filterAccountId, filterAmount, filterStatus, accounts, currentUser, currentSelectedOrgId, contextEntries]);
 
-  // Ø¥Ø¹Ø¯Ø§Ø¯ Ø§Ø³ØªØ¹Ù„Ø§Ù… Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ù…Ø¹ Ø§Ù„ÙÙ„ØªØ±Ø©
+  // إعداد استعلام البيانات مع الفلترة
   const queryModifier = useCallback((query: Record<string, any>) => {
     if (matchingEntryIds !== null) {
       if (matchingEntryIds.length > 0) {
@@ -327,7 +327,7 @@ const GeneralJournal: React.FC = () => {
 
     if (filterSource) {
       if (filterSource === 'sales_invoice') {
-        query = query.or('reference.like.INV-%,reference.like.REC-INV-%,reference.like.POS-%,reference.like.SI-%,description.ilike.%ÙØ§ØªÙˆØ±Ø© Ù…Ø¨ÙŠØ¹Ø§Øª%');
+        query = query.or('reference.like.INV-%,reference.like.REC-INV-%,reference.like.POS-%,reference.like.SI-%,description.ilike.%فاتورة مبيعات%');
       } else if (filterSource === 'sales_return') {
         query = query.or('reference.like.SR-%,reference.like.SRET-%');
       } else if (filterSource === 'credit_note') {
@@ -445,8 +445,8 @@ const GeneralJournal: React.FC = () => {
   const journalEntries = useMemo(() => {
     if (currentUser?.role === 'demo') {
       return [
-        { id: 'demo-je-1', date: new Date().toISOString().split('T')[0], description: 'Ø´Ø±Ø§Ø¡ Ø£Ø«Ø§Ø« Ù…ÙƒØªØ¨ÙŠ Ù†Ù‚Ø¯Ø§Ù‹', reference: 'JE-DEMO-001', status: 'posted', is_posted: true, lines: [{ accountName: 'Ø§Ù„Ø£Ø«Ø§Ø« ÙˆØ§Ù„ØªØ¬Ù‡ÙŠØ²Ø§Øª', accountCode: '1115', debit: 5000, credit: 0 }, { accountName: 'Ø§Ù„Ù†Ù‚Ø¯ÙŠØ© Ø¨Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚', accountCode: '10101', debit: 0, credit: 5000 }] },
-        { id: 'demo-je-2', date: new Date().toISOString().split('T')[0], description: 'Ø³Ø¯Ø§Ø¯ ÙØ§ØªÙˆØ±Ø© ÙƒÙ‡Ø±Ø¨Ø§Ø¡', reference: 'JE-DEMO-002', status: 'posted', is_posted: true, lines: [{ accountName: 'ÙƒÙ‡Ø±Ø¨Ø§Ø¡ ÙˆÙ…ÙŠØ§Ù‡', accountCode: '50201', debit: 750, credit: 0 }, { accountName: 'Ø§Ù„Ù†Ù‚Ø¯ÙŠØ© Ø¨Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚', accountCode: '10101', debit: 0, credit: 750 }] }
+        { id: 'demo-je-1', date: new Date().toISOString().split('T')[0], description: 'شراء أثاث مكتبي نقداً', reference: 'JE-DEMO-001', status: 'posted', is_posted: true, lines: [{ accountName: 'الأثاث والتجهيزات', accountCode: '1115', debit: 5000, credit: 0 }, { accountName: 'النقدية بالصندوق', accountCode: '10101', debit: 0, credit: 5000 }] },
+        { id: 'demo-je-2', date: new Date().toISOString().split('T')[0], description: 'سداد فاتورة كهرباء', reference: 'JE-DEMO-002', status: 'posted', is_posted: true, lines: [{ accountName: 'كهرباء ومياه', accountCode: '50201', debit: 750, credit: 0 }, { accountName: 'النقدية بالصندوق', accountCode: '10101', debit: 0, credit: 750 }] }
       ] as any[];
     }
 
@@ -465,32 +465,32 @@ const GeneralJournal: React.FC = () => {
         let account = accounts.find((a: Record<string, any>) => a.id === line.account_id) || line.accounts;
         
         if (!account && line.description) {
-          if (line.description.includes('Ø¹Ù…ÙˆÙ„Ø©') || line.description.includes('ØªØ³ÙˆÙŠÙ‚') || line.description.includes('Ø¹Ù…ÙˆÙ„Ø§Øª')) {
+          if (line.description.includes('عمولة') || line.description.includes('تسويق') || line.description.includes('عمولات')) {
             account = accounts.find((a: Record<string, any>) => 
               a.code === '522' || a.code === '5221' || a.code === '5204' || a.code === '52' || a.code === '521'
             ) || accounts.find((a: Record<string, any>) => 
               (a.type === 'EXPENSE' || (a.type as any) === 'expense' || a.code?.startsWith('5')) && 
-              (a.name.includes('Ø¹Ù…ÙˆÙ„') || a.name.includes('ØªØ³ÙˆÙŠÙ‚') || a.name.includes('ØªÙˆØ²ÙŠØ¹') || a.name.includes('Ø¯Ø¹Ø§ÙŠØ©')) && 
-              !a.name.includes('ØªÙƒÙ„ÙØ©') && !a.name.includes('Ø¨Ø¶Ø§Ø¹Ø©')
+              (a.name.includes('عمول') || a.name.includes('تسويق') || a.name.includes('توزيع') || a.name.includes('دعاية')) && 
+              !a.name.includes('تكلفة') && !a.name.includes('بضاعة')
             ) || accounts.find((a: Record<string, any>) => 
               (a.type === 'EXPENSE' || (a.type as any) === 'expense' || a.code?.startsWith('5')) && 
-              !a.name.includes('ØªÙƒÙ„ÙØ©')
+              !a.name.includes('تكلفة')
             );
-          } else if (line.description.includes('Ù…Ø³ØªØ­Ù‚') || line.description.includes('ØµØ§ÙÙŠ') || line.description.includes('Ù…Ù†ØµØ©') || line.description.includes('Ø¹Ù…ÙŠÙ„')) {
+          } else if (line.description.includes('مستحق') || line.description.includes('صافي') || line.description.includes('منصة') || line.description.includes('عميل')) {
             account = accounts.find((a: Record<string, any>) => 
               a.code === '1221' || a.code === '122' || a.code === '102'
             ) || accounts.find((a: Record<string, any>) => 
               (a.type === 'ASSET' || (a.type as any) === 'asset' || a.code?.startsWith('1')) && 
-              (a.name.includes('Ø¹Ù…Ù„Ø§Ø¡') || a.name.includes('Ù…Ù†ØµØ§Øª') || a.name.includes('Ù…Ø¯ÙŠÙ†')) && 
-              !a.name.includes('Ù…Ø³ØªØ­Ù‚Ø©') && !a.name.includes('Ø£ÙˆØ±Ø§Ù‚')
+              (a.name.includes('عملاء') || a.name.includes('منصات') || a.name.includes('مدين')) && 
+              !a.name.includes('مستحقة') && !a.name.includes('أوراق')
             );
-          } else if (line.description.includes('Ø¥ÙŠØ±Ø§Ø¯') || line.description.includes('Ù…Ø¨ÙŠØ¹Ø§Øª') || line.description.includes('Ø¥Ø¬Ù…Ø§Ù„ÙŠ') || line.credit > 0) {
+          } else if (line.description.includes('إيراد') || line.description.includes('مبيعات') || line.description.includes('إجمالي') || line.credit > 0) {
             account = accounts.find((a: Record<string, any>) => 
               a.code === '411' || a.code === '4101' || a.code === '41101' || a.code === '41' || a.code === '401'
             ) || accounts.find((a: Record<string, any>) => 
               (a.type === 'REVENUE' || (a.type as any) === 'revenue' || a.code?.startsWith('4')) && 
               !a.code?.startsWith('1') && 
-              (a.name.includes('Ù…Ø¨ÙŠØ¹Ø§Øª') || a.name.includes('Ù†Ø´Ø§Ø·') || a.name.includes('Ø¥ÙŠØ±Ø§Ø¯'))
+              (a.name.includes('مبيعات') || a.name.includes('نشاط') || a.name.includes('إيراد'))
             );
           }
         }
@@ -498,7 +498,7 @@ const GeneralJournal: React.FC = () => {
         return {
           id: line.id,
           accountId: line.account_id,
-          accountName: account?.name || `âš ï¸ Ø­Ø³Ø§Ø¨ ØºÙŠØ± Ù…ÙˆØ¬ÙˆØ¯ (Ø§Ù„Ù…Ø¹Ø±Ù: ${line.account_id?.slice(0,8)}...)`,
+          accountName: account?.name || `⚠️ حساب غير موجود (المعرف: ${line.account_id?.slice(0,8)}...)`,
           accountCode: account?.code || line.account_code || '????',
           debit: line.debit,
           credit: line.credit,
@@ -523,12 +523,12 @@ const GeneralJournal: React.FC = () => {
     const totalAmount = (targetEntry?.lines || []).reduce((sum: number, l: Record<string, any>) => sum + (Number(l.debit) || 0), 0);
     const isHighValue = totalAmount >= 50000;
 
-    let confirmMsg = 'Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† ØªØ±Ø­ÙŠÙ„ Ù‡Ø°Ø§ Ø§Ù„Ù‚ÙŠØ¯ØŸ Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø§Ù„ØªØ±Ø§Ø¬Ø¹ Ø¹Ù† Ù‡Ø°Ù‡ Ø§Ù„Ø¹Ù…Ù„ÙŠØ© Ø¨Ø¹Ø¯ Ø§Ù„ØªØ±Ø­ÙŠÙ„.';
+    let confirmMsg = 'هل أنت متأكد من ترحيل هذا القيد؟ لا يمكن التراجع عن هذه العملية بعد الترحيل.';
     if (isHighValue) {
-      confirmMsg = `ðŸ›¡ï¸ [Ù…ÙŠØ«Ø§Ù‚ Ø§Ù„Ø­ÙˆÙƒÙ…Ø© Ø§Ù„Ù…Ø§Ù„ÙŠØ© ÙˆÙØµÙ„ Ø§Ù„Ù…Ù‡Ø§Ù… - Maker-Checker]:\n\n` +
-        `Ù‡Ø°Ø§ Ø§Ù„Ù‚ÙŠØ¯ Ø°Ùˆ Ù‚ÙŠÙ…Ø© Ù…Ø§Ù„ÙŠØ© ÙƒØ¨Ø±Ù‰ (${totalAmount.toLocaleString('ar-EG')} Ø¬.Ù…).\n` +
-        `ÙˆÙÙ‚Ø§Ù‹ Ù„Ù„Ø³ÙŠØ§Ø³Ø© Ø§Ù„Ø±Ù‚Ø§Ø¨ÙŠØ© Ø§Ù„Ù…Ø¹ØªÙ…Ø¯Ø©ØŒ ÙŠÙØ´ØªØ±Ø· ØªØ¯Ù‚ÙŠÙ‚ Ø§Ù„Ù…Ø³ØªÙ†Ø¯Ø§Øª Ø§Ù„Ù…Ø¤ÙŠØ¯Ø© ÙˆØ§Ù„ÙÙˆØ§ØªÙŠØ± Ù‚Ø¨Ù„ Ø§Ù„Ø¥Ù‚Ø±Ø§Ø± Ø§Ù„Ù†Ù‡Ø§Ø¦ÙŠ.\n\n` +
-        `Ù‡Ù„ ØªØ¤ÙƒØ¯ Ø¨ØµÙØªÙƒ Ø§Ù„Ø¥Ø¯Ø§Ø±ÙŠØ© ÙˆØ§Ù„Ø±Ù‚Ø§Ø¨ÙŠØ© Ø§Ø¹ØªÙ…Ø§Ø¯ ÙˆØªØ±Ø­ÙŠÙ„ Ù‡Ø°Ø§ Ø§Ù„Ù‚ÙŠØ¯ Ù†Ù‡Ø§Ø¦ÙŠØ§Ù‹ Ù„Ø¯ÙØªØ± Ø§Ù„Ø£Ø³ØªØ§Ø° Ø§Ù„Ø¹Ø§Ù…ØŸ`;
+      confirmMsg = `🛡️ [ميثاق الحوكمة المالية وفصل المهام - Maker-Checker]:\n\n` +
+        `هذا القيد ذو قيمة مالية كبرى (${totalAmount.toLocaleString('ar-EG')} ج.م).\n` +
+        `وفقاً للسياسة الرقابية المعتمدة، يُشترط تدقيق المستندات المؤيدة والفواتير قبل الإقرار النهائي.\n\n` +
+        `هل تؤكد بصفتك الإدارية والرقابية اعتماد وترحيل هذا القيد نهائياً لدفتر الأستاذ العام؟`;
     }
 
     if (!window.confirm(confirmMsg)) {
@@ -546,16 +546,16 @@ const GeneralJournal: React.FC = () => {
 
       if (error) throw error;
 
-      toast.success(isHighValue ? 'ØªÙ… Ø§Ø¹ØªÙ…Ø§Ø¯ ÙˆØªØ±Ø­ÙŠÙ„ Ø§Ù„Ù‚ÙŠØ¯ Ø°Ùˆ Ø§Ù„Ù‚ÙŠÙ…Ø© Ø§Ù„ÙƒØ¨Ø±Ù‰ Ø¨Ù†Ø¬Ø§Ø­.' : 'ØªÙ… ØªØ±Ø­ÙŠÙ„ Ø§Ù„Ù‚ÙŠØ¯ Ø¨Ù†Ø¬Ø§Ø­.');
+      toast.success(isHighValue ? 'تم اعتماد وترحيل القيد ذو القيمة الكبرى بنجاح.' : 'تم ترحيل القيد بنجاح.');
       refreshData();
       refresh();
     } catch (err) {
-      toast.error('ÙØ´Ù„ ØªØ±Ø­ÙŠÙ„ Ø§Ù„Ù‚ÙŠØ¯: ' + err.message);
+      toast.error('فشل ترحيل القيد: ' + err.message);
     }
   };
 
   const handleDeleteEntry = async (entryId: string) => {
-    if (!window.confirm('Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø­Ø°Ù Ù‡Ø°Ø§ Ø§Ù„Ù‚ÙŠØ¯ØŸ Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø§Ù„ØªØ±Ø§Ø¬Ø¹ Ø¹Ù† Ù‡Ø°Ø§ Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡.')) {
+    if (!window.confirm('هل أنت متأكد من حذف هذا القيد؟ لا يمكن التراجع عن هذا الإجراء.')) {
       return;
     }
     try {
@@ -580,11 +580,11 @@ const GeneralJournal: React.FC = () => {
         }
       } catch (_) {}
 
-      toast.success('ØªÙ… Ø­Ø°Ù Ø§Ù„Ù‚ÙŠØ¯ ÙˆØªØ­Ø¯ÙŠØ« Ø§Ù„Ø£Ø±ØµØ¯Ø© Ø¨Ù†Ø¬Ø§Ø­.');
+      toast.success('تم حذف القيد وتحديث الأرصدة بنجاح.');
       refreshData();
       refresh();
     } catch (err) {
-      toast.error('ÙØ´Ù„ Ø­Ø°Ù Ø§Ù„Ù‚ÙŠØ¯: ' + err.message);
+      toast.error('فشل حذف القيد: ' + err.message);
     }
   };
 
@@ -611,12 +611,12 @@ const GeneralJournal: React.FC = () => {
           journal_lines (debit, credit, account_id)
         `)
         .eq('organization_id', orgId)
-        .or('reference.ilike.ASSET-%,reference.ilike.DEP-%,related_document_type.eq.fixed_asset,related_document_type.eq.asset_depreciation,description.ilike.%Ø£ØµÙ„ Ø«Ø§Ø¨Øª%');
+        .or('reference.ilike.ASSET-%,reference.ilike.DEP-%,related_document_type.eq.fixed_asset,related_document_type.eq.asset_depreciation,description.ilike.%أصل ثابت%');
 
       if (error) throw error;
 
       if (!entries || entries.length === 0) {
-        toast.info('Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ø£ÙŠ Ù‚ÙŠÙˆØ¯ Ø£ØµÙˆÙ„ Ù„ÙØ­ØµÙ‡Ø§.');
+        toast.info('لم يتم العثور على أي قيود أصول لفحصها.');
         setIsCleaningAssets(false);
         return;
       }
@@ -645,8 +645,8 @@ const GeneralJournal: React.FC = () => {
           return true;
         }
 
-        if (e.description?.includes('Ø¥Ø«Ø¨Ø§Øª Ø´Ø±Ø§Ø¡ Ø£ØµÙ„ Ø«Ø§Ø¨Øª:')) {
-          const assetName = e.description.replace('Ø¥Ø«Ø¨Ø§Øª Ø´Ø±Ø§Ø¡ Ø£ØµÙ„ Ø«Ø§Ø¨Øª:', '').trim();
+        if (e.description?.includes('إثبات شراء أصل ثابت:')) {
+          const assetName = e.description.replace('إثبات شراء أصل ثابت:', '').trim();
           const matchesActive = (activeAssets || []).some(a => a.name === assetName);
           if (matchesActive) return false;
           return true;
@@ -656,7 +656,7 @@ const GeneralJournal: React.FC = () => {
       });
 
       if (orphanedEntries.length === 0) {
-        toast.success('Ø¬Ù…ÙŠØ¹ Ù‚ÙŠÙˆØ¯ Ø§Ù„Ø£ØµÙˆÙ„ Ù…Ø·Ø§Ø¨Ù‚Ø© Ù„Ø³Ø¬Ù„ Ø§Ù„Ø£ØµÙˆÙ„ Ø§Ù„ÙØ¹Ø§Ù„Ø© ÙˆÙ„Ø§ ØªÙˆØ¬Ø¯ Ù‚ÙŠÙˆØ¯ Ù…Ø¹Ù„Ù‚Ø© âœ…');
+        toast.success('جميع قيود الأصول مطابقة لسجل الأصول الفعالة ولا توجد قيود معلقة ✅');
         setIsCleaningAssets(false);
         return;
       }
@@ -666,9 +666,9 @@ const GeneralJournal: React.FC = () => {
         return sum + lineDebits;
       }, 0);
 
-      const confirmMsg = `âš ï¸ ØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ (${orphanedEntries.length}) Ù‚ÙŠØ¯ Ù…Ø­Ø§Ø³Ø¨ÙŠ Ù„Ø£ØµÙˆÙ„ Ù…Ø­Ø°ÙˆÙØ© Ø¨Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ù…Ø¨Ù„Øº: ${totalAmount.toLocaleString()} Ø¬.Ù….\n\n` +
-        orphanedEntries.map(e => `â€¢ Ù‚ÙŠØ¯ [${e.reference || e.id.slice(0, 8)}] Ø¨ØªØ§Ø±ÙŠØ® ${e.transaction_date} - ${e.description}`).join('\n') +
-        `\n\nÙ‡Ù„ ØªÙˆØ¯ Ø­Ø°Ù Ù‡Ø°Ù‡ Ø§Ù„Ù‚ÙŠÙˆØ¯ Ø§Ù„Ù…Ø¹Ù„Ù‚Ø© Ù„ØªØµØ­ÙŠØ­ Ù…ÙŠØ²Ø§Ù† Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© ÙˆØ­Ø³Ø§Ø¨ ÙˆØ³Ø§Ø¦Ù„ Ø§Ù„Ù†Ù‚Ù„ ÙÙˆØ±Ø§Ù‹ØŸ`;
+      const confirmMsg = `⚠️ تم العثور على (${orphanedEntries.length}) قيد محاسبي لأصول محذوفة بإجمالي مبلغ: ${totalAmount.toLocaleString()} ج.م.\n\n` +
+        orphanedEntries.map(e => `• قيد [${e.reference || e.id.slice(0, 8)}] بتاريخ ${e.transaction_date} - ${e.description}`).join('\n') +
+        `\n\nهل تود حذف هذه القيود المعلقة لتصحيح ميزان المراجعة وحساب وسائل النقل فوراً؟`;
 
       if (!window.confirm(confirmMsg)) {
         setIsCleaningAssets(false);
@@ -685,13 +685,13 @@ const GeneralJournal: React.FC = () => {
         await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
       } catch (_) {}
 
-      toast.success(`ØªÙ… Ø¨Ù†Ø¬Ø§Ø­ ØªÙ†Ø¸ÙŠÙ (${orphanedEntries.length}) Ù‚ÙŠØ¯ ÙˆØªØµØ­ÙŠØ­ Ù…ÙŠØ²Ø§Ù† Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© âœ…`);
+      toast.success(`تم بنجاح تنظيف (${orphanedEntries.length}) قيد وتصحيح ميزان المراجعة ✅`);
       await clearCache();
       await refreshData();
       refresh();
     } catch (err) {
       logger.error('Error cleaning orphaned asset entries:', err);
-      toast.error('ÙØ´Ù„ ØªÙ†Ø¸ÙŠÙ Ù‚ÙŠÙˆØ¯ Ø§Ù„Ø£ØµÙˆÙ„: ' + err.message);
+      toast.error('فشل تنظيف قيود الأصول: ' + err.message);
     } finally {
       setIsCleaningAssets(false);
     }
@@ -701,7 +701,7 @@ const GeneralJournal: React.FC = () => {
     const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
     if (!orgId) return;
 
-    if (!window.confirm('Ù‡Ù„ ØªØ±ÙŠØ¯ ÙØ­Øµ ÙˆØªÙ†Ø¸ÙŠÙ Ø¬Ù…ÙŠØ¹ Ù‚ÙŠÙˆØ¯ Ø§Ù„Ø´ÙŠÙƒØ§Øª Ø§Ù„Ù…ÙƒØ±Ø±Ø© ÙˆØ§Ù„Ø¥Ø¨Ù‚Ø§Ø¡ Ø¹Ù„Ù‰ Ù‚ÙŠØ¯ ÙˆØ§Ø­Ø¯ ÙÙ‚Ø· Ù„ÙƒÙ„ Ø´ÙŠÙƒØŸ\n\nØ³ÙŠØªÙ… ØªØµØ­ÙŠØ­ Ø£Ø±ØµØ¯Ø© Ø§Ù„Ø¨Ù†ÙˆÙƒ ÙˆØ£ÙˆØ±Ø§Ù‚ Ø§Ù„Ù‚Ø¨Ø¶/Ø§Ù„Ø¯ÙØ¹ ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹.')) {
+    if (!window.confirm('هل تريد فحص وتنظيف جميع قيود الشيكات المكررة والإبقاء على قيد واحد فقط لكل شيك؟\n\nسيتم تصحيح أرصدة البنوك وأوراق القبض/الدفع تلقائياً.')) {
       return;
     }
 
@@ -717,7 +717,7 @@ const GeneralJournal: React.FC = () => {
       if (error) throw error;
 
       if (!entries || entries.length === 0) {
-        toast.info('Ù„Ø§ ØªÙˆØ¬Ø¯ Ù‚ÙŠÙˆØ¯ Ø´ÙŠÙƒØ§Øª Ù„ÙØ­ØµÙ‡Ø§.');
+        toast.info('لا توجد قيود شيكات لفحصها.');
         return;
       }
 
@@ -740,7 +740,7 @@ const GeneralJournal: React.FC = () => {
       });
 
       if (duplicateIdsToDelete.length === 0) {
-        toast.success('Ø³Ø¬Ù„ Ù‚ÙŠÙˆØ¯ Ø§Ù„Ø´ÙŠÙƒØ§Øª Ø³Ù„ÙŠÙ… ÙˆÙ„Ø§ ØªÙˆØ¬Ø¯ Ø£ÙŠ Ù‚ÙŠÙˆØ¯ Ù…ÙƒØ±Ø±Ø© âœ…');
+        toast.success('سجل قيود الشيكات سليم ولا توجد أي قيود مكررة ✅');
         return;
       }
 
@@ -757,17 +757,17 @@ const GeneralJournal: React.FC = () => {
       await clearCache();
       await refreshData();
       refresh();
-      toast.success(`ØªÙ… Ø¨Ù†Ø¬Ø§Ø­ ØªÙ†Ø¸ÙŠÙ ${duplicateIdsToDelete.length} Ù‚ÙŠØ¯ Ø´ÙŠÙƒØ§Øª Ù…ÙƒØ±Ø± ÙˆØ¥Ø¹Ø§Ø¯Ø© Ø¶Ø¨Ø· Ø§Ù„Ø£Ø±ØµØ¯Ø© âœ…`);
+      toast.success(`تم بنجاح تنظيف ${duplicateIdsToDelete.length} قيد شيكات مكرر وإعادة ضبط الأرصدة ✅`);
     } catch (err) {
       logger.error(err);
-      toast.error('Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ ØªÙ†Ø¸ÙŠÙ Ø§Ù„Ù‚ÙŠÙˆØ¯ Ø§Ù„Ù…ÙƒØ±Ø±Ø©: ' + err.message);
+      toast.error('حدث خطأ أثناء تنظيف القيود المكررة: ' + err.message);
     } finally {
       setIsCleaningDuplicates(false);
     }
   };
 
   const handleDeleteOrphanSpecific = async (entryId: string) => {
-    if (!window.confirm('Ù‡Ù„ ØªØ±ÙŠØ¯ Ø­Ø°Ù Ù‚ÙŠØ¯ Ø´Ø±ÙƒØ© Ù‡Ø§ÙŠ Ù…ÙƒØ³ Ø§Ù„Ù…Ø­Ø°ÙˆÙØ© (9,114.00 Ø¬.Ù…) Ø§Ù„Ø¢Ù† ÙˆØªØµØ­ÙŠØ­ Ø±ØµÙŠØ¯ Ø§Ù„Ø£Ø³ØªØ§Ø° Ø§Ù„Ø¹Ø§Ù…ØŸ')) return;
+    if (!window.confirm('هل تريد حذف قيد شركة هاي مكس المحذوفة (9,114.00 ج.م) الآن وتصحيح رصيد الأستاذ العام؟')) return;
     try {
       const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || null;
       const { error: rpcError } = await supabase.rpc('delete_journal_entry_safe', {
@@ -786,13 +786,13 @@ const GeneralJournal: React.FC = () => {
         await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
       } catch (_) {}
 
-      toast.success('ØªÙ… Ø­Ø°Ù Ù‚ÙŠØ¯ Ø´Ø±ÙƒØ© Ù‡Ø§ÙŠ Ù…ÙƒØ³ ÙˆØªØµØ­ÙŠØ­ Ø±ØµÙŠØ¯ Ø§Ù„Ø£Ø³ØªØ§Ø° Ø§Ù„Ø¹Ø§Ù… Ø¨Ù†Ø¬Ø§Ø­ âœ…');
+      toast.success('تم حذف قيد شركة هاي مكس وتصحيح رصيد الأستاذ العام بنجاح ✅');
       setDetectedOrphanEntry(null);
       await clearCache();
       await refreshData();
       refresh();
     } catch (err) {
-      toast.error('ÙØ´Ù„ Ø­Ø°Ù Ø§Ù„Ù‚ÙŠØ¯: ' + err.message);
+      toast.error('فشل حذف القيد: ' + err.message);
     }
   };
 
@@ -803,7 +803,7 @@ const GeneralJournal: React.FC = () => {
       let query = supabase
         .from('journal_entries')
         .select('id, reference, description, transaction_date')
-        .or('reference.like.OP-SUPP-%,description.ilike.%Ø±ØµÙŠØ¯ Ø§ÙØªØªØ§Ø­ÙŠ Ù„Ù„Ù…ÙˆØ±Ø¯%,description.ilike.%Ù‡Ø§ÙŠ Ù…ÙƒØ³%,description.ilike.%Ù‡Ø§Ù‰ Ù…ÙƒØ³%');
+        .or('reference.like.OP-SUPP-%,description.ilike.%رصيد افتتاحي للمورد%,description.ilike.%هاي مكس%,description.ilike.%هاى مكس%');
 
       if (orgId) {
         query = query.or(`organization_id.eq.${orgId},organization_id.is.null`);
@@ -824,7 +824,7 @@ const GeneralJournal: React.FC = () => {
       const orphanEntries = (opEntries || []).filter(e => {
         const ref = (e.reference || '').trim();
         const desc = (e.description || '').trim();
-        if (ref.includes('ff424006-cf5e-4b01-bcda-4fe250a67c2a') || desc.includes('Ù‡Ø§ÙŠ Ù…ÙƒØ³') || desc.includes('Ù‡Ø§Ù‰ Ù…ÙƒØ³')) {
+        if (ref.includes('ff424006-cf5e-4b01-bcda-4fe250a67c2a') || desc.includes('هاي مكس') || desc.includes('هاى مكس')) {
           return true;
         }
         if (ref.startsWith('OP-SUPP-')) {
@@ -835,13 +835,13 @@ const GeneralJournal: React.FC = () => {
       });
 
       if (orphanEntries.length === 0) {
-        toast.success('Ø³Ø¬Ù„ Ù‚ÙŠÙˆØ¯ Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ† Ø³Ù„ÙŠÙ… ØªÙ…Ø§Ù…Ø§Ù‹ ÙˆÙ„Ø§ ØªÙˆØ¬Ø¯ Ù‚ÙŠÙˆØ¯ Ù…Ø¹Ù„Ù‚Ø© Ù„Ù…ÙˆØ±Ø¯ÙŠÙ† Ù…Ø­Ø°ÙˆÙÙŠÙ† âœ…');
+        toast.success('سجل قيود الموردين سليم تماماً ولا توجد قيود معلقة لموردين محذوفين ✅');
         return;
       }
 
-      const confirmMsg = `âš ï¸ ØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ (${orphanEntries.length}) Ù‚ÙŠØ¯ Ø±ØµÙŠØ¯ Ø§ÙØªØªØ§Ø­ÙŠ Ù„Ù…ÙˆØ±Ø¯ÙŠÙ† Ù…Ø­Ø°ÙˆÙÙŠÙ† Ù…Ø¹Ù„Ù‚Ø© ÙÙŠ Ø§Ù„Ø£Ø³ØªØ§Ø° Ø§Ù„Ø¹Ø§Ù…:\n\n` +
-        orphanEntries.map(e => `â€¢ ${e.reference} - ${e.description}`).join('\n') +
-        `\n\nÙ‡Ù„ ØªØ±ÙŠØ¯ Ø­Ø°Ù Ù‡Ø°Ù‡ Ø§Ù„Ù‚ÙŠÙˆØ¯ Ø§Ù„Ø¢Ù† Ù„ØªØµØ­ÙŠØ­ Ù…ÙŠØ²Ø§Ù† Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© ÙˆØ§Ù„Ø£Ø³ØªØ§Ø° Ø§Ù„Ø¹Ø§Ù…ØŸ`;
+      const confirmMsg = `⚠️ تم العثور على (${orphanEntries.length}) قيد رصيد افتتاحي لموردين محذوفين معلقة في الأستاذ العام:\n\n` +
+        orphanEntries.map(e => `• ${e.reference} - ${e.description}`).join('\n') +
+        `\n\nهل تريد حذف هذه القيود الآن لتصحيح ميزان المراجعة والأستاذ العام؟`;
 
       if (!window.confirm(confirmMsg)) return;
 
@@ -862,13 +862,13 @@ const GeneralJournal: React.FC = () => {
         await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
       } catch (_) {}
 
-      toast.success(`ØªÙ… Ø¨Ù†Ø¬Ø§Ø­ ØªÙ†Ø¸ÙŠÙ (${orphanEntries.length}) Ù‚ÙŠØ¯ Ù„Ù„Ù…ÙˆØ±Ø¯ÙŠÙ† ÙˆØªØµØ­ÙŠØ­ Ø±ØµÙŠØ¯ Ø§Ù„Ø£Ø³ØªØ§Ø° Ø§Ù„Ø¹Ø§Ù… Ø¨Ù†Ø¬Ø§Ø­ âœ…`);
+      toast.success(`تم بنجاح تنظيف (${orphanEntries.length}) قيد للموردين وتصحيح رصيد الأستاذ العام بنجاح ✅`);
       setDetectedOrphanEntry(null);
       await clearCache();
       await refreshData();
       refresh();
     } catch (err) {
-      toast.error('Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ ØªÙ†Ø¸ÙŠÙ Ù‚ÙŠÙˆØ¯ Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†: ' + err.message);
+      toast.error('حدث خطأ أثناء تنظيف قيود الموردين: ' + err.message);
     } finally {
       setIsCleaningSuppliers(false);
     }
@@ -876,8 +876,8 @@ const GeneralJournal: React.FC = () => {
 
   const handleEditEntry = (entry: JournalEntry) => {
     const source = getEntrySource(entry.reference || '', entry.description || '');
-    if (source.label !== 'Ù‚ÙŠØ¯ ÙŠØ¯ÙˆÙŠ') {
-      toast.error('Ù„Ø§ ÙŠÙ…ÙƒÙ† ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ù‚ÙŠÙˆØ¯ Ø§Ù„ØªÙŠ ØªÙ… Ø¥Ù†Ø´Ø§Ø¤Ù‡Ø§ Ø¢Ù„ÙŠØ§Ù‹. ÙŠØ±Ø¬Ù‰ ØªØ¹Ø¯ÙŠÙ„ Ø§Ù„Ù…Ø³ØªÙ†Ø¯ Ø§Ù„Ø£ØµÙ„ÙŠ (Ù…Ø«Ù„ Ø§Ù„ÙØ§ØªÙˆØ±Ø© Ø£Ùˆ Ø§Ù„Ø³Ù†Ø¯).');
+    if (source.label !== 'قيد يدوي') {
+      toast.error('لا يمكن تعديل القيود التي تم إنشاؤها آلياً. يرجى تعديل المستند الأصلي (مثل الفاتورة أو السند).');
       return;
     }
     navigate('/journal', { state: { entryToEdit: entry } });
@@ -893,7 +893,7 @@ const GeneralJournal: React.FC = () => {
   };
 
   const handleUnpostEntry = async (entryId: string) => {
-    if (!window.confirm('Ù‡Ù„ ØªØ±ÙŠØ¯ ÙÙƒ ØªØ±Ø­ÙŠÙ„ Ù‡Ø°Ø§ Ø§Ù„Ù‚ÙŠØ¯ ØºÙŠØ± Ø§Ù„Ù…ØªÙˆØ§Ø²Ù† ÙˆØªØ­ÙˆÙŠÙ„Ù‡ Ø¥Ù„Ù‰ Ù…Ø³ÙˆØ¯Ø© Ù„ØªØªÙ…ÙƒÙ† Ù…Ù† ØªØµØ­ÙŠØ­Ù‡ Ø£Ùˆ Ø­Ø°ÙÙ‡ØŸ')) {
+    if (!window.confirm('هل تريد فك ترحيل هذا القيد غير المتوازن وتحويله إلى مسودة لتتمكن من تصحيحه أو حذفه؟')) {
       return;
     }
     try {
@@ -908,7 +908,7 @@ const GeneralJournal: React.FC = () => {
         toast.error(res.message);
       }
     } catch (err) {
-      toast.error('Ø­Ø¯Ø« Ø®Ø·Ø£: ' + err.message);
+      toast.error('حدث خطأ: ' + err.message);
     }
   };
 
@@ -924,13 +924,13 @@ const GeneralJournal: React.FC = () => {
 
   return (
     <div className="p-6 bg-white rounded-xl shadow-sm border border-slate-200">
-      {/* âš ï¸ ØªÙ†Ø¨ÙŠÙ‡ ÙƒØ´Ù Ù‚ÙŠØ¯ Ø±ØµÙŠØ¯ Ø§ÙØªØªØ§Ø­ÙŠ Ù„Ù…ÙˆØ±Ø¯ Ù…Ø­Ø°ÙˆÙ Ù…Ø¹ Ø²Ø± Ø­Ø°Ù ÙÙˆØ±ÙŠ */}
+      {/* ⚠️ تنبيه كشف قيد رصيد افتتاحي لمورد محذوف مع زر حذف فوري */}
       <JournalOrphanAlert 
         detectedOrphanEntry={detectedOrphanEntry}
         onDeleteOrphanSpecific={handleDeleteOrphanSpecific}
       />
 
-      {/* âš ï¸ ØªÙ†Ø¨ÙŠÙ‡ ÙƒØ´Ù Ø§Ù„Ù‚ÙŠÙˆØ¯ ØºÙŠØ± Ø§Ù„Ù…ØªÙˆØ§Ø²Ù†Ø© Ù…Ø¹ Ø²Ø± ØªØµÙÙŠØ© ÙÙˆØ±ÙŠ */}
+      {/* ⚠️ تنبيه كشف القيود غير المتوازنة مع زر تصفية فوري */}
       {unbalancedAudit && unbalancedAudit.count > 0 && (
         <div className="bg-amber-50 border-2 border-amber-300 p-4 rounded-xl mb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in shadow-xs" dir="rtl">
           <div className="flex items-center gap-3">
@@ -939,12 +939,12 @@ const GeneralJournal: React.FC = () => {
             </div>
             <div>
               <h4 className="text-sm font-black text-amber-900">
-                ØªÙ†Ø¨ÙŠÙ‡ Ø±Ù‚Ø§Ø¨ÙŠ: ØªÙ… Ø§ÙƒØªØ´Ø§Ù ({unbalancedAudit.count}) Ù‚ÙŠØ¯ ØºÙŠØ± Ù…ØªÙˆØ§Ø²Ù† ÙÙŠ Ø¯ÙØªØ± Ø§Ù„ÙŠÙˆÙ…ÙŠØ©!
+                تنبيه رقابي: تم اكتشاف ({unbalancedAudit.count}) قيد غير متوازن في دفتر اليومية!
               </h4>
               <p className="text-xs text-amber-800 mt-0.5">
-                Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„ÙØ§Ø±Ù‚ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠ: <strong className="font-mono font-bold text-red-700 bg-white/70 px-1.5 py-0.5 rounded border border-amber-200">{unbalancedAudit.totalDiff.toFixed(2)} Ø¬.Ù…</strong>
-                {' â€” '}
-                Ù‡Ø°Ø§ Ø§Ù„ÙØ§Ø±Ù‚ Ù‡Ùˆ Ø§Ù„Ø³Ø¨Ø¨ ÙÙŠ Ø¹Ø¯Ù… Ø§ØªØ²Ø§Ù† Ù…ÙŠØ²Ø§Ù† Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© ÙˆØ¯Ø±Ø¹ Ø§Ù„ØªØ¯Ù‚ÙŠÙ‚ Ø§Ù„Ù„ÙŠÙ„ÙŠ.
+                إجمالي الفارق المحاسبي: <strong className="font-mono font-bold text-red-700 bg-white/70 px-1.5 py-0.5 rounded border border-amber-200">{unbalancedAudit.totalDiff.toFixed(2)} ج.م</strong>
+                {' — '}
+                هذا الفارق هو السبب في عدم اتزان ميزان المراجعة ودرع التدقيق الليلي.
               </p>
             </div>
           </div>
@@ -958,13 +958,13 @@ const GeneralJournal: React.FC = () => {
               className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-xl font-bold text-xs transition-colors shadow-xs flex items-center gap-1.5 cursor-pointer"
             >
               <Filter size={15} />
-              Ø¹Ø±Ø¶ Ø§Ù„Ù‚ÙŠÙˆØ¯ ØºÙŠØ± Ø§Ù„Ù…ØªÙˆØ§Ø²Ù†Ø© ÙÙ‚Ø·
+              عرض القيود غير المتوازنة فقط
             </button>
           </div>
         </div>
       )}
 
-      {/* Ø´Ø±ÙŠØ· Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª ÙˆØ§Ù„Ø¨Ø­Ø« Ø§Ù„Ø¹Ù„ÙˆÙŠ */}
+      {/* شريط الإجراءات والبحث العلوي */}
       <JournalActionBar 
         users={users}
         selectedUser={selectedUser}
@@ -998,7 +998,7 @@ const GeneralJournal: React.FC = () => {
         onOpenCurrencyRevaluation={() => setShowCurrencyRevaluation(true)}
       />
 
-      {/* Ù„ÙˆØ­Ø© Ø§Ù„ÙÙ„Ø§ØªØ± Ø§Ù„Ù…ØªÙ‚Ø¯Ù…Ø© Ø§Ù„Ù‚Ø§Ø¨Ù„Ø© Ù„Ù„Ø·ÙŠ */}
+      {/* لوحة الفلاتر المتقدمة القابلة للطي */}
       <JournalAdvancedFilters 
         show={showAdvanced}
         filterAccountId={filterAccountId}
@@ -1017,7 +1017,7 @@ const GeneralJournal: React.FC = () => {
         onResetFilters={handleResetFilters}
       />
 
-      {/* ðŸ“… Ø´Ø±ÙŠØ· Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø§Ù„ÙŠØ© Ø§Ù„Ù…Ø­Ø¯Ø¯Ø© */}
+      {/* 📅 شريط السنة المالية المحددة */}
       <JournalFiscalYearBar 
         selectedFiscalYear={selectedFiscalYear}
         lastClosedYear={settings?.lastClosedYear}
@@ -1027,7 +1027,7 @@ const GeneralJournal: React.FC = () => {
         setEndDate={setEndDate}
       />
 
-      {/* Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù‚ÙŠÙˆØ¯ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠØ© */}
+      {/* قائمة القيود المحاسبية */}
       <div className="space-y-4">
         {loading || isSearching ? (
           <div className="flex justify-center p-12">
@@ -1038,19 +1038,19 @@ const GeneralJournal: React.FC = () => {
             {filterStatus === 'unbalanced' || filterStatus === 'posted_unbalanced' ? (
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 max-w-lg mx-auto text-amber-900 shadow-sm animate-in fade-in">
                 <AlertTriangle className="mx-auto mb-2 text-amber-600" size={32} />
-                <h3 className="font-bold text-base mb-1">Ù„Ù… ÙŠØªÙ… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ù‚ÙŠÙˆØ¯ ØºÙŠØ± Ù…ØªÙˆØ§Ø²Ù†Ø© ÙÙŠ Ù‡Ø°Ø§ Ø§Ù„Ù†Ø·Ø§Ù‚</h3>
+                <h3 className="font-bold text-base mb-1">لم يتم العثور على قيود غير متوازنة في هذا النطاق</h3>
                 <p className="text-xs text-amber-700 mb-4 leading-relaxed">
-                  Ø¥Ø°Ø§ ÙƒØ§Ù† Ù…ÙŠØ²Ø§Ù† Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© ÙŠØ¸Ù‡Ø± ÙØ±Ù‚Ø§Ù‹ ÙÙŠ Ø§Ù„ØªÙˆØ§Ø²Ù† (Ù…Ø«Ù„ ÙØ§Ø±Ù‚ Ø§Ù„Ù€ 100 Ø¬.Ù…)ØŒ ÙØ¥Ù† Ø§Ù„Ù‚ÙŠØ¯ Ø£Ùˆ Ø§Ù„Ø³Ø·Ø± Ø§Ù„Ù…Ø³Ø¨Ø¨ ÙŠØªÙ… ÙƒØ´ÙÙ‡ Ù…Ø¨Ø§Ø´Ø±Ø© ÙˆØ¨Ø¯Ù‚Ø© Ù…ØªÙ†Ø§Ù‡ÙŠØ© Ù…Ù† Ø´Ø§Ø´Ø© Ù…ÙŠØ²Ø§Ù† Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© Ù…Ø¹ Ø¥Ù…ÙƒØ§Ù†ÙŠØ© ÙÙƒ ØªØ±Ø­ÙŠÙ„Ù‡ Ø¨Ù†Ù‚Ø±Ø© ÙˆØ§Ø­Ø¯Ø©.
+                  إذا كان ميزان المراجعة يظهر فرقاً في التوازن (مثل فارق الـ 100 ج.م)، فإن القيد أو السطر المسبب يتم كشفه مباشرة وبدقة متناهية من شاشة ميزان المراجعة مع إمكانية فك ترحيله بنقرة واحدة.
                 </p>
                 <button
                   onClick={() => navigate('/trial-balance')}
                   className="bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 rounded-lg text-xs font-bold transition-colors cursor-pointer shadow-xs"
                 >
-                  Ø§Ù„Ø§Ù†ØªÙ‚Ø§Ù„ Ù„Ù…ÙŠØ²Ø§Ù† Ø§Ù„Ù…Ø±Ø§Ø¬Ø¹Ø© Ù„ÙƒØ´Ù ÙˆØªØµØ­ÙŠØ­ Ø§Ù„Ù‚ÙŠØ¯ ÙÙˆØ±Ø§Ù‹
+                  الانتقال لميزان المراجعة لكشف وتصحيح القيد فوراً
                 </button>
               </div>
             ) : (
-              'Ù„Ø§ ØªÙˆØ¬Ø¯ Ù‚ÙŠÙˆØ¯ Ù…Ø·Ø§Ø¨Ù‚Ø© Ù„Ù„Ø¨Ø­Ø«.'
+              'لا توجد قيود مطابقة للبحث.'
             )}
           </div>
         ) : (
@@ -1070,7 +1070,7 @@ const GeneralJournal: React.FC = () => {
           ))
         )}
 
-        {/* Ø¹Ù†Ø§ØµØ± Ø§Ù„ØªØ­ÙƒÙ… ÙÙŠ Ø§Ù„ØªÙ†Ù‚Ù„ ÙˆØ§Ù„ØµÙØ­Ø§Øª */}
+        {/* عناصر التحكم في التنقل والصفحات */}
         <JournalPagination 
           currentCount={journalEntries.length}
           totalCount={totalCount}
@@ -1084,7 +1084,7 @@ const GeneralJournal: React.FC = () => {
         />
       </div>
 
-      {/* ðŸ’± Ù…Ø¹Ø§Ù„Ø¬ Ø¥Ø¹Ø§Ø¯Ø© ØªÙ‚ÙŠÙŠÙ… ÙØ±ÙˆÙ‚ Ø£Ø³Ø¹Ø§Ø± ØµØ±Ù Ø§Ù„Ø¹Ù…Ù„Ø§Øª Ø§Ù„Ø£Ø¬Ù†Ø¨ÙŠØ© */}
+      {/* 💱 معالج إعادة تقييم فروق أسعار صرف العملات الأجنبية */}
       <CurrencyRevaluationModal 
         isOpen={showCurrencyRevaluation}
         onClose={() => setShowCurrencyRevaluation(false)}

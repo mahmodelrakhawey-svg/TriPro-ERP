@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Form, Input, DatePicker, Select, Button, message, Card } from 'antd';
 import { supabase } from '@/supabaseClient';
 import { CalendarOutlined } from '@ant-design/icons';
@@ -33,9 +33,9 @@ export const SurgeryBookingForm: React.FC<{ visitId: string, onSuccess: () => vo
     const { error } = await supabase.from('hims_surgeries').insert([payload]);
 
     if (error) {
-      message.error('Ø®Ø·Ø£ ÙÙŠ Ø­Ø¬Ø² Ø§Ù„Ø¹Ù…Ù„ÙŠØ©: ' + error.message);
+      message.error('خطأ في حجز العملية: ' + error.message);
     } else {
-      message.success('ØªÙ… Ø¬Ø¯ÙˆÙ„Ø© Ø§Ù„Ø¹Ù…Ù„ÙŠØ© Ø¨Ù†Ø¬Ø§Ø­ âœ…');
+      message.success('تم جدولة العملية بنجاح ✅');
       form.resetFields();
       onSuccess();
     }
@@ -43,32 +43,32 @@ export const SurgeryBookingForm: React.FC<{ visitId: string, onSuccess: () => vo
   };
 
   return (
-    <Card title={<b><CalendarOutlined /> Ø­Ø¬Ø² Ù…ÙˆØ¹Ø¯ Ø¹Ù…Ù„ÙŠØ© Ø¬Ø±Ø§Ø­ÙŠØ©</b>} className="rounded-2xl">
+    <Card title={<b><CalendarOutlined /> حجز موعد عملية جراحية</b>} className="rounded-2xl">
       <Form form={form} layout="vertical" onFinish={onFinish}>
-        <Form.Item name="surgery_name" label="Ù†ÙˆØ¹ Ø§Ù„Ø¹Ù…Ù„ÙŠØ©" rules={[{ required: true }]}>
-          <Input placeholder="Ù…Ø«Ø§Ù„: Ø§Ø³ØªØ¦ØµØ§Ù„ Ø§Ù„Ø²Ø§Ø¦Ø¯Ø© Ø§Ù„Ø¯ÙˆØ¯ÙŠØ©" />
+        <Form.Item name="surgery_name" label="نوع العملية" rules={[{ required: true }]}>
+          <Input placeholder="مثال: استئصال الزائدة الدودية" />
         </Form.Item>
 
         <div className="grid grid-cols-2 gap-4">
-          <Form.Item name="doctor_id" label="Ø§Ù„Ø¬Ø±Ø§Ø­ Ø§Ù„Ù…Ø³Ø¤ÙˆÙ„" rules={[{ required: true }]}>
-            <Select placeholder="Ø§Ø®ØªØ± Ø§Ù„Ø·Ø¨ÙŠØ¨">
+          <Form.Item name="doctor_id" label="الجراح المسؤول" rules={[{ required: true }]}>
+            <Select placeholder="اختر الطبيب">
               {doctors.map(doc => (
                 <Select.Option key={doc.id} value={doc.id}>{doc.profiles?.full_name} ({doc.specialization})</Select.Option>
               ))}
             </Select>
           </Form.Item>
 
-          <Form.Item name="room_number" label="Ø±Ù‚Ù… Ø§Ù„ØºØ±ÙØ©">
-            <Input placeholder="ØºØ±ÙØ© Ø¹Ù…Ù„ÙŠØ§Øª 1" />
+          <Form.Item name="room_number" label="رقم الغرفة">
+            <Input placeholder="غرفة عمليات 1" />
           </Form.Item>
         </div>
 
-        <Form.Item name="scheduled_start" label="Ù…ÙˆØ¹Ø¯ Ø§Ù„Ø¹Ù…Ù„ÙŠØ©" rules={[{ required: true }]}>
+        <Form.Item name="scheduled_start" label="موعد العملية" rules={[{ required: true }]}>
           <DatePicker showTime className="w-full" />
         </Form.Item>
 
         <Button type="primary" htmlType="submit" block size="large" className="bg-indigo-600 rounded-xl" loading={loading}>
-          ØªØ£ÙƒÙŠØ¯ Ø­Ø¬Ø² Ø§Ù„Ø¹Ù…Ù„ÙŠØ©
+          تأكيد حجز العملية
         </Button>
       </Form>
     </Card>

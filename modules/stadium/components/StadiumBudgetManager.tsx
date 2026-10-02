@@ -1,4 +1,4 @@
-﻿import { logger } from '../../../utils/logger';
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
@@ -117,13 +117,13 @@ export const StadiumBudgetManager: React.FC = () => {
   const seedDefaultBudgets = async () => {
     if (!orgId) return;
     const defaults: { category: StadiumExpenseCategory; code: string; amount: number; notes: string }[] = [
-      { category: 'maintenance', code: '5101', amount: 150000, notes: 'Ù…ÙˆØ§Ø²Ù†Ø© ØµÙŠØ§Ù†Ø© Ù†Ø¬ÙŠÙ„ Ø§Ù„Ù…Ù„Ø§Ø¹Ø¨ ÙˆØ§Ù„Ù…Ø¨Ø§Ù†ÙŠ' },
-      { category: 'supplies', code: '5102', amount: 50000, notes: 'Ù…ÙˆØ§Ø²Ù†Ø© Ø§Ù„Ø£Ø¯ÙˆØ§Øª ÙˆØ§Ù„Ù…Ù‡Ù…Ø§Øª Ø§Ù„Ø±ÙŠØ§Ø¶ÙŠØ©' },
-      { category: 'tournaments', code: '5103', amount: 100000, notes: 'Ù…ÙˆØ§Ø²Ù†Ø© ØªÙ†Ø¸ÙŠÙ… Ø§Ù„Ø¯ÙˆØ±ÙŠØ§Øª ÙˆØ§Ù„Ù…Ù‡Ø±Ø¬Ø§Ù†Ø§Øª ÙˆØ§Ù„Ø¹Ù‡Ø¯' },
-      { category: 'utilities', code: '5104', amount: 80000, notes: 'ÙÙˆØ§ØªÙŠØ± Ø§Ù„ÙƒÙ‡Ø±Ø¨Ø§Ø¡ ÙˆØ§Ù„Ù…ÙŠØ§Ù‡ ÙˆØªØ´ØºÙŠÙ„ Ø§Ù„Ù…Ø±Ø§ÙÙ‚' },
-      { category: 'coaches', code: '5201', amount: 120000, notes: 'Ù…Ø³ØªØ­Ù‚Ø§Øª ÙˆØ¹Ù…ÙˆÙ„Ø§Øª Ø§Ù„Ù…Ø¯Ø±Ø¨ÙŠÙ† ÙˆØ§Ù„ÙƒÙˆØ§Ø¯Ø±' },
-      { category: 'admin', code: '5301', amount: 40000, notes: 'Ù…ØµØ±ÙˆÙØ§Øª Ø¥Ø¯Ø§Ø±ÙŠØ© ÙˆØ¹Ù…ÙˆÙ…ÙŠØ© ÙˆÙ…Ø·Ø¨ÙˆØ¹Ø§Øª' },
-      { category: 'other', code: '539', amount: 30000, notes: 'Ù…ØµØ±ÙˆÙØ§Øª Ø¶ÙŠØ§ÙØ© ÙˆØ·ÙˆØ§Ø±Ø¦ Ù…ØªÙ†ÙˆØ¹Ø©' },
+      { category: 'maintenance', code: '5101', amount: 150000, notes: 'موازنة صيانة نجيل الملاعب والمباني' },
+      { category: 'supplies', code: '5102', amount: 50000, notes: 'موازنة الأدوات والمهمات الرياضية' },
+      { category: 'tournaments', code: '5103', amount: 100000, notes: 'موازنة تنظيم الدوريات والمهرجانات والعهد' },
+      { category: 'utilities', code: '5104', amount: 80000, notes: 'فواتير الكهرباء والمياه وتشغيل المرافق' },
+      { category: 'coaches', code: '5201', amount: 120000, notes: 'مستحقات وعمولات المدربين والكوادر' },
+      { category: 'admin', code: '5301', amount: 40000, notes: 'مصروفات إدارية وعمومية ومطبوعات' },
+      { category: 'other', code: '539', amount: 30000, notes: 'مصروفات ضيافة وطوارئ متنوعة' },
     ];
 
     const records = defaults.map(d => ({
@@ -138,9 +138,9 @@ export const StadiumBudgetManager: React.FC = () => {
 
     const { error } = await supabase.from('stadium_budgets').upsert(records, { onConflict: 'organization_id,fiscal_year,category' });
     if (error) {
-      toast.error('Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø­ÙØ¸ Ø¨Ù†ÙˆØ¯ Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø© Ø§Ù„Ø§ÙØªØ±Ø§Ø¶ÙŠØ©');
+      toast.error('حدث خطأ أثناء حفظ بنود الموازنة الافتراضية');
     } else {
-      toast.success('ØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø¨Ù†ÙˆØ¯ Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø© Ø§Ù„Ø³Ù†ÙˆÙŠØ© Ø§Ù„Ù…Ø¹ØªÙ…Ø¯Ø© Ø¨Ù†Ø¬Ø§Ø­!');
+      toast.success('تم إنشاء بنود الموازنة السنوية المعتمدة بنجاح!');
       fetchBudgetsAndSpent();
     }
   };
@@ -170,20 +170,20 @@ export const StadiumBudgetManager: React.FC = () => {
           .update(payload)
           .eq('id', editingBudget.id);
         if (error) throw error;
-        toast.success('ØªÙ… ØªØ­Ø¯ÙŠØ« Ù…Ø®ØµØµ Ø§Ù„Ø¨Ù†Ø¯ Ø¨Ù†Ø¬Ø§Ø­');
+        toast.success('تم تحديث مخصص البند بنجاح');
       } else {
         const { error } = await supabase
           .from('stadium_budgets')
           .upsert([payload], { onConflict: 'organization_id,fiscal_year,category' });
         if (error) throw error;
-        toast.success('ØªÙ… Ø­ÙØ¸ Ù…Ø®ØµØµ Ø§Ù„Ø¨Ù†Ø¯ Ø¨Ù†Ø¬Ø§Ø­');
+        toast.success('تم حفظ مخصص البند بنجاح');
       }
 
       setIsModalOpen(false);
       fetchBudgetsAndSpent();
     } catch (err) {
       logger.error(err);
-      toast.error('Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ Ø§Ù„Ø­ÙØ¸');
+      toast.error('حدث خطأ أثناء الحفظ');
     }
   };
 
@@ -213,10 +213,10 @@ export const StadiumBudgetManager: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† Ø­Ø°Ù Ù‡Ø°Ø§ Ø§Ù„Ø¨Ù†Ø¯ Ù…Ù† Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø©ØŸ')) return;
+    if (!window.confirm('هل أنت متأكد من حذف هذا البند من الموازنة؟')) return;
     const { error } = await supabase.from('stadium_budgets').delete().eq('id', id);
     if (!error) {
-      toast.success('ØªÙ… Ø§Ù„Ø­Ø°Ù Ø¨Ù†Ø¬Ø§Ø­');
+      toast.success('تم الحذف بنجاح');
       fetchBudgetsAndSpent();
     }
   };
@@ -231,21 +231,21 @@ export const StadiumBudgetManager: React.FC = () => {
       const remaining = Number(b.allocated_amount) - Number(b.spent_amount);
       const pct = Number(b.allocated_amount) > 0 ? ((Number(b.spent_amount) / Number(b.allocated_amount)) * 100).toFixed(1) : '0';
       return {
-        'Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø§Ù„ÙŠØ©': b.fiscal_year,
-        'Ø§Ù„Ø¨Ù†Ø¯': EXPENSE_CATEGORY_LABELS[b.category] || b.category,
-        'ÙƒÙˆØ¯ Ø§Ù„Ø­Ø³Ø§Ø¨': b.expense_account_code,
-        'Ø§Ù„Ù…Ø¹ØªÙ…Ø¯ Ø¨Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø© (Ø¬.Ù…)': b.allocated_amount,
-        'Ø§Ù„Ù…Ù†ØµØ±Ù Ø§Ù„ÙØ¹Ù„ÙŠ (Ø¬.Ù…)': b.spent_amount,
-        'Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ Ù…Ù† Ø§Ù„Ù…Ø®ØµØµ (Ø¬.Ù…)': remaining,
-        'Ù†Ø³Ø¨Ø© Ø§Ù„Ø§Ø³ØªÙ‡Ù„Ø§Ùƒ': `${pct}%`,
-        'Ù…Ù„Ø§Ø­Ø¸Ø§Øª': b.notes || 'â€”',
+        'السنة المالية': b.fiscal_year,
+        'البند': EXPENSE_CATEGORY_LABELS[b.category] || b.category,
+        'كود الحساب': b.expense_account_code,
+        'المعتمد بالموازنة (ج.م)': b.allocated_amount,
+        'المنصرف الفعلي (ج.م)': b.spent_amount,
+        'المتبقي من المخصص (ج.م)': remaining,
+        'نسبة الاستهلاك': `${pct}%`,
+        'ملاحظات': b.notes || '—',
       };
     });
 
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, `Ù…ÙˆØ§Ø²Ù†Ø©_${fiscalYear}`);
-    XLSX.writeFile(wb, `Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø©_Ø§Ù„ØªÙ‚Ø¯ÙŠØ±ÙŠØ©_Ù„Ù„Ø§Ø³ØªØ§Ø¯_${fiscalYear}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, `موازنة_${fiscalYear}`);
+    XLSX.writeFile(wb, `الموازنة_التقديرية_للاستاد_${fiscalYear}.xlsx`);
   };
 
   return (
@@ -255,16 +255,16 @@ export const StadiumBudgetManager: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
             <PieChart className="w-7 h-7 text-emerald-600 dark:text-emerald-400" />
-            Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø© Ø§Ù„ØªÙ‚Ø¯ÙŠØ±ÙŠØ© Ù„Ù„Ø§Ø³ØªØ§Ø¯ ÙˆØ§Ù„Ù…Ø±ÙƒØ² Ø§Ù„Ø±ÙŠØ§Ø¶ÙŠ (Budget vs Actual)
+            الموازنة التقديرية للاستاد والمركز الرياضي (Budget vs Actual)
           </h1>
-          <p className="text-xs text-gray-500 mt-1">Ù…ØªØ§Ø¨Ø¹Ø© Ø§Ù„Ù…Ø®ØµØµØ§Øª Ø§Ù„Ø³Ù†ÙˆÙŠØ© Ø§Ù„Ù…Ø¹ØªÙ…Ø¯Ø© ÙˆÙ…Ù‚Ø§Ø±Ù†ØªÙ‡Ø§ Ø¨Ø§Ù„Ù…Ù†ØµØ±Ù Ø§Ù„ÙØ¹Ù„ÙŠ Ù„ÙƒÙ„ Ø¨Ù†Ø¯</p>
+          <p className="text-xs text-gray-500 mt-1">متابعة المخصصات السنوية المعتمدة ومقارنتها بالمنصرف الفعلي لكل بند</p>
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
           {/* Year selector */}
           <div className="flex items-center gap-2 bg-white dark:bg-gray-800 px-3 py-1.5 rounded-xl border dark:border-gray-700 shadow-sm text-xs font-bold">
             <Calendar className="w-4 h-4 text-gray-400" />
-            <span>Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø§Ù„ÙŠØ©:</span>
+            <span>السنة المالية:</span>
             <select
               value={fiscalYear}
               onChange={(e) => setFiscalYear(Number(e.target.value))}
@@ -281,7 +281,7 @@ export const StadiumBudgetManager: React.FC = () => {
             className="flex items-center gap-2 bg-white dark:bg-gray-800 hover:bg-gray-100 text-gray-700 dark:text-gray-200 border dark:border-gray-700 px-3 py-2 rounded-xl text-xs font-semibold shadow-sm transition"
           >
             <Download className="w-4 h-4" />
-            ØªØµØ¯ÙŠØ± Ù„Ù€ Excel
+            تصدير لـ Excel
           </button>
 
           <button
@@ -289,7 +289,7 @@ export const StadiumBudgetManager: React.FC = () => {
             className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow-sm transition"
           >
             <Plus className="w-4 h-4" />
-            Ø¥Ø¶Ø§ÙØ© Ø¨Ù†Ø¯ Ù…ÙˆØ§Ø²Ù†Ø©
+            إضافة بند موازنة
           </button>
         </div>
       </div>
@@ -297,29 +297,29 @@ export const StadiumBudgetManager: React.FC = () => {
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
         <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <p className="text-xs text-gray-500 font-medium">Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø© Ø§Ù„Ù…Ø¹ØªÙ…Ø¯Ø©</p>
+          <p className="text-xs text-gray-500 font-medium">إجمالي الموازنة المعتمدة</p>
           <p className="text-2xl font-bold text-gray-900 dark:text-gray-100 font-mono mt-1">
-            {totalAllocated.toLocaleString('ar-EG')} <span className="text-xs font-normal text-gray-400">Ø¬.Ù…</span>
+            {totalAllocated.toLocaleString('ar-EG')} <span className="text-xs font-normal text-gray-400">ج.م</span>
           </p>
         </div>
 
         <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <p className="text-xs text-gray-500 font-medium">Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ù†ØµØ±Ù Ø§Ù„ÙØ¹Ù„ÙŠ</p>
+          <p className="text-xs text-gray-500 font-medium">إجمالي المنصرف الفعلي</p>
           <p className="text-2xl font-bold text-red-600 dark:text-red-400 font-mono mt-1">
-            {totalSpent.toLocaleString('ar-EG')} <span className="text-xs font-normal text-gray-400">Ø¬.Ù…</span>
+            {totalSpent.toLocaleString('ar-EG')} <span className="text-xs font-normal text-gray-400">ج.م</span>
           </p>
         </div>
 
         <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
-          <p className="text-xs text-gray-500 font-medium">Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ Ù…Ù† Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø©</p>
+          <p className="text-xs text-gray-500 font-medium">المتبقي من الموازنة</p>
           <p className={`text-2xl font-bold font-mono mt-1 ${totalRemaining >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600'}`}>
-            {totalRemaining.toLocaleString('ar-EG')} <span className="text-xs font-normal text-gray-400">Ø¬.Ù…</span>
+            {totalRemaining.toLocaleString('ar-EG')} <span className="text-xs font-normal text-gray-400">ج.م</span>
           </p>
         </div>
 
         <div className="bg-white dark:bg-gray-800 p-5 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700">
           <div className="flex justify-between items-center text-xs">
-            <span className="text-gray-500 font-medium">Ù†Ø³Ø¨Ø© Ø§Ù„Ø§Ø³ØªÙ‡Ù„Ø§Ùƒ Ø§Ù„Ø¹Ø§Ù…</span>
+            <span className="text-gray-500 font-medium">نسبة الاستهلاك العام</span>
             <span className="font-bold text-emerald-600 font-mono">{overallPercentage}%</span>
           </div>
           <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5 mt-3 overflow-hidden">
@@ -339,19 +339,19 @@ export const StadiumBudgetManager: React.FC = () => {
           <table className="w-full text-right text-sm">
             <thead className="bg-gray-50 dark:bg-gray-900/50 border-b dark:border-gray-700">
               <tr>
-                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300">Ø§Ù„Ø¨Ù†Ø¯ ÙˆØ§Ù„Ù…ØµØ±ÙˆÙ</th>
-                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300">ÙƒÙˆØ¯ Ø§Ù„Ø­Ø³Ø§Ø¨</th>
-                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300">Ø§Ù„Ù…Ø¹ØªÙ…Ø¯ Ø¨Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø© (Ø¬.Ù…)</th>
-                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300">Ø§Ù„Ù…Ù†ØµØ±Ù Ø§Ù„ÙØ¹Ù„ÙŠ (Ø¬.Ù…)</th>
-                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300">Ø§Ù„Ù…ØªØ¨Ù‚ÙŠ Ù…Ù† Ø§Ù„Ù…Ø®ØµØµ</th>
-                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300">Ù†Ø³Ø¨Ø© Ø§Ù„Ø§Ø³ØªÙ‡Ù„Ø§Ùƒ</th>
-                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300 text-center">Ø¥Ø¬Ø±Ø§Ø¡Ø§Øª</th>
+                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300">البند والمصروف</th>
+                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300">كود الحساب</th>
+                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300">المعتمد بالموازنة (ج.م)</th>
+                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300">المنصرف الفعلي (ج.م)</th>
+                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300">المتبقي من المخصص</th>
+                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300">نسبة الاستهلاك</th>
+                <th className="px-5 py-3.5 font-semibold text-gray-600 dark:text-gray-300 text-center">إجراءات</th>
               </tr>
             </thead>
             <tbody className="divide-y dark:divide-gray-700 text-xs">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-10 text-gray-400">Ø¬Ø§Ø±ÙŠ ØªØ­Ù…ÙŠÙ„ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø©...</td>
+                  <td colSpan={7} className="text-center py-10 text-gray-400">جاري تحميل بيانات الموازنة...</td>
                 </tr>
               ) : budgets.length === 0 ? (
                 <tr>
@@ -359,10 +359,10 @@ export const StadiumBudgetManager: React.FC = () => {
                     <div className="flex flex-col items-center justify-center gap-3">
                       <PieChart className="w-12 h-12 text-gray-300 dark:text-gray-600" />
                       <div className="text-sm font-bold text-gray-600 dark:text-gray-300">
-                        Ù„Ù… ÙŠØªÙ… Ø¥Ø¯Ø®Ø§Ù„ Ø¨Ù†ÙˆØ¯ Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø© Ø§Ù„Ù…Ø¹ØªÙ…Ø¯Ø© Ù„Ø³Ù†Ø© {fiscalYear} Ø¨Ø¹Ø¯
+                        لم يتم إدخال بنود الموازنة المعتمدة لسنة {fiscalYear} بعد
                       </div>
                       <p className="text-xs text-gray-400 max-w-md">
-                        ÙŠÙ…ÙƒÙ†Ùƒ Ø¥Ø¶Ø§ÙØ© Ø¨Ù†ÙˆØ¯ Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø© ÙŠØ¯ÙˆÙŠØ§Ù‹ Ø¨Ù†Ø¯Ø§Ù‹ Ø¨Ø¨Ù†Ø¯ØŒ Ø£Ùˆ ØªÙˆÙ„ÙŠØ¯ Ø§Ù„Ø¨Ù†ÙˆØ¯ Ø§Ù„Ù‚ÙŠØ§Ø³ÙŠØ© Ø§Ù„Ø³Ù†ÙˆÙŠØ© Ù„Ù„Ø§Ø³ØªØ§Ø¯ (ØµÙŠØ§Ù†Ø©ØŒ Ø£Ø¯ÙˆØ§ØªØŒ Ø¨Ø·ÙˆÙ„Ø§ØªØŒ Ù…Ø±Ø§ÙÙ‚ØŒ ÙƒÙˆØ§Ø¯Ø±) Ø¨Ù†Ù‚Ø±Ø© ÙˆØ§Ø­Ø¯Ø©.
+                        يمكنك إضافة بنود الموازنة يدوياً بنداً ببند، أو توليد البنود القياسية السنوية للاستاد (صيانة، أدوات، بطولات، مرافق، كوادر) بنقرة واحدة.
                       </p>
                       <div className="flex gap-2 mt-2">
                         <button
@@ -370,13 +370,13 @@ export const StadiumBudgetManager: React.FC = () => {
                           className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold shadow transition flex items-center gap-1.5"
                         >
                           <Plus className="w-4 h-4" />
-                          ØªÙˆÙ„ÙŠØ¯ Ø¨Ù†ÙˆØ¯ Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø© Ø§Ù„Ø³Ù†ÙˆÙŠØ© Ø§Ù„Ù…Ù‚ØªØ±Ø­Ø© ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹
+                          توليد بنود الموازنة السنوية المقترحة تلقائياً
                         </button>
                         <button
                           onClick={openAdd}
                           className="bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 text-gray-700 dark:text-gray-200 px-4 py-2 rounded-xl text-xs font-bold transition"
                         >
-                          Ø¥Ø¶Ø§ÙØ© Ø¨Ù†Ø¯ Ù…Ø®ØµØµ ÙŠØ¯ÙˆÙŠØ§Ù‹
+                          إضافة بند مخصص يدوياً
                         </button>
                       </div>
                     </div>
@@ -395,13 +395,13 @@ export const StadiumBudgetManager: React.FC = () => {
                       </td>
                       <td className="px-5 py-3.5 font-mono text-gray-500 font-bold">{b.expense_account_code}</td>
                       <td className="px-5 py-3.5 font-bold font-mono text-gray-900 dark:text-gray-100">
-                        {Number(b.allocated_amount).toLocaleString('ar-EG')} Ø¬.Ù…
+                        {Number(b.allocated_amount).toLocaleString('ar-EG')} ج.م
                       </td>
                       <td className="px-5 py-3.5 font-bold font-mono text-red-600 dark:text-red-400">
-                        {Number(b.spent_amount).toLocaleString('ar-EG')} Ø¬.Ù…
+                        {Number(b.spent_amount).toLocaleString('ar-EG')} ج.م
                       </td>
                       <td className={`px-5 py-3.5 font-bold font-mono ${rem >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600'}`}>
-                        {rem.toLocaleString('ar-EG')} Ø¬.Ù…
+                        {rem.toLocaleString('ar-EG')} ج.م
                       </td>
                       <td className="px-5 py-3.5 w-44">
                         <div className="flex items-center gap-2">
@@ -440,7 +440,7 @@ export const StadiumBudgetManager: React.FC = () => {
             <div className="flex justify-between items-center pb-3 mb-4 border-b dark:border-gray-800">
               <h3 className="text-base font-bold text-gray-900 dark:text-gray-100 flex items-center gap-2">
                 <PieChart className="w-5 h-5 text-emerald-600" />
-                {editingBudget ? 'ØªØ¹Ø¯ÙŠÙ„ Ù…Ø®ØµØµ Ø¨Ù†Ø¯ ÙÙŠ Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø©' : 'Ø¥Ø¶Ø§ÙØ© Ù…Ø®ØµØµ Ø¨Ù†Ø¯ Ø¬Ø¯ÙŠØ¯ ÙÙŠ Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø©'}
+                {editingBudget ? 'تعديل مخصص بند في الموازنة' : 'إضافة مخصص بند جديد في الموازنة'}
               </h3>
               <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600">
                 <X className="w-5 h-5" />
@@ -449,7 +449,7 @@ export const StadiumBudgetManager: React.FC = () => {
 
             <form onSubmit={handleSaveBudget} className="space-y-4">
               <div>
-                <label className="block font-bold mb-1">ØªØµÙ†ÙŠÙ ÙˆØ¨Ù†Ø¯ Ø§Ù„Ù…ØµØ±ÙˆÙ *</label>
+                <label className="block font-bold mb-1">تصنيف وبند المصروف *</label>
                 <select
                   value={formData.category}
                   onChange={(e) => setFormData({
@@ -467,7 +467,7 @@ export const StadiumBudgetManager: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-bold mb-1">Ø§Ù„Ù…Ø¨Ù„Øº Ø§Ù„Ù…Ø¹ØªÙ…Ø¯ ÙÙŠ Ø§Ù„Ù…ÙˆØ§Ø²Ù†Ø© (Ø¬.Ù…) *</label>
+                <label className="block font-bold mb-1">المبلغ المعتمد في الموازنة (ج.م) *</label>
                 <input
                   type="number"
                   step="0.01"
@@ -479,19 +479,19 @@ export const StadiumBudgetManager: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-bold mb-1">Ù…Ù„Ø§Ø­Ø¸Ø§Øª ÙˆØ§Ø¹ØªÙ…Ø§Ø¯ Ø§Ù„Ù…Ø®ØµØµ</label>
+                <label className="block font-bold mb-1">ملاحظات واعتماد المخصص</label>
                 <textarea
                   value={formData.notes}
                   onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                   rows={2}
-                  placeholder="Ø±Ù‚Ù… Ù‚Ø±Ø§Ø± Ù…Ø¬Ù„Ø³ Ø§Ù„Ø¥Ø¯Ø§Ø±Ø© Ø£Ùˆ Ø¥Ø´Ø¹Ø§Ø± Ø§Ù„Ø§Ø¹ØªÙ…Ø§Ø¯ Ø§Ù„Ù…Ø§Ù„ÙŠ..."
+                  placeholder="رقم قرار مجلس الإدارة أو إشعار الاعتماد المالي..."
                   className="w-full p-2 border rounded-xl dark:bg-gray-800 dark:border-gray-700"
                 />
               </div>
 
               <div className="flex justify-end gap-3 pt-3 border-t dark:border-gray-800">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 border rounded-xl text-gray-600 hover:bg-gray-100">Ø¥Ù„ØºØ§Ø¡</button>
-                <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow transition">Ø­ÙØ¸ Ø§Ù„Ù…Ø®ØµØµ</button>
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 border rounded-xl text-gray-600 hover:bg-gray-100">إلغاء</button>
+                <button type="submit" className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold shadow transition">حفظ المخصص</button>
               </div>
             </form>
           </div>

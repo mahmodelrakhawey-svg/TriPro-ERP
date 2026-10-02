@@ -1,4 +1,4 @@
-﻿import { logger } from '../../../utils/logger';
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Tabs, Select, Button, Table, Tag, message, Typography, InputNumber, Input, DatePicker } from 'antd';
@@ -66,18 +66,18 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
 
         if (labs.length === 0) {
           labs = [
-            { id: 'offline-lab-1', test_name: 'ØµÙˆØ±Ø© Ø¯Ù… ÙƒØ§Ù…Ù„Ø© (CBC)' },
-            { id: 'offline-lab-2', test_name: 'ÙˆØ¸Ø§Ø¦Ù ÙƒÙ„Ù‰ (Creatinine/Urea)' },
-            { id: 'offline-lab-3', test_name: 'ÙˆØ¸Ø§Ø¦Ù ÙƒØ¨Ø¯ (ALT/AST)' },
-            { id: 'offline-lab-4', test_name: 'ØªØ­Ù„ÙŠÙ„ Ø³ÙƒØ± ØªØ±Ø§ÙƒÙ…ÙŠ (HbA1c)' }
+            { id: 'offline-lab-1', test_name: 'صورة دم كاملة (CBC)' },
+            { id: 'offline-lab-2', test_name: 'وظائف كلى (Creatinine/Urea)' },
+            { id: 'offline-lab-3', test_name: 'وظائف كبد (ALT/AST)' },
+            { id: 'offline-lab-4', test_name: 'تحليل سكر تراكمي (HbA1c)' }
           ];
         }
         if (rads.length === 0) {
           rads = [
-            { id: 'offline-rad-1', name: 'Ø£Ø´Ø¹Ø© Ø³ÙŠÙ†ÙŠØ© Ø¹Ù„Ù‰ Ø§Ù„ØµØ¯Ø± (Chest X-Ray)', price: 150 },
-            { id: 'offline-rad-2', name: 'Ø³ÙˆÙ†Ø§Ø± Ø¹Ù„Ù‰ Ø§Ù„Ø¨Ø·Ù† ÙˆØ§Ù„Ø­ÙˆØ¶ (Abdominal US)', price: 250 },
-            { id: 'offline-rad-3', name: 'Ø±Ù†ÙŠÙ† Ù…ØºÙ†Ø§Ø·ÙŠØ³ÙŠ Ø¹Ù„Ù‰ Ø§Ù„Ù…Ø® (Brain MRI)', price: 1200 },
-            { id: 'offline-rad-4', name: 'Ø£Ø´Ø¹Ø© Ù…Ù‚Ø·Ø¹ÙŠØ© (CT Scan)', price: 600 }
+            { id: 'offline-rad-1', name: 'أشعة سينية على الصدر (Chest X-Ray)', price: 150 },
+            { id: 'offline-rad-2', name: 'سونار على البطن والحوض (Abdominal US)', price: 250 },
+            { id: 'offline-rad-3', name: 'رنين مغناطيسي على المخ (Brain MRI)', price: 1200 },
+            { id: 'offline-rad-4', name: 'أشعة مقطعية (CT Scan)', price: 600 }
           ];
         }
 
@@ -112,7 +112,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
 
         if (!navigator.onLine) {
           await offlineService.queueLabOrders(orders);
-          message.warning('ØªÙ… Ø­ÙØ¸ Ø·Ù„Ø¨ Ø§Ù„ØªØ­Ø§Ù„ÙŠÙ„ Ù…Ø­Ù„ÙŠØ§Ù‹ Ø¨Ù†Ø¬Ø§Ø­ (Ø³ÙŠØªÙ… Ø§Ù„ØªØ²Ø§Ù…Ù† ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¹Ù†Ø¯ Ø¹ÙˆØ¯Ø© Ø§Ù„Ø§ØªØµØ§Ù„) ðŸ“¶');
+          message.warning('تم حفظ طلب التحاليل محلياً بنجاح (سيتم التزامن تلقائياً عند عودة الاتصال) 📶');
           setSelectedTests([]);
           return;
         }
@@ -136,7 +136,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
           const radType = radTypes.find(rt => rt.id === radId);
           return {
             visit_id: visitId,
-            scan_type: radType ? radType.name : 'ØºÙŠØ± Ù…Ø­Ø¯Ø¯',
+            scan_type: radType ? radType.name : 'غير محدد',
             price: radType ? (radType.price || 0) : 0,
             status: 'pending',
             organization_id: orgId
@@ -145,7 +145,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
 
         if (!navigator.onLine) {
           await offlineService.queueRadiologyOrders(orders);
-          message.warning('ØªÙ… Ø­ÙØ¸ Ø·Ù„Ø¨ Ø§Ù„Ø£Ø´Ø¹Ø© Ù…Ø­Ù„ÙŠØ§Ù‹ Ø¨Ù†Ø¬Ø§Ø­ (Ø³ÙŠØªÙ… Ø§Ù„ØªØ²Ø§Ù…Ù† ØªÙ„Ù‚Ø§Ø¦ÙŠØ§Ù‹ Ø¹Ù†Ø¯ Ø¹ÙˆØ¯Ø© Ø§Ù„Ø§ØªØµØ§Ù„) ðŸ“¶');
+          message.warning('تم حفظ طلب الأشعة محلياً بنجاح (سيتم التزامن تلقائياً عند عودة الاتصال) 📶');
           setSelectedRads([]);
           return;
         }
@@ -165,10 +165,10 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
           if (error && error.code !== '23505') throw error;
         }
       }
-      message.success('ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨Ø§Øª Ù„Ù„Ø£Ù‚Ø³Ø§Ù… Ø§Ù„Ù…Ø¹Ù†ÙŠØ© Ø¨Ù†Ø¬Ø§Ø­ âœ…');
+      message.success('تم إرسال الطلبات للأقسام المعنية بنجاح ✅');
       type === 'lab' ? setSelectedTests([]) : setSelectedRads([]);
     } catch (err) {
-      message.error('Ø®Ø·Ø£ ÙÙŠ Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨: ' + err.message);
+      message.error('خطأ في إرسال الطلب: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -184,17 +184,17 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
         p_urgency: 'normal'
       });
       if (error) throw error;
-      message.success('ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø·Ù„Ø¨ Ø§Ù„Ø¯Ù… Ù„Ø¨Ù†Ùƒ Ø§Ù„Ø¯Ù… Ø§Ù„Ù…Ø±ÙƒØ²ÙŠ ðŸ©¸');
+      message.success('تم إرسال طلب الدم لبنك الدم المركزي 🩸');
     } catch (err) {
       logger.error('[OrderManagement] Blood request error:', err);
-      message.error('Ø®Ø·Ø£ ÙÙŠ Ø·Ù„Ø¨ Ø§Ù„Ø¯Ù…: ' + (err?.message || ''));
+      message.error('خطأ في طلب الدم: ' + (err?.message || ''));
     } finally {
       setLoading(false);
     }
   };
 
   const requestSurgery = async () => {
-    if (!surgeryRequest.name || !surgeryRequest.date) return message.warning('ÙŠØ±Ø¬Ù‰ Ø¥ÙƒÙ…Ø§Ù„ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø¬Ø±Ø§Ø­Ø©');
+    if (!surgeryRequest.name || !surgeryRequest.date) return message.warning('يرجى إكمال بيانات الجراحة');
     setLoading(true);
     try {
       const { data: visitData } = await supabase
@@ -212,11 +212,11 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
         lead_surgeon_id: visitData?.doctor_id
       }]);
       if (error) throw error;
-      message.success('ØªÙ…Øª Ø¬Ø¯ÙˆÙ„Ø© Ø§Ù„Ø¹Ù…Ù„ÙŠØ© Ø§Ù„Ø¬Ø±Ø§Ø­ÙŠØ© ÙˆØ¥Ø®Ø·Ø§Ø± ØºØ±ÙØ© Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª ðŸ¥');
+      message.success('تمت جدولة العملية الجراحية وإخطار غرفة العمليات 🏥');
       setSurgeryRequest({ name: '', date: null });
     } catch (err) {
       logger.error('[OrderManagement] Surgery request error:', err);
-      message.error('Ø®Ø·Ø£ ÙÙŠ Ø¬Ø¯ÙˆÙ„Ø© Ø§Ù„Ø¹Ù…Ù„ÙŠØ©: ' + (err?.message || ''));
+      message.error('خطأ في جدولة العملية: ' + (err?.message || ''));
     } finally {
       setLoading(false);
     }
@@ -237,7 +237,7 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
   }, [visitId]);
 
   const requestNursingService = async () => {
-    if (!newNursingTask.description) return message.warning('ÙŠØ±Ø¬Ù‰ Ø¥Ø¯Ø®Ø§Ù„ ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø®Ø¯Ù…Ø© Ø§Ù„ØªÙ…Ø±ÙŠØ¶ÙŠØ© Ø§Ù„Ù…Ø·Ù„ÙˆØ¨Ø©');
+    if (!newNursingTask.description) return message.warning('يرجى إدخال تفاصيل الخدمة التمريضية المطلوبة');
     setLoading(true);
     try {
       const { data: visitData } = await supabase
@@ -259,11 +259,11 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
         }]);
 
       if (error) throw error;
-      message.success('ØªÙ… Ø¥Ø±Ø³Ø§Ù„ Ø·Ù„Ø¨ Ø§Ù„Ø®Ø¯Ù…Ø© Ø§Ù„ØªÙ…Ø±ÙŠØ¶ÙŠØ© Ù„Ù…ÙƒØªØ¨ Ø§Ù„ØªÙ…Ø±ÙŠØ¶ Ø¨Ù†Ø¬Ø§Ø­ âœ…');
+      message.success('تم إرسال طلب الخدمة التمريضية لمكتب التمريض بنجاح ✅');
       setNewNursingTask({ type: 'dressing', description: '', priority: 'normal' });
       fetchNursingTasks();
     } catch (err) {
-      message.error('Ø®Ø·Ø£ ÙÙŠ Ø¥Ø±Ø³Ø§Ù„ Ø·Ù„Ø¨ Ø§Ù„Ø®Ø¯Ù…Ø©: ' + err.message);
+      message.error('خطأ في إرسال طلب الخدمة: ' + err.message);
     } finally {
       setLoading(false);
     }
@@ -276,13 +276,13 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
         items={[
           {
             key: '1',
-            label: <span><ExperimentOutlined /> Ø·Ù„Ø¨ ØªØ­Ø§Ù„ÙŠÙ„</span>,
+            label: <span><ExperimentOutlined /> طلب تحاليل</span>,
             children: (
               <div className="space-y-4">
                 <Select
                   mode="multiple"
                   style={{ width: '100%' }}
-                  placeholder="Ø§Ø®ØªØ± Ø§Ù„ØªØ­Ø§Ù„ÙŠÙ„ Ø§Ù„Ù…Ø·Ù„ÙˆØ¨Ø©..."
+                  placeholder="اختر التحاليل المطلوبة..."
                   value={selectedTests}
                   onChange={setSelectedTests}
                   options={labTests.map(t => ({ label: t.test_name, value: t.id }))}
@@ -295,20 +295,20 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
                   loading={loading}
                   disabled={selectedTests.length === 0}
                 >
-                  Ø§Ø¹ØªÙ…Ø§Ø¯ Ø·Ù„Ø¨ Ø§Ù„Ù…Ø®ØªØ¨Ø±
+                  اعتماد طلب المختبر
                 </Button>
               </div>
             )
           },
           {
             key: '2',
-            label: <span><CameraOutlined /> Ø·Ù„Ø¨ Ø£Ø´Ø¹Ø©</span>,
+            label: <span><CameraOutlined /> طلب أشعة</span>,
             children: (
               <div className="space-y-4">
                 <Select
                   mode="multiple"
                   style={{ width: '100%' }}
-                  placeholder="Ø§Ø®ØªØ± Ø§Ù„ÙØ­ÙˆØµØ§Øª Ø§Ù„ØªØµÙˆÙŠØ±ÙŠØ© Ø§Ù„Ù…Ø·Ù„ÙˆØ¨Ø©..."
+                  placeholder="اختر الفحوصات التصويرية المطلوبة..."
                   value={selectedRads}
                   onChange={setSelectedRads}
                   options={radTypes.map(t => ({ label: t.name, value: t.id }))}
@@ -321,57 +321,57 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
                   loading={loading}
                   disabled={selectedRads.length === 0}
                 >
-                  Ø§Ø¹ØªÙ…Ø§Ø¯ Ø·Ù„Ø¨ Ø§Ù„Ø£Ø´Ø¹Ø©
+                  اعتماد طلب الأشعة
                 </Button>
               </div>
             )
           },
           {
             key: '4',
-            label: <span><HeartOutlined /> Ø¨Ù†Ùƒ Ø§Ù„Ø¯Ù…</span>,
+            label: <span><HeartOutlined /> بنك الدم</span>,
             children: (
               <div className="flex gap-2">
                 <Select className="flex-1" value={bloodRequest.type} onChange={v => setBloodRequest({...bloodRequest, type: v})}>
                   {['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'].map(t => <Option key={t} value={t}>{t}</Option>)}
                 </Select>
                 <InputNumber min={1} value={bloodRequest.units} onChange={v => setBloodRequest({...bloodRequest, units: v || 1})} />
-                <Button danger icon={<PlusOutlined />} onClick={requestBlood} loading={loading}>Ø·Ù„Ø¨ Ø¯Ù…</Button>
+                <Button danger icon={<PlusOutlined />} onClick={requestBlood} loading={loading}>طلب دم</Button>
               </div>
             )
           },
           {
             key: '5',
-            label: <span><ToolOutlined /> Ø·Ù„Ø¨ Ø¬Ø±Ø§Ø­Ø©</span>,
+            label: <span><ToolOutlined /> طلب جراحة</span>,
             children: (
               <div className="space-y-3">
                 <Input 
-                    placeholder="Ø§Ø³Ù… Ø§Ù„Ø¹Ù…Ù„ÙŠØ© Ø§Ù„Ø¬Ø±Ø§Ø­ÙŠØ©..." 
+                    placeholder="اسم العملية الجراحية..." 
                     value={surgeryRequest.name} 
                     onChange={e => setSurgeryRequest({...surgeryRequest, name: e.target.value})} 
                 />
-                <DatePicker showTime className="w-full" placeholder="Ù…ÙˆØ¹Ø¯ Ø§Ù„Ø¹Ù…Ù„ÙŠØ© Ø§Ù„Ù…Ù‚ØªØ±Ø­" onChange={v => setSurgeryRequest({...surgeryRequest, date: v})} />
-                <Button type="primary" block icon={<PlusOutlined />} onClick={requestSurgery} loading={loading}>ØªØ£ÙƒÙŠØ¯ Ø·Ù„Ø¨ Ø§Ù„Ø¬Ø±Ø§Ø­Ø©</Button>
+                <DatePicker showTime className="w-full" placeholder="موعد العملية المقترح" onChange={v => setSurgeryRequest({...surgeryRequest, date: v})} />
+                <Button type="primary" block icon={<PlusOutlined />} onClick={requestSurgery} loading={loading}>تأكيد طلب الجراحة</Button>
               </div>
             )
           },
           {
             key: '3',
-            label: <span><MedicineBoxOutlined /> Ø®Ø¯Ù…Ø§Øª ØªÙ…Ø±ÙŠØ¶ÙŠØ©</span>,
+            label: <span><MedicineBoxOutlined /> خدمات تمريضية</span>,
             children: (
               <div className="space-y-4">
                 <div className="bg-slate-50 p-4 rounded-xl border space-y-3">
-                  <h4 className="font-bold text-xs text-slate-500 m-0">Ø·Ù„Ø¨ Ø®Ø¯Ù…Ø© ØªÙ…Ø±ÙŠØ¶ÙŠØ© Ø¬Ø¯ÙŠØ¯Ø©:</h4>
+                  <h4 className="font-bold text-xs text-slate-500 m-0">طلب خدمة تمريضية جديدة:</h4>
                   <div className="grid grid-cols-2 gap-2">
                     <Select 
                       className="w-full" 
                       value={newNursingTask.type} 
                       onChange={v => setNewNursingTask({...newNursingTask, type: v})}
                     >
-                      <Option value="dressing">ðŸ©¹ ØºÙŠØ§Ø± Ø¹Ù„Ù‰ Ø¬Ø±Ø­</Option>
-                      <Option value="medication">ðŸ’Š Ø¥Ø¹Ø·Ø§Ø¡ Ø¯ÙˆØ§Ø¡ / Ù…Ø­Ø§Ù„ÙŠÙ„</Option>
-                      <Option value="vitals">ðŸŒ¡ï¸ Ù‚ÙŠØ§Ø³ Ø¹Ù„Ø§Ù…Ø§Øª Ø­ÙŠÙˆÙŠØ©</Option>
-                      <Option value="lab_collection">ðŸ§ª Ø³Ø­Ø¨ Ø¹ÙŠÙ†Ø© Ù…Ø®ØªØ¨Ø±</Option>
-                      <Option value="custom">âš™ï¸ Ø£Ø®Ø±Ù‰ / Ø·Ù„Ø¨ Ù…Ø®ØµØµ</Option>
+                      <Option value="dressing">🩹 غيار على جرح</Option>
+                      <Option value="medication">💊 إعطاء دواء / محاليل</Option>
+                      <Option value="vitals">🌡️ قياس علامات حيوية</Option>
+                      <Option value="lab_collection">🧪 سحب عينة مختبر</Option>
+                      <Option value="custom">⚙️ أخرى / طلب مخصص</Option>
                     </Select>
                     
                     <Select 
@@ -379,14 +379,14 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
                       value={newNursingTask.priority} 
                       onChange={v => setNewNursingTask({...newNursingTask, priority: v})}
                     >
-                      <Option value="normal">ðŸ”µ Ø¹Ø§Ø¯ÙŠ</Option>
-                      <Option value="urgent">ðŸŸ  Ø¹Ø§Ø¬Ù„</Option>
-                      <Option value="emergency">ðŸ”´ Ø­Ø±Ø¬ Ø¬Ø¯Ø§Ù‹</Option>
+                      <Option value="normal">🔵 عادي</Option>
+                      <Option value="urgent">🟠 عاجل</Option>
+                      <Option value="emergency">🔴 حرج جداً</Option>
                     </Select>
                   </div>
                   
                   <Input 
-                    placeholder="Ø§ÙƒØªØ¨ ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡ Ø§Ù„Ù…Ø·Ù„ÙˆØ¨Ø©..." 
+                    placeholder="اكتب تفاصيل الإجراء المطلوبة..." 
                     value={newNursingTask.description}
                     onChange={e => setNewNursingTask({...newNursingTask, description: e.target.value})}
                   />
@@ -398,12 +398,12 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
                     onClick={requestNursingService}
                     loading={loading}
                   >
-                    Ø¥Ø±Ø³Ø§Ù„ Ø§Ù„Ø·Ù„Ø¨ Ù„Ù…Ø­Ø·Ø© Ø§Ù„ØªÙ…Ø±ÙŠØ¶
+                    إرسال الطلب لمحطة التمريض
                   </Button>
                 </div>
 
                 <div>
-                  <h4 className="font-bold text-xs text-slate-500 mb-2">Ø§Ù„Ø®Ø¯Ù…Ø§Øª Ø§Ù„ØªÙ…Ø±ÙŠØ¶ÙŠØ© Ø§Ù„Ù…Ø·Ù„ÙˆØ¨Ø© Ø³Ø§Ø¨Ù‚Ø§Ù‹:</h4>
+                  <h4 className="font-bold text-xs text-slate-500 mb-2">الخدمات التمريضية المطلوبة سابقاً:</h4>
                   <Table 
                     dataSource={nursingTasks}
                     rowKey="id"
@@ -411,35 +411,35 @@ export const OrderManagement: React.FC<{ visitId: string }> = ({ visitId }) => {
                     pagination={{ pageSize: 4 }}
                     columns={[
                       { 
-                        title: 'Ø§Ù„Ù†ÙˆØ¹', 
+                        title: 'النوع', 
                         dataIndex: 'task_type', 
                         render: (t) => {
                           const labels: Record<string, string> = {
-                            dressing: 'ØºÙŠØ§Ø± Ø¬Ø±ÙˆØ­',
-                            medication: 'Ø£Ø¯ÙˆÙŠØ©/Ù…Ø­Ø§Ù„ÙŠÙ„',
-                            vitals: 'Ø¹Ù„Ø§Ù…Ø§Øª Ø­ÙŠÙˆÙŠØ©',
-                            lab_collection: 'Ø³Ø­Ø¨ Ø¹ÙŠÙ†Ø©',
-                            custom: 'Ø£Ø®Ø±Ù‰'
+                            dressing: 'غيار جروح',
+                            medication: 'أدوية/محاليل',
+                            vitals: 'علامات حيوية',
+                            lab_collection: 'سحب عينة',
+                            custom: 'أخرى'
                           };
                           return labels[t] || t;
                         } 
                       },
-                      { title: 'Ø§Ù„Ø¨ÙŠØ§Ù†/Ø§Ù„ÙˆØµÙ', dataIndex: 'description' },
+                      { title: 'البيان/الوصف', dataIndex: 'description' },
                       { 
-                        title: 'Ø§Ù„Ø£ÙˆÙ„ÙˆÙŠØ©', 
+                        title: 'الأولوية', 
                         dataIndex: 'priority', 
                         render: (p) => (
                           <Tag color={p === 'emergency' ? 'red' : p === 'urgent' ? 'orange' : 'blue'}>
-                            {p === 'emergency' ? 'Ø­Ø±Ø¬' : p === 'urgent' ? 'Ø¹Ø§Ø¬Ù„' : 'Ø¹Ø§Ø¯ÙŠ'}
+                            {p === 'emergency' ? 'حرج' : p === 'urgent' ? 'عاجل' : 'عادي'}
                           </Tag>
                         ) 
                       },
                       { 
-                        title: 'Ø§Ù„Ø­Ø§Ù„Ø©', 
+                        title: 'الحالة', 
                         dataIndex: 'status',
                         render: (s) => (
                           <Tag color={s === 'completed' ? 'green' : 'gold'}>
-                            {s === 'completed' ? 'ØªÙ… Ø§Ù„ØªÙ†ÙÙŠØ°' : 'Ù…Ø¹Ù„Ù‚'}
+                            {s === 'completed' ? 'تم التنفيذ' : 'معلق'}
                           </Tag>
                         )
                       }

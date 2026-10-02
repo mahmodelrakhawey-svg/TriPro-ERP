@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { logger } from '../../utils/logger';
 import { supabase } from '../../supabaseClient';
 import { useNavigate } from 'react-router-dom';
@@ -38,7 +38,7 @@ import {
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884d8', '#82ca9d'];
 
-// --- Ù…ÙƒÙˆÙ†Ø§Øª Ø§Ù„Ø±Ø³ÙˆÙ… Ø§Ù„Ø¨ÙŠØ§Ù†ÙŠØ© Ø§Ù„Ù…Ø­Ø³Ù†Ø© (Memoized Components) ---
+// --- مكونات الرسوم البيانية المحسنة (Memoized Components) ---
 
 const MonthlyRevenueChart = React.memo(({ data }: { data: any[] }) => (
   <ResponsiveContainer width="100%" height="100%" minHeight={320}>
@@ -60,8 +60,8 @@ const MonthlyRevenueChart = React.memo(({ data }: { data: any[] }) => (
         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
         formatter={(value: unknown) => Number(value || 0).toLocaleString()}
       />
-      <Area type="monotone" dataKey="revenue" stroke="#10b981" fillOpacity={1} fill="url(#colorRevenue)" name="Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª" strokeWidth={2} />
-      <Area type="monotone" dataKey="expense" stroke="#ef4444" fillOpacity={1} fill="url(#colorExpense)" name="Ø§Ù„Ù…ØµØ±ÙˆÙØ§Øª" strokeWidth={2} />
+      <Area type="monotone" dataKey="revenue" stroke="#10b981" fillOpacity={1} fill="url(#colorRevenue)" name="الإيرادات" strokeWidth={2} />
+      <Area type="monotone" dataKey="expense" stroke="#ef4444" fillOpacity={1} fill="url(#colorExpense)" name="المصروفات" strokeWidth={2} />
     </AreaChart>
   </ResponsiveContainer>
 ));
@@ -104,7 +104,7 @@ const WeeklyCashFlowChart = React.memo(({ data }: { data: any[] }) => (
         contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
         formatter={(value: unknown) => Number(value || 0).toLocaleString('ar-EG', {minimumFractionDigits: 0, maximumFractionDigits: 0})}
       />
-      <Area type="monotone" dataKey="balance" stroke="#8884d8" fillOpacity={1} fill="url(#colorCash)" name="Ø±ØµÙŠØ¯ Ø§Ù„Ù†Ù‚Ø¯ÙŠØ©" strokeWidth={2} />
+      <Area type="monotone" dataKey="balance" stroke="#8884d8" fillOpacity={1} fill="url(#colorCash)" name="رصيد النقدية" strokeWidth={2} />
     </AreaChart>
   </ResponsiveContainer>
 ));
@@ -119,13 +119,13 @@ const ManufacturingVariances = React.memo(({ data }: { data: any[] }) => (
         </div>
         <div className="text-right">
           <p className={`text-sm font-bold ${item.variance_qty < 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-            {item.variance_qty < 0 ? 'Ø²ÙŠØ§Ø¯Ø© Ø§Ø³ØªÙ‡Ù„Ø§Ùƒ' : 'ØªÙˆÙÙŠØ± Ù…ÙˆØ§Ø¯'}
+            {item.variance_qty < 0 ? 'زيادة استهلاك' : 'توفير مواد'}
           </p>
-          <p className="text-xs text-slate-400">Ø¨Ù†Ø³Ø¨Ø© {Math.abs(item.variance_percentage)}%</p>
+          <p className="text-xs text-slate-400">بنسبة {Math.abs(item.variance_percentage)}%</p>
         </div>
       </div>
     ))}
-    {data.length === 0 && <p className="text-center text-slate-400 text-sm">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø§Ù†Ø­Ø±Ø§ÙØ§Øª Ù…Ø³Ø¬Ù„Ø©</p>}
+    {data.length === 0 && <p className="text-center text-slate-400 text-sm">لا توجد انحرافات مسجلة</p>}
   </div>
 ));
 
@@ -138,7 +138,7 @@ export default function AccountingDashboard() {
   const [selectedOrgIdToDelete, setSelectedOrgIdToDelete] = useState('');
   const [mfgVariances, setMfgVariances] = useState([]);
 
-  // Ù…Ø²Ø§Ù…Ù†Ø© Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø®ØªØ§Ø±Ø© Ù…Ø¹ Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø§Ù„ÙŠØ© Ù„Ù„Ù†Ø¸Ø§Ù…
+  // مزامنة السنة المختارة مع السنة المالية للنظام
   useEffect(() => {
     if (selectedFiscalYear) {
       setSelectedYear(selectedFiscalYear);
@@ -158,7 +158,7 @@ export default function AccountingDashboard() {
     const orgId = currentUser?.organization_id;
     if (!orgId) return;
 
-    // Ø¬Ù„Ø¨ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù†Ø­Ø±Ø§ÙØ§Øª Ø§Ù„ØªØµÙ†ÙŠØ¹ Ù„Ù„Ù…Ù†Ø¸Ù…Ø© Ø§Ù„Ø­Ø§Ù„ÙŠØ© ÙÙ‚Ø· Ù„Ù…Ù†Ø¹ ØªØ³Ø±ÙŠØ¨ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª ÙÙŠ Ø§Ù„Ø­Ø³Ø§Ø¨ Ø§Ù„Ø¹Ø§Ù„Ù…ÙŠ
+    // جلب بيانات انحرافات التصنيع للمنظمة الحالية فقط لمنع تسريب البيانات في الحساب العالمي
     supabase.from('v_mfg_material_variances').select('*').eq('organization_id', orgId).limit(3).then(({data}) => {
       if (data) setMfgVariances(data as any);
     });
@@ -212,7 +212,7 @@ export default function AccountingDashboard() {
               const debit = Number(line.debit || 0);
               const credit = Number(line.credit || 0);
 
-              if (type.includes('revenue') || type.includes('Ø¥ÙŠØ±Ø§Ø¯') || type.includes('income') || code.startsWith('4')) {
+              if (type.includes('revenue') || type.includes('إيراد') || type.includes('income') || code.startsWith('4')) {
                   const amount = credit - debit; 
                   revenue += amount;
                   if (monthlyStats[monthKey]) monthlyStats[monthKey].revenue += amount;
@@ -222,7 +222,7 @@ export default function AccountingDashboard() {
                   }
                   // logger.log(`    -> Revenue detected: ${account.name}, Amount: ${amount}`);
               } 
-              else if (type.includes('expense') || type.includes('Ù…ØµØ±ÙˆÙ') || type.includes('cost') || code.startsWith('5')) {
+              else if (type.includes('expense') || type.includes('مصروف') || type.includes('cost') || code.startsWith('5')) {
                   const amount = debit - credit;
                   expenses += amount;
                   if (monthlyStats[monthKey]) monthlyStats[monthKey].expense += amount;
@@ -233,8 +233,8 @@ export default function AccountingDashboard() {
                   }
                   // logger.log(`    -> Expense detected: ${account.name}, Amount: ${amount}`);
               }
-              // ØªØªØ¨Ø¹ Ø§Ù„Ø¶Ø±Ø§Ø¦Ø¨ (Ø­Ø³Ø§Ø¨Ø§Øª ØªØ¨Ø¯Ø£ Ø¨Ù€ 223 Ø£Ùˆ ØªØ­ØªÙˆÙŠ Ø¹Ù„Ù‰ ÙƒÙ„Ù…Ø© Ø¶Ø±ÙŠØ¨Ø©)
-              if (code.startsWith('223') || String(account.name || '').includes('Ø¶Ø±ÙŠØ¨Ø©') || String(account.name || '').toLowerCase().includes('tax')) {
+              // تتبع الضرائب (حسابات تبدأ بـ 223 أو تحتوي على كلمة ضريبة)
+              if (code.startsWith('223') || String(account.name || '').includes('ضريبة') || String(account.name || '').toLowerCase().includes('tax')) {
                   totalTax += (credit - debit);
               }
           });
@@ -242,14 +242,14 @@ export default function AccountingDashboard() {
 
       const cashBalance = accounts
           .filter(a => !a.isGroup && (
-              // Ø§Ù„ØªØ£ÙƒØ¯ Ù…Ù† Ø£Ù† Ø§Ù„Ø­Ø³Ø§Ø¨ Ø£ØµÙ„ (ÙŠØ¨Ø¯Ø£ Ø¨Ù€ 1) Ù„Ø§Ø³ØªØ¨Ø¹Ø§Ø¯ Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ù…ØµØ±ÙˆÙØ§Øª Ù…Ø«Ù„ "Ø¹Ø¬Ø² Ø§Ù„ØµÙ†Ø¯ÙˆÙ‚"
+              // التأكد من أن الحساب أصل (يبدأ بـ 1) لاستبعاد حسابات المصروفات مثل "عجز الصندوق"
               (String(a.type).toLowerCase().includes('asset') || a.code.startsWith('1')) &&
               (String(a.code || '').startsWith('123') ||
               String(a.code || '').startsWith('1101') ||
-              String(a.name || '').includes('ØµÙ†Ø¯ÙˆÙ‚') ||
-              String(a.name || '').includes('Ø®Ø²ÙŠÙ†Ø©') ||
-              String(a.name || '').includes('Ø¨Ù†Ùƒ') ||
-              String(a.name || '').includes('Ù†Ù‚Ø¯'))
+              String(a.name || '').includes('صندوق') ||
+              String(a.name || '').includes('خزينة') ||
+              String(a.name || '').includes('بنك') ||
+              String(a.name || '').includes('نقد'))
           ))
           .reduce((sum, a) => sum + (a.balance || 0), 0);
 
@@ -271,16 +271,16 @@ export default function AccountingDashboard() {
         .map(([name, value]) => ({ name, value }))
         .sort((a, b) => b.value - a.value);
 
-      // --- Ø­Ø³Ø§Ø¨ ØªØ·ÙˆØ± Ø§Ù„Ø³ÙŠÙˆÙ„Ø© Ø§Ù„Ø£Ø³Ø¨ÙˆØ¹ÙŠ ---
+      // --- حساب تطور السيولة الأسبوعي ---
       const cashAccountIds = accounts
           .filter(a => !a.isGroup && (
               (String(a.type).toLowerCase().includes('asset') || a.code.startsWith('1')) &&
               (String(a.code || '').startsWith('123') ||
               String(a.code || '').startsWith('1101') ||
-              String(a.name || '').includes('ØµÙ†Ø¯ÙˆÙ‚') ||
-              String(a.name || '').includes('Ø®Ø²ÙŠÙ†Ø©') ||
-              String(a.name || '').includes('Ø¨Ù†Ùƒ') ||
-              String(a.name || '').includes('Ù†Ù‚Ø¯'))
+              String(a.name || '').includes('صندوق') ||
+              String(a.name || '').includes('خزينة') ||
+              String(a.name || '').includes('بنك') ||
+              String(a.name || '').includes('نقد'))
           ))
           .map(a => a.id);
 
@@ -317,7 +317,7 @@ export default function AccountingDashboard() {
       const weeklyData = Array.from({ length: 52 }, (_, i) => {
           const weekNum = i + 1;
           runningCashBalance += weeklyMovements[weekNum] || 0;
-          return { name: `Ø£ ${weekNum}`, balance: runningCashBalance };
+          return { name: `أ ${weekNum}`, balance: runningCashBalance };
       });
 
       const recent = entries.slice(0, 5).map(e => ({
@@ -352,11 +352,11 @@ export default function AccountingDashboard() {
 
   const handleClearTransactions = async () => {
       if (currentUser?.role === 'demo') {
-          if (window.confirm('âš ï¸ ØªØ­Ø°ÙŠØ± Ù‡Ø§Ù… Ø¬Ø¯Ø§Ù‹ âš ï¸\n\nØ³ÙŠØªÙ… Ø­Ø°Ù Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„Ù…Ø§Ù„ÙŠØ© ÙˆØ§Ù„Ù…Ø®Ø²Ù†ÙŠØ© (ÙÙˆØ§ØªÙŠØ±ØŒ Ù‚ÙŠÙˆØ¯ØŒ Ø³Ù†Ø¯Ø§ØªØŒ Ø´ÙŠÙƒØ§Øª...) Ù†Ù‡Ø§Ø¦ÙŠØ§Ù‹.\nØ³ÙŠØªÙ… ØªØµÙÙŠØ± Ø§Ù„Ø£Ø±ØµØ¯Ø© ÙˆØ§Ù„Ù…Ø®Ø²ÙˆÙ†.\n\nÙ„Ù† ÙŠØªÙ… Ø­Ø°Ù: Ø§Ù„Ø­Ø³Ø§Ø¨Ø§ØªØŒ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ØŒ Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†ØŒ Ø§Ù„Ø£ØµÙ†Ø§ÙØŒ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª.\n\nÙ‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ ØªÙ…Ø§Ù…Ø§Ù‹ Ù…Ù† Ø±ØºØ¨ØªÙƒ ÙÙŠ Ø§Ù„Ø§Ø³ØªÙ…Ø±Ø§Ø±ØŸ (Ù…Ø­Ø§ÙƒØ§Ø©)')) {
-             if (window.confirm('ØªØ£ÙƒÙŠØ¯ Ù†Ù‡Ø§Ø¦ÙŠ: Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ØŸ Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø§Ù„ØªØ±Ø§Ø¬Ø¹ Ø¹Ù† Ù‡Ø°Ø§ Ø§Ù„Ø¥Ø¬Ø±Ø§Ø¡! (Ù…Ø­Ø§ÙƒØ§Ø©)')) {
+          if (window.confirm('⚠️ تحذير هام جداً ⚠️\n\nسيتم حذف جميع العمليات المالية والمخزنية (فواتير، قيود، سندات، شيكات...) نهائياً.\nسيتم تصفير الأرصدة والمخزون.\n\nلن يتم حذف: الحسابات، العملاء، الموردين، الأصناف، الإعدادات.\n\nهل أنت متأكد تماماً من رغبتك في الاستمرار؟ (محاكاة)')) {
+             if (window.confirm('تأكيد نهائي: هل أنت متأكد؟ لا يمكن التراجع عن هذا الإجراء! (محاكاة)')) {
                  setLoading(true);
                  setTimeout(() => {
-                     showToast('ØªÙ… ØªÙ†Ø¸ÙŠÙ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø¨Ù†Ø¬Ø§Ø­. Ø§Ù„Ù†Ø¸Ø§Ù… Ø¬Ø§Ù‡Ø² Ù„Ù„Ø¹Ù…Ù„ Ù…Ù† Ø¬Ø¯ÙŠØ¯. âœ… (Ù…Ø­Ø§ÙƒØ§Ø©)', 'success');
+                     showToast('تم تنظيف البيانات بنجاح. النظام جاهز للعمل من جديد. ✅ (محاكاة)', 'success');
                      setLoading(false);
                      window.location.reload();
                  }, 1000);
@@ -365,17 +365,17 @@ export default function AccountingDashboard() {
           return;
       }
       
-      if (!window.confirm('âš ï¸ ØªØ­Ø°ÙŠØ± Ù‡Ø§Ù… Ø¬Ø¯Ø§Ù‹ âš ï¸\n\nØ³ÙŠØªÙ… Ø­Ø°Ù Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„Ù…Ø§Ù„ÙŠØ© ÙˆØ§Ù„Ù…Ø®Ø²Ù†ÙŠØ© (ÙÙˆØ§ØªÙŠØ±ØŒ Ù‚ÙŠÙˆØ¯ØŒ Ø³Ù†Ø¯Ø§ØªØŒ Ø´ÙŠÙƒØ§ØªØŒ Ø³Ù„Ù Ù…ÙˆØ¸ÙÙŠÙ†...) Ù†Ù‡Ø§Ø¦ÙŠØ§Ù‹.\nØ³ÙŠØªÙ… ØªØµÙÙŠØ± Ø§Ù„Ø£Ø±ØµØ¯Ø© ÙˆØ§Ù„Ù…Ø®Ø²ÙˆÙ†.\n\nÙ„Ù† ÙŠØªÙ… Ø­Ø°Ù: Ø§Ù„Ø­Ø³Ø§Ø¨Ø§ØªØŒ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ØŒ Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†ØŒ Ø§Ù„Ø£ØµÙ†Ø§ÙØŒ Ø§Ù„Ø¥Ø¹Ø¯Ø§Ø¯Ø§ØªØŒ Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ†.\n\nÙ‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ ØªÙ…Ø§Ù…Ø§Ù‹ Ù…Ù† Ø±ØºØ¨ØªÙƒ ÙÙŠ Ø§Ù„Ø§Ø³ØªÙ…Ø±Ø§Ø±ØŸ')) return;
+      if (!window.confirm('⚠️ تحذير هام جداً ⚠️\n\nسيتم حذف جميع العمليات المالية والمخزنية (فواتير، قيود، سندات، شيكات، سلف موظفين...) نهائياً.\nسيتم تصفير الأرصدة والمخزون.\n\nلن يتم حذف: الحسابات، العملاء، الموردين، الأصناف، الإعدادات، الموظفين.\n\nهل أنت متأكد تماماً من رغبتك في الاستمرار؟')) return;
 
-      const confirmation = window.prompt('Ù„Ù„ØªØ£ÙƒÙŠØ¯ Ø§Ù„Ù†Ù‡Ø§Ø¦ÙŠØŒ ÙŠØ±Ø¬Ù‰ ÙƒØªØ§Ø¨Ø© ÙƒÙ„Ù…Ø© "Ø­Ø°Ù" ÙÙŠ Ø§Ù„Ù…Ø±Ø¨Ø¹ Ø£Ø¯Ù†Ø§Ù‡:');
-      if (confirmation !== 'Ø­Ø°Ù') return;
+      const confirmation = window.prompt('للتأكيد النهائي، يرجى كتابة كلمة "حذف" في المربع أدناه:');
+      if (confirmation !== 'حذف') return;
 
       const orgId = currentUser?.organization_id;
       if (!orgId) return;
 
       setLoading(true);
       try {
-          // 1. Ø­Ø°Ù Ø§Ù„ØªÙØ§ØµÙŠÙ„ (Lines)
+          // 1. حذف التفاصيل (Lines)
           const tablesLines = [
               'butchering_order_items', 'invoice_items', 'purchase_invoice_items',
               'quotation_items', 'purchase_order_items', 'sales_return_items',
@@ -411,7 +411,7 @@ export default function AccountingDashboard() {
           // However, they are more like master data for product configuration, so keeping them out of handleClearTransactions
           // If they need to be cleared, they should be in handleClearMasterData
 
-          // 2. Ø­Ø°Ù Ø§Ù„Ù…Ø³ØªÙ†Ø¯Ø§Øª (Documents)
+          // 2. حذف المستندات (Documents)
           const tablesDocs = [
               'butchering_orders', 'invoices', 'purchase_invoices', 'quotations', 'purchase_orders',
               'sales_returns', 'purchase_returns', 'credit_notes', 'debit_notes',
@@ -434,28 +434,28 @@ export default function AccountingDashboard() {
           }
        }
 
-          // 3. Ø­Ø°Ù Ø§Ù„Ù‚ÙŠÙˆØ¯ Ø§Ù„ÙŠÙˆÙ…ÙŠØ© (Journal Entries)
+          // 3. حذف القيود اليومية (Journal Entries)
           await supabase.from('journal_entries').delete().eq('organization_id', orgId);
           
-          // 4. ØªØµÙÙŠØ± Ø£Ø±ØµØ¯Ø© Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª ÙÙŠ Ø§Ù„Ø¯Ù„ÙŠÙ„
+          // 4. تصفير أرصدة الحسابات في الدليل
           await supabase.from('accounts').update({ balance: 0 }).eq('organization_id', orgId);
 
-          // 4.5. ØªØµÙÙŠØ± Ø§Ù„Ø£Ø±ØµØ¯Ø© Ø§Ù„Ø§ÙØªØªØ§Ø­ÙŠØ© ÙˆØ§Ù„Ø­Ø§Ù„ÙŠØ© Ù„Ù„Ø¹Ù…Ù„Ø§Ø¡ ÙˆØ§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ† ÙˆÙ…Ø®Ø²ÙˆÙ† Ø§Ù„Ø£ØµÙ†Ø§Ù
+          // 4.5. تصفير الأرصدة الافتتاحية والحالية للعملاء والموردين ومخزون الأصناف
           await supabase.from('customers').update({ balance: 0, opening_balance: 0 }).eq('organization_id', orgId);
           await supabase.from('suppliers').update({ balance: 0, opening_balance: 0 }).eq('organization_id', orgId);
           await supabase.from('products').update({ stock: 0, current_stock: 0 }).eq('organization_id', orgId);
           
-          // 5. ØªØµÙÙŠØ± Ø­Ø§Ù„Ø© Ø·Ø§ÙˆÙ„Ø§Øª Ø§Ù„Ù…Ø·Ø¹Ù… (Ø¬Ø¹Ù„Ù‡Ø§ Ù…ØªØ§Ø­Ø©)
+          // 5. تصفير حالة طاولات المطعم (جعلها متاحة)
           await supabase.from('restaurant_tables').update({ status: 'AVAILABLE' }).neq('id', '00000000-0000-0000-0000-000000000000');
 
-          // 6. ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø³ÙŠØ§Ù‚
+          // 6. تحديث السياق
           await clearTransactions();
           
-          showToast('ØªÙ… ØªØµÙÙŠØ± Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª ÙˆØ§Ù„Ù‚ÙŠÙˆØ¯ ÙˆØ§Ù„Ø£Ø±ØµØ¯Ø© Ø¨Ù†Ø¬Ø§Ø­.', 'success');
+          showToast('تم تصفير جميع العمليات والقيود والأرصدة بنجاح.', 'success');
           window.location.reload();
       } catch (e) {
           logger.error(e);
-          showToast('Ø­Ø¯Ø« Ø®Ø·Ø£ Ø£Ø«Ù†Ø§Ø¡ ØªØµÙÙŠØ± Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª: ' + e.message, 'error');
+          showToast('حدث خطأ أثناء تصفير العمليات: ' + e.message, 'error');
       } finally {
           setLoading(false);
       }
@@ -463,10 +463,10 @@ export default function AccountingDashboard() {
 
   const handleClearMasterData = async () => {
       if (currentUser?.role === 'demo') {
-          if (window.confirm('âš ï¸ ØªØ­Ø°ÙŠØ± Ù‡Ø§Ù… âš ï¸\n\nØ³ÙŠØªÙ… Ø­Ø°Ù Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ ÙˆØ§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ† ÙˆØ§Ù„Ù…ÙˆØ¸ÙÙŠÙ† ÙˆØ§Ù„Ø£ØµÙ†Ø§Ù.\n\nÙ‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ØŸ (Ù…Ø­Ø§ÙƒØ§Ø©)')) {
+          if (window.confirm('⚠️ تحذير هام ⚠️\n\nسيتم حذف جميع العملاء والموردين والموظفين والأصناف.\n\nهل أنت متأكد؟ (محاكاة)')) {
              setLoading(true);
              setTimeout(() => {
-                 showToast('ØªÙ… Ø­Ø°Ù Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ© Ø¨Ù†Ø¬Ø§Ø­ âœ… (Ù…Ø­Ø§ÙƒØ§Ø©)', 'success');
+                 showToast('تم حذف البيانات الأساسية بنجاح ✅ (محاكاة)', 'success');
                  setLoading(false);
                  window.location.reload();
              }, 1000);
@@ -474,17 +474,17 @@ export default function AccountingDashboard() {
           return;
       }
       
-      if (!window.confirm('âš ï¸ ØªØ­Ø°ÙŠØ± Ù‡Ø§Ù… âš ï¸\n\nØ³ÙŠØªÙ… Ø­Ø°Ù Ù‚ÙˆØ§Ø¦Ù… (Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ØŒ Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†ØŒ Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ†ØŒ Ø§Ù„Ø£ØµÙ†Ø§Ù) Ù†Ù‡Ø§Ø¦ÙŠØ§Ù‹.\nÙŠÙÙØ¶Ù„ ØªØµÙÙŠØ± Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª Ø£ÙˆÙ„Ø§Ù‹ Ù„ØªØ¬Ù†Ø¨ Ø§Ù„Ø£Ø®Ø·Ø§Ø¡ Ø§Ù„Ù…Ø±ØªØ¨Ø·Ø©.\n\nÙ‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ØŸ')) return;
+      if (!window.confirm('⚠️ تحذير هام ⚠️\n\nسيتم حذف قوائم (العملاء، الموردين، الموظفين، الأصناف) نهائياً.\nيُفضل تصفير العمليات أولاً لتجنب الأخطاء المرتبطة.\n\nهل أنت متأكد؟')) return;
       
-      const confirmation = window.prompt('Ù„Ù„ØªØ£ÙƒÙŠØ¯ØŒ Ø§ÙƒØªØ¨ "Ø­Ø°Ù" ÙÙŠ Ø§Ù„Ù…Ø±Ø¨Ø¹ Ø£Ø¯Ù†Ø§Ù‡:');
-      if (confirmation !== 'Ø­Ø°Ù') return;
+      const confirmation = window.prompt('للتأكيد، اكتب "حذف" في المربع أدناه:');
+      if (confirmation !== 'حذف') return;
       
       const orgId = currentUser?.organization_id;
       if (!orgId) return;
 
       setLoading(true);
       try {
-          // Ù…Ø­Ø§ÙˆÙ„Ø© Ø­Ø°Ù Ø§Ù„Ø¬Ø¯Ø§ÙˆÙ„ Ø§Ù„Ù…Ø±ØªØ¨Ø·Ø© Ø¨Ø§Ù„Ø£ØµÙ†Ø§Ù Ø£ÙˆÙ„Ø§Ù‹
+          // محاولة حذف الجداول المرتبطة بالأصناف أولاً
           try { await supabase.from('modifiers').delete().eq('organization_id', orgId); } catch (e) {}
           try { await supabase.from('modifier_groups').delete().eq('organization_id', orgId); } catch (e) {}
           try { await supabase.from('bill_of_materials').delete().eq('organization_id', orgId); } catch (e) {}
@@ -501,11 +501,11 @@ export default function AccountingDashboard() {
           }
           
           await clearCache();
-          showToast('ØªÙ… ØªØµÙÙŠØ± Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ© Ø¨Ù†Ø¬Ø§Ø­.', 'success');
+          showToast('تم تصفير البيانات الأساسية بنجاح.', 'success');
           window.location.reload();
       } catch (e) {
           logger.error(e);
-          showToast('Ø­Ø¯Ø« Ø®Ø·Ø£ (Ø±Ø¨Ù…Ø§ ØªÙˆØ¬Ø¯ Ø¹Ù…Ù„ÙŠØ§Øª Ù…Ø±ØªØ¨Ø·Ø©): ' + e.message, 'error');
+          showToast('حدث خطأ (ربما توجد عمليات مرتبطة): ' + e.message, 'error');
       } finally {
           setLoading(false);
       }
@@ -513,17 +513,17 @@ export default function AccountingDashboard() {
 
   const handleEmptyRecycleBin = async () => {
       if (currentUser?.role === 'demo') {
-          if (window.confirm('Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ Ù…Ù† ØªÙØ±ÙŠØº Ø³Ù„Ø© Ø§Ù„Ù…Ø­Ø°ÙˆÙØ§Øª Ø¨Ø§Ù„ÙƒØ§Ù…Ù„ØŸ (Ù…Ø­Ø§ÙƒØ§Ø©)')) {
+          if (window.confirm('هل أنت متأكد من تفريغ سلة المحذوفات بالكامل؟ (محاكاة)')) {
              setLoading(true);
              setTimeout(() => {
-                 showToast('ØªÙ… ØªÙØ±ÙŠØº Ø³Ù„Ø© Ø§Ù„Ù…Ø­Ø°ÙˆÙØ§Øª Ø¨Ù†Ø¬Ø§Ø­ âœ… (Ù…Ø­Ø§ÙƒØ§Ø©)', 'success');
+                 showToast('تم تفريغ سلة المحذوفات بنجاح ✅ (محاكاة)', 'success');
                  setLoading(false);
              }, 1000);
           }
           return;
       }
 
-      if (!window.confirm('ØªØ­Ø°ÙŠØ±: Ø³ÙŠØªÙ… Ø­Ø°Ù Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¹Ù†Ø§ØµØ± Ø§Ù„Ù…ÙˆØ¬ÙˆØ¯Ø© ÙÙŠ Ø³Ù„Ø© Ø§Ù„Ù…Ø­Ø°ÙˆÙØ§Øª Ù†Ù‡Ø§Ø¦ÙŠØ§Ù‹ Ù„Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø£Ù‚Ø³Ø§Ù… (Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ØŒ Ø§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ†ØŒ Ø§Ù„Ø£ØµÙ†Ø§Ù...). Ù‡Ù„ Ø£Ù†Øª Ù…ØªØ£ÙƒØ¯ØŸ')) return;
+      if (!window.confirm('تحذير: سيتم حذف جميع العناصر الموجودة في سلة المحذوفات نهائياً لجميع الأقسام (العملاء، الموردين، الأصناف...). هل أنت متأكد؟')) return;
 
       setLoading(true);
       try {
@@ -531,10 +531,10 @@ export default function AccountingDashboard() {
           for (const table of tables) {
               await emptyRecycleBin(table);
           }
-          showToast('ØªÙ… ØªÙØ±ÙŠØº Ø³Ù„Ø© Ø§Ù„Ù…Ø­Ø°ÙˆÙØ§Øª Ø¨Ù†Ø¬Ø§Ø­.', 'success');
+          showToast('تم تفريغ سلة المحذوفات بنجاح.', 'success');
       } catch (e) {
           logger.error(e);
-          showToast('Ø­Ø¯Ø« Ø®Ø·Ø£: ' + e.message, 'error');
+          showToast('حدث خطأ: ' + e.message, 'error');
       } finally {
           setLoading(false);
       }
@@ -544,8 +544,8 @@ export default function AccountingDashboard() {
     <div className="p-6 max-w-7xl mx-auto animate-in fade-in space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Ù„ÙˆØ­Ø© Ø§Ù„ØªØ­ÙƒÙ… Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠØ©</h1>
-          <p className="text-slate-500">Ù†Ø¸Ø±Ø© Ø¹Ø§Ù…Ø© Ø¹Ù„Ù‰ Ø§Ù„Ø£Ø¯Ø§Ø¡ Ø§Ù„Ù…Ø§Ù„ÙŠ Ù„Ø³Ù†Ø© {selectedYear}</p>
+          <h1 className="text-2xl font-bold text-slate-800">لوحة التحكم المحاسبية</h1>
+          <p className="text-slate-500">نظرة عامة على الأداء المالي لسنة {selectedYear}</p>
         </div>
         <div className="flex gap-2">
             <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-lg px-3 py-1 shadow-sm">
@@ -563,34 +563,34 @@ export default function AccountingDashboard() {
                     <button 
                         onClick={handleClearTransactions}
                         className="flex items-center gap-2 bg-red-50 border border-red-200 text-red-600 px-4 py-2 rounded-lg hover:bg-red-100 transition-colors shadow-sm font-bold text-sm"
-                        title="Ø­Ø°Ù Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª Ø§Ù„Ù…Ø§Ù„ÙŠØ© ÙˆØ§Ù„Ù…Ø®Ø²Ù†ÙŠØ© (ØªØµÙÙŠØ± Ø§Ù„Ù†Ø¸Ø§Ù…)"
+                        title="حذف جميع العمليات المالية والمخزنية (تصفير النظام)"
                     >
                         <Trash2 size={16} />
-                        ØªØµÙÙŠØ± Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª
+                        تصفير العمليات
                     </button>
                     <button 
                         onClick={handleClearMasterData}
                         className="flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-600 px-4 py-2 rounded-lg hover:bg-rose-100 transition-colors shadow-sm font-bold text-sm"
-                        title="Ø­Ø°Ù Ø§Ù„Ø¹Ù…Ù„Ø§Ø¡ ÙˆØ§Ù„Ù…ÙˆØ±Ø¯ÙŠÙ† ÙˆØ§Ù„Ù…ÙˆØ¸ÙÙŠÙ† ÙˆØ§Ù„Ø£ØµÙ†Ø§Ù ÙÙ‚Ø·"
+                        title="حذف العملاء والموردين والموظفين والأصناف فقط"
                     >
                         <Trash2 size={16} />
-                        ØªØµÙÙŠØ± Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ø£Ø³Ø§Ø³ÙŠØ©
+                        تصفير البيانات الأساسية
                     </button>
                     <button 
                         onClick={handleEmptyRecycleBin}
                         className="flex items-center gap-2 bg-orange-50 border border-orange-200 text-orange-600 px-4 py-2 rounded-lg hover:bg-orange-100 transition-colors shadow-sm font-bold text-sm"
-                        title="Ø­Ø°Ù Ø¬Ù…ÙŠØ¹ Ø§Ù„Ø¹Ù†Ø§ØµØ± ÙÙŠ Ø³Ù„Ø© Ø§Ù„Ù…Ø­Ø°ÙˆÙØ§Øª Ù†Ù‡Ø§Ø¦ÙŠØ§Ù‹"
+                        title="حذف جميع العناصر في سلة المحذوفات نهائياً"
                     >
                         <Trash2 size={16} />
-                        ØªÙØ±ÙŠØº Ø§Ù„Ø³Ù„Ø©
+                        تفريغ السلة
                     </button>
                     <button 
                         onClick={() => navigate('/fiscal-year-closing')}
                         className="flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-600 px-4 py-2 rounded-lg hover:bg-amber-100 transition-colors shadow-sm font-bold text-sm"
-                        title="Ø¥Ù‚ÙØ§Ù„ Ø§Ù„Ø³Ù†Ø© Ø§Ù„Ù…Ø§Ù„ÙŠØ© ÙˆØªØµÙÙŠØ± Ø§Ù„Ø£Ø±ØµØ¯Ø© Ø§Ù„Ù…Ø¤Ù‚ØªØ©"
+                        title="إقفال السنة المالية وتصفير الأرصدة المؤقتة"
                     >
                         <Lock size={16} />
-                        Ø¥Ù‚ÙØ§Ù„ Ø§Ù„Ø³Ù†Ø©
+                        إقفال السنة
                     </button>
                 </>
             )}
@@ -603,18 +603,18 @@ export default function AccountingDashboard() {
                 className="flex items-center gap-2 bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-50 hover:text-blue-600 transition-colors shadow-sm font-bold text-sm"
             >
                 <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
-                ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª
+                تحديث البيانات
             </button>
         </div>
         {currentUser?.role === 'super_admin' && organizations.length > 0 && (
             <div className="flex items-center gap-2 bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-                <h3 className="text-lg font-bold text-slate-800">Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø´Ø±ÙƒØ§Øª</h3>
+                <h3 className="text-lg font-bold text-slate-800">إدارة الشركات</h3>
                 <select 
                     value={selectedOrgIdToDelete}
                     onChange={(e) => setSelectedOrgIdToDelete(e.target.value)}
                     className="bg-transparent border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold focus:ring-blue-500 outline-none cursor-pointer text-blue-600"
                 >
-                    <option value="">-- Ø§Ø®ØªØ± Ø´Ø±ÙƒØ© Ù„Ù„Ø­Ø°Ù --</option>
+                    <option value="">-- اختر شركة للحذف --</option>
                     {organizations.map(org => (
                         <option key={org.id} value={org.id}>{org.name}</option>
                     ))}
@@ -632,53 +632,53 @@ export default function AccountingDashboard() {
                                 setLoading(false);
                             }
                         } else {
-                            showToast('Ø§Ù„Ø±Ø¬Ø§Ø¡ Ø§Ø®ØªÙŠØ§Ø± Ø´Ø±ÙƒØ© Ø£ÙˆÙ„Ø§Ù‹', 'warning');
+                            showToast('الرجاء اختيار شركة أولاً', 'warning');
                         }
                     }}
                     className="flex items-center gap-2 bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 font-bold shadow-sm transition-colors text-sm"
                 >
                     <Trash2 size={16} />
-                    Ø­Ø°Ù Ø§Ù„Ø´Ø±ÙƒØ© Ø§Ù„Ù…Ø­Ø¯Ø¯Ø©
+                    حذف الشركة المحددة
                 </button>
             </div>
         )}
       </div>
 
-      {/* ðŸ›¡ï¸ Ø¯Ø±Ø¹ Ø§Ù„Ù†Ø²Ø§Ù‡Ø© ÙˆØ§Ù„ØªØ¯Ù‚ÙŠÙ‚ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠ Ø§Ù„Ù„ÙŠÙ„ÙŠ */}
+      {/* 🛡️ درع النزاهة والتدقيق المحاسبي الليلي */}
       <MidnightAuditShieldCard organizationId={currentUser?.organization_id || ''} />
 
       {/* Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <DashboardCard
-          title="Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª" 
+          title="إجمالي الإيرادات" 
           value={metrics.totalRevenue} 
           icon={<TrendingUp className="text-emerald-500" />} 
           trend="up"
           color="emerald"
         />
         <DashboardCard 
-          title="Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…ØµØ±ÙˆÙØ§Øª" 
+          title="إجمالي المصروفات" 
           value={metrics.totalExpenses} 
           icon={<TrendingDown className="text-red-500" />} 
           trend="down"
           color="red"
         />
         <DashboardCard 
-          title="ØµØ§ÙÙŠ Ø§Ù„Ø±Ø¨Ø­" 
+          title="صافي الربح" 
           value={metrics.netProfit} 
           icon={<DollarSign className="text-blue-500" />} 
           trend={metrics.netProfit >= 0 ? "up" : "down"}
           color="blue"
         />
         <DashboardCard 
-          title="Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø¶Ø±Ø§Ø¦Ø¨" 
+          title="إجمالي الضرائب" 
           value={metrics.totalTax} 
           icon={<Percent className="text-amber-500" />} 
           trend={metrics.totalTax > 0 ? "up" : "neutral"}
           color="purple"
         />
         <DashboardCard 
-          title="Ù†Ø³Ø¨Ø© Ù‡Ø§Ù…Ø´ Ø§Ù„Ø±Ø¨Ø­" 
+          title="نسبة هامش الربح" 
           value={`${metrics.profitMargin.toFixed(1)}%`} 
           icon={<Percent className="text-teal-500" />} 
           trend={metrics.profitMargin >= 0 ? "up" : "down"}
@@ -690,7 +690,7 @@ export default function AccountingDashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-1 gap-6">
         {/* Main Chart */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-          <h3 className="font-bold text-slate-800 mb-6">ØªØ­Ù„ÙŠÙ„ Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª ÙˆØ§Ù„Ù…ØµØ±ÙˆÙØ§Øª (Ø´Ù‡Ø±ÙŠ)</h3>
+          <h3 className="font-bold text-slate-800 mb-6">تحليل الإيرادات والمصروفات (شهري)</h3>
           <div className="h-80 w-full" style={{ minHeight: '320px' }}>
             <MonthlyRevenueChart data={monthlyData} />
           </div>
@@ -701,7 +701,7 @@ export default function AccountingDashboard() {
         {/* Revenue Breakdown Pie Chart */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <TrendingUp size={18} className="text-slate-400" /> ØªØ­Ù„ÙŠÙ„ Ù…ØµØ§Ø¯Ø± Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯Ø§Øª
+            <TrendingUp size={18} className="text-slate-400" /> تحليل مصادر الإيرادات
           </h3>
           <div className="h-80 w-full" style={{ minHeight: '320px' }}>
             <ExpensesBreakdownChart data={revenueData} />
@@ -711,7 +711,7 @@ export default function AccountingDashboard() {
         {/* Expense Breakdown Pie Chart */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <PieChartIcon size={18} className="text-slate-400" /> ØªÙˆØ²ÙŠØ¹ Ø§Ù„Ù…ØµØ±ÙˆÙØ§Øª
+            <PieChartIcon size={18} className="text-slate-400" /> توزيع المصروفات
           </h3>
           <div className="h-80 w-full" style={{ minHeight: '320px' }}>
             <ExpensesBreakdownChart data={expenseData} />
@@ -721,7 +721,7 @@ export default function AccountingDashboard() {
         {/* Manufacturing Intelligence Card */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <Activity size={18} className="text-indigo-500" /> Ø°ÙƒØ§Ø¡ Ø§Ù„ØªØµÙ†ÙŠØ¹ (Ø§Ù†Ø­Ø±Ø§ÙØ§Øª Ø§Ù„Ù…ÙˆØ§Ø¯)
+            <Activity size={18} className="text-indigo-500" /> ذكاء التصنيع (انحرافات المواد)
           </h3>
           <ManufacturingVariances data={mfgVariances} />
         </div>
@@ -729,7 +729,7 @@ export default function AccountingDashboard() {
         {/* Weekly Cash Flow Chart */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
           <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
-            <Wallet size={18} className="text-slate-400" /> ØªØ·ÙˆØ± Ø§Ù„Ø³ÙŠÙˆÙ„Ø© Ø§Ù„Ù†Ù‚Ø¯ÙŠØ© Ø§Ù„Ø£Ø³Ø¨ÙˆØ¹ÙŠ
+            <Wallet size={18} className="text-slate-400" /> تطور السيولة النقدية الأسبوعي
           </h3>
           <div className="h-80 w-full" style={{ minHeight: '320px' }}>
             <WeeklyCashFlowChart data={weeklyCashData} />
@@ -741,7 +741,7 @@ export default function AccountingDashboard() {
       <div className="grid grid-cols-1">
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
             <h3 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Activity size={18} className="text-slate-400" /> Ø¢Ø®Ø± Ø§Ù„Ù‚ÙŠÙˆØ¯
+              <Activity size={18} className="text-slate-400" /> آخر القيود
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {recentEntries.map((entry) => (
@@ -750,7 +750,7 @@ export default function AccountingDashboard() {
                     <FileText size={16} className="text-slate-500" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-slate-800 truncate">{entry.description || 'Ù‚ÙŠØ¯ Ø¨Ø¯ÙˆÙ† ÙˆØµÙ'}</p>
+                    <p className="text-sm font-bold text-slate-800 truncate">{entry.description || 'قيد بدون وصف'}</p>
                     <div className="flex justify-between items-center mt-1">
                       <span className="text-xs text-slate-500 font-mono">{entry.reference}</span>
                       <span className="text-xs text-slate-400">{entry.transaction_date && !isNaN(new Date(entry.transaction_date).getTime()) ? new Date(entry.transaction_date).toLocaleDateString('ar-EG') : '---'}</span>
@@ -759,7 +759,7 @@ export default function AccountingDashboard() {
                 </div>
               ))}
               {recentEntries.length === 0 && (
-                <p className="text-center text-slate-400 text-sm py-4 col-span-full">Ù„Ø§ ØªÙˆØ¬Ø¯ Ù‚ÙŠÙˆØ¯ Ø­Ø¯ÙŠØ«Ø©</p>
+                <p className="text-center text-slate-400 text-sm py-4 col-span-full">لا توجد قيود حديثة</p>
               )}
             </div>
         </div>
@@ -786,7 +786,7 @@ function DashboardCard({ title, value, icon, trend, color }: Record<string, any>
         {trend !== 'neutral' && (
           <div className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full ${trend === 'up' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
             {trend === 'up' ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
-            {trend === 'up' ? 'Ø¥ÙŠØ¬Ø§Ø¨ÙŠ' : 'Ø³Ù„Ø¨ÙŠ'}
+            {trend === 'up' ? 'إيجابي' : 'سلبي'}
           </div>
         )}
       </div>

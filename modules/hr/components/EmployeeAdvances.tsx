@@ -1,4 +1,4 @@
-﻿import { logger } from '../../../utils/logger';
+import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
@@ -29,16 +29,16 @@ const EmployeeAdvances = () => {
     employeeId: '',
     amount: 0,
     date: new Date().toISOString().split('T')[0],
-    treasuryId: '', // Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø§Ù„ØªÙŠ Ø³ÙŠØªÙ… Ø§Ù„ØµØ±Ù Ù…Ù†Ù‡Ø§
+    treasuryId: '', // الخزينة التي سيتم الصرف منها
     notes: ''
   });
 
-  // ðŸ›¡ï¸ Ø¹Ø²Ù„ Ù†Ø·Ø§Ù‚ Ø§Ù„Ø¥Ø´Ø±Ø§Ù Ù„Ù„Ù…ÙˆØ§Ø±Ø¯ Ø§Ù„Ø¨Ø´Ø±ÙŠØ© (Factory vs Branches vs All)
+  // 🛡️ عزل نطاق الإشراف للموارد البشرية (Factory vs Branches vs All)
   const userHrScope = currentUser?.hr_scope || (currentUser as any)?.user_metadata?.hr_scope || 'all';
 
-  const isFactoryDept = (dept: Record<string, any>) => {
+  const isFactoryDept = (dept: unknown) => {
     const d = String(dept || '').trim().toLowerCase();
-    return d === 'Ø§Ù„Ù…ØµÙ†Ø¹' || d === 'Ù…ØµÙ†Ø¹' || d === 'factory';
+    return d === 'المصنع' || d === 'مصنع' || d === 'factory';
   };
 
   const fetchData = async () => {
@@ -49,7 +49,7 @@ const EmployeeAdvances = () => {
 
       if (!userOrgId) return;
 
-      // 1. Ø¬Ù„Ø¨ Ø§Ù„Ø³Ù„Ù Ù…Ø¹ ØªÙØ§ØµÙŠÙ„ Ø§Ù„Ù…ÙˆØ¸Ù
+      // 1. جلب السلف مع تفاصيل الموظف
       const { data: advData } = await supabase
         .from('employee_advances')
         .select('*, employees(full_name, department, position, basic_salary)')
@@ -57,7 +57,7 @@ const EmployeeAdvances = () => {
         .order('created_at', { ascending: false });
       if (advData) setAdvances(advData);
 
-      // 2. Ø¬Ù„Ø¨ Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ† Ù…Ø¹ ÙƒØ§ÙØ© Ø§Ù„Ø­Ù‚ÙˆÙ„ Ø§Ù„ØªÙØµÙŠÙ„ÙŠØ©
+      // 2. جلب الموظفين مع كافة الحقول التفصيلية
       const { data: empData } = await supabase
         .from('employees')
         .select('id, full_name, name, position, department, basic_salary, phone, status, deleted_at')
@@ -66,7 +66,7 @@ const EmployeeAdvances = () => {
         .order('full_name');
 
       if (empData) {
-        // ÙÙ„ØªØ±Ø© Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ† Ø§Ù„Ù†Ø´Ø·ÙŠÙ† Ù…Ø¹ ØªØ·Ø¨ÙŠÙ‚ Ù†Ø·Ø§Ù‚ Ø§Ù„Ø¥Ø´Ø±Ø§Ù
+        // فلترة الموظفين النشطين مع تطبيق نطاق الإشراف
         let filtered = empData.filter(e => !e.status || e.status === 'active');
         if (userHrScope === 'factory') {
           filtered = filtered.filter(e => isFactoryDept(e.department));
@@ -76,7 +76,7 @@ const EmployeeAdvances = () => {
         setEmployees(filtered);
       }
 
-      // 3. Ø¬Ù„Ø¨ Ø­Ø³Ø§Ø¨Ø§Øª Ø§Ù„Ø®Ø²ÙŠÙ†Ø© ÙˆØ§Ù„Ø¨Ù†ÙˆÙƒ
+      // 3. جلب حسابات الخزينة والبنوك
       const { data: accData } = await supabase
         .from('accounts')
         .select('id, name, code')
@@ -85,11 +85,11 @@ const EmployeeAdvances = () => {
       if (accData) {
         const treasuries = accData.filter(a => 
           (a.code && (a.code.startsWith('123') || a.code.startsWith('101') || a.code.startsWith('121'))) ||
-          (a.name && (a.name.includes('ØµÙ†Ø¯ÙˆÙ‚') || a.name.includes('Ø®Ø²ÙŠÙ†Ø©') || a.name.includes('Ø®Ø²ÙŠÙ†Ù‡') || a.name.includes('Ø¨Ù†Ùƒ') || a.name.includes('Ø¹Ù‡Ø¯Ø©')))
+          (a.name && (a.name.includes('صندوق') || a.name.includes('خزينة') || a.name.includes('خزينه') || a.name.includes('بنك') || a.name.includes('عهدة')))
         );
         const finalTreasuries = treasuries.length > 0 ? treasuries : accData;
         setTreasuryAccounts(finalTreasuries);
-        // ØªØ¹ÙŠÙŠÙ† Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø§Ù„Ø§ÙØªØ±Ø§Ø¶ÙŠØ© Ø¥Ø°Ø§ Ù„Ù… ØªÙƒÙ† Ù…Ø­Ø¯Ø¯Ø©
+        // تعيين الخزينة الافتراضية إذا لم تكن محددة
         if (finalTreasuries.length > 0 && !formData.treasuryId) {
           setFormData(prev => ({ ...prev, treasuryId: prev.treasuryId || finalTreasuries[0].id }));
         }
@@ -97,7 +97,7 @@ const EmployeeAdvances = () => {
 
     } catch (error) {
       logger.error(error);
-      showToast('Ø®Ø·Ø£ ÙÙŠ Ø¬Ù„Ø¨ Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª: ' + error.message, 'error');
+      showToast('خطأ في جلب البيانات: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -107,7 +107,7 @@ const EmployeeAdvances = () => {
     fetchData();
   }, []);
 
-  // ðŸ’¡ Ø¥Ø«Ø±Ø§Ø¡ Ø¨ÙŠØ§Ù†Ø§Øª Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ† Ø¨Ø¥Ø­ØµØ§Ø¦ÙŠØ§Øª Ø§Ù„Ø³Ù„Ù Ø§Ù„Ø°ÙƒÙŠØ© Ø§Ù„ÙÙˆØ±ÙŠØ©
+  // 💡 إثراء بيانات الموظفين بإحصائيات السلف الذكية الفورية
   const enrichedEmployees: EmployeeOption[] = useMemo(() => {
     const now = new Date();
     const currentYear = now.getFullYear();
@@ -131,13 +131,13 @@ const EmployeeAdvances = () => {
 
       const amt = Number(adv.amount || 0);
 
-      // Ø§Ù„Ø³Ù„Ù Ø§Ù„Ù‚Ø§Ø¦Ù…Ø© ØºÙŠØ± Ø§Ù„Ù…Ø³ÙˆØ§Ø© (ØªÙ… ØµØ±ÙÙ‡Ø§ ÙˆÙ„Ù… ØªØ®ØµÙ… Ø¨Ø¹Ø¯ ÙÙŠ Ù…Ø³ÙŠØ± Ø§Ù„Ø±ÙˆØ§ØªØ¨)
+      // السلف القائمة غير المسواة (تم صرفها ولم تخصم بعد في مسير الرواتب)
       if (adv.status === 'paid' && !adv.payroll_item_id) {
         advancesByEmp[empId].outstanding += amt;
         advancesByEmp[empId].count += 1;
       }
 
-      // Ø³Ù„Ù Ø§Ù„Ø´Ù‡Ø± Ø§Ù„Ø­Ø§Ù„ÙŠ
+      // سلف الشهر الحالي
       const dStr = adv.request_date || adv.advance_date || adv.created_at;
       if (dStr) {
         const d = new Date(dStr);
@@ -146,7 +146,7 @@ const EmployeeAdvances = () => {
         }
       }
 
-      // Ø¢Ø®Ø± Ø³Ù„ÙØ© Ù…Ù†ØµØ±ÙØ©
+      // آخر سلفة منصرفة
       if (!advancesByEmp[empId].lastDate && dStr) {
         advancesByEmp[empId].lastDate = dStr.split('T')[0];
         advancesByEmp[empId].lastAmount = amt;
@@ -166,12 +166,12 @@ const EmployeeAdvances = () => {
     });
   }, [employees, advances]);
 
-  // Ø§Ù„Ù…ÙˆØ¸Ù Ø§Ù„Ù…Ø®ØªØ§Ø± Ø­Ø§Ù„ÙŠØ§Ù‹ Ù…Ø¹ ÙƒØ§ÙØ© Ø¨ÙŠØ§Ù†Ø§ØªÙ‡ Ø§Ù„Ø°ÙƒÙŠØ©
+  // الموظف المختار حالياً مع كافة بياناته الذكية
   const selectedEmployee = useMemo(() => {
     return enrichedEmployees.find(e => e.id === formData.employeeId);
   }, [enrichedEmployees, formData.employeeId]);
 
-  // Ø­Ø³Ø§Ø¨ Ø§Ù„Ù†Ø³Ø¨Ø© Ø§Ù„Ù…Ø¦ÙˆÙŠØ© Ù„Ù„Ø³Ù„ÙØ© Ù…Ù† Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ
+  // حساب النسبة المئوية للسلفة من الراتب الأساسي
   const advancePercentage = useMemo(() => {
     if (!selectedEmployee || !selectedEmployee.basic_salary || selectedEmployee.basic_salary <= 0 || !formData.amount) {
       return 0;
@@ -179,19 +179,19 @@ const EmployeeAdvances = () => {
     return Math.round((formData.amount / selectedEmployee.basic_salary) * 100);
   }, [selectedEmployee, formData.amount]);
 
-  // ØªØ¹ÙŠÙŠÙ† Ù…Ø¨Ù„Øº Ø³Ø±ÙŠØ¹ Ø¨Ù†Ø³Ø¨Ø© Ù…Ø¦ÙˆÙŠØ©
+  // تعيين مبلغ سريع بنسبة مئوية
   const setQuickPercentage = (percent: number) => {
     if (!selectedEmployee?.basic_salary) return;
     const calcAmount = Math.round((selectedEmployee.basic_salary * percent) / 100);
     setFormData(prev => ({ ...prev, amount: calcAmount }));
   };
 
-  // ØªØ¹ÙŠÙŠÙ† Ù…Ø¨Ù„Øº Ù…Ù‚Ø·ÙˆØ¹ Ø³Ø±ÙŠØ¹
+  // تعيين مبلغ مقطوع سريع
   const setQuickAmount = (amt: number) => {
     setFormData(prev => ({ ...prev, amount: amt }));
   };
 
-  // Ø®Ø±ÙŠØ·Ø© Ø§Ù„Ø­Ø³Ø§Ø¨Ø§Øª Ù„Ø±Ø¨Ø· Ø§Ù„Ø³Ù„Ù Ø¨Ø§Ø³Ù… Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø¨Ø¯Ù‚Ø©
+  // خريطة الحسابات لربط السلف باسم الخزينة بدقة
   const accountsMap = useMemo(() => {
     const map: Record<string, string> = {};
     (accounts || []).forEach(a => { if (a?.id) map[a.id] = a.name; });
@@ -199,7 +199,7 @@ const EmployeeAdvances = () => {
     return map;
   }, [accounts, treasuryAccounts]);
 
-  // Ø¯Ø§Ù„Ø© ØªØ­Ø¯ÙŠØ¯ Ø§Ø³Ù… Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ù„Ù„Ø³Ù„ÙØ©
+  // دالة تحديد اسم الخزينة للسلفة
   const getAdvanceTreasuryName = (adv: Record<string, any>): string => {
     if (adv.treasury_account_id && accountsMap[adv.treasury_account_id]) {
       return accountsMap[adv.treasury_account_id];
@@ -207,17 +207,17 @@ const EmployeeAdvances = () => {
     if (adv.treasury_account?.name) {
       return adv.treasury_account.name;
     }
-    // Ø§Ø³ØªØ¯Ù„Ø§Ù„ Ø°ÙƒÙŠ Ù…Ù† Ù‚Ø³Ù… Ø§Ù„Ù…ÙˆØ¸Ù ÙÙŠ Ø­Ø§Ù„ ÙƒØ§Ù†Øª Ø³Ù„ÙØ© Ø³Ø§Ø¨Ù‚Ø© Ù„Ù… ÙŠØ³Ø¬Ù„ ÙÙŠÙ‡Ø§ Ø§Ù„Ø®Ø²ÙŠÙ†Ø©
+    // استدلال ذكي من قسم الموظف في حال كانت سلفة سابقة لم يسجل فيها الخزينة
     const dept = adv.employees?.department || '';
-    if (dept.includes('Ù…ØµÙ†Ø¹') || dept.includes('Ø§Ù„Ù…ØµÙ†Ø¹')) {
-      const factoryTreasury = treasuryAccounts.find(t => t.name.includes('Ù…ØµÙ†Ø¹') || t.name.includes('Ø§Ù„Ù…ØµÙ†Ø¹'));
+    if (dept.includes('مصنع') || dept.includes('المصنع')) {
+      const factoryTreasury = treasuryAccounts.find(t => t.name.includes('مصنع') || t.name.includes('المصنع'));
       if (factoryTreasury) return factoryTreasury.name;
     }
-    const defaultTreasury = treasuryAccounts[0]?.name || accounts?.find(a => a.name.includes('Ø®Ø²ÙŠÙ†Ø©') || a.name.includes('ØµÙ†Ø¯ÙˆÙ‚'))?.name;
-    return defaultTreasury || 'Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ©';
+    const defaultTreasury = treasuryAccounts[0]?.name || accounts?.find(a => a.name.includes('خزينة') || a.name.includes('صندوق'))?.name;
+    return defaultTreasury || 'الخزينة الرئيسية';
   };
 
-  // ØªØµÙÙŠØ© Ø§Ù„Ø³Ù„Ù Ø¨Ù†Ø§Ø¡Ù‹ Ø¹Ù„Ù‰ Ø§Ù„Ø¨Ø­Ø« ÙˆØ­Ø§Ù„Ø© Ø§Ù„Ø³Ù„ÙØ© ÙˆØ§Ù„Ø®Ø²ÙŠÙ†Ø©
+  // تصفية السلف بناءً على البحث وحالة السلفة والخزينة
   const filteredAdvances = useMemo(() => {
     return advances.filter(adv => {
       const empName = adv.employees?.full_name?.toLowerCase() || '';
@@ -237,65 +237,65 @@ const EmployeeAdvances = () => {
     });
   }, [advances, searchTerm, statusFilter, treasuryFilter, accountsMap, treasuryAccounts]);
 
-  // ØªØµØ¯ÙŠØ± Ø³Ø¬Ù„ Ø§Ù„Ø³Ù„Ù Ø¥Ù„Ù‰ Ù…Ù„Ù Excel Ù…Ù†Ø³Ù‚ ÙˆØ§Ø­ØªØ±Ø§ÙÙŠ
+  // تصدير سجل السلف إلى ملف Excel منسق واحترافي
   const handleExportExcel = () => {
     if (filteredAdvances.length === 0) {
-      showToast('Ù„Ø§ ØªÙˆØ¬Ø¯ Ø³Ù„Ù Ù…Ø·Ø§Ø¨Ù‚Ø© Ù„Ù„ØªØµØ¯ÙŠØ±', 'warning');
+      showToast('لا توجد سلف مطابقة للتصدير', 'warning');
       return;
     }
 
     const rows = filteredAdvances.map((adv, idx) => {
       const emp = adv.employees;
-      const statusLabel = adv.status === 'paid' ? 'ØªÙ… Ø§Ù„ØµØ±Ù (Ù‚Ø§Ø¦Ù…Ø©)' : adv.status === 'deducted' ? 'ØªÙ… Ø§Ù„Ø®ØµÙ… Ù…Ù† Ø§Ù„Ø±Ø§ØªØ¨' : adv.status || '-';
+      const statusLabel = adv.status === 'paid' ? 'تم الصرف (قائمة)' : adv.status === 'deducted' ? 'تم الخصم من الراتب' : adv.status || '-';
       const treasuryName = getAdvanceTreasuryName(adv);
       return {
-        'Ù…': idx + 1,
-        'Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ¸Ù': emp?.full_name || 'Ù…ÙˆØ¸Ù ØºÙŠØ± Ù…Ø¹Ø±Ù',
-        'Ø§Ù„Ù‚Ø³Ù… / Ø§Ù„ÙØ±Ø¹': emp?.department || '-',
-        'Ø§Ù„Ù…Ø³Ù…Ù‰ Ø§Ù„ÙˆØ¸ÙŠÙÙŠ': emp?.position || '-',
-        'Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ (Ø¬.Ù…)': Number(emp?.basic_salary) || 0,
-        'Ù…Ø¨Ù„Øº Ø§Ù„Ø³Ù„ÙØ© (Ø¬.Ù…)': Number(adv.amount) || 0,
-        'Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø§Ù„Ù…Ù†ØµØ±Ù Ù…Ù†Ù‡Ø§': treasuryName,
-        'ØªØ§Ø±ÙŠØ® Ø§Ù„Ø³Ù„ÙØ©': adv.request_date || adv.advance_date || adv.created_at?.split('T')[0] || '-',
-        'Ø­Ø§Ù„Ø© Ø§Ù„Ø³Ù„ÙØ©': statusLabel,
-        'Ù…Ù„Ø§Ø­Ø¸Ø§Øª / Ø§Ù„Ø¨ÙŠØ§Ù†': adv.notes || '-'
+        'م': idx + 1,
+        'اسم الموظف': emp?.full_name || 'موظف غير معرف',
+        'القسم / الفرع': emp?.department || '-',
+        'المسمى الوظيفي': emp?.position || '-',
+        'الراتب الأساسي (ج.م)': Number(emp?.basic_salary) || 0,
+        'مبلغ السلفة (ج.م)': Number(adv.amount) || 0,
+        'الخزينة المنصرف منها': treasuryName,
+        'تاريخ السلفة': adv.request_date || adv.advance_date || adv.created_at?.split('T')[0] || '-',
+        'حالة السلفة': statusLabel,
+        'ملاحظات / البيان': adv.notes || '-'
       };
     });
 
-    // Ø¥Ø¶Ø§ÙØ© ØµÙ Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ ÙÙŠ Ù†Ù‡Ø§ÙŠØ© Ø§Ù„Ø´ÙŠØª
+    // إضافة صف الإجمالي في نهاية الشيت
     const totalAmount = filteredAdvances.reduce((sum, adv) => sum + Number(adv.amount || 0), 0);
     rows.push({
-      'Ù…': '' as any,
-      'Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ¸Ù': 'Ø§Ù„Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ø¹Ø§Ù… Ù„Ù„Ø³Ù„Ù Ø§Ù„Ù…Ø­Ø¯Ø¯Ø©',
-      'Ø§Ù„Ù‚Ø³Ù… / Ø§Ù„ÙØ±Ø¹': '',
-      'Ø§Ù„Ù…Ø³Ù…Ù‰ Ø§Ù„ÙˆØ¸ÙŠÙÙŠ': '',
-      'Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ (Ø¬.Ù…)': '' as any,
-      'Ù…Ø¨Ù„Øº Ø§Ù„Ø³Ù„ÙØ© (Ø¬.Ù…)': totalAmount,
-      'Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø§Ù„Ù…Ù†ØµØ±Ù Ù…Ù†Ù‡Ø§': '',
-      'ØªØ§Ø±ÙŠØ® Ø§Ù„Ø³Ù„ÙØ©': '',
-      'Ø­Ø§Ù„Ø© Ø§Ù„Ø³Ù„ÙØ©': `Ø¹Ø¯Ø¯ Ø§Ù„Ø³Ù„Ù: ${filteredAdvances.length}`,
-      'Ù…Ù„Ø§Ø­Ø¸Ø§Øª / Ø§Ù„Ø¨ÙŠØ§Ù†': ''
+      'م': '' as any,
+      'اسم الموظف': 'الإجمالي العام للسلف المحددة',
+      'القسم / الفرع': '',
+      'المسمى الوظيفي': '',
+      'الراتب الأساسي (ج.م)': '' as any,
+      'مبلغ السلفة (ج.م)': totalAmount,
+      'الخزينة المنصرف منها': '',
+      'تاريخ السلفة': '',
+      'حالة السلفة': `عدد السلف: ${filteredAdvances.length}`,
+      'ملاحظات / البيان': ''
     });
 
     const ws = XLSX.utils.json_to_sheet(rows);
 
     ws['!cols'] = [
-      { wch: 6 },  // Ù…
-      { wch: 25 }, // Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ¸Ù
-      { wch: 18 }, // Ø§Ù„Ù‚Ø³Ù…
-      { wch: 18 }, // Ø§Ù„Ù…Ø³Ù…Ù‰ Ø§Ù„ÙˆØ¸ÙŠÙÙŠ
-      { wch: 18 }, // Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ
-      { wch: 18 }, // Ù…Ø¨Ù„Øº Ø§Ù„Ø³Ù„ÙØ©
-      { wch: 22 }, // Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø§Ù„Ù…Ù†ØµØ±Ù Ù…Ù†Ù‡Ø§
-      { wch: 16 }, // ØªØ§Ø±ÙŠØ® Ø§Ù„Ø³Ù„ÙØ©
-      { wch: 20 }, // Ø­Ø§Ù„Ø© Ø§Ù„Ø³Ù„ÙØ©
-      { wch: 30 }  // Ù…Ù„Ø§Ø­Ø¸Ø§Øª
+      { wch: 6 },  // م
+      { wch: 25 }, // اسم الموظف
+      { wch: 18 }, // القسم
+      { wch: 18 }, // المسمى الوظيفي
+      { wch: 18 }, // الراتب الأساسي
+      { wch: 18 }, // مبلغ السلفة
+      { wch: 22 }, // الخزينة المنصرف منها
+      { wch: 16 }, // تاريخ السلفة
+      { wch: 20 }, // حالة السلفة
+      { wch: 30 }  // ملاحظات
     ];
 
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Ø³Ù„Ù Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ†');
-    XLSX.writeFile(wb, `Ø³Ø¬Ù„_Ø³Ù„Ù_Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ†_${new Date().toISOString().split('T')[0]}.xlsx`);
-    showToast(`ØªÙ… ØªØµØ¯ÙŠØ± ${filteredAdvances.length} Ø³Ù„ÙØ© Ø¥Ù„Ù‰ Excel Ø¨Ù†Ø¬Ø§Ø­ âœ…`, 'success');
+    XLSX.utils.book_append_sheet(wb, ws, 'سلف الموظفين');
+    XLSX.writeFile(wb, `سجل_سلف_الموظفين_${new Date().toISOString().split('T')[0]}.xlsx`);
+    showToast(`تم تصدير ${filteredAdvances.length} سلفة إلى Excel بنجاح ✅`, 'success');
   };
 
   const handleOpenModal = () => {
@@ -313,21 +313,21 @@ const EmployeeAdvances = () => {
     e.preventDefault();
 
     if (!formData.employeeId) {
-      showToast('ÙŠØ±Ø¬Ù‰ Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ù…ÙˆØ¸Ù Ø£ÙˆÙ„Ø§Ù‹', 'warning');
+      showToast('يرجى اختيار الموظف أولاً', 'warning');
       return;
     }
 
     if (!formData.amount || formData.amount <= 0) {
-      showToast('Ù…Ø¨Ù„Øº Ø§Ù„Ø³Ù„ÙØ© ÙŠØ¬Ø¨ Ø£Ù† ÙŠÙƒÙˆÙ† Ø£ÙƒØ¨Ø± Ù…Ù† 0', 'warning');
+      showToast('مبلغ السلفة يجب أن يكون أكبر من 0', 'warning');
       return;
     }
 
     if (!formData.treasuryId) {
-      showToast('ÙŠØ±Ø¬Ù‰ ØªØ­Ø¯ÙŠØ¯ Ø­Ø³Ø§Ø¨ Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø£Ùˆ Ø§Ù„Ø¨Ù†Ùƒ Ù„Ù„ØµØ±Ù Ù…Ù†Ù‡', 'warning');
+      showToast('يرجى تحديد حساب الخزينة أو البنك للصرف منه', 'warning');
       return;
     }
 
-    // Ø§Ù„ØªØ­Ù‚Ù‚ Ø¨ÙˆØ§Ø³Ø·Ø© Ø§Ù„Ù…Ø®Ø·Ø· Ø§Ù„Ù…Ø±ÙƒØ²ÙŠ
+    // التحقق بواسطة المخطط المركزي
     const validationResult = createEmployeeAdvanceSchema.safeParse({
       employee_id: formData.employeeId,
       amount: formData.amount,
@@ -342,46 +342,46 @@ const EmployeeAdvances = () => {
     setSaving(true);
     try {
       const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
-      if (!orgId && currentUser?.role !== 'super_admin') throw new Error('ØªØ¹Ø°Ø± ØªØ­Ø¯ÙŠØ¯ Ø§Ù„Ù…Ù†Ø¸Ù…Ø©.');
+      if (!orgId && currentUser?.role !== 'super_admin') throw new Error('تعذر تحديد المنظمة.');
 
       const employee = employees.find(e => e.id === formData.employeeId);
       const reference = `ADV-${Date.now().toString().slice(-6)}`;
 
-      // 1. Ø­ÙØ¸ Ø§Ù„Ø³Ù„ÙØ©
+      // 1. حفظ السلفة
       const { error: advError } = await supabase.from('employee_advances').insert({
         organization_id: orgId,
         employee_id: formData.employeeId,
         amount: formData.amount,
         request_date: formData.date,
-        status: 'paid', // Ù†Ø¹ØªØ¨Ø±Ù‡Ø§ Ù…Ø¯ÙÙˆØ¹Ø© ÙÙˆØ±Ø§Ù‹ Ù„Ù„ØªØ¨Ø³ÙŠØ·
+        status: 'paid', // نعتبرها مدفوعة فوراً للتبسيط
         notes: formData.notes,
-        treasury_account_id: formData.treasuryId, // Ø­ÙØ¸ Ø­Ø³Ø§Ø¨ Ø§Ù„Ø®Ø²ÙŠÙ†Ø©
-        reference: reference // Ø­ÙØ¸ Ø§Ù„Ù…Ø±Ø¬Ø¹
+        treasury_account_id: formData.treasuryId, // حفظ حساب الخزينة
+        reference: reference // حفظ المرجع
       });
 
       if (advError) throw advError;
 
-      // 2. Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù‚ÙŠØ¯ Ø§Ù„Ù…Ø­Ø§Ø³Ø¨ÙŠ
-      // Ù…Ù† Ø­/ Ø³Ù„Ù Ø§Ù„Ø¹Ø§Ù…Ù„ÙŠÙ† (1223)
-      // Ø¥Ù„Ù‰ Ø­/ Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø£Ùˆ Ø§Ù„Ø¨Ù†Ùƒ
+      // 2. إنشاء القيد المحاسبي
+      // من ح/ سلف العاملين (1223)
+      // إلى ح/ الخزينة أو البنك
       const advancesAcc = getSystemAccount('EMPLOYEE_ADVANCES') || accounts.find(a => a.code === '1223');
 
       if (advancesAcc) {
         await addEntry({
           date: formData.date,
-          description: `ØµØ±Ù Ø³Ù„ÙØ© Ù„Ù„Ù…ÙˆØ¸Ù ${employee?.full_name}`,
+          description: `صرف سلفة للموظف ${employee?.full_name}`,
           reference: reference,
           status: 'posted',
           lines: [
-            { account_id: advancesAcc.id, accountId: advancesAcc.id, debit: formData.amount, credit: 0, description: `Ø³Ù„ÙØ© Ù…ÙˆØ¸Ù - ${employee?.full_name}` },
-            { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: `ØµØ±Ù Ù†Ù‚Ø¯ÙŠØ© Ù„Ø³Ù„ÙØ©` }
+            { account_id: advancesAcc.id, accountId: advancesAcc.id, debit: formData.amount, credit: 0, description: `سلفة موظف - ${employee?.full_name}` },
+            { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: `صرف نقدية لسلفة` }
           ]
         });
       } else {
-        showToast('ØªÙ†Ø¨ÙŠÙ‡: ØªÙ… Ø­ÙØ¸ Ø§Ù„Ø³Ù„ÙØ© ÙˆÙ„ÙƒÙ† Ù„Ù… ÙŠØªÙ… Ø¥Ù†Ø´Ø§Ø¡ Ø§Ù„Ù‚ÙŠØ¯ Ù„Ø¹Ø¯Ù… Ø§Ù„Ø¹Ø«ÙˆØ± Ø¹Ù„Ù‰ Ø­Ø³Ø§Ø¨ "Ø³Ù„Ù Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ†" (1223).', 'warning');
+        showToast('تنبيه: تم حفظ السلفة ولكن لم يتم إنشاء القيد لعدم العثور على حساب "سلف الموظفين" (1223).', 'warning');
       }
       
-      showToast('ØªÙ… Ø­ÙØ¸ Ø§Ù„Ø³Ù„ÙØ© ÙˆØªØ±Ø­ÙŠÙ„ Ø§Ù„Ù‚ÙŠØ¯ Ø¨Ù†Ø¬Ø§Ø­ âœ…', 'success');
+      showToast('تم حفظ السلفة وترحيل القيد بنجاح ✅', 'success');
       setIsModalOpen(false);
       setFormData({ 
         employeeId: '', 
@@ -394,54 +394,54 @@ const EmployeeAdvances = () => {
 
     } catch (error) {
       logger.error(error);
-      showToast('Ø­Ø¯Ø« Ø®Ø·Ø£: ' + error.message, 'error');
+      showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
       setSaving(false);
     }
   };
 
-  // Ø­Ù…Ø§ÙŠØ© Ø§Ù„ØµÙØ­Ø© Ù…Ù† Ù…Ø³ØªØ®Ø¯Ù… Ø§Ù„Ø¯ÙŠÙ…Ùˆ
+  // حماية الصفحة من مستخدم الديمو
   if (currentUser?.role === 'demo') {
     return (
       <div className="flex flex-col items-center justify-center h-96 text-slate-500 bg-white rounded-3xl border border-slate-200 shadow-sm">
         <Banknote size={64} className="mb-4 text-slate-300" />
-        <h2 className="text-xl font-bold text-slate-700">Ø³Ù„Ù Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ† ØºÙŠØ± Ù…ØªØ§Ø­Ø©</h2>
-        <p className="text-sm mt-2">Ù„Ø§ ÙŠÙ…ÙƒÙ† Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø³Ù„Ù ÙˆØ§Ù„Ù‚Ø±ÙˆØ¶ ÙÙŠ Ø§Ù„Ù†Ø³Ø®Ø© Ø§Ù„ØªØ¬Ø±ÙŠØ¨ÙŠØ©.</p>
+        <h2 className="text-xl font-bold text-slate-700">سلف الموظفين غير متاحة</h2>
+        <p className="text-sm mt-2">لا يمكن إدارة السلف والقروض في النسخة التجريبية.</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-6 animate-in fade-in" dir="rtl">
-      {/* Ø§Ù„ØªØ±ÙˆÙŠØ³Ø© Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ© */}
+      {/* الترويسة الرئيسية */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div>
           <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <Banknote className="text-blue-600" /> Ø³Ù„Ù Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ†
+            <Banknote className="text-blue-600" /> سلف الموظفين
           </h2>
           <p className="text-slate-500 text-sm mt-0.5">
-            Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø³Ù„Ù Ø§Ù„Ø´Ø®ØµÙŠØ©ØŒ ØµØ±Ù Ø§Ù„Ù†Ù‚Ø¯ÙŠØ©ØŒ ÙˆØ§Ù„Ù…ØªØ§Ø¨Ø¹Ø© ÙˆØ§Ù„Ø®ØµÙ… Ù…Ù† Ø§Ù„Ø±ÙˆØ§ØªØ¨
+            إدارة السلف الشخصية، صرف النقدية، والمتابعة والخصم من الرواتب
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <button 
             onClick={handleExportExcel}
             className="bg-emerald-600 text-white px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-emerald-700 shadow-sm active:scale-95 transition-all"
-            title="ØªØµØ¯ÙŠØ± Ø§Ù„Ø³Ù„Ù Ø¥Ù„Ù‰ Ù…Ù„Ù Excel"
+            title="تصدير السلف إلى ملف Excel"
           >
             <FileSpreadsheet size={17} />
-            <span>ØªØµØ¯ÙŠØ± Excel</span>
+            <span>تصدير Excel</span>
           </button>
           <button 
             onClick={handleOpenModal} 
             className="bg-blue-600 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-blue-700 shadow-sm active:scale-95 transition-all"
           >
-            <Plus size={18} /> ØªØ³Ø¬ÙŠÙ„ Ø³Ù„ÙØ© Ø¬Ø¯ÙŠØ¯Ø©
+            <Plus size={18} /> تسجيل سلفة جديدة
           </button>
         </div>
       </div>
 
-      {/* Ø´Ø±ÙŠØ· Ø§Ù„Ø¨Ø­Ø« ÙˆÙÙ„ØªØ±Ø© Ø§Ù„Ø­Ø§Ù„Ø© ÙˆØ§Ù„Ø®Ø²ÙŠÙ†Ø© */}
+      {/* شريط البحث وفلترة الحالة والخزينة */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">
         <div className="relative flex-1 w-full">
           <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={17} />
@@ -449,12 +449,12 @@ const EmployeeAdvances = () => {
             type="text"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
-            placeholder="Ø§Ù„Ø¨Ø­Ø« Ø¨Ø§Ø³Ù… Ø§Ù„Ù…ÙˆØ¸ÙØŒ Ø§Ù„Ù‚Ø³Ù…ØŒ Ø§Ù„Ø®Ø²ÙŠÙ†Ø©ØŒ Ø§Ù„ÙˆØ¸ÙŠÙØ©ØŒ Ø£Ùˆ Ø§Ù„Ù…Ù„Ø§Ø­Ø¸Ø§Øª..."
+            placeholder="البحث باسم الموظف، القسم، الخزينة، الوظيفة، أو الملاحظات..."
             className="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 outline-none focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition-all"
           />
         </div>
         <div className="flex items-center gap-2 w-full md:w-auto flex-wrap">
-          {/* ÙÙ„ØªØ± Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø§Ù„Ù…Ù†ØµØ±Ù Ù…Ù†Ù‡Ø§ */}
+          {/* فلتر الخزينة المنصرف منها */}
           {treasuryAccounts.length > 0 && (
             <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-700">
               <Wallet size={14} className="text-slate-500 mr-1.5 shrink-0" />
@@ -463,7 +463,7 @@ const EmployeeAdvances = () => {
                 onChange={e => setTreasuryFilter(e.target.value)}
                 className="bg-transparent outline-none text-xs font-bold text-slate-700 cursor-pointer pr-1"
               >
-                <option value="all">ÙƒØ§ÙØ© Ø§Ù„Ø®Ø²Ù† ({advances.length})</option>
+                <option value="all">كافة الخزن ({advances.length})</option>
                 {treasuryAccounts.map(acc => {
                   const count = advances.filter(a => 
                     a.treasury_account_id === acc.id || 
@@ -479,43 +479,43 @@ const EmployeeAdvances = () => {
             </div>
           )}
 
-          {/* Ø£Ø²Ø±Ø§Ø± ÙÙ„ØªØ±Ø© Ø§Ù„Ø­Ø§Ù„Ø© */}
+          {/* أزرار فلترة الحالة */}
           <div className="flex items-center bg-slate-100 p-1 rounded-xl text-xs font-bold text-slate-600 w-full md:w-auto justify-center">
             <button
               onClick={() => setStatusFilter('all')}
               className={`px-3 py-1.5 rounded-lg transition-all ${statusFilter === 'all' ? 'bg-white text-blue-600 shadow-xs font-black' : 'hover:text-slate-800'}`}
             >
-              Ø§Ù„ÙƒÙ„ ({advances.length})
+              الكل ({advances.length})
             </button>
             <button
               onClick={() => setStatusFilter('paid')}
               className={`px-3 py-1.5 rounded-lg transition-all ${statusFilter === 'paid' ? 'bg-white text-emerald-600 shadow-xs font-black' : 'hover:text-slate-800'}`}
             >
-              Ù‚Ø§Ø¦Ù…Ø© ({advances.filter(a => a.status === 'paid').length})
+              قائمة ({advances.filter(a => a.status === 'paid').length})
             </button>
             <button
               onClick={() => setStatusFilter('deducted')}
               className={`px-3 py-1.5 rounded-lg transition-all ${statusFilter === 'deducted' ? 'bg-white text-blue-700 shadow-xs font-black' : 'hover:text-slate-800'}`}
             >
-              Ù…Ø®ØµÙˆÙ…Ø© ({advances.filter(a => a.status === 'deducted').length})
+              مخصومة ({advances.filter(a => a.status === 'deducted').length})
             </button>
           </div>
         </div>
       </div>
 
-      {/* Ø¬Ø¯ÙˆÙ„ Ø§Ù„Ø³Ù„Ù Ø§Ù„Ù…Ø³Ø¬Ù„Ø© */}
+      {/* جدول السلف المسجلة */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-right">
             <thead className="bg-slate-50 text-slate-600 font-bold text-xs uppercase tracking-wider border-b border-slate-200">
               <tr>
-                <th className="p-4">Ø§Ù„Ù…ÙˆØ¸Ù</th>
-                <th className="p-4">Ø§Ù„Ù‚Ø³Ù… / Ø§Ù„ÙˆØ¸ÙŠÙØ©</th>
-                <th className="p-4">ØªØ§Ø±ÙŠØ® Ø§Ù„Ø·Ù„Ø¨</th>
-                <th className="p-4">Ø§Ù„Ù…Ø¨Ù„Øº</th>
-                <th className="p-4">Ø§Ù„Ø®Ø²ÙŠÙ†Ø© Ø§Ù„Ù…Ù†ØµØ±Ù Ù…Ù†Ù‡Ø§</th>
-                <th className="p-4">Ø§Ù„Ø­Ø§Ù„Ø©</th>
-                <th className="p-4">Ù…Ù„Ø§Ø­Ø¸Ø§Øª</th>
+                <th className="p-4">الموظف</th>
+                <th className="p-4">القسم / الوظيفة</th>
+                <th className="p-4">تاريخ الطلب</th>
+                <th className="p-4">المبلغ</th>
+                <th className="p-4">الخزينة المنصرف منها</th>
+                <th className="p-4">الحالة</th>
+                <th className="p-4">ملاحظات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
@@ -524,9 +524,9 @@ const EmployeeAdvances = () => {
                   <td className="p-4">
                     <div className="font-bold text-slate-800 flex items-center gap-2">
                       <div className="w-7 h-7 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center text-xs font-bold shrink-0">
-                        {(adv.employees?.full_name || 'Ù…')[0]}
+                        {(adv.employees?.full_name || 'م')[0]}
                       </div>
-                      <span>{adv.employees?.full_name || 'Ù…ÙˆØ¸Ù ØºÙŠØ± Ù…Ø¹Ø±Ù'}</span>
+                      <span>{adv.employees?.full_name || 'موظف غير معرف'}</span>
                     </div>
                   </td>
                   <td className="p-4 text-xs text-slate-500">
@@ -542,7 +542,7 @@ const EmployeeAdvances = () => {
                   </td>
                   <td className="p-4 text-slate-600">{adv.request_date || adv.advance_date}</td>
                   <td className="p-4 font-bold text-blue-600">
-                    {Number(adv.amount).toLocaleString()} Ø¬.Ù…
+                    {Number(adv.amount).toLocaleString()} ج.م
                   </td>
                   <td className="p-4">
                     <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200/60 text-slate-700 text-xs font-bold">
@@ -560,7 +560,7 @@ const EmployeeAdvances = () => {
                         ? 'bg-blue-100 text-blue-700'
                         : 'bg-amber-100 text-amber-700'
                     }`}>
-                      {adv.status === 'paid' ? 'ØªÙ… Ø§Ù„ØµØ±Ù (Ù‚Ø§Ø¦Ù…Ø©)' : adv.status === 'deducted' ? 'ØªÙ… Ø§Ù„Ø®ØµÙ… Ù…Ù† Ø§Ù„Ø±Ø§ØªØ¨' : adv.status}
+                      {adv.status === 'paid' ? 'تم الصرف (قائمة)' : adv.status === 'deducted' ? 'تم الخصم من الراتب' : adv.status}
                     </span>
                   </td>
                   <td className="p-4 text-slate-500 text-xs max-w-xs truncate">{adv.notes || '-'}</td>
@@ -570,8 +570,8 @@ const EmployeeAdvances = () => {
                 <tr>
                   <td colSpan={7} className="p-12 text-center text-slate-400">
                     <Banknote size={40} className="mx-auto mb-2 text-slate-300" />
-                    <p className="font-bold">Ù„Ø§ ØªÙˆØ¬Ø¯ Ø³Ù„Ù Ù…Ø·Ø§Ø¨Ù‚Ø© Ù„Ù„Ø¨Ø­Ø« Ø£Ùˆ Ø§Ù„ØªØµÙÙŠØ© Ø§Ù„Ø­Ø§Ù„ÙŠØ©</p>
-                    <p className="text-xs text-slate-400 mt-1">Ø¬Ø±Ù‘Ø¨ ØªØºÙŠÙŠØ± Ø¹Ø¨Ø§Ø±Ø© Ø§Ù„Ø¨Ø­Ø« Ø£Ùˆ Ø§Ø®ØªÙŠØ§Ø± Ø®Ø²ÙŠÙ†Ø© Ø£Ùˆ Ø­Ø§Ù„Ø© Ø³Ù„Ù Ù…Ø®ØªÙ„ÙØ©</p>
+                    <p className="font-bold">لا توجد سلف مطابقة للبحث أو التصفية الحالية</p>
+                    <p className="text-xs text-slate-400 mt-1">جرّب تغيير عبارة البحث أو اختيار خزينة أو حالة سلف مختلفة</p>
                   </td>
                 </tr>
               )}
@@ -580,20 +580,20 @@ const EmployeeAdvances = () => {
         </div>
       </div>
 
-      {/* Ù…ÙˆØ¯Ø§Ù„ ØªØ³Ø¬ÙŠÙ„ Ø³Ù„ÙØ© Ø¬Ø¯ÙŠØ¯Ø© ÙØ§Ø¦Ù‚ Ø§Ù„Ø°ÙƒØ§Ø¡ ÙˆØ§Ù„Ø³Ø±Ø¹Ø© */}
+      {/* مودال تسجيل سلفة جديدة فائق الذكاء والسرعة */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden animate-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
             
-            {/* Ø±Ø£Ø³ Ø§Ù„Ù…ÙˆØ¯Ø§Ù„ */}
+            {/* رأس المودال */}
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <div className="flex items-center gap-2">
                 <div className="p-2 bg-blue-100 text-blue-600 rounded-xl">
                   <Banknote size={22} />
                 </div>
                 <div>
-                  <h3 className="font-bold text-lg text-slate-800">ØªØ³Ø¬ÙŠÙ„ Ø³Ù„ÙØ© Ø¬Ø¯ÙŠØ¯Ø©</h3>
-                  <p className="text-xs text-slate-400">Ø§Ø®ØªÙŠØ§Ø± Ø°ÙƒÙŠ Ù„Ù„Ù…ÙˆØ¸Ù Ù…Ø¹ ÙØ­Øµ Ø§Ù„Ø±ØµÙŠØ¯ ÙˆØ§Ù„Ø±Ø§ØªØ¨</p>
+                  <h3 className="font-bold text-lg text-slate-800">تسجيل سلفة جديدة</h3>
+                  <p className="text-xs text-slate-400">اختيار ذكي للموظف مع فحص الرصيد والراتب</p>
                 </div>
               </div>
               <button 
@@ -605,12 +605,12 @@ const EmployeeAdvances = () => {
               </button>
             </div>
 
-            {/* Ù…Ø­ØªÙˆÙ‰ Ø§Ù„Ù†Ù…ÙˆØ°Ø¬ */}
+            {/* محتوى النموذج */}
             <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-6 space-y-4">
               
-              {/* 1. Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ù…ÙˆØ¸ÙÙŠÙ† Ø§Ù„Ø°ÙƒÙŠØ© ÙˆØ§Ù„Ø³Ø±ÙŠØ¹Ø© */}
+              {/* 1. قائمة الموظفين الذكية والسريعة */}
               <EmployeeSearchSelect
-                label="Ø§Ù„Ù…ÙˆØ¸Ù Ø§Ù„Ù…Ø³ØªÙÙŠØ¯"
+                label="الموظف المستفيد"
                 value={formData.employeeId}
                 onChange={(empId) => {
                   setFormData(prev => ({ ...prev, employeeId: empId }));
@@ -618,78 +618,78 @@ const EmployeeAdvances = () => {
                 employees={enrichedEmployees}
                 required
                 autoFocus
-                placeholder="Ø§Ø¨Ø­Ø« Ø¨Ø§Ù„Ø§Ø³Ù…ØŒ Ø§Ù„Ù‚Ø³Ù…ØŒ Ø§Ù„ÙˆØ¸ÙŠÙØ©ØŒ Ø£Ùˆ Ø§Ù„Ù‡Ø§ØªÙ..."
+                placeholder="ابحث بالاسم، القسم، الوظيفة، أو الهاتف..."
               />
 
-              {/* 2. Ø¨Ø·Ø§Ù‚Ø© Ù…Ø¹Ù„ÙˆÙ…Ø§Øª ÙˆÙ…Ø¤Ø´Ø±Ø§Øª Ø§Ù„Ù…ÙˆØ¸Ù Ø§Ù„Ù…Ø§Ù„ÙŠØ© Ø§Ù„Ø°ÙƒÙŠØ© (ØªØ¸Ù‡Ø± ÙÙˆØ± Ø§Ø®ØªÙŠØ§Ø± Ø§Ù„Ù…ÙˆØ¸Ù) */}
+              {/* 2. بطاقة معلومات ومؤشرات الموظف المالية الذكية (تظهر فور اختيار الموظف) */}
               {selectedEmployee && (
                 <div className="bg-gradient-to-br from-slate-50 to-blue-50/30 border border-blue-100 rounded-2xl p-4 space-y-3 animate-in fade-in duration-200">
                   <div className="flex items-center justify-between pb-2 border-b border-blue-100/60">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-full bg-blue-600 text-white font-bold flex items-center justify-center text-xs">
-                        {(selectedEmployee.full_name || 'Ù…')[0]}
+                        {(selectedEmployee.full_name || 'م')[0]}
                       </div>
                       <div>
                         <div className="text-sm font-bold text-slate-800">{selectedEmployee.full_name}</div>
                         <div className="text-xs text-slate-500 flex items-center gap-2">
                           {selectedEmployee.department && <span>{selectedEmployee.department}</span>}
-                          {selectedEmployee.department && selectedEmployee.position && <span>â€¢</span>}
+                          {selectedEmployee.department && selectedEmployee.position && <span>•</span>}
                           {selectedEmployee.position && <span>{selectedEmployee.position}</span>}
                         </div>
                       </div>
                     </div>
                     <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-bold flex items-center gap-1">
-                      <UserCheck size={12} /> Ù…ÙˆØ¸Ù Ù†Ø´Ø·
+                      <UserCheck size={12} /> موظف نشط
                     </span>
                   </div>
 
-                  {/* Ø´Ø¨ÙƒØ© Ø§Ù„Ù…Ø¤Ø´Ø±Ø§Øª Ø§Ù„Ù…Ø§Ù„ÙŠØ© Ø§Ù„ÙÙˆØ±ÙŠØ© */}
+                  {/* شبكة المؤشرات المالية الفورية */}
                   <div className="grid grid-cols-3 gap-2 text-center">
                     <div className="bg-white p-2.5 rounded-xl border border-slate-100 shadow-2xs">
-                      <div className="text-[11px] text-slate-500 font-medium mb-0.5">Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ</div>
+                      <div className="text-[11px] text-slate-500 font-medium mb-0.5">الراتب الأساسي</div>
                       <div className="text-sm font-bold text-emerald-700">
                         {(selectedEmployee.basic_salary ?? 0) > 0 
-                          ? `${Number(selectedEmployee.basic_salary).toLocaleString()} Ø¬.Ù…` 
-                          : 'ØºÙŠØ± Ù…Ø³Ø¬Ù„'}
+                          ? `${Number(selectedEmployee.basic_salary).toLocaleString()} ج.م` 
+                          : 'غير مسجل'}
                       </div>
                     </div>
 
                     <div className="bg-white p-2.5 rounded-xl border border-slate-100 shadow-2xs">
-                      <div className="text-[11px] text-slate-500 font-medium mb-0.5">Ø³Ù„Ù Ù‚Ø§Ø¦Ù…Ø© ØºÙŠØ± Ù…Ø³ÙˆØ§Ø©</div>
+                      <div className="text-[11px] text-slate-500 font-medium mb-0.5">سلف قائمة غير مسواة</div>
                       <div className={`text-sm font-bold ${
                         (selectedEmployee.outstanding_advances ?? 0) > 0 ? 'text-amber-600' : 'text-slate-600'
                       }`}>
-                        {Number(selectedEmployee.outstanding_advances ?? 0).toLocaleString()} Ø¬.Ù…
+                        {Number(selectedEmployee.outstanding_advances ?? 0).toLocaleString()} ج.م
                       </div>
                     </div>
 
                     <div className="bg-white p-2.5 rounded-xl border border-slate-100 shadow-2xs">
-                      <div className="text-[11px] text-slate-500 font-medium mb-0.5">Ø³Ù„Ù Ù‡Ø°Ø§ Ø§Ù„Ø´Ù‡Ø±</div>
+                      <div className="text-[11px] text-slate-500 font-medium mb-0.5">سلف هذا الشهر</div>
                       <div className="text-sm font-bold text-blue-600">
-                        {Number(selectedEmployee.month_advances ?? 0).toLocaleString()} Ø¬.Ù…
+                        {Number(selectedEmployee.month_advances ?? 0).toLocaleString()} ج.م
                       </div>
                     </div>
                   </div>
 
-                  {/* ØªÙ†Ø¨ÙŠÙ‡ Ø°ÙƒÙŠ Ø¥Ø°Ø§ ÙƒØ§Ù† Ù„Ø¯ÙŠÙ‡ Ø³Ù„Ù Ù…Ø¹Ù„Ù‚Ø© */}
+                  {/* تنبيه ذكي إذا كان لديه سلف معلقة */}
                   {(selectedEmployee.outstanding_advances ?? 0) > 0 && (
                     <div className="flex items-start gap-2 p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
                       <AlertCircle size={15} className="text-amber-600 shrink-0 mt-0.5" />
                       <div>
-                        <strong>ØªÙ†Ø¨ÙŠÙ‡ Ø¥Ø¯Ø§Ø±ÙŠ:</strong> Ø§Ù„Ù…ÙˆØ¸Ù Ù„Ø¯ÙŠÙ‡ Ø³Ù„ÙØ© Ù‚Ø§Ø¦Ù…Ø© ØºÙŠØ± Ù…Ø®ØµÙˆÙ…Ø© Ø¨Ù‚ÙŠÙ…Ø©{' '}
-                        <strong>{Number(selectedEmployee.outstanding_advances).toLocaleString()} Ø¬.Ù…</strong>.
+                        <strong>تنبيه إداري:</strong> الموظف لديه سلفة قائمة غير مخصومة بقيمة{' '}
+                        <strong>{Number(selectedEmployee.outstanding_advances).toLocaleString()} ج.م</strong>.
                       </div>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* 3. Ø­Ù‚Ù„ Ù…Ø¨Ù„Øº Ø§Ù„Ø³Ù„ÙØ© Ù…Ø¹ Ø§Ù„Ù…Ø³Ø§Ø¹Ø¯ Ø§Ù„Ø°ÙƒÙŠ */}
+              {/* 3. حقل مبلغ السلفة مع المساعد الذكي */}
               <div>
                 <div className="flex justify-between items-center mb-1">
                   <label className="block text-sm font-bold text-slate-700 flex items-center gap-1.5">
                     <DollarSign size={15} className="text-blue-600" />
-                    <span>Ù…Ø¨Ù„Øº Ø§Ù„Ø³Ù„ÙØ© Ø§Ù„Ù…Ø·Ù„ÙˆØ¨Ø©</span>
+                    <span>مبلغ السلفة المطلوبة</span>
                     <span className="text-red-500">*</span>
                   </label>
                   {advancePercentage > 0 && (
@@ -700,7 +700,7 @@ const EmployeeAdvances = () => {
                         ? 'bg-amber-100 text-amber-700' 
                         : 'bg-blue-100 text-blue-700'
                     }`}>
-                      {advancePercentage}% Ù…Ù† Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ
+                      {advancePercentage}% من الراتب الأساسي
                     </span>
                   )}
                 </div>
@@ -710,21 +710,21 @@ const EmployeeAdvances = () => {
                     type="number" 
                     required 
                     min="1" 
-                    placeholder="Ø£Ø¯Ø®Ù„ Ø§Ù„Ù…Ø¨Ù„Øº..."
+                    placeholder="أدخل المبلغ..."
                     className="w-full border border-slate-200 rounded-xl p-2.5 text-slate-800 font-bold text-base focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all shadow-xs" 
                     value={formData.amount || ''} 
                     onChange={e => setFormData({ ...formData, amount: parseFloat(e.target.value) || 0 })} 
                   />
                   <span className="absolute left-3 top-3 text-xs font-bold text-slate-400 pointer-events-none">
-                    Ø¬.Ù…
+                    ج.م
                   </span>
                 </div>
 
-                {/* Ø£Ø²Ø±Ø§Ø± Ø§Ù„Ù…Ø¨Ø§Ù„Øº Ø§Ù„Ø°ÙƒÙŠØ© Ø§Ù„Ø³Ø±ÙŠØ¹Ø© */}
+                {/* أزرار المبالغ الذكية السريعة */}
                 {selectedEmployee && (selectedEmployee.basic_salary ?? 0) > 0 && (
                   <div className="mt-2 flex flex-wrap items-center gap-1.5">
                     <span className="text-xs text-slate-400 font-medium flex items-center gap-1 ml-1">
-                      <Sparkles size={12} className="text-blue-500" /> Ù…Ø¨Ø§Ù„Øº Ø³Ø±ÙŠØ¹Ø©:
+                      <Sparkles size={12} className="text-blue-500" /> مبالغ سريعة:
                     </span>
                     <button
                       type="button"
@@ -745,7 +745,7 @@ const EmployeeAdvances = () => {
                       onClick={() => setQuickPercentage(100)}
                       className="px-2 py-1 bg-slate-100 hover:bg-blue-50 hover:text-blue-600 text-slate-600 rounded-lg text-xs font-bold transition-colors"
                     >
-                      Ø±Ø§ØªØ¨ ÙƒØ§Ù…Ù„ (100%)
+                      راتب كامل (100%)
                     </button>
                     <button
                       type="button"
@@ -764,23 +764,23 @@ const EmployeeAdvances = () => {
                   </div>
                 )}
 
-                {/* ØªØ­Ø°ÙŠØ± ØªØ¬Ø§ÙˆØ² Ø§Ù„Ø±Ø§ØªØ¨ */}
+                {/* تحذير تجاوز الراتب */}
                 {selectedEmployee && (selectedEmployee.basic_salary ?? 0) > 0 && formData.amount > (selectedEmployee.basic_salary || 0) && (
                   <div className="mt-2 p-2.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-800 flex items-start gap-2">
                     <AlertTriangle size={15} className="text-rose-600 shrink-0 mt-0.5" />
                     <div>
-                      <strong>ØªØ­Ø°ÙŠØ± ØªØ¬Ø§ÙˆØ² Ø§Ù„Ø±Ø§ØªØ¨:</strong> Ù…Ø¨Ù„Øº Ø§Ù„Ø³Ù„ÙØ© Ø§Ù„Ù…Ø·Ù„ÙˆØ¨ ({formData.amount.toLocaleString()} Ø¬.Ù…) Ø£ÙƒØ¨Ø± Ù…Ù† Ø§Ù„Ø±Ø§ØªØ¨ Ø§Ù„Ø£Ø³Ø§Ø³ÙŠ Ù„Ù„Ù…ÙˆØ¸Ù ({Number(selectedEmployee.basic_salary).toLocaleString()} Ø¬.Ù…).
+                      <strong>تحذير تجاوز الراتب:</strong> مبلغ السلفة المطلوب ({formData.amount.toLocaleString()} ج.م) أكبر من الراتب الأساسي للموظف ({Number(selectedEmployee.basic_salary).toLocaleString()} ج.م).
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* 4. Ø§Ù„Ø­Ù‚ÙˆÙ„ Ø§Ù„Ù…Ø§Ù„ÙŠØ©: ØªØ§Ø±ÙŠØ® Ø§Ù„ØµØ±Ù ÙˆØ­Ø³Ø§Ø¨ Ø§Ù„Ø®Ø²ÙŠÙ†Ø© */}
+              {/* 4. الحقول المالية: تاريخ الصرف وحساب الخزينة */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1 flex items-center gap-1.5">
                     <Calendar size={15} className="text-blue-600" />
-                    <span>ØªØ§Ø±ÙŠØ® Ø§Ù„ØµØ±Ù</span>
+                    <span>تاريخ الصرف</span>
                     <span className="text-red-500">*</span>
                   </label>
                   <input 
@@ -795,7 +795,7 @@ const EmployeeAdvances = () => {
                 <div>
                   <label className="block text-sm font-bold text-slate-700 mb-1 flex items-center gap-1.5">
                     <Wallet size={15} className="text-blue-600" />
-                    <span>ØµØ±Ù Ù…Ù† (Ø§Ù„Ø®Ø²ÙŠÙ†Ø©/Ø§Ù„Ø¨Ù†Ùƒ)</span>
+                    <span>صرف من (الخزينة/البنك)</span>
                     <span className="text-red-500">*</span>
                   </label>
                   <select 
@@ -804,7 +804,7 @@ const EmployeeAdvances = () => {
                     value={formData.treasuryId} 
                     onChange={e => setFormData({ ...formData, treasuryId: e.target.value })}
                   >
-                    <option value="">Ø§Ø®ØªØ± Ø§Ù„Ø­Ø³Ø§Ø¨...</option>
+                    <option value="">اختر الحساب...</option>
                     {treasuryAccounts.map(acc => (
                       <option key={acc.id} value={acc.id}>{acc.name}</option>
                     ))}
@@ -812,26 +812,26 @@ const EmployeeAdvances = () => {
                 </div>
               </div>
 
-              {/* 5. Ù…Ù„Ø§Ø­Ø¸Ø§Øª */}
+              {/* 5. ملاحظات */}
               <div>
-                <label className="block text-sm font-bold text-slate-700 mb-1">Ø³Ø¨Ø¨ Ø§Ù„Ø³Ù„ÙØ© / Ù…Ù„Ø§Ø­Ø¸Ø§Øª</label>
+                <label className="block text-sm font-bold text-slate-700 mb-1">سبب السلفة / ملاحظات</label>
                 <textarea 
                   className="w-full border border-slate-200 rounded-xl p-2.5 text-sm text-slate-800 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none transition-all shadow-xs" 
                   rows={2} 
-                  placeholder="Ø³Ø¨Ø¨ Ø·Ù„Ø¨ Ø§Ù„Ø³Ù„ÙØ©ØŒ Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„Ø§Ø³ØªÙ‚Ø·Ø§Ø¹ØŒ Ø£Ùˆ Ø£ÙŠ ØªÙØ§ØµÙŠÙ„ Ø¥Ø¶Ø§ÙÙŠØ©..."
+                  placeholder="سبب طلب السلفة، طريقة الاستقطاع، أو أي تفاصيل إضافية..."
                   value={formData.notes} 
                   onChange={e => setFormData({ ...formData, notes: e.target.value })}
                 />
               </div>
 
-              {/* Ø£Ø²Ø±Ø§Ø± Ø§Ù„Ø­ÙØ¸ ÙˆØ§Ù„Ø¥Ù„ØºØ§Ø¡ */}
+              {/* أزرار الحفظ والإلغاء */}
               <div className="flex gap-3 pt-3 border-t border-slate-100">
                 <button 
                   type="button" 
                   onClick={() => setIsModalOpen(false)} 
                   className="flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-colors"
                 >
-                  Ø¥Ù„ØºØ§Ø¡
+                  إلغاء
                 </button>
                 <button 
                   type="submit" 
@@ -839,7 +839,7 @@ const EmployeeAdvances = () => {
                   className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 flex justify-center items-center gap-2 shadow-sm transition-all"
                 >
                   {saving ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
-                  <span>Ø­ÙØ¸ ÙˆØµØ±Ù Ø§Ù„Ø³Ù„ÙØ©</span>
+                  <span>حفظ وصرف السلفة</span>
                 </button>
               </div>
 

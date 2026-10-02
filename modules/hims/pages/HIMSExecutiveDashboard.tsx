@@ -1,4 +1,4 @@
-﻿import { logger } from '../../../utils/logger';
+import { logger } from '../../../utils/logger';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Row, Col, Statistic, Progress, Typography, Tag, Spin, message, Button, Space } from 'antd';
@@ -16,23 +16,23 @@ export const HIMSExecutiveDashboard: React.FC = () => {
     pendingLabs: 14,
     criticalCases: 3,
     revenueByDept: [
-      { name: 'Ø§Ù„Ø¹ÙŠØ§Ø¯Ø§Øª Ø§Ù„Ø®Ø§Ø±Ø¬ÙŠØ©', value: 18500 },
-      { name: 'Ø§Ù„ØµÙŠØ¯Ù„ÙŠØ© Ø§Ù„Ù…Ø±ÙƒØ²ÙŠØ©', value: 14200 },
-      { name: 'Ø§Ù„Ø£Ø´Ø¹Ø© ÙˆØ§Ù„Ù…Ø®ØªØ¨Ø±', value: 9800 },
-      { name: 'Ø§Ù„Ø¹Ù…Ù„ÙŠØ§Øª ÙˆØ§Ù„Ø¥Ù‚Ø§Ù…Ø©', value: 6000 }
+      { name: 'العيادات الخارجية', value: 18500 },
+      { name: 'الصيدلية المركزية', value: 14200 },
+      { name: 'الأشعة والمختبر', value: 9800 },
+      { name: 'العمليات والإقامة', value: 6000 }
     ],
     cashflowForecast: {
       forecast_data: Array.from({ length: 30 }, (_, i) => ({
-        day: `ÙŠÙˆÙ… ${i + 1}`,
+        day: `يوم ${i + 1}`,
         expected_balance: Math.round(150000 + (i * 4500) + (Math.sin(i) * 12000))
       }))
     } as any
   });
   const [loading, setLoading] = useState(false);
   const [costDistribution, setCostDistribution] = useState<any[]>([
-    { name: 'Ø§Ù„Ø£Ø¯ÙˆÙŠØ©', value: 35 },
-    { name: 'Ø§Ù„Ø®Ø¯Ù…Ø§Øª Ø§Ù„Ø·Ø¨ÙŠØ©', value: 45 },
-    { name: 'Ø§Ù„Ø¥Ù‚Ø§Ù…Ø©', value: 20 }
+    { name: 'الأدوية', value: 35 },
+    { name: 'الخدمات الطبية', value: 45 },
+    { name: 'الإقامة', value: 20 }
   ]);
 
   const fetchDashboardData = async () => {
@@ -48,7 +48,7 @@ export const HIMSExecutiveDashboard: React.FC = () => {
         logger.warn('RPC failed:', err);
       }
 
-      // Ø­Ø³Ø§Ø¨ Ø°Ù…Ù… Ø§Ù„ØªØ£Ù…ÙŠÙ† Ø¨Ø¯Ù‚Ø© Ù…Ù† Ø§Ù„Ù…Ø·Ø§Ù„Ø¨Ø§Øª Ø§Ù„Ù…Ø±ÙÙˆØ¹Ø© ÙˆØ§Ù„ÙÙˆØ§ØªÙŠØ± Ø§Ù„Ù…Ø¹Ù„Ù‚Ø©
+      // حساب ذمم التأمين بدقة من المطالبات المرفوعة والفواتير المعلقة
       const { data: claims } = await supabase
         .from('hims_insurance_claims')
         .select('total_claim_amount')
@@ -81,9 +81,9 @@ export const HIMSExecutiveDashboard: React.FC = () => {
         const totalBreakdown = (breakdown.pharmacy || 0) + (breakdown.services || 0) + (breakdown.accommodation || 0);
         if (totalBreakdown > 0) {
           setCostDistribution([
-            { name: 'Ø§Ù„Ø£Ø¯ÙˆÙŠØ©', value: Math.round((breakdown.pharmacy / totalBreakdown) * 100) },
-            { name: 'Ø§Ù„Ø®Ø¯Ù…Ø§Øª Ø§Ù„Ø·Ø¨ÙŠØ©', value: Math.round((breakdown.services / totalBreakdown) * 100) },
-            { name: 'Ø§Ù„Ø¥Ù‚Ø§Ù…Ø©', value: Math.round((breakdown.accommodation / totalBreakdown) * 100) }
+            { name: 'الأدوية', value: Math.round((breakdown.pharmacy / totalBreakdown) * 100) },
+            { name: 'الخدمات الطبية', value: Math.round((breakdown.services / totalBreakdown) * 100) },
+            { name: 'الإقامة', value: Math.round((breakdown.accommodation / totalBreakdown) * 100) }
           ]);
         }
       } else {
@@ -98,17 +98,17 @@ export const HIMSExecutiveDashboard: React.FC = () => {
 
   useEffect(() => { fetchDashboardData(); }, [currentUser?.organization_id]);
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50"><Spin size="large" description="Ø¬Ø§Ø±ÙŠ ØªØ­Ù„ÙŠÙ„ Ù…Ø¤Ø´Ø±Ø§Øª Ø§Ù„Ø£Ø¯Ø§Ø¡..." /></div>;
+  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50"><Spin size="large" description="جاري تحليل مؤشرات الأداء..." /></div>;
 
   return (
     <div className="p-6 bg-slate-50 min-h-screen rtl text-right space-y-6">
       <div className="flex justify-between items-center flex-wrap gap-4">
         <Typography.Title level={2} className="m-0 font-black flex items-center gap-3">
-          <BankOutlined className="text-indigo-600" /> Ù…Ø±ÙƒØ² Ø§Ù„Ø¥Ø¯Ø§Ø±Ø© Ø§Ù„Ø§Ø³ØªØ±Ø§ØªÙŠØ¬ÙŠØ© Ù„Ù„Ù…Ø³ØªØ´ÙÙ‰
+          <BankOutlined className="text-indigo-600" /> مركز الإدارة الاستراتيجية للمستشفى
         </Typography.Title>
         <Space>
-          <Tag color="green" className="px-3 py-1 text-sm rounded-full font-bold">Ù…ÙØ²Ø§Ù…Ù† Ø­ÙŠØ§Ù‹ ðŸŸ¢</Tag>
-          <Button icon={<ReloadOutlined />} onClick={fetchDashboardData} className="rounded-xl font-bold">ØªØ­Ø¯ÙŠØ« Ø§Ù„Ø¨ÙŠØ§Ù†Ø§Øª</Button>
+          <Tag color="green" className="px-3 py-1 text-sm rounded-full font-bold">مُزامن حياً 🟢</Tag>
+          <Button icon={<ReloadOutlined />} onClick={fetchDashboardData} className="rounded-xl font-bold">تحديث البيانات</Button>
         </Space>
       </div>
 
@@ -116,7 +116,7 @@ export const HIMSExecutiveDashboard: React.FC = () => {
         <Col xs={24} sm={12} md={8} lg={4}>
           <Card className="rounded-3xl shadow-sm border-none bg-white">
             <Statistic 
-              title="Ø¥ÙŠØ±Ø§Ø¯Ø§Øª Ø§Ù„ÙŠÙˆÙ…" 
+              title="إيرادات اليوم" 
               value={stats.dailyRevenue} 
               prefix={<DollarOutlined className="text-emerald-500" />} 
               suffix="EGP" 
@@ -127,7 +127,7 @@ export const HIMSExecutiveDashboard: React.FC = () => {
         <Col xs={24} sm={12} md={8} lg={4}>
           <Card className="rounded-3xl shadow-sm border-none bg-white">
             <Statistic 
-              title="Ø°Ù…Ù… Ø§Ù„ØªØ£Ù…ÙŠÙ† Ø§Ù„Ù…Ø¹Ù„Ù‚Ø©" 
+              title="ذمم التأمين المعلقة" 
               value={stats.insuranceReceivables} 
               prefix={<RiseOutlined className="text-blue-500" />} 
               suffix="EGP"
@@ -138,7 +138,7 @@ export const HIMSExecutiveDashboard: React.FC = () => {
         <Col xs={24} sm={12} md={8} lg={4}>
           <Card className="rounded-3xl shadow-sm border-none bg-white">
             <Statistic 
-              title="Ø¥Ø¬Ù…Ø§Ù„ÙŠ Ø§Ù„Ù…Ø±Ø¶Ù‰ Ø§Ù„Ù…Ø³Ø¬Ù„ÙŠÙ†" 
+              title="إجمالي المرضى المسجلين" 
               value={stats.totalPatients} 
               prefix={<UserOutlined className="text-indigo-500" />}
               styles={{ content: { fontWeight: 900, fontSize: '1.4rem' } }}
@@ -147,7 +147,7 @@ export const HIMSExecutiveDashboard: React.FC = () => {
         </Col>
         <Col xs={24} sm={12} md={8} lg={4}>
           <Card className="rounded-3xl shadow-sm border-none bg-white">
-            <Typography.Text className="text-slate-400 block mb-1 text-xs">Ù†Ø³Ø¨Ø© Ø¥Ø´ØºØ§Ù„ Ø§Ù„Ø£Ø³Ø±Ø©</Typography.Text>
+            <Typography.Text className="text-slate-400 block mb-1 text-xs">نسبة إشغال الأسرة</Typography.Text>
             <div className="text-xl font-black text-slate-800 mb-1">{stats.occupancyRate}%</div>
             <Progress percent={stats.occupancyRate} status="active" strokeColor="#6366f1" size={8} showInfo={false} />
           </Card>
@@ -155,7 +155,7 @@ export const HIMSExecutiveDashboard: React.FC = () => {
         <Col xs={24} sm={12} md={8} lg={4}>
           <Card className="rounded-3xl shadow-sm border-none bg-white">
             <Statistic 
-              title="ØªØ­Ø§Ù„ÙŠÙ„ Ø¨Ø§Ù†ØªØ¸Ø§Ø± Ø§Ù„Ù†ØªØ§Ø¦Ø¬" 
+              title="تحاليل بانتظار النتائج" 
               value={stats.pendingLabs} 
               prefix={<ExperimentOutlined className="text-amber-500" />} 
               styles={{ content: { fontWeight: 900, fontSize: '1.4rem' } }}
@@ -165,7 +165,7 @@ export const HIMSExecutiveDashboard: React.FC = () => {
         <Col xs={24} sm={12} md={8} lg={4}>
           <Card className="rounded-3xl shadow-sm border-none bg-rose-50 border-rose-200">
             <Statistic 
-              title="Ø­Ø§Ù„Ø§Øª Ø§Ù„Ø·ÙˆØ§Ø±Ø¦ Ø§Ù„Ø­Ø±Ø¬Ø©" 
+              title="حالات الطوارئ الحرجة" 
               value={stats.criticalCases} 
               prefix={<AlertOutlined className="text-rose-600 animate-pulse" />} 
               styles={{ content: { color: '#e11d48', fontWeight: 900, fontSize: '1.4rem' } }}
@@ -174,13 +174,13 @@ export const HIMSExecutiveDashboard: React.FC = () => {
         </Col>
       </Row>
 
-      {/* ðŸš€ Ù…Ø­Ø±Ùƒ Ø§Ù„ØªÙ†Ø¨Ø¤ Ø¨Ø§Ù„ØªØ¯ÙÙ‚ Ø§Ù„Ù†Ù‚Ø¯ÙŠ Ø§Ù„Ø°ÙƒÙŠ */}
+      {/* 🚀 محرك التنبؤ بالتدفق النقدي الذكي */}
       <Row gutter={[20, 20]}>
         <Col span={24}>
           <Card 
-            title={<b className="text-indigo-700">ðŸ”® Ø§Ù„ØªÙ†Ø¨Ø¤ Ø¨Ø§Ù„ØªØ¯ÙÙ‚ Ø§Ù„Ù†Ù‚Ø¯ÙŠ ÙˆØ§Ù„Ø³ÙŠÙˆÙ„Ø© (30 ÙŠÙˆÙ…Ø§Ù‹ Ø§Ù„Ù‚Ø§Ø¯Ù…Ø©)</b>} 
+            title={<b className="text-indigo-700">🔮 التنبؤ بالتدفق النقدي والسيولة (30 يوماً القادمة)</b>} 
             className="rounded-3xl shadow-md border-none bg-white"
-            extra={<Tag color="purple" className="rounded-full px-3 py-1 font-bold">Ø°ÙƒØ§Ø¡ Ø§ØµØ·Ù†Ø§Ø¹ÙŠ Ù…Ø§Ù„ÙŠ Ù†Ø´Ø· âœ¨</Tag>}
+            extra={<Tag color="purple" className="rounded-full px-3 py-1 font-bold">ذكاء اصطناعي مالي نشط ✨</Tag>}
           >
             <div className="h-72" dir="ltr">
               <ResponsiveContainer width="100%" height="100%">
@@ -192,18 +192,18 @@ export const HIMSExecutiveDashboard: React.FC = () => {
                   <XAxis dataKey="day" tick={{fontSize: 10}} />
                   <YAxis tick={{fontSize: 10}} />
                   <Tooltip labelClassName="font-bold" />
-                  <Area type="monotone" dataKey="expected_balance" stroke="#6366f1" fillOpacity={1} fill="url(#colorCash)" strokeWidth={3} name="Ø§Ù„Ø³ÙŠÙˆÙ„Ø© Ø§Ù„Ù…ØªÙˆÙ‚Ø¹Ø©" />
+                  <Area type="monotone" dataKey="expected_balance" stroke="#6366f1" fillOpacity={1} fill="url(#colorCash)" strokeWidth={3} name="السيولة المتوقعة" />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-            <p className="text-[10px] text-slate-400 mt-4 italic">* ÙŠØªÙ… Ø­Ø³Ø§Ø¨ Ø§Ù„ØªÙˆÙ‚Ø¹Ø§Øª Ø¨Ù†Ø§Ø¡Ù‹ Ø¹Ù„Ù‰ Ù…ØªÙˆØ³Ø· Ø§Ù„ØªØ­ØµÙŠÙ„ Ø§Ù„Ù†Ù‚Ø¯ÙŠ ÙˆÙ…ÙˆØ§Ø¹ÙŠØ¯ Ø§Ø³ØªØ­Ù‚Ø§Ù‚ Ù…Ø·Ø§Ù„Ø¨Ø§Øª Ø´Ø±ÙƒØ§Øª Ø§Ù„ØªØ£Ù…ÙŠÙ†.</p>
+            <p className="text-[10px] text-slate-400 mt-4 italic">* يتم حساب التوقعات بناءً على متوسط التحصيل النقدي ومواعيد استحقاق مطالبات شركات التأمين.</p>
           </Card>
         </Col>
       </Row>
 
       <Row gutter={[20, 20]}>
         <Col xs={24} lg={16}>
-          <Card title={<b className="text-slate-800">ØªØ­Ù„ÙŠÙ„ Ø¥ÙŠØ±Ø§Ø¯Ø§Øª Ø§Ù„Ø£Ù‚Ø³Ø§Ù… Ø§Ù„Ø·Ø¨ÙŠØ©</b>} className="rounded-3xl shadow-sm border-none bg-white">
+          <Card title={<b className="text-slate-800">تحليل إيرادات الأقسام الطبية</b>} className="rounded-3xl shadow-sm border-none bg-white">
              <div className="h-64" dir="ltr">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={stats.revenueByDept || []}>
@@ -211,26 +211,26 @@ export const HIMSExecutiveDashboard: React.FC = () => {
                     <XAxis dataKey="name" tick={{fontSize: 11}} />
                     <YAxis tick={{fontSize: 11}} />
                     <Tooltip />
-                    <Bar dataKey="value" fill="#6366f1" radius={[6, 6, 0, 0]} name="Ø§Ù„Ø¥ÙŠØ±Ø§Ø¯" />
+                    <Bar dataKey="value" fill="#6366f1" radius={[6, 6, 0, 0]} name="الإيراد" />
                   </BarChart>
                 </ResponsiveContainer>
              </div>
           </Card>
         </Col>
         <Col xs={24} lg={8}>
-          <Card title={<b className="text-slate-800">ØªÙˆØ²ÙŠØ¹ Ø§Ù„ØªÙƒØ§Ù„ÙŠÙ ÙˆØ§Ù„Ø¥Ù†ÙØ§Ù‚</b>} className="rounded-3xl shadow-sm border-none bg-white">
+          <Card title={<b className="text-slate-800">توزيع التكاليف والإنفاق</b>} className="rounded-3xl shadow-sm border-none bg-white">
              <div className="space-y-4 pt-2">
                {(() => {
-                 const medsVal = costDistribution.find(d => d.name === 'Ø§Ù„Ø£Ø¯ÙˆÙŠØ©')?.value || 35;
-                 const servVal = costDistribution.find(d => d.name === 'Ø§Ù„Ø®Ø¯Ù…Ø§Øª Ø§Ù„Ø·Ø¨ÙŠØ©')?.value || 45;
-                 const stayVal = costDistribution.find(d => d.name === 'Ø§Ù„Ø¥Ù‚Ø§Ù…Ø©')?.value || 20;
+                 const medsVal = costDistribution.find(d => d.name === 'الأدوية')?.value || 35;
+                 const servVal = costDistribution.find(d => d.name === 'الخدمات الطبية')?.value || 45;
+                 const stayVal = costDistribution.find(d => d.name === 'الإقامة')?.value || 20;
                  return (
                    <>
-                     <div className="flex justify-between font-bold text-sm"><span>Ø§Ù„Ø£Ø¯ÙˆÙŠØ© ÙˆØ§Ù„Ù…Ø³ØªÙ„Ø²Ù…Ø§Øª</span><Tag color="green">{medsVal}%</Tag></div>
+                     <div className="flex justify-between font-bold text-sm"><span>الأدوية والمستلزمات</span><Tag color="green">{medsVal}%</Tag></div>
                      <Progress percent={medsVal} showInfo={false} strokeColor="#10b981" size={10} />
-                     <div className="flex justify-between font-bold text-sm"><span>Ø§Ù„Ø®Ø¯Ù…Ø§Øª Ø§Ù„Ø·Ø¨ÙŠØ© ÙˆØ§Ù„Ø¹Ù…Ù„ÙŠØ§Øª</span><Tag color="blue">{servVal}%</Tag></div>
+                     <div className="flex justify-between font-bold text-sm"><span>الخدمات الطبية والعمليات</span><Tag color="blue">{servVal}%</Tag></div>
                      <Progress percent={servVal} showInfo={false} strokeColor="#3b82f6" size={10} />
-                     <div className="flex justify-between font-bold text-sm"><span>Ø§Ù„Ø¥Ù‚Ø§Ù…Ø© ÙˆØ§Ù„Ø¥Ø¹Ø§Ø´Ø©</span><Tag color="orange">{stayVal}%</Tag></div>
+                     <div className="flex justify-between font-bold text-sm"><span>الإقامة والإعاشة</span><Tag color="orange">{stayVal}%</Tag></div>
                      <Progress percent={stayVal} showInfo={false} strokeColor="#f59e0b" size={10} />
                    </>
                  );
