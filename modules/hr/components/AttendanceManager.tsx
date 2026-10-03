@@ -7,13 +7,15 @@ import * as XLSX from 'xlsx';
 import {
   Clock, CheckCircle2, XCircle, AlertCircle, Plus, Search,
   Filter, FileSpreadsheet, Printer, Users, Upload, UserCheck,
-  Zap, Calendar, X, Edit3, Trash2, ArrowUpDown
+  Zap, Calendar, X, Edit3, Trash2, ArrowUpDown, Building2
 } from 'lucide-react';
+import { hrEnterpriseService, HrShift } from '../../../services/hrEnterpriseService';
 
 interface AttendanceLog {
   id: string;
   employee_id: string;
   employee_name?: string;
+  department?: string;
   log_date: string;
   check_in_time?: string;
   check_out_time?: string;
@@ -25,20 +27,30 @@ interface AttendanceLog {
   created_at: string;
 }
 
+interface EmpOption {
+  id: string;
+  name: string;
+  department?: string;
+  shift_id?: string;
+}
+
 export default function AttendanceManager() {
   const { organization, currentSelectedOrgId, currentUser, employees: contextEmployees } = useAccounting();
   const { showToast } = useToast();
 
-  const [employeesList, setEmployeesList] = useState<{ id: string; name: string }[]>([]);
+  const [employeesList, setEmployeesList] = useState<EmpOption[]>([]);
+  const [shifts, setShifts] = useState<HrShift[]>([]);
   const [logs, setLogs] = useState<AttendanceLog[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [departmentFilter, setDepartmentFilter] = useState('ALL');
 
-  // Modals
+  // Modals & Editing
   const [isNewModalOpen, setIsNewModalOpen] = useState(false);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [editingLogId, setEditingLogId] = useState<string | null>(null);
 
   // Form State
   const [formEmpId, setFormEmpId] = useState('');
@@ -52,30 +64,83 @@ export default function AttendanceManager() {
 
   const orgId = organization?.id || currentSelectedOrgId || currentUser?.organization_id;
 
-  // Auto calculate late and overtime when times change
+  // جلب الورديات
+  useEffect(() => {
+    const loadShifts = async () => {
+      try {
+        const sData = await hrEnterpriseService.getShifts(orgId);
+        setShifts(sData);
+      } catch (e) {
+        logger.warn('Failed to load shifts in attendance:', e);
+      }
+    };
+    if (orgId) loadShifts();
+  }, [orgId]);
+
+  // قائمة الفروع والأقسام الفريدة
+  const departments = useMemo(() => {
+    return Array.from(new Set(employeesList.map(e => e.department?.trim() || '').filter(Boolean))).sort();
+  }, [employeesList]);
+
+  // حساب التأخير والإضافي بناءً على وردية الموظف
+  const calculateShiftDifference = (empId: string, inTime: string, outTime: string) => {
+    const emp = employeesList.find(e => e.id === empId);
+    const empShift = shifts.find(s => s.id === emp?.shift_id) || shifts[0] || {
+      start_time: '09:00:00',
+      end_time: '17:00:00',
+      grace_period_minutes: 15,
+      overtime_start_minutes: 30
+    };
+
+    let late = 0;
+    if (inTime) {
+      const [inH, inM] = inTime.split(':').map(Number);
+      const [shH, shM] = empShift.start_time.split(':').map(Number);
+      const inMinutes = inH * 60 + inM;
+      const shStartMinutes = shH * 60 + shM;
+      const diff = inMinutes - shStartMinutes;
+      late = diff > (empShift.grace_period_minutes ?? 15) ? diff : 0;
+    }
+
+    let ot = 0;
+    if (outTime) {
+      const [outH, outM] = outTime.split(':').map(Number);
+      const [endH, endM] = empShift.end_time.split(':').map(Number);
+      const outMinutes = outH * 60 + outM;
+      const shEndMinutes = endH * 60 + endM;
+      const otDiff = outMinutes - shEndMinutes - (empShift.overtime_start_minutes ?? 30);
+      ot = otDiff > 0 ? Math.round((otDiff / 60) * 10) / 10 : 0;
+    }
+
+    return { late, ot, status: late > 0 ? ('LATE' as const) : ('PRESENT' as const) };
+  };
+
   const handleCheckInChange = (val: string) => {
     setFormCheckIn(val);
-    if (!val) return;
-    const [h, m] = val.split(':').map(Number);
-    const checkInMins = h * 60 + m;
-    const standardStartMins = 9 * 60; // 09:00 AM
-    const late = Math.max(0, checkInMins - standardStartMins);
+    const { late, status } = calculateShiftDifference(formEmpId, val, formCheckOut);
     setFormLateMinutes(late);
-    if (late > 15) {
-      setFormStatus('LATE');
-    } else {
-      setFormStatus('PRESENT');
-    }
+    setFormStatus(status);
   };
 
   const handleCheckOutChange = (val: string) => {
     setFormCheckOut(val);
-    if (!val) return;
-    const [h, m] = val.split(':').map(Number);
-    const checkOutMins = h * 60 + m;
-    const standardEndMins = 17 * 60; // 05:00 PM
-    const otMins = Math.max(0, checkOutMins - standardEndMins);
-    setFormOvertimeHours(Math.round((otMins / 60) * 10) / 10);
+    const { ot } = calculateShiftDifference(formEmpId, formCheckIn, val);
+    setFormOvertimeHours(ot);
+  };
+
+  const handleEmpSelect = (empId: string) => {
+    setFormEmpId(empId);
+    const emp = employeesList.find(e => e.id === empId);
+    const empShift = shifts.find(s => s.id === emp?.shift_id) || shifts[0];
+    if (empShift && !editingLogId) {
+      const defaultIn = empShift.start_time.slice(0, 5);
+      const defaultOut = empShift.end_time.slice(0, 5);
+      setFormCheckIn(defaultIn);
+      setFormCheckOut(defaultOut);
+      setFormLateMinutes(0);
+      setFormOvertimeHours(0);
+      setFormStatus('PRESENT');
+    }
   };
 
   // Fetch Data
@@ -83,13 +148,26 @@ export default function AttendanceManager() {
     if (!orgId) return;
     setIsLoading(true);
     try {
-      // 1. Employees
-      let empList: { id: string; name: string }[] = [];
+      // 1. Employees with department & shift_id
+      let empList: EmpOption[] = [];
       if (contextEmployees && contextEmployees.length > 0) {
-        empList = contextEmployees.map((e: Record<string, any>) => ({ id: e.id, name: e.name || e.full_name || 'موظف' }));
+        empList = contextEmployees.map((e: Record<string, any>) => ({
+          id: e.id,
+          name: e.full_name || e.name || 'موظف',
+          department: e.department || 'الفرع الرئيسي',
+          shift_id: e.shift_id
+        }));
       } else {
-        const { data: eData } = await supabase.from('employees').select('id, name').eq('organization_id', orgId);
-        empList = (eData || []).map((e: Record<string, any>) => ({ id: e.id, name: e.name || 'موظف' }));
+        const { data: eData } = await supabase
+          .from('employees')
+          .select('id, name, full_name, department, shift_id')
+          .eq('organization_id', orgId);
+        empList = (eData || []).map((e: Record<string, any>) => ({
+          id: e.id,
+          name: e.full_name || e.name || 'موظف',
+          department: e.department || 'الفرع الرئيسي',
+          shift_id: e.shift_id
+        }));
       }
       setEmployeesList(empList);
 
@@ -109,10 +187,14 @@ export default function AttendanceManager() {
         logger.warn('hr_attendance_logs table notice:', error.message);
         setLogs([]);
       } else {
-        setLogs((data || []).map((d: Record<string, any>) => ({
-          ...d,
-          employee_name: empList.find(e => e.id === d.employee_id)?.name || 'موظف'
-        })) as AttendanceLog[]);
+        setLogs((data || []).map((d: Record<string, any>) => {
+          const emp = empList.find(e => e.id === d.employee_id);
+          return {
+            ...d,
+            employee_name: emp?.name || 'موظف',
+            department: emp?.department || 'الفرع الرئيسي'
+          };
+        }) as AttendanceLog[]);
       }
     } catch (err) {
       logger.error(err);
@@ -128,10 +210,13 @@ export default function AttendanceManager() {
 
   // Open New Modal
   const handleOpenNew = () => {
-    setFormEmpId(employeesList[0]?.id || '');
-    setFormDate(new Date().toISOString().split('T')[0]);
-    setFormCheckIn('09:00');
-    setFormCheckOut('17:00');
+    setEditingLogId(null);
+    const firstEmp = employeesList[0];
+    const empShift = shifts.find(s => s.id === firstEmp?.shift_id) || shifts[0];
+    setFormEmpId(firstEmp?.id || '');
+    setFormDate(selectedDate || new Date().toISOString().split('T')[0]);
+    setFormCheckIn(empShift?.start_time.slice(0, 5) || '09:00');
+    setFormCheckOut(empShift?.end_time.slice(0, 5) || '17:00');
     setFormLateMinutes(0);
     setFormOvertimeHours(0);
     setFormStatus('PRESENT');
@@ -139,7 +224,21 @@ export default function AttendanceManager() {
     setIsNewModalOpen(true);
   };
 
-  // Save Log
+  // Open Edit Modal
+  const handleEditLog = (log: AttendanceLog) => {
+    setEditingLogId(log.id);
+    setFormEmpId(log.employee_id);
+    setFormDate(log.log_date);
+    setFormCheckIn(log.check_in_time || '09:00');
+    setFormCheckOut(log.check_out_time || '17:00');
+    setFormLateMinutes(log.late_minutes || 0);
+    setFormOvertimeHours(log.overtime_hours || 0);
+    setFormStatus(log.status);
+    setFormNotes(log.notes || '');
+    setIsNewModalOpen(true);
+  };
+
+  // Save Log (Create or Update)
   const handleSaveLog = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formEmpId) {
@@ -157,15 +256,26 @@ export default function AttendanceManager() {
         late_minutes: formLateMinutes,
         overtime_hours: formOvertimeHours,
         status: formStatus,
-        source: 'MANUAL',
         notes: formNotes || null
       };
 
-      const { error } = await supabase.from('hr_attendance_logs').insert(payload);
-      if (error) throw error;
+      if (editingLogId) {
+        const { error } = await supabase
+          .from('hr_attendance_logs')
+          .update(payload)
+          .eq('id', editingLogId);
+        if (error) throw error;
+        showToast('تم تعديل حركة الحضور والانصراف بنجاح ⏱️✏️', 'success');
+      } else {
+        const { error } = await supabase
+          .from('hr_attendance_logs')
+          .insert({ ...payload, source: 'MANUAL' });
+        if (error) throw error;
+        showToast('تم تسجيل حركة الحضور بنجاح ⏱️', 'success');
+      }
 
-      showToast('تم تسجيل حركة الحضور بنجاح ⏱️', 'success');
       setIsNewModalOpen(false);
+      setEditingLogId(null);
       fetchData();
     } catch (err) {
       showToast('فشل حفظ الحضور: ' + err.message, 'error');
@@ -191,7 +301,6 @@ export default function AttendanceManager() {
           return;
         }
 
-        // Map and insert records
         const newRecords: any[] = [];
         for (const r of rows) {
           const empName = r['الاسم'] || r['Employee'] || r['name'] || '';
@@ -233,21 +342,22 @@ export default function AttendanceManager() {
     try {
       const { error } = await supabase.from('hr_attendance_logs').delete().eq('id', id);
       if (error) throw error;
-      showToast('تم حذف السجل', 'success');
+      showToast('تم حذف السجل بنجاح 🗑️', 'success');
       fetchData();
     } catch (err) {
       showToast('فشل الحذف: ' + err.message, 'error');
     }
   };
 
-  // Filtered
+  // Filtered Logs
   const filteredLogs = useMemo(() => {
     return logs.filter(l => {
       const matchSearch = l.employee_name?.toLowerCase().includes(searchTerm.toLowerCase());
       const matchStatus = statusFilter === 'ALL' || l.status === statusFilter;
-      return matchSearch && matchStatus;
+      const matchDept = departmentFilter === 'ALL' || (l.department || '').trim() === departmentFilter.trim();
+      return matchSearch && matchStatus && matchDept;
     });
-  }, [logs, searchTerm, statusFilter]);
+  }, [logs, searchTerm, statusFilter, departmentFilter]);
 
   // KPIs
   const kpis = useMemo(() => {
@@ -281,31 +391,35 @@ export default function AttendanceManager() {
     const rows = filteredLogs.map((l, idx) => ({
       '#': idx + 1,
       'الموظف': l.employee_name,
+      'الفرع / القسم': l.department || 'الفرع الرئيسي',
       'التاريخ': l.log_date,
       'وقت الحضور': l.check_in_time || '---',
       'وقت الانصراف': l.check_out_time || '---',
       'التأخير (دقيقة)': l.late_minutes,
       'العمل الإضافي (ساعة)': l.overtime_hours,
       'الحالة': l.status === 'PRESENT' ? 'حاضر' : l.status === 'LATE' ? 'متأخر' : l.status === 'ABSENT' ? 'غائب' : 'إجازة',
-      'المصدر': l.source === 'BIOMETRIC_DEVICE' ? 'جهاز بصمة' : 'يدوي'
+      'المصدر': l.source === 'BIOMETRIC_DEVICE' ? 'جهاز بصمة' : 'يدوي',
+      'ملاحظات': l.notes || ''
     }));
 
     const ws = XLSX.utils.json_to_sheet(rows);
     ws['!cols'] = [
       { wch: 6 },  // #
       { wch: 25 }, // الموظف
+      { wch: 20 }, // الفرع / القسم
       { wch: 14 }, // التاريخ
       { wch: 14 }, // وقت الحضور
       { wch: 14 }, // وقت الانصراف
       { wch: 16 }, // التأخير (دقيقة)
       { wch: 20 }, // العمل الإضافي (ساعة)
       { wch: 12 }, // الحالة
-      { wch: 15 }  // المصدر
+      { wch: 15 }, // المصدر
+      { wch: 25 }  // ملاحظات
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'سجل الحضور');
     XLSX.writeFile(wb, `سجل_الحضور_والانصراف_${selectedDate}.xlsx`);
-    showToast('تم تصدير سجل الحضور إلى Excel ✅', 'success');
+    showToast('تم تصدير سجل الحضور والانصراف إلى Excel بنجاح ✅', 'success');
   };
 
   return (
@@ -323,7 +437,7 @@ export default function AttendanceManager() {
               سجل الحضور والانصراف والبصمة
             </h1>
             <p className="text-indigo-200 text-sm mt-1 max-w-2xl">
-              تسجيل الحضور اليومي، استيراد بيانات أجهزة البصمة (Excel / CSV)، وحساب التأخير والعمل الإضافي آلياً.
+              تسجيل الحضور اليومي، استيراد بيانات أجهزة البصمة، حساب التأخير والعمل الإضافي، والتعديل الفوري لكل حركة.
             </p>
           </div>
 
@@ -409,7 +523,8 @@ export default function AttendanceManager() {
       {/* 🔍 Filters Bar */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row gap-3 items-center justify-between">
         <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-          <div className="relative flex-1 md:w-64">
+          {/* بحث الموظف */}
+          <div className="relative flex-1 md:w-60">
             <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input
               type="text"
@@ -420,6 +535,7 @@ export default function AttendanceManager() {
             />
           </div>
 
+          {/* التاريخ */}
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold text-slate-500">التاريخ:</span>
             <input
@@ -430,6 +546,22 @@ export default function AttendanceManager() {
             />
           </div>
 
+          {/* فلتر الفرع / القسم */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-500">الفرع:</span>
+            <select
+              value={departmentFilter}
+              onChange={(e) => setDepartmentFilter(e.target.value)}
+              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700"
+            >
+              <option value="ALL">🏢 كل الفروع والأقسام</option>
+              {departments.map((dept: string) => (
+                <option key={dept} value={dept}>{dept}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* فلتر الحالة */}
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
@@ -439,7 +571,12 @@ export default function AttendanceManager() {
             <option value="PRESENT">حاضر في الموعد</option>
             <option value="LATE">متأخر</option>
             <option value="ABSENT">غائب</option>
+            <option value="ON_LEAVE">إجازة</option>
           </select>
+        </div>
+
+        <div className="text-xs font-bold text-slate-500">
+          عدد السجلات: <span className="font-mono text-indigo-700 font-black">{filteredLogs.length}</span>
         </div>
       </div>
 
@@ -456,9 +593,10 @@ export default function AttendanceManager() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-right text-sm">
-              <thead className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+              <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 text-xs">
                 <tr>
                   <th className="p-3.5">اسم الموظف</th>
+                  <th className="p-3.5">الفرع / القسم</th>
                   <th className="p-3.5">وقت الحضور</th>
                   <th className="p-3.5">وقت الانصراف</th>
                   <th className="p-3.5">التأخير</th>
@@ -472,18 +610,28 @@ export default function AttendanceManager() {
                 {filteredLogs.map(l => (
                   <tr key={l.id} className="hover:bg-slate-50/80 transition-colors">
                     <td className="p-3.5 font-bold text-slate-900">{l.employee_name}</td>
+                    <td className="p-3.5">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50/80 border border-blue-100 text-blue-700 rounded-lg text-xs font-bold">
+                        <Building2 size={13} className="text-blue-500" />
+                        {l.department || 'الفرع الرئيسي'}
+                      </span>
+                    </td>
                     <td className="p-3.5 font-mono text-slate-800">{l.check_in_time || '---'}</td>
                     <td className="p-3.5 font-mono text-slate-800">{l.check_out_time || '---'}</td>
                     <td className="p-3.5">
                       {l.late_minutes > 0 ? (
-                        <span className="text-xs font-bold text-rose-600">{l.late_minutes} دقيقة</span>
+                        <span className="text-xs font-bold text-rose-600 font-mono">
+                          {l.late_minutes} دقيقة
+                        </span>
                       ) : (
                         <span className="text-xs text-slate-400">---</span>
                       )}
                     </td>
                     <td className="p-3.5">
                       {l.overtime_hours > 0 ? (
-                        <span className="text-xs font-bold text-indigo-600">+{l.overtime_hours} س</span>
+                        <span className="text-xs font-bold text-indigo-600 font-mono">
+                          +{l.overtime_hours} س
+                        </span>
                       ) : (
                         <span className="text-xs text-slate-400">---</span>
                       )}
@@ -497,6 +645,10 @@ export default function AttendanceManager() {
                         <span className="bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full text-xs font-bold">
                           متأخر
                         </span>
+                      ) : l.status === 'ON_LEAVE' ? (
+                        <span className="bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full text-xs font-bold">
+                          إجازة
+                        </span>
                       ) : (
                         <span className="bg-rose-100 text-rose-800 px-2.5 py-0.5 rounded-full text-xs font-bold">
                           غائب
@@ -509,10 +661,18 @@ export default function AttendanceManager() {
                       </span>
                     </td>
                     <td className="p-3.5">
-                      <div className="flex items-center justify-center gap-2">
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          onClick={() => handleEditLog(l)}
+                          className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="تعديل السجل"
+                        >
+                          <Edit3 size={16} />
+                        </button>
                         <button
                           onClick={() => handleDelete(l.id)}
-                          className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg"
+                          className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-lg transition-colors"
+                          title="حذف السجل"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -526,7 +686,7 @@ export default function AttendanceManager() {
         )}
       </div>
 
-      {/* 📝 New Manual Attendance Modal */}
+      {/* 📝 New / Edit Attendance Modal */}
       {isNewModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl max-w-xl w-full shadow-2xl p-6 md:p-8 animate-in zoom-in-95">
@@ -534,7 +694,7 @@ export default function AttendanceManager() {
               <div className="flex justify-between items-center border-b pb-3">
                 <div className="flex items-center gap-2 text-indigo-900 font-black text-lg">
                   <Clock className="text-emerald-500" size={24} />
-                  <span>تسجيل حركة حضور وانصراف</span>
+                  <span>{editingLogId ? 'تعديل حركة حضور وانصراف' : 'تسجيل حركة حضور وانصراف جديدة'}</span>
                 </div>
                 <button type="button" onClick={() => setIsNewModalOpen(false)} className="text-slate-400">
                   <X size={20} />
@@ -545,13 +705,15 @@ export default function AttendanceManager() {
                 <label className="block text-xs font-bold text-slate-700 mb-1">الموظف *</label>
                 <select
                   value={formEmpId}
-                  onChange={(e) => setFormEmpId(e.target.value)}
+                  onChange={(e) => handleEmpSelect(e.target.value)}
                   required
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-sm font-bold"
                 >
                   <option value="">-- اختر الموظف --</option>
                   {employeesList.map(emp => (
-                    <option key={emp.id} value={emp.id}>{emp.name}</option>
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name} ({emp.department || 'الفرع الرئيسي'})
+                    </option>
                   ))}
                 </select>
               </div>
@@ -574,7 +736,7 @@ export default function AttendanceManager() {
                     type="time"
                     value={formCheckIn}
                     onChange={(e) => handleCheckInChange(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold font-mono"
                   />
                 </div>
 
@@ -584,7 +746,7 @@ export default function AttendanceManager() {
                     type="time"
                     value={formCheckOut}
                     onChange={(e) => handleCheckOutChange(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold font-mono"
                   />
                 </div>
               </div>
@@ -596,7 +758,7 @@ export default function AttendanceManager() {
                     type="number"
                     value={formLateMinutes}
                     onChange={(e) => setFormLateMinutes(parseInt(e.target.value) || 0)}
-                    className="w-full p-1.5 border rounded-lg font-bold text-rose-600"
+                    className="w-full p-1.5 border rounded-lg font-bold text-rose-600 font-mono"
                   />
                 </div>
                 <div>
@@ -606,7 +768,33 @@ export default function AttendanceManager() {
                     step="0.5"
                     value={formOvertimeHours}
                     onChange={(e) => setFormOvertimeHours(parseFloat(e.target.value) || 0)}
-                    className="w-full p-1.5 border rounded-lg font-bold text-indigo-700"
+                    className="w-full p-1.5 border rounded-lg font-bold text-indigo-700 font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">الحالة</label>
+                  <select
+                    value={formStatus}
+                    onChange={(e) => setFormStatus(e.target.value as any)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold"
+                  >
+                    <option value="PRESENT">حاضر في الموعد</option>
+                    <option value="LATE">متأخر</option>
+                    <option value="ABSENT">غائب</option>
+                    <option value="ON_LEAVE">إجازة</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">ملاحظات</label>
+                  <input
+                    type="text"
+                    value={formNotes}
+                    onChange={(e) => setFormNotes(e.target.value)}
+                    placeholder="ملاحظات حول الحركة..."
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs"
                   />
                 </div>
               </div>
@@ -623,7 +811,7 @@ export default function AttendanceManager() {
                   type="submit"
                   className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-md shadow-emerald-600/30"
                 >
-                  حفظ الحركة
+                  {editingLogId ? 'حفظ التعديل' : 'حفظ الحركة'}
                 </button>
               </div>
             </form>

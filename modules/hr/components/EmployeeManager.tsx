@@ -8,8 +8,9 @@ import {
   Users, Plus, Search, Edit, Trash2, Save, X, Phone, Mail, 
   Briefcase, Calendar, DollarSign, Loader2, Filter, Building2, 
   LayoutGrid, List, RotateCcw, CheckCircle2, XCircle, Printer,
-  UserCheck, MapPin, Sparkles, FileSpreadsheet
+  UserCheck, MapPin, Sparkles, FileSpreadsheet, Clock
 } from 'lucide-react';
+import { hrEnterpriseService, HrShift } from '../../../services/hrEnterpriseService';
 import { createEmployeeSchema } from '../../../utils/validationSchemas';
 import { FACTORY_EMPLOYEES_LIST } from '../data/factoryEmployees';
 
@@ -24,6 +25,8 @@ const EmployeeManager = () => {
   const [departmentFilter, setDepartmentFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [positionFilter, setPositionFilter] = useState('all');
+  const [shiftFilter, setShiftFilter] = useState('all');
+  const [shifts, setShifts] = useState<HrShift[]>([]);
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [saving, setSaving] = useState(false);
   const [importingFactory, setImportingFactory] = useState(false);
@@ -38,6 +41,7 @@ const EmployeeManager = () => {
     phone: '',
     email: '',
     status: 'active',
+    shift_id: '',
     notes: ''
   });
 
@@ -58,6 +62,15 @@ const EmployeeManager = () => {
     }
     return employees;
   }, [employees, userHrScope]);
+
+  React.useEffect(() => {
+    const loadShifts = async () => {
+      const orgId = currentUser?.organization_id;
+      const data = await hrEnterpriseService.getShifts(orgId || undefined);
+      setShifts(data);
+    };
+    loadShifts();
+  }, [currentUser]);
 
   // حساب عدد الموظفين في كل فرع
   const branchCounts = useMemo(() => {
@@ -92,19 +105,21 @@ const EmployeeManager = () => {
       const matchesDept = departmentFilter === 'all' || (e.department?.trim() || '') === departmentFilter;
       const matchesStatus = statusFilter === 'all' || e.status === statusFilter;
       const matchesPosition = positionFilter === 'all' || (e.position?.trim() || '') === positionFilter;
+      const matchesShift = shiftFilter === 'all' || e.shift_id === shiftFilter;
 
-      return matchesSearch && matchesDept && matchesStatus && matchesPosition;
+      return matchesSearch && matchesDept && matchesStatus && matchesPosition && matchesShift;
     });
-  }, [scopedEmployees, searchTerm, departmentFilter, statusFilter, positionFilter]);
+  }, [scopedEmployees, searchTerm, departmentFilter, statusFilter, positionFilter, shiftFilter]);
 
   // فحص ما إذا كان هناك أي فلتر نشط
-  const isFiltered = searchTerm !== '' || departmentFilter !== 'all' || statusFilter !== 'all' || positionFilter !== 'all';
+  const isFiltered = searchTerm !== '' || departmentFilter !== 'all' || statusFilter !== 'all' || positionFilter !== 'all' || shiftFilter !== 'all';
 
   const resetFilters = () => {
     setSearchTerm('');
     setDepartmentFilter('all');
     setStatusFilter('all');
     setPositionFilter('all');
+    setShiftFilter('all');
   };
 
   const handleOpenModal = (employee?: Record<string, any>) => {
@@ -119,6 +134,7 @@ const EmployeeManager = () => {
         phone: employee.phone || '',
         email: employee.email || '',
         status: employee.status || 'active',
+        shift_id: employee.shift_id || '',
         notes: employee.notes || ''
       });
     } else {
@@ -137,6 +153,7 @@ const EmployeeManager = () => {
         phone: '',
         email: '',
         status: 'active',
+        shift_id: shifts[0]?.id || '',
         notes: ''
       });
     }
@@ -619,6 +636,22 @@ const EmployeeManager = () => {
           </div>
         )}
 
+        {/* فلتر الوردية */}
+        {shifts.length > 0 && (
+          <div className="min-w-[150px]">
+              <select 
+                value={shiftFilter} 
+                onChange={e => setShiftFilter(e.target.value)} 
+                className="w-full border border-slate-200 rounded-xl py-2.5 px-3 text-sm font-bold focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 bg-white text-slate-700 cursor-pointer"
+              >
+                  <option value="all">⏰ كل الورديات</option>
+                  {shifts.map((sh: HrShift) => (
+                    <option key={sh.id} value={sh.id}>{sh.name}</option>
+                  ))}
+              </select>
+          </div>
+        )}
+
         {/* تبديل طريقة العرض (بطاقات / جدول) */}
         <div className="flex items-center bg-slate-100 p-1 rounded-xl shrink-0">
           <button
@@ -693,11 +726,17 @@ const EmployeeManager = () => {
                     </div>
 
                     {/* شارة الفرع المميزة */}
-                    <div className="mb-3">
+                    <div className="mb-3 flex flex-wrap gap-1.5 items-center">
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50/80 border border-blue-100 text-blue-700 rounded-lg text-xs font-bold">
                         <Building2 size={13} className="text-blue-500" />
                         {employee.department || 'بدون فرع'}
                       </span>
+                      {employee.shift_id && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-indigo-50/80 border border-indigo-100 text-indigo-700 rounded-lg text-xs font-bold">
+                          <Clock size={12} className="text-indigo-500" />
+                          {shifts.find(s => s.id === employee.shift_id)?.name || 'وردية العمل'}
+                        </span>
+                      )}
                     </div>
                     
                     <div className="space-y-2 text-xs text-slate-600 mb-4 bg-slate-50 p-3 rounded-xl border border-slate-100">
@@ -753,6 +792,7 @@ const EmployeeManager = () => {
                   <th className="p-4 w-12 text-center">#</th>
                   <th className="p-4">اسم الموظف</th>
                   <th className="p-4">الفرع / القسم</th>
+                  <th className="p-4">الوردية</th>
                   <th className="p-4">المسمى الوظيفي</th>
                   <th className="p-4">الحالة</th>
                   <th className="p-4">الراتب الأساسي</th>
@@ -778,6 +818,16 @@ const EmployeeManager = () => {
                         <Building2 size={12} className="text-blue-500" />
                         {employee.department || '-'}
                       </span>
+                    </td>
+                    <td className="p-4">
+                      {employee.shift_id ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
+                          <Clock size={12} className="text-indigo-500" />
+                          {shifts.find(s => s.id === employee.shift_id)?.name || 'الوردية القياسية'}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400 font-medium">الافتراضية</span>
+                      )}
                     </td>
                     <td className="p-4 text-slate-600 font-bold text-xs">{employee.position || 'موظف'}</td>
                     <td className="p-4">
@@ -939,6 +989,25 @@ const EmployeeManager = () => {
                                 <option value="active">🟢 نشط (على رأس العمل)</option>
                                 <option value="inactive">🟡 إجازة / غير نشط</option>
                                 <option value="terminated">🔴 منتهي الخدمات</option>
+                            </select>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-black text-slate-700 mb-1.5 flex items-center gap-1">
+                              <Clock size={13} className="text-blue-600" />
+                              الوردية ومواعيد العمل
+                            </label>
+                            <select 
+                              value={formData.shift_id} 
+                              onChange={e => setFormData({...formData, shift_id: e.target.value})} 
+                              className="w-full border border-slate-200 rounded-xl p-2.5 text-sm font-bold focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none bg-white cursor-pointer"
+                            >
+                                <option value="">-- بدون وردية (الوردية القياسية) --</option>
+                                {shifts.map((sh: HrShift) => (
+                                  <option key={sh.id} value={sh.id}>
+                                    {sh.name} ({sh.start_time.slice(0, 5)} ⬅️ {sh.end_time.slice(0, 5)})
+                                  </option>
+                                ))}
                             </select>
                         </div>
 

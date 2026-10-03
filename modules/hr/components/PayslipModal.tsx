@@ -17,6 +17,10 @@ export interface PayslipData {
   unpaid_leave_days?: number;
   unpaid_leave_deduction?: number;
   absence_days?: number;
+  absence_deduction?: number;
+  late_minutes?: number;
+  late_deduction?: number;
+  penalty_amount?: number;
   overtime_hours?: number;
   company_name?: string;
 }
@@ -116,13 +120,36 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({ data, onClose }) => 
                   <span className="text-slate-600">سلف مستقطعة:</span>
                   <span className="font-mono text-rose-600">-{data.advances_deducted.toLocaleString()} ج.م</span>
                 </div>
-                <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
-                  <span className="text-slate-600">
-                    خصومات وإجازات بدون أجر
-                    {data.unpaid_leave_days && data.unpaid_leave_days > 0 ? ` (${data.unpaid_leave_days} يوم)` : ''}:
-                  </span>
-                  <span className="font-mono text-rose-600">-{data.other_deductions.toLocaleString()} ج.م</span>
-                </div>
+                {data.absence_days && data.absence_days > 0 ? (
+                  <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
+                    <span className="text-slate-600">خصم غياب ({data.absence_days} يوم):</span>
+                    <span className="font-mono text-rose-600">-{data.absence_deduction?.toLocaleString() || 0} ج.م</span>
+                  </div>
+                ) : null}
+                {data.late_minutes && data.late_minutes > 0 ? (
+                  <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
+                    <span className="text-slate-600">خصم تأخير ({data.late_minutes} دقيقة):</span>
+                    <span className="font-mono text-amber-600">-{data.late_deduction?.toLocaleString() || 0} ج.م</span>
+                  </div>
+                ) : null}
+                {data.unpaid_leave_days && data.unpaid_leave_days > 0 ? (
+                  <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
+                    <span className="text-slate-600">إجازات بدون أجر ({data.unpaid_leave_days} يوم):</span>
+                    <span className="font-mono text-purple-600">-{data.unpaid_leave_deduction?.toLocaleString() || 0} ج.م</span>
+                  </div>
+                ) : null}
+                {data.penalty_amount && data.penalty_amount > 0 ? (
+                  <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
+                    <span className="text-slate-600">جزاءات إدارية معتمدة:</span>
+                    <span className="font-mono text-rose-600">-{data.penalty_amount.toLocaleString()} ج.م</span>
+                  </div>
+                ) : null}
+                {!data.absence_days && !data.late_minutes && !data.unpaid_leave_days && !data.penalty_amount && data.other_deductions > 0 ? (
+                  <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
+                    <span className="text-slate-600">خصومات وجزاءات أخرى:</span>
+                    <span className="font-mono text-rose-600">-{data.other_deductions.toLocaleString()} ج.م</span>
+                  </div>
+                ) : null}
                 <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
                   <span className="text-slate-600">ضريبة كسب العمل:</span>
                   <span className="font-mono text-slate-700">-{data.payroll_tax.toLocaleString()} ج.م</span>

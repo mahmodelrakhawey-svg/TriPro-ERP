@@ -585,6 +585,9 @@ export interface Employee {
   notes?: string;
   department?: string;
   salary?: number;
+  shift_id?: string;
+  shift_name?: string;
+  biometric_id?: string;
 }
 
 export interface PayrollRun {
