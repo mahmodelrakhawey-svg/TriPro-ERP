@@ -835,7 +835,7 @@ const PurchaseOrderForm = () => {
                   <th className="p-3">الصنف</th>
                   <th className="p-3 w-32 text-center">الوحدة</th>
                   <th className="p-3 w-24 text-center">الكمية المطلوبة</th>
-                  <th className="p-3 w-28 text-center">السعر التقديري</th>
+                  <th className="p-3 min-w-[130px] text-center">السعر التقديري</th>
                   <th className="p-3 w-24 text-center">ضريبة %</th>
                   <th className="p-3 w-32 text-center">الإجمالي</th>
                   <th className="p-3 w-10 text-center"></th>
@@ -879,15 +879,19 @@ const PurchaseOrderForm = () => {
                         onChange={e => updateItem(idx, 'quantity', Number(e.target.value))} 
                       />
                     </td>
-                    <td className="p-3">
-                      <input 
-                        type="number" 
-                        step="any" 
-                        min="0" 
-                        className="w-full border rounded-lg p-1.5 text-center font-mono font-bold text-slate-800 bg-white" 
-                        value={item.unitPrice} 
-                        onChange={e => updateItem(idx, 'unitPrice', Number(e.target.value))} 
-                      />
+                    <td className="p-3 min-w-[130px]">
+                      <div className="flex items-center justify-center">
+                        <input 
+                          type="number" 
+                          step="any" 
+                          min="0" 
+                          className="w-full min-w-[110px] border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg py-1.5 px-2 text-center font-mono font-bold text-slate-800 bg-white shadow-sm transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none hover:border-slate-300" 
+                          style={{ width: `${Math.max(110, String(item.unitPrice || '').length * 11 + 25)}px` }}
+                          value={item.unitPrice} 
+                          onChange={e => updateItem(idx, 'unitPrice', Number(e.target.value))} 
+                          title={`السعر التقديري: ${item.unitPrice || 0}`}
+                        />
+                      </div>
                     </td>
                     <td className="p-3 text-center">
                       <div className="flex items-center justify-center gap-1">

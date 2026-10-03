@@ -456,7 +456,18 @@ export const InvoiceList = () => {
         .single();
 
       if (error) throw error;
-      setInvoiceToPrint(data || invoice);
+      let printItems = data?.invoice_items || [];
+      if (!printItems || printItems.length === 0 || printItems.length >= 20) {
+        const { data: directItems } = await supabase
+          .from('invoice_items')
+          .select('id, product_id, quantity, unit_price, total, cost, uoms(name), products(name, sku, unit, uom:uoms!base_uom_id(name))')
+          .eq('invoice_id', invoice.id)
+          .limit(5000);
+        if (directItems && directItems.length > 0) {
+          printItems = directItems;
+        }
+      }
+      setInvoiceToPrint({ ...(data || invoice), invoice_items: printItems, items: printItems });
       setTimeout(() => {
         window.print();
         setInvoiceToPrint(null);

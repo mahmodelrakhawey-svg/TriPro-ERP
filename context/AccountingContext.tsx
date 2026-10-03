@@ -528,9 +528,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const serviceChargeRatePercentage = serviceRateNum <= 1 && serviceRateNum > 0 ? serviceRateNum * 100 : serviceRateNum;
         const serviceChargeRateDecimal = serviceChargeRatePercentage / 100;
 
-        const allowNegativeStock = raw.allowNegativeStock !== undefined 
+        // استثناء خاص لشركة لينزا (Lenza): السماح بالبيع برصيد سالب أو صفر دائماً
+        const isLenzaOrg = Boolean(
+          (activeOrgObj?.name && /لينزا|lenza/i.test(activeOrgObj.name)) ||
+          (activeOrgObj?.commercial_name && /لينزا|lenza/i.test(activeOrgObj.commercial_name)) ||
+          (raw?.companyName && /لينزا|lenza/i.test(raw.companyName)) ||
+          (raw?.company_name && /لينزا|lenza/i.test(raw.company_name))
+        );
+
+        const allowNegativeStock = isLenzaOrg || (raw.allowNegativeStock !== undefined 
           ? Boolean(raw.allowNegativeStock) 
-          : (raw.allow_negative_stock !== undefined ? Boolean(raw.allow_negative_stock) : false);
+          : (raw.allow_negative_stock !== undefined ? Boolean(raw.allow_negative_stock) : false));
 
         const lockManualPrices = raw.lockManualPrices !== undefined
           ? Boolean(raw.lockManualPrices)
@@ -582,6 +590,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       };
 
       setSettings(normalizeSettings(sett || {}));
+
+      // 🛡️ مزامنة قاعدة البيانات لشركة لينزا: ضمان تفعيل allow_negative_stock في company_settings
+      const isLenzaActive = Boolean(
+        (activeOrgObj?.name && /لينزا|lenza/i.test(activeOrgObj.name)) ||
+        (activeOrgObj?.commercial_name && /لينزا|lenza/i.test(activeOrgObj.commercial_name))
+      );
+      if (isLenzaActive && fetchOrgId && fetchOrgId !== 'org-default-offline') {
+        supabase
+          .from('company_settings')
+          .update({ allow_negative_stock: true })
+          .eq('organization_id', fetchOrgId)
+          .then(({ error }) => {
+            if (error) logger.warn('[AccountingContext] Auto-sync allow_negative_stock for Lenza error:', error);
+          });
+      }
 
       // جلب الحسابات والمستودعات مع ترشيد الاستعلامات المالية بالسنة المالية النشطة
       const [accs, ents, ccs, emps, prods, trns, pinvs, invs, cats, usrs, whs, rTables, custs, sups, chqs, shift, assetData, budgetData] = await Promise.all([

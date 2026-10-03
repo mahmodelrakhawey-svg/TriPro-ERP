@@ -84,7 +84,7 @@ export type UpdateProduct = z.infer<typeof updateProductSchema>;
 
 export const invoiceItemSchema = z.object({
   productId: idSchema,
-  quantity: quantitySchema,
+  quantity: z.number().positive('الكمية يجب أن تكون أكبر من 0'),
   unitPrice: amountSchema,
   total: amountSchema.optional(),
 });
@@ -95,7 +95,7 @@ export const createInvoiceSchema = z.object({
   invoiceDate: dateSchema,
   dueDate: dateSchema.optional(),
   items: z.array(invoiceItemSchema).min(1, 'يجب إضافة عنصر واحد على الأقل'),
-  notes: textSchema.optional(),
+  notes: z.string().max(50000, 'النص طويل جداً').optional(),
   taxRate: percentSchema.optional(),
 }).refine(
   (data) => !data.dueDate || data.dueDate >= data.invoiceDate,

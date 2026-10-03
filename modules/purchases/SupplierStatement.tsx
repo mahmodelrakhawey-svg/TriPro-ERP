@@ -7,6 +7,8 @@ import { useToast } from '../../context/ToastContext';
 import { Printer, FileText, Loader2, Search, Download, MessageCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import SupplierSearchSelect from '../../components/SupplierSearchSelect';
+import { PurchaseInvoicePrint } from './PurchaseInvoicePrint';
+import { PaymentVoucherPrint } from '../finance/reports/PaymentVoucherPrint';
 
 // 🚀 أداة استعلام تجلب جميع السجلات بأمان متجاوزة سقف الـ 1000 في Supabase عبر التجزئة التتابعية
 async function fetchCompleteDataset<T>(
@@ -27,6 +29,7 @@ async function fetchCompleteDataset<T>(
 
 type Transaction = {
   id: string;
+  docId?: string;
   date: string;
   type: 'invoice' | 'payment' | 'return' | 'debit_note' | 'manual';
   reference: string;
@@ -49,6 +52,10 @@ const SupplierStatement = () => {
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number | 'all'>(50);
+
+  // حالة طباعة مستند مفرد (فاتورة أو سند)
+  const [printingDocId, setPrintingDocId] = useState<string | null>(null);
+  const [printDoc, setPrintDoc] = useState<{ type: 'invoice' | 'payment'; data: any } | null>(null);
 
   // إعادة التعيين للصفحة الأولى عند تغيير الفلاتر
   useEffect(() => {
@@ -80,8 +87,8 @@ const SupplierStatement = () => {
 
     if (currentUser?.role === 'demo') {
         setTransactions([
-            { id: 'd1', date: new Date(Date.now() - 86400000 * 10).toISOString().split('T')[0], type: 'invoice', reference: 'PINV-DEMO-88', description: 'فاتورة مشتريات بضاعة', credit: 12000, debit: 0, balance: 12000 },
-            { id: 'd2', date: new Date(Date.now() - 86400000 * 5).toISOString().split('T')[0], type: 'payment', reference: 'PV-DEMO-33', description: 'سداد دفعة للمورد', credit: 0, debit: 5000, balance: 7000 }
+            { id: 'd1', docId: 'd1', date: new Date(Date.now() - 86400000 * 10).toISOString().split('T')[0], type: 'invoice', reference: 'PINV-DEMO-88', description: 'فاتورة مشتريات بضاعة', credit: 12000, debit: 0, balance: 12000 },
+            { id: 'd2', docId: 'd2', date: new Date(Date.now() - 86400000 * 5).toISOString().split('T')[0], type: 'payment', reference: 'PV-DEMO-33', description: 'سداد دفعة للمورد', credit: 0, debit: 5000, balance: 7000 }
         ]);
         setOpeningBalance(0);
         setClosingBalance(7000);
@@ -198,6 +205,7 @@ const SupplierStatement = () => {
             const immediatePaidAtCheckout = Math.max(0, Number(inv.paid_amount || 0) - pvPaidForThisInvoice);
 
             allTrans.push({
+                docId: inv.id,
                 date: inv.invoice_date, 
                 type: 'invoice', 
                 ref: inv.invoice_number, 
@@ -211,6 +219,7 @@ const SupplierStatement = () => {
         // إضافة مستخلصات مقاولي الباطن كدائن
         subBillingsData.forEach(sb => {
             allTrans.push({
+                docId: sb.id,
                 date: sb.billing_date,
                 type: 'invoice',
                 ref: sb.billing_number,
@@ -221,21 +230,25 @@ const SupplierStatement = () => {
         });
 
         returns?.forEach(ret => allTrans.push({
+            docId: ret.id,
             date: ret.return_date, type: 'return', ref: ret.return_number, desc: ret.notes?.trim() || 'مرتجع مشتريات', 
             credit: 0, debit: ret.total_amount 
         }));
 
         payments?.forEach(pay => allTrans.push({
+            docId: pay.id,
             date: pay.payment_date, type: 'payment', ref: pay.voucher_number, desc: pay.notes?.trim() || 'سند صرف', 
             credit: 0, debit: pay.amount 
         }));
 
         debitNotes?.forEach(dn => allTrans.push({
+            docId: dn.id,
             date: dn.note_date, type: 'debit_note', ref: dn.debit_note_number, desc: dn.notes?.trim() || 'إشعار مدين', 
             credit: 0, debit: dn.total_amount 
         }));
 
         cheques?.forEach(chq => allTrans.push({
+            docId: chq.id,
             date: chq.created_at ? chq.created_at.split('T')[0] : chq.due_date, 
             type: 'payment', 
             ref: chq.cheque_number, 
@@ -254,6 +267,7 @@ const SupplierStatement = () => {
 
             if (!isDuplicate) {
                 allTrans.push({
+                    docId: line.journal_entries?.id,
                     date: line.journal_entries.transaction_date,
                     type: 'manual',
                     ref: line.journal_entries.reference || 'OP-SUPP',
@@ -276,6 +290,7 @@ const SupplierStatement = () => {
 
             if (!isDuplicate) {
                 allTrans.push({
+                    docId: line.journal_entries?.id,
                     date: line.journal_entries.transaction_date, type: 'manual', 
                     ref: line.journal_entries.reference || 'JV', 
                     desc: line.journal_entries.description, 
@@ -314,7 +329,8 @@ const SupplierStatement = () => {
                 openBal += (t.credit - t.debit);
             } else if (t.date <= endDate) {
                 periodTrans.push({
-                    id: Math.random().toString(), // ID مؤقت للعرض
+                    id: t.docId ? `${t.docId}-${t.type}` : Math.random().toString(),
+                    docId: t.docId,
                     date: t.date,
                     type: t.type,
                     reference: t.ref,
@@ -338,7 +354,7 @@ const SupplierStatement = () => {
         setTransactions(finalTrans);
         setClosingBalance(runningBal);
 
-    } catch (error) {
+    } catch (error: any) {
         logger.error(error);
         showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
     } finally {
@@ -357,6 +373,161 @@ const SupplierStatement = () => {
       }
   }, [selectedSupplierId, startDate, endDate]);
 
+  // حساب إجماليات المدين والدائن في نهاية الكشف
+  const totalDebit = useMemo(() => {
+    return transactions.reduce((sum, t) => sum + (Number(t.debit) || 0), 0);
+  }, [transactions]);
+
+  const totalCredit = useMemo(() => {
+    return transactions.reduce((sum, t) => sum + (Number(t.credit) || 0), 0);
+  }, [transactions]);
+
+  const totalPaidImmediate = useMemo(() => {
+    return transactions.reduce((sum, t) => sum + (Number(t.paid_amount) || 0), 0);
+  }, [transactions]);
+
+  // دالة طباعة مستند مفرد (فاتورة أو سند صرف) من داخل كشف الحساب
+  const handlePrintDoc = async (t: Transaction) => {
+    setPrintingDocId(t.id);
+    try {
+      if (t.type === 'invoice') {
+        showToast('جاري تجهيز الفاتورة للطباعة...', 'info');
+        const cleanRef = t.reference?.replace(/^(PINV-|PUR-)/i, '') || '';
+        
+        let invData: any = null;
+        if (t.docId) {
+          const { data, error } = await supabase
+            .from('purchase_invoices')
+            .select(`
+              *,
+              suppliers(id, name, phone, address, tax_number),
+              purchase_invoice_items(id, product_id, quantity, unit_price, total, discount, tax_rate, products(name, sku, unit, uom:uoms!base_uom_id(name)), uoms(name))
+            `)
+            .eq('id', t.docId)
+            .maybeSingle();
+          if (!error && data) invData = data;
+        }
+
+        if (!invData && t.reference) {
+          const { data, error } = await supabase
+            .from('purchase_invoices')
+            .select(`
+              *,
+              suppliers(id, name, phone, address, tax_number),
+              purchase_invoice_items(id, product_id, quantity, unit_price, total, discount, tax_rate, products(name, sku, unit, uom:uoms!base_uom_id(name)), uoms(name))
+            `)
+            .or(`invoice_number.eq.${t.reference},invoice_number.ilike.%${cleanRef}%`)
+            .limit(1)
+            .maybeSingle();
+          if (!error && data) invData = data;
+        }
+
+        if (!invData) {
+          invData = {
+            invoice_number: t.reference,
+            invoice_date: t.date,
+            total_amount: t.credit,
+            subtotal: t.credit,
+            paid_amount: t.paid_amount || 0,
+            suppliers: selectedSupplier,
+            purchase_invoice_items: [
+              {
+                productName: t.description || 'مشتريات بضاعة',
+                quantity: 1,
+                unit_price: t.credit,
+                total: t.credit
+              }
+            ]
+          };
+        }
+
+        setPrintDoc({ type: 'invoice', data: invData });
+        setTimeout(() => {
+          window.print();
+          setPrintDoc(null);
+          setPrintingDocId(null);
+        }, 300);
+        return;
+      }
+
+      if (t.type === 'payment') {
+        showToast('جاري تجهيز سند الصرف للطباعة...', 'info');
+        let voucherData: any = null;
+        if (t.docId) {
+          const { data, error } = await supabase
+            .from('payment_vouchers')
+            .select('*, suppliers(id, name, phone, address)')
+            .eq('id', t.docId)
+            .maybeSingle();
+          if (!error && data) voucherData = data;
+        }
+
+        if (!voucherData && t.reference) {
+          const cleanRef = t.reference.replace(/^(PV-|CHQ-)/i, '');
+          const { data, error } = await supabase
+            .from('payment_vouchers')
+            .select('*, suppliers(id, name, phone, address)')
+            .or(`voucher_number.eq.${t.reference},voucher_number.ilike.%${cleanRef}%`)
+            .limit(1)
+            .maybeSingle();
+          if (!error && data) voucherData = data;
+        }
+
+        if (!voucherData) {
+          voucherData = {
+            voucher_number: t.reference,
+            payment_date: t.date,
+            amount: t.debit,
+            notes: t.description,
+            suppliers: selectedSupplier,
+            party_id: selectedSupplierId,
+            subType: 'supplier',
+            payment_method: t.reference?.startsWith('CHQ') ? 'cheque' : 'cash'
+          };
+        }
+
+        setPrintDoc({ type: 'payment', data: voucherData });
+        setTimeout(() => {
+          window.print();
+          setPrintDoc(null);
+          setPrintingDocId(null);
+        }, 300);
+        return;
+      }
+
+      // Default fallback print (return, debit note, manual entry)
+      showToast('جاري تجهيز المستند للطباعة...', 'info');
+      const fallbackDoc = {
+        invoice_number: t.reference,
+        invoice_date: t.date,
+        total_amount: t.debit || t.credit,
+        subtotal: t.debit || t.credit,
+        paid_amount: 0,
+        suppliers: selectedSupplier,
+        notes: t.description,
+        purchase_invoice_items: [
+          {
+            productName: t.description,
+            quantity: 1,
+            unit_price: t.debit || t.credit,
+            total: t.debit || t.credit
+          }
+        ]
+      };
+      setPrintDoc({ type: 'invoice', data: fallbackDoc });
+      setTimeout(() => {
+        window.print();
+        setPrintDoc(null);
+        setPrintingDocId(null);
+      }, 300);
+
+    } catch (err: any) {
+      logger.error('Error printing doc:', err);
+      showToast('تعذر طباعة المستند: ' + (err?.message || ''), 'error');
+      setPrintingDocId(null);
+    }
+  };
+
   const handleExportExcel = () => {
     const data = [
         ['كشف حساب مورد'],
@@ -365,7 +536,9 @@ const SupplierStatement = () => {
         [],
         ['التاريخ', 'المستند', 'البيان', 'مدين (سداد)', 'دائن (مشتريات)', 'الرصيد'],
         ['-', '-', 'رصيد افتتاحي', '-', '-', openingBalance],
-        ...transactions.map(t => [t.date, t.reference, t.description, t.debit, t.credit, t.balance])
+        ...transactions.map(t => [t.date, t.reference, t.description, t.debit, t.credit, t.balance]),
+        [],
+        ['الإجمالي', '', 'إجمالي الحركات', totalDebit, totalCredit, closingBalance]
     ];
     const ws = XLSX.utils.aoa_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -385,7 +558,9 @@ const SupplierStatement = () => {
 المورد: ${selectedSupplier.name}
 الفترة: ${startDate} إلى ${endDate}
 رصيد افتتاحي: ${openingBalance.toLocaleString()}
-رصيد ختامي: ${closingBalance.toLocaleString()}
+إجمالي المدين (سداد): ${totalDebit.toLocaleString()}
+إجمالي الدائن (مشتريات): ${totalCredit.toLocaleString()}
+الرصيد الختامي المستحق: ${closingBalance.toLocaleString()}
 شكراً لتعاملكم معنا.`;
 
       window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
@@ -405,6 +580,14 @@ const SupplierStatement = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in">
+      {/* فرد طباعة المستندات المستقلة */}
+      {printDoc?.type === 'invoice' && (
+        <PurchaseInvoicePrint invoiceData={printDoc.data} companySettings={settings} />
+      )}
+      {printDoc?.type === 'payment' && (
+        <PaymentVoucherPrint voucher={printDoc.data} companySettings={settings} />
+      )}
+
       <div className="flex justify-between items-center print:hidden">
           <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
             <FileText className="text-emerald-600" /> كشف حساب مورد
@@ -417,7 +600,7 @@ const SupplierStatement = () => {
                 <Download size={18}/> تصدير Excel
             </button>
             <button onClick={() => window.print()} disabled={!selectedSupplierId} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm hover:bg-slate-700 disabled:opacity-50">
-                <Printer size={18}/> طباعة
+                <Printer size={18}/> طباعة الكشف
             </button>
           </div>
       </div>
@@ -445,18 +628,29 @@ const SupplierStatement = () => {
       </div>
 
       {selectedSupplierId && (
-          <div id="printable-statement" className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-8 animate-in fade-in">
-              <div className="flex justify-between mb-8 border-b pb-6">
+          <div id="printable-statement" className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-8 animate-in fade-in ${printDoc ? 'print:hidden' : ''}`}>
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 border-b pb-6 gap-4">
                   <div>
                       <h1 className="text-2xl font-bold text-slate-900">{settings.companyName}</h1>
                       <p className="text-slate-500 font-bold mt-1">كشف حساب المورد: {selectedSupplier?.name}</p>
                       {selectedSupplier?.phone && <p className="text-xs text-slate-400">هاتف: {selectedSupplier.phone}</p>}
+                      <p className="text-xs text-slate-400 mt-0.5">الفترة: من {startDate} إلى {endDate}</p>
                   </div>
-                  <div className="text-left">
-                      <div className="bg-emerald-600 text-white px-4 py-2 rounded-lg inline-block font-black text-xl mb-2" dir="ltr">
-                        {closingBalance.toLocaleString()} <span className="text-sm">{settings.currency}</span>
+
+                  {/* بطاقات الإجماليات الملخصة في أعلى الكشف */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-xl text-center">
+                        <span className="text-[10px] font-bold block uppercase tracking-wider">إجمالي المدين (سداد)</span>
+                        <span className="text-lg font-black font-mono" dir="ltr">{totalDebit.toLocaleString()}</span>
                       </div>
-                      <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">الرصيد الحالي (المستحق)</p>
+                      <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-2 rounded-xl text-center">
+                        <span className="text-[10px] font-bold block uppercase tracking-wider">إجمالي الدائن (مشتريات)</span>
+                        <span className="text-lg font-black font-mono" dir="ltr">{totalCredit.toLocaleString()}</span>
+                      </div>
+                      <div className="bg-emerald-600 text-white px-5 py-2.5 rounded-xl text-center shadow-md">
+                        <span className="text-[10px] text-emerald-100 font-bold block uppercase tracking-wider">الرصيد النهائي المستحق</span>
+                        <span className="text-xl font-black font-mono" dir="ltr">{closingBalance.toLocaleString()} {settings.currency}</span>
+                      </div>
                   </div>
               </div>
 
@@ -474,6 +668,7 @@ const SupplierStatement = () => {
                               <th className="p-4 text-center">دائن (مشتريات)</th>
                               <th className="p-4 text-center">سداد فوري</th>
                               <th className="p-4 text-center">الرصيد</th>
+                              <th className="p-4 text-center print:hidden w-16">طباعة</th>
                           </tr>
                       </thead>
                         {/* 🖥️ جدول العرض التفاعلي على الشاشة (يدعم ترقيم الصفحات وسرعة التصفح) */}
@@ -481,6 +676,7 @@ const SupplierStatement = () => {
                             <tr className="bg-slate-50 font-bold text-slate-500">
                                 <td colSpan={6} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
                                 <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
+                                <td className="p-4 print:hidden"></td>
                             </tr>
                             {displayedTransactions.map((t: Record<string, any>, idx) => (
                                 <tr key={t.id || idx} className="hover:bg-slate-50 transition-colors">
@@ -493,10 +689,25 @@ const SupplierStatement = () => {
                                     <td className="p-4 text-center font-bold text-emerald-600">{t.credit > 0 ? t.credit.toLocaleString() : '-'}</td>
                                     <td className="p-4 text-center font-bold text-blue-600">{(t.paid_amount || 0) > 0 ? t.paid_amount.toLocaleString() : '-'}</td>
                                     <td className="p-4 text-center font-mono font-black bg-slate-50/50" dir="ltr">{t.balance.toLocaleString()}</td>
+                                    <td className="p-4 text-center print:hidden">
+                                        <button
+                                          type="button"
+                                          onClick={() => handlePrintDoc(t as Transaction)}
+                                          disabled={printingDocId === t.id}
+                                          className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg border border-slate-200 transition-all shadow-sm hover:scale-105 active:scale-95"
+                                          title={`طباعة ${t.type === 'invoice' ? 'فاتورة المشتريات' : t.type === 'payment' ? 'سند الصرف' : t.type === 'return' ? 'مرتجع المشتريات' : 'المستند'}`}
+                                        >
+                                          {printingDocId === t.id ? (
+                                            <Loader2 size={15} className="animate-spin text-emerald-600" />
+                                          ) : (
+                                            <Printer size={15} />
+                                          )}
+                                        </button>
+                                    </td>
                                 </tr>
                             ))}
                             {displayedTransactions.length === 0 && (
-                                <tr><td colSpan={7} className="p-8 text-center text-slate-400">لا توجد حركات خلال هذه الفترة</td></tr>
+                                <tr><td colSpan={8} className="p-8 text-center text-slate-400">لا توجد حركات خلال هذه الفترة</td></tr>
                             )}
                         </tbody>
 
@@ -520,6 +731,28 @@ const SupplierStatement = () => {
                                 </tr>
                             ))}
                         </tbody>
+
+                        {/* 🌟 خانة جمع المدين وخانة جمع الدائن في نهاية الكشف (تظهر في الشاشة والطباعة) */}
+                        <tfoot className="border-t-2 border-slate-300 font-bold bg-slate-100/90 text-sm">
+                          <tr className="border-b border-slate-200">
+                            <td colSpan={3} className="p-4 text-slate-900 font-black">
+                              إجمالي حركات الفترة ({transactions.length} حركة)
+                            </td>
+                            <td className="p-4 text-center font-black text-red-600 bg-red-50/70 font-mono text-base" dir="ltr">
+                              {totalDebit.toLocaleString()}
+                            </td>
+                            <td className="p-4 text-center font-black text-emerald-600 bg-emerald-50/70 font-mono text-base" dir="ltr">
+                              {totalCredit.toLocaleString()}
+                            </td>
+                            <td className="p-4 text-center font-black text-blue-600 bg-blue-50/70 font-mono text-base" dir="ltr">
+                              {totalPaidImmediate > 0 ? totalPaidImmediate.toLocaleString() : '-'}
+                            </td>
+                            <td className="p-4 text-center font-mono font-black text-slate-900 bg-slate-200/80 text-base" dir="ltr">
+                              {closingBalance.toLocaleString()}
+                            </td>
+                            <td className="p-4 print:hidden"></td>
+                          </tr>
+                        </tfoot>
                     </table>
 
                     {/* 📄 شريط ترقيم صفحات كشف الحساب وتحديد عدد الحركات */}

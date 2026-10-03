@@ -1513,16 +1513,16 @@ const PurchaseInvoiceForm = () => {
 
           {/* Table */}
           <div className="overflow-x-auto">
-            <table className="w-full text-right text-sm">
+            <table className="w-full min-w-[960px] text-right text-sm">
               <thead className="bg-slate-50 text-xs font-bold text-slate-600 border-b border-slate-200">
                 <tr>
-                  <th className="p-3">الصنف</th>
-                  <th className="p-3 w-28 text-center">الوحدة</th>
-                  <th className="p-3 w-20 text-center">الكمية</th>
-                  <th className="p-3 w-24 text-center">سعر الوحدة</th>
-                  <th className="p-3 w-28 text-center" title="خصم خاص على مستوى هذا الصنف">خصم الصنف</th>
-                  <th className="p-3 w-24 text-center">ضريبة %</th>
-                  <th className="p-3 w-28 text-center">صافي البند</th>
+                  <th className="p-3 min-w-[200px]">الصنف</th>
+                  <th className="p-3 min-w-[110px] text-center">الوحدة</th>
+                  <th className="p-3 min-w-[105px] text-center">الكمية</th>
+                  <th className="p-3 min-w-[145px] text-center" title="سعر الوحدة مع اتساع مرن للأرقام والكسور">سعر الوحدة</th>
+                  <th className="p-3 min-w-[110px] text-center" title="خصم خاص على مستوى هذا الصنف">خصم الصنف</th>
+                  <th className="p-3 min-w-[95px] text-center">ضريبة %</th>
+                  <th className="p-3 min-w-[130px] text-center">صافي البند</th>
                   <th className="p-3 w-10 text-center"></th>
                 </tr>
               </thead>
@@ -1554,27 +1554,37 @@ const PurchaseInvoiceForm = () => {
                         ))}
                       </select>
                     </td>
-                    <td className="p-3">
-                      <input 
-                        type="number" 
-                        step="any" 
-                        min="0.01"
-                        value={item.quantity} 
-                        onChange={e => handleItemChange(index, 'quantity', parseFloat(e.target.value) || 0)} 
-                        className="w-full border rounded-lg p-1.5 text-center font-mono font-bold text-emerald-700 bg-white" 
-                      />
+                    <td className="p-3 min-w-[105px]">
+                      <div className="flex items-center justify-center">
+                        <input 
+                          type="number" 
+                          step="any" 
+                          min="0.001"
+                          value={item.quantity === 0 ? '' : item.quantity} 
+                          onChange={e => handleItemChange(index, 'quantity', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)} 
+                          className="w-full min-w-[85px] border border-slate-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 rounded-lg py-1.5 px-2 text-center font-mono font-bold text-emerald-700 bg-white shadow-sm transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none hover:border-slate-300" 
+                          style={{ width: `${Math.max(85, String(item.quantity || '').length * 11 + 25)}px` }}
+                          placeholder="1"
+                          title={`الكمية: ${item.quantity || 0}`}
+                        />
+                      </div>
                     </td>
-                    <td className="p-3">
-                      <input 
-                        type="number" 
-                        step="any" 
-                        min="0" 
-                        value={item.unitPrice} 
-                        onChange={e => handleItemChange(index, 'unitPrice', parseFloat(e.target.value) || 0)} 
-                        className="w-full border rounded-lg p-1.5 text-center font-mono font-bold text-slate-800 bg-white" 
-                      />
+                    <td className="p-3 min-w-[145px]">
+                      <div className="flex items-center justify-center">
+                        <input 
+                          type="number" 
+                          step="any" 
+                          min="0" 
+                          value={item.unitPrice === 0 ? '' : item.unitPrice} 
+                          onChange={e => handleItemChange(index, 'unitPrice', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)} 
+                          className="w-full min-w-[125px] border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg py-1.5 px-2 text-center font-mono font-bold text-slate-800 bg-white shadow-sm transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none hover:border-slate-300" 
+                          style={{ width: `${Math.max(125, String(item.unitPrice || '').length * 11 + 30)}px` }}
+                          placeholder="0.00"
+                          title={`سعر الوحدة: ${item.unitPrice || 0}`}
+                        />
+                      </div>
                     </td>
-                    <td className="p-3 text-center">
+                    <td className="p-3 min-w-[110px] text-center">
                       <div className="flex items-center justify-center gap-1">
                         <input 
                           type="number" 
@@ -1593,7 +1603,7 @@ const PurchaseInvoiceForm = () => {
                         </span>
                       )}
                     </td>
-                    <td className="p-3 text-center">
+                    <td className="p-3 min-w-[95px] text-center">
                       <div className="flex items-center justify-center gap-1">
                         <input 
                           type="number" 

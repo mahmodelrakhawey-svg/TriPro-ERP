@@ -32,10 +32,11 @@ import { ThermalInvoicePrintTemplate } from './components/ThermalInvoicePrintTem
 import { InvoiceHeader } from './components/InvoiceHeader';
 import { InvoiceItemsTable } from './components/InvoiceItemsTable';
 import { InvoiceSummary } from './components/InvoiceSummary';
+import { SalesInvoiceExcelImporter } from './components/SalesInvoiceExcelImporter';
 
 
 const SalesInvoiceForm = () => { // Removed unused useParams import
-  const { products, warehouses, salespeople, accounts, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice, currentSelectedOrgId, organization } = useAccounting();
+  const { products, warehouses, salespeople, accounts, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice, currentSelectedOrgId, organization, organizations } = useAccounting();
   const currentUserRole = (currentUser as any)?.role || '';
   const navigate = useNavigate();
   const location = useLocation();
@@ -84,6 +85,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
   const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
   const [convertedQuotationId, setConvertedQuotationId] = useState<string | null>(null);
+  const [isExcelImporterOpen, setIsExcelImporterOpen] = useState(false);
 
   // Navigation & Record State
   const [invoiceIds, setInvoiceIds] = useState<string[]>([]);
@@ -510,7 +512,21 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         error: fullInv.eta_error || ''
       });
 
-      const { data: itemsData } = await supabase.from('invoice_items').select('*, products(name, sku, base_uom_id, sale_uom_id)').eq('invoice_id', fullInv.id);
+      let allLoadedItems: any[] = [];
+      let fromItem = 0;
+      const CHUNK = 1000;
+      while (true) {
+        const { data: itemsChunk, error: itemsChunkErr } = await supabase
+          .from('invoice_items')
+          .select('*, products(name, sku, base_uom_id, sale_uom_id)')
+          .eq('invoice_id', fullInv.id)
+          .range(fromItem, fromItem + CHUNK - 1);
+        if (itemsChunkErr || !itemsChunk || itemsChunk.length === 0) break;
+        allLoadedItems.push(...itemsChunk);
+        if (itemsChunk.length < CHUNK) break;
+        fromItem += CHUNK;
+      }
+      const itemsData = allLoadedItems;
       if (itemsData) {
         setItems(itemsData.map((i: Record<string, any>) => ({
           id: i.id,
@@ -1015,6 +1031,10 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       setShowProductResults(false);
   };
 
+  const handleImportExcelItems = (importedItems: any[]) => {
+    setItems(prev => [...prev, ...importedItems]);
+  };
+
   const handleBarcodeSearch = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
@@ -1225,6 +1245,69 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       }
   };
 
+  // 🛡️ فحص صلاحية واستثناء البيع بالسالب (استثناء خاص لشركة لينزا أو للمستخدمين المصرح لهم)
+  const isNegativeStockAllowed = (): boolean => {
+    // 1. استثناء خاص وحصري لشركة لينزا (Lenza) بجميع مسمياتها التجارية والرسمية
+    const currentOrg = organizations?.find?.(o => o.id === (currentSelectedOrgId || currentUser?.organization_id)) || organization;
+    const orgName = (
+      currentOrg?.name || 
+      currentOrg?.commercial_name || 
+      (currentOrg as any)?.legal_name || 
+      organization?.name || 
+      organization?.commercial_name || 
+      settings?.companyName || 
+      settings?.company_name || 
+      ''
+    ).toLowerCase();
+    
+    const isLenza = orgName.includes('لينزا') || orgName.includes('lenza');
+    if (isLenza) return true;
+
+    // 2. إعدادات الشركة العامة
+    if (settings?.allowNegativeStock || (settings as any)?.allow_negative_stock) return true;
+
+    // 3. صلاحيات المستخدم المباشرة أو الدور للبيع بالسالب
+    const userPerms = (currentUser as any)?.permissions || [];
+    const hasUserNegativeStockPerm = Boolean(
+      can?.('sales', 'negative_stock') ||
+      can?.('inventory', 'negative_stock') ||
+      can?.('sales', 'allow_negative_stock') ||
+      can?.('inventory', 'allow_negative_stock') ||
+      (currentUser as any)?.allow_negative_stock ||
+      (currentUser as any)?.allowNegativeStock ||
+      (currentUser as any)?.user_metadata?.allow_negative_stock ||
+      (currentUser as any)?.user_metadata?.allowNegativeStock ||
+      (Array.isArray(userPerms) && (
+        userPerms.includes('sales.negative_stock') ||
+        userPerms.includes('negative_stock') ||
+        userPerms.includes('allow_negative_stock') ||
+        userPerms.includes('inventory.negative_stock') ||
+        userPerms.includes('inventory.allow_negative_stock')
+      )) ||
+      ['admin', 'super_admin', 'owner', 'manager'].includes(currentUserRole)
+    );
+
+    return hasUserNegativeStockPerm;
+  };
+
+  // مزامنة صامتة لقاعدة البيانات لشركة لينزا لضمان عدم رفض الترحيل في الـ RPC
+  useEffect(() => {
+    const currentOrg = organizations?.find?.(o => o.id === (currentSelectedOrgId || currentUser?.organization_id)) || organization;
+    const orgName = (
+      currentOrg?.name || 
+      currentOrg?.commercial_name || 
+      organization?.name || 
+      organization?.commercial_name || 
+      settings?.companyName || 
+      ''
+    ).toLowerCase();
+    const isLenza = orgName.includes('لينزا') || orgName.includes('lenza');
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    if (isLenza && targetOrgId && targetOrgId !== 'org-default-offline') {
+      supabase.from('company_settings').update({ allow_negative_stock: true }).eq('organization_id', targetOrgId).then(() => {});
+    }
+  }, [organizations, currentSelectedOrgId, currentUser?.organization_id, organization, settings]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -1263,7 +1346,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     }
     
     // Check stock availability
-    if (!settings.allowNegativeStock) { // Use handleError for consistency
+    if (!isNegativeStockAllowed()) { // Use handleError for consistency
         for (const item of items) {
             const product = products.find(p => p.id === item.productId);
             const selectedWarehouse = warehouses.find(w => w.id === formData.warehouseId);
@@ -1348,7 +1431,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     // توليد رقم فاتورة فريد مرة واحدة لاستخدامه في القيد والفاتورة
     const invoiceNumber = formData.invoiceNumber || await getNextDocumentNumber(userOrgId, 'invoice');
     const promoNotes = appliedPromotions.length > 0 
-        ? ` [عروض مطبقة: ${appliedPromotions.map(p => p.promoName).join(' | ')}]`
+        ? ` [عروض مطبقة: ${appliedPromotions.length > 3 ? `${appliedPromotions.length} عرض ترويجي` : appliedPromotions.map(p => p.promoName).join(' | ')}]`
         : '';
     const finalNotes = (formData.notes || '') + (formData.notes?.includes('[عروض مطبقة:') ? '' : promoNotes);
 
@@ -1479,8 +1562,12 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
             // Insert items
             if (invoiceId) {
                 const itemsWithInv = itemsToInsert.map(it => ({ ...it, invoice_id: invoiceId }));
-                const { error: itemsError } = await supabase.from('invoice_items').insert(itemsWithInv);
-                if (itemsError) throw itemsError;
+                for (let i = 0; i < itemsWithInv.length; i += 100) {
+                    const chunk = itemsWithInv.slice(i, i + 100);
+                    const { error: itemsError } = await supabase.from('invoice_items').insert(chunk);
+                    if (itemsError) throw itemsError;
+                }
+
             }
         }
 
@@ -1594,15 +1681,17 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         showToast('يرجى اختيار الخزينة أو البنك لاستلام المبلغ المدفوع', 'warning'); // Use handleError for consistency
         return;
     }
-    if (!settings.allowNegativeStock) { // Use handleError for consistency
+    if (!isNegativeStockAllowed()) { // Use handleError for consistency
         for (const item of items) {
             const product = products.find(p => p.id === item.productId);
             const selectedWarehouse = warehouses.find(w => w.id === formData.warehouseId);
+            const selectedUom = uoms.find(u => u.id === item.uomId);
+            const baseQuantity = item.quantity * (selectedUom?.ratio || 1);
             // 🛡️ إصلاح: الوصول للمخزون باستخدام الاسم الصحيح للعمود في قاعدة البيانات (warehouse_stock)
             const warehouseStock = (product as any)?.warehouse_stock || (product as any)?.warehouseStock;
             const stockInWarehouse = Number(warehouseStock?.[formData.warehouseId] || 0);
-            if (item.quantity > stockInWarehouse) { 
-                showToast(`❌ [عجز مخزني]: الصنف "${item.productName}" رصيده (${stockInWarehouse}) في مستودع "${selectedWarehouse?.name || 'المختار'}"، والمطلوب (${item.quantity}). يرجى اختيار المستودع الصحيح.`, 'error');
+            if (baseQuantity > stockInWarehouse) { 
+                showToast(`❌ [عجز مخزني]: الصنف "${item.productName}" رصيده (${stockInWarehouse}) في مستودع "${selectedWarehouse?.name || 'المختار'}"، والمطلوب صرفه يعادل (${baseQuantity.toFixed(2)}) قطعة. يرجى اختيار المستودع الصحيح.`, 'error');
                 return;
             }
         }
@@ -2133,6 +2222,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               removeItem={removeItem}
               settings={settings}
               currentUserRole={currentUserRole}
+              onOpenExcelImporter={() => setIsExcelImporterOpen(true)}
             />
 
             {/* Notes Section */}
@@ -2223,6 +2313,17 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               </div>
           </div>
       )}
+
+      {/* Sales Invoice Excel Importer Modal */}
+      <SalesInvoiceExcelImporter
+        isOpen={isExcelImporterOpen}
+        onClose={() => setIsExcelImporterOpen(false)}
+        onImportItems={handleImportExcelItems}
+        products={products}
+        uoms={uoms}
+        pricingTier={pricingTier}
+        currency={formData.currency}
+      />
 
       <ThermalInvoicePrintTemplate
         settings={settings}

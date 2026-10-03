@@ -45,11 +45,17 @@ const DOMAIN_ACTION_ALIASES: Record<string, Record<string, string[]>> = {
     advances_penalties: ['hr.advances_penalties', 'hr.advances', 'hr.manage', 'hr.*'],
     manage_employee: ['hr.manage_employee', 'hr.manage', 'hr.*'],
   },
+  sales: {
+    negative_stock: ['sales.negative_stock', 'inventory.negative_stock', 'sales.allow_negative_stock', 'inventory.allow_negative_stock', 'sales.*'],
+    allow_negative_stock: ['sales.negative_stock', 'inventory.negative_stock', 'sales.allow_negative_stock', 'inventory.allow_negative_stock', 'sales.*'],
+  },
   purchases: {
     return: ['purchases.return', 'purchases.delete', 'purchases.manage', 'purchases.*'],
   },
   inventory: {
     adjustment: ['inventory.adjustment', 'inventory.adjustment_approve', 'inventory.manage', 'inventory.*'],
+    negative_stock: ['inventory.negative_stock', 'sales.negative_stock', 'inventory.allow_negative_stock', 'sales.allow_negative_stock', 'inventory.*'],
+    allow_negative_stock: ['inventory.negative_stock', 'sales.negative_stock', 'inventory.allow_negative_stock', 'sales.allow_negative_stock', 'inventory.*'],
   },
 };
 
@@ -215,6 +221,18 @@ export function evaluatePermission(
 
   if (module === 'mobile') {
     return checkMobileGuard(userRole, userPermissions, currentUser);
+  }
+
+  // 🛡️ فحص مباشر واستثنائي لصلاحية البيع بالسالب للمستخدم
+  if (action === 'negative_stock' || action === 'allow_negative_stock') {
+    if (
+      Boolean((currentUser as any)?.allow_negative_stock) ||
+      Boolean((currentUser as any)?.allowNegativeStock) ||
+      Boolean((currentUser as any)?.user_metadata?.allow_negative_stock) ||
+      Boolean((currentUser as any)?.user_metadata?.allowNegativeStock)
+    ) {
+      return true;
+    }
   }
 
   // 4. مطابقة الرموز الشاملة (Wildcard Pattern Matching)
