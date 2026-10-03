@@ -712,7 +712,7 @@ const PurchaseInvoiceForm = () => {
         invoice_date: formData.date,
         total_amount: invoiceCalculation.totalAmount,
         tax_amount: invoiceCalculation.taxAmount,
-        subtotal: invoiceCalculation.subtotalBeforeInvoiceDiscount,
+        subtotal: Math.round((invoiceCalculation.totalAmount + invoiceCalculation.invoiceDiscountAmount - invoiceCalculation.taxAmount) * 100) / 100,
         discount_type: formData.discountType,
         discount_value: Number(formData.discountValue) || 0,
         discount_amount: invoiceCalculation.invoiceDiscountAmount,
