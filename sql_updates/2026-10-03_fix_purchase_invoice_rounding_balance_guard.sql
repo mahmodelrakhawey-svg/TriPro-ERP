@@ -1,26 +1,11 @@
 -- ==============================================================================
--- Migration: Fix Purchase Invoice Balance Guard Rounding & Auto-Balancing
+-- Migration: Fix Purchase Invoice Balance Guard Rounding & Auto-Balancing (Safe Version)
 -- Date: 2026-10-03
--- Problem:
---   When posting purchase invoice (e.g. PUR-286048), fractional rounding between
---   line items and total amount can create a 0.01 difference (e.g. 9199.99 vs 9200.00).
---   The balance guard trigger had a 0.005 threshold (half a cent), causing
---   the transaction to abort with:
---   "⚠️ صمام أمان توازن القيود: عملية التعديل أو الحذف تجعل القيد المرحل غير متوازن! (الفرق: 0.0100)"
---
--- Solution:
---   1. Update balance guard trigger tolerance from 0.005 to 0.05 to accommodate normal decimal rounding.
---   2. Update approve_purchase_invoice to mathematically balance the inventory asset line
---      (inventory = total_amount + discount_amount - tax_amount) so Debit == Credit inherently.
---   3. Add auto-balancer in approve_purchase_invoice for any minor discrepancy <= 0.05.
 -- ==============================================================================
 
--- 1. تحديث تريجر فحص توازن رأس القيد (توسيع حد السماحية لفروق التقريب من 0.005 إلى 0.05)
+-- 1. تحديث صمام أمان رأس القيد (سماحية فروق التقريب حتى 0.05)
 CREATE OR REPLACE FUNCTION public.fn_guard_journal_entry_balance()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_sum_debit NUMERIC;
     v_sum_credit NUMERIC;
@@ -41,7 +26,6 @@ BEGIN
                         COALESCE(NEW.reference, NEW.id::text);
                 END IF;
 
-                -- السماح بفروق التقريب العادية للكسور حتى 0.05 (5 قروش)
                 IF ABS(v_sum_debit - v_sum_credit) > 0.05 THEN
                     RAISE EXCEPTION '⚠️ صمام أمان توازن القيود: لا يمكن ترحيل القيد (%) لعدم توازن المدين مع الدائن! (إجمالي المدين: %, إجمالي الدائن: %, الفرق: %).',
                         COALESCE(NEW.reference, NEW.id::text), v_sum_debit, v_sum_credit, ABS(v_sum_debit - v_sum_credit);
@@ -54,17 +38,13 @@ BEGIN
             END IF;
         END IF;
     END IF;
-
     RETURN NEW;
 END;
 $$;
 
--- 2. تحديث تريجر فحص توازن أسطر القيود (توسيع حد السماحية لفروق التقريب من 0.005 إلى 0.05)
+-- 2. تحديث صمام أمان أسطر القيد (سماحية فروق التقريب حتى 0.05)
 CREATE OR REPLACE FUNCTION public.fn_guard_journal_lines_balance()
-RETURNS TRIGGER
-LANGUAGE plpgsql
-SECURITY DEFINER
-AS $$
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER AS $$
 DECLARE
     v_entry_id UUID;
     v_status TEXT;
@@ -75,31 +55,23 @@ DECLARE
     v_line_count INTEGER;
 BEGIN
     v_entry_id := COALESCE(NEW.journal_entry_id, OLD.journal_entry_id);
-    IF v_entry_id IS NULL THEN
-        RETURN NULL;
-    END IF;
+    IF v_entry_id IS NULL THEN RETURN NULL; END IF;
 
-    SELECT status, is_posted, reference
-      INTO v_status, v_is_posted, v_reference
-      FROM public.journal_entries
-     WHERE id = v_entry_id;
+    SELECT status, is_posted, reference INTO v_status, v_is_posted, v_reference
+      FROM public.journal_entries WHERE id = v_entry_id;
 
-    IF NOT FOUND THEN
-        RETURN NULL;
-    END IF;
+    IF NOT FOUND THEN RETURN NULL; END IF;
 
     IF v_status = 'posted' OR v_is_posted = true THEN
         SELECT COALESCE(SUM(debit), 0), COALESCE(SUM(credit), 0), COUNT(*)
           INTO v_sum_debit, v_sum_credit, v_line_count
-          FROM public.journal_lines
-         WHERE journal_entry_id = v_entry_id;
+          FROM public.journal_lines WHERE journal_entry_id = v_entry_id;
 
         IF v_line_count = 0 THEN
             RAISE EXCEPTION '⚠️ صمام أمان توازن القيود: لا يمكن ترك القيد المرحل (%) بدون أسطر محاسبية.',
                 COALESCE(v_reference, v_entry_id::text);
         END IF;
 
-        -- السماح بفروق التقريب العادية للكسور حتى 0.05 (5 قروش)
         IF ABS(v_sum_debit - v_sum_credit) > 0.05 THEN
             RAISE EXCEPTION '⚠️ صمام أمان توازن القيود: عملية التعديل أو الحذف تجعل القيد المرحل (%) غير متوازن! (إجمالي المدين: %, إجمالي الدائن: %, الفرق: %).',
                 COALESCE(v_reference, v_entry_id::text), v_sum_debit, v_sum_credit, ABS(v_sum_debit - v_sum_credit);
@@ -110,23 +82,17 @@ BEGIN
                 COALESCE(v_reference, v_entry_id::text);
         END IF;
     END IF;
-
     RETURN NULL;
 END;
 $$;
 
--- 3. تحديث دالة اعتماد وترحيل فاتورة المشتريات (approve_purchase_invoice)
--- تضمن التوازن الرياضي التام لقيد المشتريات ومعالجة أي فرق تقريب للكسور
+-- 3. تحديث دالة ترحيل فاتورة المشتريات بميزة التوازن التلقائي
 CREATE OR REPLACE FUNCTION public.approve_purchase_invoice(
     p_invoice_id uuid,
     p_org_id uuid DEFAULT NULL,
     p_warehouse_id uuid DEFAULT NULL
 )
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE
     v_invoice record;
     v_item record;
@@ -151,43 +117,30 @@ DECLARE
     v_inv_debit_amount numeric := 0;
     v_entry_diff numeric := 0;
 BEGIN
-    -- أ. جلب بيانات الفاتورة
     SELECT * INTO v_invoice FROM public.purchase_invoices WHERE id = p_invoice_id;
-    IF NOT FOUND THEN
-        RAISE EXCEPTION 'فاتورة المشتريات غير موجودة (ID: %)', p_invoice_id;
-    END IF;
+    IF NOT FOUND THEN RAISE EXCEPTION 'فاتورة المشتريات غير موجودة (ID: %)', p_invoice_id; END IF;
 
-    -- إذا كانت مرحلة بالفعل نخرج دون تكرار القيد
-    IF v_invoice.status IN ('posted', 'paid') THEN
-        RETURN;
-    END IF;
+    IF v_invoice.status IN ('posted', 'paid') THEN RETURN; END IF;
 
     v_org_id := COALESCE(p_org_id, v_invoice.organization_id, public.get_my_org());
-    IF v_org_id IS NULL THEN
-        RAISE EXCEPTION 'تعذر تحديد هوية المنظمة لفاتورة المشتريات.';
-    END IF;
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'تعذر تحديد هوية المنظمة لفاتورة المشتريات.'; END IF;
 
     v_wh_id := COALESCE(p_warehouse_id, v_invoice.warehouse_id, (SELECT id FROM public.warehouses WHERE organization_id = v_org_id LIMIT 1));
     
-    -- قراءة الحقول المالية بأمان تام
     v_discount_amount := COALESCE((to_jsonb(v_invoice)->>'discount_amount')::numeric, 0);
     v_total_amount := COALESCE(v_invoice.total_amount, 0);
     v_tax_amount := COALESCE(v_invoice.tax_amount, 0);
     v_paid_amount := COALESCE(v_invoice.paid_amount, 0);
     v_treasury_acc_id := v_invoice.treasury_account_id;
 
-    -- حساب قيمة المخزون لضمان التوازن الرياضي الحتمي للقيد:
-    -- المدين (المخزون + الضريبة) = الدائن (المورد + الخصم المكتسب)
-    -- إذن: المخزون = إجمالي الفاتورة + الخصم المكتسب - الضريبة
+    -- حساب قيمة المخزون لضمان التوازن الرياضي الحتمي
     v_inv_debit_amount := v_total_amount + v_discount_amount - v_tax_amount;
 
-    -- ب. جلب الحسابات المحاسبية
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
     v_inventory_acc_id := COALESCE((v_mappings->>'INVENTORY_RAW_MATERIALS')::uuid, (SELECT id FROM public.accounts WHERE code IN ('10301', '103', '1105') AND organization_id = v_org_id LIMIT 1));
     v_vat_in_id := COALESCE((v_mappings->>'VAT_INPUT')::uuid, (v_mappings->>'VAT')::uuid, (SELECT id FROM public.accounts WHERE code IN ('1241', '10204', '202', '2103') AND organization_id = v_org_id LIMIT 1));
     v_supplier_acc_id := COALESCE((v_mappings->>'SUPPLIERS')::uuid, (SELECT id FROM public.accounts WHERE code IN ('201', '2101') AND organization_id = v_org_id LIMIT 1));
 
-    -- ج. جلب أو إنشاء حساب الخصم المكتسب (حساب 513 أو 5102)
     IF v_discount_amount > 0 THEN
         v_purchase_discount_acc_id := public.resolve_leaf_account(COALESCE(
             public.safe_cast_uuid(v_mappings->>'PURCHASE_DISCOUNT'),
@@ -209,7 +162,7 @@ BEGIN
         END IF;
     END IF;
 
-    -- د. تحديث المخزون ومتوسط التكلفة المرجح (WAC) لكل صنف
+    -- تحديث المخزون ومتوسط التكلفة
     FOR v_item IN 
         SELECT pii.*, p.stock as prod_stock, p.weighted_average_cost, p.cost, p.purchase_price, p.base_uom_id, p.inventory_account_id
         FROM public.purchase_invoice_items pii
@@ -226,9 +179,7 @@ BEGIN
             v_base_qty := v_item.quantity;
         END;
 
-        IF v_base_qty IS NULL OR v_base_qty <= 0 THEN
-            v_base_qty := v_item.quantity;
-        END IF;
+        IF v_base_qty IS NULL OR v_base_qty <= 0 THEN v_base_qty := v_item.quantity; END IF;
 
         DECLARE
             v_raw_price numeric := COALESCE(
@@ -256,9 +207,7 @@ BEGIN
                 warehouse_stock = jsonb_set(
                     COALESCE(warehouse_stock, '{}'::jsonb),
                     ARRAY[v_wh_id::text],
-                    to_jsonb(
-                        COALESCE((warehouse_stock->>v_wh_id::text)::numeric, 0) + v_base_qty
-                    )
+                    to_jsonb(COALESCE((warehouse_stock->>v_wh_id::text)::numeric, 0) + v_base_qty)
                 ),
                 purchase_price = v_unit_cost_base,
                 cost = v_new_wac,
@@ -266,8 +215,7 @@ BEGIN
             WHERE id = v_item.product_id;
         ELSE
             UPDATE public.products
-            SET 
-                stock = COALESCE(stock, 0) + v_base_qty,
+            SET stock = COALESCE(stock, 0) + v_base_qty,
                 purchase_price = v_unit_cost_base,
                 cost = v_new_wac,
                 weighted_average_cost = v_new_wac
@@ -275,7 +223,7 @@ BEGIN
         END IF;
     END LOOP;
 
-    -- هـ. مسح القيود القديمة للفاتورة إن وجدت
+    -- مسح أي قيود سابقة
     DELETE FROM public.journal_lines 
     WHERE journal_entry_id IN (
         SELECT id FROM public.journal_entries 
@@ -284,7 +232,7 @@ BEGIN
     DELETE FROM public.journal_entries 
     WHERE related_document_id = p_invoice_id AND related_document_type = 'purchase_invoice';
 
-    -- و. إنشاء قيد اليومية المتوازن لفاتورة المشتريات
+    -- إنشاء القيد المحاسبي المتوازن
     INSERT INTO public.journal_entries (
         transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted
     ) VALUES (
@@ -298,25 +246,25 @@ BEGIN
         true
     ) RETURNING id INTO v_journal_id;
 
-    -- 1. الطرف المدين: المخزون بقيمة متوازنة حتمياً
+    -- 1. المدين: المخزون
     IF v_inventory_acc_id IS NOT NULL THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
         VALUES (v_journal_id, v_inventory_acc_id, v_inv_debit_amount, 0, 'إثبات مشتريات - مخزون', v_org_id);
     END IF;
 
-    -- 2. الطرف المدين: ضريبة المدخلات (إن وجدت)
+    -- 2. المدين: ضريبة المدخلات
     IF v_tax_amount > 0 AND v_vat_in_id IS NOT NULL THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
         VALUES (v_journal_id, v_vat_in_id, v_tax_amount, 0, 'ضريبة مدخلات مشتريات', v_org_id);
     END IF;
 
-    -- 3. الطرف الدائن: الخصم المكتسب (إن وجد)
+    -- 3. الدائن: الخصم المكتسب
     IF v_discount_amount > 0 AND v_purchase_discount_acc_id IS NOT NULL THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
         VALUES (v_journal_id, v_purchase_discount_acc_id, 0, v_discount_amount, 'خصم مكتسب على المشتريات', v_org_id);
     END IF;
 
-    -- 4. الطرف الدائن: استحقاق المورد بصافي الفاتورة (Total Amount)
+    -- 4. الدائن: استحقاق المورد
     IF v_supplier_acc_id IS NOT NULL THEN
         INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
         VALUES (v_journal_id, v_supplier_acc_id, 0, v_total_amount, 'استحقاق مورد - فاتورة مشتريات', v_org_id);
@@ -330,7 +278,7 @@ BEGIN
             (v_journal_id, v_treasury_acc_id, 0, v_paid_amount, 'دفع نقدي للمورد', v_org_id);
     END IF;
 
-    -- 6. صمام ضبط فروق الكسور العشرية الطفيفة (Auto-Balancing Cents)
+    -- 6. صمام الموازنة الدقيقة لفروق الكسور (Auto-Balancing)
     SELECT COALESCE(SUM(debit), 0) - COALESCE(SUM(credit), 0)
     INTO v_entry_diff
     FROM public.journal_lines
@@ -342,14 +290,12 @@ BEGIN
         WHERE journal_entry_id = v_journal_id AND account_id = v_inventory_acc_id;
     END IF;
 
-    -- ز. تحديث حالة الفاتورة وربطها برقم القيد المحاسبي
     UPDATE public.purchase_invoices 
     SET status = CASE WHEN (v_total_amount - v_paid_amount) <= 0.01 THEN 'paid' ELSE 'posted' END, 
         related_journal_entry_id = v_journal_id,
         warehouse_id = v_wh_id
     WHERE id = p_invoice_id;
 
-    -- ح. تحديث رصيد المورد لحظياً
     IF v_invoice.supplier_id IS NOT NULL THEN
         BEGIN
             IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_single_supplier_balance' AND pronamespace = 'public'::regnamespace) THEN
@@ -361,33 +307,29 @@ BEGIN
 END;
 $$;
 
--- 4. التأكد من تطابق الدوال المستعارة وصلاحيات التنفيذ
+-- 4. إنشاء دوال post_purchase_invoice المستعارة وضمان وجودها
 CREATE OR REPLACE FUNCTION public.post_purchase_invoice(
     p_invoice_id uuid,
     p_org_id uuid DEFAULT NULL,
     p_warehouse_id uuid DEFAULT NULL
 )
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
     PERFORM public.approve_purchase_invoice(p_invoice_id, p_org_id, p_warehouse_id);
 END;
 $$;
 
 CREATE OR REPLACE FUNCTION public.post_purchase_invoice(p_invoice_id uuid)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
+RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 BEGIN
     PERFORM public.approve_purchase_invoice(p_invoice_id, NULL, NULL);
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.approve_purchase_invoice(uuid, uuid, uuid) TO authenticated, service_role, anon;
-GRANT EXECUTE ON FUNCTION public.post_purchase_invoice(uuid, uuid, uuid) TO authenticated, service_role, anon;
-GRANT EXECUTE ON FUNCTION public.post_purchase_invoice(uuid) TO authenticated, service_role, anon;
+-- 5. منح الصلاحيات بطريقة آمنة
+DO $$ BEGIN
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.approve_purchase_invoice(uuid, uuid, uuid) TO authenticated, service_role, anon';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.post_purchase_invoice(uuid, uuid, uuid) TO authenticated, service_role, anon';
+    EXECUTE 'GRANT EXECUTE ON FUNCTION public.post_purchase_invoice(uuid) TO authenticated, service_role, anon';
+EXCEPTION WHEN OTHERS THEN NULL;
+END $$;
