@@ -4,16 +4,23 @@
  */
 
 /**
- * Remove HTML/JavaScript from strings to prevent XSS
- * إزالة الـ HTML و JavaScript من النصوص لمنع XSS
+ * Remove/encode HTML to prevent XSS attacks
+ * يُشفّر HTML بشكل كامل لمنع هجمات XSS بدلاً من مجرد الحذف
+ * @security Uses HTML entity encoding (not just stripping) per OWASP XSS Prevention Cheat Sheet
  */
 export function sanitizeHtml(input: string): string {
   if (!input) return '';
-  
+
+  // OWASP-recommended: encode ALL dangerous characters as HTML entities
   return input
-    .replace(/[<>]/g, '') // Remove angle brackets
-    .replace(/javascript:/gi, '')
-    .replace(/on\w+\s*=/gi, '') // Remove event handlers like onclick=
+    .replace(/&/g, '&amp;')   // Must be first to avoid double-encoding
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/\//g, '&#x2F;')
+    .replace(/`/g, '&#x60;')
+    .replace(/=/g, '&#x3D;')
     .trim();
 }
 

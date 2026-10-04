@@ -8,26 +8,37 @@ import crypto from 'crypto';
 // ============== PASSWORD SECURITY ==============
 
 /**
- * Hash password using bcrypt-like approach (server-side)
- * For client-side, consider using bcryptjs or similar
+ * Hash password using PBKDF2-SHA512
+ * @security Uses 310,000 iterations per NIST SP 800-132 (2024 minimum recommendation)
+ * For client-side use, consider using bcryptjs or Argon2
  */
 export function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16).toString('hex');
+  const salt = crypto.randomBytes(32).toString('hex'); // 256-bit salt
   const hash = crypto
-    .pbkdf2Sync(password, salt, 1000, 64, 'sha512')
+    .pbkdf2Sync(password, salt, 310_000, 64, 'sha512')
     .toString('hex');
   return `${salt}:${hash}`;
 }
 
 /**
- * Verify password
+ * Verify password (supports both old 1000-iteration hashes and new 310000-iteration hashes)
  */
 export function verifyPassword(storedHash: string, passwordAttempt: string): boolean {
-  const [salt, originalHash] = storedHash.split(':');
-  const hash = crypto
-    .pbkdf2Sync(passwordAttempt, salt, 1000, 64, 'sha512')
+  const parts = storedHash.split(':');
+  if (parts.length !== 2) return false;
+  const [salt, originalHash] = parts;
+  
+  // Try new iteration count first
+  const hashNew = crypto
+    .pbkdf2Sync(passwordAttempt, salt, 310_000, 64, 'sha512')
     .toString('hex');
-  return hash === originalHash;
+  if (hashNew === originalHash) return true;
+
+  // Backward compatibility: try old iteration count
+  const hashOld = crypto
+    .pbkdf2Sync(passwordAttempt, salt, 1_000, 64, 'sha512')
+    .toString('hex');
+  return hashOld === originalHash;
 }
 
 // ============== RATE LIMITING ==============
@@ -216,6 +227,29 @@ export function createAuditLog(
     status,
     errorMessage,
   };
+}
+
+/**
+ * Persist audit log to Supabase security_audit_logs table
+ * يحفظ سجل المراجعة الأمني في قاعدة البيانات بشكل فعلي
+ */
+export async function persistAuditLog(
+  log: AuditLog,
+  supabaseClient: { rpc: Function }
+): Promise<void> {
+  try {
+    await supabaseClient.rpc('log_security_event', {
+      p_action: log.action,
+      p_resource: log.resource,
+      p_resource_id: (log as any).resourceId ?? null,
+      p_changes: log.changes ?? null,
+      p_status: log.status,
+      p_error_message: log.errorMessage ?? null,
+    });
+  } catch {
+    // Silent fail — audit logging must never crash the main flow
+    console.warn('[AuditLog] Failed to persist audit log to DB:', log.action);
+  }
 }
 
 // ============== PERMISSION CHECKS ==============
