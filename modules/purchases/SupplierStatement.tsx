@@ -55,7 +55,7 @@ const SupplierStatement = () => {
 
   // حالة طباعة مستند مفرد (فاتورة أو سند)
   const [printingDocId, setPrintingDocId] = useState<string | null>(null);
-  const [printDoc, setPrintDoc] = useState<{ type: 'invoice' | 'payment'; data: any } | null>(null);
+  const [printDoc, setPrintDoc] = useState<{ type: 'invoice' | 'payment'; data: Record<string, unknown> } | null>(null);
 
   // إعادة التعيين للصفحة الأولى عند تغيير الفلاتر
   useEffect(() => {
@@ -354,9 +354,10 @@ const SupplierStatement = () => {
         setTransactions(finalTrans);
         setClosingBalance(runningBal);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         logger.error(error);
-        showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
+        const errMsg = error instanceof Error ? error.message : String(error);
+        showToast('حدث خطأ أثناء جلب البيانات: ' + errMsg, 'error');
     } finally {
         setLoading(false);
     }
@@ -394,7 +395,7 @@ const SupplierStatement = () => {
         showToast('جاري تجهيز الفاتورة للطباعة...', 'info');
         const cleanRef = t.reference?.replace(/^(PINV-|PUR-)/i, '') || '';
         
-        let invData: any = null;
+        let invData: Record<string, unknown> | null = null;
         if (t.docId) {
           const { data, error } = await supabase
             .from('purchase_invoices')
@@ -452,7 +453,7 @@ const SupplierStatement = () => {
 
       if (t.type === 'payment') {
         showToast('جاري تجهيز سند الصرف للطباعة...', 'info');
-        let voucherData: any = null;
+        let voucherData: Record<string, unknown> | null = null;
         if (t.docId) {
           const { data, error } = await supabase
             .from('payment_vouchers')
@@ -521,9 +522,10 @@ const SupplierStatement = () => {
         setPrintingDocId(null);
       }, 300);
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('Error printing doc:', err);
-      showToast('تعذر طباعة المستند: ' + (err?.message || ''), 'error');
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showToast('تعذر طباعة المستند: ' + (errMsg || ''), 'error');
       setPrintingDocId(null);
     }
   };

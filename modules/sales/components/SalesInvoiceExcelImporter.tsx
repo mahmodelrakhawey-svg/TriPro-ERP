@@ -108,7 +108,7 @@ export const SalesInvoiceExcelImporter: React.FC<SalesInvoiceExcelImporterProps>
             if (p.barcode) productMapByBarcode.set(p.barcode.trim().toLowerCase(), p);
             if (p.barcode2) productMapByBarcode.set(p.barcode2.trim().toLowerCase(), p);
             if (Array.isArray(p.unit_barcodes)) {
-              p.unit_barcodes.forEach((ub: any) => {
+              p.unit_barcodes.forEach((ub: { barcode?: string }) => {
                 if (ub.barcode) productMapByBarcode.set(ub.barcode.trim().toLowerCase(), p);
               });
             }
@@ -124,7 +124,7 @@ export const SalesInvoiceExcelImporter: React.FC<SalesInvoiceExcelImporterProps>
             let explicitPrice = Number(row['سعر البيع (Price)'] || row['سعر البيع'] || row['السعر'] || row['Price'] || row['price'] || 0);
 
             // Match product
-            let matchedProduct: any = null;
+            let matchedProduct: Record<string, any> | null = null;
             if (barcode) matchedProduct = productMapByBarcode.get(barcode.toLowerCase());
             if (!matchedProduct && sku) matchedProduct = productMapBySku.get(sku.toLowerCase());
             if (!matchedProduct && name) matchedProduct = productMapByName.get(name.toLowerCase());
@@ -161,14 +161,16 @@ export const SalesInvoiceExcelImporter: React.FC<SalesInvoiceExcelImporterProps>
           setStep('preview');
           setIsProcessing(false);
           showToast(`تم استيراد ${rows.length} صنف بنجاح!`, 'success');
-        } catch (err: any) {
-          showToast('حدث خطأ أثناء قراءة ملف الإكسيل: ' + err.message, 'error');
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          showToast('حدث خطأ أثناء قراءة ملف الإكسيل: ' + errMsg, 'error');
           setIsProcessing(false);
         }
       };
       reader.readAsBinaryString(uploadedFile);
-    } catch (err: any) {
-      showToast('تعذر معالجة الملف: ' + err.message, 'error');
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showToast('تعذر معالجة الملف: ' + errMsg, 'error');
       setIsProcessing(false);
     }
   };

@@ -248,7 +248,7 @@ export async function persistAuditLog(
     });
   } catch {
     // Silent fail — audit logging must never crash the main flow
-    console.warn('[AuditLog] Failed to persist audit log to DB:', log.action);
+    if (process.env.NODE_ENV !== 'production') console.warn('[AuditLog] Failed to persist audit log to DB:', log.action);
   }
 }
 

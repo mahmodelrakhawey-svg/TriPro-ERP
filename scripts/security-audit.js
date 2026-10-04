@@ -185,6 +185,9 @@ function printReport() {
   if (ISSUES.medium.length > 0) {
     console.log('\n🟡 MEDIUM PRIORITY:');
     console.log(`  Found ${ISSUES.medium.length} issues`);
+    ISSUES.medium.forEach(issue => {
+      console.log(`  ⚠️  ${issue.file}:${issue.line} - ${issue.issue} -> ${issue.content}`);
+    });
   }
 
   if (ISSUES.low.length > 0) {
