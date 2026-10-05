@@ -64,8 +64,91 @@ export type PriceComparisonRow = {
   anomalyReason: string;   // سبب التحذير الذكي
 };
 
+// دالة ذكية لاستخراج المضاعف من نص اسم الوحدة إذا تعذر وجوده أو كُتب في الاسم (مثل: "شيكاره 25 كيلو" أو "طبق (30 بيضة)" أو "كرتونه 2 جردل *6 كيلو")
+function extractMultiplierFromName(name: string): number | null {
+  if (!name) return null;
+  const clean = name.trim();
+
+  // 1. فحص وجود عملية ضرب صريحة (مثال: 2 * 6 أو 2 × 6 أو 2x6)
+  const multMatch = clean.match(/(\d+(?:\.\d+)?)\s*(?:[xX*×*]|في)\s*(\d+(?:\.\d+)?)/);
+  if (multMatch) {
+    const v1 = parseFloat(multMatch[1]);
+    const v2 = parseFloat(multMatch[2]);
+    if (v1 > 0 && v2 > 0) return v1 * v2;
+  }
+
+  // 2. رقم داخل أقواس: (30 بيضة) أو (24) أو (12 قطعة)
+  const parenMatch = clean.match(/\(\s*(\d+(?:\.\d+)?)\s*[^)]*\)/);
+  if (parenMatch && parenMatch[1]) {
+    const val = parseFloat(parenMatch[1]);
+    if (val > 1) return val;
+  }
+
+  // 3. رقم يتبعه وحدة قياس أو اسم وحدة (كجم، كيلو، ك، جرام، جم، قطعة، قطع، علبة، علب، بيضة، بيض، لتر، مل، قرص)
+  const unitSuffixMatch = clean.match(/(\d+(?:\.\d+)?)\s*(?:كجم|كيلو|كيلوجرام|ك|جرام|جم|قطعة|قطعه|قطع|علبة|علبه|علب|بيضة|بيضه|بيض|لتر|مل|لترات|قرص|حبة|حبه|حبات|جردل|كيس)/i);
+  if (unitSuffixMatch && unitSuffixMatch[1]) {
+    const val = parseFloat(unitSuffixMatch[1]);
+    if (val > 1) return val;
+  }
+
+  // 4. وحدة قياس يتبعها رقم (دستة 12، كرتونة 24، شيكارة 50، صفيحة 10)
+  const prefixMatch = clean.match(/(?:دستة|دسته|كرتونة|كرتونه|شيكارة|شيكاره|صفيحة|صفيحه|باكت|طرد|صندوق|برميل|جالون|كيس|طبق)\s*(\d+(?:\.\d+)?)/i);
+  if (prefixMatch && prefixMatch[1]) {
+    const val = parseFloat(prefixMatch[1]);
+    if (val > 1) return val;
+  }
+
+  // 5. كلمات دالة على أعداد معروفة
+  if (/^دست[ةه]$/.test(clean)) return 12;
+  if (/^طن$/.test(clean)) return 1000;
+
+  return null;
+}
+
+// دالة حساب السعر الموحد للوحدة الأساسية (المعيار) بدقة رياضية متكاملة
+function computeNormalizedPrice(
+  price: number,
+  uom: { name: string; ratio: number; uom_type: string },
+  baseUnit: string
+): { normalizedPrice: number; effectiveRatio: number; uomName: string } {
+  if (!price || price <= 0) {
+    return { normalizedPrice: 0, effectiveRatio: 1, uomName: uom.name || baseUnit || 'وحدة' };
+  }
+
+  let ratio = Number(uom.ratio) || 1;
+  const name = (uom.name || baseUnit || 'وحدة').trim();
+  const uomType = uom.uom_type || '';
+
+  // إذا كانت النسبة 1 ولكن الاسم يحتوي صراحة على مضاعف رقمي (مثل: شيكاره 25 كيلو أو طبق 30 بيضة)
+  if (ratio === 1) {
+    const parsed = extractMultiplierFromName(name);
+    if (parsed && parsed > 1) {
+      ratio = parsed;
+    }
+  }
+
+  if (ratio <= 0) ratio = 1;
+
+  let normPrice = price;
+
+  if (uomType === 'smaller') {
+    if (ratio > 1) normPrice = price * ratio;
+    else if (ratio < 1 && ratio > 0) normPrice = price / ratio;
+  } else {
+    // bigger أو reference أو عام
+    if (ratio > 1) normPrice = price / ratio;
+    else if (ratio < 1 && ratio > 0) normPrice = price * (1 / ratio);
+  }
+
+  return {
+    normalizedPrice: Number(normPrice.toFixed(4)),
+    effectiveRatio: ratio,
+    uomName: name,
+  };
+}
+
 export default function PurchaseAnalysisReport() {
-  const { currentUser, selectedFiscalYear, fiscalYearRange, suppliers, categories } = useAccounting();
+  const { currentUser, currentSelectedOrgId, effectiveOrgId, selectedFiscalYear, fiscalYearRange, suppliers, categories } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
@@ -122,12 +205,20 @@ export default function PurchaseAnalysisReport() {
         {
           productId: 'p2', productName: 'كريم شانتيه هايبر المتحده', productSku: '10101-0077', categoryId: 'c1', categoryName: 'خامات الحلويات الأولية',
           baseUnit: 'kg',
-          lastPrice: 8100, lastUomName: 'kg', lastNormalizedPrice: 8100.00,
+          lastPrice: 8100, lastUomName: 'شيكاره 25 كيلو', lastNormalizedPrice: 324.00,
           lastDate: '2026-09-30', lastSupplierId: 's2', lastSupplier: 'أشرف سعفان', lastQty: 1, lastInvoice: 'PUR-286017',
-          prevPrice: 324, prevUomName: 'kg', prevNormalizedPrice: 324.00,
+          prevPrice: 324, prevUomName: 'كجم', prevNormalizedPrice: 324.00,
           prevDate: '2026-09-29', prevSupplierId: 's2', prevSupplier: 'أشرف سعفان', prevQty: 25, prevInvoice: 'PUR-286004',
-          diff: 7776.00, diffPct: 2400.0, isDifferentUom: false, isAnomaly: true, 
-          anomalyReason: 'سعر الفاتورة الأحدث (8,100 ج.م) هو على الأرجح سعر شيكارة كاملة (25 كجم) تم إدخاله بالخطأ كوحدة كجم.'
+          diff: 0.00, diffPct: 0.0, isDifferentUom: true, isAnomaly: false, anomalyReason: ''
+        },
+        {
+          productId: 'p3', productName: 'لوز امريكي', productSku: '10101-0081', categoryId: 'c1', categoryName: 'خامات الحلويات الأولية',
+          baseUnit: 'kg',
+          lastPrice: 12250, lastUomName: 'شيكارة 25 كجم', lastNormalizedPrice: 490.00,
+          lastDate: '2026-10-04', lastSupplierId: 's3', lastSupplier: 'شركة مكة', lastQty: 5, lastInvoice: 'PUR-286053',
+          prevPrice: 520, prevUomName: 'كجم', prevNormalizedPrice: 520.00,
+          prevDate: '2026-09-28', prevSupplierId: 's3', prevSupplier: 'شركة مكة', prevQty: 50, prevInvoice: 'PUR-285990',
+          diff: -30.00, diffPct: -5.77, isDifferentUom: true, isAnomaly: false, anomalyReason: ''
         }
       ]);
       setLoading(false);
@@ -136,25 +227,37 @@ export default function PurchaseAnalysisReport() {
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
-
-      if (!userOrgId) return;
+      const userOrgId = 
+        effectiveOrgId || 
+        currentSelectedOrgId || 
+        (currentUser as any)?.organization_id || 
+        user?.user_metadata?.org_id;
 
       // 1. جلب جدول الوحدات (UOMs) لحساب النسب التناسبية وتوحيد المقارنة بدقة رياضية
-      const { data: uomsData } = await supabase
+      let uomsQuery = supabase
         .from('uoms')
-        .select('id, name, ratio, uom_type, category_id, is_base')
-        .eq('organization_id', userOrgId);
+        .select('id, name, ratio, uom_type, category_id, is_base, organization_id');
 
-      const uomMap = new Map<string, { name: string; ratio: number; uom_type: string }>();
+      if (userOrgId) {
+        uomsQuery = uomsQuery.or(`organization_id.eq.${userOrgId},organization_id.is.null`);
+      }
+
+      let { data: uomsData } = await uomsQuery;
+      // إذا لم يُرجع نتائج نكرر بدون شرط المنظمة لضمان جلب كافة الوحدات العامة والمشتركة
+      if (!uomsData || uomsData.length === 0) {
+        const { data: fallbackUoms } = await supabase.from('uoms').select('*');
+        uomsData = fallbackUoms || [];
+      }
+
+      const uomMap = new Map<string, { id: string; name: string; ratio: number; uom_type: string }>();
       (uomsData || []).forEach(u => {
         let r = Number(u.ratio) || 1;
         if (r <= 0) r = 1;
-        uomMap.set(u.id, { name: u.name || '', ratio: r, uom_type: u.uom_type || 'base' });
+        uomMap.set(u.id, { id: u.id, name: (u.name || '').trim(), ratio: r, uom_type: u.uom_type || 'bigger' });
       });
 
       // 2. تحليل المشتريات (التبويب الأول)
-      const { data, error } = await supabase
+      let analysisQuery = supabase
         .from('purchase_invoice_items')
         .select(`
           quantity,
@@ -169,11 +272,15 @@ export default function PurchaseAnalysisReport() {
           ),
           products:product_id (id, name, sku)
         `)
-        .eq('purchase_invoices.organization_id', userOrgId)
         .gte('purchase_invoices.invoice_date', startDate)
         .lte('purchase_invoices.invoice_date', endDate)
         .in('purchase_invoices.status', ['posted', 'paid']);
 
+      if (userOrgId) {
+        analysisQuery = analysisQuery.eq('purchase_invoices.organization_id', userOrgId);
+      }
+
+      const { data, error } = await analysisQuery;
       if (error) throw error;
 
       const supplierMap: Record<string, SupplierAnalysis> = {};
@@ -210,8 +317,8 @@ export default function PurchaseAnalysisReport() {
       setByItem(Object.values(itemMap).sort((a, b) => b.totalAmount - a.totalAmount));
 
       // 3. مقارنة آخر سعرين شراء (التبويب الثاني المحكم والمنضبط)
-      // نجلب بنود الفواتير مع كافة بيانات الصنف والوحدات والمورد
-      const { data: allItems, error: allErr } = await supabase
+      // نجلب بنود الفواتير مع ربط جدول الوحدات uoms:uom_id مباشرة لحل اسم الوحدة ومضاعفها الفعلي
+      let allItemsQuery = supabase
         .from('purchase_invoice_items')
         .select(`
           id,
@@ -220,6 +327,12 @@ export default function PurchaseAnalysisReport() {
           uom_id,
           product_id,
           purchase_invoice_id,
+          uoms:uom_id (
+            id,
+            name,
+            ratio,
+            uom_type
+          ),
           purchase_invoices!purchase_invoice_items_purchase_invoice_id_fkey!inner (
             id,
             invoice_number,
@@ -235,20 +348,37 @@ export default function PurchaseAnalysisReport() {
             sku, 
             unit, 
             base_uom_id, 
+            purchase_uom_id,
             category_id,
             item_categories:category_id (id, name)
           )
         `)
-        .eq('purchase_invoices.organization_id', userOrgId)
-        .in('purchase_invoices.status', ['posted', 'paid'])
-        .order('purchase_invoices(invoice_date)', { ascending: false });
+        .in('purchase_invoices.status', ['posted', 'paid']);
 
+      if (userOrgId) {
+        allItemsQuery = allItemsQuery.eq('purchase_invoices.organization_id', userOrgId);
+      }
+
+      const { data: allItems, error: allErr } = await allItemsQuery;
       if (allErr) throw allErr;
+
+      // فرز البنود تنازلياً حسب تاريخ الفاتورة ورقمها في الذاكرة لضمان التقاط آخر عمليتي شراء حقيقيتين 100%
+      const sortedItems = [...(allItems || [])].sort((a: any, b: any) => {
+        const invA: any = Array.isArray(a.purchase_invoices) ? a.purchase_invoices[0] : a.purchase_invoices;
+        const invB: any = Array.isArray(b.purchase_invoices) ? b.purchase_invoices[0] : b.purchase_invoices;
+        const dateA = invA?.invoice_date || '';
+        const dateB = invB?.invoice_date || '';
+        if (dateA !== dateB) return dateB.localeCompare(dateA);
+        const numA = invA?.invoice_number || a.id || '';
+        const numB = invB?.invoice_number || b.id || '';
+        return numB.localeCompare(numA);
+      });
 
       // تجميع آخر عمليتي شراء لكل صنف
       const productPurchasesMap: Record<string, Array<{
         price: number;
         uomId: string | null;
+        uomDirect: { id: string; name: string; ratio: number; uom_type: string } | null;
         date: string;
         supplierId: string;
         supplier: string;
@@ -256,19 +386,29 @@ export default function PurchaseAnalysisReport() {
         invoice: string;
       }>> = {};
 
-      (allItems || []).forEach((item: Record<string, any>) => {
+      sortedItems.forEach((item: Record<string, any>) => {
         if (!item.products || !item.purchase_invoices) return;
         const pid = item.product_id;
         if (!productPurchasesMap[pid]) productPurchasesMap[pid] = [];
         if (productPurchasesMap[pid].length < 2) {
+          const uomRel = Array.isArray(item.uoms) ? item.uoms[0] : item.uoms;
+          const invObj: any = Array.isArray(item.purchase_invoices) ? item.purchase_invoices[0] : item.purchase_invoices;
+          const supObj: any = Array.isArray(invObj?.suppliers) ? invObj.suppliers[0] : invObj?.suppliers;
+
           productPurchasesMap[pid].push({
             price: Number(item.unit_price || 0),
             uomId: item.uom_id || null,
-            date: item.purchase_invoices.invoice_date || '',
-            supplierId: item.purchase_invoices.supplier_id || '',
-            supplier: item.purchase_invoices.suppliers?.name || 'غير محدد',
+            uomDirect: uomRel ? {
+              id: uomRel.id,
+              name: (uomRel.name || '').trim(),
+              ratio: Number(uomRel.ratio) || 1,
+              uom_type: uomRel.uom_type || 'bigger',
+            } : null,
+            date: invObj?.invoice_date || '',
+            supplierId: invObj?.supplier_id || '',
+            supplier: supObj?.name || 'غير محدد',
             qty: Number(item.quantity || 0),
-            invoice: item.purchase_invoices.invoice_number || '-',
+            invoice: invObj?.invoice_number || '-',
           });
         }
       });
@@ -278,7 +418,7 @@ export default function PurchaseAnalysisReport() {
       Object.entries(productPurchasesMap).forEach(([pid, purchases]) => {
         if (purchases.length < 2) return;
 
-        const anyItem = (allItems || []).find((i: Record<string, unknown>) => i.product_id === pid) as Record<string, any> | undefined;
+        const anyItem = sortedItems.find((i: Record<string, unknown>) => i.product_id === pid) as Record<string, any> | undefined;
         if (!anyItem?.products) return;
 
         const prod = Array.isArray(anyItem.products) ? anyItem.products[0] : anyItem.products;
@@ -289,46 +429,48 @@ export default function PurchaseAnalysisReport() {
 
         const [last, prev] = purchases;
 
-        // دالة استخراج اسم الوحدة ومعامل التحويل للوحدة الأساسية
-        const getUomInfo = (uomId: string | null) => {
-          if (!uomId) {
-            return { name: baseUnitName, ratio: 1 };
+        // دالة تحديد الوحدة الدقيقة للبند مع معامل التحويل
+        const resolveUom = (p: { uomId: string | null; uomDirect: { id: string; name: string; ratio: number; uom_type: string } | null }) => {
+          // 1. الكائن المباشر المجلوب من الفاتورة عبر uoms:uom_id
+          if (p.uomDirect && p.uomDirect.name) {
+            return p.uomDirect;
           }
-          const found = uomMap.get(uomId);
-          if (!found) {
-            return { name: baseUnitName, ratio: 1 };
+          // 2. البحث في خريطة الوحدات الشاملة بمعرف uom_id
+          if (p.uomId && uomMap.has(p.uomId)) {
+            return uomMap.get(p.uomId)!;
           }
-          if (baseUomId && uomId === baseUomId) {
-            return { name: found.name || baseUnitName, ratio: 1 };
+          // 3. الوحدة الأساسية للصنف
+          if (baseUomId && uomMap.has(baseUomId)) {
+            const baseObj = uomMap.get(baseUomId)!;
+            return { id: baseObj.id, name: baseObj.name || baseUnitName, ratio: 1, uom_type: 'reference' };
           }
-          let r = found.ratio;
-          if (found.uom_type === 'smaller' && r > 1) {
-            r = 1 / r;
-          }
-          return { name: found.name, ratio: r > 0 ? r : 1 };
+          // 4. الوحدة النصية المحفوظة مع الصنف
+          return { id: '', name: baseUnitName, ratio: 1, uom_type: 'reference' };
         };
 
-        const lastUom = getUomInfo(last.uomId);
-        const prevUom = getUomInfo(prev.uomId);
+        const lastUomInfo = resolveUom(last);
+        const prevUomInfo = resolveUom(prev);
 
-        const lastNormPrice = lastUom.ratio > 0 ? last.price / lastUom.ratio : last.price;
-        const prevNormPrice = prevUom.ratio > 0 ? prev.price / prevUom.ratio : prev.price;
+        const lastNorm = computeNormalizedPrice(last.price, lastUomInfo, baseUnitName);
+        const prevNorm = computeNormalizedPrice(prev.price, prevUomInfo, baseUnitName);
+
+        const lastNormPrice = lastNorm.normalizedPrice;
+        const prevNormPrice = prevNorm.normalizedPrice;
 
         const diff = Number((lastNormPrice - prevNormPrice).toFixed(4));
         const diffPct = prevNormPrice > 0 ? Number(((diff / prevNormPrice) * 100).toFixed(2)) : 0;
-        const isDifferentUom = (lastUom.name !== prevUom.name);
+        const isDifferentUom = (lastNorm.uomName.trim().toLowerCase() !== prevNorm.uomName.trim().toLowerCase());
 
         // 🛡️ كاشف الفروق الشاذة الذكي (Anomaly Detection):
-        // إذا كان التغير السعري أكثر من +100% أو أقل من -60%، فهذا مؤشر قطعي على أن مدخل الفاتورة
-        // أدخل سعر العبوة/الشيكارة/الكرتونة كاملة بدلاً من سعر الوحدة الفردية (أو العكس)
+        // إذا كان التغير السعري كبيراً جداً بدون توحيد وحدات، أو إذا كان الفرق كبيراً بشكل غير طبيعي
         let isAnomaly = false;
         let anomalyReason = '';
 
-        if (diffPct >= 100) {
+        if (diffPct >= 100 && !isDifferentUom) {
           isAnomaly = true;
           const multiple = Math.round(lastNormPrice / prevNormPrice);
           anomalyReason = `تنبيه: فرق شاذ (+${diffPct.toFixed(0)}%). الأرجح أن سعر الفاتورة (${last.price.toLocaleString()} ج.م) يمثل سعر كرتونة/شيكارة كاملة (حوالي ${multiple} أضعاف الوحدة) تم إدخالها بالخطأ كوحدة فردية.`;
-        } else if (diffPct <= -60) {
+        } else if (diffPct <= -60 && !isDifferentUom) {
           isAnomaly = true;
           const multiple = Math.round(prevNormPrice / lastNormPrice);
           anomalyReason = `تنبيه: فرق شاذ (${diffPct.toFixed(0)}%). الأرجح أن الفاتورة السابقة كانت مسجلة بسعر كرتونة/طرد كامل (حوالي ${multiple} أضعاف الوحدة) بينما الحالية مسجلة بسعر التجزئة.`;
@@ -346,8 +488,8 @@ export default function PurchaseAnalysisReport() {
 
           // الأحدث
           lastPrice: last.price,
-          lastUomName: lastUom.name,
-          lastNormalizedPrice: Number(lastNormPrice.toFixed(4)),
+          lastUomName: lastNorm.uomName,
+          lastNormalizedPrice: lastNormPrice,
           lastDate: last.date,
           lastSupplierId: last.supplierId,
           lastSupplier: last.supplier,
@@ -356,8 +498,8 @@ export default function PurchaseAnalysisReport() {
 
           // السابق
           prevPrice: prev.price,
-          prevUomName: prevUom.name,
-          prevNormalizedPrice: Number(prevNormPrice.toFixed(4)),
+          prevUomName: prevNorm.uomName,
+          prevNormalizedPrice: prevNormPrice,
           prevDate: prev.date,
           prevSupplierId: prev.supplierId,
           prevSupplier: prev.supplier,
@@ -373,7 +515,7 @@ export default function PurchaseAnalysisReport() {
         });
       });
 
-      // ترتيب افتراضي: الفروق الطبيعية الأكثر تأثيراً أولاً
+      // ترتيب افتراضي: الفروق الأكثر تأثيراً أولاً مع وضع الشواذ في النهاية إذا فُعّل عرضها
       rows.sort((a, b) => {
         if (a.isAnomaly !== b.isAnomaly) return a.isAnomaly ? 1 : -1;
         return Math.abs(b.diffPct) - Math.abs(a.diffPct);
