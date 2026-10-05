@@ -5,7 +5,7 @@ import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { 
   BarChart2, Download, Printer, Loader2, Filter, Truck, Package, 
-  TrendingUp, TrendingDown, Minus, ArrowUpDown, RefreshCw, X, AlertTriangle, Layers, Calendar
+  TrendingUp, TrendingDown, Minus, ArrowUpDown, RefreshCw, X, AlertTriangle, Layers, ShieldAlert, CheckCircle2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
@@ -58,6 +58,10 @@ export type PriceComparisonRow = {
   diff: number;            // الفرق المطلق لكل وحدة أساسية (ج.م)
   diffPct: number;         // نسبة التغيير الحقيقية %
   isDifferentUom: boolean; // هل كانت وحدتا الشراء مختلفتين؟ (لتنبيه المستخدم وشفافية الحساب)
+
+  // 🛡️ صمام الأمان وكاشف الأخطاء الشاذة (Anomaly Detection)
+  isAnomaly: boolean;      // هل هناك فرق شاذ ناتج عن إدخال سعر العبوة/الشيكارة بدلاً من سعر الكيلو/القطعة؟
+  anomalyReason: string;   // سبب التحذير الذكي
 };
 
 export default function PurchaseAnalysisReport() {
@@ -66,7 +70,7 @@ export default function PurchaseAnalysisReport() {
   const [loading, setLoading] = useState(false);
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
   const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
-  const [activeTab, setActiveTab] = useState<'analysis' | 'price_compare'>('analysis');
+  const [activeTab, setActiveTab] = useState<'analysis' | 'price_compare'>('price_compare');
 
   // فلاتر تقرير مقارنة الأسعار المتقدمة
   const [searchTerm, setSearchTerm] = useState('');
@@ -74,6 +78,7 @@ export default function PurchaseAnalysisReport() {
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [changeFilter, setChangeFilter] = useState<'all' | 'increased' | 'decreased' | 'unchanged'>('all');
   const [uomFilter, setUomFilter] = useState<'all' | 'same_uom' | 'different_uom'>('all');
+  const [anomalyFilter, setAnomalyFilter] = useState<'all' | 'normal_only' | 'anomalies_only'>('normal_only'); // افتراضياً عرض الفروق الطبيعية فقط لحمايتك من الحرج
   const [sortBy, setSortBy] = useState<'name' | 'diff' | 'diffPct' | 'date'>('diffPct');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
@@ -112,25 +117,17 @@ export default function PurchaseAnalysisReport() {
           lastDate: '2026-10-02', lastSupplierId: 's1', lastSupplier: 'مزارع الدلتا', lastQty: 50, lastInvoice: 'PINV-102',
           prevPrice: 112, prevUomName: 'طبق (30 بيضة)', prevNormalizedPrice: 3.7333,
           prevDate: '2026-09-18', prevSupplierId: 's1', prevSupplier: 'مزارع الدلتا', prevQty: 40, prevInvoice: 'PINV-091',
-          diff: 0.2667, diffPct: 7.14, isDifferentUom: false
+          diff: 0.2667, diffPct: 7.14, isDifferentUom: false, isAnomaly: false, anomalyReason: ''
         },
         {
-          productId: 'p2', productName: 'دقيق فاخر 72%', productSku: 'FL-002', categoryId: 'c1', categoryName: 'خامات أولية',
-          baseUnit: 'كجم',
-          lastPrice: 850, lastUomName: 'شيكارة (50 كجم)', lastNormalizedPrice: 17.00,
-          lastDate: '2026-09-28', lastSupplierId: 's2', lastSupplier: 'مطاحن الإسكندرية', lastQty: 20, lastInvoice: 'PINV-098',
-          prevPrice: 18, prevUomName: 'كجم', prevNormalizedPrice: 18.00,
-          prevDate: '2026-09-05', prevSupplierId: 's3', prevSupplier: 'مورد التجزئة', prevQty: 100, prevInvoice: 'PINV-085',
-          diff: -1.00, diffPct: -5.56, isDifferentUom: true
-        },
-        {
-          productId: 'p3', productName: 'شيكولاتة خام بلجيكي', productSku: 'CH-003', categoryId: 'c1', categoryName: 'خامات أولية',
-          baseUnit: 'كجم',
-          lastPrice: 350, lastUomName: 'كجم', lastNormalizedPrice: 350.00,
-          lastDate: '2026-10-01', lastSupplierId: 's4', lastSupplier: 'شركة الفاخر للحلويات', lastQty: 15, lastInvoice: 'PINV-100',
-          prevPrice: 350, prevUomName: 'كجم', prevNormalizedPrice: 350.00,
-          prevDate: '2026-08-20', prevSupplierId: 's4', prevSupplier: 'شركة الفاخر للحلويات', prevQty: 10, prevInvoice: 'PINV-076',
-          diff: 0, diffPct: 0, isDifferentUom: false
+          productId: 'p2', productName: 'كريم شانتيه هايبر المتحده', productSku: '10101-0077', categoryId: 'c1', categoryName: 'خامات الحلويات الأولية',
+          baseUnit: 'kg',
+          lastPrice: 8100, lastUomName: 'kg', lastNormalizedPrice: 8100.00,
+          lastDate: '2026-09-30', lastSupplierId: 's2', lastSupplier: 'أشرف سعفان', lastQty: 1, lastInvoice: 'PUR-286017',
+          prevPrice: 324, prevUomName: 'kg', prevNormalizedPrice: 324.00,
+          prevDate: '2026-09-29', prevSupplierId: 's2', prevSupplier: 'أشرف سعفان', prevQty: 25, prevInvoice: 'PUR-286004',
+          diff: 7776.00, diffPct: 2400.0, isDifferentUom: false, isAnomaly: true, 
+          anomalyReason: 'سعر الفاتورة الأحدث (8,100 ج.م) هو على الأرجح سعر شيكارة كاملة (25 كجم) تم إدخاله بالخطأ كوحدة كجم.'
         }
       ]);
       setLoading(false);
@@ -301,13 +298,9 @@ export default function PurchaseAnalysisReport() {
           if (!found) {
             return { name: baseUnitName, ratio: 1 };
           }
-          // إذا كانت الوحدة هي الوحدة الأساسية
           if (baseUomId && uomId === baseUomId) {
             return { name: found.name || baseUnitName, ratio: 1 };
           }
-          // إذا كانت وحدة أكبر (كالكرتونة التي تحتوي 30 بيضة) -> ratio = 30
-          // فالسعر المحول للبيضة = سعر الكرتونة / 30
-          // وإذا كانت وحدة أصغر (كالجرام من الكيلو) -> ratio = 1000 أو 0.001
           let r = found.ratio;
           if (found.uom_type === 'smaller' && r > 1) {
             r = 1 / r;
@@ -318,14 +311,28 @@ export default function PurchaseAnalysisReport() {
         const lastUom = getUomInfo(last.uomId);
         const prevUom = getUomInfo(prev.uomId);
 
-        // السعر المحول للوحدة الأساسية = السعر المدفوع / معامل الوحدة
-        // مثال: كرتونة بـ 120 جنيه وبها 30 بيضة -> سعر البيضة = 120 / 30 = 4 جنيه
         const lastNormPrice = lastUom.ratio > 0 ? last.price / lastUom.ratio : last.price;
         const prevNormPrice = prevUom.ratio > 0 ? prev.price / prevUom.ratio : prev.price;
 
         const diff = Number((lastNormPrice - prevNormPrice).toFixed(4));
         const diffPct = prevNormPrice > 0 ? Number(((diff / prevNormPrice) * 100).toFixed(2)) : 0;
         const isDifferentUom = (lastUom.name !== prevUom.name);
+
+        // 🛡️ كاشف الفروق الشاذة الذكي (Anomaly Detection):
+        // إذا كان التغير السعري أكثر من +100% أو أقل من -60%، فهذا مؤشر قطعي على أن مدخل الفاتورة
+        // أدخل سعر العبوة/الشيكارة/الكرتونة كاملة بدلاً من سعر الوحدة الفردية (أو العكس)
+        let isAnomaly = false;
+        let anomalyReason = '';
+
+        if (diffPct >= 100) {
+          isAnomaly = true;
+          const multiple = Math.round(lastNormPrice / prevNormPrice);
+          anomalyReason = `تنبيه: فرق شاذ (+${diffPct.toFixed(0)}%). الأرجح أن سعر الفاتورة (${last.price.toLocaleString()} ج.م) يمثل سعر كرتونة/شيكارة كاملة (حوالي ${multiple} أضعاف الوحدة) تم إدخالها بالخطأ كوحدة فردية.`;
+        } else if (diffPct <= -60) {
+          isAnomaly = true;
+          const multiple = Math.round(prevNormPrice / lastNormPrice);
+          anomalyReason = `تنبيه: فرق شاذ (${diffPct.toFixed(0)}%). الأرجح أن الفاتورة السابقة كانت مسجلة بسعر كرتونة/طرد كامل (حوالي ${multiple} أضعاف الوحدة) بينما الحالية مسجلة بسعر التجزئة.`;
+        }
 
         const catData = Array.isArray(prod.item_categories) ? prod.item_categories[0] : prod.item_categories;
 
@@ -361,11 +368,16 @@ export default function PurchaseAnalysisReport() {
           diff,
           diffPct,
           isDifferentUom,
+          isAnomaly,
+          anomalyReason,
         });
       });
 
-      // ترتيب افتراضي
-      rows.sort((a, b) => Math.abs(b.diffPct) - Math.abs(a.diffPct));
+      // ترتيب افتراضي: الفروق الطبيعية الأكثر تأثيراً أولاً
+      rows.sort((a, b) => {
+        if (a.isAnomaly !== b.isAnomaly) return a.isAnomaly ? 1 : -1;
+        return Math.abs(b.diffPct) - Math.abs(a.diffPct);
+      });
       setPriceComparison(rows);
 
     } catch (err: any) {
@@ -411,7 +423,13 @@ export default function PurchaseAnalysisReport() {
           uomFilter === 'different_uom' ? r.isDifferentUom :
           !r.isDifferentUom;
 
-        return matchSearch && matchSupplier && matchCategory && matchChange && matchUom;
+        // 🛡️ فلتر صمام الأمان (استبعاد الشواذ لحمايتك)
+        const matchAnomaly = 
+          anomalyFilter === 'all' ? true :
+          anomalyFilter === 'normal_only' ? !r.isAnomaly :
+          r.isAnomaly;
+
+        return matchSearch && matchSupplier && matchCategory && matchChange && matchUom && matchAnomaly;
       })
       .sort((a, b) => {
         let av = 0, bv = 0;
@@ -421,7 +439,7 @@ export default function PurchaseAnalysisReport() {
         if (sortBy === 'diffPct') { av = a.diffPct; bv = b.diffPct; }
         return sortDir === 'desc' ? bv - av : av - bv;
       });
-  }, [priceComparison, searchTerm, supplierFilter, categoryFilter, changeFilter, uomFilter, sortBy, sortDir]);
+  }, [priceComparison, searchTerm, supplierFilter, categoryFilter, changeFilter, uomFilter, anomalyFilter, sortBy, sortDir]);
 
   const handleSort = (col: 'name' | 'diff' | 'diffPct' | 'date') => {
     if (sortBy === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -434,25 +452,28 @@ export default function PurchaseAnalysisReport() {
     setCategoryFilter('all');
     setChangeFilter('all');
     setUomFilter('all');
+    setAnomalyFilter('normal_only');
     setSortBy('diffPct');
     setSortDir('desc');
   };
 
   const hasActiveFilters = Boolean(
-    searchTerm || supplierFilter !== 'all' || categoryFilter !== 'all' || changeFilter !== 'all' || uomFilter !== 'all'
+    searchTerm || supplierFilter !== 'all' || categoryFilter !== 'all' || changeFilter !== 'all' || uomFilter !== 'all' || anomalyFilter !== 'normal_only'
   );
 
   // إحصائيات المقارنة الفورية
   const priceStats = useMemo(() => {
-    const list = filteredComparison;
+    const list = priceComparison;
     return {
       total: list.length,
-      increased: list.filter(r => r.diff > 0).length,
-      decreased: list.filter(r => r.diff < 0).length,
-      unchanged: list.filter(r => r.diff === 0).length,
+      normalTotal: list.filter(r => !r.isAnomaly).length,
+      increased: list.filter(r => !r.isAnomaly && r.diff > 0).length,
+      decreased: list.filter(r => !r.isAnomaly && r.diff < 0).length,
+      unchanged: list.filter(r => !r.isAnomaly && r.diff === 0).length,
+      anomalies: list.filter(r => r.isAnomaly).length,
       diffUoms: list.filter(r => r.isDifferentUom).length,
     };
-  }, [filteredComparison]);
+  }, [priceComparison]);
 
   const handleExportExcel = () => {
     const wb = XLSX.utils.book_new();
@@ -501,8 +522,8 @@ export default function PurchaseAnalysisReport() {
         // المقارنة الموحدة
         'فرق السعر الموحد (ج.م)': r.diff,
         'نسبة التغير الحقيقية %': `${r.diffPct}%`,
+        'حالة الصنف': r.isAnomaly ? `⚠️ فرق شاذ محتمل: ${r.anomalyReason}` : (r.diff > 0 ? 'ارتفاع في السعر' : r.diff < 0 ? 'انخفاض في السعر' : 'ثبات السعر'),
         'حالة وحدات الشراء': r.isDifferentUom ? 'تم توحيد وحدات مختلفة تناسبياً' : 'نفس وحدة الشراء',
-        'الحكم': r.diff > 0 ? 'ارتفاع في السعر' : r.diff < 0 ? 'انخفاض في السعر' : 'ثبات السعر',
       }));
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "مقارنة الأسعار الموحدة");
       XLSX.writeFile(wb, `Normalized_Price_Comparison_${new Date().toISOString().split('T')[0]}.xlsx`);
@@ -520,7 +541,7 @@ export default function PurchaseAnalysisReport() {
             <BarChart2 className="text-purple-600" /> تحليل المشتريات ومقارنة الأسعار
           </h1>
           <p className="text-slate-500 text-sm mt-1">
-            مقارنة عادلة ومحكمة لآخر سعرين شراء مع توحيد وحدات القياس تناسبياً (مثال: طبق البيض مقابل البيضة / الشيكارة مقابل الكيلو)
+            مقارنة دقيقة ومحكمة لآخر سعرين شراء مع كشف الأخطاء الشاذة الناتجة عن إدخال سعر العبوة/الشيكارة بدلاً من سعر الوحدة
           </p>
         </div>
         <div className="flex gap-2">
@@ -536,7 +557,7 @@ export default function PurchaseAnalysisReport() {
       {/* Print title */}
       <div className="hidden print:block text-center mb-6">
         <h1 className="text-2xl font-bold">
-          {activeTab === 'analysis' ? 'تقرير تحليل المشتريات' : 'تقرير مقارنة آخر سعرين شراء الموحد تناسبياً'}
+          {activeTab === 'analysis' ? 'تقرير تحليل المشتريات' : 'تقرير مقارنة آخر سعرين شراء (المعتمد المنضبط)'}
         </h1>
         <p className="text-sm text-slate-500">تاريخ التقرير: {new Date().toLocaleDateString('ar-EG')}</p>
       </div>
@@ -563,7 +584,7 @@ export default function PurchaseAnalysisReport() {
           }`}
         >
           <ArrowUpDown size={15} className="inline ml-1" />
-          مقارنة آخر سعرين شراء (موحد الوحدات)
+          مقارنة آخر سعرين شراء (المعتمد)
           {priceComparison.length > 0 && (
             <span className="mr-1.5 bg-orange-100 text-orange-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
               {priceComparison.length}
@@ -662,48 +683,57 @@ export default function PurchaseAnalysisReport() {
         /* ===================== التبويب الثاني: مقارنة آخر سعرين شراء (الموحد والمحكم) ===================== */
         <div className="space-y-4">
           
-          {/* تنبيه تعليمي لمعادلة المقارنة العادلة */}
-          <div className="bg-amber-50 border border-amber-200/80 rounded-2xl p-4 text-xs text-amber-900 flex items-start gap-3 shadow-xs no-print">
-            <AlertTriangle className="text-amber-600 shrink-0 mt-0.5" size={18} />
-            <div className="space-y-1">
-              <p className="font-black text-amber-950 text-sm">
-                🛡️ نظام المقارنة العادل والموحد تناسبياً (Unified Proportional Comparison)
-              </p>
-              <p className="text-slate-700 leading-relaxed">
-                يقوم النظام تلقائياً بتحويل أسعار الشراء إلى <strong>سعر الوحدة الأساسية للمخزن</strong> (مثلاً: سعر البيضة الواحدة أو سعر الكيلوجرام الواحد) قبل إجراء المقارنة. إذا اشتريت مرة بالكرتونة ومرة بالبيضة أو بالشيكارة وبالكيلو، يقوم النظام بقسمة سعر الكرتونة على عدد وحداتها تلقائياً لتظهر نسبة التغير الحقيقية بدون أي فروق وهمية.
-              </p>
+          {/* صمام الأمان: صندوق توضيحي لكشف الأخطاء الشاذة */}
+          <div className="bg-gradient-to-r from-blue-50 via-indigo-50 to-amber-50 border border-blue-200/80 rounded-2xl p-4 text-xs text-slate-800 shadow-xs space-y-2 no-print">
+            <div className="flex items-center gap-2 text-indigo-900 font-black text-sm">
+              <ShieldAlert className="text-indigo-600" size={20} />
+              <span>🛡️ صمام الأمان وكاشف الأخطاء الشاذة (Safety Filter & Outlier Protection)</span>
             </div>
+            <p className="leading-relaxed text-slate-600">
+              التقرير يقوم الآن بكشف أي اختلاف ناتج عن <strong>خطأ في إدخال وحدة الفاتورة</strong> (مثلاً: إدخال سعر شيكارة كريم شانتيه 8,100 ج.م كوحدة كجم بينما السابق 324 ج.م / كجم).
+              بشكل افتراضي، يُظهر التقرير <strong>الأسعار الحقيقية الطبيعية فقط</strong> لحمايتك من أي حرج أو أرقام وهمية، مع إمكانية عرض الفواتير التي تحتاج مراجعة وتصحيح.
+            </p>
           </div>
 
           {/* بطاقات الملخص والإحصاء */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 no-print">
             <div className="bg-white rounded-xl p-3.5 border border-slate-200 shadow-xs text-center">
-              <p className="text-xs text-slate-500 font-bold mb-1">إجمالي الأصناف</p>
-              <p className="text-2xl font-black text-slate-800">{priceStats.total}</p>
+              <p className="text-xs text-slate-500 font-bold mb-1">المقارنات الطبيعية المعتمدة</p>
+              <p className="text-2xl font-black text-slate-800">{priceStats.normalTotal}</p>
+              <span className="text-[10px] text-slate-400 font-bold">من أصل {priceStats.total} صنف</span>
             </div>
             <div className="bg-rose-50 rounded-xl p-3.5 border border-rose-200 shadow-xs text-center">
               <div className="flex items-center justify-center gap-1 text-rose-600 mb-1 font-bold text-xs">
-                <TrendingUp size={15} /> ارتفع سعرها
+                <TrendingUp size={15} /> ارتفاع طبيعي حقيقي
               </div>
               <p className="text-2xl font-black text-rose-700">{priceStats.increased}</p>
             </div>
             <div className="bg-emerald-50 rounded-xl p-3.5 border border-emerald-200 shadow-xs text-center">
               <div className="flex items-center justify-center gap-1 text-emerald-600 mb-1 font-bold text-xs">
-                <TrendingDown size={15} /> انخفض سعرها
+                <TrendingDown size={15} /> انخفاض حقيقي
               </div>
               <p className="text-2xl font-black text-emerald-700">{priceStats.decreased}</p>
             </div>
             <div className="bg-slate-50 rounded-xl p-3.5 border border-slate-200 shadow-xs text-center">
               <div className="flex items-center justify-center gap-1 text-slate-500 mb-1 font-bold text-xs">
-                <Minus size={15} /> بدون تغيير
+                <Minus size={15} /> أسعار ثابتة
               </div>
               <p className="text-2xl font-black text-slate-600">{priceStats.unchanged}</p>
             </div>
-            <div className="bg-indigo-50 rounded-xl p-3.5 border border-indigo-200 shadow-xs text-center col-span-2 sm:col-span-1">
-              <div className="flex items-center justify-center gap-1 text-indigo-700 mb-1 font-bold text-xs">
-                <Layers size={15} /> وحدات موحدة
+            <div 
+              onClick={() => setAnomalyFilter(anomalyFilter === 'anomalies_only' ? 'normal_only' : 'anomalies_only')}
+              className={`p-3.5 rounded-xl border shadow-xs text-center cursor-pointer transition-all col-span-2 sm:col-span-1 ${
+                anomalyFilter === 'anomalies_only' 
+                  ? 'bg-amber-500 text-white border-amber-600 shadow-md ring-2 ring-amber-300' 
+                  : 'bg-amber-50 border-amber-300 text-amber-900 hover:bg-amber-100'
+              }`}
+              title="اضغط لعرض الفواتير التي يوجد بها خطأ في إدخال سعر العبوة/الشيكارة لمراجعتها وتصحيحها"
+            >
+              <div className="flex items-center justify-center gap-1 mb-1 font-bold text-xs">
+                <AlertTriangle size={15} /> أخطاء إدخال بحاجة لتصحيح
               </div>
-              <p className="text-2xl font-black text-indigo-800">{priceStats.diffUoms}</p>
+              <p className="text-2xl font-black">{priceStats.anomalies}</p>
+              <span className="text-[10px] font-bold block opacity-90">(انقر لعرضها ومراجعتها)</span>
             </div>
           </div>
 
@@ -719,7 +749,7 @@ export default function PurchaseAnalysisReport() {
                   onClick={resetFilters}
                   className="text-xs text-rose-600 hover:text-rose-700 font-bold flex items-center gap-1 transition"
                 >
-                  <X size={13} /> إعادة ضبط الفلاتر
+                  <X size={13} /> استعادة الوضع الافتراضي المنضبط
                 </button>
               )}
             </div>
@@ -783,40 +813,55 @@ export default function PurchaseAnalysisReport() {
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs text-slate-500">
-              <div className="flex items-center gap-3">
-                <span className="font-bold">تطابق وحدات الفاتورة:</span>
-                <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="uomFilter"
-                    checked={uomFilter === 'all'}
-                    onChange={() => setUomFilter('all')}
-                    className="text-orange-600 focus:ring-orange-500"
-                  />
-                  <span>الكل</span>
-                </label>
-                <label className="inline-flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="radio"
-                    name="uomFilter"
-                    checked={uomFilter === 'same_uom'}
-                    onChange={() => setUomFilter('same_uom')}
-                    className="text-orange-600 focus:ring-orange-500"
-                  />
-                  <span>نفس الوحدة فقط</span>
-                </label>
-                <label className="inline-flex items-center gap-1.5 cursor-pointer text-indigo-700 font-bold">
-                  <input
-                    type="radio"
-                    name="uomFilter"
-                    checked={uomFilter === 'different_uom'}
-                    onChange={() => setUomFilter('different_uom')}
-                    className="text-orange-600 focus:ring-orange-500"
-                  />
-                  <span>وحدات شراء مختلفة (تم توحيدها)</span>
-                </label>
+            {/* صف فلاتر صمام الأمان وتطابق الوحدات */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2.5 border-t border-slate-100 text-xs">
+              <div className="flex flex-wrap items-center gap-4">
+                {/* خيار صمام الأمان */}
+                <div className="flex items-center gap-1.5 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
+                  <span className="font-bold text-slate-700 ml-1">عرض البيانات:</span>
+                  <button
+                    type="button"
+                    onClick={() => setAnomalyFilter('normal_only')}
+                    className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 ${
+                      anomalyFilter === 'normal_only' ? 'bg-emerald-600 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <CheckCircle2 size={13} /> الفروق الحقيقية الطبيعية فقط (آمن للإدارة)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAnomalyFilter('anomalies_only')}
+                    className={`px-2.5 py-1 rounded-lg font-bold transition flex items-center gap-1 ${
+                      anomalyFilter === 'anomalies_only' ? 'bg-amber-600 text-white shadow-xs' : 'text-amber-800 hover:bg-amber-100'
+                    }`}
+                  >
+                    <AlertTriangle size={13} /> الفواتير الشاذة للمراجعة والتصحيح ({priceStats.anomalies})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAnomalyFilter('all')}
+                    className={`px-2.5 py-1 rounded-lg font-bold transition ${
+                      anomalyFilter === 'all' ? 'bg-slate-800 text-white shadow-xs' : 'text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    الكل بلا استثناء
+                  </button>
+                </div>
+
+                {/* خيار تطابق الوحدات */}
+                <div className="flex items-center gap-2 text-slate-500 font-bold">
+                  <span>الوحدات:</span>
+                  <label className="inline-flex items-center gap-1 cursor-pointer">
+                    <input type="radio" name="uomFilter" checked={uomFilter === 'all'} onChange={() => setUomFilter('all')} />
+                    <span>الكل</span>
+                  </label>
+                  <label className="inline-flex items-center gap-1 cursor-pointer">
+                    <input type="radio" name="uomFilter" checked={uomFilter === 'same_uom'} onChange={() => setUomFilter('same_uom')} />
+                    <span>نفس الوحدة</span>
+                  </label>
+                </div>
               </div>
+
               <button
                 type="button"
                 onClick={fetchReport}
@@ -853,7 +898,7 @@ export default function PurchaseAnalysisReport() {
                     </th>
                     {/* المقارنة */}
                     <th colSpan={2} className="p-2 text-center font-bold text-orange-700 bg-orange-50/70">
-                      📊 المقارنة العادلة (للوحدة الأساسية)
+                      📊 المقارنة المعتمدة
                     </th>
                   </tr>
                   <tr className="bg-slate-50 text-slate-600 border-b border-slate-200 text-[11px]">
@@ -888,7 +933,9 @@ export default function PurchaseAnalysisReport() {
                   {filteredComparison.map(row => {
                     const isUp = row.diff > 0;
                     const isDown = row.diff < 0;
-                    const rowBg = isUp ? 'hover:bg-rose-50/60' : isDown ? 'hover:bg-emerald-50/60' : 'hover:bg-slate-50';
+                    const rowBg = row.isAnomaly 
+                      ? 'bg-amber-50/70 hover:bg-amber-100/60'
+                      : isUp ? 'hover:bg-rose-50/60' : isDown ? 'hover:bg-emerald-50/60' : 'hover:bg-slate-50';
 
                     return (
                       <tr key={row.productId} className={`transition ${rowBg}`}>
@@ -896,17 +943,26 @@ export default function PurchaseAnalysisReport() {
                         <td className="p-3 font-bold text-slate-800">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <span>{row.productName}</span>
-                            {row.isDifferentUom && (
+                            {row.isAnomaly ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-black bg-amber-200 text-amber-900 border border-amber-300 shadow-2xs" title={row.anomalyReason}>
+                                <AlertTriangle size={11} /> خطأ إدخال محتمل
+                              </span>
+                            ) : row.isDifferentUom ? (
                               <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-200" title="تم توحيد وحدات شراء مختلفة بنجاح وفق معادلة تناسبية">
                                 موحد تناسبياً ⚖️
                               </span>
-                            )}
+                            ) : null}
                           </div>
                           <div className="flex items-center gap-2 text-[10px] text-slate-400 font-normal mt-0.5">
                             <span className="font-mono">{row.productSku}</span>
                             <span>•</span>
                             <span className="text-slate-500 font-bold">{row.categoryName}</span>
                           </div>
+                          {row.isAnomaly && (
+                            <div className="text-[10px] text-amber-900 font-medium bg-white/80 p-1 rounded mt-1 border border-amber-200">
+                              💡 {row.anomalyReason}
+                            </div>
+                          )}
                         </td>
 
                         {/* الوحدة الأساسية للمخزن */}
@@ -967,12 +1023,18 @@ export default function PurchaseAnalysisReport() {
                         </td>
 
                         {/* المقارنة العادلة */}
-                        <td className={`p-2 text-center font-mono font-black border-r border-orange-100 text-[12px] ${isUp ? 'text-rose-600' : isDown ? 'text-emerald-600' : 'text-slate-400'}`}>
+                        <td className={`p-2 text-center font-mono font-black border-r border-orange-100 text-[12px] ${
+                          row.isAnomaly ? 'text-amber-800' : isUp ? 'text-rose-600' : isDown ? 'text-emerald-600' : 'text-slate-400'
+                        }`}>
                           {isUp ? '+' : ''}{row.diff.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 4 })}
                           <span className="block text-[9px] font-normal text-slate-400">ج.م/{row.baseUnit}</span>
                         </td>
                         <td className="p-2 text-center">
-                          {isUp ? (
+                          {row.isAnomaly ? (
+                            <span className="inline-flex items-center gap-1 bg-amber-200 text-amber-950 px-2 py-0.5 rounded-full font-black text-[11px]" title={row.anomalyReason}>
+                              <AlertTriangle size={11} /> {row.diffPct > 0 ? `+${row.diffPct.toFixed(0)}%` : `${row.diffPct.toFixed(0)}%`} ⚠️
+                            </span>
+                          ) : isUp ? (
                             <span className="inline-flex items-center gap-1 bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full font-black text-[11px]" title="زيادة في التكلفة الحقيقية">
                               <TrendingUp size={11} /> +{row.diffPct.toFixed(1)}%
                             </span>
@@ -995,7 +1057,7 @@ export default function PurchaseAnalysisReport() {
                       <td colSpan={13} className="p-12 text-center text-slate-400 font-bold">
                         {priceComparison.length === 0
                           ? 'لا توجد أصناف مسجل لها عمليتا شراء مرحّلتان على الأقل بعد.'
-                          : 'لا توجد نتائج تطابق معايير الفلاتر المحددة حالياً. يمكنك تغيير خيارات الفلترة أو الضغط على "إعادة ضبط الفلاتر".'}
+                          : 'لا توجد نتائج تطابق معايير الفلاتر المحددة حالياً. يمكنك تغيير خيارات الفلترة أو الضغط على "استعادة الوضع الافتراضي".'}
                       </td>
                     </tr>
                   )}
