@@ -208,13 +208,13 @@ export const secureStorage = {
         return;
       }
       
-      // لا تُشغّل sanitizeHtml على مفاتيح API — فالأحرف الخاصة فيها حقيقية وليست XSS
-      const sanitized = (key === 'user_gemini_api_key' && typeof value === 'string')
-        ? value
-        : (typeof value === 'string' ? sanitizeHtml(value) : value);
+      // 🛡️ FIX: Do NOT apply sanitizeHtml on JSON/object values.
+      // sanitizeHtml encodes " => &quot;, / => &#x2F;, = => &#x3D; which corrupts
+      // JSON structure and breaks JSON.parse on retrieval (e.g. invoice/payroll drafts).
+      // JSON.stringify is sufficient to safely store without altering data structure.
       // SECURITY-WRAPPER: Direct storage interface usage is intentional here - this is the secure wrapper layer
       const storage = typeof window !== 'undefined' ? window.localStorage : null;
-      if (storage) storage.setItem(key, JSON.stringify(sanitized));
+      if (storage) storage.setItem(key, JSON.stringify(value));
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
         logger.error('Storage error:', error);

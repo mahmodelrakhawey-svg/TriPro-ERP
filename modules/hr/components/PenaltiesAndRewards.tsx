@@ -349,8 +349,8 @@ export const PenaltiesAndRewards: React.FC = () => {
                     </label>
                     <input
                       type="number"
-                      step={formAmountType === 'DAYS' ? '0.25' : '1'}
-                      min="0.25"
+                      step={formAmountType === 'DAYS' ? '0.25' : '0.01'}
+                      min={formAmountType === 'DAYS' ? '0.25' : '0'}
                       value={formAmountValue}
                       onChange={e => setFormAmountValue(Number(e.target.value))}
                       className="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-mono font-bold outline-none"

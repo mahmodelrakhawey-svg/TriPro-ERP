@@ -306,10 +306,16 @@ const PayrollRun = () => {
         const overtimePay = Math.round(totalOvertimeHours * hourlyRate * 1.5 * 100) / 100;
 
         // د) الجزاءات والمكافآت المعتمدة خلال الشهر
+        // يُعطى الأولوية لـ payroll_month/payroll_year المحفوظة، ثم action_date المحدد من المستخدم
         const empPenaltiesRewards = penaltiesRewards.filter(pr => {
           if (pr.employee_id !== emp.id) return false;
           if (pr.status && pr.status !== 'APPROVED') return false;
-          const actionDate = pr.created_at || pr.action_date || '';
+          // إذا كان payroll_month و payroll_year محفوظان - استخدمهما مباشرة
+          if (pr.payroll_month && pr.payroll_year) {
+            return Number(pr.payroll_month) === selectedMonth && Number(pr.payroll_year) === selectedYear;
+          }
+          // وإلا نستخدم action_date (التاريخ المحدد من المستخدم) وليس created_at
+          const actionDate = pr.action_date || pr.created_at || '';
           return actionDate >= monthStartStr && actionDate <= monthEndStr;
         });
 

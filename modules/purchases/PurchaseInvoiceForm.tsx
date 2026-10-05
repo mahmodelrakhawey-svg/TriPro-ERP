@@ -6,12 +6,12 @@ import {
     Plus, Trash2, Save, ShoppingCart, Search, AlertCircle,
     Loader2, CheckCircle, Package, Ruler, List, 
     Printer, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft,
-    DollarSign, Activity, FileText, Sparkles, Percent, Tag, Paperclip, Unlock
+    DollarSign, Activity, FileText, Sparkles, Percent, Tag, Paperclip, Unlock, Edit
 } from 'lucide-react';
 import { Product } from '../../types';
 import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { createPurchaseInvoiceSchema } from '../../utils/validationSchemas';
+import { createPurchaseInvoiceSchema, createProductSchema } from '../../utils/validationSchemas';
 import { PurchaseInvoicePrint } from './PurchaseInvoicePrint';
 import { secureStorage } from '../../utils/securityMiddleware';
 import InvoiceOCRScannerModal from '../../components/InvoiceOCRScannerModal';
@@ -21,9 +21,28 @@ import { getNextDocumentNumber } from '../../services/sequenceService';
 import SupplierSearchSelect from '../../components/SupplierSearchSelect';
 import { calculatePurchaseInvoiceTotals } from './purchaseInvoiceUtils';
 import PurchaseInvoiceAttachments, { PurchaseAttachmentItem } from './components/PurchaseInvoiceAttachments';
+import { ProductFormModal, ProductFormData } from '../inventory/components/ProductFormModal';
 
 const PurchaseInvoiceForm = () => {
-  const { products, warehouses, suppliers, approvePurchaseInvoice, unpostPurchaseInvoice, deletePurchaseInvoice, settings, can, currentUser, addDemoPurchaseInvoice, accounts, currentSelectedOrgId } = useAccounting();
+  const { 
+    products, 
+    warehouses, 
+    suppliers, 
+    approvePurchaseInvoice, 
+    unpostPurchaseInvoice, 
+    deletePurchaseInvoice, 
+    settings, 
+    can, 
+    currentUser, 
+    addDemoPurchaseInvoice, 
+    accounts, 
+    currentSelectedOrgId,
+    addProduct,
+    updateProduct,
+    categories,
+    getSystemAccount,
+    refreshData
+  } = useAccounting();
   const currentUserRole = (currentUser as any)?.role || '';
   const canUnpost = can?.('accounting', 'unpost') || can?.('purchases', 'unpost') || can?.('purchases', 'delete') || ['admin', 'super_admin', 'owner', 'manager'].includes(currentUserRole);
   const { showToast } = useToast();
@@ -53,6 +72,60 @@ const PurchaseInvoiceForm = () => {
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [showProductResults, setShowProductResults] = useState(false);
   const [isOCRModalOpen, setIsOCRModalOpen] = useState(false);
+
+  // حالة كارت الصنف (إضافة / تعديل من الفاتورة)
+  const [isProductModalOpen, setIsProductModalOpen] = useState(false);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [productFormUploading, setProductFormUploading] = useState(false);
+  const [productFormData, setProductFormData] = useState<ProductFormData>({
+    name: '',
+    sku: '',
+    barcode: '',
+    sales_price: 0,
+    description: '',
+    purchase_price: 0,
+    unit: 'قطعة',
+    base_uom_id: '',
+    purchase_uom_id: '',
+    sale_uom_id: '',
+    product_type: 'STOCK',
+    inventory_account_id: '',
+    cogs_account_id: '',
+    sales_account_id: '',
+    image_url: '',
+    opening_stock: 0,
+    opening_warehouse_id: '',
+    category_id: null,
+    min_stock_level: 0,
+    requires_serial: false,
+    expiry_date: '',
+    offer_price: 0,
+    offer_start_date: '',
+    offer_end_date: '',
+    offer_max_qty: 0,
+    available_modifiers: [],
+    labor_cost: 0,
+    overhead_cost: 0,
+    is_overhead_percentage: false,
+    barcode2: '',
+    is_scale_item: false,
+    plu_number: 0,
+    scale_prefix: '22',
+    shelf_location: '',
+    brand: '',
+    country_of_origin: '',
+    age_restricted: false,
+    tax_rate_override: 0,
+    unit_barcodes: [],
+    min_sales_price: 0,
+    max_stock_level: 0,
+    wholesale_price: 0,
+    half_wholesale_price: 0,
+    supplier_id: null,
+    item_code_type: 'EGS',
+    egs_code: '',
+    eta_unit_code: '',
+  });
 
   // Navigation & Edit State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -392,6 +465,298 @@ const PurchaseInvoiceForm = () => {
           })
           .slice(0, 10);
   }, [productSearchTerm, products]);
+
+  // 🏷️ توليد كود فريد تلقائياً لصنف (SKU)
+  const generateUniqueSku = (prefix = 'SKU'): string => {
+    const existingSkus = new Set(
+      (products || []).map(p => (p.sku || '').trim().toUpperCase()).filter(Boolean)
+    );
+    let seq = (products || []).length + 1;
+    let candidate = `${prefix}-${String(seq).padStart(5, '0')}`;
+    while (existingSkus.has(candidate.toUpperCase())) {
+      seq++;
+      candidate = `${prefix}-${String(seq).padStart(5, '0')}`;
+    }
+    return candidate;
+  };
+
+  // 🏷️ توليد باركود فريد تلقائياً
+  const generateUniqueBarcode = (): string => {
+    const existingBarcodes = new Set(
+      (products || []).map(p => (p.barcode || '').trim()).filter(Boolean)
+    );
+    let candidate = '';
+    do {
+      const rand = Math.floor(100000000 + Math.random() * 900000000);
+      candidate = String(rand);
+    } while (existingBarcodes.has(candidate));
+    return candidate;
+  };
+
+  // 🟢 فتح كارت الصنف لإضافة صنف جديد
+  const handleOpenAddProductModal = () => {
+    const rawMaterialAcc = getSystemAccount?.('INVENTORY_RAW_MATERIALS')?.id || (settings as any)?.account_mappings?.INVENTORY_RAW_MATERIALS || '';
+    const finishedGoodsAcc = getSystemAccount?.('INVENTORY_FINISHED_GOODS')?.id || (settings as any)?.account_mappings?.INVENTORY_FINISHED_GOODS || '';
+    const generalInvAcc = getSystemAccount?.('INVENTORY')?.id || (settings as any)?.account_mappings?.INVENTORY || '';
+    const defaultInventory = rawMaterialAcc || finishedGoodsAcc || generalInvAcc || '';
+    const defaultCogs = getSystemAccount?.('COGS')?.id || '';
+    const defaultSales = getSystemAccount?.('SALES_REVENUE')?.id || '';
+
+    setEditingProductId(null);
+    setProductFormData({
+      name: productSearchTerm.trim() || '',
+      sku: generateUniqueSku(),
+      barcode: '',
+      sales_price: 0,
+      description: '',
+      purchase_price: 0,
+      unit: 'قطعة',
+      base_uom_id: '',
+      purchase_uom_id: '',
+      sale_uom_id: '',
+      product_type: 'STOCK',
+      inventory_account_id: defaultInventory,
+      cogs_account_id: defaultCogs,
+      sales_account_id: defaultSales,
+      image_url: '',
+      opening_stock: 0,
+      opening_warehouse_id: formData.warehouseId || (warehouses[0]?.id || ''),
+      category_id: null,
+      min_stock_level: 0,
+      requires_serial: false,
+      expiry_date: '',
+      offer_price: 0,
+      offer_start_date: '',
+      offer_end_date: '',
+      offer_max_qty: 0,
+      available_modifiers: [],
+      labor_cost: 0,
+      overhead_cost: 0,
+      is_overhead_percentage: false,
+      barcode2: '',
+      is_scale_item: false,
+      plu_number: 0,
+      scale_prefix: '22',
+      shelf_location: '',
+      brand: '',
+      country_of_origin: '',
+      age_restricted: false,
+      tax_rate_override: 0,
+      unit_barcodes: [],
+      min_sales_price: 0,
+      max_stock_level: 0,
+      wholesale_price: 0,
+      half_wholesale_price: 0,
+      supplier_id: formData.supplierId || null,
+      item_code_type: 'EGS',
+      egs_code: '',
+      eta_unit_code: '',
+    });
+    setIsProductModalOpen(true);
+  };
+
+  // ✏️ فتح كارت الصنف لتعديل صنف موجود
+  const handleOpenEditProductModal = (product: Product | any) => {
+    if (!product) return;
+    setEditingProductId(product.id);
+    setProductFormData({
+      name: product.name || '',
+      sku: product.sku || generateUniqueSku(),
+      barcode: product.barcode || '',
+      sales_price: Number(product.sales_price || 0),
+      description: product.description || '',
+      purchase_price: Number(product.purchase_price || product.cost || 0),
+      unit: product.unit || 'قطعة',
+      base_uom_id: product.base_uom_id || '',
+      purchase_uom_id: product.purchase_uom_id || '',
+      sale_uom_id: product.sale_uom_id || '',
+      product_type: (product.product_type || product.item_type || 'STOCK') as any,
+      inventory_account_id: product.inventory_account_id || '',
+      cogs_account_id: product.cogs_account_id || '',
+      sales_account_id: product.sales_account_id || '',
+      image_url: product.image_url || '',
+      opening_stock: Number(product.stock || 0),
+      opening_warehouse_id: warehouses[0]?.id || '',
+      category_id: product.category_id || null,
+      min_stock_level: Number(product.min_stock_level || 0),
+      requires_serial: Boolean(product.requires_serial),
+      expiry_date: product.expiry_date || '',
+      offer_price: Number(product.offer_price || 0),
+      offer_start_date: product.offer_start_date || '',
+      offer_end_date: product.offer_end_date || '',
+      offer_max_qty: Number(product.offer_max_qty || 0),
+      available_modifiers: product.available_modifiers || [],
+      labor_cost: Number(product.labor_cost || 0),
+      overhead_cost: Number(product.overhead_cost || 0),
+      is_overhead_percentage: Boolean(product.is_overhead_percentage),
+      barcode2: product.barcode2 || '',
+      is_scale_item: Boolean(product.is_scale_item),
+      plu_number: Number(product.plu_number || 0),
+      scale_prefix: product.scale_prefix || '22',
+      shelf_location: product.shelf_location || '',
+      brand: product.brand || '',
+      country_of_origin: product.country_of_origin || '',
+      age_restricted: Boolean(product.age_restricted),
+      tax_rate_override: Number(product.tax_rate_override || 0),
+      unit_barcodes: Array.isArray(product.unit_barcodes) ? product.unit_barcodes : [],
+      min_sales_price: Number(product.min_sales_price || 0),
+      max_stock_level: Number(product.max_stock_level || 0),
+      wholesale_price: Number(product.wholesale_price || 0),
+      half_wholesale_price: Number(product.half_wholesale_price || 0),
+      supplier_id: product.supplier_id || null,
+      item_code_type: product.item_code_type || 'EGS',
+      egs_code: product.egs_code || '',
+      eta_unit_code: product.eta_unit_code || '',
+    });
+    setIsProductModalOpen(true);
+  };
+
+  // 💾 حفظ كارت الصنف (إضافة جديد أو تعديل صنف قائم)
+  const handleProductFormSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const validationData = {
+      name: productFormData.name,
+      sku: productFormData.sku || undefined,
+      unit: productFormData.unit,
+      product_type: productFormData.product_type,
+      purchase_price: Number(productFormData.purchase_price) || 0,
+      sales_price: Number(productFormData.sales_price) || 0,
+      inventory_account_id: productFormData.inventory_account_id || undefined,
+      cogs_account_id: productFormData.cogs_account_id || undefined,
+      sales_account_id: productFormData.sales_account_id || undefined,
+      labor_cost: Number(productFormData.labor_cost) || 0,
+      overhead_cost: Number(productFormData.overhead_cost) || 0,
+    };
+
+    const validationResult = createProductSchema.safeParse(validationData);
+    if (!validationResult.success) {
+      showToast(validationResult.error.issues[0].message, 'warning');
+      return;
+    }
+
+    try {
+      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+
+      if (editingProductId) {
+        // تحديث الصنف الموجود
+        const itemData: any = {
+          name: productFormData.name,
+          sku: productFormData.sku?.trim() || generateUniqueSku(),
+          barcode: productFormData.barcode || null,
+          description: productFormData.description || null,
+          unit: productFormData.unit,
+          sales_price: productFormData.sales_price,
+          purchase_price: productFormData.purchase_price,
+          base_uom_id: productFormData.base_uom_id || null,
+          purchase_uom_id: productFormData.purchase_uom_id || null,
+          sale_uom_id: productFormData.sale_uom_id || null,
+          product_type: productFormData.product_type,
+          inventory_account_id: productFormData.inventory_account_id || null,
+          cogs_account_id: productFormData.cogs_account_id || null,
+          sales_account_id: productFormData.sales_account_id || null,
+          image_url: productFormData.image_url || null,
+          category_id: productFormData.category_id || null,
+          min_stock_level: productFormData.min_stock_level,
+          requires_serial: productFormData.requires_serial,
+          expiry_date: productFormData.expiry_date || null,
+          tax_rate_override: productFormData.tax_rate_override || null,
+          barcode2: productFormData.barcode2 || null,
+          supplier_id: productFormData.supplier_id || null,
+          egs_code: productFormData.egs_code || null,
+          eta_unit_code: productFormData.eta_unit_code || null,
+        };
+
+        await updateProduct(editingProductId, itemData);
+        await refreshData?.();
+
+        // تحديث البند الموجود في جدول الفاتورة إذا كان مضافاً
+        setItems(prev => prev.map(it => {
+          if (it.productId === editingProductId) {
+            return {
+              ...it,
+              productName: productFormData.name,
+              productSku: productFormData.sku,
+              unitPrice: productFormData.purchase_price > 0 ? productFormData.purchase_price : it.unitPrice,
+              taxRate: productFormData.tax_rate_override > 0 ? productFormData.tax_rate_override : it.taxRate,
+            };
+          }
+          return it;
+        }));
+
+        showToast(`تم تحديث كارت الصنف (${productFormData.name}) بنجاح ✏️✅`, 'success');
+      } else {
+        // إضافة صنف جديد
+        const isPhysicalStock = productFormData.product_type === 'STOCK' || productFormData.product_type === 'RAW_MATERIAL' || productFormData.product_type === 'MANUFACTURED';
+        const productPayload: any = {
+          name: productFormData.name,
+          sku: productFormData.sku?.trim() || generateUniqueSku(),
+          barcode: productFormData.barcode || null,
+          description: productFormData.description || null,
+          unit: productFormData.unit,
+          base_uom_id: productFormData.base_uom_id || null,
+          purchase_uom_id: productFormData.purchase_uom_id || null,
+          sale_uom_id: productFormData.sale_uom_id || null,
+          sales_price: productFormData.sales_price,
+          purchase_price: productFormData.purchase_price,
+          cost: productFormData.purchase_price,
+          stock: 0,
+          item_type: productFormData.product_type === 'INTERMEDIATE_PRODUCT' ? 'STOCK' : productFormData.product_type,
+          product_type: productFormData.product_type,
+          inventory_account_id: isPhysicalStock ? productFormData.inventory_account_id : null,
+          cogs_account_id: isPhysicalStock ? productFormData.cogs_account_id : null,
+          sales_account_id: productFormData.sales_account_id || null,
+          is_active: true,
+          min_stock_level: productFormData.min_stock_level,
+          category_id: productFormData.category_id || null,
+          requires_serial: productFormData.requires_serial,
+          expiry_date: productFormData.expiry_date || null,
+          organization_id: orgId,
+          tax_rate_override: productFormData.tax_rate_override || null,
+          barcode2: productFormData.barcode2 || null,
+          supplier_id: productFormData.supplier_id || null,
+          egs_code: productFormData.egs_code || null,
+          eta_unit_code: productFormData.eta_unit_code || null,
+        };
+
+        const createdProd = await addProduct(productPayload);
+        await refreshData?.();
+
+        const newProdObj = (createdProd && (createdProd as any).id) 
+          ? (createdProd as Product)
+          : { ...productPayload, id: (createdProd as any)?.id || Date.now().toString() };
+
+        // إضافة الصنف المنشأ حديثاً مباشرة إلى الفاتورة!
+        addProductToInvoice(newProdObj);
+        showToast(`تم إنشاء الصنف الجديد (${productFormData.name}) وإضافته للفاتورة مباشرة ➕✅`, 'success');
+      }
+
+      setIsProductModalOpen(false);
+    } catch (err: any) {
+      logger.error('Error saving product in purchase form:', err);
+      showToast('خطأ أثناء حفظ كارت الصنف: ' + err.message, 'error');
+    }
+  };
+
+  const handleProductImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setProductFormUploading(true);
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `product_${Date.now()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage.from('products').upload(fileName, file);
+      if (uploadError) throw uploadError;
+      const { data } = supabase.storage.from('products').getPublicUrl(fileName);
+      setProductFormData(prev => ({ ...prev, image_url: data.publicUrl }));
+      showToast('تم رفع صورة الصنف بنجاح ✅', 'success');
+    } catch (err: any) {
+      logger.error('Failed to upload image:', err);
+      showToast('تعذر رفع الصورة: ' + err.message, 'warning');
+    } finally {
+      setProductFormUploading(false);
+    }
+  };
 
   const addProductToInvoice = (product: Product, matchedUomInfo?: { uom_name?: string; customPrice?: number; uom_id?: string }) => {
       const defaultUomId = matchedUomInfo?.uom_id || product.purchase_uom_id || product.base_uom_id || '';
@@ -1477,7 +1842,17 @@ const PurchaseInvoiceForm = () => {
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
           
           <div className="relative">
-            <label className="block text-xs font-bold text-slate-600 mb-1">إضافة صنف للفاتورة (ابحث بالاسم أو الباركود)</label>
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <label className="block text-xs font-bold text-slate-600">إضافة صنف للفاتورة (ابحث بالاسم أو الباركود)</label>
+              <button
+                type="button"
+                onClick={handleOpenAddProductModal}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
+                title="إضافة صنف جديد كلياً إلى قاعدة البيانات والفاتورة"
+              >
+                <Plus size={14} /> إضافة صنف جديد
+              </button>
+            </div>
             <div className="relative">
               <input 
                 type="text" 
@@ -1491,20 +1866,32 @@ const PurchaseInvoiceForm = () => {
             </div>
 
             {showProductResults && filteredProducts.length > 0 && (
-              <div className="absolute top-full left-0 w-full bg-white border border-slate-200 shadow-xl rounded-xl mt-1 z-20 overflow-hidden">
+              <div className="absolute top-full left-0 w-full bg-white border border-slate-200 shadow-xl rounded-xl mt-1 z-20 overflow-hidden divide-y divide-slate-100 max-h-72 overflow-y-auto">
                 {filteredProducts.map(p => (
                   <div 
                     key={p.id} 
-                    onClick={() => addProductToInvoice(p)}
-                    className="p-3 hover:bg-emerald-50 cursor-pointer border-b last:border-0 flex justify-between items-center transition-colors"
+                    className="p-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center transition-colors group"
                   >
-                    <div>
+                    <div className="flex-1" onClick={() => addProductToInvoice(p)}>
                       <span className="font-bold text-slate-800 text-sm block">{p.name}</span>
                       <span className="text-xs text-slate-400 font-mono">الكود: {p.sku || '-'} | الباركود: {p.barcode || '-'}</span>
                     </div>
-                    <span className="font-bold text-emerald-600 font-mono text-sm">
-                      {(p.purchase_price || p.cost || 0).toLocaleString()} {settings.currency || 'ج.م'}
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="font-bold text-emerald-600 font-mono text-sm" onClick={() => addProductToInvoice(p)}>
+                        {(p.purchase_price || p.cost || 0).toLocaleString()} {settings.currency || 'ج.م'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenEditProductModal(p);
+                        }}
+                        className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition"
+                        title="تعديل كارت الصنف"
+                      >
+                        <Edit size={15} />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1627,14 +2014,28 @@ const PurchaseInvoiceForm = () => {
                       {Math.max(0, ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)) - (Number(item.discount) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </td>
                     <td className="p-3 text-center">
-                      <button 
-                        type="button" 
-                        onClick={() => removeItem(index)} 
-                        className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                        title="حذف الصنف"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="flex items-center justify-center gap-1">
+                        <button 
+                          type="button" 
+                          onClick={() => {
+                            const prod = products.find(p => p.id === item.productId);
+                            if (prod) handleOpenEditProductModal(prod);
+                            else showToast('تعذر العثور على بيانات الصنف', 'warning');
+                          }}
+                          className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="تعديل كارت الصنف"
+                        >
+                          <Edit size={16} />
+                        </button>
+                        <button 
+                          type="button" 
+                          onClick={() => removeItem(index)} 
+                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="حذف الصنف من الفاتورة"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -1859,6 +2260,38 @@ const PurchaseInvoiceForm = () => {
         products={products}
         suppliers={suppliers}
         onApplyData={handleApplyOCRData}
+      />
+
+      {/* 📦 كارت الصنف (إضافة صنف جديد أو تعديل صنف حالي من شاشة فاتورة الشراء) */}
+      <ProductFormModal
+        isOpen={isProductModalOpen}
+        onClose={() => setIsProductModalOpen(false)}
+        editingId={editingProductId}
+        formData={productFormData}
+        setFormData={setProductFormData}
+        handleSubmit={handleProductFormSubmit}
+        handleImageUpload={handleProductImageUpload}
+        uploading={productFormUploading}
+        categories={categories || []}
+        warehouses={warehouses || []}
+        uoms={uoms || []}
+        suppliers={suppliers || []}
+        hasSupplierColumn={true}
+        hasEtaColumns={true}
+        settings={settings || {}}
+        accounts={{
+          assets: (accounts || []).filter(a => String(a.type).toLowerCase() === 'asset'),
+          expenses: (accounts || []).filter(a => String(a.type).toLowerCase() === 'expense'),
+          revenue: (accounts || []).filter(a => String(a.type).toLowerCase() === 'revenue'),
+        }}
+        recipeCost={0}
+        existingOpenings={[]}
+        generateUniqueSku={generateUniqueSku}
+        generateUniqueBarcode={generateUniqueBarcode}
+        handleAddCategory={() => showToast('يمكنك اختيار التصنيف من القائمة أو إدارته من شاشة المنتجات', 'info')}
+        handleEditCategory={() => {}}
+        handleDeleteCategory={async () => {}}
+        getSystemAccount={getSystemAccount || (() => null)}
       />
 
       {/* Hidden printable component */}
