@@ -13,7 +13,7 @@ export const phoneSchema = z.string().regex(/^\+?[\d\s\-()]{10,}$/, 'رقم ها
 export const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'صيغة التاريخ غير صحيحة (YYYY-MM-DD)');
 export const amountSchema = z.number().min(0, 'المبلغ يجب أن يكون أكبر من أو يساوي صفر');
 export const percentSchema = z.number().min(0, 'النسبة يجب أن تكون بين 0 و 100').max(100, 'النسبة يجب أن تكون بين 0 و 100');
-export const quantitySchema = z.number().int('الكمية يجب أن تكون رقم صحيح').positive('الكمية يجب أن تكون موجبة');
+export const quantitySchema = z.number().positive('الكمية يجب أن تكون أكبر من صفر');
 export const nameSchema = z.string().min(2, 'الاسم يجب أن يكون على الأقل حرفين').max(255, 'الاسم طويل جداً');
 export const textSchema = z.string().max(5000, 'النص طويل جداً');
 
