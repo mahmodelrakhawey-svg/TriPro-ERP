@@ -74,6 +74,9 @@ const StockTransfer = () => {
   const [filterAvailableOnly, setFilterAvailableOnly] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [hasDraftRestored, setHasDraftRestored] = useState(false);
+  const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
+  const [editingTransferNumber, setEditingTransferNumber] = useState<string | null>(null);
+  const [isLoadingTransfer, setIsLoadingTransfer] = useState(false);
 
   // حالة نافذة إعداد عبوات وتجزئة الصنف (هرمية متعددة المستويات / مباشرة)
   const [isPackagingModalOpen, setIsPackagingModalOpen] = useState(false);
@@ -118,8 +121,9 @@ const StockTransfer = () => {
     fetchUoms();
   }, [currentUser]);
 
-  // استعادة مسودة التحويل السابقة تلقائياً لحماية الموظف من فقدان البيانات
+  // استعادة مسودة التحويل السابقة تلقائياً لحماية الموظف من فقدان البيانات (فقط عند عدم فتح تحويل للتعديل)
   useEffect(() => {
+    if (location.state?.editTransferId) return;
     try {
       const parsed = secureStorage.getItem<{ formData: any; items: TransferItem[] }>(DRAFT_STORAGE_KEY);
       if (parsed && parsed.items && Array.isArray(parsed.items) && parsed.items.length > 0) {
@@ -138,18 +142,18 @@ const StockTransfer = () => {
     } catch (e) {
       logger.error('Failed to restore draft', e);
     }
-  }, []);
+  }, [location.state?.editTransferId]);
 
-  // حفظ مسودة التحويل تلقائياً عند أي تغيير
+  // حفظ مسودة التحويل تلقائياً عند أي تغيير (فقط عند عدم العمل في وضع التعديل)
   useEffect(() => {
-    if (items.length > 0 || formData.fromWarehouseId || formData.toWarehouseId) {
+    if (!editingTransferId && (items.length > 0 || formData.fromWarehouseId || formData.toWarehouseId)) {
       try {
         secureStorage.setItem(DRAFT_STORAGE_KEY, { formData, items });
       } catch (e) {
         logger.error('Failed to save draft', e);
       }
     }
-  }, [formData, items]);
+  }, [formData, items, editingTransferId]);
 
   // مسح المسودة والبدء من جديد
   const handleClearDraft = () => {
@@ -161,12 +165,108 @@ const StockTransfer = () => {
     showToast('تم مسح المسودة والبدء من جديد', 'info');
   };
 
-  // إذا تم التوجيه إلى الصفحة مع صنف محدد مسبقاً
+  // إذا تم التوجيه إلى الصفحة مع صنف محدد مسبقاً أو مع تحويل للتعديل
   useEffect(() => {
     if (location.state?.productId) {
       setSelectedProductId(location.state.productId);
     }
+    if (location.state?.editTransferId) {
+      loadTransferForEdit(location.state.editTransferId);
+    }
   }, [location.state]);
+
+  const loadTransferForEdit = async (transferId: string) => {
+    setIsLoadingTransfer(true);
+    try {
+      let transferData: Record<string, any> | null = null;
+      let transferItems: Array<{ product_id: string; quantity: number | string; uom_id?: string; products?: { id?: string; name?: string; unit?: string; sku?: string } }> = [];
+
+      if (currentUser?.role !== 'demo') {
+        const { data, error } = await supabase
+          .from('stock_transfers')
+          .select(`
+            *,
+            stock_transfer_items (
+              id,
+              product_id,
+              quantity,
+              uom_id,
+              products (id, name, unit, sku, base_uom_id)
+            )
+          `)
+          .eq('id', transferId)
+          .single();
+
+        if (error) throw error;
+        transferData = data;
+        transferItems = data?.stock_transfer_items || [];
+      } else {
+        transferData = location.state?.transfer;
+        transferItems = transferData?.stock_transfer_items || [];
+      }
+
+      if (!transferData) {
+        showToast('لم يتم العثور على بيانات التحويل المطلوب تعديله', 'error');
+        return;
+      }
+
+      setEditingTransferId(transferData.id);
+      setEditingTransferNumber(transferData.transfer_number || transferData.id);
+
+      // استبعاد نص التعبئة المدمج تلقائياً لإبقاء ملاحظات المستخدم نقية
+      let rawNotes = transferData.notes || '';
+      const notesClean = rawNotes.replace(/\[تفاصيل السحب والتعبئة:.*?\]/g, '').trim();
+
+      setFormData({
+        date: transferData.transfer_date || new Date().toISOString().split('T')[0],
+        fromWarehouseId: transferData.from_warehouse_id || '',
+        toWarehouseId: transferData.to_warehouse_id || '',
+        notes: notesClean
+      });
+
+      const loadedItems: TransferItem[] = (transferItems || []).map(ti => {
+        const prod = products.find(p => p.id === ti.product_id) || ti.products;
+        const unitName = prod?.unit || ti.products?.unit || 'وحدة';
+        const qty = Number(ti.quantity) || 0;
+        return {
+          productId: ti.product_id,
+          productName: prod?.name || ti.products?.name || 'صنف',
+          sku: prod?.sku || ti.products?.sku || '',
+          baseUnit: unitName,
+          baseQuantity: qty,
+          selectedUnit: unitName,
+          enteredQty: qty,
+          conversionRatio: 1,
+          quantity: qty,
+          uomId: ti.uom_id || undefined
+        };
+      });
+
+      setItems(loadedItems);
+      showToast(`تم فتح التحويل المخزني (${transferData.transfer_number || transferData.id}) في وضع التعديل ✏️`, 'info');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error('Error loading transfer for edit:', err);
+      showToast('حدث خطأ أثناء تحميل بيانات التحويل للتعديل: ' + msg, 'error');
+    } finally {
+      setIsLoadingTransfer(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    if (!window.confirm('هل أنت متأكد من إلغاء وضع التعديل والبدء بتحويل جديد؟')) return;
+    setEditingTransferId(null);
+    setEditingTransferNumber(null);
+    setItems([]);
+    setFormData({
+      date: new Date().toISOString().split('T')[0],
+      fromWarehouseId: '',
+      toWarehouseId: '',
+      notes: ''
+    });
+    navigate('/stock-transfer', { replace: true, state: {} });
+    showToast('تم الخروج من وضع التعديل والبدء بتحويل جديد', 'info');
+  };
 
   // الصنف المختار حالياً من القائمة
   const selectedProductObj = useMemo(() => {
@@ -796,6 +896,56 @@ const StockTransfer = () => {
         packagingSummaryLines ? `[تفاصيل السحب والتعبئة: ${packagingSummaryLines}]` : ''
       ].filter(Boolean).join('\n');
 
+      if (editingTransferId) {
+        // --- تحديث تحويل مخزني قائم (وضع التعديل) ---
+        // 1. تحديث رأس التحويل
+        const { error: headerUpdateError } = await supabase.from('stock_transfers').update({
+          transfer_date: formData.date,
+          from_warehouse_id: formData.fromWarehouseId,
+          to_warehouse_id: formData.toWarehouseId,
+          notes: finalNotes,
+        }).eq('id', editingTransferId);
+
+        if (headerUpdateError) throw headerUpdateError;
+
+        // 2. تحديث بنود التحويل (حذف القديمة وإدراج الجديدة)
+        const { error: itemsDeleteError } = await supabase
+          .from('stock_transfer_items')
+          .delete()
+          .eq('stock_transfer_id', editingTransferId);
+
+        if (itemsDeleteError) throw itemsDeleteError;
+
+        const dbItems = items.map(item => ({
+          stock_transfer_id: editingTransferId,
+          product_id: item.productId,
+          quantity: Number(item.baseQuantity || item.quantity),
+          organization_id: userOrgId,
+          uom_id: item.uomId || null
+        }));
+
+        const { error: itemsInsertError } = await supabase
+          .from('stock_transfer_items')
+          .insert(dbItems);
+
+        if (itemsInsertError) throw itemsInsertError;
+
+        // 3. مسح المسودة وإعادة احتساب الأرصدة
+        secureStorage.removeItem(DRAFT_STORAGE_KEY);
+        setHasDraftRestored(false);
+        await recalculateStock();
+
+        setFormData(prev => ({ ...prev, notes: '' }));
+        setItems([]);
+        const savedNumber = editingTransferNumber;
+        setEditingTransferId(null);
+        setEditingTransferNumber(null);
+
+        showToast(`تم حفظ تعديل التحويل المخزني (${savedNumber}) بنجاح وتحديث الأرصدة ✅`, 'success');
+        navigate('/stock-transfer-list');
+        return;
+      }
+
       // 1. إنشاء رأس التحويل في جدول stock_transfers
       const { data: header, error: headerError } = await supabase.from('stock_transfers').insert({
         transfer_number: transferNumber,
@@ -841,8 +991,40 @@ const StockTransfer = () => {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 pb-12 animate-in fade-in">
+      {/* شريط تنبيه وضع التعديل */}
+      {editingTransferId && (
+        <div className="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-blue-900 shadow-sm animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-600 text-white rounded-xl shadow-xs">
+              <Edit3 size={18} />
+            </div>
+            <div>
+              <div className="font-black text-sm text-blue-950 flex items-center gap-2">
+                وضع تعديل التحويل المخزني: <span className="font-mono bg-blue-200/60 px-2 py-0.5 rounded text-blue-900">{editingTransferNumber}</span>
+              </div>
+              <p className="text-blue-700 mt-0.5">يمكنك تعديل المستودعات أو التاريخ أو تعديل وحذف وإضافة أصناف جديدة، وسيتم تحديث الأرصدة تلقائياً عند الحفظ.</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleCancelEdit}
+            className="px-3 py-1.5 bg-white hover:bg-red-50 text-red-600 border border-red-200 rounded-xl font-bold transition-colors flex items-center gap-1.5 shrink-0"
+          >
+            <X size={14} /> إلغاء التعديل والبدء بجديد
+          </button>
+        </div>
+      )}
+
+      {/* مؤشر تحميل بيانات التحويل */}
+      {isLoadingTransfer && (
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl flex items-center justify-center gap-2 text-xs font-bold text-slate-600">
+          <Loader2 size={16} className="animate-spin text-blue-600" />
+          جاري تحميل بيانات التحويل وأصنافه للتعديل...
+        </div>
+      )}
+
       {/* شريط تنبيه استعادة المسودة */}
-      {hasDraftRestored && items.length > 0 && (
+      {!editingTransferId && hasDraftRestored && items.length > 0 && (
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between text-xs text-amber-800 animate-in fade-in">
           <div className="flex items-center gap-2">
             <Sparkles size={16} className="text-amber-600 shrink-0" />
@@ -861,22 +1043,39 @@ const StockTransfer = () => {
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="p-3 bg-blue-600 text-white rounded-xl shadow-md">
-            <ArrowRightLeft size={24} />
+          <div className={`p-3 text-white rounded-xl shadow-md ${editingTransferId ? 'bg-amber-600' : 'bg-blue-600'}`}>
+            {editingTransferId ? <Edit3 size={24} /> : <ArrowRightLeft size={24} />}
           </div>
           <div>
-            <h2 className="text-xl font-black text-slate-800">تحويل مخزني فوري متعدد الوحدات والتعبئة</h2>
-            <p className="text-xs text-slate-500">نقل الخامات والمنتجات بأي وحدة سحب (كرتونة، علبة، كيس، باكو، زجاجة، شيكارة، صفيحة...) مع المعادل الآلي</p>
+            <h2 className="text-xl font-black text-slate-800">
+              {editingTransferId ? `تعديل التحويل المخزني (${editingTransferNumber})` : 'تحويل مخزني فوري متعدد الوحدات والتعبئة'}
+            </h2>
+            <p className="text-xs text-slate-500">
+              {editingTransferId 
+                ? 'تعديل بيانات التحويل المسجل والأصناف والكميات مع إعادة احتساب الأرصدة آلياً'
+                : 'نقل الخامات والمنتجات بأي وحدة سحب (كرتونة، علبة، كيس، باكو، زجاجة، شيكارة، صفيحة...) مع المعادل الآلي'}
+            </p>
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => navigate('/stock-transfer-list')}
-          className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all"
-        >
-          <List size={16} /> سجل التحويلات السابقة
-        </button>
+        <div className="flex items-center gap-2">
+          {editingTransferId && (
+            <button
+              type="button"
+              onClick={handleCancelEdit}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl text-xs font-bold transition-all"
+            >
+              <X size={15} /> إلغاء التعديل
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => navigate('/stock-transfer-list')}
+            className="flex items-center gap-2 px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all"
+          >
+            <List size={16} /> سجل التحويلات السابقة
+          </button>
+        </div>
       </div>
 
       <form 
@@ -1352,7 +1551,15 @@ const StockTransfer = () => {
             </div>
 
             <div className="flex items-center gap-3 w-full sm:w-auto">
-              {items.length > 0 && (
+              {editingTransferId ? (
+                <button
+                  type="button"
+                  onClick={handleCancelEdit}
+                  className="px-4 py-3 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-xl font-bold text-xs transition-colors flex items-center gap-1.5"
+                >
+                  <X size={15} /> إلغاء التعديل
+                </button>
+              ) : items.length > 0 && (
                 <button
                   type="button"
                   onClick={handleClearDraft}
@@ -1371,12 +1578,12 @@ const StockTransfer = () => {
                 {loading ? (
                   <>
                     <Loader2 className="animate-spin" size={18} />
-                    <span>جاري ترحيل التحويل...</span>
+                    <span>{editingTransferId ? 'جاري حفظ التعديلات...' : 'جاري ترحيل التحويل...'}</span>
                   </>
                 ) : (
                   <>
                     <Save size={18} />
-                    <span>إتمام وترحيل التحويل المخزني</span>
+                    <span>{editingTransferId ? 'حفظ التعديلات وتحديث التحويل' : 'إتمام وترحيل التحويل المخزني'}</span>
                   </>
                 )}
               </button>

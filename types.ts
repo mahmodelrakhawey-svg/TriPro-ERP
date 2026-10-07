@@ -588,6 +588,8 @@ export interface Employee {
   shift_id?: string;
   shift_name?: string;
   biometric_id?: string;
+  organization_id?: string;
+  deleted_at?: string | null;
 }
 
 export interface PayrollRun {

@@ -1918,14 +1918,75 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   // HR
+  const sanitizeEmployeePayload = (data: Partial<Employee>) => {
+    const payload: Record<string, any> = { ...data };
+
+    // 1. تحويل shift_id الفارغ إلى null لمنع خطأ تحويل UUID في PostgreSQL (invalid input syntax for type uuid: "")
+    if (!payload.shift_id || String(payload.shift_id).trim() === '') {
+      payload.shift_id = null;
+    }
+
+    // 2. التوافق المزدوج للاسم بين full_name و name
+    if (payload.full_name) {
+      payload.name = payload.full_name;
+    } else if (payload.name) {
+      payload.full_name = payload.name;
+    }
+
+    // 3. التوافق المزدوج للراتب بين basic_salary و salary
+    if (payload.basic_salary !== undefined) {
+      payload.salary = payload.basic_salary;
+    } else if (payload.salary !== undefined) {
+      payload.basic_salary = payload.salary;
+    }
+
+    // 4. تعقيم الحقول الفارغة إلى null لتفادي أخطاء قيود التاريخ والنصوص
+    if (payload.hire_date === '') payload.hire_date = null;
+    if (payload.email === '') payload.email = null;
+    if (payload.phone === '') payload.phone = null;
+    if (payload.notes === '') payload.notes = null;
+
+    // 5. عند تحويل الحالة إلى نشط، إلغاء الحذف المؤرخ لضمان عودة الموظف للعمل بشكل كامل
+    if (payload.status === 'active') {
+      payload.deleted_at = null;
+    }
+
+    return payload;
+  };
+
   const addEmployee = async (data: Partial<Employee>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { error } = await supabase.from('employees').insert({ ...data, organization_id: targetOrgId }); 
-    if (error) throw error;
+    const payload = sanitizeEmployeePayload({ ...data, organization_id: targetOrgId } as any);
+    const { error } = await supabase.from('employees').insert(payload); 
+    if (error) {
+      logger.error('Failed to add employee:', error);
+      throw error;
+    }
     await refreshData(); 
   };
-  const updateEmployee = async (id: string, data: Partial<Employee>) => { await supabase.from('employees').update(data).eq('id', id); refreshData(); };
-  const deleteEmployee = async (id: string, reason?: string) => { await supabase.from('employees').update({ status: 'terminated', notes: reason }).eq('id', id); refreshData(); };
+
+  const updateEmployee = async (id: string, data: Partial<Employee>) => { 
+    const payload = sanitizeEmployeePayload(data);
+    const { error } = await supabase.from('employees').update(payload).eq('id', id); 
+    if (error) {
+      logger.error('Failed to update employee:', error);
+      throw error;
+    }
+    await refreshData(); 
+  };
+
+  const deleteEmployee = async (id: string, reason?: string) => { 
+    const { error } = await supabase.from('employees').update({ 
+      status: 'terminated', 
+      notes: reason || null,
+      deleted_at: new Date().toISOString()
+    }).eq('id', id); 
+    if (error) {
+      logger.error('Failed to delete employee:', error);
+      throw error;
+    }
+    await refreshData(); 
+  };
   const runPayroll = async (month: number, year: number, date: string, treasuryId: string, data: any[], orgId?: string) => {
     const { error } = await supabase.rpc('run_payroll_rpc', {
       p_month: month,

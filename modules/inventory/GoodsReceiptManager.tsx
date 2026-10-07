@@ -9,6 +9,8 @@ import {
   TrendingUp, Clock, FileText, ArrowRight, ShieldAlert,
   Sliders, RefreshCw, Check, ArrowDownToLine, Scale
 } from 'lucide-react';
+import ProductSearchSelect from '../../components/ProductSearchSelect';
+import { Product } from '../../types';
 
 export interface GRNItem {
   id?: string;
@@ -59,6 +61,12 @@ export default function GoodsReceiptManager() {
   // Scanner & Live Input
   const [barcodeInput, setBarcodeInput] = useState('');
   const barcodeRef = useRef<HTMLInputElement>(null);
+
+  // Search by name & item entry
+  const [entryMode, setEntryMode] = useState<'search' | 'scanner'>('search');
+  const [selectedProductId, setSelectedProductId] = useState<string>('');
+  const [selectedProductObj, setSelectedProductObj] = useState<Product | null>(null);
+  const [entryQuantity, setEntryQuantity] = useState<number>(1);
 
   // New / Edit GRN State
   const [selectedPoId, setSelectedPoId] = useState<string>('');
@@ -262,6 +270,57 @@ export default function GoodsReceiptManager() {
 
     setBarcodeInput('');
     if (barcodeRef.current) barcodeRef.current.focus();
+  };
+
+  // 🔍 Handle Adding Product via Smart Search List
+  const lastAddedRef = useRef<{ id: string; time: number } | null>(null);
+
+  const handleAddProductToGrn = (productToUse?: Product) => {
+    const prod = productToUse || selectedProductObj || products.find(p => p.id === selectedProductId);
+    if (!prod) {
+      showToast('يرجى اختيار صنف أولاً من القائمة', 'warning');
+      return;
+    }
+
+    // صمام أمان لمنع أي استدعاء مزدوج في نفس اللحظة
+    const now = Date.now();
+    if (lastAddedRef.current && lastAddedRef.current.id === prod.id && now - lastAddedRef.current.time < 300) {
+      return;
+    }
+    lastAddedRef.current = { id: prod.id, time: now };
+
+    const qtyToAdd = Number(entryQuantity) > 0 ? Number(entryQuantity) : 1;
+    playBeep();
+
+    const existingIndex = items.findIndex(it => it.product_id === prod.id);
+
+    if (existingIndex >= 0) {
+      const updated = [...items];
+      updated[existingIndex].received_quantity += qtyToAdd;
+      setItems(updated);
+      showToast(`تمت زيادة كمية (${updated[existingIndex].product_name}) بمقدار +${qtyToAdd} (الإجمالي المستلم: ${updated[existingIndex].received_quantity}) ✅`, 'success');
+    } else {
+      setItems(prev => [
+        ...prev,
+        {
+          product_id: prod.id,
+          product_name: prod.name,
+          barcode: prod.barcode || prod.sku || '',
+          uom_name: prod.unit || 'قطعة',
+          ordered_quantity: 0,
+          received_quantity: qtyToAdd,
+          rejected_quantity: 0,
+          unit_cost: Number(prod.purchase_price || (prod as any).cost || 0),
+          batch_number: `BATCH-${Date.now().toString().slice(-4)}`,
+          expiry_date: prod.expiry_date || undefined
+        }
+      ]);
+      showToast(`تمت إضافة الصنف (${prod.name}) للاستلام بكمية ${qtyToAdd} ${prod.unit || 'قطعة'} ✅`, 'success');
+    }
+
+    setSelectedProductId('');
+    setSelectedProductObj(null);
+    setEntryQuantity(1);
   };
 
   // 💾 Save & Approve GRN
@@ -629,35 +688,133 @@ export default function GoodsReceiptManager() {
             </div>
           </div>
 
-          {/* 🎯 Live Barcode Receiving Scanner */}
-          <div className="bg-gradient-to-r from-purple-950/40 via-slate-950 to-indigo-950/40 border border-purple-900/40 rounded-2xl p-5 space-y-3">
-            <div className="flex justify-between items-center">
-              <span className="font-black text-sm text-purple-300 flex items-center gap-2">
-                <Barcode size={18} className="text-purple-400" />
-                ماسح الباركود للاستلام الفوري ومطابقة الكميات
-              </span>
-              <span className="text-xs text-slate-400 font-bold">
-                إجمالي الأصناف: <span className="font-mono text-purple-400 font-black">{items.length}</span>
-              </span>
+          {/* 🎯 Receiving & Item Entry Hub (Smart Search & Barcode Scanner) */}
+          <div className="bg-gradient-to-r from-purple-950/40 via-slate-950 to-indigo-950/40 border border-purple-900/40 rounded-2xl p-5 space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="font-black text-sm text-purple-300 flex items-center gap-2">
+                  <PackageCheck size={18} className="text-purple-400" />
+                  إدراج واستلام الأصناف في المستودع
+                </span>
+                <span className="text-xs text-slate-400 font-bold bg-slate-900 px-2.5 py-0.5 rounded-full border border-slate-800">
+                  الأصناف المدرجة: <span className="font-mono text-purple-400 font-black">{items.length}</span>
+                </span>
+              </div>
+
+              {/* أزرار التبديل السريع بين البحث بالاسم وقائمة الأصناف وبين الماسح الضوئي */}
+              <div className="flex items-center gap-1 bg-slate-900/90 p-1 rounded-xl border border-purple-800/40 shadow-sm">
+                <button
+                  type="button"
+                  onClick={() => setEntryMode('search')}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    entryMode === 'search'
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <Search size={14} /> البحث بالاسم والقائمة الذكية
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEntryMode('scanner');
+                    setTimeout(() => barcodeRef.current?.focus(), 50);
+                  }}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 ${
+                    entryMode === 'scanner'
+                      ? 'bg-purple-600 text-white shadow-md shadow-purple-600/30'
+                      : 'text-slate-400 hover:text-white hover:bg-slate-800'
+                  }`}
+                >
+                  <Barcode size={14} /> ماسح الباركود
+                </button>
+              </div>
             </div>
 
-            <form onSubmit={handleBarcodeScan} className="flex gap-2">
-              <input
-                ref={barcodeRef}
-                type="text"
-                value={barcodeInput}
-                onChange={e => setBarcodeInput(e.target.value)}
-                placeholder="امسح باركود الصنف المستلم هنا لزيادة الكمية ومطابقتها مباشرة..."
-                className="flex-1 bg-slate-900 border border-purple-800/60 rounded-xl px-4 py-3 text-sm text-white font-mono font-bold placeholder:text-slate-600 focus:border-purple-400 outline-none shadow-inner"
-                autoFocus
-              />
-              <button
-                type="submit"
-                className="bg-purple-600 hover:bg-purple-500 text-white font-black px-6 py-3 rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-purple-600/20 transition-all"
-              >
-                <ArrowDownToLine size={16} /> مسح
-              </button>
-            </form>
+            {/* وضع البحث الذكي بالاسم وقائمة الأصناف */}
+            {entryMode === 'search' ? (
+              <div className="space-y-2">
+                <div className="flex flex-col md:flex-row gap-2.5 items-stretch md:items-center">
+                  <div className="flex-1 relative">
+                    <ProductSearchSelect
+                      products={products}
+                      value={selectedProductId}
+                      onChange={(pId, prod) => {
+                        setSelectedProductId(pId);
+                        setSelectedProductObj(prod || null);
+                        if (prod) {
+                          handleAddProductToGrn(prod);
+                        }
+                      }}
+                      warehouseId={headerForm.warehouse_id}
+                      placeholder="ابحث باسم الصنف، الكود (SKU)، أو الباركود لإدراجه فوراً..."
+                      theme="dark"
+                      clearOnSelect={true}
+                    />
+                  </div>
+
+                  {/* حقل تحديد الكمية المستلمة */}
+                  <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5">
+                    <span className="text-xs font-bold text-slate-400 whitespace-nowrap">الكمية:</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="any"
+                      value={entryQuantity}
+                      onChange={e => setEntryQuantity(Math.max(1, parseFloat(e.target.value) || 1))}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (selectedProductObj) {
+                            handleAddProductToGrn(selectedProductObj);
+                          }
+                        }
+                      }}
+                      className="w-20 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1.5 text-center font-mono font-bold text-white text-sm outline-none focus:border-purple-500"
+                    />
+                    <span className="text-xs font-bold text-slate-500">{selectedProductObj?.unit || 'وحدة'}</span>
+                  </div>
+
+                  {/* زر الإدراج */}
+                  <button
+                    type="button"
+                    onClick={() => handleAddProductToGrn()}
+                    disabled={!selectedProductObj}
+                    className="bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black px-5 py-2.5 rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-lg shadow-purple-600/20 transition-all active:scale-95 whitespace-nowrap"
+                  >
+                    <Plus size={16} /> إدراج الصنف للاستلام
+                  </button>
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between text-[11px] text-slate-400 px-1 font-medium gap-1">
+                  <span>💡 اضغط على الحقل لعرض كافة الأصناف، أو اكتب أي أحرف للفرز اللحظي الذكي. يدعم الضغط على Enter للاختيار المباشر.</span>
+                  {selectedProductObj && (
+                    <span className="text-purple-300 font-bold font-mono">
+                      كود الصنف: [{selectedProductObj.sku || '-'}] | سعر الشراء: {Number(selectedProductObj.purchase_price || 0).toLocaleString()} {currencySymbol}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (
+              /* وضع ماسح الباركود الفوري */
+              <form onSubmit={handleBarcodeScan} className="flex gap-2">
+                <input
+                  ref={barcodeRef}
+                  type="text"
+                  value={barcodeInput}
+                  onChange={e => setBarcodeInput(e.target.value)}
+                  placeholder="امسح باركود الصنف المستلم هنا لزيادة الكمية ومطابقتها مباشرة..."
+                  className="flex-1 bg-slate-900 border border-purple-800/60 rounded-xl px-4 py-3 text-sm text-white font-mono font-bold placeholder:text-slate-600 focus:border-purple-400 outline-none shadow-inner"
+                  autoFocus
+                />
+                <button
+                  type="submit"
+                  className="bg-purple-600 hover:bg-purple-500 text-white font-black px-6 py-3 rounded-xl text-xs flex items-center gap-1.5 shadow-lg shadow-purple-600/20 transition-all whitespace-nowrap"
+                >
+                  <ArrowDownToLine size={16} /> مسح
+                </button>
+              </form>
+            )}
           </div>
 
           {/* 📋 Received Items Table (3-Way Matching) */}

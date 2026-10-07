@@ -187,9 +187,24 @@ const EmployeeManager = () => {
       showToast('تم حفظ بيانات الموظف بنجاح ✅', 'success');
       setIsModalOpen(false);
     } catch (error) {
-      showToast('حدث خطأ: ' + error.message, 'error');
+      const msg = error instanceof Error ? error.message : String(error);
+      showToast('حدث خطأ أثناء الحفظ: ' + msg, 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleToggleStatus = async (employee: Record<string, any>, newStatus: 'active' | 'inactive' | 'terminated') => {
+    try {
+      await updateEmployee(employee.id, {
+        status: newStatus,
+        deleted_at: newStatus === 'active' ? null : (employee.deleted_at || null)
+      } as any);
+      const label = newStatus === 'active' ? 'نشط' : newStatus === 'inactive' ? 'إجازة' : 'منتهي الخدمات';
+      showToast(`تم تغيير حالة الموظف (${employee.full_name || employee.name}) إلى "${label}" بنجاح ✅`, 'success');
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      showToast('فشل تغيير حالة الموظف: ' + msg, 'error');
     }
   };
 
@@ -765,6 +780,15 @@ const EmployeeManager = () => {
                     </div>
 
                     <div className="flex gap-2 pt-2 border-t border-slate-100">
+                        {employee.status !== 'active' && (
+                          <button 
+                            onClick={() => handleToggleStatus(employee, 'active')} 
+                            className="py-2 px-3 bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-sm border border-emerald-200 hover:border-emerald-600"
+                            title="إعادة تنشيط الموظف فوراً"
+                          >
+                            <UserCheck size={14} /> تنشيط
+                          </button>
+                        )}
                         <button 
                           onClick={() => handleOpenModal(employee)} 
                           className="flex-1 py-2 bg-slate-100 text-slate-700 hover:bg-blue-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5"
@@ -848,6 +872,15 @@ const EmployeeManager = () => {
                     <td className="p-4 text-xs text-slate-500">{employee.hire_date || '-'}</td>
                     <td className="p-4">
                       <div className="flex items-center justify-center gap-1">
+                        {employee.status !== 'active' && (
+                          <button
+                            onClick={() => handleToggleStatus(employee, 'active')}
+                            className="p-1.5 text-emerald-600 hover:text-white hover:bg-emerald-600 rounded-lg transition-colors border border-emerald-200 hover:border-emerald-600"
+                            title="إعادة تنشيط الموظف فوراً"
+                          >
+                            <UserCheck size={15} />
+                          </button>
+                        )}
                         <button
                           onClick={() => handleOpenModal(employee)}
                           className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"

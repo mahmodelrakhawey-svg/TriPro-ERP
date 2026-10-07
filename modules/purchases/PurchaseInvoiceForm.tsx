@@ -640,7 +640,7 @@ const PurchaseInvoiceForm = () => {
 
       if (editingProductId) {
         // تحديث الصنف الموجود
-        const itemData: any = {
+        const itemData: Record<string, any> = {
           name: productFormData.name,
           sku: productFormData.sku?.trim() || generateUniqueSku(),
           barcode: productFormData.barcode || null,
@@ -688,7 +688,7 @@ const PurchaseInvoiceForm = () => {
       } else {
         // إضافة صنف جديد
         const isPhysicalStock = productFormData.product_type === 'STOCK' || productFormData.product_type === 'RAW_MATERIAL' || productFormData.product_type === 'MANUFACTURED';
-        const productPayload: any = {
+        const productPayload: Record<string, any> = {
           name: productFormData.name,
           sku: productFormData.sku?.trim() || generateUniqueSku(),
           barcode: productFormData.barcode || null,
@@ -727,14 +727,15 @@ const PurchaseInvoiceForm = () => {
           : { ...productPayload, id: (createdProd as any)?.id || Date.now().toString() };
 
         // إضافة الصنف المنشأ حديثاً مباشرة إلى الفاتورة!
-        addProductToInvoice(newProdObj);
+        addProductToInvoice(newProdObj as Product);
         showToast(`تم إنشاء الصنف الجديد (${productFormData.name}) وإضافته للفاتورة مباشرة ➕✅`, 'success');
       }
 
       setIsProductModalOpen(false);
-    } catch (err: any) {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       logger.error('Error saving product in purchase form:', err);
-      showToast('خطأ أثناء حفظ كارت الصنف: ' + err.message, 'error');
+      showToast('خطأ أثناء حفظ كارت الصنف: ' + msg, 'error');
     }
   };
 
@@ -750,9 +751,10 @@ const PurchaseInvoiceForm = () => {
       const { data } = supabase.storage.from('products').getPublicUrl(fileName);
       setProductFormData(prev => ({ ...prev, image_url: data.publicUrl }));
       showToast('تم رفع صورة الصنف بنجاح ✅', 'success');
-    } catch (err: any) {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       logger.error('Failed to upload image:', err);
-      showToast('تعذر رفع الصورة: ' + err.message, 'warning');
+      showToast('تعذر رفع الصورة: ' + msg, 'warning');
     } finally {
       setProductFormUploading(false);
     }

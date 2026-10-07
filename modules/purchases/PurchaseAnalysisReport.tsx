@@ -363,9 +363,9 @@ export default function PurchaseAnalysisReport() {
       if (allErr) throw allErr;
 
       // فرز البنود تنازلياً حسب تاريخ الفاتورة ورقمها في الذاكرة لضمان التقاط آخر عمليتي شراء حقيقيتين 100%
-      const sortedItems = [...(allItems || [])].sort((a: any, b: any) => {
-        const invA: any = Array.isArray(a.purchase_invoices) ? a.purchase_invoices[0] : a.purchase_invoices;
-        const invB: any = Array.isArray(b.purchase_invoices) ? b.purchase_invoices[0] : b.purchase_invoices;
+      const sortedItems = [...(allItems || [])].sort((a: Record<string, any>, b: Record<string, any>) => {
+        const invA: Record<string, any> = Array.isArray(a.purchase_invoices) ? a.purchase_invoices[0] : a.purchase_invoices;
+        const invB: Record<string, any> = Array.isArray(b.purchase_invoices) ? b.purchase_invoices[0] : b.purchase_invoices;
         const dateA = invA?.invoice_date || '';
         const dateB = invB?.invoice_date || '';
         if (dateA !== dateB) return dateB.localeCompare(dateA);
@@ -392,8 +392,8 @@ export default function PurchaseAnalysisReport() {
         if (!productPurchasesMap[pid]) productPurchasesMap[pid] = [];
         if (productPurchasesMap[pid].length < 2) {
           const uomRel = Array.isArray(item.uoms) ? item.uoms[0] : item.uoms;
-          const invObj: any = Array.isArray(item.purchase_invoices) ? item.purchase_invoices[0] : item.purchase_invoices;
-          const supObj: any = Array.isArray(invObj?.suppliers) ? invObj.suppliers[0] : invObj?.suppliers;
+          const invObj: Record<string, any> = Array.isArray(item.purchase_invoices) ? item.purchase_invoices[0] : item.purchase_invoices;
+          const supObj: Record<string, any> = Array.isArray(invObj?.suppliers) ? invObj.suppliers[0] : invObj?.suppliers;
 
           productPurchasesMap[pid].push({
             price: Number(item.unit_price || 0),
@@ -522,9 +522,10 @@ export default function PurchaseAnalysisReport() {
       });
       setPriceComparison(rows);
 
-    } catch (err: any) {
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
       logger.error("Error fetching purchase analysis:", err);
-      showToast("حدث خطأ: " + err.message, 'error');
+      showToast("حدث خطأ: " + msg, 'error');
     } finally {
       setLoading(false);
     }
