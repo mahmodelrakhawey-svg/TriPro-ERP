@@ -47,3 +47,8 @@ release/
 *.tmp
 
 
+
+# Backups & Local Secret Scripts
+backups/
+*.dump
+scripts/backup_lenza_daily.bat
