@@ -331,25 +331,61 @@ const Dashboard = () => {
         }
     }
 
+    const safeValue = typeof value === 'number' && !isNaN(value) ? value : 0;
+    const formattedValue = useMemo(() => {
+        return safeValue.toLocaleString(undefined, {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 2,
+        });
+    }, [safeValue]);
+
+    // Dynamic responsive font size based on text length to prevent box overflow
+    const valueFontSize = useMemo(() => {
+        const len = formattedValue.length;
+        if (len > 12) return 'text-base sm:text-lg xl:text-base 2xl:text-lg';
+        if (len > 9) return 'text-lg sm:text-xl xl:text-lg 2xl:text-xl';
+        if (len > 6) return 'text-xl sm:text-2xl xl:text-xl 2xl:text-2xl';
+        return 'text-2xl sm:text-3xl';
+    }, [formattedValue]);
+
+    const currencySymbol = settings?.currency || 'EGP';
+
     return (
-        <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow hover:-translate-y-1">
-            <div className="flex justify-between items-start mb-4">
-                <div className={`p-3 rounded-xl ${color} bg-opacity-10`}>
-                    <Icon size={24} className={color.replace('bg-', 'text-')} />
-                </div>
-                {!isNeutral && (
-                    <div className={`flex items-center gap-1 text-xs font-bold ${changeColor}`}>
-                        {isPositive ? <ArrowUpRight size={14} /> : <ArrowDownLeft size={14} />}
-                        {Math.abs(change).toFixed(1)}%
+        <div className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all hover:-translate-y-0.5 flex flex-col justify-between min-w-0 overflow-hidden">
+            <div>
+                <div className="flex justify-between items-start mb-3 gap-2">
+                    <div className={`p-2.5 rounded-xl ${color} bg-opacity-10 shrink-0`}>
+                        <Icon size={22} className={color.replace('bg-', 'text-')} />
                     </div>
-                )}
+                    {!isNeutral && (
+                        <div className={`flex items-center gap-1 text-xs font-bold ${changeColor} shrink-0 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-100`}>
+                            {isPositive ? <ArrowUpRight size={13} /> : <ArrowDownLeft size={13} />}
+                            <span>{Math.abs(change).toFixed(1)}%</span>
+                        </div>
+                    )}
+                </div>
+                <h3 className="text-slate-500 text-xs sm:text-sm font-bold mb-1.5 truncate" title={title}>
+                    {title}
+                </h3>
+                <div 
+                    className="flex items-baseline gap-1.5 min-w-0 overflow-hidden" 
+                    title={`${formattedValue} ${isCurrency ? currencySymbol : ''}`}
+                >
+                    <span className={`${valueFontSize} font-black text-slate-800 tracking-tight truncate font-mono`} dir="ltr">
+                        {formattedValue}
+                    </span>
+                    {isCurrency && (
+                        <span className="text-[11px] sm:text-xs text-slate-400 font-bold shrink-0 select-none">
+                            {currencySymbol}
+                        </span>
+                    )}
+                </div>
             </div>
-            <h3 className="text-slate-500 text-sm font-bold mb-1">{title}</h3>
-            <p className="text-3xl font-black text-slate-800">
-                {value?.toLocaleString() ?? 0} 
-                {isCurrency && <span className="text-sm text-slate-400 font-normal ml-1">{settings?.currency || 'EGP'}</span>}
-            </p>
-            {subLabel && <p className="text-xs text-slate-400 mt-2">{subLabel}</p>}
+            {subLabel && (
+                <p className="text-[11px] text-slate-400 mt-3 truncate border-t border-slate-50 pt-2" title={subLabel}>
+                    {subLabel}
+                </p>
+            )}
         </div>
     );
   };
@@ -556,7 +592,7 @@ const Dashboard = () => {
             )}
 
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 dashboard-stats">
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 sm:gap-5 dashboard-stats">
                 <StatCard title="مبيعات الشهر" value={stats.monthSales} previousValue={stats.prevMonthSales} icon={ShoppingCart} color="bg-blue-100" isGood={true} />
                 <StatCard title="مجمل الربح" value={stats.monthSales - stats.monthCogs} icon={DollarSign} color="bg-emerald-100" isGood={true} />
                 <StatCard title="صافي الربح" value={stats.monthSales - stats.monthCogs - stats.monthExpenses} icon={Activity} color="bg-indigo-100" isGood={true} subLabel="بعد خصم المصروفات الإدارية" />
