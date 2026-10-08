@@ -1919,36 +1919,46 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   // HR
   const sanitizeEmployeePayload = (data: Partial<Employee>) => {
-    const payload: Record<string, any> = { ...data };
+    const raw: Record<string, any> = { ...data };
+    const payload: Record<string, any> = {};
 
     // 1. تحويل shift_id الفارغ إلى null لمنع خطأ تحويل UUID في PostgreSQL (invalid input syntax for type uuid: "")
-    if (!payload.shift_id || String(payload.shift_id).trim() === '') {
-      payload.shift_id = null;
+    if (raw.shift_id !== undefined) {
+      payload.shift_id = (raw.shift_id && String(raw.shift_id).trim() !== '') ? raw.shift_id : null;
     }
 
     // 2. التوافق المزدوج للاسم بين full_name و name
-    if (payload.full_name) {
-      payload.name = payload.full_name;
-    } else if (payload.name) {
-      payload.full_name = payload.name;
+    const empName = raw.full_name || raw.name;
+    if (empName !== undefined) {
+      payload.name = empName;
+      payload.full_name = empName;
     }
 
     // 3. التوافق المزدوج للراتب بين basic_salary و salary
-    if (payload.basic_salary !== undefined) {
-      payload.salary = payload.basic_salary;
-    } else if (payload.salary !== undefined) {
-      payload.basic_salary = payload.salary;
+    const salaryVal = raw.basic_salary !== undefined ? raw.basic_salary : raw.salary;
+    if (salaryVal !== undefined && salaryVal !== null && salaryVal !== '') {
+      const numSal = Number(salaryVal) || 0;
+      payload.basic_salary = numSal;
+      payload.salary = numSal;
     }
 
-    // 4. تعقيم الحقول الفارغة إلى null لتفادي أخطاء قيود التاريخ والنصوص
-    if (payload.hire_date === '') payload.hire_date = null;
-    if (payload.email === '') payload.email = null;
-    if (payload.phone === '') payload.phone = null;
-    if (payload.notes === '') payload.notes = null;
+    // 4. الحقول المعتمدة في جدول employees فقط
+    if (raw.position !== undefined) payload.position = raw.position || null;
+    if (raw.department !== undefined) payload.department = raw.department || null;
+    if (raw.phone !== undefined) payload.phone = raw.phone || null;
+    if (raw.email !== undefined) payload.email = raw.email || null;
+    if (raw.hire_date !== undefined) payload.hire_date = raw.hire_date || null;
+    if (raw.notes !== undefined) payload.notes = raw.notes || null;
+    if (raw.status !== undefined) payload.status = raw.status || 'active';
+    if (raw.hourly_rate !== undefined) payload.hourly_rate = Number(raw.hourly_rate) || 0;
+    if (raw.biometric_id !== undefined) payload.biometric_id = raw.biometric_id || null;
+    if (raw.organization_id !== undefined) payload.organization_id = raw.organization_id;
 
     // 5. عند تحويل الحالة إلى نشط، إلغاء الحذف المؤرخ لضمان عودة الموظف للعمل بشكل كامل
-    if (payload.status === 'active') {
+    if (raw.status === 'active') {
       payload.deleted_at = null;
+    } else if (raw.deleted_at !== undefined) {
+      payload.deleted_at = raw.deleted_at;
     }
 
     return payload;

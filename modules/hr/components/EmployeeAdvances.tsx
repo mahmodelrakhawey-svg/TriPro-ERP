@@ -7,19 +7,20 @@ import { useToast } from '../../../context/ToastContext';
 import { 
   Banknote, Plus, CheckCircle, Loader2, AlertTriangle, 
   AlertCircle, Sparkles, Building2, Briefcase, Calendar, 
-  DollarSign, Wallet, X, Percent, UserCheck, FileSpreadsheet, Search, Filter
+  DollarSign, Wallet, X, Percent, UserCheck, FileSpreadsheet, Search, Filter, Pencil
 } from 'lucide-react';
 import { createEmployeeAdvanceSchema } from '../../../utils/validationSchemas';
 import EmployeeSearchSelect, { EmployeeOption } from '../../../components/EmployeeSearchSelect';
 
 const EmployeeAdvances = () => {
-  const { addEntry, getSystemAccount, accounts, currentUser } = useAccounting();
+  const { addEntry, getSystemAccount, accounts, currentUser, refreshData } = useAccounting();
   const { showToast } = useToast();
   const [advances, setAdvances] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [treasuryAccounts, setTreasuryAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'deducted'>('all');
@@ -299,12 +300,30 @@ const EmployeeAdvances = () => {
   };
 
   const handleOpenModal = () => {
+    setEditingId(null);
     setFormData({
       employeeId: '',
       amount: 0,
       date: new Date().toISOString().split('T')[0],
       treasuryId: treasuryAccounts[0]?.id || '',
       notes: ''
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleEditAdvance = (adv: Record<string, any>) => {
+    if (adv.status === 'deducted' || adv.payroll_item_id) {
+      if (!window.confirm('تنبيه: هذه السلفة تم تسويتها وخصمها بالفعل في مسير الرواتب. هل تريد تعديل بياناتها بالتأكيد؟')) {
+        return;
+      }
+    }
+    setEditingId(adv.id);
+    setFormData({
+      employeeId: adv.employee_id || '',
+      amount: Number(adv.amount) || 0,
+      date: adv.request_date || adv.advance_date || (adv.created_at ? adv.created_at.split('T')[0] : new Date().toISOString().split('T')[0]),
+      treasuryId: adv.treasury_account_id || treasuryAccounts[0]?.id || '',
+      notes: adv.notes || ''
     });
     setIsModalOpen(true);
   };
@@ -345,44 +364,149 @@ const EmployeeAdvances = () => {
       if (!orgId && currentUser?.role !== 'super_admin') throw new Error('تعذر تحديد المنظمة.');
 
       const employee = employees.find(e => e.id === formData.employeeId);
-      const reference = `ADV-${Date.now().toString().slice(-6)}`;
 
-      // 1. حفظ السلفة
-      const { error: advError } = await supabase.from('employee_advances').insert({
-        organization_id: orgId,
-        employee_id: formData.employeeId,
-        amount: formData.amount,
-        request_date: formData.date,
-        status: 'paid', // نعتبرها مدفوعة فوراً للتبسيط
-        notes: formData.notes,
-        treasury_account_id: formData.treasuryId, // حفظ حساب الخزينة
-        reference: reference // حفظ المرجع
-      });
+      if (editingId) {
+        // --- 1. وضع التعديل (Edit Mode) ---
+        let updateSucceeded = false;
 
-      if (advError) throw advError;
-
-      // 2. إنشاء القيد المحاسبي
-      // من ح/ سلف العاملين (1223)
-      // إلى ح/ الخزينة أو البنك
-      const advancesAcc = getSystemAccount('EMPLOYEE_ADVANCES') || accounts.find(a => a.code === '1223');
-
-      if (advancesAcc) {
-        await addEntry({
-          date: formData.date,
-          description: `صرف سلفة للموظف ${employee?.full_name}`,
-          reference: reference,
-          status: 'posted',
-          lines: [
-            { account_id: advancesAcc.id, accountId: advancesAcc.id, debit: formData.amount, credit: 0, description: `سلفة موظف - ${employee?.full_name}` },
-            { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: `صرف نقدية لسلفة` }
-          ]
+        // استدعاء الإجراء المخزن المباشر لضمان التعديل المترابط والمحمي
+        const { error: rpcError } = await supabase.rpc('update_employee_advance', {
+          p_advance_id: editingId,
+          p_employee_id: formData.employeeId,
+          p_amount: formData.amount,
+          p_date: formData.date,
+          p_treasury_id: formData.treasuryId,
+          p_notes: formData.notes || ''
         });
+
+        if (!rpcError) {
+          updateSucceeded = true;
+        } else {
+          logger.warn('update_employee_advance RPC failed, executing direct fallback:', rpcError);
+          // Fallback: التعديل المباشر على جدول السلف
+          const { error: updateError } = await supabase
+            .from('employee_advances')
+            .update({
+              employee_id: formData.employeeId,
+              amount: formData.amount,
+              request_date: formData.date,
+              advance_date: formData.date,
+              treasury_account_id: formData.treasuryId,
+              notes: formData.notes
+            })
+            .eq('id', editingId);
+
+          if (updateError) throw updateError;
+
+          // تحديث ومزامنة القيد المحاسبي
+          const existingAdv = advances.find(a => a.id === editingId);
+          const ref = existingAdv?.reference;
+          if (ref) {
+            const { data: journalEntries } = await supabase
+              .from('journal_entries')
+              .select('id, status')
+              .eq('reference', ref)
+              .limit(1);
+
+            if (journalEntries && journalEntries.length > 0) {
+              const jEntry = journalEntries[0];
+              const advancesAcc = getSystemAccount('EMPLOYEE_ADVANCES') || accounts.find(a => a.code === '1223');
+              const empName = employee?.full_name || '';
+
+              // إلغاء ترحيل القيد مؤقتاً لتعديل أسطره
+              await supabase
+                .from('journal_entries')
+                .update({ 
+                  status: 'draft', 
+                  is_posted: false,
+                  transaction_date: formData.date,
+                  description: `صرف سلفة للموظف ${empName}`
+                })
+                .eq('id', jEntry.id);
+
+              await supabase
+                .from('journal_lines')
+                .delete()
+                .eq('journal_entry_id', jEntry.id);
+
+              if (advancesAcc) {
+                await supabase.from('journal_lines').insert([
+                  {
+                    journal_entry_id: jEntry.id,
+                    account_id: advancesAcc.id,
+                    debit: formData.amount,
+                    credit: 0,
+                    description: `سلفة موظف - ${empName}`,
+                    organization_id: orgId
+                  },
+                  {
+                    journal_entry_id: jEntry.id,
+                    account_id: formData.treasuryId,
+                    debit: 0,
+                    credit: formData.amount,
+                    description: 'صرف نقدية لسلفة',
+                    organization_id: orgId
+                  }
+                ]);
+              }
+
+              // إعادة ترحيل القيد
+              await supabase
+                .from('journal_entries')
+                .update({ status: 'posted', is_posted: true })
+                .eq('id', jEntry.id);
+            }
+          }
+          updateSucceeded = true;
+        }
+
+        if (updateSucceeded) {
+          showToast('تم تعديل بيانات السلفة وتحديث القيد المحاسبي بنجاح ✅', 'success');
+        }
       } else {
-        showToast('تنبيه: تم حفظ السلفة ولكن لم يتم إنشاء القيد لعدم العثور على حساب "سلف الموظفين" (1223).', 'warning');
+        // --- 2. وضع الإضافة الجديد (Create Mode) ---
+        const reference = `ADV-${Date.now().toString().slice(-6)}`;
+
+        // 1. حفظ السلفة
+        const { error: advError } = await supabase.from('employee_advances').insert({
+          organization_id: orgId,
+          employee_id: formData.employeeId,
+          amount: formData.amount,
+          request_date: formData.date,
+          advance_date: formData.date,
+          status: 'paid', // نعتبرها مدفوعة فوراً للتبسيط
+          notes: formData.notes,
+          treasury_account_id: formData.treasuryId, // حفظ حساب الخزينة
+          reference: reference // حفظ المرجع
+        });
+
+        if (advError) throw advError;
+
+        // 2. إنشاء القيد المحاسبي
+        // من ح/ سلف العاملين (1223)
+        // إلى ح/ الخزينة أو البنك
+        const advancesAcc = getSystemAccount('EMPLOYEE_ADVANCES') || accounts.find(a => a.code === '1223');
+
+        if (advancesAcc) {
+          await addEntry({
+            date: formData.date,
+            description: `صرف سلفة للموظف ${employee?.full_name}`,
+            reference: reference,
+            status: 'posted',
+            lines: [
+              { account_id: advancesAcc.id, accountId: advancesAcc.id, debit: formData.amount, credit: 0, description: `سلفة موظف - ${employee?.full_name}` },
+              { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: `صرف نقدية لسلفة` }
+            ]
+          });
+        } else {
+          showToast('تنبيه: تم حفظ السلفة ولكن لم يتم إنشاء القيد لعدم العثور على حساب "سلف الموظفين" (1223).', 'warning');
+        }
+        
+        showToast('تم حفظ السلفة وترحيل القيد بنجاح ✅', 'success');
       }
-      
-      showToast('تم حفظ السلفة وترحيل القيد بنجاح ✅', 'success');
+
       setIsModalOpen(false);
+      setEditingId(null);
       setFormData({ 
         employeeId: '', 
         amount: 0, 
@@ -391,10 +515,11 @@ const EmployeeAdvances = () => {
         notes: '' 
       });
       fetchData();
+      if (refreshData) refreshData();
 
-    } catch (error) {
+    } catch (error: any) {
       logger.error(error);
-      showToast('حدث خطأ: ' + error.message, 'error');
+      showToast('حدث خطأ: ' + (error?.message || error), 'error');
     } finally {
       setSaving(false);
     }
@@ -516,6 +641,7 @@ const EmployeeAdvances = () => {
                 <th className="p-4">الخزينة المنصرف منها</th>
                 <th className="p-4">الحالة</th>
                 <th className="p-4">ملاحظات</th>
+                <th className="p-4 text-center">الإجراءات</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-sm">
@@ -564,11 +690,22 @@ const EmployeeAdvances = () => {
                     </span>
                   </td>
                   <td className="p-4 text-slate-500 text-xs max-w-xs truncate">{adv.notes || '-'}</td>
+                  <td className="p-4 text-center whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => handleEditAdvance(adv)}
+                      className="p-1.5 px-3 rounded-xl text-blue-600 hover:text-white hover:bg-blue-600 border border-blue-200 hover:border-blue-600 transition-all inline-flex items-center justify-center gap-1.5 text-xs font-bold shadow-2xs group cursor-pointer"
+                      title="تعديل بيانات السلفة"
+                    >
+                      <Pencil size={14} className="group-hover:scale-110 transition-transform" />
+                      <span>تعديل</span>
+                    </button>
+                  </td>
                 </tr>
               ))}
               {filteredAdvances.length === 0 && !loading && (
                 <tr>
-                  <td colSpan={7} className="p-12 text-center text-slate-400">
+                  <td colSpan={8} className="p-12 text-center text-slate-400">
                     <Banknote size={40} className="mx-auto mb-2 text-slate-300" />
                     <p className="font-bold">لا توجد سلف مطابقة للبحث أو التصفية الحالية</p>
                     <p className="text-xs text-slate-400 mt-1">جرّب تغيير عبارة البحث أو اختيار خزينة أو حالة سلف مختلفة</p>
@@ -589,17 +726,24 @@ const EmployeeAdvances = () => {
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <div className="flex items-center gap-2">
                 <div className="p-2 bg-blue-100 text-blue-600 rounded-xl">
-                  <Banknote size={22} />
+                  {editingId ? <Pencil size={22} /> : <Banknote size={22} />}
                 </div>
                 <div>
-                  <h3 className="font-bold text-lg text-slate-800">تسجيل سلفة جديدة</h3>
-                  <p className="text-xs text-slate-400">اختيار ذكي للموظف مع فحص الرصيد والراتب</p>
+                  <h3 className="font-bold text-lg text-slate-800">
+                    {editingId ? 'تعديل بيانات السلفة' : 'تسجيل سلفة جديدة'}
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    {editingId ? 'تعديل بيانات السلفة والخزينة مع تحديث القيد المحاسبي' : 'اختيار ذكي للموظف مع فحص الرصيد والراتب'}
+                  </p>
                 </div>
               </div>
               <button 
                 type="button" 
-                onClick={() => setIsModalOpen(false)}
-                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                onClick={() => {
+                  setIsModalOpen(false);
+                  setEditingId(null);
+                }}
+                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
               >
                 <X size={20} />
               </button>
@@ -828,18 +972,21 @@ const EmployeeAdvances = () => {
               <div className="flex gap-3 pt-3 border-t border-slate-100">
                 <button 
                   type="button" 
-                  onClick={() => setIsModalOpen(false)} 
-                  className="flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-colors"
+                  onClick={() => {
+                    setIsModalOpen(false);
+                    setEditingId(null);
+                  }} 
+                  className="flex-1 py-2.5 bg-slate-100 text-slate-700 rounded-xl font-bold hover:bg-slate-200 transition-colors cursor-pointer"
                 >
                   إلغاء
                 </button>
                 <button 
                   type="submit" 
                   disabled={saving} 
-                  className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 flex justify-center items-center gap-2 shadow-sm transition-all"
+                  className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 flex justify-center items-center gap-2 shadow-sm transition-all cursor-pointer"
                 >
                   {saving ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
-                  <span>حفظ وصرف السلفة</span>
+                  <span>{editingId ? 'حفظ تعديلات السلفة' : 'حفظ وصرف السلفة'}</span>
                 </button>
               </div>
 
