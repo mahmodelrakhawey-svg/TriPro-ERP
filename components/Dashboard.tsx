@@ -2,6 +2,7 @@
 import { logger } from '../utils/logger';
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAccounting } from '../context/AccountingContext'; // Assuming context provides demo data
+import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 import { 
   TrendingUp, TrendingDown, Users, ShoppingCart, 
@@ -20,8 +21,9 @@ import QuickBooksWorkflowHub from './QuickBooksWorkflowHub';
 import { secureStorage } from '../utils/securityMiddleware';
 
 const Dashboard = () => {
+  const { currentUser: authUser } = useAuth();
   const { 
-    currentUser, 
+    currentUser: accUser, 
     organization,
     organizations,
     currentSelectedOrgId, 
@@ -36,6 +38,7 @@ const Dashboard = () => {
     entries, 
     accounts 
   } = useAccounting();
+  const currentUser = authUser || accUser;
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
@@ -73,7 +76,7 @@ const Dashboard = () => {
   const [newSalesTarget, setNewSalesTarget] = useState('');
 
   // 🧭 وضع العرض: نمط كويك بوكس التفاعلي أو لوحة التحليلات والمؤشرات وفق صلاحية وتفضيل المستخدم
-  const userDashboardMode = currentUser?.dashboard_view_mode || 'both';
+  const userDashboardMode = authUser?.dashboard_view_mode || accUser?.dashboard_view_mode || 'both';
   const isWorkflowRestricted = userDashboardMode === 'workflow_only';
   const isAnalyticsRestricted = userDashboardMode === 'analytics_only';
   const canSwitchViewMode = !isWorkflowRestricted && !isAnalyticsRestricted;
@@ -89,12 +92,20 @@ const Dashboard = () => {
     }
   });
 
-  // مزامنة وضع العرض عند تحديث تفضيلات المستخدم
+  // مزامنة وضع العرض عند تحديث تفضيلات المستخدم فورياً وضمان إخفاء القائمة الجانبية في وضع الخريطة
   useEffect(() => {
-    if (isWorkflowRestricted && viewMode !== 'workflow') {
-      setViewMode('workflow');
-    } else if (isAnalyticsRestricted && viewMode !== 'analytics') {
-      setViewMode('analytics');
+    if (isWorkflowRestricted) {
+      if (viewMode !== 'workflow') {
+        setViewMode('workflow');
+      }
+      try { secureStorage.setItem('tripro_dashboard_view_mode', 'workflow'); } catch {}
+      window.dispatchEvent(new CustomEvent('set-desktop-sidebar-collapsed', { detail: true }));
+    } else if (isAnalyticsRestricted) {
+      if (viewMode !== 'analytics') {
+        setViewMode('analytics');
+      }
+      try { secureStorage.setItem('tripro_dashboard_view_mode', 'analytics'); } catch {}
+      window.dispatchEvent(new CustomEvent('set-desktop-sidebar-collapsed', { detail: false }));
     }
   }, [isWorkflowRestricted, isAnalyticsRestricted, viewMode]);
 

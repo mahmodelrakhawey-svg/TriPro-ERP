@@ -86,7 +86,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           name: sanitizeHtml(p.full_name || p.email || (p.id === DEMO_USER_ID ? 'مستخدم ديمو' : `مستخدم (${p.id.slice(0, 8)})`)),
           username: p.email || (p.id === DEMO_USER_ID ? DEMO_EMAIL : `user_${p.id.slice(0, 8)}`),
           role: (p.role || 'viewer') as UserRole,
-          is_active: p.is_active ?? true
+          is_active: p.is_active ?? true,
+          organization_id: p.organization_id || undefined,
+          hr_scope: (p as any).hr_scope,
+          can_view_dashboard: (p as any).can_view_dashboard,
+          can_access_mobile: (p as any).can_access_mobile,
+          dashboard_view_mode: (p as any).dashboard_view_mode || 'both'
         }));
         
         // إضافة المدير العام الافتراضي للقائمة

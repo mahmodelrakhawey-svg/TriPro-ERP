@@ -400,13 +400,14 @@ const COMPATIBILITY_REDIRECTS: [string, string][] = [
 ];
 
 const MainLayout = () => {
-    const { currentUser } = useAccounting();
-    const { can } = useAuth();
+    const { currentUser: accUser } = useAccounting();
+    const { can, currentUser: authUser } = useAuth();
+    const currentUser = authUser || accUser;
     const location = useLocation();
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
     const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(() => {
         try {
-            const userPref = currentUser?.dashboard_view_mode || 'both';
+            const userPref = authUser?.dashboard_view_mode || accUser?.dashboard_view_mode || 'both';
             const isWorkflowDashboard = (location.pathname === '/' || location.pathname === '/dashboard') &&
                 (userPref === 'workflow_only' || (userPref !== 'analytics_only' && secureStorage.getItem('tripro_dashboard_view_mode') !== 'analytics'));
             if (isWorkflowDashboard) return true;
@@ -423,6 +424,16 @@ const MainLayout = () => {
             return next;
         });
     };
+
+    // ⚡ عند فتح لوحة القيادة بمود خريطة العمليات فقط، يتم طي القائمة الجانبية تلقائياً لتكون الشاشة كاملة
+    useEffect(() => {
+        const pref = authUser?.dashboard_view_mode || accUser?.dashboard_view_mode || 'both';
+        const isDashboardRoute = location.pathname === '/' || location.pathname === '/dashboard';
+        if (isDashboardRoute && pref === 'workflow_only') {
+            setIsDesktopCollapsed(true);
+            try { secureStorage.setItem('tripro_desktop_sidebar_collapsed', 'true'); } catch {}
+        }
+    }, [authUser?.dashboard_view_mode, accUser?.dashboard_view_mode, location.pathname]);
 
     // ⚡ استقبال أوامر إخفاء/إظهار القائمة الجانبية تلقائياً (مثل التبديل بين خريطة تري برو ولوحة التحليلات)
     useEffect(() => {
@@ -530,11 +541,20 @@ const MainLayout = () => {
                         <Routes>
                 {/* المسارات الأساسية */}
                 <Route path="/mobile" element={(!isVanSales && !can('mobile', 'view')) ? <Navigate to="/" replace /> : <MobileApp />} />
-                <Route path="/dashboard" element={can('dashboard', 'view') ? <Dashboard /> : <Navigate to="/" replace />} />
+                <Route 
+                  path="/dashboard" 
+                  element={
+                    ((authUser?.dashboard_view_mode === 'workflow_only' || accUser?.dashboard_view_mode === 'workflow_only' || authUser?.dashboard_view_mode === 'analytics_only' || accUser?.dashboard_view_mode === 'analytics_only') || can('dashboard', 'view')) 
+                      ? <Dashboard /> 
+                      : <Navigate to="/" replace />
+                  } 
+                />
                 <Route
                   path="/"
                   element={
-                    (currentUser?.role as string) === 'chef' || (currentUser?.role as string) === 'restaurant_cook'
+                    (authUser?.dashboard_view_mode === 'workflow_only' || accUser?.dashboard_view_mode === 'workflow_only' || authUser?.dashboard_view_mode === 'analytics_only' || accUser?.dashboard_view_mode === 'analytics_only')
+                      ? <Dashboard />
+                      : (currentUser?.role as string) === 'chef' || (currentUser?.role as string) === 'restaurant_cook'
                       ? <Navigate to="/kds" replace />
                       : (currentUser?.role as string) === 'restaurant_cashier' || (currentUser?.role as string) === 'cashier'
                       ? <Navigate to="/pos" replace />

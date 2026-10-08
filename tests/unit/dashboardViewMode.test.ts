@@ -113,4 +113,34 @@ describe('🧭 Dashboard View Mode Per User Tests', () => {
       canSwitchViewMode: true,
     });
   });
+
+  it('ensures evaluatePermission grants dashboard.view when user has workflow_only or analytics_only mode', async () => {
+    const { evaluatePermission } = await import('../../utils/permissionEngine');
+
+    const regularEmployeeWorkflow: User = {
+      id: 'emp-101',
+      username: 'sales@tripro.com',
+      name: 'موظف مبيعات',
+      role: 'viewer',
+      is_active: true,
+      dashboard_view_mode: 'workflow_only',
+    };
+
+    // Even without dashboard.view permission granted explicitly in Set:
+    const canView = evaluatePermission('dashboard', 'view', 'viewer', new Set(), regularEmployeeWorkflow);
+    expect(canView).toBe(true);
+
+    const regularEmployeeAnalytics: User = {
+      id: 'emp-102',
+      username: 'analyst@tripro.com',
+      name: 'محلل بيانات',
+      role: 'viewer',
+      is_active: true,
+      dashboard_view_mode: 'analytics_only',
+    };
+
+    const canViewAnalytics = evaluatePermission('dashboard', 'view', 'viewer', new Set(), regularEmployeeAnalytics);
+    expect(canViewAnalytics).toBe(true);
+  });
 });
+

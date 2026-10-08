@@ -272,7 +272,7 @@ const UserManager = () => {
   const updateUserDashboardViewMode = async (userId: string, newMode: 'both' | 'workflow_only' | 'analytics_only') => {
     if (currentUserRole === 'demo') {
       showToast('تم تحديث وضع لوحة القيادة للمستخدم بنجاح (محاكاة)', 'success');
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, dashboard_view_mode: newMode } : u));
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, dashboard_view_mode: newMode, can_view_dashboard: true } : u));
       return;
     }
     if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
@@ -281,9 +281,14 @@ const UserManager = () => {
     }
 
     try {
+      const updateData: Record<string, any> = { dashboard_view_mode: newMode };
+      if (newMode === 'workflow_only' || newMode === 'analytics_only') {
+        updateData.can_view_dashboard = true;
+      }
+
       const { error } = await supabase
         .from('profiles')
-        .update({ dashboard_view_mode: newMode })
+        .update(updateData)
         .eq('id', userId);
 
       if (error) {
@@ -293,7 +298,11 @@ const UserManager = () => {
         }
         throw error;
       }
-      setUsers(prev => prev.map(u => u.id === userId ? { ...u, dashboard_view_mode: newMode } : u));
+      setUsers(prev => prev.map(u => u.id === userId ? { 
+        ...u, 
+        dashboard_view_mode: newMode,
+        ...(newMode !== 'both' ? { can_view_dashboard: true } : {})
+      } : u));
       showToast('تم تحديث وضع لوحة القيادة للمستخدم بنجاح ✅', 'success');
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

@@ -162,6 +162,8 @@ function checkDashboardGuard(
   if (userRole === 'super_admin' || userRole === 'admin' || userRole === 'demo') return true;
   if (currentUser?.can_view_dashboard === false) return false;
   if (userPermissions.has('dashboard.deny')) return false;
+  // 🧭 إذا تم تخصيص وضع عرض لوحة القيادة للمستخدم (خريطة العمليات أو التحليلات)
+  if (currentUser?.dashboard_view_mode && (currentUser.dashboard_view_mode === 'workflow_only' || currentUser.dashboard_view_mode === 'analytics_only')) return true;
   if (currentUser?.can_view_dashboard === true) return true;
   if (userPermissions.has('dashboard.view') || userPermissions.has('dashboard.*')) return true;
   if (userPermissions.has('*.*')) return true;

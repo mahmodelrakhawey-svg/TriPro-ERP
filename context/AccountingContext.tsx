@@ -299,18 +299,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   useEffect(() => {
     const cachedLastOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || null;
-    if (authUser && (!currentUser || currentUser.id !== authUser.id)) {
-      setCurrentUser({
+    if (authUser) {
+      setCurrentUser(prev => ({
         id: authUser.id,
-        full_name: authUser.name || 'مستخدم النظام',
-        role: authUser.role as UserRole,
-        organization_id: (authUser as any).organization_id || cachedLastOrg || 'org-default-offline',
-        is_active: true,
-        hr_scope: authUser.hr_scope,
-        can_view_dashboard: authUser.can_view_dashboard,
-        can_access_mobile: authUser.can_access_mobile,
-        dashboard_view_mode: authUser.dashboard_view_mode,
-      });
+        full_name: authUser.name || prev?.full_name || 'مستخدم النظام',
+        role: (authUser.role || prev?.role || 'viewer') as UserRole,
+        organization_id: (authUser as any).organization_id || prev?.organization_id || cachedLastOrg || 'org-default-offline',
+        is_active: prev?.is_active ?? true,
+        hr_scope: authUser.hr_scope || prev?.hr_scope,
+        can_view_dashboard: authUser.can_view_dashboard ?? prev?.can_view_dashboard,
+        can_access_mobile: authUser.can_access_mobile ?? prev?.can_access_mobile,
+        dashboard_view_mode: authUser.dashboard_view_mode || prev?.dashboard_view_mode || 'both',
+        avatar_url: prev?.avatar_url
+      }));
     }
   }, [authUser]);
 
@@ -393,7 +394,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       full_name: authUser?.name || 'مستخدم تجريبي (TriPro Offline)',
       role: (authUser?.role as UserRole) || 'demo',
       organization_id: effectiveOfflineOrgId,
-      is_active: true
+      is_active: true,
+      hr_scope: authUser?.hr_scope,
+      can_view_dashboard: authUser?.can_view_dashboard,
+      can_access_mobile: authUser?.can_access_mobile,
+      dashboard_view_mode: authUser?.dashboard_view_mode || 'both'
     };
     setCurrentUser(fallbackProfile);
     setOrganization(effectiveOrgObj);
@@ -453,7 +458,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const { data: pData, error: profileError } = await supabase.from('profiles').select('*, organizations(*)').eq('id', authUser.id).single();
         if (!profileError && pData) {
           profile = pData;
-          setCurrentUser(profile as UserProfile);
+          setCurrentUser({
+            ...pData,
+            dashboard_view_mode: pData.dashboard_view_mode || authUser?.dashboard_view_mode || 'both',
+            can_view_dashboard: pData.can_view_dashboard ?? authUser?.can_view_dashboard ?? true
+          } as UserProfile);
         }
       } catch (pErr) {
         logger.warn('Could not fetch online profile, using fallback:', pErr);
@@ -490,12 +499,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setOrganization(activeOrgObj);
 
       // تأكيد تعيين المنظمة في بيانات المستخدم لمنع أخطاء التريجرز والـ RLS
-      setCurrentUser(prev => prev ? { ...prev, organization_id: fetchOrgId } : {
+      setCurrentUser(prev => prev ? { 
+        ...prev, 
+        organization_id: fetchOrgId,
+        dashboard_view_mode: prev.dashboard_view_mode || authUser?.dashboard_view_mode || 'both',
+        can_view_dashboard: prev.can_view_dashboard ?? authUser?.can_view_dashboard ?? true
+      } : {
         id: authUser.id,
         full_name: authUser.name || 'مستخدم النظام',
         role: authUser.role as UserRole,
         organization_id: fetchOrgId,
-        is_active: true
+        is_active: true,
+        hr_scope: authUser.hr_scope,
+        can_view_dashboard: authUser.can_view_dashboard ?? true,
+        can_access_mobile: authUser.can_access_mobile,
+        dashboard_view_mode: authUser.dashboard_view_mode || 'both'
       });
 
       // جلب الإعدادات وتوحيد الحقول
