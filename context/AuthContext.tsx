@@ -19,6 +19,7 @@ interface Profile {
   role_id?: string | null;
   can_view_dashboard?: boolean | null;
   can_access_mobile?: boolean | null;
+  dashboard_view_mode?: 'both' | 'workflow_only' | 'analytics_only' | null;
 }
 
 interface RolePermissionJoin {
@@ -188,6 +189,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const canAccessMobile = (profile as any)?.can_access_mobile !== undefined && (profile as any)?.can_access_mobile !== null
           ? Boolean((profile as any)?.can_access_mobile)
           : (roleName === 'van_sales' || roleName === 'admin' || roleName === 'super_admin');
+        const dashboardViewMode = ((profile as any)?.dashboard_view_mode || user.user_metadata?.dashboard_view_mode || 'both') as 'both' | 'workflow_only' | 'analytics_only';
 
         const profileData = profile ? {
           id: user.id,
@@ -198,7 +200,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           organization_id: profile.organization_id || user.user_metadata?.org_id || undefined,
           hr_scope: hrScope,
           can_view_dashboard: canViewDashboard,
-          can_access_mobile: canAccessMobile
+          can_access_mobile: canAccessMobile,
+          dashboard_view_mode: dashboardViewMode
         } : {
           id: user.id,
           name: (user.user_metadata?.full_name as string) || user.email || '',
@@ -208,7 +211,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           organization_id: (user.user_metadata?.org_id as string) || undefined,
           hr_scope: hrScope,
           can_view_dashboard: canViewDashboard,
-          can_access_mobile: canAccessMobile
+          can_access_mobile: canAccessMobile,
+          dashboard_view_mode: dashboardViewMode
         };
 
         setCurrentUser(profileData);
@@ -371,7 +375,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         username: DEMO_EMAIL,
         role: 'demo',
         is_active: true,
-        organization_id: 'org-default-offline'
+        organization_id: 'org-default-offline',
+        dashboard_view_mode: 'both'
       };
       setCurrentUser(demoUser);
       setUserRole('demo');

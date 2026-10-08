@@ -263,6 +263,7 @@ export type UserRole =
   | 'bakery_cfo';
 
 export type HrScope = 'all' | 'factory' | 'branches';
+export type DashboardViewMode = 'both' | 'workflow_only' | 'analytics_only';
 
 export interface User {
   id: string;
@@ -275,6 +276,7 @@ export interface User {
   hr_scope?: HrScope;
   can_view_dashboard?: boolean;
   can_access_mobile?: boolean;
+  dashboard_view_mode?: DashboardViewMode;
 }
 
 export interface Salesperson {

@@ -406,8 +406,9 @@ const MainLayout = () => {
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
     const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(() => {
         try {
+            const userPref = currentUser?.dashboard_view_mode || 'both';
             const isWorkflowDashboard = (location.pathname === '/' || location.pathname === '/dashboard') &&
-                secureStorage.getItem('tripro_dashboard_view_mode') !== 'analytics';
+                (userPref === 'workflow_only' || (userPref !== 'analytics_only' && secureStorage.getItem('tripro_dashboard_view_mode') !== 'analytics'));
             if (isWorkflowDashboard) return true;
             return secureStorage.getItem('tripro_desktop_sidebar_collapsed') === 'true';
         } catch {

@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization, HrScope, Customer, Supplier, Warehouse, Category, Product, Salesperson, Invoice, Employee, Cheque, Asset } from '../types';
+import { Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization, HrScope, DashboardViewMode, Customer, Supplier, Warehouse, Category, Product, Salesperson, Invoice, Employee, Cheque, Asset } from '../types';
 import { useToast } from '../context/ToastContext';
 import { secureStorage } from '../utils/securityMiddleware';
 import { logger } from '../utils/logger';
@@ -16,6 +16,7 @@ export interface UserProfile {
   hr_scope?: HrScope;
   can_view_dashboard?: boolean;
   can_access_mobile?: boolean;
+  dashboard_view_mode?: DashboardViewMode;
 }
 
 
@@ -286,7 +287,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         full_name: authUser.name || 'مستخدم النظام',
         role: authUser.role as UserRole,
         organization_id: (authUser as any).organization_id || cachedLastOrg || 'org-default-offline',
-        is_active: true
+        is_active: true,
+        hr_scope: authUser.hr_scope,
+        can_view_dashboard: authUser.can_view_dashboard,
+        can_access_mobile: authUser.can_access_mobile,
+        dashboard_view_mode: authUser.dashboard_view_mode,
       };
     }
     return null;
@@ -300,7 +305,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         full_name: authUser.name || 'مستخدم النظام',
         role: authUser.role as UserRole,
         organization_id: (authUser as any).organization_id || cachedLastOrg || 'org-default-offline',
-        is_active: true
+        is_active: true,
+        hr_scope: authUser.hr_scope,
+        can_view_dashboard: authUser.can_view_dashboard,
+        can_access_mobile: authUser.can_access_mobile,
+        dashboard_view_mode: authUser.dashboard_view_mode,
       });
     }
   }, [authUser]);

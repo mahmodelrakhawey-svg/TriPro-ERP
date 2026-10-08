@@ -22,6 +22,7 @@ type UserProfile = {
   hr_scope?: 'all' | 'factory' | 'branches';
   can_view_dashboard?: boolean;
   can_access_mobile?: boolean;
+  dashboard_view_mode?: 'both' | 'workflow_only' | 'analytics_only';
 };
 
 
@@ -40,7 +41,8 @@ const UserManager = () => {
     role: 'admin', // تغيير الافتراضي إلى admin لتقليل أخطاء التأسيس
     hr_scope: 'all' as 'all' | 'factory' | 'branches',
     can_view_dashboard: true,
-    can_access_mobile: false
+    can_access_mobile: false,
+    dashboard_view_mode: 'both' as 'both' | 'workflow_only' | 'analytics_only'
   });
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
@@ -266,6 +268,39 @@ const UserManager = () => {
     }
   };
 
+  // تحديث وضع لوحة القيادة للمستخدم (خريطة فقط / تحليلات فقط / كلاهما)
+  const updateUserDashboardViewMode = async (userId: string, newMode: 'both' | 'workflow_only' | 'analytics_only') => {
+    if (currentUserRole === 'demo') {
+      showToast('تم تحديث وضع لوحة القيادة للمستخدم بنجاح (محاكاة)', 'success');
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, dashboard_view_mode: newMode } : u));
+      return;
+    }
+    if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
+      showToast('عذراً، هذه الصلاحية للمدراء فقط', 'error');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ dashboard_view_mode: newMode })
+        .eq('id', userId);
+
+      if (error) {
+        if (error.message?.includes('dashboard_view_mode') || (error as any)?.code === '42703') {
+          showToast('تنبيه: يلزم تنفيذ ملف ترقية قاعدة البيانات لإضافة عمود dashboard_view_mode', 'warning');
+          return;
+        }
+        throw error;
+      }
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, dashboard_view_mode: newMode } : u));
+      showToast('تم تحديث وضع لوحة القيادة للمستخدم بنجاح ✅', 'success');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('فشل تعديل وضع لوحة القيادة: ' + msg, 'error');
+    }
+  };
+
   // تحديث اسم المستخدم
   const handleNameUpdate = async (userId: string) => {
     if (currentUserRole === 'demo') {
@@ -308,10 +343,10 @@ const UserManager = () => {
     if (currentUserRole === 'demo') {
         setTimeout(() => {
             showToast('تم إنشاء المستخدم بنجاح! ✅ (محاكاة)', 'success');
-            const fakeUser: UserProfile = { id: `new-demo-${Date.now()}`, email: newUserData.email, full_name: newUserData.fullName, role: newUserData.role as any, is_active: true, created_at: new Date().toISOString() };
+            const fakeUser: UserProfile = { id: `new-demo-${Date.now()}`, email: newUserData.email, full_name: newUserData.fullName, role: newUserData.role as any, is_active: true, created_at: new Date().toISOString(), dashboard_view_mode: newUserData.dashboard_view_mode };
             setUsers(prev => [fakeUser, ...prev]);
             setIsAddModalOpen(false);
-            setNewUserData({ email: '', password: '', fullName: '', role: 'viewer', hr_scope: 'all', can_view_dashboard: true, can_access_mobile: false });
+            setNewUserData({ email: '', password: '', fullName: '', role: 'viewer', hr_scope: 'all', can_view_dashboard: true, can_access_mobile: false, dashboard_view_mode: 'both' });
             setCreating(false);
         }, 1000);
         return;
@@ -336,6 +371,7 @@ const UserManager = () => {
             role: newUserData.role,
             app_role: newUserData.role,
             hr_scope: newUserData.hr_scope,
+            dashboard_view_mode: newUserData.dashboard_view_mode,
             org_id: targetOrgId, 
           }
         }
@@ -369,6 +405,7 @@ const UserManager = () => {
           hr_scope: newUserData.hr_scope,
           can_view_dashboard: newUserData.can_view_dashboard,
           can_access_mobile: newUserData.can_access_mobile,
+          dashboard_view_mode: newUserData.dashboard_view_mode,
         });
         if (profileInsertError) {
           if (profileInsertError.message?.includes('violates foreign key constraint') || profileInsertError.code === '23503') {
@@ -388,12 +425,13 @@ const UserManager = () => {
           organization_id: targetOrgId,
           can_view_dashboard: newUserData.can_view_dashboard,
           can_access_mobile: newUserData.can_access_mobile,
+          dashboard_view_mode: newUserData.dashboard_view_mode,
         })
         .eq('id', authData.user.id);
 
       showToast('تم إنشاء المستخدم بنجاح! ✅ سيتمكن المستخدم من تسجيل الدخول فوراً.', 'success');
       setIsAddModalOpen(false);
-      setNewUserData({ email: '', password: '', fullName: '', role: 'viewer', hr_scope: 'all', can_view_dashboard: true, can_access_mobile: false });
+      setNewUserData({ email: '', password: '', fullName: '', role: 'viewer', hr_scope: 'all', can_view_dashboard: true, can_access_mobile: false, dashboard_view_mode: 'both' });
       fetchUsers(); // تحديث القائمة
     } catch (err) {
       if (process.env.NODE_ENV === 'development') logger.error('Error creating user:', err);
@@ -559,6 +597,9 @@ const UserManager = () => {
               <th className="px-4 py-4 text-center bg-blue-50 text-blue-900 font-black border-l border-blue-100">
                 📊 لوحة القيادة
               </th>
+              <th className="px-4 py-4 text-center bg-indigo-50/70 text-indigo-900 font-black border-l border-indigo-100">
+                🧭 وضع العرض (الشاشة)
+              </th>
               <th className="px-4 py-4 text-center bg-indigo-50 text-indigo-900 font-black border-l border-indigo-100">
                 📱 تطبيق الموبايل
               </th>
@@ -702,6 +743,27 @@ const UserManager = () => {
                     <span className={`w-2 h-2 rounded-full ${user.can_view_dashboard !== false ? 'bg-blue-600 animate-pulse' : 'bg-slate-400'}`}></span>
                     <span>{user.can_view_dashboard !== false ? 'مفعلة 👁️' : 'معطلة 🚫'}</span>
                   </button>
+                </td>
+
+                {/* 🧭 التحكم في وضع العرض: خريطة فقط / تحليلات فقط / كلاهما */}
+                <td className="px-3 py-4 text-center bg-indigo-50/20 border-l border-indigo-100">
+                  <select
+                    value={user.dashboard_view_mode || 'both'}
+                    onChange={(e) => updateUserDashboardViewMode(user.id, e.target.value as any)}
+                    disabled={currentUserRole !== 'super_admin' && currentUserRole !== 'admin'}
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-black border-2 outline-none cursor-pointer transition-all shadow-2xs ${
+                      user.dashboard_view_mode === 'workflow_only'
+                        ? 'border-blue-400 bg-blue-100 text-blue-900 font-black'
+                        : user.dashboard_view_mode === 'analytics_only'
+                        ? 'border-purple-400 bg-purple-100 text-purple-900 font-black'
+                        : 'border-slate-300 bg-white text-slate-800 hover:border-slate-400'
+                    }`}
+                    title="تحديد وضع العرض للمستخدم عند الدخول"
+                  >
+                    <option value="both">🔄 كلاهما معاً (حرية التبديل)</option>
+                    <option value="workflow_only">🗺️ خريطة العمليات فقط</option>
+                    <option value="analytics_only">📊 التحليلات والرسوم فقط</option>
+                  </select>
                 </td>
 
                 {/* 📱 التحكم في ظهور تطبيق الموبايل لهذا المستخدم */}
@@ -953,6 +1015,22 @@ const UserManager = () => {
                             </label>
                         </div>
                         <p className="text-[11px] text-slate-400">يمكنك تعديل هذه الإتاحة لاحقاً بنقرة واحدة من جدول المستخدمين أو إدارة الصلاحيات.</p>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-bold text-slate-700 mb-1">
+                          وضع لوحة القيادة عند الدخول (Dashboard View)
+                        </label>
+                        <select 
+                            value={newUserData.dashboard_view_mode}
+                            onChange={(e) => setNewUserData({...newUserData, dashboard_view_mode: e.target.value as any})}
+                            className="w-full border border-slate-300 rounded-lg px-4 py-2.5 focus:outline-none focus:border-indigo-500 bg-white font-medium text-sm"
+                        >
+                            <option value="both">🔄 كلاهما معاً (حرية التبديل بين الخريطة والتحليلات)</option>
+                            <option value="workflow_only">🗺️ خريطة تري برو وركفلو فقط (حجب التحليلات والأرباح)</option>
+                            <option value="analytics_only">📊 لوحة التحليلات والرسوم فقط (حجب خريطة العمليات)</option>
+                        </select>
+                        <p className="text-xs text-slate-400 mt-1">يحدد ما إذا كان المستخدم يرى خريطة العمليات فقط، أو التحليلات والرسوم فقط، أو يرى الاثنين معاً ويستطيع التبديل.</p>
                     </div>
 
                     <div className="pt-4 flex gap-3 border-t border-slate-100 mt-4">

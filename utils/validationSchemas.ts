@@ -574,6 +574,7 @@ export const createUserManagerUserSchema = z.object({
   hr_scope: z.enum(['all', 'factory', 'branches']).optional(),
   can_view_dashboard: z.boolean().optional(),
   can_access_mobile: z.boolean().optional(),
+  dashboard_view_mode: z.enum(['both', 'workflow_only', 'analytics_only']).optional(),
 });
 
 export const resetPasswordSchema = z.object({

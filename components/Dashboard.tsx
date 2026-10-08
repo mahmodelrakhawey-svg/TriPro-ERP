@@ -72,8 +72,15 @@ const Dashboard = () => {
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [newSalesTarget, setNewSalesTarget] = useState('');
 
-  // 🧭 وضع العرض: نمط كويك بوكس التفاعلي (افتراضي) أو لوحة التحليلات والمؤشرات
+  // 🧭 وضع العرض: نمط كويك بوكس التفاعلي أو لوحة التحليلات والمؤشرات وفق صلاحية وتفضيل المستخدم
+  const userDashboardMode = currentUser?.dashboard_view_mode || 'both';
+  const isWorkflowRestricted = userDashboardMode === 'workflow_only';
+  const isAnalyticsRestricted = userDashboardMode === 'analytics_only';
+  const canSwitchViewMode = !isWorkflowRestricted && !isAnalyticsRestricted;
+
   const [viewMode, setViewMode] = useState<'workflow' | 'analytics'>(() => {
+    if (isWorkflowRestricted) return 'workflow';
+    if (isAnalyticsRestricted) return 'analytics';
     try {
       const saved = secureStorage.getItem<string>('tripro_dashboard_view_mode');
       return saved === 'analytics' ? 'analytics' : 'workflow';
@@ -82,7 +89,17 @@ const Dashboard = () => {
     }
   });
 
+  // مزامنة وضع العرض عند تحديث تفضيلات المستخدم
+  useEffect(() => {
+    if (isWorkflowRestricted && viewMode !== 'workflow') {
+      setViewMode('workflow');
+    } else if (isAnalyticsRestricted && viewMode !== 'analytics') {
+      setViewMode('analytics');
+    }
+  }, [isWorkflowRestricted, isAnalyticsRestricted, viewMode]);
+
   const handleToggleViewMode = (mode: 'workflow' | 'analytics') => {
+    if (!canSwitchViewMode) return;
     setViewMode(mode);
     try {
       secureStorage.setItem('tripro_dashboard_view_mode', mode);
@@ -487,7 +504,7 @@ const Dashboard = () => {
       <div className="space-y-6">
         <QuickBooksWorkflowHub 
           stats={stats}
-          onSwitchToAnalytics={() => handleToggleViewMode('analytics')}
+          onSwitchToAnalytics={canSwitchViewMode ? () => handleToggleViewMode('analytics') : undefined}
         />
       </div>
     );
@@ -502,14 +519,16 @@ const Dashboard = () => {
           <p className="text-slate-500 text-sm">نظرة عامة على أداء المنشأة لهذا الشهر</p>
         </div>
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={() => handleToggleViewMode('workflow')}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
-          >
-            <Layers size={15} />
-            <span>خريطة تري برو وركفلو</span>
-          </button>
+          {canSwitchViewMode && (
+            <button
+              type="button"
+              onClick={() => handleToggleViewMode('workflow')}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+            >
+              <Layers size={15} />
+              <span>خريطة تري برو وركفلو</span>
+            </button>
+          )}
           <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full border border-slate-200 shadow-sm">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
             <span className="text-xs font-bold text-slate-600">آخر تحديث: {new Date().toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit'})}</span>
