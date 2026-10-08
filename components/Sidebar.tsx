@@ -669,8 +669,8 @@ const Sidebar: React.FC<SidebarProps> = ({
         className={`
           fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-slate-100 text-blue-900 flex flex-col p-4 h-full shadow-lg overflow-y-auto custom-scrollbar border-l border-slate-200/90 transition-all duration-300 ease-in-out
           lg:static lg:h-screen lg:sticky lg:top-0 lg:translate-x-0 lg:z-auto
-          ${isDesktopCollapsed ? 'lg:hidden' : 'lg:w-64'}
-          ${isMobileOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}
+          ${isDesktopCollapsed && !isMobileOpen ? '!hidden' : 'lg:w-64'}
+          ${isMobileOpen ? '!flex translate-x-0' : 'translate-x-full lg:translate-x-0'}
         `} 
         dir="rtl"
       >
