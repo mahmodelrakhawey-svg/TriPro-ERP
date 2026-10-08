@@ -14,6 +14,7 @@ import { logger } from './utils/logger';
 import NotificationScheduler from './services/NotificationScheduler';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
+import TopMenuBar from './components/TopMenuBar';
 import WorkspaceTabsBar from './components/WorkspaceTabsBar';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
@@ -401,6 +402,21 @@ const MainLayout = () => {
     const { can } = useAuth();
     const location = useLocation();
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+    const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(() => {
+        try {
+            return localStorage.getItem('tripro_desktop_sidebar_collapsed') === 'true';
+        } catch {
+            return false;
+        }
+    });
+
+    const toggleDesktopSidebar = () => {
+        setIsDesktopCollapsed(prev => {
+            const next = !prev;
+            try { localStorage.setItem('tripro_desktop_sidebar_collapsed', String(next)); } catch {}
+            return next;
+        });
+    };
 
     useEffect(() => {
         // بدء جدول الإخطارات الذكية
@@ -463,6 +479,8 @@ const MainLayout = () => {
             <Sidebar 
                 isMobileOpen={isMobileSidebarOpen}
                 onCloseMobile={() => setIsMobileSidebarOpen(false)}
+                isDesktopCollapsed={isDesktopCollapsed}
+                onToggleDesktopCollapse={toggleDesktopSidebar}
             />
             <div className="flex-1 flex flex-col min-w-0 h-screen print:h-auto print:block print:overflow-visible">
                 <DemoBanner />
@@ -472,7 +490,12 @@ const MainLayout = () => {
                 <OfflineSyncProvider />
                 <PrintHeader />
                 <div className="print:hidden">
-                    <Header onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)} />
+                    <TopMenuBar />
+                    <Header 
+                        onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)} 
+                        isDesktopCollapsed={isDesktopCollapsed}
+                        onToggleDesktopSidebar={toggleDesktopSidebar}
+                    />
                     <WorkspaceTabsBar />
                 </div>
                 {/* إضافة هوامش للطباعة لتجنب تداخل المحتوى مع الترويسة والتذييل */}

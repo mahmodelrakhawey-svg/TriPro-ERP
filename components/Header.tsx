@@ -13,9 +13,15 @@ import { getRouteTitle } from '../utils/routeTitles';
 
 export interface HeaderProps {
   onToggleMobileSidebar?: () => void;
+  isDesktopCollapsed?: boolean;
+  onToggleDesktopSidebar?: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
+const Header: React.FC<HeaderProps> = ({ 
+  onToggleMobileSidebar,
+  isDesktopCollapsed = false,
+  onToggleDesktopSidebar
+}) => {
     const location = useLocation();
     const { lastUpdated, refreshData, clearCache, settings, isLoading, selectedFiscalYear, setSelectedFiscalYear } = useAccounting();
     const { can } = useAuth();
@@ -192,16 +198,20 @@ const Header: React.FC<HeaderProps> = ({ onToggleMobileSidebar }) => {
         <header className="bg-white/95 backdrop-blur-md px-6 py-3 border-b border-slate-200/80 flex justify-between items-center sticky top-0 z-40 print:hidden shadow-xs">
             {/* Page Title & Mobile Menu Toggle */}
             <div className="flex items-center gap-3">
-                {onToggleMobileSidebar && (
-                    <button
-                        type="button"
-                        onClick={onToggleMobileSidebar}
-                        className="p-2 -mr-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl lg:hidden focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-                        title="فتح القائمة الجانبية"
-                    >
-                        <Menu size={22} />
-                    </button>
-                )}
+                <button
+                    type="button"
+                    onClick={() => {
+                        if (window.innerWidth < 1024) {
+                            if (onToggleMobileSidebar) onToggleMobileSidebar();
+                        } else {
+                            if (onToggleDesktopSidebar) onToggleDesktopSidebar();
+                        }
+                    }}
+                    className="p-2 -mr-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors cursor-pointer"
+                    title={isDesktopCollapsed ? "إظهار القائمة الجانبية" : "إخفاء القائمة الجانبية (الشاشة الكاملة)"}
+                >
+                    <Menu size={22} />
+                </button>
                 {settings?.logoUrl ? (
                     <img src={settings.logoUrl} alt="Logo" className="w-9 h-9 object-contain rounded-lg shrink-0" />
                 ) : (

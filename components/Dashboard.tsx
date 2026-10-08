@@ -15,6 +15,7 @@ import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';
 import { useToast } from '../context/ToastContext';
 import { DashboardAlerts } from './DashboardAlerts';
+import QuickBooksWorkflowHub from './QuickBooksWorkflowHub';
 
 const Dashboard = () => {
   const { 
@@ -68,6 +69,23 @@ const Dashboard = () => {
   // State for editing sales target
   const [isEditingTarget, setIsEditingTarget] = useState(false);
   const [newSalesTarget, setNewSalesTarget] = useState('');
+
+  // 🧭 وضع العرض: نمط كويك بوكس التفاعلي (افتراضي) أو لوحة التحليلات والمؤشرات
+  const [viewMode, setViewMode] = useState<'workflow' | 'analytics'>(() => {
+    try {
+      const saved = localStorage.getItem('tripro_dashboard_view_mode');
+      return saved === 'analytics' ? 'analytics' : 'workflow';
+    } catch {
+      return 'workflow';
+    }
+  });
+
+  const handleToggleViewMode = (mode: 'workflow' | 'analytics') => {
+    setViewMode(mode);
+    try {
+      localStorage.setItem('tripro_dashboard_view_mode', mode);
+    } catch {}
+  };
 
   // 🛡️ تحديد معرف الشركة الفعّال بذكاء: يدعم السوبر أدمن واليوزر العادي بدون انقطاع
   const isSuperAdmin = currentUser?.role === 'super_admin' || currentUser?.role === 'owner';
@@ -417,17 +435,38 @@ const Dashboard = () => {
 
   // ✅ لا نعيق الدخول أبداً — المنظمة يتم اختيارها تلقائياً في AccountingContext
 
+  if (viewMode === 'workflow') {
+    return (
+      <div className="space-y-6">
+        <QuickBooksWorkflowHub 
+          stats={stats}
+          onSwitchToAnalytics={() => handleToggleViewMode('analytics')}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8 animate-in fade-in pb-10">
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-black text-slate-800">لوحة القيادة الرئيسية</h1>
           <p className="text-slate-500 text-sm">نظرة عامة على أداء المنشأة لهذا الشهر</p>
         </div>
-        <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full border border-slate-200 shadow-sm">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => handleToggleViewMode('workflow')}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
+          >
+            <Layers size={15} />
+            <span>خريطة كويك بوكس (Workflow)</span>
+          </button>
+          <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full border border-slate-200 shadow-sm">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
             <span className="text-xs font-bold text-slate-600">آخر تحديث: {new Date().toLocaleTimeString('ar-EG', {hour: '2-digit', minute:'2-digit'})}</span>
+        </div>
         </div>
       </div>
 

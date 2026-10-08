@@ -101,9 +101,16 @@ import { secureStorage } from '../utils/securityMiddleware';
 export interface SidebarProps {
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
+  isDesktopCollapsed?: boolean;
+  onToggleDesktopCollapse?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }) => {
+const Sidebar: React.FC<SidebarProps> = ({ 
+  isMobileOpen = false, 
+  onCloseMobile,
+  isDesktopCollapsed = false,
+  onToggleDesktopCollapse
+}) => {
   const { organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, can } = useAccounting();
   const location = useLocation();
   const [openSection, setOpenSection] = useState<string | null>(null);
@@ -660,8 +667,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isMobileOpen = false, onCloseMobile }
       {/* 🧭 القائمة الجانبية (ثابتة في سطح المكتب lg ومتحركة كدرج انزلاقي في الموبايل) */}
       <aside 
         className={`
-          fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-[#0b132b] text-slate-200 flex flex-col p-4 h-full shadow-2xl overflow-y-auto custom-scrollbar border-l border-white/5 transition-transform duration-300 ease-in-out
-          lg:static lg:w-64 lg:h-screen lg:sticky lg:top-0 lg:translate-x-0 lg:z-auto
+          fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-[#0b132b] text-slate-200 flex flex-col p-4 h-full shadow-2xl overflow-y-auto custom-scrollbar border-l border-white/5 transition-all duration-300 ease-in-out
+          lg:static lg:h-screen lg:sticky lg:top-0 lg:translate-x-0 lg:z-auto
+          ${isDesktopCollapsed ? 'lg:hidden' : 'lg:w-64'}
           ${isMobileOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}
         `} 
         dir="rtl"
