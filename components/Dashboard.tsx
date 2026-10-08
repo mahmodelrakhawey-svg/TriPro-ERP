@@ -9,7 +9,8 @@ import {
   Wallet, FileText, Package, Truck, BarChart2, Calendar, Loader2,
   DollarSign, Target, Crown, Star, PieChart as PieChartIcon,
   Edit,
-  Building2, Briefcase, BarChart3 as ChartIcon, Zap
+  Building2, Briefcase, BarChart3 as ChartIcon, Zap,
+  Layers
 } from 'lucide-react'; // 💡 Note: I've removed unused imports for cleaner code
 import { Link } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, PieChart, Pie, Cell } from 'recharts';

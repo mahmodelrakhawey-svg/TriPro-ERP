@@ -124,9 +124,12 @@ self.addEventListener('fetch', (event) => {
       fetch(request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
-            caches.open(STATIC_CACHE).then((cache) => {
-              cache.put('/index.html', networkResponse.clone());
-            });
+            try {
+              const responseToCache = networkResponse.clone();
+              caches.open(STATIC_CACHE).then((cache) => {
+                cache.put('/index.html', responseToCache);
+              }).catch(() => {});
+            } catch (e) {}
           }
           return networkResponse;
         })
