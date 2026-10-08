@@ -17,6 +17,7 @@ import Header from './components/Header';
 import TopMenuBar from './components/TopMenuBar';
 import WorkspaceTabsBar from './components/WorkspaceTabsBar';
 import MobileBottomNav from './components/MobileBottomNav';
+import { secureStorage } from './utils/securityMiddleware';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import NotFound from './components/NotFound';
@@ -406,9 +407,9 @@ const MainLayout = () => {
     const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(() => {
         try {
             const isWorkflowDashboard = (location.pathname === '/' || location.pathname === '/dashboard') &&
-                localStorage.getItem('tripro_dashboard_view_mode') !== 'analytics';
+                secureStorage.getItem('tripro_dashboard_view_mode') !== 'analytics';
             if (isWorkflowDashboard) return true;
-            return localStorage.getItem('tripro_desktop_sidebar_collapsed') === 'true';
+            return secureStorage.getItem('tripro_desktop_sidebar_collapsed') === 'true';
         } catch {
             return false;
         }
@@ -417,21 +418,22 @@ const MainLayout = () => {
     const toggleDesktopSidebar = () => {
         setIsDesktopCollapsed(prev => {
             const next = !prev;
-            try { localStorage.setItem('tripro_desktop_sidebar_collapsed', String(next)); } catch {}
+            try { secureStorage.setItem('tripro_desktop_sidebar_collapsed', String(next)); } catch {}
             return next;
         });
     };
 
     // ⚡ استقبال أوامر إخفاء/إظهار القائمة الجانبية تلقائياً (مثل التبديل بين خريطة تري برو ولوحة التحليلات)
     useEffect(() => {
-        const handleCollapseEvent = (e: any) => {
-            const collapse = Boolean(e?.detail);
+        const handleCollapseEvent = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            const collapse = Boolean(customEvent?.detail);
             setIsDesktopCollapsed(collapse);
-            try { localStorage.setItem('tripro_desktop_sidebar_collapsed', String(collapse)); } catch {}
+            try { secureStorage.setItem('tripro_desktop_sidebar_collapsed', String(collapse)); } catch {}
         };
-        window.addEventListener('set-desktop-sidebar-collapsed', handleCollapseEvent as any);
+        window.addEventListener('set-desktop-sidebar-collapsed', handleCollapseEvent);
         return () => {
-            window.removeEventListener('set-desktop-sidebar-collapsed', handleCollapseEvent as any);
+            window.removeEventListener('set-desktop-sidebar-collapsed', handleCollapseEvent);
         };
     }, []);
 

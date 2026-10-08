@@ -186,8 +186,8 @@ const EmployeeManager = () => {
       
       showToast('تم حفظ بيانات الموظف بنجاح ✅', 'success');
       setIsModalOpen(false);
-    } catch (error: any) {
-      const msg = error?.message || error?.details || error?.error_description || (error instanceof Error ? error.message : typeof error === 'object' ? JSON.stringify(error) : String(error));
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : typeof error === 'object' && error && 'message' in error ? String((error as any).message) : String(error);
       showToast('حدث خطأ أثناء الحفظ: ' + msg, 'error');
     } finally {
       setSaving(false);
@@ -202,8 +202,8 @@ const EmployeeManager = () => {
       } as any);
       const label = newStatus === 'active' ? 'نشط' : newStatus === 'inactive' ? 'إجازة' : 'منتهي الخدمات';
       showToast(`تم تغيير حالة الموظف (${employee.full_name || employee.name}) إلى "${label}" بنجاح ✅`, 'success');
-    } catch (error: any) {
-      const msg = error?.message || error?.details || (error instanceof Error ? error.message : String(error));
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : typeof error === 'object' && error && 'message' in error ? String((error as any).message) : String(error);
       showToast('فشل تغيير حالة الموظف: ' + msg, 'error');
     }
   };

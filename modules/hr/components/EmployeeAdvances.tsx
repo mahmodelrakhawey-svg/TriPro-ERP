@@ -517,9 +517,10 @@ const EmployeeAdvances = () => {
       fetchData();
       if (refreshData) refreshData();
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       logger.error(error);
-      showToast('حدث خطأ: ' + (error?.message || error), 'error');
+      const msg = error instanceof Error ? error.message : String(error);
+      showToast('حدث خطأ: ' + msg, 'error');
     } finally {
       setSaving(false);
     }

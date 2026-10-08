@@ -17,6 +17,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { useToast } from '../context/ToastContext';
 import { DashboardAlerts } from './DashboardAlerts';
 import QuickBooksWorkflowHub from './QuickBooksWorkflowHub';
+import { secureStorage } from '../utils/securityMiddleware';
 
 const Dashboard = () => {
   const { 
@@ -74,7 +75,7 @@ const Dashboard = () => {
   // 🧭 وضع العرض: نمط كويك بوكس التفاعلي (افتراضي) أو لوحة التحليلات والمؤشرات
   const [viewMode, setViewMode] = useState<'workflow' | 'analytics'>(() => {
     try {
-      const saved = localStorage.getItem('tripro_dashboard_view_mode');
+      const saved = secureStorage.getItem<string>('tripro_dashboard_view_mode');
       return saved === 'analytics' ? 'analytics' : 'workflow';
     } catch {
       return 'workflow';
@@ -84,7 +85,7 @@ const Dashboard = () => {
   const handleToggleViewMode = (mode: 'workflow' | 'analytics') => {
     setViewMode(mode);
     try {
-      localStorage.setItem('tripro_dashboard_view_mode', mode);
+      secureStorage.setItem('tripro_dashboard_view_mode', mode);
     } catch {}
     // ⚡ عند اختيار خريطة تري برو تختفي القائمة الجانبية (ملء الشاشة)، وعند التحليلات تظهر تلقائياً
     const shouldCollapse = mode === 'workflow';

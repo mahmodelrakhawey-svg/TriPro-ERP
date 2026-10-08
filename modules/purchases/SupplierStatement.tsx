@@ -673,19 +673,27 @@ const SupplierStatement = () => {
                         بنود الفاتورة ({items.length})
                       </div>
                       <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                        {items.map((item: any, i: number) => (
-                          <div key={i} className="p-3 flex justify-between items-center text-xs">
-                            <div>
-                              <div className="font-bold text-slate-800">{item.products?.name || item.productName || item.description || `بند #${i + 1}`}</div>
-                              <div className="text-[10px] text-slate-400">
-                                {Number(item.quantity || 1)} × {Number(item.unit_price || item.unitPrice || 0).toLocaleString()} {settings.currency}
+                        {items.map((rawItem: unknown, i: number) => {
+                          const item = rawItem as Record<string, unknown>;
+                          const productName = (item.products as Record<string, unknown> | undefined)?.name || item.productName || item.description || `بند #${i + 1}`;
+                          const qty = Number(item.quantity || 1);
+                          const unitPrice = Number(item.unit_price || item.unitPrice || 0);
+                          const total = Number(item.total || (qty * unitPrice));
+
+                          return (
+                            <div key={i} className="p-3 flex justify-between items-center text-xs">
+                              <div>
+                                <div className="font-bold text-slate-800">{String(productName)}</div>
+                                <div className="text-[10px] text-slate-400">
+                                  {qty} × {unitPrice.toLocaleString()} {settings.currency}
+                                </div>
+                              </div>
+                              <div className="font-mono font-black text-slate-900" dir="ltr">
+                                {total.toLocaleString()}
                               </div>
                             </div>
-                            <div className="font-mono font-black text-slate-900" dir="ltr">
-                              {Number(item.total || ((item.quantity || 1) * (item.unit_price || 0))).toLocaleString()}
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
 
