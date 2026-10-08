@@ -52,3 +52,5 @@ release/
 backups/
 *.dump
 scripts/backup_lenza_daily.bat
+scripts/backup_lenza_daily.mjs
+
