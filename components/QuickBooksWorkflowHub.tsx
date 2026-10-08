@@ -16,7 +16,7 @@ interface WorkflowNodeProps {
   title: string;
   subTitle?: string;
   to: string;
-  icon: React.ComponentType<{ size?: number; className?: string }>;
+  icon: any;
   colorClass: string;
   badge?: number | string;
   badgeColor?: string;
@@ -112,7 +112,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
     (accounts || []).forEach(acc => {
       const code = String(acc.code || '');
       const name = String(acc.name || '');
-      const bal = Number(acc.current_balance || acc.balance || 0);
+      const bal = Number((acc as any).current_balance || acc.balance || 0);
 
       if (code.startsWith('123') || code.startsWith('10101') || name.includes('خزينة') || name.includes('صندوق') || name.includes('عهدة')) {
         cashTotal += bal;

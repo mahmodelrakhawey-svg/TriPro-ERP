@@ -12,9 +12,9 @@ import {
 } from 'lucide-react';
 
 interface MenuItem {
-  label: string;
+  label?: string;
   to?: string;
-  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  icon?: any;
   shortcut?: string;
   badge?: string;
   divider?: boolean;
@@ -26,7 +26,7 @@ interface MenuItem {
 interface MenuCategory {
   id: string;
   label: string;
-  icon?: React.ComponentType<{ size?: number; className?: string }>;
+  icon?: any;
   items: MenuItem[];
 }
 
