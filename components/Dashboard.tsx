@@ -86,7 +86,16 @@ const Dashboard = () => {
     try {
       localStorage.setItem('tripro_dashboard_view_mode', mode);
     } catch {}
+    // ⚡ عند اختيار خريطة تري برو تختفي القائمة الجانبية (ملء الشاشة)، وعند التحليلات تظهر تلقائياً
+    const shouldCollapse = mode === 'workflow';
+    window.dispatchEvent(new CustomEvent('set-desktop-sidebar-collapsed', { detail: shouldCollapse }));
   };
+
+  useEffect(() => {
+    // مزامنة حالة القائمة الجانبية تلقائياً مع وضع العرض الحالي
+    const shouldCollapse = viewMode === 'workflow';
+    window.dispatchEvent(new CustomEvent('set-desktop-sidebar-collapsed', { detail: shouldCollapse }));
+  }, [viewMode]);
 
   // 🛡️ تحديد معرف الشركة الفعّال بذكاء: يدعم السوبر أدمن واليوزر العادي بدون انقطاع
   const isSuperAdmin = currentUser?.role === 'super_admin' || currentUser?.role === 'owner';
@@ -462,7 +471,7 @@ const Dashboard = () => {
             className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm cursor-pointer"
           >
             <Layers size={15} />
-            <span>خريطة كويك بوكس (Workflow)</span>
+            <span>خريطة تري برو وركفلو</span>
           </button>
           <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-full border border-slate-200 shadow-sm">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>

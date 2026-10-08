@@ -667,7 +667,7 @@ const Sidebar: React.FC<SidebarProps> = ({
       {/* 🧭 القائمة الجانبية (ثابتة في سطح المكتب lg ومتحركة كدرج انزلاقي في الموبايل) */}
       <aside 
         className={`
-          fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-[#0b132b] text-slate-200 flex flex-col p-4 h-full shadow-2xl overflow-y-auto custom-scrollbar border-l border-white/5 transition-all duration-300 ease-in-out
+          fixed inset-y-0 right-0 z-50 w-72 max-w-[85vw] bg-slate-100 text-blue-900 flex flex-col p-4 h-full shadow-lg overflow-y-auto custom-scrollbar border-l border-slate-200/90 transition-all duration-300 ease-in-out
           lg:static lg:h-screen lg:sticky lg:top-0 lg:translate-x-0 lg:z-auto
           ${isDesktopCollapsed ? 'lg:hidden' : 'lg:w-64'}
           ${isMobileOpen ? 'translate-x-0' : 'translate-x-full lg:translate-x-0'}
@@ -682,10 +682,10 @@ const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <div className="flex flex-col">
               <div className="flex items-center gap-1.5">
-                <span className="text-lg font-black text-white tracking-tight">TriPro</span>
-                <span className="text-lg font-black bg-gradient-to-r from-blue-400 to-sky-300 bg-clip-text text-transparent">ERP</span>
+                <span className="text-lg font-black text-blue-950 tracking-tight">TriPro</span>
+                <span className="text-lg font-black text-blue-600">ERP</span>
               </div>
-              <span className="text-[9px] font-black uppercase tracking-widest text-sky-400/80">
+              <span className="text-[9px] font-black uppercase tracking-widest text-blue-600/80">
                 ENTERPRISE • v7.0
               </span>
             </div>
@@ -695,7 +695,7 @@ const Sidebar: React.FC<SidebarProps> = ({
           <button
             type="button"
             onClick={onCloseMobile}
-            className="lg:hidden p-2 text-slate-400 hover:text-white rounded-xl hover:bg-white/10 transition-colors"
+            className="lg:hidden p-2 text-slate-500 hover:text-blue-700 rounded-xl hover:bg-slate-200 transition-colors"
             title="إغلاق القائمة الجانبية"
           >
             <X size={20} />
@@ -709,13 +709,13 @@ const Sidebar: React.FC<SidebarProps> = ({
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           placeholder="بحث في الشاشات (مثال: قيود، فواتير)..."
-          className="w-full bg-slate-900/80 border border-slate-700/60 rounded-xl py-2 pr-8 pl-7 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all"
+          className="w-full bg-white border border-slate-200/90 rounded-xl py-2 pr-8 pl-7 text-xs text-blue-950 placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 shadow-2xs transition-all"
         />
-        <Search size={14} className="absolute right-3 top-2.5 text-slate-400 pointer-events-none" />
+        <Search size={14} className="absolute right-3 top-2.5 text-blue-500 pointer-events-none" />
         {searchTerm && (
           <button
             onClick={() => setSearchTerm('')}
-            className="absolute left-2.5 top-2 text-slate-400 hover:text-white p-0.5 rounded-full"
+            className="absolute left-2.5 top-2 text-slate-400 hover:text-blue-700 p-0.5 rounded-full"
             title="مسح البحث"
           >
             <X size={13} />
@@ -726,8 +726,8 @@ const Sidebar: React.FC<SidebarProps> = ({
       {/* ⚡ الوصول السريع للشاشات الأخيرة */}
       {!searchTerm && recentRoutes.length > 0 && (
         <div className="mb-3 px-1 shrink-0">
-          <div className="flex items-center justify-between text-[10px] font-black text-slate-400 mb-1.5 px-1 uppercase tracking-wider">
-            <span className="flex items-center gap-1 text-sky-400">
+          <div className="flex items-center justify-between text-[10px] font-black text-slate-500 mb-1.5 px-1 uppercase tracking-wider">
+            <span className="flex items-center gap-1 text-blue-600">
               <Sparkles size={11} /> وصول سريع
             </span>
             <button 
@@ -735,7 +735,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 setRecentRoutes([]);
                 try { secureStorage.removeItem('tripro_recent_routes'); } catch (_) {}
               }}
-              className="text-[9px] text-slate-500 hover:text-slate-300 transition-colors"
+              className="text-[9px] text-slate-400 hover:text-blue-600 transition-colors"
               title="مسح سجل الوصول السريع"
             >
               مسح
@@ -750,12 +750,12 @@ const Sidebar: React.FC<SidebarProps> = ({
                   to={item.path}
                   className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-bold truncate transition-all ${
                     isActive 
-                      ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30' 
-                      : 'bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white border border-white/5'
+                      ? 'bg-blue-600 text-white shadow-2xs' 
+                      : 'bg-white text-blue-900 hover:bg-blue-50 hover:text-blue-700 border border-slate-200/90 shadow-2xs'
                   }`}
                   title={item.label}
                 >
-                  <History size={11} className="shrink-0 text-sky-400" />
+                  <History size={11} className={`shrink-0 ${isActive ? "text-white" : "text-blue-500"}`} />
                   <span className="truncate">{item.label}</span>
                 </Link>
               );
@@ -782,16 +782,16 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <li key={`section-${index}`} className="pt-2">
                   <button 
                     onClick={() => toggleSection(item.label)}
-                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold hover:bg-white/5 group ${isOpen || hasActiveChild ? 'bg-white/5 text-sky-400' : 'text-slate-400'}`}
+                    className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold hover:bg-slate-200/60 group cursor-pointer ${isOpen || hasActiveChild ? 'bg-blue-50 text-blue-900 border border-blue-200/80 shadow-2xs' : 'text-blue-900/90'}`}
                   >
                     <span className="text-xs font-black uppercase tracking-widest leading-none">
                       {item.label}
                     </span>
-                    <ChevronLeft size={14} className={`transition-transform duration-300 ${isOpen ? '-rotate-90 text-sky-400' : 'opacity-50'}`} />
+                    <ChevronLeft size={14} className={`transition-transform duration-300 ${isOpen ? '-rotate-90 text-blue-600' : 'text-blue-400/80 group-hover:text-blue-600'}`} />
                   </button>
                   
                   {(isOpen || hasActiveChild) && (
-                    <ul className="mt-1 mr-2 space-y-1 border-r border-white/10 pr-3 animate-in slide-in-from-right-1 duration-200">
+                    <ul className="mt-1 mr-2 space-y-1 border-r-2 border-blue-200/80 pr-3 animate-in slide-in-from-right-1 duration-200">
                       {item.children.map((child: Record<string, any>) => {
                         const isActive = location.pathname === child.to;
                         return (
@@ -800,11 +800,11 @@ const Sidebar: React.FC<SidebarProps> = ({
                               to={child.to} 
                               className={`flex items-center gap-3 p-2 rounded-lg transition-all font-bold text-xs ${
                                 isActive 
-                                  ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-md shadow-blue-900/30' 
-                                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+                                  ? 'bg-blue-600 text-white shadow-xs' 
+                                  : 'text-blue-800 hover:text-blue-950 hover:bg-blue-50/80'
                               }`}
                             >
-                              <child.icon size={14} className={isActive ? 'text-white' : child.color} />
+                              <child.icon size={14} className={isActive ? "text-white" : (child.color ? child.color.replace("400", "600") : "text-blue-600")} />
                               <span className="truncate">{child.label}</span>
                             </Link>
                           </li>
@@ -824,14 +824,14 @@ const Sidebar: React.FC<SidebarProps> = ({
                   to={item.to} 
                   className={`flex items-center gap-3 p-2.5 rounded-xl transition-all font-bold group ${
                     isActive 
-                      ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-900/30 ring-1 ring-white/10' 
-                      : 'hover:bg-white/5 text-slate-300 hover:text-white'
+                      ? 'bg-blue-600 text-white shadow-sm' 
+                      : 'hover:bg-slate-200/60 text-blue-900 hover:text-blue-950'
                   }`}
                 >
                   <div className={`p-1.5 rounded-lg transition-colors ${
-                    isActive ? 'bg-white/20' : 'bg-white/5 group-hover:bg-white/10'
+                    isActive ? 'bg-white/20' : 'bg-white text-blue-600 shadow-2xs group-hover:bg-blue-50'
                   }`}>
-                    <item.icon size={18} className={isActive ? 'text-white' : item.color} />
+                    <item.icon size={18} className={isActive ? "text-white" : (item.color ? item.color.replace("400", "600") : "text-blue-600")} />
                   </div>
                   <span className="text-sm">{item.label}</span>
                 </Link>
@@ -843,15 +843,15 @@ const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Super Admin Organization Selector */}
       {isSuperAdmin && (
-        <div className="mt-4 pt-4 border-t border-white/10 shrink-0">
+        <div className="mt-4 pt-4 border-t border-slate-200 shrink-0">
           <div className="px-2 mb-2">
-            <label className="block text-[10px] font-black uppercase tracking-widest mb-1 text-sky-400">
+            <label className="block text-[10px] font-black uppercase tracking-widest mb-1 text-blue-900">
               الشركة النشطة (تحكم عالمي)
             </label>
             <select
               value={currentSelectedOrgId || (organizations && organizations.length > 0 ? organizations[0]?.id : '')}
               onChange={(e) => setCurrentSelectedOrgId(e.target.value || null)}
-              className="w-full bg-[#1c2541] border border-white/10 text-white text-xs p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold"
+              className="w-full bg-white border border-slate-200 text-blue-900 text-xs p-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-bold shadow-2xs"
             >
               <option value="">-- اختر شركة لعرض بياناتها --</option>
               {organizations && organizations.length > 0 ? organizations.map((org: { id: string; name: string }) => (
@@ -867,16 +867,16 @@ const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       {/* معلومات المستخدم في الأسفل */}
-      <div className="mt-auto pt-4 border-t border-white/10 shrink-0">
-        <div className="flex items-center gap-3 p-2 rounded-2xl bg-white/5 border border-white/5">
+      <div className="mt-auto pt-4 border-t border-slate-200 shrink-0">
+        <div className="flex items-center gap-3 p-2 rounded-2xl bg-white border border-slate-200/90 shadow-2xs">
           <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 via-indigo-600 to-blue-700 flex items-center justify-center font-black text-white shadow-md shrink-0">
             {currentUser?.full_name?.charAt(0) || 'U'}
           </div>
           <div className="flex flex-col min-w-0">
-            <span className="text-xs font-bold truncate text-white">
+            <span className="text-xs font-bold truncate text-blue-950">
               {currentUser?.full_name || 'مستخدم النظام'}
             </span>
-            <span className="text-[10px] text-sky-400/80 font-bold truncate uppercase tracking-tight">
+            <span className="text-[10px] text-blue-600 font-bold truncate uppercase tracking-tight">
               {userRole === 'super_admin' ? 'مدير المنصة' : userRole}
             </span>
           </div>

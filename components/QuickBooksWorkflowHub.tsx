@@ -145,8 +145,8 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl sm:text-2xl font-black tracking-tight">خريطة العمليات المتكاملة</h1>
-              <span className="text-xs bg-blue-500/30 text-blue-200 px-2 py-0.5 rounded-full border border-blue-400/30 font-bold">
-                QuickBooks Style
+              <span className="text-xs bg-blue-500/30 text-blue-200 px-2.5 py-0.5 rounded-full border border-blue-400/30 font-bold">
+                تري برو ستايل (TriPro Style)
               </span>
             </div>
             <p className="text-slate-300 text-xs sm:text-sm mt-0.5">
