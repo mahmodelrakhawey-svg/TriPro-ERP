@@ -611,6 +611,8 @@ const MainLayout = () => {
                       <Route path="closing" element={<CostClosingDashboard />} />
                       <Route path="raw-materials-turnover" element={<RawMaterialsTurnover />} />
                       <Route path="wip-monthly-summary" element={<WIPMonthlySummaryReport />} />
+                      <Route path="boms" element={<Navigate to="/mfg/routing-bom" replace />} />
+                      <Route path="work-orders" element={<Navigate to="/mfg/orders" replace />} />
                     </Routes>
                   </ModuleGuard>
                 } />
@@ -773,6 +775,30 @@ const MainLayout = () => {
                 <Route path="/admin/test-dashboard" element={<ModuleGuard module="admin"><AdminTestDashboard /></ModuleGuard>} />
                 <Route path="/admin/audit-logs" element={<ModuleGuard module="admin"><AuditTrailViewer /></ModuleGuard>} />
                 <Route path="/saas-admin" element={currentUser?.role === 'super_admin' ? <SaasAdmin /> : <Navigate to="/" replace />} />
+                
+                {/* 🧭 توجيهات توافقية سريعة ومسارات بديلة (Compatibility Route Redirects) */}
+                <Route path="/sales-orders-list" element={<Navigate to="/sales-orders" replace />} />
+                <Route path="/purchase-orders-list" element={<Navigate to="/purchase-order-list" replace />} />
+                <Route path="/goods-receipt" element={<Navigate to="/inventory/goods-receipt" replace />} />
+                <Route path="/stock-transfers-list" element={<Navigate to="/stock-transfer-list" replace />} />
+                <Route path="/uom" element={<Navigate to="/units-of-measure" replace />} />
+                <Route path="/hr/employees" element={<Navigate to="/employees" replace />} />
+                <Route path="/hr/advances" element={<Navigate to="/employee-advances" replace />} />
+                <Route path="/hr/disbursement" element={<Navigate to="/payroll-run" replace />} />
+                <Route path="/hr/employee-statement" element={<Navigate to="/employee-statement" replace />} />
+                <Route path="/treasury" element={<Navigate to="/cash-closing" replace />} />
+                <Route path="/banking" element={<Navigate to="/bank-reconciliation" replace />} />
+                <Route path="/internal-transfer" element={<Navigate to="/transfer" replace />} />
+                <Route path="/fiscal-closing" element={<Navigate to="/fiscal-year-closing" replace />} />
+                <Route path="/general-ledger" element={<Navigate to="/ledger" replace />} />
+                <Route path="/sales-analysis" element={<Navigate to="/item-sales-analysis" replace />} />
+                <Route path="/aging-report" element={<Navigate to="/customer-aging" replace />} />
+                <Route path="/stock-movement-report" element={<Navigate to="/detailed-stock-movement" replace />} />
+                <Route path="/cost-centers" element={<Navigate to="/accounts" replace />} />
+                <Route path="/currency-revaluation" element={<Navigate to="/multi-currency-statement" replace />} />
+                <Route path="/budgeting" element={<Navigate to="/budget-setup" replace />} />
+                <Route path="/health-check" element={<Navigate to="/stress-test" replace />} />
+                <Route path="/about" element={<Navigate to="/user-guide" replace />} />
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/pos" element={<ModuleGuard module="restaurant"><PosScreen /></ModuleGuard>} /> 

@@ -81,7 +81,7 @@ export const TopMenuBar: React.FC = () => {
         { header: 'إدارة النظام' },
         { label: 'إعدادات المنشأة والنظام', to: '/settings', icon: Settings },
         { label: 'سجل الأمان والتدقيق', to: '/security-logs', icon: ShieldCheck },
-        { label: 'إقفال السنوات المالية', to: '/fiscal-closing', icon: Calendar },
+        { label: 'إقفال السنوات المالية', to: '/fiscal-year-closing', icon: Calendar },
         { divider: true, label: '' },
         { 
           label: 'تسجيل الخروج', 
@@ -103,12 +103,12 @@ export const TopMenuBar: React.FC = () => {
         { label: 'دليل الحسابات الشامل (Chart of Accounts)', to: '/accounts', icon: Landmark, shortcut: 'Ctrl+A' },
         { label: 'قيد يومية جديد (New Journal Entry)', to: '/general-journal?new=1', icon: Plus, shortcut: 'Ctrl+J' },
         { label: 'سجل قيود اليومية العامة (Journal Entries)', to: '/general-journal', icon: FileText },
-        { label: 'مراكز التكلفة والمشاريع', to: '/cost-centers', icon: Building2 },
+        { label: 'مراكز التكلفة والمشاريع', to: '/accounts', icon: Building2 },
         { divider: true, label: '' },
         { header: 'الأصول والتحليلات' },
         { label: 'إدارة الأصول الثابتة والإهلاك', to: '/assets', icon: Landmark },
-        { label: 'إعادة تقييم العملات الأجنبية', to: '/currency-revaluation', icon: Scale },
-        { label: 'الموازنات التقديرية (Budgeting)', to: '/budgeting', icon: BarChart3 },
+        { label: 'إعادة تقييم العملات الأجنبية', to: '/multi-currency-statement', icon: Scale },
+        { label: 'الموازنات التقديرية (Budgeting)', to: '/budget-setup', icon: BarChart3 },
         { label: 'لوحة المدير المالي (CFO Dashboard)', to: '/cfo-dashboard', icon: Sparkles }
       ]
     },
@@ -126,7 +126,7 @@ export const TopMenuBar: React.FC = () => {
         { label: 'عرض سعر جديد (Estimate / Quote)', to: '/quotations-new', icon: Plus },
         { label: 'سجل عروض الأسعار', to: '/quotations-list', icon: FileText },
         { label: 'أمر بيع وتعميد (Sales Order)', to: '/sales-order-new', icon: Plus },
-        { label: 'سجل أوامر البيع', to: '/sales-orders-list', icon: FileText },
+        { label: 'سجل أوامر البيع', to: '/sales-orders', icon: FileText },
         { label: 'كاشير المحلات ونقاط البيع (Retail POS)', to: '/retail-pos', icon: ShoppingCart, badge: 'POS' },
         { label: 'كاشير المطاعم والكافيهات', to: '/pos', icon: Utensils },
         { label: 'الفاتورة والإيصال الإلكتروني (ETA)', to: '/eta-invoices', icon: Landmark },
@@ -149,8 +149,8 @@ export const TopMenuBar: React.FC = () => {
         { divider: true, label: '' },
         { header: 'أوامر الشراء والاستلام' },
         { label: 'أمر شراء جديد (Purchase Order)', to: '/purchase-order-new', icon: Plus },
-        { label: 'سجل أوامر الشراء (PO)', to: '/purchase-orders-list', icon: FileText },
-        { label: 'إذن استلام بضاعة مخزن (GRN)', to: '/goods-receipt', icon: Package },
+        { label: 'سجل أوامر الشراء (PO)', to: '/purchase-order-list', icon: FileText },
+        { label: 'إذن استلام بضاعة مخزن (GRN)', to: '/inventory/goods-receipt', icon: Package },
         { label: 'مرتجع مشتريات (Vendor Return)', to: '/purchase-return', icon: RotateCcw },
         { divider: true, label: '' },
         { header: 'دليل الموردين والمطابقات' },
@@ -167,14 +167,14 @@ export const TopMenuBar: React.FC = () => {
         { label: 'دليل الأصناف والمنتجات (Items & Services)', to: '/products', icon: Package, shortcut: 'Ctrl+T' },
         { label: 'كارت الصنف وحركة المستودع (Stock Card)', to: '/stock-card', icon: FileText },
         { label: 'التحويل بين المستودعات (Stock Transfer)', to: '/stock-transfer', icon: Truck },
-        { label: 'سجل التحويلات المخزنية', to: '/stock-transfers-list', icon: FileText },
+        { label: 'سجل التحويلات المخزنية', to: '/stock-transfer-list', icon: FileText },
         { label: 'أرصدة المخزون والجرد الدوري', to: '/inventory-dashboard', icon: Layers },
-        { label: 'وحدات القياس والتحويلات (UOM)', to: '/uom', icon: Scale },
+        { label: 'وحدات القياس والتحويلات (UOM)', to: '/units-of-measure', icon: Scale },
         { divider: true, label: '' },
         { header: 'الصناعة والتكاليف (Manufacturing)' },
         { label: 'لوحة قيادة المصنع والإنتاج', to: '/mfg/dashboard', icon: Building2 },
-        { label: 'معادلات وتراكيب الإنتاج (BOM)', to: '/mfg/boms', icon: Scissors },
-        { label: 'أوامر الإنتاج والتشغيل (Work Orders)', to: '/mfg/work-orders', icon: HardHat },
+        { label: 'معادلات وتراكيب الإنتاج (BOM)', to: '/mfg/routing-bom', icon: Scissors },
+        { label: 'أوامر الإنتاج والتشغيل (Work Orders)', to: '/mfg/orders', icon: HardHat },
         { label: 'إقفال وتكاليف أوامر التصنيع', to: '/mfg/closing', icon: Scale }
       ]
     },
@@ -183,16 +183,16 @@ export const TopMenuBar: React.FC = () => {
       label: 'الموظفون والرواتب (Employees)',
       items: [
         { header: 'شؤون العاملين' },
-        { label: 'دليل وسجل الموظفين (Employee Center)', to: '/hr/employees', icon: Users, shortcut: 'Ctrl+E' },
+        { label: 'دليل وسجل الموظفين (Employee Center)', to: '/employees', icon: Users, shortcut: 'Ctrl+E' },
         { label: 'الحضور والانصراف والورديات', to: '/hr/attendance', icon: Clock },
-        { label: 'سلف الموظفين (Advances)', to: '/hr/advances', icon: Banknote },
+        { label: 'سلف الموظفين (Advances)', to: '/employee-advances', icon: Banknote },
         { label: 'إدارة الإجازات والأذونات', to: '/hr/leaves', icon: Calendar },
         { divider: true, label: '' },
         { header: 'المرتبات والأجور' },
-        { label: 'إعداد واحتساب مسير الرواتب (Run Payroll)', to: '/hr/payroll', icon: FileText },
-        { label: 'صرف الرواتب والمستحقات', to: '/hr/disbursement', icon: Wallet },
+        { label: 'إعداد واحتساب مسير الرواتب (Run Payroll)', to: '/payroll-run', icon: FileText },
+        { label: 'صرف الرواتب والمستحقات', to: '/payroll-run', icon: Wallet },
         { label: 'مكافأة نهاية الخدمة والتسويات', to: '/hr/end-of-service', icon: Scale },
-        { label: 'كشف حساب ومستحقات الموظف', to: '/hr/employee-statement', icon: FileText }
+        { label: 'كشف حساب ومستحقات الموظف', to: '/employee-statement', icon: FileText }
       ]
     },
     {
@@ -200,9 +200,9 @@ export const TopMenuBar: React.FC = () => {
       label: 'البنوك والخزينة (Banking)',
       items: [
         { header: 'النقدية والبنوك' },
-        { label: 'حسابات الخزائن والصندوق (Cash on Hand)', to: '/treasury', icon: Wallet },
-        { label: 'الحسابات البنكية (Bank Accounts)', to: '/banking', icon: Landmark },
-        { label: 'تحويل مالي داخلي (Transfer Funds)', to: '/internal-transfer', icon: RotateCcw },
+        { label: 'حسابات الخزائن والصندوق (Cash on Hand)', to: '/cash-closing', icon: Wallet },
+        { label: 'الحسابات البنكية (Bank Accounts)', to: '/bank-reconciliation', icon: Landmark },
+        { label: 'تحويل مالي داخلي (Transfer Funds)', to: '/transfer', icon: RotateCcw },
         { divider: true, label: '' },
         { header: 'الأوراق المالية والتسويات' },
         { label: 'حافظة ودفتر الشيكات (Cheque Register)', to: '/cheques', icon: CreditCard },
@@ -219,13 +219,13 @@ export const TopMenuBar: React.FC = () => {
         { label: 'ميزان المراجعة بالمجاميع والأرصدة (Trial Balance)', to: '/trial-balance-advanced', icon: Scale },
         { label: 'قائمة الدخل والأرباح والخسائر (Income Statement)', to: '/income-statement', icon: BarChart3 },
         { label: 'الميزانية العمومية والمركز المالي (Balance Sheet)', to: '/balance-sheet', icon: Landmark },
-        { label: 'دفتر الأستاذ العام (General Ledger)', to: '/general-ledger', icon: FileText },
+        { label: 'دفتر الأستاذ العام (General Ledger)', to: '/ledger', icon: FileText },
         { divider: true, label: '' },
         { header: 'التقارير التحليلية والتشغيلية' },
-        { label: 'تقرير حركة وتكلفة المبيعات', to: '/sales-analysis', icon: ShoppingCart },
+        { label: 'تقرير حركة وتكلفة المبيعات', to: '/item-sales-analysis', icon: ShoppingCart },
         { label: 'تقرير حركة المشتريات والموردين', to: '/purchase-analysis', icon: Truck },
-        { label: 'أعمار ديون العملاء (Aging of AR)', to: '/aging-report', icon: Clock },
-        { label: 'حركة المخزون الشاملة والأصناف الراكدة', to: '/stock-movement-report', icon: Package }
+        { label: 'أعمار ديون العملاء (Aging of AR)', to: '/customer-aging', icon: Clock },
+        { label: 'حركة المخزون الشاملة والأصناف الراكدة', to: '/detailed-stock-movement', icon: Package }
       ]
     },
     {
@@ -234,10 +234,10 @@ export const TopMenuBar: React.FC = () => {
       items: [
         { header: 'الدعم والمعلومات' },
         { label: 'دليل استخدام النظام والشاشات', to: '/user-guide', icon: HelpCircle },
-        { label: 'فحص صحة النظام وتوازن القيود', to: '/health-check', icon: Activity },
+        { label: 'فحص صحة النظام وتوازن القيود', to: '/stress-test', icon: Activity },
         { label: 'بيئة الاختبار والفحص الآلي', to: '/admin/test-dashboard', icon: Sparkles },
         { divider: true, label: '' },
-        { label: 'حول نظام TriPro ERP', to: '/about', icon: ExternalLink }
+        { label: 'حول نظام TriPro ERP', to: '/user-guide', icon: ExternalLink }
       ]
     }
   ];

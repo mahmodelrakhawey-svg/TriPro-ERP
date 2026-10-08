@@ -230,7 +230,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               <WorkflowNode 
                 title="أمر شراء"
                 subTitle="Purchase Order"
-                to="/purchase-orders-list"
+                to="/purchase-order-list"
                 icon={Plus}
                 colorClass="bg-amber-50 text-amber-700 group-hover:bg-amber-600 group-hover:text-white"
                 primary
@@ -241,7 +241,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               <WorkflowNode 
                 title="إذن استلام"
                 subTitle="Receive Goods (GRN)"
-                to="/goods-receipt"
+                to="/inventory/goods-receipt"
                 icon={Package}
                 colorClass="bg-amber-50 text-amber-700 group-hover:bg-amber-600 group-hover:text-white"
                 primary
@@ -343,7 +343,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               <WorkflowNode 
                 title="أمر بيع"
                 subTitle="Sales Order"
-                to="/sales-orders-list"
+                to="/sales-orders"
                 icon={Plus}
                 colorClass="bg-blue-50 text-blue-700 group-hover:bg-blue-600 group-hover:text-white"
                 primary
@@ -378,7 +378,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               <WorkflowNode 
                 title="إيداع بنكي"
                 subTitle="Record Deposit"
-                to="/banking"
+                to="/customer-deposit"
                 icon={Landmark}
                 colorClass="bg-indigo-50 text-indigo-700 group-hover:bg-indigo-600 group-hover:text-white"
                 primary
@@ -479,7 +479,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               <WorkflowNode 
                 title="معادلات التصنيع"
                 subTitle="BOM / Recipes"
-                to="/mfg/boms"
+                to="/mfg/routing-bom"
                 icon={Scissors}
                 colorClass="bg-teal-50 text-teal-700 group-hover:bg-teal-600 group-hover:text-white"
                 primary
@@ -490,7 +490,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               <WorkflowNode 
                 title="أوامر الإنتاج"
                 subTitle="Work Orders"
-                to="/mfg/work-orders"
+                to="/mfg/orders"
                 icon={HardHat}
                 colorClass="bg-teal-100 text-teal-800 group-hover:bg-teal-600 group-hover:text-white"
                 primary
@@ -501,7 +501,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               <WorkflowNode 
                 title="التحويل المخزني"
                 subTitle="Stock Transfer"
-                to="/stock-transfers-list"
+                to="/stock-transfer-list"
                 icon={Truck}
                 colorClass="bg-emerald-50 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white"
                 primary
@@ -524,7 +524,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
                 <Landmark size={12} /> الأصول الثابتة والإهلاك
               </Link>
               <Link 
-                to="/uom"
+                to="/units-of-measure"
                 className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold transition-colors inline-flex items-center gap-1"
               >
                 <Scale size={12} /> وحدات القياس (UOM)
@@ -548,14 +548,14 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 <Link 
-                  to="/hr/employees"
+                  to="/employees"
                   className="text-xs text-purple-700 hover:text-purple-800 font-bold flex items-center gap-1"
                 >
                   <Users size={13} />
                   <span>دليل الموظفين</span>
                 </Link>
                 <Link 
-                  to="/hr/advances"
+                  to="/employee-advances"
                   className="text-xs text-slate-600 hover:text-slate-800 font-semibold"
                 >
                   سلف الموظفين
@@ -568,7 +568,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               <WorkflowNode 
                 title="سجل الموظفين"
                 subTitle="Employee Master"
-                to="/hr/employees"
+                to="/employees"
                 icon={Users}
                 colorClass="bg-purple-50 text-purple-700 group-hover:bg-purple-600 group-hover:text-white"
                 primary
@@ -590,7 +590,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               <WorkflowNode 
                 title="سلف الموظفين"
                 subTitle="Advances"
-                to="/hr/advances"
+                to="/employee-advances"
                 icon={Banknote}
                 colorClass="bg-purple-50 text-purple-700 group-hover:bg-purple-600 group-hover:text-white"
                 primary
@@ -601,7 +601,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               <WorkflowNode 
                 title="مسير الرواتب"
                 subTitle="Run Payroll"
-                to="/hr/payroll"
+                to="/payroll-run"
                 icon={FileText}
                 colorClass="bg-purple-100 text-purple-800 group-hover:bg-purple-600 group-hover:text-white"
                 primary
@@ -612,7 +612,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               <WorkflowNode 
                 title="صرف الرواتب"
                 subTitle="Disbursement"
-                to="/hr/disbursement"
+                to="/payroll-run"
                 icon={Wallet}
                 colorClass="bg-emerald-50 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white"
                 primary
@@ -673,7 +673,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               <WorkflowNode 
                 title="الخزائن النقدية"
                 subTitle="Cash On Hand"
-                to="/treasury"
+                to="/cash-closing"
                 icon={Wallet}
                 colorClass="bg-rose-50 text-rose-700 group-hover:bg-rose-600 group-hover:text-white"
                 primary
@@ -695,7 +695,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
               <WorkflowNode 
                 title="الحسابات البنكية"
                 subTitle="Bank Accounts"
-                to="/banking"
+                to="/bank-reconciliation"
                 icon={Landmark}
                 colorClass="bg-indigo-50 text-indigo-700 group-hover:bg-indigo-600 group-hover:text-white"
                 primary
@@ -740,7 +740,7 @@ export const QuickBooksWorkflowHub: React.FC<QuickBooksWorkflowHubProps> = ({
                 <Landmark size={12} /> الميزانية العمومية
               </Link>
               <Link 
-                to="/internal-transfer"
+                to="/transfer"
                 className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-bold transition-colors inline-flex items-center gap-1"
               >
                 <RotateCcw size={12} /> تحويل مالي داخلي
