@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
-import { Printer, FileText, Loader2, Search, Download, MessageCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Printer, FileText, Loader2, Search, Download, MessageCircle, ChevronLeft, ChevronRight, X, Eye, Share2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import SupplierSearchSelect from '../../components/SupplierSearchSelect';
 import { PurchaseInvoicePrint } from './PurchaseInvoicePrint';
@@ -443,11 +443,8 @@ const SupplierStatement = () => {
         }
 
         setPrintDoc({ type: 'invoice', data: invData });
-        setTimeout(() => {
-          window.print();
-          setPrintDoc(null);
-          setPrintingDocId(null);
-        }, 300);
+        setPrintingDocId(null);
+        showToast('تم فتح معاينة الفاتورة بنجاح', 'success');
         return;
       }
 
@@ -488,11 +485,8 @@ const SupplierStatement = () => {
         }
 
         setPrintDoc({ type: 'payment', data: voucherData });
-        setTimeout(() => {
-          window.print();
-          setPrintDoc(null);
-          setPrintingDocId(null);
-        }, 300);
+        setPrintingDocId(null);
+        showToast('تم فتح معاينة سند الصرف بنجاح', 'success');
         return;
       }
 
@@ -516,11 +510,8 @@ const SupplierStatement = () => {
         ]
       };
       setPrintDoc({ type: 'invoice', data: fallbackDoc });
-      setTimeout(() => {
-        window.print();
-        setPrintDoc(null);
-        setPrintingDocId(null);
-      }, 300);
+      setPrintingDocId(null);
+      showToast('تم فتح معاينة المستند بنجاح', 'success');
 
     } catch (err: unknown) {
       logger.error('Error printing doc:', err);
@@ -528,6 +519,38 @@ const SupplierStatement = () => {
       showToast('تعذر طباعة المستند: ' + (errMsg || ''), 'error');
       setPrintingDocId(null);
     }
+  };
+
+  const handleShareDocWhatsApp = () => {
+    if (!printDoc) return;
+    const phone = selectedSupplier?.phone || '';
+    let msg = '';
+    if (printDoc.type === 'invoice') {
+      const inv = printDoc.data as any;
+      msg = `مرحباً ${selectedSupplier?.name || ''}،
+مرفق تفاصيل فاتورة المشتريات من ${settings.companyName}:
+رقم الفاتورة: ${inv.invoice_number || '-'}
+التاريخ: ${inv.invoice_date || '-'}
+المبلغ الإجمالي: ${Number(inv.total_amount || inv.total || 0).toLocaleString()} ${settings.currency}
+المدفوع: ${Number(inv.paid_amount || 0).toLocaleString()} ${settings.currency}
+المتبقي: ${Math.max(0, Number(inv.total_amount || 0) - Number(inv.paid_amount || 0)).toLocaleString()} ${settings.currency}
+شكراً لتعاملكم معنا.`;
+    } else {
+      const pv = printDoc.data as any;
+      msg = `مرحباً ${selectedSupplier?.name || ''}،
+مرفق تفاصيل سند الصرف من ${settings.companyName}:
+رقم السند: ${pv.voucher_number || '-'}
+التاريخ: ${pv.payment_date || '-'}
+المبلغ المسدد: ${Number(pv.amount || 0).toLocaleString()} ${settings.currency}
+طريقة الدفع: ${pv.payment_method === 'cash' ? 'نقداً' : pv.payment_method === 'cheque' ? 'شيك' : 'تحويل بنكي'}
+البيان: ${pv.notes || pv.description || 'سداد مستحقات مورد'}
+شكراً لتعاملكم معنا.`;
+    }
+    const cleanPhone = phone.replace(/[^0-9]/g, '');
+    const url = cleanPhone 
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`
+      : `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank');
   };
 
   const handleExportExcel = () => {
@@ -588,6 +611,171 @@ const SupplierStatement = () => {
       )}
       {printDoc?.type === 'payment' && (
         <PaymentVoucherPrint voucher={printDoc.data} companySettings={settings} />
+      )}
+
+      {/* 📱 نافذة معاينة وطباعة المستند للموبايل وسطح المكتب */}
+      {printDoc && (
+        <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6 print:hidden animate-in fade-in">
+          <div className="bg-white rounded-3xl w-full max-w-2xl max-h-[92vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden" dir="rtl">
+            {/* Modal Header */}
+            <div className="p-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <FileText size={18} />
+                </div>
+                <div>
+                  <h3 className="font-black text-sm sm:text-base">
+                    {printDoc.type === 'invoice' ? 'معاينة فاتورة المشتريات' : 'معاينة سند الصرف'}
+                  </h3>
+                  <p className="text-[10px] text-slate-400 font-mono">
+                    {printDoc.type === 'invoice' 
+                      ? (printDoc.data as any).invoice_number || '-'
+                      : (printDoc.data as any).voucher_number || '-'}
+                  </p>
+                </div>
+              </div>
+              <button 
+                type="button"
+                onClick={() => setPrintDoc(null)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-colors"
+                title="إغلاق"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1 bg-slate-50 space-y-4">
+              {printDoc.type === 'invoice' ? (() => {
+                const inv = printDoc.data as any;
+                const items = inv.items || inv.purchase_invoice_items || [];
+                const total = Number(inv.total_amount || inv.total || 0);
+                const paid = Number(inv.paid_amount || 0);
+                const remaining = Math.max(0, total - paid);
+
+                return (
+                  <div className="space-y-4">
+                    {/* معلومات أساسية */}
+                    <div className="grid grid-cols-2 gap-3 bg-white p-3.5 rounded-2xl border border-slate-200 text-xs">
+                      <div>
+                        <span className="text-slate-400 font-bold block text-[10px]">المورد:</span>
+                        <span className="font-black text-slate-800 text-sm">{selectedSupplier?.name || '-'}</span>
+                      </div>
+                      <div>
+                        <span className="text-slate-400 font-bold block text-[10px]">تاريخ الفاتورة:</span>
+                        <span className="font-mono font-bold text-slate-700">{inv.invoice_date || '-'}</span>
+                      </div>
+                    </div>
+
+                    {/* جدول الأصناف المصغر */}
+                    <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                      <div className="p-3 bg-slate-100 border-b border-slate-200 font-black text-xs text-slate-700">
+                        بنود الفاتورة ({items.length})
+                      </div>
+                      <div className="divide-y divide-slate-100 max-h-48 overflow-y-auto">
+                        {items.map((item: any, i: number) => (
+                          <div key={i} className="p-3 flex justify-between items-center text-xs">
+                            <div>
+                              <div className="font-bold text-slate-800">{item.products?.name || item.productName || item.description || `بند #${i + 1}`}</div>
+                              <div className="text-[10px] text-slate-400">
+                                {Number(item.quantity || 1)} × {Number(item.unit_price || item.unitPrice || 0).toLocaleString()} {settings.currency}
+                              </div>
+                            </div>
+                            <div className="font-mono font-black text-slate-900" dir="ltr">
+                              {Number(item.total || ((item.quantity || 1) * (item.unit_price || 0))).toLocaleString()}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* الملخص المالي */}
+                    <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-4 space-y-2">
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-slate-600 font-bold">إجمالي الفاتورة:</span>
+                        <span className="font-mono font-black text-emerald-700 text-base" dir="ltr">{total.toLocaleString()} {settings.currency}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="text-slate-600 font-bold">المسدد فورياً:</span>
+                        <span className="font-mono font-black text-blue-600" dir="ltr">{paid.toLocaleString()} {settings.currency}</span>
+                      </div>
+                      <div className="flex justify-between items-center text-xs pt-2 border-t border-emerald-200/60 font-black">
+                        <span className="text-slate-800">المتبقي على الحساب:</span>
+                        <span className="font-mono font-black text-red-600" dir="ltr">{remaining.toLocaleString()} {settings.currency}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })() : (() => {
+                const pv = printDoc.data as any;
+                const amt = Number(pv.amount || 0);
+
+                return (
+                  <div className="space-y-4">
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 text-center space-y-1">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">المبلغ المسدد</span>
+                      <div className="text-3xl font-black font-mono text-emerald-600" dir="ltr">
+                        {amt.toLocaleString()} <span className="text-sm font-normal text-slate-600">{settings.currency}</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-4 rounded-2xl border border-slate-200 space-y-2.5 text-xs">
+                      <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                        <span className="text-slate-400 font-bold">رقم السند:</span>
+                        <span className="font-mono font-black text-slate-800">{pv.voucher_number || '-'}</span>
+                      </div>
+                      <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                        <span className="text-slate-400 font-bold">التاريخ:</span>
+                        <span className="font-mono font-bold text-slate-700">{pv.payment_date || '-'}</span>
+                      </div>
+                      <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                        <span className="text-slate-400 font-bold">طريقة السداد:</span>
+                        <span className="font-bold text-slate-800">
+                          {pv.payment_method === 'cash' ? '💵 نقداً (خزينة)' : pv.payment_method === 'cheque' ? '🏦 شيك بنكي' : '💳 تحويل بنكي'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-slate-400 font-bold">البيان:</span>
+                        <span className="font-medium text-slate-800">{pv.notes || 'سداد مستحقات مورد'}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-white border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => setPrintDoc(null)}
+                className="px-4 py-2 border border-slate-300 rounded-xl text-slate-700 hover:bg-slate-100 text-xs font-bold transition-all"
+              >
+                إغلاق
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleShareDocWhatsApp}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
+                >
+                  <MessageCircle size={15} />
+                  <span>مشاركة واتساب</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
+                >
+                  <Printer size={15} />
+                  <span>طباعة / PDF</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       <div className="flex justify-between items-center print:hidden">
@@ -660,6 +848,91 @@ const SupplierStatement = () => {
                   <div className="py-12 text-center"><Loader2 className="animate-spin mx-auto text-emerald-600" size={32} /></div>
               ) : (
                 <>
+                  {/* 📱 عرض البطاقات المتجاوبة لشاشات الموبايل (Mobile Cards View) */}
+                  <div className="md:hidden space-y-3 print:hidden">
+                    {/* بطاقة الرصيد الافتتاحي */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 flex justify-between items-center text-xs">
+                      <span className="font-bold text-slate-600">رصيد افتتاحي (ما قبل الفترة)</span>
+                      <span className="font-mono font-black text-slate-900" dir="ltr">{openingBalance.toLocaleString()} {settings.currency}</span>
+                    </div>
+
+                    {displayedTransactions.map((t: Record<string, any>, idx) => {
+                      const isInvoice = t.type === 'invoice';
+                      const isPayment = t.type === 'payment';
+                      const isReturn = t.type === 'return';
+                      const badgeColor = isInvoice ? 'bg-blue-100 text-blue-800' : isPayment ? 'bg-emerald-100 text-emerald-800' : isReturn ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-800';
+                      const badgeLabel = isInvoice ? 'فاتورة مشتريات' : isPayment ? 'سند صرف' : isReturn ? 'مرتجع مشتريات' : 'قيد/حركة';
+
+                      return (
+                        <div key={t.id || idx} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${badgeColor}`}>
+                                {badgeLabel}
+                              </span>
+                              <span className="font-mono font-bold text-xs text-slate-700">
+                                {t.reference?.startsWith('OP-SUPP') ? 'رصيد افتتاحي' : t.reference?.replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '')}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-400 font-bold">{t.date}</span>
+                          </div>
+
+                          {t.description && (
+                            <p className="text-xs text-slate-700 font-medium whitespace-pre-line leading-relaxed">
+                              {t.description}
+                            </p>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl text-xs">
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-bold block">دائن (مشتريات):</span>
+                              <span className={`font-mono font-black ${t.credit > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                {t.credit > 0 ? t.credit.toLocaleString() : '-'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-bold block">مدين (سداد):</span>
+                              <span className={`font-mono font-black ${t.debit > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                                {t.debit > 0 ? t.debit.toLocaleString() : '-'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-bold block">الرصيد بعد الحركة:</span>
+                              <span className="font-mono font-black text-slate-900 text-sm" dir="ltr">
+                                {t.balance.toLocaleString()} {settings.currency}
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={() => handlePrintDoc(t as Transaction)}
+                              disabled={printingDocId === t.id}
+                              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-emerald-700 rounded-xl text-xs font-bold transition-all border border-slate-200 active:scale-95 cursor-pointer"
+                            >
+                              {printingDocId === t.id ? (
+                                <Loader2 size={14} className="animate-spin text-emerald-600" />
+                              ) : (
+                                <Printer size={14} />
+                              )}
+                              <span>معاينة المستند</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {displayedTransactions.length === 0 && (
+                      <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-xs">
+                        لا توجد حركات خلال هذه الفترة
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 🖥️ جدول العرض المكتبي والطباعة الورقية */}
+                  <div className="hidden md:block overflow-x-auto print:block">
                   <table className="w-full text-right text-sm">
                       <thead className="bg-slate-100 border-y border-slate-200 text-slate-500 font-black uppercase">
                           <tr>
@@ -756,6 +1029,7 @@ const SupplierStatement = () => {
                           </tr>
                         </tfoot>
                     </table>
+                  </div>
 
                     {/* 📄 شريط ترقيم صفحات كشف الحساب وتحديد عدد الحركات */}
                     {transactions.length > 0 && (

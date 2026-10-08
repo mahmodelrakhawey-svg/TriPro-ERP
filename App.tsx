@@ -16,6 +16,7 @@ import Sidebar from './components/Sidebar';
 import Header from './components/Header';
 import TopMenuBar from './components/TopMenuBar';
 import WorkspaceTabsBar from './components/WorkspaceTabsBar';
+import MobileBottomNav from './components/MobileBottomNav';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import NotFound from './components/NotFound';
@@ -506,16 +507,20 @@ const MainLayout = () => {
                 <OfflineSyncProvider />
                 <PrintHeader />
                 <div className="print:hidden">
-                    <TopMenuBar />
+                    <div className="hidden md:block">
+                        <TopMenuBar />
+                    </div>
                     <Header 
                         onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)} 
                         isDesktopCollapsed={isDesktopCollapsed}
                         onToggleDesktopSidebar={toggleDesktopSidebar}
                     />
-                    <WorkspaceTabsBar />
+                    <div className="hidden sm:block">
+                        <WorkspaceTabsBar />
+                    </div>
                 </div>
-                {/* إضافة هوامش للطباعة لتجنب تداخل المحتوى مع الترويسة والتذييل */}
-                <main className="flex-1 p-3 sm:p-5 lg:p-8 overflow-y-scroll bg-slate-50 print:bg-white print:p-0 print:overflow-visible print:h-auto print:mt-24 print:mb-12">
+                {/* إضافة هوامش للطباعة وللشريط السفلي في الموبايل لتجنب تغطية المحتوى */}
+                <main className="flex-1 p-3 sm:p-5 lg:p-8 pb-24 sm:pb-6 lg:pb-8 overflow-y-scroll bg-slate-50 print:bg-white print:p-0 print:overflow-visible print:h-auto print:mt-24 print:mb-12">
                     <div className="max-w-7xl mx-auto print:max-w-none print:w-full print:px-4">
                         <ErrorBoundary fallbackTitle="حدث خطأ غير متوقع أثناء تحميل الصفحة">
                         <Suspense fallback={<LazyLoadingFallback />}>
@@ -853,7 +858,8 @@ const MainLayout = () => {
             </ErrorBoundary>
           </div>
         </main>
-                <PrintFooter />
+        <MobileBottomNav onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)} />
+        <PrintFooter />
             </div>
         </div>
     );

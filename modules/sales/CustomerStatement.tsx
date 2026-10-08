@@ -539,6 +539,78 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                   <div className="py-12 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" size={32} /></div>
               ) : (
                 <>
+                  {/* 📱 عرض البطاقات المتجاوبة لشاشات الموبايل (Mobile Cards View) */}
+                  <div className="md:hidden space-y-3 print:hidden">
+                    {/* بطاقة الرصيد الافتتاحي */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 flex justify-between items-center text-xs">
+                      <span className="font-bold text-slate-600">رصيد افتتاحي (ما قبل الفترة)</span>
+                      <span className="font-mono font-black text-slate-900" dir="ltr">{openingBalance.toLocaleString()} {settings.currency}</span>
+                    </div>
+
+                    {displayedTransactions.map((t, idx) => {
+                      const isInvoice = t.type === 'invoice';
+                      const isReceipt = t.type === 'receipt';
+                      const isReturn = t.type === 'return';
+                      const isPos = t.type === 'pos_order';
+                      const badgeColor = isInvoice ? 'bg-blue-100 text-blue-800' : isReceipt ? 'bg-emerald-100 text-emerald-800' : isReturn ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-800';
+                      const badgeLabel = isInvoice ? 'فاتورة مبيعات' : isReceipt ? 'سند قبض' : isReturn ? 'مرتجع مبيعات' : isPos ? 'طلب كاشير' : 'حركة';
+
+                      return (
+                        <div key={t.id || idx} className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className={`text-[10px] font-black px-2 py-0.5 rounded-lg ${badgeColor}`}>
+                                {badgeLabel}
+                              </span>
+                              <span className="font-mono font-bold text-xs text-blue-600">
+                                {t.reference?.startsWith('OP-CUST-') ? 'رصيد افتتاحي' : t.reference?.replace(/^(CHQ-|RV-|INV-|SR-|OB-|OP-CUST-|OP-)/, '')}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-slate-400 font-bold">{t.date}</span>
+                          </div>
+
+                          {t.description && (
+                            <p className="text-xs text-slate-700 font-medium whitespace-pre-line leading-relaxed">
+                              {t.description}
+                            </p>
+                          )}
+
+                          <div className="grid grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl text-xs">
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-bold block">مدين (فاتورة):</span>
+                              <span className={`font-mono font-black ${t.debit > 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                                {t.debit > 0 ? t.debit.toLocaleString() : '-'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-bold block">دائن (سداد):</span>
+                              <span className={`font-mono font-black ${t.credit > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                                {t.credit > 0 ? t.credit.toLocaleString() : '-'}
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-between pt-1 border-t border-slate-100">
+                            <div>
+                              <span className="text-[10px] text-slate-400 font-bold block">الرصيد بعد الحركة:</span>
+                              <span className="font-mono font-black text-slate-900 text-sm" dir="ltr">
+                                {t.balance.toLocaleString()} {settings.currency}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {displayedTransactions.length === 0 && (
+                      <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-xs">
+                        لا توجد حركات خلال هذه الفترة
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 🖥️ جدول العرض المكتبي والطباعة الورقية */}
+                  <div className="hidden md:block overflow-x-auto print:block">
                   <table className="w-full text-right text-sm">
                       <thead className="bg-slate-100 border-y border-slate-200 text-slate-500 font-black uppercase">
                           <tr>
@@ -602,6 +674,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                             ))}
                         </tbody>
                     </table>
+                  </div>
 
                     {/* 📄 شريط ترقيم صفحات كشف الحساب وتحديد عدد الحركات */}
                     {filteredTransactions.length > 0 && (
