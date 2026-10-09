@@ -51,6 +51,10 @@ release/
 # Backups & Local Secret Scripts
 backups/
 *.dump
+*.bak
 scripts/backup_lenza_daily.bat
 scripts/backup_lenza_daily.mjs
+scripts/execute_full_disaster_recovery.mjs
+scripts/restore_lenza_test.mjs
+scripts/run_disaster_recovery_test.mjs
 

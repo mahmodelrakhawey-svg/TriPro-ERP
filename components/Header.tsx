@@ -5,7 +5,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
 import { secureStorage } from '../utils/securityMiddleware';
 import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2, ArrowLeftCircle, Calendar, Layers, Smartphone, Menu } from 'lucide-react';
-import { supabase } from '../supabaseClient';
+import { supabase, supabaseUrl } from '../supabaseClient';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../utils/useNotifications';
 
@@ -258,6 +258,27 @@ const Header: React.FC<HeaderProps> = ({
                             <span>تواصل معنا</span>
                         </a>
                     </>
+                )}
+
+                {/* 🛡️ مؤشر قاعدة البيانات النشطة (Live DB Indicator) */}
+                {supabaseUrl?.includes('rhwsarxgclszwaexthgv') ? (
+                    <div 
+                      className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-300 text-emerald-800 px-2.5 py-1.5 rounded-xl text-xs font-black shadow-sm"
+                      title={`قاعدة البيانات النشطة: سيرفر الطوارئ البديل (${supabaseUrl})`}
+                    >
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-300 animate-pulse"></span>
+                        <span className="hidden sm:inline">القاعدة:</span>
+                        <span className="text-emerald-700">سيرفر تجريبي (New DB) 🛡️</span>
+                    </div>
+                ) : (
+                    <div 
+                      className="flex items-center gap-1.5 bg-blue-50 border border-blue-200 text-blue-800 px-2.5 py-1.5 rounded-xl text-xs font-bold shadow-sm"
+                      title={`قاعدة البيانات النشطة: قاعدة لينزا الأساسية (${supabaseUrl})`}
+                    >
+                        <span className="w-2 h-2 rounded-full bg-blue-600"></span>
+                        <span className="hidden sm:inline">القاعدة:</span>
+                        <span className="text-blue-900">لينزا الرئيسية (Prod)</span>
+                    </div>
                 )}
 
                 {/* 📅 محدد ومؤشر السنة المالية النشطة */}
