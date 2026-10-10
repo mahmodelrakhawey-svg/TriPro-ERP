@@ -5,7 +5,7 @@ import {
   FileText, Search, Printer, Loader2, RotateCcw, AlertTriangle, 
   Edit, CheckCircle, DollarSign, X, ChevronLeft, ChevronRight, 
   Plus, Download, MessageCircle, Trash2, Filter, Warehouse as WarehouseIcon, Clock,
-  Paperclip, ExternalLink, Percent, Image as ImageIcon
+  Paperclip, ExternalLink, Percent, Image as ImageIcon, Copy
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
@@ -525,6 +525,10 @@ export const PurchaseInvoiceList = () => {
     window.open(url, '_blank');
   };
 
+  const handleDuplicate = (invoice: Record<string, any>) => {
+    navigate('/purchase-invoice', { state: { invoiceToDuplicate: invoice } });
+  };
+
   const exportToExcel = async () => {
     try {
       showToast('جاري تجهيز ملف الإكسيل لكافة الفواتير المطابقة...', 'info');
@@ -955,6 +959,14 @@ export const PurchaseInvoiceList = () => {
                             title="عرض وتعديل"
                           >
                             <Edit size={16} />
+                          </button>
+
+                          <button 
+                            onClick={() => handleDuplicate(inv)}
+                            className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                            title="تكرار / استنساخ الفاتورة كمسودة جديدة"
+                          >
+                            <Copy size={16} />
                           </button>
 
                           {(inv.status === 'posted' || inv.status === 'paid') && (

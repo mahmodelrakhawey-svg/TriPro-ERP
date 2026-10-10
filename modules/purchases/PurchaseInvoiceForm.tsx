@@ -6,7 +6,7 @@ import {
     Plus, Trash2, Save, ShoppingCart, Search, AlertCircle,
     Loader2, CheckCircle, Package, Ruler, List, 
     Printer, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft,
-    DollarSign, Activity, FileText, Sparkles, Percent, Tag, Paperclip, Unlock, Edit
+    DollarSign, Activity, FileText, Sparkles, Percent, Tag, Paperclip, Unlock, Edit, Copy
 } from 'lucide-react';
 import { Product } from '../../types';
 import { supabase } from '../../supabaseClient';
@@ -310,11 +310,100 @@ const PurchaseInvoiceForm = () => {
     }
   };
 
-  // استقبال فاتورة محالة من السجل
+  // استنساخ وتكرار فاتورة مشتريات محددة من السجل كمسودة جديدة
+  const loadAndDuplicateInvoice = async (id: string) => {
+    setLoadingInvoice(true);
+    try {
+      const { data: fullInv, error: invError } = await supabase
+        .from('purchase_invoices')
+        .select(`
+          *,
+          suppliers(id, name, phone),
+          warehouses(id, name),
+          purchase_invoice_items(id, product_id, quantity, unit_price, total, uom_id, batch_number, expiry_date, products(name, sku, purchase_price, base_uom_id, tax_rate_override))
+        `)
+        .eq('id', id)
+        .single();
+
+      if (invError) throw invError;
+      if (!fullInv) throw new Error('الفاتورة المراد تكرارها غير موجودة');
+
+      const originalNumber = fullInv.invoice_number || 'غير محدد';
+      setEditingId(null);
+      setCurrentIndex(-1);
+      setInvoiceCreatedAt(undefined);
+      setCreatorName(undefined);
+      setAttachments([]);
+
+      setFormData({
+        supplierId: fullInv.supplier_id || '',
+        invoiceNumber: '',
+        date: new Date().toISOString().split('T')[0],
+        notes: fullInv.notes 
+          ? `${fullInv.notes} (مكررة من الفاتورة: ${originalNumber})` 
+          : `مكررة من الفاتورة: ${originalNumber}`,
+        status: 'draft',
+        currency: fullInv.currency || settings.currency || 'EGP',
+        exchangeRate: fullInv.exchange_rate || 1,
+        warehouseId: fullInv.warehouse_id || (warehouses.length > 0 ? warehouses[0].id : ''),
+        paidAmount: 0,
+        treasuryAccountId: '',
+        discountType: fullInv.discount_type || 'fixed',
+        discountValue: Number(fullInv.discount_value) || (Number(fullInv.discount_amount) > 0 ? Number(fullInv.discount_amount) : 0),
+      });
+
+      const formattedItems = (fullInv.purchase_invoice_items || []).map((i: Record<string, any>, idx: number) => {
+        const itemProd = i.products;
+        const pTax = itemProd?.tax_rate_override;
+        const itemTaxRate = (i.tax_rate !== undefined && i.tax_rate !== null)
+          ? Number(i.tax_rate)
+          : (pTax !== undefined && pTax !== null && pTax !== '' && Number(pTax) > 0)
+            ? Number(pTax)
+            : (settings.enableTax ? (Number(settings.vatRate) || 0) : 0);
+
+        const qty = Number(i.quantity) || 0;
+        const uPrice = Number(i.unit_price) || 0;
+        const gross = qty * uPrice;
+        const disc = Number(i.discount) || 0;
+        const discPct = Number(i.discount_percent) || (gross > 0 && disc > 0 ? Number(((disc / gross) * 100).toFixed(2)) : 0);
+
+        return {
+          id: `dup-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
+          productId: i.product_id,
+          productName: i.products?.name || 'صنف',
+          productSku: i.products?.sku || '',
+          quantity: qty,
+          unitPrice: uPrice,
+          discount: disc,
+          discountPercent: discPct,
+          uomId: i.uom_id || i.products?.base_uom_id || '',
+          total: Number(i.total) || Math.max(0, gross - disc),
+          taxRate: itemTaxRate,
+          batchNumber: '',
+          expiryDate: i.expiry_date || ''
+        };
+      });
+
+      setItems(formattedItems);
+      showToast(`تم تكرار الفاتورة (${originalNumber}) كمسودة جديدة بنجاح 📋`, 'success');
+    } catch (err) {
+      logger.error('Error duplicating purchase invoice:', err);
+      const errMsg = err instanceof Error ? err.message : 'حدث خطأ';
+      showToast('فشل تكرار الفاتورة: ' + errMsg, 'error');
+    } finally {
+      setLoadingInvoice(false);
+    }
+  };
+
+  // استقبال فاتورة محالة من السجل (تعديل أو استنساخ)
   useEffect(() => {
-    if (location.state && (location.state as any).invoiceToEdit) {
-      const inv = (location.state as any).invoiceToEdit;
-      loadInvoiceById(inv.id);
+    if (location.state) {
+      const state = location.state as any;
+      if (state.invoiceToEdit) {
+        loadInvoiceById(state.invoiceToEdit.id);
+      } else if (state.invoiceToDuplicate) {
+        loadAndDuplicateInvoice(state.invoiceToDuplicate.id);
+      }
     }
   }, [location.state]);
 
@@ -426,6 +515,36 @@ const PurchaseInvoiceForm = () => {
       discountValue: 0,
     });
     showToast('تم فتح نموذج فاتورة مشتريات جديدة ➕', 'info');
+  };
+
+  const handleDuplicateCurrentInvoice = () => {
+    if (items.length === 0) {
+      showToast('لا توجد بنود في الفاتورة الحالية لتكرارها', 'warning');
+      return;
+    }
+    const originalNumber = formData.invoiceNumber || 'الحالية';
+    setEditingId(null);
+    setCurrentIndex(-1);
+    setInvoiceCreatedAt(undefined);
+    setCreatorName(undefined);
+    setAttachments([]);
+    setFormData(prev => ({
+      ...prev,
+      invoiceNumber: '',
+      date: new Date().toISOString().split('T')[0],
+      status: 'draft',
+      paidAmount: 0,
+      treasuryAccountId: '',
+      notes: prev.notes 
+        ? `${prev.notes} (مكررة من الفاتورة: ${originalNumber})` 
+        : `مكررة من الفاتورة: ${originalNumber}`,
+    }));
+    setItems(prev => prev.map((item, idx) => ({
+      ...item,
+      id: `dup-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
+      batchNumber: '' // تفريغ رقم الباتش للشحنة الجديدة
+    })));
+    showToast(`تم استنساخ الفاتورة (${originalNumber}) كمسودة جديدة جاهزة للتعديل والحفظ 📋`, 'success');
   };
 
   // 🧮 محرك حسابات الفاتورة والخصومات والضرائب المتوافق مع الفاتورة الإلكترونية (ETA)
@@ -1676,6 +1795,17 @@ const PurchaseInvoiceForm = () => {
           >
             <Plus size={16} /> جديد
           </button>
+
+          {Boolean(editingId || items.length > 0) && (
+            <button 
+              type="button" 
+              onClick={handleDuplicateCurrentInvoice} 
+              className="bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
+              title="تكرار / استنساخ هذه الفاتورة كمسودة جديدة بجميع بنودها وأسعارها"
+            >
+              <Copy size={16} /> تكرار الفاتورة
+            </button>
+          )}
 
           {!editingId && (
             <button 
