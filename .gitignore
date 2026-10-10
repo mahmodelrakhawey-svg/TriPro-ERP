@@ -27,8 +27,10 @@ dist-ssr
 # Environment variables
 .env
 .env.test
+.env.lenza
 .env.production
 .env.e2e
+.env*.local
 
 # Testing
 coverage
@@ -57,4 +59,3 @@ scripts/backup_lenza_daily.mjs
 scripts/execute_full_disaster_recovery.mjs
 scripts/restore_lenza_test.mjs
 scripts/run_disaster_recovery_test.mjs
-

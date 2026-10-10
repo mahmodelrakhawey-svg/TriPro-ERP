@@ -320,8 +320,33 @@ export class StockMovementService {
     const openingBalance = await this.fetchOpeningBalance(productId, organizationId, warehouseId);
 
     try {
-      // 🚀 المسار السريع: استخدام دالة RPC الخادمة فائقة السرعة إن وجدت
+      // 🚀 المسار الفائق 1: استعلام دفتر الأستاذ المخزني الموحد (Unified Single Stock Ledger)
       if (typeof (supabase as any)?.rpc === 'function') {
+        try {
+          const { data: ledgerRpcData, error: ledgerRpcError } = await supabase.rpc('get_product_stock_movements_from_ledger_rpc', {
+            p_product_id: productId,
+            p_org_id: organizationId,
+            p_warehouse_id: warehouseId || null,
+            p_start_date: startDate || null,
+            p_end_date: endDate || null
+          });
+
+          if (!ledgerRpcError && ledgerRpcData?.success && Array.isArray(ledgerRpcData.movements)) {
+            const serverMovements: UnifiedStockMovement[] = ledgerRpcData.movements;
+            return {
+              openingBalance: Number(ledgerRpcData.opening_balance ?? openingBalance),
+              movements: serverMovements,
+              totalIn: Number(ledgerRpcData.total_in ?? 0),
+              totalOut: Number(ledgerRpcData.total_out ?? 0),
+              netMovement: Number(ledgerRpcData.net_movement ?? 0),
+              closingBalance: Number(ledgerRpcData.closing_balance ?? 0)
+            };
+          }
+        } catch (ledgerEx) {
+          // السقوط الآمن التلقائي للمسار التالي
+        }
+
+        // 🚀 المسار السريع 2: استخدام دالة RPC الخادمة المجمعة عبر السيرفر
         try {
           const { data: rpcData, error: rpcError } = await supabase.rpc('get_product_stock_movements_rpc', {
             p_product_id: productId,

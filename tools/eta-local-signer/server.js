@@ -58,38 +58,75 @@ function checkWindowsCertificates() {
   });
 }
 
+// دالة تنفيذ التوقيع الرقمي الحقيقي بمعيار CAdES-BES / CMS PKCS#7 عبر مكتبة .NET المدمجة في ويندوز
+function signWithWindowsCms(canonicalString, thumbprint) {
+  return new Promise((resolve, reject) => {
+    try {
+      const base64Input = Buffer.from(canonicalString, 'utf8').toString('base64');
+      const psScript = [
+        'Add-Type -AssemblyName System.Security;',
+        `$rawBytes = [Convert]::FromBase64String("${base64Input}");`,
+        '$contentInfo = New-Object System.Security.Cryptography.Pkcs.ContentInfo (,$rawBytes);',
+        '$signedCms = New-Object System.Security.Cryptography.Pkcs.SignedCms ($contentInfo, $true);',
+        `$cert = Get-Item "Cert:\\CurrentUser\\My\\${thumbprint}";`,
+        'if (-not $cert) { throw "Certificate not found" };',
+        '$signer = New-Object System.Security.Cryptography.Pkcs.CmsSigner ($cert);',
+        '$signer.DigestAlgorithm = New-Object System.Security.Cryptography.Oid ("2.16.840.1.101.3.4.2.1");', // SHA-256
+        '$signer.IncludeOption = [System.Security.Cryptography.X509Certificates.X509IncludeOption]::EndCertOnly;',
+        '$signedCms.ComputeSignature($signer, $false);',
+        '$cmsBytes = $signedCms.Encode();',
+        '[Convert]::ToBase64String($cmsBytes);'
+      ].join(' ');
+
+      const psCommand = `powershell -NoProfile -ExecutionPolicy Bypass -Command "${psScript}"`;
+      exec(psCommand, { maxBuffer: 10 * 1024 * 1024, timeout: 20000 }, (err, stdout, stderr) => {
+        if (err || !stdout.trim()) {
+          reject(new Error(stderr?.trim() || err?.message || 'Windows CmsSigner failed'));
+        } else {
+          resolve(stdout.trim());
+        }
+      });
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
 // دالة توليد توقيع رقمي للمستند المتطابق مع معايير CAdES-BES لمصلحة الضرائب المصرية
 async function signCanonicalDocument(canonicalString, pin) {
   // 1. حساب قيمة الهاش SHA-256 للنص القانوني (Canonical String)
   const hash = crypto.createHash('sha256').update(canonicalString, 'utf8').digest('hex');
 
-  // 2. فحص توفر الشهادات
+  // 2. فحص توفر الشهادات في مخزن شهادات ويندوز
   const certCheck = await checkWindowsCertificates();
 
   // في حال وجود شهادة توقيع سارية ومفتاح خاص
   if (certCheck.found && certCheck.certificates && certCheck.certificates.length > 0) {
     const activeCert = certCheck.certificates[0];
     
-    // إنشاء بصمة رقمية حقيقية مستندة إلى التوكن/الشهادة
-    const signatureValue = crypto.createHmac('sha256', activeCert.thumbprint)
-      .update(canonicalString)
-      .digest('base64');
+    try {
+      // 🛡️ توقيع رسمي بمعيار CAdES-BES PKCS#7 (CMS) المعتمد من مصلحة الضرائب المصرية
+      const cadesSignature = await signWithWindowsCms(canonicalString, activeCert.thumbprint);
 
-    return {
-      success: true,
-      signature: signatureValue,
-      hash: hash,
-      certificateSubject: activeCert.subject,
-      thumbprint: activeCert.thumbprint,
-      signedJson: JSON.stringify({
-        signatures: [
-          {
-            signatureType: "I",
-            value: signatureValue
-          }
-        ]
-      })
-    };
+      return {
+        success: true,
+        signature: cadesSignature,
+        hash: hash,
+        certificateSubject: activeCert.subject,
+        thumbprint: activeCert.thumbprint,
+        format: 'CAdES-BES / CMS PKCS#7',
+        signedJson: JSON.stringify({
+          signatures: [
+            {
+              signatureType: "I",
+              value: cadesSignature
+            }
+          ]
+        })
+      };
+    } catch (cmsErr) {
+      console.warn('Real CAdES token signing fallback:', cmsErr.message);
+    }
   }
 
   // وضع المحاكاة الذكي في حال عدم تركيب التوكن (Sandbox / Development Fallback)

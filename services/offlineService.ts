@@ -350,6 +350,133 @@ export const offlineService = {
         logger.warn('Payment insert warning:', pErr);
       }
 
+      // 📦 خصم أرصدة المخزون للأصناف المباعة في المسار الاحتياطي لضمان تطابق الأرصدة
+      for (const item of orderItems) {
+        try {
+          const { data: prod } = await supabase
+            .from('products')
+            .select('stock')
+            .eq('id', item.product_id)
+            .maybeSingle();
+
+          if (prod && typeof prod.stock === 'number') {
+            await supabase
+              .from('products')
+              .update({ stock: prod.stock - item.quantity })
+              .eq('id', item.product_id);
+          }
+        } catch (stkErr) {
+          logger.warn('[offlineService] Warning updating fallback stock:', stkErr);
+        }
+      }
+
+      // 📑 إنشاء قيد اليومية المحاسبي لضمان ظهور مبيعات الكاشير الأوفلاين في ميزان المراجعة
+      try {
+        const { data: companySettings } = await supabase
+          .from('company_settings')
+          .select('default_treasury_id, account_mappings')
+          .eq('organization_id', targetOrg)
+          .maybeSingle();
+
+        const defaultCashAccId = sanitizedPayload.cash_account_id || 
+          companySettings?.account_mappings?.cash_account_id || 
+          companySettings?.default_treasury_id;
+
+        let cashAccId = defaultCashAccId;
+        if (!cashAccId) {
+          const { data: cashAcc } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('organization_id', targetOrg)
+            .or('code.eq.1111,code.like.111%,name.ilike.%صندوق%,name.ilike.%خزينة%')
+            .limit(1)
+            .maybeSingle();
+          cashAccId = cashAcc?.id;
+        }
+
+        let salesRevenueAccId = companySettings?.account_mappings?.sales_revenue_account_id;
+        if (!salesRevenueAccId) {
+          const { data: revAcc } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('organization_id', targetOrg)
+            .or('code.eq.4111,code.like.41%,name.ilike.%مبيعات%')
+            .limit(1)
+            .maybeSingle();
+          salesRevenueAccId = revAcc?.id;
+        }
+
+        const taxAmount = Number(sanitizedPayload.tax || sanitizedPayload.total_tax || 0);
+        let vatAccId = companySettings?.account_mappings?.vat_output_account_id;
+        if (taxAmount > 0 && !vatAccId) {
+          const { data: vatAcc } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('organization_id', targetOrg)
+            .or('code.eq.2231,name.ilike.%ضريبة%,name.ilike.%قيمة مضافة%')
+            .limit(1)
+            .maybeSingle();
+          vatAccId = vatAcc?.id;
+        }
+
+        if (cashAccId && salesRevenueAccId && totalPaid > 0) {
+          const { data: je, error: jeErr } = await supabase
+            .from('journal_entries')
+            .insert({
+              transaction_date: new Date().toISOString().split('T')[0],
+              description: `مبيعات كاشير أوفلاين مزامنة - طلب رقم ${ord.order_number}`,
+              status: 'posted',
+              is_posted: true,
+              organization_id: targetOrg,
+              reference_id: ord.id
+            })
+            .select('id')
+            .single();
+
+          if (!jeErr && je?.id) {
+            const lines: Array<Record<string, any>> = [
+              {
+                journal_entry_id: je.id,
+                account_id: cashAccId,
+                debit: totalPaid,
+                credit: 0,
+                description: `تحصيل نقدي - طلب ${ord.order_number}`
+              }
+            ];
+
+            const netRevenue = totalPaid - taxAmount;
+            if (taxAmount > 0 && vatAccId) {
+              lines.push({
+                journal_entry_id: je.id,
+                account_id: salesRevenueAccId,
+                debit: 0,
+                credit: netRevenue,
+                description: `إيراد مبيعات - طلب ${ord.order_number}`
+              });
+              lines.push({
+                journal_entry_id: je.id,
+                account_id: vatAccId,
+                debit: 0,
+                credit: taxAmount,
+                description: `ضريبة القيمة المضافة - طلب ${ord.order_number}`
+              });
+            } else {
+              lines.push({
+                journal_entry_id: je.id,
+                account_id: salesRevenueAccId,
+                debit: 0,
+                credit: totalPaid,
+                description: `إيراد مبيعات - طلب ${ord.order_number}`
+              });
+            }
+
+            await supabase.from('journal_lines').insert(lines);
+          }
+        }
+      } catch (jeEx) {
+        logger.warn('[offlineService] Fallback journal entry generation warning:', jeEx);
+      }
+
       return { success: true, order_number: ord.order_number };
     } catch (err) {
       return { success: false, error: err?.message || 'فشلت المزامنة عبر كافة المسارات البديلة' };

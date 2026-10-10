@@ -17,6 +17,17 @@ export interface ETAInvoiceResponse {
   error?: string;
 }
 
+const getEtaAuthHeaders = async (): Promise<Record<string, string>> => {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+  } catch (e) {}
+  return headers;
+};
+
 export const etaService = {
   /**
    * Generates the canonical string of an object according to the Egyptian Tax Authority (ETA) requirements.
@@ -240,7 +251,7 @@ export const etaService = {
       try {
         const response = await fetch('/api/eta-submit', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: await getEtaAuthHeaders(),
           body: JSON.stringify({
             action: 'submit',
             document: {
@@ -467,7 +478,7 @@ export const etaService = {
 
       const response = await fetch('/api/eta-submit', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: await getEtaAuthHeaders(),
         body: JSON.stringify({
           action: 'status',
           uuid,

@@ -4,8 +4,26 @@ import { logger } from '../utils/logger';
 import { Account } from "../types";
 import { secureStorage } from '../utils/securityMiddleware';
 
+import { supabase } from './supabaseClient';
+
 // الموديلات المتاحة فعلياً (تم التحقق بالاختبار المباشر)
 const VALID_MODELS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite'];
+
+/**
+ * دالة مساعدة لجلب ترويسة المصادقة الموثقة لتمريرها مع طلبات الخادم
+ */
+const getAuthHeaders = async (): Promise<Record<string, string>> => {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+  } catch (e) {
+    // تجاهل أخطاء الجلسة للسماح بمسار التراجع المحلي
+  }
+  return headers;
+};
 
 // Helper function to call generateContent with fallback models on client side if needed
 const generateWithFallback = async (
@@ -37,9 +55,10 @@ export const analyzeTransactionText = async (text: string, accounts: Account[]) 
   let lastServerErrorMessage = '';
   // 1. المحاولة الأولى: الاستدعاء السيرفري عبر /api/analyze-transaction
   try {
+    const headers = await getAuthHeaders();
     const res = await fetch('/api/analyze-transaction', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ text, accounts })
     });
 
@@ -283,9 +302,10 @@ export const scanNationalID = async (base64Data: string, mimeType: string) => {
   // 1. المحاولة الأولى: استدعاء السيرفر /api/scan-id
   let lastServerErrorMessage = '';
   try {
+    const headers = await getAuthHeaders();
     const res = await fetch('/api/scan-id', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ base64Data, mimeType })
     });
 
@@ -485,9 +505,10 @@ export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: strin
   // 1. المحاولة الأولى: استدعاء السيرفر /api/scan-invoice (يعتمد على GEMINI_API_KEY على سيرفر Vercel)
   let lastServerErrorMessage = '';
   try {
+    const headers = await getAuthHeaders();
     const res = await fetch('/api/scan-invoice', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ base64Data: cleanBase64, mimeType })
     });
 

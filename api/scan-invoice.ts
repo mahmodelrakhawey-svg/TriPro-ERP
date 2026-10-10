@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { createClient } from '@supabase/supabase-js';
 
 const ENDPOINTS_TO_TRY = (key: string) => [
   `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=${key}`,
@@ -7,8 +8,51 @@ const ENDPOINTS_TO_TRY = (key: string) => [
 ];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // CORS configuration
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  // 🔒 التحقق الصارم من جلسة المستخدم عبر JWT لمنع استهلاك حصة الذكاء الاصطناعي كبروكسي مفتوح
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ 
+      error: 'غير مصرح: يجب تسجيل الدخول لاستخدام ميزة فحص الفواتير (Unauthorized: Bearer token required).' 
+    });
+  }
+
+  const token = authHeader.split(' ')[1];
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_KEY;
+
+  if (supabaseUrl && supabaseKey) {
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !user) {
+      return res.status(401).json({ error: 'جلسة المستخدم غير صالحة أو منتهية الصلاحية (Invalid session).' });
+    }
+
+    // التحقق من أن الحساب نشط وغير معطل
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('is_active')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (profile && profile.is_active === false) {
+      return res.status(403).json({ error: 'الحساب معطل (Deactivated account).' });
+    }
   }
 
   const apiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || '').trim();
@@ -111,9 +155,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const parsedData = JSON.parse(cleanJson);
       return res.status(200).json(parsedData);
 
-    } catch (err) {
-      if (process.env.NODE_ENV === 'development') console.warn(`[API /api/scan-invoice] Endpoint ${endpoint.split('?')[0]} exception:`, err);
-      lastErrorMsg = err?.message || String(err);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      if (process.env.NODE_ENV === 'development') console.warn(`[API /api/scan-invoice] Endpoint ${endpoint.split('?')[0]} exception:`, errMsg);
+      lastErrorMsg = errMsg;
     }
   }
 

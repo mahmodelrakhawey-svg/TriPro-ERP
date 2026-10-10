@@ -11,8 +11,13 @@
 export function sanitizeHtml(input: string): string {
   if (!input) return '';
 
-  // OWASP-recommended: encode ALL dangerous characters as HTML entities
-  return input
+  // 1. Strip dangerous event handlers (onclick, onerror, etc.) and javascript: URLs
+  const clean = input
+    .replace(/on\w+\s*=\s*(?:'[^']*'|"[^"]*"|[^\s>]+)/gi, '')
+    .replace(/javascript:\s*/gi, '');
+
+  // 2. OWASP-recommended: encode ALL dangerous characters as HTML entities
+  return clean
     .replace(/&/g, '&amp;')   // Must be first to avoid double-encoding
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

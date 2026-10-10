@@ -1031,7 +1031,10 @@ const Settings = () => {
       try {
           const res = await fetch('/api/eta-submit', {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: {
+                  'Content-Type': 'application/json',
+                  ...((await supabase.auth.getSession()).data.session?.access_token ? { 'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}` } : {})
+              },
               body: JSON.stringify({
                   action: 'status',
                   uuid: 'TEST-PING',

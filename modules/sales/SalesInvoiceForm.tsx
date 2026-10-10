@@ -1245,9 +1245,12 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       }
   };
 
-  // 🛡️ فحص صلاحية واستثناء البيع بالسالب (استثناء خاص لشركة لينزا أو للمستخدمين المصرح لهم)
+  // 🛡️ فحص صلاحية واستثناء البيع بالسالب (أنشطة الحلواني والمخابز أو للمستخدمين المصرح لهم)
   const isNegativeStockAllowed = (): boolean => {
-    // 1. استثناء خاص وحصري لشركة لينزا (Lenza) بجميع مسمياتها التجارية والرسمية
+    // 1. إعدادات الشركة العامة (تفعيل البيع بالسالب لأنشطة الحلواني والمخابز والأغذية الطازجة)
+    if (settings?.allowNegativeStock || (settings as any)?.allow_negative_stock) return true;
+
+    // 2. صمام أمان التوافق الخلفي لشركة لينزا بجميع مسمياتها لضمان عدم توقف عمليات الكاشير
     const currentOrg = organizations?.find?.(o => o.id === (currentSelectedOrgId || currentUser?.organization_id)) || organization;
     const orgName = (
       currentOrg?.name || 
@@ -1262,9 +1265,6 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     
     const isLenza = orgName.includes('لينزا') || orgName.includes('lenza');
     if (isLenza) return true;
-
-    // 2. إعدادات الشركة العامة
-    if (settings?.allowNegativeStock || (settings as any)?.allow_negative_stock) return true;
 
     // 3. صلاحيات المستخدم المباشرة أو الدور للبيع بالسالب
     const userPerms = (currentUser as any)?.permissions || [];

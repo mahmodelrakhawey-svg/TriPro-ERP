@@ -45,12 +45,23 @@ export async function closeFinancialYearEngine({
   }
 
   try {
-    // 1. فحص وتصحيح حساب الأرباح المبقاة (32)
-    const { data: retAccounts } = await supabase
+    // 1. فحص وتصحيح حساب الأرباح المبقاة (32 أو بالاسم/النوع للأدلة غير المصرية كـ SOCPA)
+    let { data: retAccounts } = await supabase
       .from('accounts')
       .select('id, code, is_group')
       .eq('organization_id', targetOrgId)
       .eq('code', '32');
+
+    if (!retAccounts || retAccounts.length === 0) {
+      const res = await supabase
+        .from('accounts')
+        .select('id, code, is_group')
+        .eq('organization_id', targetOrgId)
+        .or('name.ilike.%أرباح مبقاة%,name.ilike.%أرباح مرحلة%,name.ilike.%retained earnings%');
+      if (res && res.data && res.data.length > 0) {
+        retAccounts = res.data;
+      }
+    }
 
     if (retAccounts && retAccounts.length > 0) {
       if (retAccounts[0].is_group) {
@@ -60,12 +71,22 @@ export async function closeFinancialYearEngine({
           .eq('id', retAccounts[0].id);
       }
     } else {
-      const { data: parent3 } = await supabase
+      let { data: parent3 } = await supabase
         .from('accounts')
         .select('id')
         .eq('organization_id', targetOrgId)
         .eq('code', '3')
         .maybeSingle();
+
+      if (!parent3) {
+        const { data: parentByEquity } = await supabase
+          .from('accounts')
+          .select('id')
+          .eq('organization_id', targetOrgId)
+          .eq('type', 'EQUITY')
+          .maybeSingle();
+        parent3 = parentByEquity;
+      }
 
       await supabase.from('accounts').insert({
         organization_id: targetOrgId,
@@ -78,13 +99,13 @@ export async function closeFinancialYearEngine({
       });
     }
 
-    // 2. تصحيح أي حسابات إيرادات أو مصروفات (4/5) معلّمة بالخطأ كـ is_group ولها قيود مرحلة
+    // 2. تصحيح أي حسابات إيرادات أو مصروفات معلّمة بالخطأ كـ is_group ولها قيود مرحلة (وفق النوع والكود)
     const { data: groupIncomeAccounts } = await supabase
       .from('accounts')
       .select('id, code, is_group')
       .eq('organization_id', targetOrgId)
       .eq('is_group', true)
-      .or('code.like.4%,code.like.5%');
+      .or('type.eq.REVENUE,type.eq.EXPENSE,code.like.4%,code.like.5%');
 
     if (groupIncomeAccounts && groupIncomeAccounts.length > 0) {
       for (const gAcc of groupIncomeAccounts) {

@@ -98,8 +98,8 @@ export const FinancialSettingsTab: React.FC<FinancialSettingsTabProps> = ({
 
         <div className="md:col-span-2 flex items-center justify-between bg-slate-50 p-4 rounded-lg border border-slate-200">
           <div>
-            <label className="block text-sm font-bold text-slate-700">السماح بالبيع بدون رصيد</label>
-            <p className="text-xs text-slate-500 mt-1">يسمح بإنشاء فواتير حتى لو كانت الكمية غير متوفرة (غير مستحسن)</p>
+            <label className="block text-sm font-bold text-slate-700">السماح بالبيع بالسالب (أنشطة الحلواني والمخابز والأغذية الطازجة)</label>
+            <p className="text-xs text-slate-500 mt-1">يتيح البيع المباشر في نقاط البيع (POS) قبل إدخال أوامر تصنيع التورت والحلويات الطازجة في نهاية الوردية.</p>
           </div>
           <button
             type="button"

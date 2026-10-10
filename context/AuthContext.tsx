@@ -220,6 +220,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           dashboard_view_mode: dashboardViewMode
         };
 
+        // 🔒 صمام أمان حاسم: منع الموظفين المعطلين أو المغادرين للشركة من الدخول
+        if (profile && profile.is_active === false) {
+          logger.warn(`Security alert: Access attempt by deactivated user ${user.email} (${user.id})`);
+          await supabase.auth.signOut();
+          setCurrentUser(null);
+          setUserRole(null);
+          setUserPermissions(new Set());
+          setAuthInitialized(true);
+          setIsLoading(false);
+          return;
+        }
+
         setCurrentUser(profileData);
         setUserRole(roleName);
         // حفظ بيانات المستخدم للدخول بدون إنترنت (Offline Access Cache)
@@ -366,67 +378,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, [handleAuthChange, fetchUsers, handleAuthError]);
 
   const login = async (email: string, password: string) => {
-    const sanitizedEmailRaw = sanitizeHtml(email.toLowerCase());
-    let finalEmail = sanitizedEmailRaw;
-    let finalPassword = password;
-
+    const sanitizedEmailRaw = sanitizeHtml(email.toLowerCase().trim());
     const isOffline = !navigator.onLine;
 
-    // ⚡ مسار الدخول الفوري للنسخة التجريبية (Demo) أو وضع العمل بدون إنترنت
-    if (sanitizedEmailRaw === DEMO_EMAIL) {
-      const demoUser: User = {
-        id: DEMO_USER_ID,
-        name: 'مستخدم تجريبي (TriPro Demo)',
-        username: DEMO_EMAIL,
-        role: 'demo',
-        is_active: true,
-        organization_id: 'org-default-offline',
-        dashboard_view_mode: 'both'
-      };
-      setCurrentUser(demoUser);
-      setUserRole('demo');
-      setUserPermissions(new Set(['*.*', '*.view', '*.read', '*.create', '*.update', '*.list']));
-      setAuthInitialized(true);
-      return { success: true };
+    // 🔒 إلغاء أي تجاوز صريح لكلمة المرور: يجب التحقق من صحة المدخلات لكافة الحسابات
+    const validation = validateData<{ email: string; password: string }>(
+      LoginSchema,
+      { email: sanitizedEmailRaw, password }
+    );
+
+    if (!validation.success) {
+      return { success: false, message: validation.errors?.[0] || 'بيانات غير صحيحة' };
     }
 
-    if (sanitizedEmailRaw !== DEMO_EMAIL) {
-      const validation = validateData<{ email: string; password: string }>(
-        LoginSchema,
-        { email: sanitizedEmailRaw, password }
-      );
-
-      if (!validation.success) {
-        return { success: false, message: validation.errors?.[0] || 'بيانات غير صحيحة' };
-      }
-
-      finalEmail = validation.data!.email;
-      finalPassword = validation.data!.password;
-    }
+    const finalEmail = validation.data!.email;
+    const finalPassword = validation.data!.password;
 
     // 🔐 فحص المستخدم المخزن محلياً في حال انقطاع النت التام
     // الأمان الصارم: يُسمح بالدخول فقط لمستخدم مُخزن مسبقاً وبكلمة مرور صحيحة مطابقة للـ hash
     if (isOffline) {
-      if (sanitizedEmailRaw === DEMO_EMAIL) {
-        const demoUser: User = {
-          id: DEMO_USER_ID,
-          name: 'مستخدم تجريبي (وضع تجريبي)',
-          username: DEMO_EMAIL,
-          role: 'demo',
-          is_active: true,
-          organization_id: '00000000-0000-0000-0000-000000000000'
-        };
-        setCurrentUser(demoUser);
-        setUserRole('demo');
-        setUserPermissions(new Set(['dashboard.view', 'reports.view', 'pos.view']));
-        setAuthInitialized(true);
-        return { success: true };
-      }
-
       const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
       const cachedPasswordHash = secureStorage.getItem<string>('tripro_offline_pw_hash');
 
-      if (cachedUser && cachedUser.username.toLowerCase() === sanitizedEmailRaw.toLowerCase() && cachedPasswordHash) {
+      if (cachedUser && cachedUser.username.toLowerCase() === finalEmail.toLowerCase() && cachedPasswordHash) {
+        if (cachedUser.is_active === false) {
+          return { success: false, message: 'تم تعطيل هذا الحساب. يرجى التواصل مع إدارة النظام.' };
+        }
         try {
           const msgBuffer = new TextEncoder().encode(finalPassword + cachedUser.id);
           const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -453,7 +430,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
         email: finalEmail,
         password: finalPassword
       });
@@ -461,26 +438,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error) {
         // إذا كان الجهاز غير متصل بالإنترنت وفشل الاتصال، نتحقق من الكاش المحلي للمستخدم بكلمة المرور
         if (!navigator.onLine || error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')) {
-          if (finalEmail === DEMO_EMAIL) {
-            const demoUser: User = {
-              id: DEMO_USER_ID,
-              name: 'مستخدم تجريبي (وضع تجريبي)',
-              username: DEMO_EMAIL,
-              role: 'demo',
-              is_active: true,
-              organization_id: '00000000-0000-0000-0000-000000000000'
-            };
-            setCurrentUser(demoUser);
-            setUserRole('demo');
-            setUserPermissions(new Set(['dashboard.view', 'reports.view', 'pos.view']));
-            setAuthInitialized(true);
-            return { success: true };
-          }
-
           const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
           const cachedPasswordHash = secureStorage.getItem<string>('tripro_offline_pw_hash');
 
           if (cachedUser && cachedUser.username.toLowerCase() === finalEmail.toLowerCase() && cachedPasswordHash) {
+            if (cachedUser.is_active === false) {
+              return { success: false, message: 'تم تعطيل هذا الحساب. يرجى التواصل مع إدارة النظام.' };
+            }
             try {
               const msgBuffer = new TextEncoder().encode(finalPassword + cachedUser.id);
               const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
@@ -505,6 +469,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { success: false, message: error.message || 'بيانات الدخول غير صحيحة' };
       }
 
+      // التحقق من حالة تفعيل الحساب في profiles فور تسجيل الدخول الناجح لمنع الموظفين المغادرين
+      if (authData?.user) {
+        const { data: profile } = await supabase.from('profiles').select('is_active').eq('id', authData.user.id).maybeSingle();
+        if (profile && profile.is_active === false) {
+          await supabase.auth.signOut();
+          return { success: false, message: 'تم تعطيل هذا الحساب من قِبل إدارة شركة لينزا.' };
+        }
+      }
+
       // 🔐 عند نجاح تسجيل الدخول بالإنترنت: حفظ hash كلمة المرور محلياً بأمان
       try {
         const { data: { user } } = await supabase.auth.getUser();
@@ -522,26 +495,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       // وضع العمل بدون إنترنت عند انقطاع الاتصال التام (Offline Resilience Fallback)
       if (!navigator.onLine || error?.message?.includes('Failed to fetch') || error?.message?.includes('NetworkError')) {
-        if (finalEmail === DEMO_EMAIL) {
-          const demoUser: User = {
-            id: DEMO_USER_ID,
-            name: 'مستخدم تجريبي (وضع تجريبي)',
-            username: DEMO_EMAIL,
-            role: 'demo',
-            is_active: true,
-            organization_id: '00000000-0000-0000-0000-000000000000'
-          };
-          setCurrentUser(demoUser);
-          setUserRole('demo');
-          setUserPermissions(new Set(['dashboard.view', 'reports.view', 'pos.view']));
-          setAuthInitialized(true);
-          return { success: true };
-        }
-
         const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
         const cachedPasswordHash = secureStorage.getItem<string>('tripro_offline_pw_hash');
 
         if (cachedUser && cachedUser.username.toLowerCase() === finalEmail.toLowerCase() && cachedPasswordHash) {
+          if (cachedUser.is_active === false) {
+            return { success: false, message: 'تم تعطيل هذا الحساب. يرجى التواصل مع إدارة النظام.' };
+          }
           try {
             const msgBuffer = new TextEncoder().encode(finalPassword + cachedUser.id);
             const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);

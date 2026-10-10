@@ -51,8 +51,8 @@ describe('🔐 Security & Validation Tests', () => {
     it('يجب إزالة محتوى script tags أو تعطيلها', () => {
       const dangerous = '<div><script src="malicious.js"></script></div>';
       const result = sanitizeHtml(dangerous);
-      // يكفي التأكد من أنها لا تشكل خطراً
-      expect(result).toBeTruthy();
+      expect(result).not.toContain('<script');
+      expect(result).toContain('&lt;script');
     });
   });
 });
