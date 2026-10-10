@@ -528,17 +528,17 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         }
 
         if (invData) {
-          let itemsList = (invData.invoice_items || invData.items || []) as any[];
+          const invObj = invData as Record<string, any>;
+          const itemsList = (invObj.invoice_items || invObj.items || []) as Array<Record<string, any>>;
           if (!itemsList || itemsList.length === 0) {
             const { data: directItems } = await supabase
               .from('invoice_items')
               .select('id, product_id, quantity, unit_price, total, cost, uoms(name), products(name, sku, unit, uom:uoms!base_uom_id(name))')
-              .eq('invoice_id', (invData as any).id)
+              .eq('invoice_id', invObj.id)
               .limit(5000);
             if (directItems && directItems.length > 0) {
-              itemsList = directItems;
-              (invData as any).invoice_items = directItems;
-              (invData as any).items = directItems;
+              invObj.invoice_items = directItems;
+              invObj.items = directItems;
             }
           }
         }
@@ -644,8 +644,8 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         });
 
         const posInvData = {
-          invoice_number: rawOrder.order_number || t.reference,
-          invoice_date: rawOrder.created_at ? rawOrder.created_at.split('T')[0] : t.date,
+          invoice_number: String(rawOrder.order_number || t.reference),
+          invoice_date: typeof rawOrder.created_at === 'string' ? rawOrder.created_at.split('T')[0] : t.date,
           total_amount: Number(rawOrder.grand_total || t.debit),
           subtotal: Number(rawOrder.subtotal || t.debit),
           paid_amount: Number(rawOrder.paid_amount || 0),
