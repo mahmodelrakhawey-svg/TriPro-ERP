@@ -1566,7 +1566,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }).select('id').maybeSingle();
 
     if (pvError) {
-      logger.warn('payment_vouchers insert warning:', pvError);
+      logger.error('payment_vouchers insert error:', pvError);
+      showToast('فشل إنشاء سند الصرف: ' + pvError.message, 'error');
+      throw pvError;
     }
 
     const voucherId = pvData?.id;
