@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { runRestaurantModuleTest } from '../modules/restaurant/utils/runRestaurantFlowTest';
 import { etaService } from '../services/etaService';
 import { isValidUUID } from '../services/offlineService';
+import { deriveAccountMappings } from '../utils/financialSafety';
 import {
   SettingsFormData,
   CloudBackup,
@@ -901,24 +902,7 @@ const Settings = () => {
 
   const handleAutoMapping = async () => {
       const orgId = (currentUser as any)?.organization_id;
-      const mappingSource = {
-          ...SYSTEM_ACCOUNTS, 
-          CASH_SHORTAGE: '541',
-          CASH_SURPLUS_ACC: '441',
-          INVENTORY_RAW_MATERIALS: '10301',
-          INVENTORY_WIP: '10303',
-          INVENTORY_FINISHED_GOODS: '10302',
-          LABOR_COST_ALLOCATED: '513',
-          WASTAGE_EXPENSE: '5121',
-          RETENTION_CUSTOMER: '1249',
-          RETENTION_SUBCONTRACTOR: '2229',
-          ADVANCE_PAYMENT_SUBCONTRACTOR: '1245',
-          EQUIPMENT_INTERNAL_REVENUE: '425'
-      };
-
-      const newMappings = { ...formData.accountMappings };
       let currentAccs = [...accounts];
-      let linkedCount = 0;
 
       // إنشاء حساب رسوم الخدمة 41104 تلقائياً إذا لم يكن مضافاً في شجرة الحسابات
       if (orgId && !currentAccs.some(acc => acc.code === '41104')) {
@@ -985,37 +969,29 @@ const Settings = () => {
           }
       }
 
-      // بحث اسمي (fallback) لحسابات بنكية محددة
-      const nameFallbacks: Record<string, (acc: { code?: string; name?: string; isGroup?: boolean }) => boolean> = {
-          LETTER_OF_GUARANTEE_MARGIN: (acc) =>
-              Boolean(acc.code === '1248' || acc.code?.startsWith('1248') ||
-              acc.name?.includes('غطاء خطابات ضمان') || acc.name?.includes('غطاء خطابات الضمان') || acc.name?.includes('غطاء الضمان')),
-          LETTER_OF_CREDIT_GOODS: (acc) =>
-              Boolean(acc.code === '1246' || acc.code?.startsWith('1246') ||
-              acc.name?.includes('اعتمادات مستندية') || acc.name?.includes('اعتماد مستندي') || acc.name?.includes('خطابات اعتماد')),
-      };
+      // 🛡️ استخدام المحرك المركزي لاشتقاق وربط الحسابات وتحديث الإعدادات
+      const { mappings: unifiedMappings, mappedCount, hasNewMappings } = deriveAccountMappings(currentAccs, formData.accountMappings);
 
-      Object.entries(mappingSource).forEach(([key, defaultCode]) => {
-          // البحث عن الحساب بالكود الافتراضي بشرط ألا يكون حساباً تجميعياً
-          let matchedAccount = currentAccs.find(acc => acc.code === defaultCode && !acc.isGroup);
-          // fallback بالاسم للحسابات التي لا تجد كوداً مطابقاً تماماً
-          if (!matchedAccount && nameFallbacks[key]) {
-              matchedAccount = currentAccs.find(acc => !acc.isGroup && nameFallbacks[key](acc));
-          }
-          if (matchedAccount) {
-              newMappings[key] = matchedAccount.id;
-              linkedCount++;
-          }
-      });
+      setFormData(prev => ({ ...prev, accountMappings: unifiedMappings }));
 
-      setFormData(prev => ({ ...prev, accountMappings: newMappings }));
-      
-      if (linkedCount > 0) {
-          showToast(`تم ربط ${linkedCount} حساب بنجاح بناءً على الأكواد الافتراضية ✅`, 'success');
+      // 🛡️ الحفظ الفوري في قاعدة البيانات لضمان عدم ضياع التعيينات إذا لم يضغط المستخدم على زر الحفظ
+      if (orgId && hasNewMappings) {
+          try {
+              await supabase.from('company_settings').update({ account_mappings: unifiedMappings }).eq('organization_id', orgId);
+              showToast(`تم ربط وحفظ ${mappedCount} حساب بنجاح في إعدادات النظام وقاعدة البيانات ✅`, 'success');
+              await refreshData();
+          } catch (persistErr) {
+              logger.warn('Failed to auto-persist account mappings in Settings:', persistErr);
+              showToast(`تم ربط ${mappedCount} حساب بنجاح. يرجى الضغط على زر حفظ التعيينات للتأكيد.`, 'success');
+          }
+      } else if (mappedCount > 0) {
+          showToast(`تم ربط ${mappedCount} حساب بنجاح بناءً على الدليل الحالي ✅`, 'success');
       } else {
           showToast('لم يتم العثور على حسابات مطابقة للأكواد الافتراضية في الدليل الحالي.', 'warning');
       }
   };
+
+
 
   const handleMappingChange = (key: string, accountId: string) => {
       setFormData(prev => ({ ...prev, accountMappings: { ...prev.accountMappings, [key]: accountId } }));

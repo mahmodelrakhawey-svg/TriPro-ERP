@@ -96,11 +96,40 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
   }, [fetchCheques]);
 
   const deleteCheque = useCallback(async (id: string): Promise<void> => {
-    // 1. جلب معرف القيد المحاسبي المربوط بالشيك
-    const { data: chq } = await supabase.from('cheques').select('related_journal_entry_id').eq('id', id).maybeSingle();
+    // 1. جلب بيانات الشيك والقيود المحاسبية المرتبطة به
+    const { data: chq, error: fetchErr } = await supabase
+      .from('cheques')
+      .select('id, related_journal_entry_id, status')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchErr || !chq) {
+      throw new Error(fetchErr?.message || 'تعذر العثور على سجل الشيك المطلوب حذفه');
+    }
     
-    // 2. حذف قيود اليومية المرتبطة بالشيك
-    if (chq?.related_journal_entry_id) {
+    // 2. فك ارتباط القيد بالشيك لتفادي قيود المفاتيح الأجنبية
+    if (chq.related_journal_entry_id) {
+      await supabase.from('cheques').update({ related_journal_entry_id: null }).eq('id', id);
+    }
+
+    // 3. حذف مرفقات الشيك
+    await supabase.from('cheque_attachments').delete().eq('cheque_id', id);
+
+    // 4. حذف سجل الشيك الرئيسي أولاً
+    let delQuery = supabase.from('cheques').delete().eq('id', id);
+    if (orgId) delQuery = delQuery.eq('organization_id', orgId);
+    const { error: delError } = await delQuery;
+
+    if (delError) {
+      // 🛡️ تراجع فوري: إعادة ربط القيد بالشيك إذا فشل حذف الشيك
+      if (chq.related_journal_entry_id) {
+        await supabase.from('cheques').update({ related_journal_entry_id: chq.related_journal_entry_id }).eq('id', id);
+      }
+      throw delError;
+    }
+
+    // 5. بعد نجاح حذف الشيك، يتم حذف قيود اليومية المرتبطة بأمان
+    if (chq.related_journal_entry_id) {
       await supabase.from('journal_lines').delete().eq('journal_entry_id', chq.related_journal_entry_id);
       await supabase.from('journal_entries').delete().eq('id', chq.related_journal_entry_id);
     }
@@ -119,14 +148,6 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
       }
     }
 
-    // 3. حذف مرفقات الشيك
-    await supabase.from('cheque_attachments').delete().eq('cheque_id', id);
-
-    // 4. حذف سجل الشيك
-    let delQuery = supabase.from('cheques').delete().eq('id', id);
-    if (orgId) delQuery = delQuery.eq('organization_id', orgId);
-    const { error } = await delQuery;
-    if (error) throw error;
     await fetchCheques();
   }, [orgId, fetchCheques]);
 

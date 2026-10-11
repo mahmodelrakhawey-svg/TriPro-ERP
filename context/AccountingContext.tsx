@@ -10,7 +10,7 @@ import {
 } from '../types';
 import { secureStorage } from '../utils/securityMiddleware';
 import { logger } from '../utils/logger';
-import { validateEntryBalance } from '../utils/financialSafety';
+import { validateEntryBalance, deriveAccountMappings } from '../utils/financialSafety';
 
 export interface UserProfile {
   id: string;
@@ -707,6 +707,28 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }));
 
       setAccounts(loadedAccounts);
+
+      // 🛡️ فحص وتهيئة ربط الحسابات الافتراضية تلقائياً (Default Account Mappings Auto-Derivation & Verification)
+      const currentRawMappings = { ...((sett as any)?.account_mappings || (sett as any)?.accountMappings || {}) };
+      const { mappings: autoDerivedMappings, hasNewMappings } = deriveAccountMappings(loadedAccounts as any, currentRawMappings);
+      if (hasNewMappings) {
+        setSettings(prev => ({
+          ...prev,
+          account_mappings: autoDerivedMappings,
+          accountMappings: autoDerivedMappings
+        }));
+
+        if (fetchOrgId && fetchOrgId !== 'org-default-offline') {
+          supabase
+            .from('company_settings')
+            .update({ account_mappings: autoDerivedMappings })
+            .eq('organization_id', fetchOrgId)
+            .then(({ error: mapErr }) => {
+              if (mapErr) logger.warn('[AccountingContext] Auto-persist account_mappings notice:', mapErr);
+            });
+        }
+      }
+
       setEntries(ents.data || []);
       setAssets(assetData?.data || []);
       setBudgets(budgetData?.data || []);
@@ -1553,6 +1575,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (dbAcc) supplierAccId = dbAcc.id;
     }
 
+    // 🛡️ التحقق القبلي الصارم لمنع إنشاء سندات صرف معلقة بدون أطراف محاسبية
+    if (amount > 0 && !supplierAccId) {
+      showToast('لا يمكن إنشاء سند الصرف: لم يتم تحديد حساب المورد أو حساب الموردين الافتراضي', 'error');
+      throw new Error('لم يتم تحديد حساب المورد أو حساب الموردين الافتراضي');
+    }
+    if (amount > 0 && !treasuryId) {
+      showToast('لا يمكن إنشاء سند الصرف: يجب اختيار حساب الخزينة أو البنك', 'error');
+      throw new Error('يجب اختيار حساب الخزينة أو البنك');
+    }
+
     // 1. إدراج السند في جدول payment_vouchers
     const { data: pvData, error: pvError } = await supabase.from('payment_vouchers').insert({
       voucher_number: voucherNumber,
@@ -1629,7 +1661,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             .single();
 
           if (!jeErr && newJe) {
-            await supabase.from('journal_lines').insert([
+            const { error: linesErr } = await supabase.from('journal_lines').insert([
               {
                 journal_entry_id: newJe.id,
                 account_id: supplierAccId,
@@ -1648,6 +1680,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               }
             ]);
 
+            if (linesErr) {
+              await supabase.from('journal_entries').delete().eq('id', newJe.id);
+              throw linesErr;
+            }
+
             if (voucherId) {
               await supabase
                 .from('payment_vouchers')
@@ -1660,6 +1697,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           logger.error('Direct journal entry insert error:', directErr);
           showToast('تعذر إنشاء القيد المحاسبي المباشر للسند: ' + (directErr?.message || ''), 'warning');
         }
+      }
+
+      // 🛡️ تراجع تعويضي فوري (Compensating Rollback): في حال فشل إنشاء القيود، يُحذف السند لمنع أي أثر يتيم
+      if (!entryCreated) {
+        if (voucherId) {
+          try {
+            await supabase.from('payment_vouchers').delete().eq('id', voucherId);
+            logger.warn(`Compensating rollback executed: deleted orphan payment voucher ${voucherId}`);
+          } catch (rbErr) {
+            logger.error('Failed to compensate voucher delete:', rbErr);
+          }
+        }
+        showToast('فشل إنشاء القيد المحاسبي لسند الصرف، تم التراجع عن إنشاء السند تلقائياً لضمان توازن الدفاتر ❌', 'error');
+        throw new Error('فشل إنشاء القيد المحاسبي لسند الصرف، تم التراجع عن العملية.');
       }
     }
 
@@ -1892,11 +1943,40 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const deleteCheque = async (id: string) => {
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     
-    // 1. جلب معرف القيد المحاسبي المربوط بالشيك
-    const { data: chq } = await supabase.from('cheques').select('related_journal_entry_id').eq('id', id).single();
+    // 1. جلب بيانات الشيك والقيود المحاسبية المرتبطة به
+    const { data: chq, error: fetchErr } = await supabase
+      .from('cheques')
+      .select('id, related_journal_entry_id, status')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchErr || !chq) {
+      throw new Error(fetchErr?.message || 'تعذر العثور على سجل الشيك المطلوب حذفه');
+    }
     
-    // 2. حذف قيود اليومية المرتبطة بالشيك
-    if (chq?.related_journal_entry_id) {
+    // 2. فك ارتباط القيد المحاسبي بالشيك أولاً لتجنب انتهاك قيود المفاتيح الأجنبية
+    if (chq.related_journal_entry_id) {
+      await supabase.from('cheques').update({ related_journal_entry_id: null }).eq('id', id);
+    }
+
+    // 3. حذف مرفقات الشيك
+    await supabase.from('cheque_attachments').delete().eq('cheque_id', id);
+
+    // 4. حذف سجل الشيك الرئيسي أولاً
+    let delQuery = supabase.from('cheques').delete().eq('id', id);
+    if (targetOrgId) delQuery = delQuery.eq('organization_id', targetOrgId);
+    const { error: delError } = await delQuery;
+
+    if (delError) {
+      // 🛡️ تراجع فوري: إعادة ربط القيد المحاسبي بالشيك في حال فشل حذف الشيك
+      if (chq.related_journal_entry_id) {
+        await supabase.from('cheques').update({ related_journal_entry_id: chq.related_journal_entry_id }).eq('id', id);
+      }
+      throw delError;
+    }
+
+    // 5. بعد نجاح حذف الشيك بشكل مؤكد، يتم حذف قيود اليومية المرتبطة بأمان
+    if (chq.related_journal_entry_id) {
       await supabase.from('journal_lines').delete().eq('journal_entry_id', chq.related_journal_entry_id);
       await supabase.from('journal_entries').delete().eq('id', chq.related_journal_entry_id);
     }
@@ -1914,18 +1994,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await supabase.from('journal_entries').delete().in('id', entryIds);
     }
 
-    // 3. حذف مرفقات الشيك
-    await supabase.from('cheque_attachments').delete().eq('cheque_id', id);
-
-    // 4. حذف سجل الشيك
-    let delQuery = supabase.from('cheques').delete().eq('id', id);
-    if (targetOrgId) delQuery = delQuery.eq('organization_id', targetOrgId);
-    const { error: delError } = await delQuery;
-    if (delError) throw delError;
-
-    // 5. تحديث الأرصدة
+    // 6. تحديث الأرصدة
     try {
-      await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
+      if (targetOrgId) {
+        await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
+      }
     } catch (e) {
       // ignore
     }
@@ -1959,6 +2032,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     // 2. إنشاء القيد المحاسبي المباشر عبر addEntry الآمنة
+    let createdEntryRef: string | null = null;
     try {
       const { data: cheque } = await supabase
         .from('cheques')
@@ -2014,6 +2088,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 p_org_id: targetOrgId,
                 lines: lines
               });
+              createdEntryRef = ref;
             }
           }
         }
@@ -2033,6 +2108,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
     let { error } = await supabase.from('cheques').update(updatePayload).eq('id', id); 
     if (error) {
+      // 🛡️ تراجع تعويضي عن القيد المحاسبي إذا فشل تحديث حالة الشيك
+      if (createdEntryRef) {
+        try {
+          const { data: rbJe } = await supabase.from('journal_entries').select('id').eq('reference', createdEntryRef).maybeSingle();
+          if (rbJe) {
+            await supabase.from('journal_lines').delete().eq('journal_entry_id', rbJe.id);
+            await supabase.from('journal_entries').delete().eq('id', rbJe.id);
+          }
+        } catch (rbErr) {
+          logger.error('Failed to rollback cheque journal entry:', rbErr);
+        }
+      }
+
       if (error.message?.includes('current_account_id') || error.code === 'PGRST204' || error.code === '42703') {
         const { error: fallbackError } = await supabase.from('cheques').update({ status }).eq('id', id);
         if (fallbackError) throw fallbackError;
@@ -2460,10 +2548,28 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const { data: pData } = await supabase.from('payrolls').select('*').eq('id', payrollId).maybeSingle();
         if (pData) {
           if (pData.accrual_je_id) {
+            await supabase.from('journal_lines').delete().eq('journal_entry_id', pData.accrual_je_id);
             await supabase.from('journal_entries').delete().eq('id', pData.accrual_je_id);
           }
-          await supabase.from('journal_entries').delete().eq('related_document_id', payrollId).eq('related_document_type', 'payroll');
+          const { data: relJes } = await supabase
+            .from('journal_entries')
+            .select('id')
+            .eq('related_document_id', payrollId)
+            .eq('related_document_type', 'payroll');
+          if (relJes && relJes.length > 0) {
+            const jeIds = relJes.map((j: any) => j.id);
+            await supabase.from('journal_lines').delete().in('journal_entry_id', jeIds);
+            await supabase.from('journal_entries').delete().in('id', jeIds);
+          }
           await supabase.from('payrolls').delete().eq('id', payrollId);
+        }
+
+        if (targetOrg) {
+          try {
+            await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrg });
+          } catch (e) {
+            // ignore
+          }
         }
       }
     } catch (err: any) {
