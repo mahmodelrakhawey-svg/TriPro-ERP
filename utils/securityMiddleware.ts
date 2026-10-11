@@ -199,11 +199,11 @@ export class DoubleSubmissionProtection {
 export const secureStorage = {
   setItem(key: string, value: unknown): void {
     try {
-      // Don't store sensitive system passwords in localStorage
-      const sensitiveKeys = ['password', 'secret', 'credential'];
-      if (key !== 'user_gemini_api_key' && sensitiveKeys.some(s => key.toLowerCase().includes(s))) {
+      // Don't store sensitive system passwords or API keys in localStorage
+      const sensitiveKeys = ['password', 'secret', 'credential', 'api_key', 'private_key'];
+      if (sensitiveKeys.some(s => key.toLowerCase().includes(s))) {
         if (process.env.NODE_ENV === 'development') {
-          logger.warn(`⚠️ Attempting to store sensitive data: ${key}`);
+          logger.warn(`⚠️ Attempting to store sensitive data in localStorage: ${key}`);
         }
         return;
       }

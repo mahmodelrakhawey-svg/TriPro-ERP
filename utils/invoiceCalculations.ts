@@ -146,9 +146,10 @@ export function calculateInvoiceTotals(
   const overallDiscountAmount = roundToTwoDecimals(netAfterItemsDiscount * (Math.max(0, overallDiscountPercent) / 100));
   const taxableAmount = Math.max(0, roundToTwoDecimals(netAfterItemsDiscount - overallDiscountAmount));
 
-  // إعادة احتساب الضريبة في حال وجود خصم عام لخصمه من الوعاء الضريبي
+  // إعادة احتساب الضريبة في حال وجود خصم عام بالتناسب المالي مع مجموع ضرائب البنود
+  const discountFactor = Math.max(0, 1 - (overallDiscountPercent / 100));
   const finalVat = overallDiscountPercent > 0 
-    ? roundToTwoDecimals(taxableAmount * 0.14) 
+    ? roundToTwoDecimals(totalTax * discountFactor) 
     : roundToTwoDecimals(totalTax);
 
   const withholdingTaxAmount = withholdingTaxRate > 0

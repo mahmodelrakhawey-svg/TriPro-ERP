@@ -68,7 +68,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // دالة لجلب قائمة المستخدمين
   const fetchUsers = useCallback(async () => {
     try {
-      const { data: profiles, error } = await supabase.from('profiles').select('*') as {
+      const cachedOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || undefined;
+      const targetOrg = currentUser?.organization_id || cachedOrg;
+      let query = supabase.from('profiles').select('*');
+      if (targetOrg && userRole !== 'super_admin' && userRole !== 'demo') {
+        query = query.eq('organization_id', targetOrg);
+      }
+      const { data: profiles, error } = await query as {
         data: Profile[] | null;
         error: unknown;
       };
@@ -399,10 +405,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (isOffline) {
       const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
       const cachedPasswordHash = secureStorage.getItem<string>('tripro_offline_pw_hash');
+      const cachedAt = secureStorage.getItem<number>('tripro_offline_cached_at');
+      const MAX_OFFLINE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
       if (cachedUser && cachedUser.username.toLowerCase() === finalEmail.toLowerCase() && cachedPasswordHash) {
         if (cachedUser.is_active === false) {
           return { success: false, message: 'تم تعطيل هذا الحساب. يرجى التواصل مع إدارة النظام.' };
+        }
+        if (cachedAt && (Date.now() - cachedAt > MAX_OFFLINE_TTL_MS)) {
+          return { 
+            success: false, 
+            message: 'انتهت صلاحية جلسة العمل بدون إنترنت (تتجاوز 7 أيام). يُرجى الاتصال بالإنترنت لتجديد الصلاحية.' 
+          };
         }
         try {
           const msgBuffer = new TextEncoder().encode(finalPassword + cachedUser.id);
@@ -474,7 +488,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { data: profile } = await supabase.from('profiles').select('is_active').eq('id', authData.user.id).maybeSingle();
         if (profile && profile.is_active === false) {
           await supabase.auth.signOut();
-          return { success: false, message: 'تم تعطيل هذا الحساب من قِبل إدارة شركة لينزا.' };
+          return { success: false, message: 'تم تعطيل هذا الحساب من قِبل إدارة الشركة. يرجى التواصل مع إدارة النظام.' };
         }
       }
 
@@ -487,6 +501,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const hashHex = Array.from(new Uint8Array(hashBuffer))
           .map(b => b.toString(16).padStart(2, '0')).join('');
         secureStorage.setItem('tripro_offline_pw_hash', hashHex);
+        secureStorage.setItem('tripro_offline_cached_at', Date.now());
       } catch (hashErr) {
         logger.warn('[Auth] Could not cache offline password hash:', hashErr);
       }
@@ -497,10 +512,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!navigator.onLine || error?.message?.includes('Failed to fetch') || error?.message?.includes('NetworkError')) {
         const cachedUser = secureStorage.getItem<User>('tripro_cached_user_profile');
         const cachedPasswordHash = secureStorage.getItem<string>('tripro_offline_pw_hash');
+        const cachedAt = secureStorage.getItem<number>('tripro_offline_cached_at');
+        const MAX_OFFLINE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
         if (cachedUser && cachedUser.username.toLowerCase() === finalEmail.toLowerCase() && cachedPasswordHash) {
           if (cachedUser.is_active === false) {
             return { success: false, message: 'تم تعطيل هذا الحساب. يرجى التواصل مع إدارة النظام.' };
+          }
+          if (cachedAt && (Date.now() - cachedAt > MAX_OFFLINE_TTL_MS)) {
+            return { 
+              success: false, 
+              message: 'انتهت صلاحية جلسة العمل بدون إنترنت (تتجاوز 7 أيام). يُرجى الاتصال بالإنترنت لتجديد الصلاحية.' 
+            };
           }
           try {
             const msgBuffer = new TextEncoder().encode(finalPassword + cachedUser.id);

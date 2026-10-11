@@ -198,14 +198,29 @@ export function evaluatePermission(
   userPermissions: Set<string>,
   currentUser: User | null
 ): boolean {
-  // 1. صلاحيات الإدارة الكاملة (Full Admin Access)
+  // 1. صلاحيات الإدارة العليا الكاملة (Super Admin, Admin & Owner Full Access)
   if (
     userRole === 'super_admin' ||
     userRole === 'admin' ||
-    userRole === 'owner' ||
-    userRole === 'manager'
+    userRole === 'owner'
   ) {
     return true;
+  }
+
+  // 1.1 مدير العمليات / الفروع (Manager)
+  // يملك صلاحيات تشغيلية واسعة ولكن لا يتجاوز العمليات الإدارية الحساسة وإعدادات النظام دون تدقيق
+  if (userRole === 'manager') {
+    const sensitiveAdminActions = new Set([
+      'settings.delete',
+      'settings.manage',
+      'users.delete',
+      'organization.delete',
+      'audit.clear',
+      'roles.manage'
+    ]);
+    if (!sensitiveAdminActions.has(`${module}.${action}`)) {
+      return true;
+    }
   }
 
   // 2. التحقق من القواعد الخاصة بالأدوار القطاعية

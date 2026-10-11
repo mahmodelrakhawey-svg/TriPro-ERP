@@ -1,10 +1,16 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization, HrScope, DashboardViewMode, Customer, Supplier, Warehouse, Category, Product, Salesperson, Invoice, Employee, Cheque, Asset } from '../types';
 import { useToast } from '../context/ToastContext';
+import { 
+  Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization, 
+  HrScope, DashboardViewMode, Customer, Supplier, Warehouse, Category, Product, 
+  Salesperson, Invoice, Employee, Cheque, Asset, Budget, CostCenter, PaymentVoucher, 
+  PurchaseInvoice, RestaurantTable, MenuCategory, StockTransfer, User 
+} from '../types';
 import { secureStorage } from '../utils/securityMiddleware';
 import { logger } from '../utils/logger';
+import { validateEntryBalance } from '../utils/financialSafety';
 
 export interface UserProfile {
   id: string;
@@ -84,6 +90,7 @@ interface AccountingContextType {
   cheques: any[];
   currentShift: any;
   activityLog: any[];
+  logActivity?: (action: string, details: string) => void;
   refreshData: () => Promise<void>;
   fetchEntriesPaged: (page: number, pageSize: number) => Promise<{ data: any[], count: number }>;
 
@@ -378,6 +385,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [cheques, setCheques] = useState<any[]>([]);
   const [currentShift, setCurrentShift] = useState<any>(null);
   const [activityLog, setActivityLog] = useState<any[]>([]);
+  const refreshDataPromiseRef = useRef<Promise<void> | null>(null);
+
+  const logActivity = useCallback((action: string, details: string) => {
+    const newLog = {
+      id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      user: currentUser?.full_name || (currentUser as any)?.username || 'مستخدم النظام',
+      action,
+      details,
+      date: new Date().toISOString()
+    };
+    setActivityLog(prev => [newLog, ...prev.slice(0, 49)]);
+  }, [currentUser]);
 
   const isDemo = authUser?.username === 'demo@demo.com' || authUser?.role === 'demo';
 
@@ -443,8 +462,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [authUser]);
 
   const refreshData = useCallback(async () => {
-    if (!authUser) return;
-    setIsLoading(true);
+    if (refreshDataPromiseRef.current) {
+      return refreshDataPromiseRef.current;
+    }
+    const currentPromise = (async () => {
+      if (!authUser) return;
+      setIsLoading(true);
 
     // 📴 إذا كان التطبيق مفصولاً عن الإنترنت أو في وضع الديمو، ننتقل فوراً للبيانات المحلية بدون أي تأخير أو أخطاء
     if (!navigator.onLine || isDemo) {
@@ -556,7 +579,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const serviceChargeRatePercentage = serviceRateNum <= 1 && serviceRateNum > 0 ? serviceRateNum * 100 : serviceRateNum;
         const serviceChargeRateDecimal = serviceChargeRatePercentage / 100;
 
-        // استثناء خاص لشركة لينزا (Lenza): السماح بالبيع برصيد سالب أو صفر دائماً
+        // الحفاظ على خيار البيع بالسالب للمنظمات المصرح لها (بما فيها شركة لينزا كحالة افتراضية موثقة)
         const isLenzaOrg = Boolean(
           (activeOrgObj?.name && /لينزا|lenza/i.test(activeOrgObj.name)) ||
           (activeOrgObj?.commercial_name && /لينزا|lenza/i.test(activeOrgObj.commercial_name)) ||
@@ -564,9 +587,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           (raw?.company_name && /لينزا|lenza/i.test(raw.company_name))
         );
 
-        const allowNegativeStock = isLenzaOrg || (raw.allowNegativeStock !== undefined 
+        const allowNegativeStock = raw.allowNegativeStock !== undefined 
           ? Boolean(raw.allowNegativeStock) 
-          : (raw.allow_negative_stock !== undefined ? Boolean(raw.allow_negative_stock) : false));
+          : (raw.allow_negative_stock !== undefined ? Boolean(raw.allow_negative_stock) : isLenzaOrg);
 
         const lockManualPrices = raw.lockManualPrices !== undefined
           ? Boolean(raw.lockManualPrices)
@@ -619,12 +642,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       setSettings(normalizeSettings(sett || {}));
 
-      // 🛡️ مزامنة قاعدة البيانات لشركة لينزا: ضمان تفعيل allow_negative_stock في company_settings
+      // 🛡️ مزامنة قاعدة البيانات لشركة لينزا: ضمان تفعيل allow_negative_stock لمرة واحدة فقط إذا لم تكن مفعلة مسبقاً
       const isLenzaActive = Boolean(
         (activeOrgObj?.name && /لينزا|lenza/i.test(activeOrgObj.name)) ||
         (activeOrgObj?.commercial_name && /لينزا|lenza/i.test(activeOrgObj.commercial_name))
       );
-      if (isLenzaActive && fetchOrgId && fetchOrgId !== 'org-default-offline') {
+      if (isLenzaActive && fetchOrgId && fetchOrgId !== 'org-default-offline' && !(sett as any)?.allow_negative_stock) {
         supabase
           .from('company_settings')
           .update({ allow_negative_stock: true })
@@ -687,7 +710,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setEntries(ents.data || []);
       setAssets(assetData?.data || []);
       setBudgets(budgetData?.data || []);
-      setVouchers([]);
+
+      const { data: vchrs } = await supabase
+        .from('payment_vouchers')
+        .select('*')
+        .eq('organization_id', fetchOrgId)
+        .is('deleted_at', null)
+        .order('date', { ascending: false })
+        .limit(200);
+      setVouchers(vchrs || []);
       setCostCenters(ccs.data || []);
 
       // 🛡️ عزل نطاق الإشراف للموارد البشرية والرواتب (HR Supervisory Scope)
@@ -707,7 +738,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       setEmployees(scopedEmployees);
-      setSalespeople(scopedEmployees);
+      const mappedSalespeople: Salesperson[] = scopedEmployees.map((e: any) => ({
+        id: e.id,
+        name: e.name || e.full_name || 'مندوب'
+      }));
+      setSalespeople(mappedSalespeople);
 
       const loadedProducts = (prods.data && prods.data.length > 0) ? prods.data : DEFAULT_OFFLINE_PRODUCTS;
       setProducts(loadedProducts);
@@ -768,11 +803,163 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     } finally {
       setIsLoading(false);
     }
-  }, [authUser, currentSelectedOrgId, fiscalYearRange, isDemo, loadOfflineFallbackData]);
+  })();
+
+  refreshDataPromiseRef.current = currentPromise;
+  try {
+    await currentPromise;
+  } finally {
+    refreshDataPromiseRef.current = null;
+  }
+}, [authUser, currentSelectedOrgId, fiscalYearRange.startDate, fiscalYearRange.endDate, isDemo, loadOfflineFallbackData]);
 
   useEffect(() => {
     refreshData();
   }, [refreshData]);
+
+  // --- دوال التحديث المجزأة لكل نطاق لترشيد الأداء ومنع شلال الـ 18 استعلاماً ---
+  const refreshAccountsAndLedger = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      const [accs, ents, ccs, budgetData] = await Promise.all([
+        supabase.from('accounts').select('*').eq('organization_id', targetOrg).order('code'),
+        supabase.from('journal_entries')
+          .select('*, journal_lines(*)')
+          .eq('organization_id', targetOrg)
+          .gte('transaction_date', fiscalYearRange.startDate)
+          .lte('transaction_date', fiscalYearRange.endDate)
+          .order('transaction_date', { ascending: false })
+          .limit(1000),
+        supabase.from('cost_centers').select('*').eq('organization_id', targetOrg).order('name'),
+        supabase.from('budgets').select('*').eq('organization_id', targetOrg)
+      ]);
+      if (accs.data) {
+        setAccounts(accs.data.map((acc: Record<string, any>) => ({
+          ...acc,
+          isGroup: Boolean(acc.is_group ?? acc.isGroup),
+          type: acc.type ? acc.type.toUpperCase() : acc.type
+        })));
+      }
+      if (ents.data) setEntries(ents.data);
+      if (ccs.data) setCostCenters(ccs.data);
+      if (budgetData.data) setBudgets(budgetData.data);
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshAccountsAndLedger:', e);
+    }
+  }, [getEffectiveOrgId, fiscalYearRange.startDate, fiscalYearRange.endDate]);
+
+  const refreshCustomers = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      const res = await fetchAllTableRecords('customers', q => q.eq('organization_id', targetOrg).is('deleted_at', null).order('name'));
+      if (res.data) setCustomers(res.data);
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshCustomers:', e);
+    }
+  }, [getEffectiveOrgId]);
+
+  const refreshSuppliers = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      const res = await fetchAllTableRecords('suppliers', q => q.eq('organization_id', targetOrg).is('deleted_at', null).order('name'));
+      if (res.data) setSuppliers(res.data);
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshSuppliers:', e);
+    }
+  }, [getEffectiveOrgId]);
+
+  const refreshProductsAndInventory = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      const [prods, trns, cats, whs] = await Promise.all([
+        fetchAllTableRecords('products', q => q.eq('organization_id', targetOrg).is('deleted_at', null).order('name')),
+        supabase.from('stock_transfers').select('*').eq('organization_id', targetOrg).order('transfer_date', { ascending: false }).limit(500),
+        supabase.from('item_categories').select('*').eq('organization_id', targetOrg).order('name'),
+        supabase.from('warehouses').select('*').eq('organization_id', targetOrg).eq('is_active', true)
+      ]);
+      if (prods.data) {
+        setProducts(prods.data);
+        offlineService.seedFallbackProducts(prods.data).catch(() => {});
+      }
+      if (trns.data) setTransfers(trns.data);
+      if (cats.data) {
+        setCategories(cats.data);
+        setMenuCategories(cats.data);
+      }
+      if (whs.data) setWarehouses(whs.data);
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshProductsAndInventory:', e);
+    }
+  }, [getEffectiveOrgId]);
+
+  const refreshSalesAndPurchases = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      const [pinvs, invs] = await Promise.all([
+        supabase.from('purchase_invoices')
+          .select('*')
+          .eq('organization_id', targetOrg)
+          .gte('invoice_date', fiscalYearRange.startDate)
+          .lte('invoice_date', fiscalYearRange.endDate)
+          .order('invoice_date', { ascending: false })
+          .limit(1000),
+        supabase.from('invoices')
+          .select('*')
+          .eq('organization_id', targetOrg)
+          .gte('invoice_date', fiscalYearRange.startDate)
+          .lte('invoice_date', fiscalYearRange.endDate)
+          .order('invoice_date', { ascending: false })
+          .limit(1000)
+      ]);
+      if (pinvs.data) setPurchaseInvoices(pinvs.data);
+      if (invs.data) setInvoices(invs.data);
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshSalesAndPurchases:', e);
+    }
+  }, [getEffectiveOrgId, fiscalYearRange.startDate, fiscalYearRange.endDate]);
+
+  const refreshBankingAndShift = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      const [chqs, shift, vchrs] = await Promise.all([
+        supabase.from('cheques').select('*').eq('organization_id', targetOrg).order('due_date'),
+        supabase.rpc('get_active_shift', { p_org_id: targetOrg }),
+        supabase.from('payment_vouchers').select('*').eq('organization_id', targetOrg).is('deleted_at', null).order('date', { ascending: false }).limit(200)
+      ]);
+      if (chqs.data) setCheques(chqs.data);
+      if (vchrs.data) setVouchers(vchrs.data);
+      const activeShiftData = Array.isArray(shift.data) ? shift.data[0] : shift.data;
+      if (activeShiftData && activeShiftData.id) {
+        setCurrentShift(activeShiftData);
+      }
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshBankingAndShift:', e);
+    }
+  }, [getEffectiveOrgId]);
+
+  const refreshAssets = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      const { data } = await supabase.from('assets').select('*').eq('organization_id', targetOrg).is('deleted_at', null);
+      if (data) setAssets(data);
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshAssets:', e);
+    }
+  }, [getEffectiveOrgId]);
 
   // --- تنفيذ الدوال المطلوبة (RPC Wrappers) ---
   const clearCache = () => { window.location.reload(); };
@@ -830,9 +1017,23 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_org_id: targetOrgId
     };
 
+    const balanceCheck = validateEntryBalance({
+      reference: entry.reference || 'JE-DRAFT',
+      date: payload.date,
+      lines: sanitizedLines
+    });
+
+    if (!balanceCheck.isBalanced) {
+      const errMsg = `القيد المحاسبي غير متوازن: إجمالي المدين (${balanceCheck.totalDebit}) لا يساوي إجمالي الدائن (${balanceCheck.totalCredit}) بفارق ${balanceCheck.difference}`;
+      logger.error('addEntry balance error:', errMsg);
+      showToast(errMsg, 'error');
+      throw new Error(errMsg);
+    }
+
     const { error } = await supabase.rpc('add_journal_entry', payload);
     if (error) throw error;
-    refreshData();
+    logActivity('إنشاء قيد يومية', `قيد مرجعي: ${payload.reference || 'عام'}`);
+    await refreshAccountsAndLedger();
   };
   const getSystemAccount = (key: string) => {
     const mappingId = settings.account_mappings?.[key];
@@ -913,7 +1114,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     return undefined;
   };
-  const updateVoucher = async () => true;
+  const updateVoucher = async (id: string, updates: DynamicParam) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('payment_vouchers').update(updates).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
+    if (error) {
+      logger.error('updateVoucher error:', error);
+      showToast('فشل تعديل السند: ' + error.message, 'error');
+      return false;
+    }
+    showToast('تم تعديل السند بنجاح ✅', 'success');
+    await refreshData();
+    return true;
+  };
   const getAccountBalanceInPeriod = async (id: string, start: string, end: string) => { 
     const { data } = await supabase.rpc('get_account_balance_in_period', { p_account_id: id, p_start_date: start, p_end_date: end, p_org_id: currentSelectedOrgId });
     return data || 0;
@@ -922,19 +1136,33 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { data, error } = await supabase.from('accounts').insert({ ...acc, organization_id: targetOrgId }).select().single(); 
     if (error) throw error;
-    await refreshData(); return data; 
+    await refreshAccountsAndLedger(); return data; 
   };
-  const updateAccount = async (id: string, updates: Partial<Account>) => { await supabase.from('accounts').update(updates).eq('id', id); refreshData(); };
-  const deleteAccount = async (id: string, reason?: string) => { const { error } = await supabase.from('accounts').delete().eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
-  const clearTransactions = async () => { await supabase.rpc('clear_all_transactions'); refreshData(); };
-  const emptyRecycleBin = async (table: string) => { await supabase.rpc('empty_recycle_bin', { p_table_name: table }); refreshData(); };
+  const updateAccount = async (id: string, updates: Partial<Account>) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('accounts').update(updates).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
+    if (error) throw error;
+    await refreshAccountsAndLedger();
+  };
+  const deleteAccount = async (id: string, _reason?: string) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('accounts').delete().eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
+    await refreshAccountsAndLedger();
+    return { success: !error, message: error?.message };
+  };
+  const clearTransactions = async () => { await supabase.rpc('clear_all_transactions'); await refreshAccountsAndLedger(); };
+  const emptyRecycleBin = async (table: string) => { await supabase.rpc('empty_recycle_bin', { p_table_name: table }); await refreshData(); };
   const saveBudget = async (budget: Record<string, any>) => { 
     const { error } = await supabase.from('budgets').upsert(budget); 
     if (error) {
       showToast('فشل حفظ الموازنة: ' + error.message, 'error');
     } else {
       showToast('تم حفظ الموازنة بنجاح ✅', 'success');
-      refreshData(); 
+      await refreshAccountsAndLedger(); 
     }
   };
   // Inventory
@@ -943,30 +1171,31 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_product_id: productId || null, 
       p_org_id: currentSelectedOrgId || currentUser?.organization_id || null 
     }); 
-        if (error) {
+    if (error) {
       showToast('فشل إعادة حساب المخزون: ' + error.message, 'error');
     } else {
       showToast('تم تحديث المخزون بنجاح ✅', 'success');
-      await refreshData(); // 🚀 الانتظار ضروري لتحديث الحالة قبل إغلاق اللودر في الواجهة
+      await refreshProductsAndInventory();
     }
-  };  const addProduct = async (data: Partial<Product>) => { 
+  };
+
+  const addProduct = async (data: Partial<Product>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const payload: Record<string, any> = { ...data, organization_id: targetOrgId };
+    const payload: Record<string, any> = { 
+      ...data, 
+      organization_id: targetOrgId,
+      created_by: currentUser?.id,
+      updated_by: currentUser?.id
+    };
     
-    // إزالة الحقول غير الموجودة في جدول الأصناف بقاعدة البيانات
-    const firstProd = products.length > 0 ? products[0] : null;
-    if (firstProd) {
-      if (!('supplier_id' in firstProd)) delete payload.supplier_id;
-      if (!('egs_code' in firstProd)) delete payload.egs_code;
-      if (!('item_code_type' in firstProd)) delete payload.item_code_type;
-      if (!('eta_unit_code' in firstProd)) delete payload.eta_unit_code;
-    }
+    // إزالة الحقول المؤقتة أو غير المتطابقة
+    if (payload.supplier_id === '') delete payload.supplier_id;
 
     let p: DynamicParam = null;
     let error: DynamicParam = null;
 
-    // محاولة الإدخال مع معالجة ديناميكية لأي عمود مفقود من قاعدة البيانات
-    for (let attempt = 0; attempt < 5; attempt++) {
+    // محاولة الإدخال مع معالجة مرنة لأي عمود قديم
+    for (let attempt = 0; attempt < 3; attempt++) {
       const res = await supabase.from('products').insert(payload).select().single();
       p = res.data;
       error = res.error;
@@ -978,34 +1207,33 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           delete payload[match[1]];
           continue;
         }
-        if (error.message?.includes('supplier_id') && 'supplier_id' in payload) {
-          delete payload.supplier_id;
-          continue;
-        }
       }
       break;
     }
 
-    if (error) throw error;
-    await refreshData(); return p; 
+    if (error) {
+      logger.error('addProduct error:', error);
+      showToast('فشل إضافة الصنف: ' + error.message, 'error');
+      throw error;
+    }
+    showToast('تمت إضافة الصنف بنجاح ✅', 'success');
+    logActivity('إضافة صنف', `تمت إضافة الصنف: ${data.name || ''}`);
+    await refreshProductsAndInventory(); 
+    return p; 
   };
   const updateProduct = async (id: string, data: Partial<Product>) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const payload: Record<string, any> = { ...data };
+    delete payload.id;
+    delete payload.organization_id;
+    payload.updated_by = currentUser?.id;
     
-    // إزالة الحقول غير الموجودة في جدول الأصناف بقاعدة البيانات
-    const firstProd = products.length > 0 ? products[0] : null;
-    if (firstProd) {
-      if (!('supplier_id' in firstProd)) delete payload.supplier_id;
-      if (!('egs_code' in firstProd)) delete payload.egs_code;
-      if (!('item_code_type' in firstProd)) delete payload.item_code_type;
-      if (!('eta_unit_code' in firstProd)) delete payload.eta_unit_code;
-    }
-
     let error: DynamicParam = null;
 
-    // محاولة التحديث مع معالجة ديناميكية لأي عمود مفقود من قاعدة البيانات
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const res = await supabase.from('products').update(payload).eq('id', id);
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let query = supabase.from('products').update(payload).eq('id', id);
+      if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+      const res = await query;
       error = res.error;
       if (!error) break;
 
@@ -1015,51 +1243,68 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           delete payload[match[1]];
           continue;
         }
-        if (error.message?.includes('supplier_id') && 'supplier_id' in payload) {
-          delete payload.supplier_id;
-          continue;
-        }
       }
       break;
     }
 
-    if (error) throw error;
-    refreshData(); 
+    if (error) {
+      logger.error('updateProduct error:', error);
+      showToast('فشل تحديث الصنف: ' + error.message, 'error');
+      throw error;
+    }
+    showToast('تم تحديث بيانات الصنف بنجاح ✅', 'success');
+    logActivity('تعديل صنف', `تم تعديل بيانات الصنف رقم: ${id}`);
+    await refreshProductsAndInventory(); 
   };
-  const deleteProduct = async (id: string, reason?: string) => { 
-    // تم إزالة تحديث حقل 'notes' لأن الجدول لا يحتوي عليه في قاعدة البيانات حالياً
-    const { error } = await supabase.from('products').update({ deleted_at: new Date().toISOString() }).eq('id', id);
-          
+  const deleteProduct = async (id: string, _reason?: string) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('products').update({ 
+      deleted_at: new Date().toISOString(),
+      updated_by: currentUser?.id
+    }).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (error) throw error;
     showToast('تم نقل الصنف إلى سلة المحذوفات', 'success');
-    refreshData(); 
+    logActivity('حذف صنف', `تم حذف الصنف رقم: ${id}`);
+    await refreshProductsAndInventory(); 
   };
   const addStockTransfer = async (data: DynamicParam) => { 
     const { error } = await supabase.from('stock_transfers').insert(data);
     if (error) throw error;
-    refreshData(); 
+    await refreshProductsAndInventory(); 
   };
   const approveStockTransfer = async (id: string) => { 
     const { error } = await supabase.rpc('approve_stock_transfer', { p_transfer_id: id });
     if (error) throw error;
-    refreshData(); 
+    await refreshProductsAndInventory(); 
   };
-  const cancelStockTransfer = async (id: string) => { await supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id); showToast('تم إلغاء طلب التحويل', 'info'); refreshData(); };
+  const cancelStockTransfer = async (id: string) => { 
+    await supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id); 
+    showToast('تم إلغاء طلب التحويل', 'info'); 
+    await refreshProductsAndInventory(); 
+  };
   const addWarehouse = async (data: Partial<Warehouse>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { error } = await supabase.from('warehouses').insert({ ...data, organization_id: targetOrgId }); 
     if (error) throw error;
-    await refreshData(); 
+    await refreshProductsAndInventory(); 
   };
-   const updateWarehouse = async (id: string, data: Partial<Warehouse>) => { 
-    const { error } = await supabase.from('warehouses').update(data).eq('id', id);
+  const updateWarehouse = async (id: string, data: Partial<Warehouse>) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('warehouses').update(data).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (error) throw error;
-    refreshData(); 
+    await refreshProductsAndInventory(); 
   };
   const deleteWarehouse = async (id: string) => { 
-    const { error } = await supabase.from('warehouses').update({ is_active: false }).eq('id', id);
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('warehouses').update({ is_active: false }).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (error) throw error;
-    refreshData(); 
+    await refreshProductsAndInventory(); 
   };
   const addWastage = async (data: Record<string, any>) => { 
     const { error } = await supabase.rpc('record_wastage', data); 
@@ -1067,7 +1312,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       showToast('فشل تسجيل الهالك: ' + error.message, 'error');
     } else {
       showToast('تم تسجيل الهالك وتحديث المخزن ✅', 'success');
-      refreshData();
+      await refreshProductsAndInventory();
     }
     return !error; 
   };
@@ -1076,35 +1321,69 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // Sales & Purchases
   const addCustomer = async (data: Partial<Customer>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { data: c, error } = await supabase.from('customers').insert({ ...data, organization_id: targetOrgId }).select().single(); 
+    const { data: c, error } = await supabase.from('customers').insert({
+      ...data,
+      organization_id: targetOrgId,
+      created_by: currentUser?.id,
+      updated_by: currentUser?.id
+    }).select().single(); 
     if (error) throw error;
-    await refreshData(); return c; 
+    logActivity('إضافة عميل', `تم إضافة العميل: ${data.name || ''}`);
+    await refreshCustomers(); return c; 
   };
   const updateCustomer = async (id: string, data: Partial<Customer>) => { 
-    const { error } = await supabase.from('customers').update(data).eq('id', id);
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('customers').update({
+      ...data,
+      updated_by: currentUser?.id
+    }).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (error) throw error;
-    refreshData(); 
+    logActivity('تعديل عميل', `تم تعديل بيانات العميل رقم: ${id}`);
+    await refreshCustomers(); 
   };
   const deleteCustomer = async (id: string, reason?: string) => { 
-    const { error } = await supabase.from('customers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('customers').update({
+      deleted_at: new Date().toISOString(),
+      deletion_reason: reason,
+      updated_by: currentUser?.id
+    }).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (error) throw error;
-    refreshData(); 
+    logActivity('حذف عميل', `تم حذف العميل رقم: ${id}`);
+    await refreshCustomers(); 
   };
   const addSupplier = async (data: Partial<Supplier>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { data: s, error } = await supabase.from('suppliers').insert({ ...data, organization_id: targetOrgId }).select().single(); 
+    const { data: s, error } = await supabase.from('suppliers').insert({
+      ...data,
+      organization_id: targetOrgId,
+      created_by: currentUser?.id,
+      updated_by: currentUser?.id
+    }).select().single(); 
     if (error) {
       showToast('فشل إضافة المورد: ' + error.message, 'error');
       throw error;
     }
     showToast('تم إضافة المورد بنجاح ✅', 'success');
-    await refreshData();
+    logActivity('إضافة مورد', `تم إضافة المورد: ${data.name || ''}`);
+    await refreshSuppliers();
     return s; 
   };
-    const updateSupplier = async (id: string, data: Partial<Supplier>) => { 
-    const { error } = await supabase.from('suppliers').update(data).eq('id', id);
+  const updateSupplier = async (id: string, data: Partial<Supplier>) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('suppliers').update({
+      ...data,
+      updated_by: currentUser?.id
+    }).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (error) throw error;
-    refreshData(); 
+    logActivity('تعديل مورد', `تم تعديل بيانات المورد رقم: ${id}`);
+    await refreshSuppliers(); 
   };
   const deleteSupplier = async (id: string, reason?: string) => { 
     // حذف قيد الرصيد الافتتاحي المرتبط بالمورد إن وجد لتفادي بقائه معلقاً في الأستاذ العام
@@ -1123,9 +1402,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       logger.warn('Could not auto-clean opening balance entry for supplier:', e);
     }
 
-    const { error } = await supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (error) throw error;
-    refreshData(); 
+    await refreshSuppliers(); 
   };
   const approveInvoice = async (id: string, orgId?: string, warehouseId?: string) => { 
     const { error } = await supabase.rpc('post_sales_invoice', { 
@@ -1137,7 +1419,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       logger.error('approveInvoice RPC error:', error);
       throw error;
     }
-    refreshData(); 
+    await refreshSalesAndPurchases(); 
     return true; 
   };
 
@@ -1151,8 +1433,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       logger.warn('RPC unpost_sales_invoice error:', error);
       throw error;
     }
-    refreshData();
-    return true;
+    await refreshSalesAndPurchases();
+    return true; 
   };
 
   const deleteSalesInvoice = async (id: string, orgId?: string): Promise<boolean> => {
@@ -1165,8 +1447,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       logger.warn('RPC delete_sales_invoice error:', error);
       throw error;
     }
-    refreshData();
-    return true;
+    await refreshSalesAndPurchases();
+    return true; 
   };
 
   const approvePurchaseInvoice = async (id: string, orgId?: string, warehouseId?: string) => { 
@@ -1180,7 +1462,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       throw error;
     } else {
       showToast('تم اعتماد فاتورة المشتريات وتحديث المخزون بنجاح ✅', 'success');
-      refreshData();
+      await refreshSalesAndPurchases();
     }
   };
 
@@ -1194,8 +1476,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       logger.warn('RPC unpost_purchase_invoice error:', error);
       throw error;
     }
-    refreshData();
-    return true;
+    await refreshSalesAndPurchases();
+    return true; 
   };
 
   const deletePurchaseInvoice = async (id: string, orgId?: string): Promise<boolean> => {
@@ -1208,8 +1490,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       logger.warn('RPC delete_purchase_invoice error:', error);
       throw error;
     }
-    refreshData();
-    return true;
+    await refreshSalesAndPurchases();
+    return true; 
   };
   const convertPoToInvoice = async (id: string, warehouseId?: string, orgId?: string) => { 
     const { error } = await supabase.rpc('convert_po_to_invoice', { 
@@ -1221,7 +1503,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       showToast('فشل تحويل أمر الشراء: ' + error.message, 'error');
     } else {
       showToast('تم تحويل أمر الشراء إلى فاتورة بنجاح ✅', 'success');
-      refreshData();
+      await refreshSalesAndPurchases();
     }
   };
   const addOpeningBalanceTransaction = async (id: string, type: string, amount: number, date: string, name: string) => {
@@ -1474,16 +1756,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     }
 
-    await refreshData(); 
+    await refreshAssets(); 
   };
   const updateAsset = async (id: string, updates: Partial<Asset>) => {
-    const { error } = await supabase.from('assets').update(updates).eq('id', id);
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('assets').update(updates).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (error) throw error;
-    await refreshData();
+    await refreshAssets();
   };
   const deleteAsset = async (id: string) => {
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { error } = await supabase.from('assets').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+    let query = supabase.from('assets').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (error) throw error;
 
     // إلغاء ترحيل قيود الأصل المرتبطة (الشراء والإهلاك) حتى لا تظهر في ميزان المراجعة أثناء وجود الأصل بالسلة
@@ -1503,15 +1790,68 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       logger.warn('deleteAsset unpost fallback:', e);
     }
 
-    await refreshData();
+    await refreshAssets();
   };
-  const runDepreciation = async (id?: string, amount?: number, date?: string) => { await supabase.rpc('run_monthly_depreciation', { p_asset_id: id, p_amount: amount, p_date: date }); refreshData(); };
-  const revaluateAsset = async (id: string, val: number, date: string, accId: string) => { await supabase.from('assets').update({ current_value: val }).eq('id', id); refreshData(); };
+  const runDepreciation = async (id?: string, amount?: number, date?: string) => { 
+    const { error } = await supabase.rpc('run_monthly_depreciation', { p_asset_id: id, p_amount: amount, p_date: date }); 
+    if (error) {
+      logger.error('runDepreciation error:', error);
+      showToast('فشل تنفيذ الإهلاك: ' + error.message, 'error');
+      throw error;
+    }
+    showToast('تم تنفيذ الإهلاك وتحديث الأرصدة بنجاح ✅', 'success');
+    await refreshAssets(); 
+  };
+  const revaluateAsset = async (id: string, val: number, date: string, accId: string) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { data: asset, error: fetchErr } = await supabase.from('assets').select('*').eq('id', id).maybeSingle();
+    if (fetchErr || !asset) {
+      showToast('تعذر العثور على بيانات الأصل لإعادة التقييم', 'error');
+      return;
+    }
+    const oldVal = Number(asset.current_value ?? asset.purchase_cost) || 0;
+    const newVal = Number(val) || 0;
+    const diff = newVal - oldVal;
+
+    let updateQuery = supabase.from('assets').update({ current_value: newVal }).eq('id', id);
+    if (targetOrgId) updateQuery = updateQuery.eq('organization_id', targetOrgId);
+    const { error: updateErr } = await updateQuery;
+    if (updateErr) {
+      showToast('فشل إعادة تقييم الأصل: ' + updateErr.message, 'error');
+      return;
+    }
+
+    if (diff !== 0 && accId && asset.asset_account_id) {
+      try {
+        const isSurplus = diff > 0;
+        const absDiff = Math.abs(diff);
+        await addEntry({
+          date: date || new Date().toISOString().split('T')[0],
+          description: `إعادة تقييم الأصل: ${asset.name} (${isSurplus ? 'فائض' : 'عجز'} تقييم)`,
+          reference: `REVAL-${asset.id.slice(0, 8).toUpperCase()}`,
+          status: 'posted',
+          p_org_id: targetOrgId,
+          lines: isSurplus ? [
+            { accountId: asset.asset_account_id, debit: absDiff, credit: 0, description: `زيادة قيمة الأصل ${asset.name}` },
+            { accountId: accId, debit: 0, credit: absDiff, description: `احتياطي فائض إعادة التقييم` }
+          ] : [
+            { accountId: accId, debit: absDiff, credit: 0, description: `خسائر وعجز إعادة تقييم الأصل` },
+            { accountId: asset.asset_account_id, debit: 0, credit: absDiff, description: `تخفيض قيمة الأصل ${asset.name}` }
+          ]
+        });
+      } catch (jeErr) {
+        logger.warn('Revaluation journal entry notice:', jeErr);
+      }
+    }
+
+    showToast('تمت إعادة تقييم الأصل بنجاح ✅', 'success');
+    await refreshAssets(); 
+  };
   const addCheque = async (cheque: Partial<Cheque>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { error } = await supabase.from('cheques').insert({ ...cheque, organization_id: targetOrgId }); 
     if (error) throw error;
-    await refreshData(); 
+    await refreshBankingAndShift(); 
   };
 
   const updateCheque = async (id: string, cheque: Partial<Cheque>) => {
@@ -1544,7 +1884,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // ignore
     }
 
-    await refreshData();
+    await refreshBankingAndShift();
   };
 
   const deleteCheque = async (id: string) => {
@@ -1576,7 +1916,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await supabase.from('cheque_attachments').delete().eq('cheque_id', id);
 
     // 4. حذف سجل الشيك
-    const { error: delError } = await supabase.from('cheques').delete().eq('id', id);
+    let delQuery = supabase.from('cheques').delete().eq('id', id);
+    if (targetOrgId) delQuery = delQuery.eq('organization_id', targetOrgId);
+    const { error: delError } = await delQuery;
     if (delError) throw delError;
 
     // 5. تحديث الأرصدة
@@ -1586,7 +1928,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // ignore
     }
 
-    await refreshData();
+    await refreshBankingAndShift();
   };
   const updateChequeStatus = async (id: string, status: string, date: string, bankId?: string) => {
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
@@ -1603,7 +1945,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           p_user_id: currentUser?.id || null
         });
         if (!rpcError && (rpcRes?.success || rpcRes === true)) {
-          await refreshData();
+          await refreshBankingAndShift();
           return;
         }
         if (rpcError) {
@@ -1696,7 +2038,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         throw error;
       }
     }
-    await refreshData(); 
+    await refreshBankingAndShift(); 
   };     
   const addTransfer = async (transfer: Record<string, any>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
@@ -1817,9 +2159,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
+  const ALLOWED_RECYCLE_TABLES = ['products', 'customers', 'suppliers', 'assets', 'warehouses', 'employees', 'restaurant_tables'];
+
   const restoreItem = async (table: string, id: string) => { 
+    if (!ALLOWED_RECYCLE_TABLES.includes(table)) {
+      return { success: false, message: 'الجدول غير مصرح به لعمليات الاسترجاع' };
+    }
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { error } = await supabase.from(table).update({ deleted_at: null }).eq('id', id); 
+    let query = supabase.from(table).update({ deleted_at: null }).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (!error && table === 'assets') {
       try {
         const prefix = id.split('-')[0].toUpperCase();
@@ -1837,11 +2186,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         logger.warn('restoreItem asset repost fallback:', e);
       }
     }
-    refreshData(); 
+    await refreshData(); 
     return { success: !error, message: error?.message }; 
   };
 
   const permanentDeleteItem = async (table: string, id: string) => { 
+    if (!ALLOWED_RECYCLE_TABLES.includes(table)) {
+      return { success: false, message: 'الجدول غير مصرح به لعمليات الحذف النهائي' };
+    }
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     if (table === 'assets') {
       try {
@@ -1877,8 +2229,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
     }
 
-    const { error } = await supabase.from(table).delete().eq('id', id); 
-    refreshData(); 
+    let delQuery = supabase.from(table).delete().eq('id', id);
+    if (targetOrgId) delQuery = delQuery.eq('organization_id', targetOrgId);
+    const { error } = await delQuery;
+    await refreshData(); 
     return { success: !error, message: error?.message }; 
   };
   const exportJournalToCSV = async () => {
@@ -2391,11 +2745,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     try {
       const { error } = await supabase.rpc('process_split_payment', { p_order_id: orderId, p_items: items, p_payment_method: method, p_amount: total, p_cash_account_id: accountId, p_org_id: currentSelectedOrgId });
-      if (error) { showToast(error.message, 'error'); return false; }
-      refreshData();
+      if (error) { 
+        logger.error('process_split_payment RPC error:', error);
+        showToast(error.message, 'error'); 
+        return false; 
+      }
+      await refreshData();
       return true;
-    } catch {
-      return true;
+    } catch (err: any) {
+      logger.error('processSplitPayment exception:', err);
+      showToast('فشل معالجة الدفع الجزئي: ' + (err?.message || ''), 'error');
+      return false;
     }
   };
 
@@ -2594,7 +2954,37 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return false;
     }
   };
-  const exportData = async () => { /* Logic to export JSON */ };
+  const exportData = async () => {
+    try {
+      const exportPayload = {
+        exported_at: new Date().toISOString(),
+        organization_id: effectiveOrgId,
+        organization_name: organization?.name || 'TriPro Organization',
+        settings,
+        accounts: accounts.map(a => ({ code: a.code, name: a.name, type: a.type, balance: a.balance })),
+        customers: customers.map((c: any) => ({ id: c.id, name: c.name, phone: c.phone, balance: c.balance })),
+        suppliers: suppliers.map((s: any) => ({ id: s.id, name: s.name, phone: s.phone, balance: s.balance })),
+        products: products.map((p: any) => ({ id: p.id, name: p.name, sku: p.sku, price: p.price, stock: p.stock })),
+      };
+      if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+        const jsonStr = JSON.stringify(exportPayload, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `tripro_backup_${effectiveOrgId || 'org'}_${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+      logActivity('تصدير بيانات', 'تم تصدير نسخة احتياطية من بيانات المنظمة بصيغة JSON');
+      showToast('تم تصدير نسخة احتياطية من البيانات بنجاح ✅', 'success');
+    } catch (err: any) {
+      logger.error('Failed to export data:', err);
+      showToast('فشل تصدير البيانات: ' + (err?.message || ''), 'error');
+    }
+  };
 
   const deleteOrganization = useCallback(async (orgId: string) => {
     const res = await deleteOrganizationSafe({ supabase, orgId, currentUser });
@@ -2614,7 +3004,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, effectiveOrgId, getEffectiveOrgId, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
     fetchEntriesPaged, employees, products, transfers, purchaseInvoices, invoices, salespeople, categories,
     users, warehouses, restaurantTables, menuCategories, customers, suppliers, cheques,
-    currentShift, activityLog, refreshData, isDemo, can, clearCache,
+    currentShift, activityLog, logActivity, refreshData, isDemo, can, clearCache,
     // Accounting Functions
     addEntry, getSystemAccount, updateVoucher, getAccountBalanceInPeriod, addAccount, updateAccount, deleteAccount, clearTransactions, emptyRecycleBin, saveBudget,
     // Inventory Functions

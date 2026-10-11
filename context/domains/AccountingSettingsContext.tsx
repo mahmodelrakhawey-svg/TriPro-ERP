@@ -131,16 +131,20 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({
   }, [orgId, fetchSettingsData]);
 
   const updateAccount = useCallback(async (id: string, updates: Partial<Account>): Promise<void> => {
-    const { error } = await supabase.from('accounts').update(updates).eq('id', id);
+    let query = supabase.from('accounts').update(updates).eq('id', id);
+    if (orgId) query = query.eq('organization_id', orgId);
+    const { error } = await query;
     if (error) throw error;
     await fetchSettingsData();
-  }, [fetchSettingsData]);
+  }, [orgId, fetchSettingsData]);
 
   const deleteAccount = useCallback(async (id: string, _reason?: string): Promise<{ success: boolean; message?: string }> => {
-    const { error } = await supabase.from('accounts').delete().eq('id', id);
+    let query = supabase.from('accounts').delete().eq('id', id);
+    if (orgId) query = query.eq('organization_id', orgId);
+    const { error } = await query;
     await fetchSettingsData();
     return { success: !error, message: error?.message };
-  }, [fetchSettingsData]);
+  }, [orgId, fetchSettingsData]);
 
   const addEntry = useCallback(async (entry: Record<string, unknown>): Promise<void> => {
     const targetOrgId = (entry.p_org_id || entry.organization_id || orgId) as string | undefined;

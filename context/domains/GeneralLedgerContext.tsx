@@ -14,6 +14,7 @@ import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { closeFinancialYearEngine, reopenFinancialYearEngine } from '../../services/financialYearService';
+import { validateEntryBalance } from '../../utils/financialSafety';
 
 export interface FiscalYearRange {
   startDate: string;
@@ -164,6 +165,18 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
       lines: sanitizedLines,
       p_org_id: targetOrgId
     };
+
+    const balanceCheck = validateEntryBalance({
+      reference: (entry.reference as string) || 'JE-DRAFT',
+      date: payload.date as string,
+      lines: sanitizedLines as any
+    });
+
+    if (!balanceCheck.isBalanced) {
+      const errMsg = `القيد المحاسبي غير متوازن: إجمالي المدين (${balanceCheck.totalDebit}) لا يساوي إجمالي الدائن (${balanceCheck.totalCredit}) بفارق ${balanceCheck.difference}`;
+      logger.error('addEntry balance error:', errMsg);
+      throw new Error(errMsg);
+    }
 
     const { error } = await supabase.rpc('add_journal_entry', payload);
     if (error) throw error;

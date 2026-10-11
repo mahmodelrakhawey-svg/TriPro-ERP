@@ -96,13 +96,62 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
   }, [fetchCheques]);
 
   const deleteCheque = useCallback(async (id: string): Promise<void> => {
-    const { error } = await supabase.from('cheques').delete().eq('id', id);
+    // 1. جلب معرف القيد المحاسبي المربوط بالشيك
+    const { data: chq } = await supabase.from('cheques').select('related_journal_entry_id').eq('id', id).maybeSingle();
+    
+    // 2. حذف قيود اليومية المرتبطة بالشيك
+    if (chq?.related_journal_entry_id) {
+      await supabase.from('journal_lines').delete().eq('journal_entry_id', chq.related_journal_entry_id);
+      await supabase.from('journal_entries').delete().eq('id', chq.related_journal_entry_id);
+    }
+
+    if (orgId) {
+      const { data: relatedEntries } = await supabase
+        .from('journal_entries')
+        .select('id')
+        .eq('related_document_id', id)
+        .eq('organization_id', orgId);
+
+      if (relatedEntries && relatedEntries.length > 0) {
+        const entryIds = relatedEntries.map(e => e.id);
+        await supabase.from('journal_lines').delete().in('journal_entry_id', entryIds);
+        await supabase.from('journal_entries').delete().in('id', entryIds);
+      }
+    }
+
+    // 3. حذف مرفقات الشيك
+    await supabase.from('cheque_attachments').delete().eq('cheque_id', id);
+
+    // 4. حذف سجل الشيك
+    let delQuery = supabase.from('cheques').delete().eq('id', id);
+    if (orgId) delQuery = delQuery.eq('organization_id', orgId);
+    const { error } = await delQuery;
     if (error) throw error;
     await fetchCheques();
-  }, [fetchCheques]);
+  }, [orgId, fetchCheques]);
 
   const updateChequeStatus = useCallback(async (id: string, status: string, date: string, bankId?: string): Promise<void> => {
     const actionDate = date || new Date().toISOString().split('T')[0];
+
+    // محاولة استدعاء الدالة المباشرة RPC لصرف أو تحصيل الشيك
+    if (status === 'cashed' || status === 'collected') {
+      try {
+        const { data: rpcRes, error: rpcError } = await supabase.rpc('cash_or_collect_cheque', {
+          p_cheque_id: id,
+          p_status: status,
+          p_bank_account_id: bankId || null,
+          p_action_date: actionDate,
+          p_user_id: null
+        });
+        if (!rpcError && (rpcRes?.success || rpcRes === true)) {
+          await fetchCheques();
+          return;
+        }
+      } catch (e) {
+        logger.warn('RPC cash_or_collect_cheque fallback:', e);
+      }
+    }
+
     const updatePayload: { status: string; current_account_id?: string | null; transfer_date?: string } = {
       status,
       transfer_date: actionDate
@@ -110,22 +159,26 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
     if (bankId !== undefined) {
       updatePayload.current_account_id = bankId;
     }
-    const { error } = await supabase.from('cheques').update(updatePayload).eq('id', id);
+    let query = supabase.from('cheques').update(updatePayload).eq('id', id);
+    if (orgId) query = query.eq('organization_id', orgId);
+    const { error } = await query;
     if (error) throw error;
     await fetchCheques();
-  }, [fetchCheques]);
+  }, [orgId, fetchCheques]);
 
   const addPaymentVoucher = useCallback(async (voucher: Partial<PaymentVoucher>): Promise<void> => {
     if (!orgId) return;
-    const { error } = await supabase.from('vouchers').insert({ ...voucher, organization_id: orgId });
+    const { error } = await supabase.from('payment_vouchers').insert({ ...voucher, organization_id: orgId });
     if (error) throw error;
   }, [orgId]);
 
   const updateVoucher = useCallback(async (id: string, updates: Partial<PaymentVoucher>): Promise<boolean> => {
-    const { error } = await supabase.from('vouchers').update(updates).eq('id', id);
+    let query = supabase.from('payment_vouchers').update(updates).eq('id', id);
+    if (orgId) query = query.eq('organization_id', orgId);
+    const { error } = await query;
     if (error) throw error;
     return true;
-  }, []);
+  }, [orgId]);
 
   const addTransfer = useCallback(async (transfer: Record<string, unknown>): Promise<void> => {
     if (!orgId) return;
