@@ -57,6 +57,7 @@ export interface HrPenaltyReward {
   organization_id?: string | null;
   employee_id: string;
   employee_name?: string;
+  employee_department?: string;
   type: 'PENALTY' | 'REWARD' | 'WARNING';
   category: string;
   reason: string;
@@ -395,14 +396,15 @@ class HrEnterpriseService {
   public async getPenaltiesRewards(organizationId?: string): Promise<HrPenaltyReward[]> {
     const local = secureStorage.getItem<HrPenaltyReward[]>(LOCAL_PENALTIES_KEY) || [];
     try {
-      let query = supabase.from('hr_penalties_rewards').select('*, employee:employees(name, full_name, basic_salary)').order('action_date', { ascending: false });
+      let query = supabase.from('hr_penalties_rewards').select('*, employee:employees(name, full_name, basic_salary, department)').order('action_date', { ascending: false });
       if (organizationId && isValidUUID(organizationId)) query = query.eq('organization_id', organizationId);
       const { data, error } = await query;
       if (error || !data) return local;
 
       const formatted = data.map((d: Record<string, any>) => ({
         ...d,
-        employee_name: d.employee?.full_name || d.employee?.name || 'موظف'
+        employee_name: d.employee?.full_name || d.employee?.name || 'موظف',
+        employee_department: d.employee?.department || ''
       } as HrPenaltyReward));
 
       const remoteIds = new Set(formatted.map((d: Record<string, any>) => d.id));

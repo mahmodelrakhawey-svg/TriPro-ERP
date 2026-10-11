@@ -25,7 +25,9 @@ import {
   Building2,
   Filter,
   Columns,
-  LayoutGrid
+  LayoutGrid,
+  Trash2,
+  RotateCcw
 } from 'lucide-react';
 import {
   payrollRunSchema,
@@ -62,6 +64,7 @@ const PayrollRun = () => {
     runPayroll: runPayrollFromContext,
     runPayrollAccrual,
     payAccruedPayroll,
+    cancelPayrollAccrual,
     currentUser,
     currentSelectedOrgId,
     accounts,
@@ -75,6 +78,7 @@ const PayrollRun = () => {
   const [loading, setLoading] = useState(false);
   const [savingAccrual, setSavingAccrual] = useState(false);
   const [savingPayment, setSavingPayment] = useState(false);
+  const [cancellingAccrual, setCancellingAccrual] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(selectedFiscalYear || new Date().getFullYear());
   const [treasuryId, setTreasuryId] = useState('');
@@ -267,8 +271,12 @@ const PayrollRun = () => {
         const dailyRate = basicSalary > 0 ? basicSalary / 30 : 0;
         const hourlyRate = dailyRate > 0 ? dailyRate / 8 : 0;
 
-        // أ) السلف غير المخصومة
-        const empAdvances = advances.filter(adv => adv.employee_id === emp.id);
+        // أ) السلف غير المخصومة لشهر المسير وما قبله (حتى نهاية شهر المسير المحدد فقط)
+        const empAdvances = advances.filter(adv => {
+          if (adv.employee_id !== emp.id) return false;
+          const advDate = (adv.request_date || adv.advance_date || adv.date || (adv.created_at ? adv.created_at.split('T')[0] : '')).trim();
+          return advDate <= monthEndStr;
+        });
         const totalAdvances = empAdvances.reduce((sum, adv) => sum + Number(adv.amount || 0), 0);
 
         // ب) الإجازات بدون راتب المعتمدة لشهر المسير
@@ -571,6 +579,34 @@ const PayrollRun = () => {
       showToast('فشل ترحيل قيد الاستحقاق: ' + error.message, 'error');
     } finally {
       setSavingAccrual(false);
+    }
+  };
+
+  // إلغاء قيد الاستحقاق وإعادة تعيين السلف لتصبح قائمة
+  const handleCancelAccrual = async () => {
+    if (!existingPayroll || existingPayroll.status !== 'accrued') return;
+
+    const confirmMsg = `هل أنت متأكد من إلغاء قيد استحقاق رواتب شهر ${selectedMonth}/${selectedYear}؟\n\n` +
+      `سيترتب على ذلك:\n` +
+      `1. حذف قيد الاستحقاق المحاسبي.\n` +
+      `2. إعادة جميع سلف الموظفين المرتبطة بهذا القيد لتصبح [تم الصرف (قائمة)].\n` +
+      `3. إعادة تعيين المسير لتتمكن من إعادة احتسابه بدقة.\n\n` +
+      `هل تريد المتابعة وإلغاء الاستحقاق؟`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    setCancellingAccrual(true);
+    try {
+      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      await cancelPayrollAccrual(existingPayroll.id, orgId);
+      showToast('تم إلغاء قيد الاستحقاق وإعادة جميع السلف كـ [قائمة] بنجاح 🔄✅', 'success');
+      setPayrollData([]);
+      await fetchExistingPayroll(selectedMonth, selectedYear);
+    } catch (err: any) {
+      logger.error('Error cancelling accrual:', err);
+      showToast('فشل إلغاء قيد الاستحقاق: ' + err.message, 'error');
+    } finally {
+      setCancellingAccrual(false);
     }
   };
 
@@ -1566,7 +1602,7 @@ const PayrollRun = () => {
               <>
                 <button
                   onClick={handleRunAccrual}
-                  disabled={savingAccrual || savingPayment}
+                  disabled={savingAccrual || savingPayment || cancellingAccrual}
                   className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border border-slate-300 transition"
                   title="إعادة احتساب وتحديث قيد الاستحقاق بقيم المسير المعروضة"
                 >
@@ -1575,8 +1611,18 @@ const PayrollRun = () => {
                 </button>
 
                 <button
+                  onClick={handleCancelAccrual}
+                  disabled={cancellingAccrual || savingAccrual || savingPayment}
+                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border border-rose-200 transition"
+                  title="إلغاء قيد الاستحقاق وحذف القيد وإعادة جميع السلف كـ قائمة"
+                >
+                  {cancellingAccrual ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                  إلغاء الاستحقاق وإعادة ضبط السلف
+                </button>
+
+                <button
                   onClick={handlePayAccrued}
-                  disabled={savingPayment || savingAccrual}
+                  disabled={savingPayment || savingAccrual || cancellingAccrual}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/25 transition"
                 >
                   {savingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}

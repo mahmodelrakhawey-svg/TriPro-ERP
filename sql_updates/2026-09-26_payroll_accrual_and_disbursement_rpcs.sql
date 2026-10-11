@@ -203,11 +203,18 @@ BEGIN
         WHERE employee_id = (v_item->>'employee_id')::uuid AND month = p_month AND year = p_year;
 
         IF (v_item->>'advances_deducted')::numeric > 0 THEN
-            UPDATE public.employee_advances 
-            SET status = 'deducted', payroll_item_id = v_payroll_item_id
-            WHERE employee_id = (v_item->>'employee_id')::uuid 
-            AND status = 'paid'
-            AND organization_id = v_org_id;
+            IF v_item->'advances_ids' IS NOT NULL AND jsonb_array_length(v_item->'advances_ids') > 0 THEN
+                UPDATE public.employee_advances 
+                SET status = 'deducted', payroll_item_id = v_payroll_item_id
+                WHERE id IN (SELECT (jsonb_array_elements_text(v_item->'advances_ids'))::uuid);
+            ELSE
+                UPDATE public.employee_advances 
+                SET status = 'deducted', payroll_item_id = v_payroll_item_id
+                WHERE employee_id = (v_item->>'employee_id')::uuid 
+                AND status = 'paid'
+                AND COALESCE(request_date, advance_date, created_at::date) <= ((p_year || '-' || LPAD(p_month::text, 2, '0') || '-01')::date + INTERVAL '1 month - 1 day')::date
+                AND organization_id = v_org_id;
+            END IF;
         END IF;
     END LOOP;
 

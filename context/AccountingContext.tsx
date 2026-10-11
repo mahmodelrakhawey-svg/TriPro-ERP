@@ -155,6 +155,7 @@ interface AccountingContextType {
   runPayroll: (month: number, year: number, date: string, treasuryId: string, data: any[], orgId?: string) => Promise<void>;
   runPayrollAccrual: (month: number, year: number, date: string, data: any[], orgId?: string) => Promise<any>;
   payAccruedPayroll: (params: { payrollId?: string; month?: number; year?: number; paymentDate: string; treasuryId: string; orgId?: string }) => Promise<any>;
+  cancelPayrollAccrual: (payrollId: string, orgId?: string) => Promise<void>;
   // --- دوال المطاعم ---
   finalizeProductionOrder: (id: string, status: string, notes: string) => Promise<any>;
   openTableSession: (tableId: string) => Promise<string | null>;
@@ -2079,6 +2080,44 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     return resData;
   };
 
+  const cancelPayrollAccrual = async (payrollId: string, orgId?: string) => {
+    const targetOrg = orgId || currentSelectedOrgId || null;
+    try {
+      const { error: rpcError } = await supabase.rpc('cancel_payroll_accrual_rpc', {
+        p_payroll_id: payrollId,
+        p_org_id: targetOrg
+      });
+
+      if (rpcError) {
+        logger.warn('cancel_payroll_accrual_rpc notice, applying direct rollback:', rpcError);
+
+        const { data: items } = await supabase.from('payroll_items').select('id').eq('payroll_id', payrollId);
+        const itemIds = (items || []).map((i: any) => i.id);
+
+        if (itemIds.length > 0) {
+          await supabase
+            .from('employee_advances')
+            .update({ status: 'paid', payroll_item_id: null })
+            .in('payroll_item_id', itemIds);
+        }
+
+        const { data: pData } = await supabase.from('payrolls').select('*').eq('id', payrollId).maybeSingle();
+        if (pData) {
+          if (pData.accrual_je_id) {
+            await supabase.from('journal_entries').delete().eq('id', pData.accrual_je_id);
+          }
+          await supabase.from('journal_entries').delete().eq('related_document_id', payrollId).eq('related_document_type', 'payroll');
+          await supabase.from('payrolls').delete().eq('id', payrollId);
+        }
+      }
+    } catch (err: any) {
+      logger.error('Error cancelling payroll accrual:', err);
+      throw new Error(err.message || 'فشل إلغاء قيد الاستحقاق');
+    }
+
+    await refreshData();
+  };
+
   // --- Demo Stubs ---
   const addDemoEntry = (e: Partial<JournalEntry> | Record<string, any>) => logger.log('Demo Entry:', e);
   const addDemoPaymentVoucher = (v: Record<string, any>) => logger.log('Demo Payment:', v);
@@ -2590,7 +2629,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, addCheque, updateCheque, deleteCheque, updateChequeStatus, addTransfer, updateTransfer, deleteTransfer,
     restoreItem, permanentDeleteItem, exportJournalToCSV,
     // HR
-    addEmployee, updateEmployee, deleteEmployee, runPayroll, runPayrollAccrual, payAccruedPayroll,
+    addEmployee, updateEmployee, deleteEmployee, runPayroll, runPayrollAccrual, payAccruedPayroll, cancelPayrollAccrual,
     // Restaurant
     finalizeProductionOrder, openTableSession, reserveTable, cancelReservation,
     transferTableSession, mergeTableSessions, createRestaurantOrder, getOpenTableOrder,
