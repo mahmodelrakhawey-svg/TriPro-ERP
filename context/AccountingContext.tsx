@@ -97,6 +97,8 @@ interface AccountingContextType {
   refreshSalesAndPurchases?: () => Promise<void>;
   refreshBanking?: () => Promise<void>;
   refreshBankingAndShift?: () => Promise<void>;
+  refreshAccountsAndLedger?: () => Promise<void>;
+  refreshLedger?: () => Promise<void>;
   fetchEntriesPaged: (page: number, pageSize: number) => Promise<{ data: any[], count: number }>;
 
   isDemo: boolean;
@@ -221,7 +223,7 @@ export { useSupplierDomain, SupplierProvider } from './domains/SupplierContext';
 export { useSettingsDomain } from './domains/AccountingSettingsContext';
 export { useSalesDomain, SalesProvider } from './domains/SalesContext';
 export { useBankingDomain, BankingProvider } from './domains/BankingContext';
-export { useGeneralLedgerDomain } from './domains/GeneralLedgerContext';
+export { useGeneralLedgerDomain, GeneralLedgerProvider } from './domains/GeneralLedgerContext';
 export { fetchAllTableRecords } from './domains/domainUtils';
 
 import { useCustomerDomain, CustomerProvider } from './domains/CustomerContext';
@@ -229,6 +231,7 @@ import { useSupplierDomain, SupplierProvider } from './domains/SupplierContext';
 import { useProductDomain, ProductProvider } from './domains/ProductContext';
 import { useSalesDomain, SalesProvider } from './domains/SalesContext';
 import { useBankingDomain, BankingProvider } from './domains/BankingContext';
+import { useGeneralLedgerDomain, GeneralLedgerProvider } from './domains/GeneralLedgerContext';
 import { fetchAllTableRecords } from './domains/domainUtils';
 
 export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -3154,9 +3157,24 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               initialCheques={cheques}
               initialVouchers={vouchers}
             >
-              <AccountingFacadeBridge coreValue={value}>
-                {children}
-              </AccountingFacadeBridge>
+              <GeneralLedgerProvider
+                orgId={effectiveOrgId}
+                currentUser={currentUser}
+                settings={settings}
+                logActivity={logActivity}
+                showToast={showToast}
+                isDemo={isDemo}
+                initialEntries={entries}
+                initialAccounts={accounts}
+                initialCostCenters={costCenters}
+                initialBudgets={budgets}
+                initialYear={selectedFiscalYear}
+                fiscalYearRange={fiscalYearRange}
+              >
+                <AccountingFacadeBridge coreValue={value}>
+                  {children}
+                </AccountingFacadeBridge>
+              </GeneralLedgerProvider>
             </BankingProvider>
           </SalesProvider>
         </ProductProvider>
@@ -3174,6 +3192,7 @@ const AccountingFacadeBridge: React.FC<{
   const productDomain = useProductDomain();
   const salesDomain = useSalesDomain();
   const bankingDomain = useBankingDomain();
+  const glDomain = useGeneralLedgerDomain();
 
   const handleRefreshData = useCallback(async () => {
     await Promise.all([
@@ -3187,8 +3206,9 @@ const AccountingFacadeBridge: React.FC<{
       productDomain.refreshTransfers ? productDomain.refreshTransfers() : Promise.resolve(),
       salesDomain.refreshSales ? salesDomain.refreshSales() : Promise.resolve(),
       bankingDomain.refreshBanking ? bankingDomain.refreshBanking() : Promise.resolve(),
+      glDomain.refreshLedger ? glDomain.refreshLedger() : Promise.resolve(),
     ]);
-  }, [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain]);
+  }, [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain]);
 
   const facadeValue: AccountingContextType = useMemo(() => ({
     ...coreValue,
@@ -3253,8 +3273,30 @@ const AccountingFacadeBridge: React.FC<{
         coreValue.refreshBankingAndShift ? coreValue.refreshBankingAndShift() : Promise.resolve(),
       ]);
     },
+    // General Ledger Domain Delegation
+    entries: glDomain.entries,
+    accounts: glDomain.accounts,
+    costCenters: glDomain.costCenters,
+    budgets: glDomain.budgets,
+    fiscalYearRange: glDomain.fiscalYearRange,
+    selectedFiscalYear: glDomain.selectedFiscalYear,
+    setSelectedFiscalYear: glDomain.setSelectedFiscalYear,
+    addEntry: glDomain.addEntry,
+    fetchEntriesPaged: glDomain.fetchEntriesPaged,
+    getAccountBalanceInPeriod: glDomain.getAccountBalanceInPeriod,
+    addAccount: glDomain.addAccount,
+    updateAccount: glDomain.updateAccount,
+    deleteAccount: glDomain.deleteAccount,
+    getSystemAccount: glDomain.getSystemAccount,
+    saveBudget: glDomain.saveBudget,
+    exportJournalToCSV: glDomain.exportJournalToCSV,
+    closeFinancialYear: glDomain.closeFinancialYear,
+    reopenFinancialYear: glDomain.reopenFinancialYear,
+    recalculateAllBalances: glDomain.recalculateAllBalances,
+    refreshAccountsAndLedger: glDomain.refreshLedger,
+    refreshLedger: glDomain.refreshLedger,
     refreshData: handleRefreshData
-  }), [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, handleRefreshData]);
+  }), [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, handleRefreshData]);
 
   return (
     <AccountingContext.Provider value={facadeValue}>
