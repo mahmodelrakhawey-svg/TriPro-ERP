@@ -214,7 +214,7 @@ export { useProductDomain, ProductProvider } from './domains/ProductContext';
 export { useCustomerDomain, CustomerProvider } from './domains/CustomerContext';
 export { useSupplierDomain, SupplierProvider } from './domains/SupplierContext';
 export { useSettingsDomain } from './domains/AccountingSettingsContext';
-export { useSalesDomain } from './domains/SalesContext';
+export { useSalesDomain, SalesProvider } from './domains/SalesContext';
 export { useBankingDomain } from './domains/BankingContext';
 export { useGeneralLedgerDomain } from './domains/GeneralLedgerContext';
 export { fetchAllTableRecords } from './domains/domainUtils';
@@ -222,6 +222,7 @@ export { fetchAllTableRecords } from './domains/domainUtils';
 import { useCustomerDomain, CustomerProvider } from './domains/CustomerContext';
 import { useSupplierDomain, SupplierProvider } from './domains/SupplierContext';
 import { useProductDomain, ProductProvider } from './domains/ProductContext';
+import { useSalesDomain, SalesProvider } from './domains/SalesContext';
 import { fetchAllTableRecords } from './domains/domainUtils';
 
 export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -640,20 +641,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         supabase.from('employees').select('*').eq('organization_id', fetchOrgId).order('full_name'),
         Promise.resolve({ data: [] as Product[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
         Promise.resolve({ data: [] as StockTransfer[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
-        supabase.from('purchase_invoices')
-          .select('*')
-          .eq('organization_id', fetchOrgId)
-          .gte('invoice_date', fiscalYearRange.startDate)
-          .lte('invoice_date', fiscalYearRange.endDate)
-          .order('invoice_date', { ascending: false })
-          .limit(1000),
-        supabase.from('invoices')
-          .select('*')
-          .eq('organization_id', fetchOrgId)
-          .gte('invoice_date', fiscalYearRange.startDate)
-          .lte('invoice_date', fiscalYearRange.endDate)
-          .order('invoice_date', { ascending: false })
-          .limit(1000),
+        Promise.resolve({ data: [] as PurchaseInvoice[], error: null }), // مُعالج بالكامل في سياق النطاق SupplierProvider
+        Promise.resolve({ data: [] as Invoice[], error: null }), // مُعالج بالكامل في سياق النطاق SalesProvider
         Promise.resolve({ data: [] as Category[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
         supabase.from('profiles').select('*').eq('organization_id', fetchOrgId).order('full_name'),
         Promise.resolve({ data: [] as Warehouse[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
@@ -3139,9 +3128,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           initialCategories={categories}
           initialTransfers={transfers}
         >
-          <AccountingFacadeBridge coreValue={value}>
-            {children}
-          </AccountingFacadeBridge>
+          <SalesProvider
+            orgId={effectiveOrgId}
+            currentUser={currentUser}
+            logActivity={logActivity}
+            showToast={showToast}
+            isDemo={isDemo}
+            initialInvoices={invoices}
+            initialCustomers={customers}
+            initialSalespeople={salespeople}
+            fiscalYearRange={fiscalYearRange}
+          >
+            <AccountingFacadeBridge coreValue={value}>
+              {children}
+            </AccountingFacadeBridge>
+          </SalesProvider>
         </ProductProvider>
       </SupplierProvider>
     </CustomerProvider>
@@ -3155,6 +3156,7 @@ const AccountingFacadeBridge: React.FC<{
   const customerDomain = useCustomerDomain();
   const supplierDomain = useSupplierDomain();
   const productDomain = useProductDomain();
+  const salesDomain = useSalesDomain();
 
   const handleRefreshData = useCallback(async () => {
     await Promise.all([
@@ -3166,8 +3168,9 @@ const AccountingFacadeBridge: React.FC<{
       productDomain.refreshWarehouses ? productDomain.refreshWarehouses() : Promise.resolve(),
       productDomain.refreshCategories ? productDomain.refreshCategories() : Promise.resolve(),
       productDomain.refreshTransfers ? productDomain.refreshTransfers() : Promise.resolve(),
+      salesDomain.refreshSales ? salesDomain.refreshSales() : Promise.resolve(),
     ]);
-  }, [coreValue, customerDomain, supplierDomain, productDomain]);
+  }, [coreValue, customerDomain, supplierDomain, productDomain, salesDomain]);
 
   const facadeValue: AccountingContextType = useMemo(() => ({
     ...coreValue,
@@ -3206,8 +3209,20 @@ const AccountingFacadeBridge: React.FC<{
     deleteWarehouse: productDomain.deleteWarehouse,
     addWastage: productDomain.addWastage,
     produceItem: productDomain.produceItem,
+    // Sales Domain Delegation
+    invoices: salesDomain.invoices,
+    salespeople: salesDomain.salespeople,
+    approveInvoice: salesDomain.approveInvoice,
+    unpostSalesInvoice: salesDomain.unpostSalesInvoice,
+    deleteSalesInvoice: salesDomain.deleteSalesInvoice,
+    refreshSalesAndPurchases: async () => {
+      await Promise.all([
+        salesDomain.refreshSales ? salesDomain.refreshSales() : Promise.resolve(),
+        supplierDomain.refreshPurchaseInvoices ? supplierDomain.refreshPurchaseInvoices() : Promise.resolve(),
+      ]);
+    },
     refreshData: handleRefreshData
-  }), [coreValue, customerDomain, supplierDomain, productDomain, handleRefreshData]);
+  }), [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, handleRefreshData]);
 
   return (
     <AccountingContext.Provider value={facadeValue}>
