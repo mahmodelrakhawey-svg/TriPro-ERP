@@ -100,6 +100,7 @@ interface AccountingContextType {
   refreshAccountsAndLedger?: () => Promise<void>;
   refreshLedger?: () => Promise<void>;
   refreshSettings?: () => Promise<void>;
+  refreshEmployees?: () => Promise<void>;
   updateSettings?: (newSettings: Record<string, unknown>) => Promise<void>;
   fetchEntriesPaged: (page: number, pageSize: number) => Promise<{ data: any[], count: number }>;
 
@@ -226,6 +227,7 @@ export { useSettingsDomain, SettingsProvider } from './domains/AccountingSetting
 export { useSalesDomain, SalesProvider } from './domains/SalesContext';
 export { useBankingDomain, BankingProvider } from './domains/BankingContext';
 export { useGeneralLedgerDomain, GeneralLedgerProvider } from './domains/GeneralLedgerContext';
+export { useHrDomain, HrProvider } from './domains/HrContext';
 export { fetchAllTableRecords } from './domains/domainUtils';
 
 import { useSettingsDomain, SettingsProvider } from './domains/AccountingSettingsContext';
@@ -235,6 +237,7 @@ import { useProductDomain, ProductProvider } from './domains/ProductContext';
 import { useSalesDomain, SalesProvider } from './domains/SalesContext';
 import { useBankingDomain, BankingProvider } from './domains/BankingContext';
 import { useGeneralLedgerDomain, GeneralLedgerProvider } from './domains/GeneralLedgerContext';
+import { useHrDomain, HrProvider } from './domains/HrContext';
 import { fetchAllTableRecords } from './domains/domainUtils';
 
 export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -3184,9 +3187,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                   initialYear={selectedFiscalYear}
                   fiscalYearRange={fiscalYearRange}
                 >
-                  <AccountingFacadeBridge coreValue={value}>
-                    {children}
-                  </AccountingFacadeBridge>
+                  <HrProvider
+                    orgId={effectiveOrgId}
+                    currentUser={currentUser}
+                    logActivity={logActivity}
+                    showToast={showToast}
+                    isDemo={isDemo}
+                    initialEmployees={employees}
+                  >
+                    <AccountingFacadeBridge coreValue={value}>
+                      {children}
+                    </AccountingFacadeBridge>
+                  </HrProvider>
                 </GeneralLedgerProvider>
               </BankingProvider>
             </SalesProvider>
@@ -3208,6 +3220,7 @@ const AccountingFacadeBridge: React.FC<{
   const bankingDomain = useBankingDomain();
   const glDomain = useGeneralLedgerDomain();
   const settingsDomain = useSettingsDomain();
+  const hrDomain = useHrDomain();
 
   const handleRefreshData = useCallback(async () => {
     await Promise.all([
@@ -3223,8 +3236,9 @@ const AccountingFacadeBridge: React.FC<{
       bankingDomain.refreshBanking ? bankingDomain.refreshBanking() : Promise.resolve(),
       glDomain.refreshLedger ? glDomain.refreshLedger() : Promise.resolve(),
       settingsDomain.refreshSettings ? settingsDomain.refreshSettings() : Promise.resolve(),
+      hrDomain.refreshEmployees ? hrDomain.refreshEmployees() : Promise.resolve(),
     ]);
-  }, [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, settingsDomain]);
+  }, [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, settingsDomain, hrDomain]);
 
   const facadeValue: AccountingContextType = useMemo(() => ({
     ...coreValue,
@@ -3317,8 +3331,18 @@ const AccountingFacadeBridge: React.FC<{
     recalculateAllBalances: glDomain.recalculateAllBalances,
     refreshAccountsAndLedger: glDomain.refreshLedger,
     refreshLedger: glDomain.refreshLedger,
+    // HR Domain Delegation
+    employees: hrDomain.employees,
+    addEmployee: hrDomain.addEmployee,
+    updateEmployee: hrDomain.updateEmployee,
+    deleteEmployee: hrDomain.deleteEmployee,
+    runPayroll: hrDomain.runPayroll,
+    runPayrollAccrual: hrDomain.runPayrollAccrual,
+    payAccruedPayroll: hrDomain.payAccruedPayroll,
+    cancelPayrollAccrual: hrDomain.cancelPayrollAccrual,
+    refreshEmployees: hrDomain.refreshEmployees,
     refreshData: handleRefreshData
-  }), [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, settingsDomain, handleRefreshData]);
+  }), [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, settingsDomain, hrDomain, handleRefreshData]);
 
   return (
     <AccountingContext.Provider value={facadeValue}>
