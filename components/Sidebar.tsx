@@ -159,6 +159,9 @@ const Sidebar: React.FC<SidebarProps> = ({
     
     // 🛡️ عزل موديولات المنشأة بناءً على اشتراكها في SaaS
     if (Array.isArray(allowedModules) && allowedModules.length > 0) {
+      if (module === 'reports') {
+        return allowedModules.includes('reports') || allowedModules.includes('accounting');
+      }
       if (module === 'treasury') {
         return allowedModules.includes('treasury') || allowedModules.includes('accounting');
       }
@@ -344,9 +347,9 @@ const Sidebar: React.FC<SidebarProps> = ({
     { to: '/cash-flow', label: 'قائمة التدفقات النقدية (IAS 7)', icon: Activity, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.view' },
     { to: '/annual-report', label: 'كتاب التقرير المالي السنوي (IAS 1)', icon: BookOpen, color: 'text-indigo-400', module: 'accounting', permission: 'accounting.view' },
     { to: '/cfo-dashboard', label: 'لوحة قيادة المدير المالي (CFO)', icon: Activity, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.view' },
-    { to: '/cash-flow-report', label: 'تقرير حركة الصندوق والبنوك', icon: Activity, color: 'text-cyan-400', module: 'reports', permission: 'reports.cash_bank_movement' },
+    { to: '/cash-flow-report', label: 'تقرير حركة الصندوق والبنوك', icon: Activity, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.view' },
     { to: '/performance-comparison', label: 'مقارنة الأداء المالي', icon: TrendingUp, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.view' },
-    { to: '/multi-currency-statement', label: 'كشف حساب متعدد العملات', icon: BookOpen, color: 'text-cyan-400', module: 'reports', permission: 'reports.multi_currency_statement' },
+    { to: '/multi-currency-statement', label: 'كشف حساب متعدد العملات', icon: BookOpen, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.view' },
     { to: '/payment-method-report', label: 'تقرير طرق التحصيل', icon: Wallet, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.view' },
     { to: '/attachments-report', label: 'تقرير المرفقات والمستندات', icon: Paperclip, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.view' },
     { to: '/tax-return', label: 'الإقرار الضريبي (VAT)', icon: Calculator, color: 'text-cyan-400', module: 'accounting', permission: 'accounting.view' },
@@ -494,6 +497,10 @@ const Sidebar: React.FC<SidebarProps> = ({
         return true;
       }
     }
+
+    // إتاحة الوصول المباشر لتقرير حركة الصندوق وكشف الحساب لمن يملك صلاحيتهما المباشرة
+    if (item.to === '/cash-flow-report' && can('reports', 'cash_bank_movement')) return true;
+    if (item.to === '/multi-currency-statement' && can('reports', 'multi_currency_statement')) return true;
 
     // 🍽️ إحكام عزل شاشات كاشير المطعم ونقاط البيع (Restaurant POS Cashier Lockdown)
     if (userRole === 'restaurant_cashier' || userRole === 'cashier') {

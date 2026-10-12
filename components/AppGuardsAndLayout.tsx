@@ -224,7 +224,13 @@ export const ModuleGuard = ({ module, children }: { module: string, children: Re
         can('reports', 'cash_bank_movement') ||
         can('reports', 'financial_statements')
       )) ||
-      (module === 'accounting' && can('accounting', 'view'))
+      (module === 'accounting' && (
+        can('accounting', 'view') ||
+        can('reports', 'view') ||
+        can('reports', 'multi_currency_statement') ||
+        can('reports', 'cash_bank_movement') ||
+        can('reports', 'financial_statements')
+      ))
     ) : true;
 
     const isAllowed = isPrivileged || (isAllowedByOrg && hasPermission);
