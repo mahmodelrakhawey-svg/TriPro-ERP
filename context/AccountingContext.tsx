@@ -99,6 +99,8 @@ interface AccountingContextType {
   refreshBankingAndShift?: () => Promise<void>;
   refreshAccountsAndLedger?: () => Promise<void>;
   refreshLedger?: () => Promise<void>;
+  refreshSettings?: () => Promise<void>;
+  updateSettings?: (newSettings: Record<string, unknown>) => Promise<void>;
   fetchEntriesPaged: (page: number, pageSize: number) => Promise<{ data: any[], count: number }>;
 
   isDemo: boolean;
@@ -220,12 +222,13 @@ export const useAccounting = () => {
 export { useProductDomain, ProductProvider } from './domains/ProductContext';
 export { useCustomerDomain, CustomerProvider } from './domains/CustomerContext';
 export { useSupplierDomain, SupplierProvider } from './domains/SupplierContext';
-export { useSettingsDomain } from './domains/AccountingSettingsContext';
+export { useSettingsDomain, SettingsProvider } from './domains/AccountingSettingsContext';
 export { useSalesDomain, SalesProvider } from './domains/SalesContext';
 export { useBankingDomain, BankingProvider } from './domains/BankingContext';
 export { useGeneralLedgerDomain, GeneralLedgerProvider } from './domains/GeneralLedgerContext';
 export { fetchAllTableRecords } from './domains/domainUtils';
 
+import { useSettingsDomain, SettingsProvider } from './domains/AccountingSettingsContext';
 import { useCustomerDomain, CustomerProvider } from './domains/CustomerContext';
 import { useSupplierDomain, SupplierProvider } from './domains/SupplierContext';
 import { useProductDomain, ProductProvider } from './domains/ProductContext';
@@ -3110,76 +3113,87 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   return (
-    <CustomerProvider
+    <SettingsProvider
       orgId={effectiveOrgId}
       currentUser={currentUser}
+      can={can}
       logActivity={logActivity}
+      showToast={showToast}
       isDemo={isDemo}
-      initialCustomers={customers}
+      initialOrganization={organization}
+      initialSettings={settings}
     >
-      <SupplierProvider
+      <CustomerProvider
         orgId={effectiveOrgId}
         currentUser={currentUser}
         logActivity={logActivity}
-        showToast={showToast}
         isDemo={isDemo}
-        initialSuppliers={suppliers}
-        initialPurchaseInvoices={purchaseInvoices}
+        initialCustomers={customers}
       >
-        <ProductProvider
+        <SupplierProvider
           orgId={effectiveOrgId}
           currentUser={currentUser}
           logActivity={logActivity}
           showToast={showToast}
           isDemo={isDemo}
-          initialProducts={products}
-          initialWarehouses={warehouses}
-          initialCategories={categories}
-          initialTransfers={transfers}
+          initialSuppliers={suppliers}
+          initialPurchaseInvoices={purchaseInvoices}
         >
-          <SalesProvider
+          <ProductProvider
             orgId={effectiveOrgId}
             currentUser={currentUser}
             logActivity={logActivity}
             showToast={showToast}
             isDemo={isDemo}
-            initialInvoices={invoices}
-            initialCustomers={customers}
-            initialSalespeople={salespeople}
-            fiscalYearRange={fiscalYearRange}
+            initialProducts={products}
+            initialWarehouses={warehouses}
+            initialCategories={categories}
+            initialTransfers={transfers}
           >
-            <BankingProvider
+            <SalesProvider
               orgId={effectiveOrgId}
               currentUser={currentUser}
               logActivity={logActivity}
               showToast={showToast}
               isDemo={isDemo}
-              initialCheques={cheques}
-              initialVouchers={vouchers}
+              initialInvoices={invoices}
+              initialCustomers={customers}
+              initialSalespeople={salespeople}
+              fiscalYearRange={fiscalYearRange}
             >
-              <GeneralLedgerProvider
+              <BankingProvider
                 orgId={effectiveOrgId}
                 currentUser={currentUser}
-                settings={settings}
                 logActivity={logActivity}
                 showToast={showToast}
                 isDemo={isDemo}
-                initialEntries={entries}
-                initialAccounts={accounts}
-                initialCostCenters={costCenters}
-                initialBudgets={budgets}
-                initialYear={selectedFiscalYear}
-                fiscalYearRange={fiscalYearRange}
+                initialCheques={cheques}
+                initialVouchers={vouchers}
               >
-                <AccountingFacadeBridge coreValue={value}>
-                  {children}
-                </AccountingFacadeBridge>
-              </GeneralLedgerProvider>
-            </BankingProvider>
-          </SalesProvider>
-        </ProductProvider>
-      </SupplierProvider>
-    </CustomerProvider>
+                <GeneralLedgerProvider
+                  orgId={effectiveOrgId}
+                  currentUser={currentUser}
+                  settings={settings}
+                  logActivity={logActivity}
+                  showToast={showToast}
+                  isDemo={isDemo}
+                  initialEntries={entries}
+                  initialAccounts={accounts}
+                  initialCostCenters={costCenters}
+                  initialBudgets={budgets}
+                  initialYear={selectedFiscalYear}
+                  fiscalYearRange={fiscalYearRange}
+                >
+                  <AccountingFacadeBridge coreValue={value}>
+                    {children}
+                  </AccountingFacadeBridge>
+                </GeneralLedgerProvider>
+              </BankingProvider>
+            </SalesProvider>
+          </ProductProvider>
+        </SupplierProvider>
+      </CustomerProvider>
+    </SettingsProvider>
   );
 };
 
@@ -3193,6 +3207,7 @@ const AccountingFacadeBridge: React.FC<{
   const salesDomain = useSalesDomain();
   const bankingDomain = useBankingDomain();
   const glDomain = useGeneralLedgerDomain();
+  const settingsDomain = useSettingsDomain();
 
   const handleRefreshData = useCallback(async () => {
     await Promise.all([
@@ -3207,11 +3222,18 @@ const AccountingFacadeBridge: React.FC<{
       salesDomain.refreshSales ? salesDomain.refreshSales() : Promise.resolve(),
       bankingDomain.refreshBanking ? bankingDomain.refreshBanking() : Promise.resolve(),
       glDomain.refreshLedger ? glDomain.refreshLedger() : Promise.resolve(),
+      settingsDomain.refreshSettings ? settingsDomain.refreshSettings() : Promise.resolve(),
     ]);
-  }, [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain]);
+  }, [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, settingsDomain]);
 
   const facadeValue: AccountingContextType = useMemo(() => ({
     ...coreValue,
+    // Settings Domain Delegation
+    settings: settingsDomain.settings,
+    organization: settingsDomain.organization || coreValue.organization,
+    can: settingsDomain.can,
+    updateSettings: settingsDomain.updateSettings,
+    refreshSettings: settingsDomain.refreshSettings,
     // Customer Domain Delegation
     customers: customerDomain.customers,
     addCustomer: customerDomain.addCustomer as (data: Partial<Customer>) => Promise<any>,
@@ -3296,7 +3318,7 @@ const AccountingFacadeBridge: React.FC<{
     refreshAccountsAndLedger: glDomain.refreshLedger,
     refreshLedger: glDomain.refreshLedger,
     refreshData: handleRefreshData
-  }), [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, handleRefreshData]);
+  }), [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, settingsDomain, handleRefreshData]);
 
   return (
     <AccountingContext.Provider value={facadeValue}>
