@@ -92,6 +92,11 @@ interface AccountingContextType {
   activityLog: any[];
   logActivity?: (action: string, details: string) => void;
   refreshData: () => Promise<void>;
+  refreshCustomers?: () => Promise<void>;
+  refreshSuppliers?: () => Promise<void>;
+  refreshSalesAndPurchases?: () => Promise<void>;
+  refreshBanking?: () => Promise<void>;
+  refreshBankingAndShift?: () => Promise<void>;
   fetchEntriesPaged: (page: number, pageSize: number) => Promise<{ data: any[], count: number }>;
 
   isDemo: boolean;
@@ -215,7 +220,7 @@ export { useCustomerDomain, CustomerProvider } from './domains/CustomerContext';
 export { useSupplierDomain, SupplierProvider } from './domains/SupplierContext';
 export { useSettingsDomain } from './domains/AccountingSettingsContext';
 export { useSalesDomain, SalesProvider } from './domains/SalesContext';
-export { useBankingDomain } from './domains/BankingContext';
+export { useBankingDomain, BankingProvider } from './domains/BankingContext';
 export { useGeneralLedgerDomain } from './domains/GeneralLedgerContext';
 export { fetchAllTableRecords } from './domains/domainUtils';
 
@@ -223,6 +228,7 @@ import { useCustomerDomain, CustomerProvider } from './domains/CustomerContext';
 import { useSupplierDomain, SupplierProvider } from './domains/SupplierContext';
 import { useProductDomain, ProductProvider } from './domains/ProductContext';
 import { useSalesDomain, SalesProvider } from './domains/SalesContext';
+import { useBankingDomain, BankingProvider } from './domains/BankingContext';
 import { fetchAllTableRecords } from './domains/domainUtils';
 
 export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -649,7 +655,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         supabase.from('restaurant_tables').select('*').eq('organization_id', fetchOrgId).order('name'),
         Promise.resolve({ data: [] as Customer[], error: null }), // مُعالج بالكامل في سياق النطاق CustomerProvider
         Promise.resolve({ data: [] as Supplier[], error: null }), // مُعالج بالكامل في سياق النطاق SupplierProvider
-        supabase.from('cheques').select('*').eq('organization_id', fetchOrgId).order('due_date'),
+        Promise.resolve({ data: [] as Cheque[], error: null }), // مُعالج بالكامل في سياق النطاق BankingProvider
         supabase.rpc('get_active_shift', { p_org_id: fetchOrgId }),
         supabase.from('assets').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
         supabase.from('budgets').select('*').eq('organization_id', fetchOrgId)
@@ -3070,7 +3076,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, effectiveOrgId, getEffectiveOrgId, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
     fetchEntriesPaged, employees, products, transfers, purchaseInvoices, invoices, salespeople, categories,
     users, warehouses, restaurantTables, menuCategories, customers, suppliers, cheques,
-    currentShift, activityLog, logActivity, refreshData, isDemo, can, clearCache,
+    currentShift, activityLog, logActivity, refreshData, refreshBankingAndShift, refreshCustomers, refreshSuppliers, isDemo, can, clearCache,
     // Accounting Functions
     addEntry, getSystemAccount, updateVoucher, getAccountBalanceInPeriod, addAccount, updateAccount, deleteAccount, clearTransactions, emptyRecycleBin, saveBudget,
     // Inventory Functions
@@ -3139,9 +3145,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             initialSalespeople={salespeople}
             fiscalYearRange={fiscalYearRange}
           >
-            <AccountingFacadeBridge coreValue={value}>
-              {children}
-            </AccountingFacadeBridge>
+            <BankingProvider
+              orgId={effectiveOrgId}
+              currentUser={currentUser}
+              logActivity={logActivity}
+              showToast={showToast}
+              isDemo={isDemo}
+              initialCheques={cheques}
+              initialVouchers={vouchers}
+            >
+              <AccountingFacadeBridge coreValue={value}>
+                {children}
+              </AccountingFacadeBridge>
+            </BankingProvider>
           </SalesProvider>
         </ProductProvider>
       </SupplierProvider>
@@ -3157,6 +3173,7 @@ const AccountingFacadeBridge: React.FC<{
   const supplierDomain = useSupplierDomain();
   const productDomain = useProductDomain();
   const salesDomain = useSalesDomain();
+  const bankingDomain = useBankingDomain();
 
   const handleRefreshData = useCallback(async () => {
     await Promise.all([
@@ -3169,8 +3186,9 @@ const AccountingFacadeBridge: React.FC<{
       productDomain.refreshCategories ? productDomain.refreshCategories() : Promise.resolve(),
       productDomain.refreshTransfers ? productDomain.refreshTransfers() : Promise.resolve(),
       salesDomain.refreshSales ? salesDomain.refreshSales() : Promise.resolve(),
+      bankingDomain.refreshBanking ? bankingDomain.refreshBanking() : Promise.resolve(),
     ]);
-  }, [coreValue, customerDomain, supplierDomain, productDomain, salesDomain]);
+  }, [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain]);
 
   const facadeValue: AccountingContextType = useMemo(() => ({
     ...coreValue,
@@ -3221,8 +3239,22 @@ const AccountingFacadeBridge: React.FC<{
         supplierDomain.refreshPurchaseInvoices ? supplierDomain.refreshPurchaseInvoices() : Promise.resolve(),
       ]);
     },
+    // Banking & Treasury Domain Delegation
+    cheques: bankingDomain.cheques,
+    vouchers: bankingDomain.vouchers,
+    addCheque: bankingDomain.addCheque,
+    updateCheque: bankingDomain.updateCheque,
+    deleteCheque: bankingDomain.deleteCheque,
+    updateChequeStatus: bankingDomain.updateChequeStatus,
+    refreshBanking: bankingDomain.refreshBanking,
+    refreshBankingAndShift: async () => {
+      await Promise.all([
+        bankingDomain.refreshBanking ? bankingDomain.refreshBanking() : Promise.resolve(),
+        coreValue.refreshBankingAndShift ? coreValue.refreshBankingAndShift() : Promise.resolve(),
+      ]);
+    },
     refreshData: handleRefreshData
-  }), [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, handleRefreshData]);
+  }), [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, handleRefreshData]);
 
   return (
     <AccountingContext.Provider value={facadeValue}>
