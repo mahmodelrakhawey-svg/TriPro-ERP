@@ -195,6 +195,8 @@ export const ModuleGuard = ({ module, children }: { module: string, children: Re
         isAllowedByOrg = allowedModules.includes('stadium');
       } else if (module === 'manufacturing' || module === 'mfg') {
         isAllowedByOrg = allowedModules.includes('manufacturing') || allowedModules.includes('mfg');
+      } else if (module === 'reports') {
+        isAllowedByOrg = allowedModules.includes('reports') || allowedModules.includes('accounting');
       } else {
         isAllowedByOrg = allowedModules.includes(module) || allowedModules.includes(normalizedModule);
       }
@@ -214,6 +216,13 @@ export const ModuleGuard = ({ module, children }: { module: string, children: Re
         can('treasury', 'transfer') || 
         can('treasury', 'create') ||
         can('accounting', 'view')
+      )) ||
+      (module === 'reports' && (
+        can('reports', 'view') ||
+        can('accounting', 'view') ||
+        can('reports', 'multi_currency_statement') ||
+        can('reports', 'cash_bank_movement') ||
+        can('reports', 'financial_statements')
       )) ||
       (module === 'accounting' && can('accounting', 'view'))
     ) : true;

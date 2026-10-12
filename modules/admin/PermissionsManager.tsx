@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import UserPermissionsEditor from './UserPermissionsEditor';
+import UserPermissionsEditor, { STANDARD_REPORTS_PERMISSIONS } from './UserPermissionsEditor';
 
 // Types
 type Role = {
@@ -87,7 +87,7 @@ const rolePresets: Record<string, { name: string; description: string; matchActi
       p.module === 'accounting' ||
       p.module === 'treasury' ||
       p.module === 'assets' ||
-      (p.module === 'reports' && ['general_view', 'financial_statements', 'aging_reports', 'export_data'].includes(p.action)) ||
+      p.module === 'reports' ||
       (p.module === 'sales' && ['view', 'approve'].includes(p.action)) ||
       (p.module === 'purchases' && ['view', 'approve'].includes(p.action))
   },
@@ -426,12 +426,52 @@ const PermissionsManager = () => {
         setRoles(rolesData || []);
 
         // Fetch Permissions
-        const { data: permsData, error: permsError } = await supabase
+        let { data: permsData, error: permsError } = await supabase
           .from('permissions')
           .select('*')
           .order('module');
 
         if (permsError) throw permsError;
+        
+        let permsList: Permission[] = permsData || [];
+        const existingReportKeys = new Set(
+          permsList.filter(p => p.module === 'reports').map(p => p.action)
+        );
+        const missingReports = STANDARD_REPORTS_PERMISSIONS.filter(
+          sp => !existingReportKeys.has(sp.action)
+        );
+
+        if (missingReports.length > 0) {
+          try {
+            const { data: inserted, error: insErr } = await supabase
+              .from('permissions')
+              .upsert(missingReports, { onConflict: 'module,action' })
+              .select();
+
+            if (!insErr && inserted && inserted.length > 0) {
+              permsList = [...permsList, ...inserted];
+            } else {
+              const fallbackItems: Permission[] = missingReports.map((mr, idx) => ({
+                id: `rep-perm-${mr.action}-${idx}`,
+                module: mr.module,
+                action: mr.action,
+                description: mr.description,
+                is_sensitive: mr.is_sensitive
+              }));
+              permsList = [...permsList, ...fallbackItems];
+            }
+          } catch {
+            const fallbackItems: Permission[] = missingReports.map((mr, idx) => ({
+              id: `rep-perm-${mr.action}-${idx}`,
+              module: mr.module,
+              action: mr.action,
+              description: mr.description,
+              is_sensitive: mr.is_sensitive
+            }));
+            permsList = [...permsList, ...fallbackItems];
+          }
+        }
+        permsData = permsList;
         
         // فرز الصلاحيات حسب الموديول ثم وضع الحساسة بالأعلى ثم حسب الوصف
         const sortedPerms = (permsData || []).sort((a, b) => {

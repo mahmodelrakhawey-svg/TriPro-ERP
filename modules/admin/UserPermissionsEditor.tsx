@@ -19,13 +19,34 @@ type ProfileUser = {
   is_active: boolean | null;
 };
 
-type Permission = {
+export type Permission = {
   id: string;
   module: string;
   action: string;
   description: string;
   is_sensitive?: boolean;
 };
+
+export const STANDARD_REPORTS_PERMISSIONS: Omit<Permission, 'id'>[] = [
+  { module: 'reports', action: 'multi_currency_statement', description: 'عرض تقرير كشف حساب (متعدد العملات)', is_sensitive: true },
+  { module: 'reports', action: 'cash_bank_movement', description: 'عرض تقرير حركة الصندوق والبنوك', is_sensitive: true },
+  { module: 'reports', action: 'income_statement', description: 'عرض تقرير قائمة الدخل الشامل (IFRS 18)', is_sensitive: true },
+  { module: 'reports', action: 'balance_sheet', description: 'عرض تقرير قائمة المركز المالي (الميزانية العمومية)', is_sensitive: true },
+  { module: 'reports', action: 'trial_balance', description: 'عرض تقرير ميزان المراجعة', is_sensitive: true },
+  { module: 'reports', action: 'cash_flow', description: 'عرض تقرير قائمة التدفقات النقدية (IAS 7)', is_sensitive: true },
+  { module: 'reports', action: 'changes_in_equity', description: 'عرض تقرير قائمة التغير في حقوق الملكية', is_sensitive: true },
+  { module: 'reports', action: 'general_ledger', description: 'عرض تقرير دفتر الأستاذ العام', is_sensitive: true },
+  { module: 'reports', action: 'view_financial', description: 'عرض تقارير الإدارة العليا والتقارير المالية الهامة', is_sensitive: true },
+  { module: 'reports', action: 'financial_ratios', description: 'عرض تقرير النسب المالية ومؤشرات الأداء', is_sensitive: false },
+  { module: 'reports', action: 'tax_return', description: 'عرض تقرير الإقرار الضريبي (VAT)', is_sensitive: true },
+  { module: 'reports', action: 'customer_aging', description: 'عرض تقرير أعمار ديون العملاء', is_sensitive: false },
+  { module: 'reports', action: 'supplier_aging', description: 'عرض تقرير أعمار ديون الموردين', is_sensitive: false },
+  { module: 'reports', action: 'customer_statement', description: 'عرض تقرير كشف حساب عميل', is_sensitive: false },
+  { module: 'reports', action: 'supplier_statement', description: 'عرض تقرير كشف حساب مورد', is_sensitive: false },
+  { module: 'reports', action: 'employee_statement', description: 'عرض تقرير كشف حساب موظف', is_sensitive: false },
+  { module: 'reports', action: 'sales_summary', description: 'عرض تقارير وتحليلات المبيعات', is_sensitive: false },
+  { module: 'reports', action: 'export_data', description: 'تصدير التقارير المالية والبيانات إلى Excel', is_sensitive: true },
+];
 
 type RoleInfo = {
   id: string;
@@ -134,12 +155,54 @@ const UserPermissionsEditor: React.FC = () => {
 
         setProfileUsers(users);
 
-        // 2. جلب كل الصلاحيات
-        const { data: perms } = await supabase
+        // 2. جلب كل الصلاحيات مع ضمان إدراج تقارير النظام المالية التفصيلية
+        let { data: perms } = await supabase
           .from('permissions')
           .select('*')
           .order('module');
-        setPermissions(perms || []);
+
+        let permsList: Permission[] = perms || [];
+
+        // التأكد من توفر الصلاحيات الفردية لكل تقرير مالي
+        const existingReportKeys = new Set(
+          permsList.filter(p => p.module === 'reports').map(p => p.action)
+        );
+        const missingReports = STANDARD_REPORTS_PERMISSIONS.filter(
+          sp => !existingReportKeys.has(sp.action)
+        );
+
+        if (missingReports.length > 0) {
+          try {
+            const { data: inserted, error: insErr } = await supabase
+              .from('permissions')
+              .upsert(missingReports, { onConflict: 'module,action' })
+              .select();
+
+            if (!insErr && inserted && inserted.length > 0) {
+              permsList = [...permsList, ...inserted];
+            } else {
+              const fallbackItems: Permission[] = missingReports.map((mr, idx) => ({
+                id: `rep-perm-${mr.action}-${idx}`,
+                module: mr.module,
+                action: mr.action,
+                description: mr.description,
+                is_sensitive: mr.is_sensitive
+              }));
+              permsList = [...permsList, ...fallbackItems];
+            }
+          } catch {
+            const fallbackItems: Permission[] = missingReports.map((mr, idx) => ({
+              id: `rep-perm-${mr.action}-${idx}`,
+              module: mr.module,
+              action: mr.action,
+              description: mr.description,
+              is_sensitive: mr.is_sensitive
+            }));
+            permsList = [...permsList, ...fallbackItems];
+          }
+        }
+
+        setPermissions(permsList);
 
         // 3. جلب الأدوار
         let rolesQuery = supabase

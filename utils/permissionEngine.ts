@@ -57,6 +57,26 @@ const DOMAIN_ACTION_ALIASES: Record<string, Record<string, string[]>> = {
     negative_stock: ['inventory.negative_stock', 'sales.negative_stock', 'inventory.allow_negative_stock', 'sales.allow_negative_stock', 'inventory.*'],
     allow_negative_stock: ['inventory.negative_stock', 'sales.negative_stock', 'inventory.allow_negative_stock', 'sales.allow_negative_stock', 'inventory.*'],
   },
+  reports: {
+    multi_currency_statement: ['reports.multi_currency_statement', 'reports.financial_statements', 'reports.view_financial', 'reports.view', 'accounting.view', 'reports.*'],
+    cash_bank_movement: ['reports.cash_bank_movement', 'reports.financial_statements', 'reports.view_financial', 'reports.view', 'treasury.view', 'accounting.view', 'reports.*'],
+    income_statement: ['reports.income_statement', 'reports.financial_statements', 'reports.view_financial', 'reports.view', 'accounting.view', 'reports.*'],
+    balance_sheet: ['reports.balance_sheet', 'reports.financial_statements', 'reports.view_financial', 'reports.view', 'accounting.view', 'reports.*'],
+    trial_balance: ['reports.trial_balance', 'reports.financial_statements', 'reports.view_financial', 'reports.view', 'accounting.view', 'reports.*'],
+    cash_flow: ['reports.cash_flow', 'reports.financial_statements', 'reports.view_financial', 'reports.view', 'accounting.view', 'reports.*'],
+    changes_in_equity: ['reports.changes_in_equity', 'reports.financial_statements', 'reports.view_financial', 'reports.view', 'accounting.view', 'reports.*'],
+    general_ledger: ['reports.general_ledger', 'reports.financial_statements', 'reports.view_financial', 'reports.view', 'accounting.view', 'reports.*'],
+    view_financial: ['reports.view_financial', 'reports.financial_statements', 'reports.view', 'accounting.view', 'reports.*'],
+    financial_ratios: ['reports.financial_ratios', 'reports.view_financial', 'reports.view', 'accounting.view', 'reports.*'],
+    tax_return: ['reports.tax_return', 'reports.view_financial', 'reports.view', 'accounting.view', 'reports.*'],
+    customer_aging: ['reports.customer_aging', 'sales.view', 'customers.view', 'reports.view', 'reports.*'],
+    supplier_aging: ['reports.supplier_aging', 'purchases.view', 'suppliers.view', 'reports.view', 'reports.*'],
+    customer_statement: ['reports.customer_statement', 'sales.customer_statement', 'sales.view', 'customers.view', 'reports.view', 'reports.*'],
+    supplier_statement: ['reports.supplier_statement', 'purchases.supplier_statement', 'purchases.view', 'suppliers.view', 'reports.view', 'reports.*'],
+    employee_statement: ['reports.employee_statement', 'hr.view', 'reports.view', 'reports.*'],
+    sales_summary: ['reports.sales_summary', 'sales.view', 'reports.view', 'reports.*'],
+    export_data: ['reports.export_data', 'reports.export', 'accounting.view', 'reports.*'],
+  },
 };
 
 /**
@@ -68,6 +88,7 @@ const MODULE_VIEW_INHERITANCE: Record<string, string[]> = {
   sales: ['customers.view', 'customers.*'],
   purchases: ['suppliers.view', 'suppliers.*'],
   inventory: ['products.view', 'products.*'],
+  reports: ['accounting.view', 'accounting.*'],
 };
 
 /**
