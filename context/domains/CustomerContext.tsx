@@ -5,85 +5,179 @@
  * ==============================================================================
  * مخصص لإدارة العملاء والمديونيات وحسابات الذمم المدينة.
  * يدعم الاستخدام المباشر عبر CustomerProvider أو عبر واجهة AccountingContext الموحدة.
+ * مزود بالحماية الكاملة لعزل بيانات المنظمات (Multi-Tenancy) وسجل التدقيق (Audit Log)
+ * وجلب البيانات بالصفحات لدعم قواعد البيانات الضخمة التي تتجاوز 1000 عميل.
  * ==============================================================================
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Customer } from '../../types';
-import { useAccounting } from '../AccountingContext';
+import type { UserProfile } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
+import { fetchAllTableRecords } from './domainUtils';
+import { useAccounting } from '../AccountingContext';
 
 export interface CustomerDomainState {
   customers: Customer[];
   addCustomer: (customer: Partial<Customer>) => Promise<Customer | null | Record<string, unknown>>;
   updateCustomer: (id: string, updates: Partial<Customer>) => Promise<void>;
   deleteCustomer: (id: string, reason?: string) => Promise<void>;
-  refreshCustomers?: () => Promise<void>;
+  refreshCustomers: () => Promise<void>;
 }
 
 export const CustomerContext = createContext<CustomerDomainState | null>(null);
 
 export interface CustomerProviderProps {
   children: React.ReactNode;
-  orgId?: string;
+  orgId?: string | null;
+  currentUser?: UserProfile | null;
   initialCustomers?: Customer[];
+  logActivity?: (action: string, details: string) => void;
+  isDemo?: boolean;
 }
 
-export const CustomerProvider: React.FC<CustomerProviderProps> = ({ children, orgId, initialCustomers = [] }) => {
-  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
+const DEFAULT_OFFLINE_CUSTOMERS: Customer[] = [
+  { id: 'cust-walkin', name: 'عميل نقدي صالة', phone: '0000000000' } as Customer
+];
+
+const EMPTY_CUSTOMERS: Customer[] = [];
+
+export const CustomerProvider: React.FC<CustomerProviderProps> = ({
+  children,
+  orgId,
+  currentUser,
+  initialCustomers = EMPTY_CUSTOMERS,
+  logActivity,
+  isDemo = false
+}) => {
+  const [customers, setCustomers] = useState<Customer[]>(() => {
+    if (initialCustomers && initialCustomers.length > 0) return initialCustomers;
+    if (isDemo || currentUser?.role === 'demo') return DEFAULT_OFFLINE_CUSTOMERS;
+    return [];
+  });
+
+  const targetOrgId = orgId || currentUser?.organization_id || null;
 
   const fetchCustomers = useCallback(async () => {
-    if (!orgId) return;
-    try {
-      const { data, error } = await supabase
-        .from('customers')
-        .select('*')
-        .eq('organization_id', orgId)
-        .is('deleted_at', null)
-        .order('name');
-      if (error) {
-        logger.error('Error fetching customers in CustomerProvider:', error);
+    if (!targetOrgId || targetOrgId === 'org-default-offline') {
+      if (initialCustomers.length > 0) {
+        setCustomers(initialCustomers);
+      } else if (isDemo || currentUser?.role === 'demo') {
+        setCustomers(DEFAULT_OFFLINE_CUSTOMERS);
       } else {
-        setCustomers((data as Customer[]) || []);
+        setCustomers([]);
+      }
+      return;
+    }
+
+    try {
+      const res = await fetchAllTableRecords<Customer>(
+        'customers',
+        q => q.eq('organization_id', targetOrgId).is('deleted_at', null).order('name')
+      );
+
+      if (res.error) {
+        logger.error('Error fetching customers in CustomerProvider:', res.error);
+      } else if (res.data) {
+        if (res.data.length > 0) {
+          setCustomers(res.data);
+        } else if (isDemo || currentUser?.role === 'demo') {
+          setCustomers(DEFAULT_OFFLINE_CUSTOMERS);
+        } else {
+          setCustomers([]);
+        }
       }
     } catch (err) {
       logger.error('Unexpected error fetching customers:', err);
     }
-  }, [orgId]);
+  }, [targetOrgId, isDemo, currentUser?.role]);
 
   useEffect(() => {
-    if (orgId) {
+    if (initialCustomers.length > 0) {
+      setCustomers(initialCustomers);
+    } else if (targetOrgId && targetOrgId !== 'org-default-offline') {
       fetchCustomers();
     }
-  }, [orgId, fetchCustomers]);
+  }, [targetOrgId, fetchCustomers, initialCustomers.length]);
 
   const addCustomer = useCallback(async (data: Partial<Customer>): Promise<Customer | null> => {
-    if (!orgId) return null;
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const userId = currentUser?.id;
+
     const { data: c, error } = await supabase
       .from('customers')
-      .insert({ ...data, organization_id: orgId })
+      .insert({
+        ...data,
+        organization_id: effectiveOrg,
+        created_by: userId,
+        updated_by: userId
+      })
       .select()
       .single();
-    if (error) throw error;
+
+    if (error) {
+      logger.error('Error adding customer:', error);
+      throw error;
+    }
+
+    logActivity?.('إضافة عميل', `تم إضافة العميل: ${data.name || ''}`);
     await fetchCustomers();
     return c as Customer;
-  }, [orgId, fetchCustomers]);
+  }, [targetOrgId, currentUser, logActivity, fetchCustomers]);
 
   const updateCustomer = useCallback(async (id: string, data: Partial<Customer>): Promise<void> => {
-    const { error } = await supabase.from('customers').update(data).eq('id', id);
-    if (error) throw error;
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const userId = currentUser?.id;
+
+    let query = supabase
+      .from('customers')
+      .update({
+        ...data,
+        updated_by: userId
+      })
+      .eq('id', id);
+
+    if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
+      query = query.eq('organization_id', effectiveOrg);
+    }
+
+    const { error } = await query;
+    if (error) {
+      logger.error('Error updating customer:', error);
+      throw error;
+    }
+
+    logActivity?.('تعديل عميل', `تم تعديل بيانات العميل رقم: ${id}`);
     await fetchCustomers();
-  }, [fetchCustomers]);
+  }, [targetOrgId, currentUser, logActivity, fetchCustomers]);
 
   const deleteCustomer = useCallback(async (id: string, reason?: string): Promise<void> => {
-    const { error } = await supabase
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const userId = currentUser?.id;
+
+    let query = supabase
       .from('customers')
-      .update({ deleted_at: new Date().toISOString(), deletion_reason: reason })
+      .update({
+        deleted_at: new Date().toISOString(),
+        deletion_reason: reason,
+        updated_by: userId
+      })
       .eq('id', id);
-    if (error) throw error;
+
+    if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
+      query = query.eq('organization_id', effectiveOrg);
+    }
+
+    const { error } = await query;
+    if (error) {
+      logger.error('Error deleting customer:', error);
+      throw error;
+    }
+
+    logActivity?.('حذف عميل', `تم حذف العميل رقم: ${id}`);
     await fetchCustomers();
-  }, [fetchCustomers]);
+  }, [targetOrgId, currentUser, logActivity, fetchCustomers]);
 
   return (
     <CustomerContext.Provider
@@ -116,7 +210,7 @@ export const useCustomerDomain = (): CustomerDomainState => {
     addCustomer: acc.addCustomer as (customer: Partial<Customer>) => Promise<Customer | null | Record<string, unknown>>,
     updateCustomer: acc.updateCustomer as (id: string, updates: Partial<Customer>) => Promise<void>,
     deleteCustomer: acc.deleteCustomer as (id: string, reason?: string) => Promise<void>,
-    refreshCustomers: acc.refreshData as () => Promise<void>,
+    refreshCustomers: (acc.refreshCustomers as () => Promise<void>) || (acc.refreshData as () => Promise<void>),
   };
 };
 

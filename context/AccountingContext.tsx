@@ -211,49 +211,16 @@ export const useAccounting = () => {
 
 // --- Modular Domain Hooks (Facade Pattern) ---
 export { useProductDomain } from './domains/ProductContext';
-export { useCustomerDomain } from './domains/CustomerContext';
+export { useCustomerDomain, CustomerProvider } from './domains/CustomerContext';
 export { useSupplierDomain } from './domains/SupplierContext';
 export { useSettingsDomain } from './domains/AccountingSettingsContext';
 export { useSalesDomain } from './domains/SalesContext';
 export { useBankingDomain } from './domains/BankingContext';
 export { useGeneralLedgerDomain } from './domains/GeneralLedgerContext';
+export { fetchAllTableRecords } from './domains/domainUtils';
 
-/**
- * دالة مساعدة عامة لجلب كافة سجلات الجداول الكبيرة التي تتجاوز حد 1000 سجل في Supabase/PostgREST
- */
-async function fetchAllTableRecords<T = any>(
-  tableName: string,
-  filterFn: (query: DynamicQuery) => DynamicQuery,
-  pageSize = 1000
-): Promise<{ data: T[]; error: DynamicParam }> {
-  let allData: T[] = [];
-  let from = 0;
-  let hasMore = true;
-
-  while (hasMore) {
-    let query = supabase.from(tableName).select('*');
-    query = filterFn(query);
-    const { data, error } = await query.range(from, from + pageSize - 1);
-
-    if (error) {
-      logger.error(`Error fetching ${tableName} chunk:`, error);
-      return { data: allData, error };
-    }
-
-    if (data && data.length > 0) {
-      allData = allData.concat(data as T[]);
-      if (data.length < pageSize) {
-        hasMore = false;
-      } else {
-        from += pageSize;
-      }
-    } else {
-      hasMore = false;
-    }
-  }
-
-  return { data: allData, error: null };
-}
+import { useCustomerDomain, CustomerProvider } from './domains/CustomerContext';
+import { fetchAllTableRecords } from './domains/domainUtils';
 
 export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser: authUser, can } = useAuth();
@@ -689,7 +656,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         supabase.from('profiles').select('*').eq('organization_id', fetchOrgId).order('full_name'),
         supabase.from('warehouses').select('*').eq('organization_id', fetchOrgId).eq('is_active', true),
         supabase.from('restaurant_tables').select('*').eq('organization_id', fetchOrgId).order('name'),
-        fetchAllTableRecords('customers', q => q.eq('organization_id', fetchOrgId).is('deleted_at', null).order('name')),
+        Promise.resolve({ data: [] as Customer[], error: null }), // مُعالج بالكامل في سياق النطاق CustomerProvider
         fetchAllTableRecords('suppliers', q => q.eq('organization_id', fetchOrgId).is('deleted_at', null).order('name')),
         supabase.from('cheques').select('*').eq('organization_id', fetchOrgId).order('due_date'),
         supabase.rpc('get_active_shift', { p_org_id: fetchOrgId }),
@@ -3143,7 +3110,45 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   return (
-    <AccountingContext.Provider value={value}>
+    <CustomerProvider
+      orgId={effectiveOrgId}
+      currentUser={currentUser}
+      logActivity={logActivity}
+      isDemo={isDemo}
+      initialCustomers={customers}
+    >
+      <AccountingFacadeBridge coreValue={value}>
+        {children}
+      </AccountingFacadeBridge>
+    </CustomerProvider>
+  );
+};
+
+const AccountingFacadeBridge: React.FC<{
+  coreValue: AccountingContextType;
+  children: React.ReactNode;
+}> = ({ coreValue, children }) => {
+  const customerDomain = useCustomerDomain();
+
+  const handleRefreshData = useCallback(async () => {
+    await Promise.all([
+      coreValue.refreshData(),
+      customerDomain.refreshCustomers ? customerDomain.refreshCustomers() : Promise.resolve()
+    ]);
+  }, [coreValue, customerDomain]);
+
+  const facadeValue: AccountingContextType = useMemo(() => ({
+    ...coreValue,
+    customers: customerDomain.customers,
+    addCustomer: customerDomain.addCustomer as (data: Partial<Customer>) => Promise<any>,
+    updateCustomer: customerDomain.updateCustomer,
+    deleteCustomer: customerDomain.deleteCustomer,
+    refreshCustomers: customerDomain.refreshCustomers,
+    refreshData: handleRefreshData
+  }), [coreValue, customerDomain, handleRefreshData]);
+
+  return (
+    <AccountingContext.Provider value={facadeValue}>
       {children}
     </AccountingContext.Provider>
   );
