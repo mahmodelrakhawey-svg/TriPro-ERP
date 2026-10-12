@@ -5,14 +5,19 @@
  * ==============================================================================
  * مخصص لإدارة المنتجات، المستودعات، التصنيفات، وحركات التحويل المخزني.
  * يدعم الاستخدام المباشر أو عبر واجهة AccountingContext الموحدة.
+ * مزود بالحماية الكاملة لعزل بيانات المنظمات (Multi-Tenancy) وسجل التدقيق (Audit Log)
+ * وجلب البيانات بالصفحات لدعم قواعد البيانات الضخمة التي تتجاوز 1000 صنف.
  * ==============================================================================
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { useAccounting } from '../AccountingContext';
 import { Product, Warehouse, StockTransfer, Category } from '../../types';
+import type { UserProfile } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
+import { fetchAllTableRecords } from './domainUtils';
+import { offlineService } from '../../services/offlineService';
 
 export interface ProductDomainState {
   products: Product[];
@@ -31,198 +36,406 @@ export interface ProductDomainState {
   deleteWarehouse: (id: string) => Promise<void>;
   addWastage: (wastage: Record<string, unknown>) => Promise<boolean>;
   produceItem: (id: string, qty: number, whId: string, date: string, cost: number, ref: string) => Promise<unknown>;
-  refreshProducts?: () => Promise<void>;
+  refreshProducts: () => Promise<void>;
+  refreshWarehouses?: () => Promise<void>;
+  refreshCategories?: () => Promise<void>;
+  refreshTransfers?: () => Promise<void>;
 }
 
 export const ProductContext = createContext<ProductDomainState | null>(null);
 
 export interface ProductProviderProps {
   children: React.ReactNode;
-  orgId?: string;
+  orgId?: string | null;
+  currentUser?: UserProfile | null;
   initialProducts?: Product[];
   initialWarehouses?: Warehouse[];
   initialCategories?: Category[];
   initialTransfers?: StockTransfer[];
+  logActivity?: (action: string, details: string) => void;
+  showToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  isDemo?: boolean;
 }
+
+const DEFAULT_OFFLINE_PRODUCTS: Product[] = [
+  { id: 'prod-demo-1', name: 'صنف تجريبي عام', price: 100, cost: 60, stock: 50, barcode: '123456789' } as Product
+];
+
+const DEFAULT_OFFLINE_WAREHOUSES: Warehouse[] = [
+  { id: 'wh-main', name: 'المستودع الرئيسي', is_active: true } as Warehouse
+];
+
+const DEFAULT_OFFLINE_CATEGORIES: Category[] = [
+  { id: 'cat-general', name: 'عام' } as Category
+];
+
+const EMPTY_PRODUCTS: Product[] = [];
+const EMPTY_WAREHOUSES: Warehouse[] = [];
+const EMPTY_CATEGORIES: Category[] = [];
+const EMPTY_TRANSFERS: StockTransfer[] = [];
 
 export const ProductProvider: React.FC<ProductProviderProps> = ({
   children,
   orgId,
-  initialProducts = [],
-  initialWarehouses = [],
-  initialCategories = [],
-  initialTransfers = []
+  currentUser,
+  initialProducts = EMPTY_PRODUCTS,
+  initialWarehouses = EMPTY_WAREHOUSES,
+  initialCategories = EMPTY_CATEGORIES,
+  initialTransfers = EMPTY_TRANSFERS,
+  logActivity,
+  showToast,
+  isDemo = false
 }) => {
-  const [products, setProducts] = useState<Product[]>(initialProducts);
-  const [warehouses, setWarehouses] = useState<Warehouse[]>(initialWarehouses);
-  const [categories, setCategories] = useState<Category[]>(initialCategories);
+  const [products, setProducts] = useState<Product[]>(() => {
+    if (initialProducts && initialProducts.length > 0) return initialProducts;
+    if (isDemo || currentUser?.role === 'demo') return DEFAULT_OFFLINE_PRODUCTS;
+    return [];
+  });
+  const [warehouses, setWarehouses] = useState<Warehouse[]>(() => {
+    if (initialWarehouses && initialWarehouses.length > 0) return initialWarehouses;
+    if (isDemo || currentUser?.role === 'demo') return DEFAULT_OFFLINE_WAREHOUSES;
+    return [];
+  });
+  const [categories, setCategories] = useState<Category[]>(() => {
+    if (initialCategories && initialCategories.length > 0) return initialCategories;
+    if (isDemo || currentUser?.role === 'demo') return DEFAULT_OFFLINE_CATEGORIES;
+    return [];
+  });
   const [transfers, setTransfers] = useState<StockTransfer[]>(initialTransfers);
 
+  const targetOrgId = orgId || currentUser?.organization_id || null;
+
   const fetchProducts = useCallback(async () => {
-    if (!orgId) return;
-    try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .eq('organization_id', orgId)
-        .is('deleted_at', null)
-        .order('name');
-      if (error) {
-        logger.error('Error fetching products:', error);
+    if (!targetOrgId || targetOrgId === 'org-default-offline') {
+      if (initialProducts.length > 0) {
+        setProducts(initialProducts);
+      } else if (isDemo || currentUser?.role === 'demo') {
+        setProducts(DEFAULT_OFFLINE_PRODUCTS);
       } else {
-        setProducts((data as Product[]) || []);
+        setProducts([]);
+      }
+      return;
+    }
+
+    try {
+      const res = await fetchAllTableRecords<Product>(
+        'products',
+        q => q.eq('organization_id', targetOrgId).is('deleted_at', null).order('name')
+      );
+
+      if (res.error) {
+        logger.error('Error fetching products in ProductProvider:', res.error);
+      } else if (res.data) {
+        if (res.data.length > 0) {
+          setProducts(res.data);
+          offlineService.seedFallbackProducts(res.data).catch(() => {});
+        } else if (isDemo || currentUser?.role === 'demo') {
+          setProducts(DEFAULT_OFFLINE_PRODUCTS);
+        } else {
+          setProducts([]);
+        }
       }
     } catch (err) {
       logger.error('Unexpected error fetching products:', err);
     }
-  }, [orgId]);
+  }, [targetOrgId, isDemo, currentUser?.role, initialProducts]);
 
   const fetchWarehouses = useCallback(async () => {
-    if (!orgId) return;
+    if (!targetOrgId || targetOrgId === 'org-default-offline') return;
     try {
       const { data, error } = await supabase
         .from('warehouses')
         .select('*')
-        .eq('organization_id', orgId)
+        .eq('organization_id', targetOrgId)
         .eq('is_active', true);
       if (error) {
-        logger.error('Error fetching warehouses:', error);
+        logger.error('Error fetching warehouses in ProductProvider:', error);
       } else {
-        setWarehouses((data as Warehouse[]) || []);
+        let loaded = (data as Warehouse[]) || [];
+        // صمام أمان المنظمات الجديدة
+        if (loaded.length === 0 && currentUser?.role !== 'demo') {
+          try {
+            const { data: createdWh } = await supabase
+              .from('warehouses')
+              .insert({ name: 'المستودع الرئيسي', organization_id: targetOrgId, is_active: true })
+              .select('*')
+              .maybeSingle();
+            if (createdWh) loaded = [createdWh];
+          } catch (e) {
+            logger.warn('Auto-create warehouse fallback:', e);
+          }
+        }
+        setWarehouses(loaded.length > 0 ? loaded : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_WAREHOUSES : []));
       }
     } catch (err) {
       logger.error('Unexpected error fetching warehouses:', err);
     }
-  }, [orgId]);
+  }, [targetOrgId, currentUser?.role]);
 
   const fetchCategories = useCallback(async () => {
-    if (!orgId) return;
+    if (!targetOrgId || targetOrgId === 'org-default-offline') return;
     try {
       const { data, error } = await supabase
         .from('item_categories')
         .select('*')
-        .eq('organization_id', orgId)
+        .eq('organization_id', targetOrgId)
         .order('name');
       if (error) {
-        logger.error('Error fetching categories:', error);
+        logger.error('Error fetching categories in ProductProvider:', error);
       } else {
-        setCategories((data as Category[]) || []);
+        const loaded = (data as Category[]) || [];
+        setCategories(loaded.length > 0 ? loaded : DEFAULT_OFFLINE_CATEGORIES);
       }
     } catch (err) {
       logger.error('Unexpected error fetching categories:', err);
     }
-  }, [orgId]);
+  }, [targetOrgId]);
 
   const fetchTransfers = useCallback(async () => {
-    if (!orgId) return;
+    if (!targetOrgId || targetOrgId === 'org-default-offline') return;
     try {
       const { data, error } = await supabase
         .from('stock_transfers')
         .select('*')
-        .eq('organization_id', orgId)
+        .eq('organization_id', targetOrgId)
         .order('transfer_date', { ascending: false })
         .limit(500);
       if (error) {
-        logger.error('Error fetching transfers:', error);
+        logger.error('Error fetching transfers in ProductProvider:', error);
       } else {
         setTransfers((data as StockTransfer[]) || []);
       }
     } catch (err) {
       logger.error('Unexpected error fetching transfers:', err);
     }
-  }, [orgId]);
+  }, [targetOrgId]);
 
   useEffect(() => {
-    if (orgId) {
+    if (initialProducts.length > 0) {
+      setProducts(initialProducts);
+    } else if (targetOrgId && targetOrgId !== 'org-default-offline') {
       fetchProducts();
+    }
+  }, [targetOrgId, fetchProducts, initialProducts.length]);
+
+  useEffect(() => {
+    if (initialWarehouses.length > 0) {
+      setWarehouses(initialWarehouses);
+    } else if (targetOrgId && targetOrgId !== 'org-default-offline') {
       fetchWarehouses();
+    }
+  }, [targetOrgId, fetchWarehouses, initialWarehouses.length]);
+
+  useEffect(() => {
+    if (initialCategories.length > 0) {
+      setCategories(initialCategories);
+    } else if (targetOrgId && targetOrgId !== 'org-default-offline') {
       fetchCategories();
+    }
+  }, [targetOrgId, fetchCategories, initialCategories.length]);
+
+  useEffect(() => {
+    if (initialTransfers.length > 0) {
+      setTransfers(initialTransfers);
+    } else if (targetOrgId && targetOrgId !== 'org-default-offline') {
       fetchTransfers();
     }
-  }, [orgId, fetchProducts, fetchWarehouses, fetchCategories, fetchTransfers]);
+  }, [targetOrgId, fetchTransfers, initialTransfers.length]);
 
   const recalculateStock = useCallback(async (productId?: string): Promise<void> => {
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
     try {
-      await supabase.rpc('recalculate_stock_rpc', {
+      const { error } = await supabase.rpc('recalculate_stock_rpc', {
         p_product_id: productId || null,
-        p_org_id: orgId || null
+        p_org_id: effectiveOrg || null
       });
+
+      if (error) {
+        showToast?.('فشل إعادة حساب المخزون: ' + error.message, 'error');
+        logger.error('Error recalculating stock in ProductProvider:', error);
+      } else {
+        showToast?.('تم تحديث المخزون بنجاح ✅', 'success');
+        await fetchProducts();
+      }
     } catch (err) {
-      logger.error('Error recalculating stock in ProductProvider:', err);
+      logger.error('Unexpected error recalculating stock:', err);
     }
-    await fetchProducts();
-  }, [orgId, fetchProducts]);
+  }, [targetOrgId, currentUser, showToast, fetchProducts]);
 
-  const addProduct = useCallback(async (product: Partial<Product>): Promise<Product | null> => {
-    if (!orgId) return null;
-    const { data, error } = await supabase
-      .from('products')
-      .insert({ ...product, organization_id: orgId })
-      .select()
-      .single();
-    if (error) throw error;
-    await fetchProducts();
-    return data as Product;
-  }, [orgId, fetchProducts]);
+  const addProduct = useCallback(async (data: Partial<Product>): Promise<Product | null> => {
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const userId = currentUser?.id;
 
-  const updateProduct = useCallback(async (id: string, updates: Partial<Product>): Promise<void> => {
-    const { error } = await supabase.from('products').update(updates).eq('id', id);
-    if (error) throw error;
+    const payload: Record<string, any> = {
+      ...data,
+      organization_id: effectiveOrg,
+      created_by: userId,
+      updated_by: userId
+    };
+
+    if (payload.supplier_id === '') delete payload.supplier_id;
+
+    let p: any = null;
+    let error: any = null;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const res = await supabase.from('products').insert(payload).select().single();
+      p = res.data;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
+    }
+
+    if (error) {
+      showToast?.('فشل إضافة الصنف: ' + error.message, 'error');
+      logger.error('addProduct error:', error);
+      throw error;
+    }
+
+    showToast?.('تمت إضافة الصنف بنجاح ✅', 'success');
+    logActivity?.('إضافة صنف', `تمت إضافة الصنف: ${data.name || ''}`);
     await fetchProducts();
-  }, [fetchProducts]);
+    return p as Product;
+  }, [targetOrgId, currentUser, logActivity, showToast, fetchProducts]);
+
+  const updateProduct = useCallback(async (id: string, data: Partial<Product>): Promise<void> => {
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const userId = currentUser?.id;
+
+    const payload: Record<string, any> = { ...data };
+    delete payload.id;
+    delete payload.organization_id;
+    payload.updated_by = userId;
+
+    let error: any = null;
+
+    for (let attempt = 0; attempt < 3; attempt++) {
+      let query = supabase.from('products').update(payload).eq('id', id);
+      if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
+        query = query.eq('organization_id', effectiveOrg);
+      }
+      const res = await query;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
+    }
+
+    if (error) {
+      showToast?.('فشل تحديث الصنف: ' + error.message, 'error');
+      logger.error('updateProduct error:', error);
+      throw error;
+    }
+
+    showToast?.('تم تحديث بيانات الصنف بنجاح ✅', 'success');
+    logActivity?.('تعديل صنف', `تم تعديل بيانات الصنف رقم: ${id}`);
+    await fetchProducts();
+  }, [targetOrgId, currentUser, logActivity, showToast, fetchProducts]);
 
   const deleteProduct = useCallback(async (id: string, reason?: string): Promise<void> => {
-    const { error } = await supabase
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const userId = currentUser?.id;
+
+    let query = supabase
       .from('products')
-      .update({ deleted_at: new Date().toISOString(), deletion_reason: reason })
+      .update({
+        deleted_at: new Date().toISOString(),
+        deletion_reason: reason,
+        updated_by: userId
+      })
       .eq('id', id);
-    if (error) throw error;
+
+    if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
+      query = query.eq('organization_id', effectiveOrg);
+    }
+
+    const { error } = await query;
+    if (error) {
+      showToast?.('فشل حذف الصنف: ' + error.message, 'error');
+      logger.error('deleteProduct error:', error);
+      throw error;
+    }
+
+    showToast?.('تم نقل الصنف إلى سلة المحذوفات', 'success');
+    logActivity?.('حذف صنف', `تم حذف الصنف رقم: ${id}`);
     await fetchProducts();
-  }, [fetchProducts]);
+  }, [targetOrgId, currentUser, logActivity, showToast, fetchProducts]);
 
   const addStockTransfer = useCallback(async (transfer: Partial<StockTransfer>): Promise<void> => {
-    if (!orgId) return;
-    const { error } = await supabase.from('stock_transfers').insert({ ...transfer, organization_id: orgId });
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const { error } = await supabase.from('stock_transfers').insert({ ...transfer, organization_id: effectiveOrg });
     if (error) throw error;
     await fetchTransfers();
-  }, [orgId, fetchTransfers]);
+  }, [targetOrgId, currentUser, fetchTransfers]);
 
   const approveStockTransfer = useCallback(async (id: string): Promise<void> => {
-    const { error } = await supabase.rpc('post_stock_transfer', { p_transfer_id: id });
+    const { error } = await supabase.rpc('approve_stock_transfer', { p_transfer_id: id });
     if (error) throw error;
     await fetchTransfers();
-  }, [fetchTransfers]);
+    await fetchProducts();
+  }, [fetchTransfers, fetchProducts]);
 
   const cancelStockTransfer = useCallback(async (id: string): Promise<void> => {
     const { error } = await supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id);
     if (error) throw error;
+    showToast?.('تم إلغاء طلب التحويل', 'info');
     await fetchTransfers();
-  }, [fetchTransfers]);
+  }, [showToast, fetchTransfers]);
 
   const addWarehouse = useCallback(async (warehouse: Partial<Warehouse>): Promise<void> => {
-    if (!orgId) return;
-    const { error } = await supabase.from('warehouses').insert({ ...warehouse, organization_id: orgId });
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const { error } = await supabase.from('warehouses').insert({ ...warehouse, organization_id: effectiveOrg });
     if (error) throw error;
     await fetchWarehouses();
-  }, [orgId, fetchWarehouses]);
+  }, [targetOrgId, currentUser, fetchWarehouses]);
 
   const updateWarehouse = useCallback(async (id: string, updates: Partial<Warehouse>): Promise<void> => {
-    const { error } = await supabase.from('warehouses').update(updates).eq('id', id);
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    let query = supabase.from('warehouses').update(updates).eq('id', id);
+    if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
+      query = query.eq('organization_id', effectiveOrg);
+    }
+    const { error } = await query;
     if (error) throw error;
     await fetchWarehouses();
-  }, [fetchWarehouses]);
+  }, [targetOrgId, currentUser, fetchWarehouses]);
 
   const deleteWarehouse = useCallback(async (id: string): Promise<void> => {
-    const { error } = await supabase.from('warehouses').update({ is_active: false }).eq('id', id);
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    let query = supabase.from('warehouses').update({ is_active: false }).eq('id', id);
+    if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
+      query = query.eq('organization_id', effectiveOrg);
+    }
+    const { error } = await query;
     if (error) throw error;
     await fetchWarehouses();
-  }, [fetchWarehouses]);
+  }, [targetOrgId, currentUser, fetchWarehouses]);
 
   const addWastage = useCallback(async (wastage: Record<string, unknown>): Promise<boolean> => {
-    const { error } = await supabase.from('inventory_wastage').insert(wastage);
-    if (error) throw error;
-    return true;
-  }, []);
+    const { error } = await supabase.rpc('record_wastage', wastage);
+    if (error) {
+      showToast?.('فشل تسجيل الهالك: ' + error.message, 'error');
+    } else {
+      showToast?.('تم تسجيل الهالك وتحديث المخزن ✅', 'success');
+      await fetchProducts();
+    }
+    return !error;
+  }, [showToast, fetchProducts]);
 
   const produceItem = useCallback(async (id: string, qty: number, whId: string, date: string, cost: number, ref: string): Promise<unknown> => {
     return await supabase.rpc('mfg_create_order_direct', {
@@ -255,6 +468,9 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
         addWastage,
         produceItem,
         refreshProducts: fetchProducts,
+        refreshWarehouses: fetchWarehouses,
+        refreshCategories: fetchCategories,
+        refreshTransfers: fetchTransfers,
       }}
     >
       {children}
@@ -290,7 +506,7 @@ export const useProductDomain = (): ProductDomainState => {
     deleteWarehouse: acc.deleteWarehouse as (id: string) => Promise<void>,
     addWastage: acc.addWastage as (wastage: Record<string, unknown>) => Promise<boolean>,
     produceItem: acc.produceItem as (id: string, qty: number, whId: string, date: string, cost: number, ref: string) => Promise<unknown>,
-    refreshProducts: acc.refreshData as () => Promise<void>,
+    refreshProducts: (acc.refreshProducts as () => Promise<void>) || (acc.refreshData as () => Promise<void>),
   };
 };
 
