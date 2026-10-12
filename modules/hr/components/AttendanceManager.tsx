@@ -491,18 +491,51 @@ export default function AttendanceManager() {
           const checkInTime = parseExcelTime(rawCheckIn);
           const checkOutTime = parseExcelTime(rawCheckOut);
 
-          // 4. التأخير والإضافي والحالة
+          // 4. تحديد الحالة صراحة إن وجدت في ملف الإكسيل
+          let status: AttendanceLog['status'] = 'PRESENT';
+          const rawStatus = r['الحالة'] || r['حالة'] || r['Status'] || r['status'];
+          if (rawStatus) {
+            const s = String(rawStatus).trim();
+            if (s === 'حاضر' || /present/i.test(s)) status = 'PRESENT';
+            else if (s === 'متأخر' || /late/i.test(s)) status = 'LATE';
+            else if (s === 'غائب' || s === 'غياب' || /absent/i.test(s)) status = 'ABSENT';
+            else if (s === 'إجازة' || s === 'اجازة' || /leave/i.test(s)) status = 'ON_LEAVE';
+          } else {
+            status = checkInTime ? 'PRESENT' : 'ABSENT';
+          }
+
+          // 5. إذا كانت الحالة "حاضر" أو "متأخر" ولم يحدد المستخدم وقتاً:
+          // يتعرف النظام تلقائياً على وردية الموظف ويكتب أوقات الدخول والخروج الرسمية للوردية!
+          let finalCheckIn = checkInTime;
+          let finalCheckOut = checkOutTime;
+
+          if (status === 'PRESENT' || status === 'LATE') {
+            const empShift = shifts.find(s => s.id === matchedEmp.shift_id) || shifts[0] || {
+              start_time: '09:00:00',
+              end_time: '17:00:00',
+              grace_period_minutes: 15,
+              overtime_start_minutes: 30
+            };
+
+            if (!finalCheckIn) {
+              finalCheckIn = (empShift.start_time || '09:00:00').slice(0, 5);
+            }
+            if (!finalCheckOut) {
+              finalCheckOut = (empShift.end_time || '17:00:00').slice(0, 5);
+            }
+          }
+
+          // 6. حساب التأخير والإضافي بناءً على وردية الموظف
           let lateMinutes = 0;
           let overtimeHours = 0;
-          let status: AttendanceLog['status'] = 'PRESENT';
 
-          if (checkInTime) {
-            const shiftDiff = calculateShiftDifference(matchedEmp.id, checkInTime, checkOutTime || '');
+          if (finalCheckIn && (status === 'PRESENT' || status === 'LATE')) {
+            const shiftDiff = calculateShiftDifference(matchedEmp.id, finalCheckIn, finalCheckOut || '');
             lateMinutes = shiftDiff.late;
             overtimeHours = shiftDiff.ot;
-            status = shiftDiff.status;
-          } else {
-            status = 'ABSENT';
+            if (!rawStatus) {
+              status = shiftDiff.status;
+            }
           }
 
           // قيم صريحة للتأخير والإضافي إن وجدت
@@ -518,24 +551,14 @@ export default function AttendanceManager() {
             if (!isNaN(parsedOT)) overtimeHours = Math.max(0, parsedOT);
           }
 
-          // حالة صريحة إن وجدت
-          const rawStatus = r['الحالة'] || r['حالة'] || r['Status'] || r['status'];
-          if (rawStatus) {
-            const s = String(rawStatus).trim();
-            if (s === 'حاضر' || /present/i.test(s)) status = 'PRESENT';
-            else if (s === 'متأخر' || /late/i.test(s)) status = 'LATE';
-            else if (s === 'غائب' || s === 'غياب' || /absent/i.test(s)) status = 'ABSENT';
-            else if (s === 'إجازة' || s === 'اجازة' || /leave/i.test(s)) status = 'ON_LEAVE';
-          }
-
           const notes = r['ملاحظات'] || r['الملاحظات'] || r['Notes'] || r['notes'] || null;
 
           validRecords.push({
             organization_id: orgId,
             employee_id: matchedEmp.id,
             log_date: logDate,
-            check_in_time: checkInTime,
-            check_out_time: checkOutTime,
+            check_in_time: status === 'ABSENT' || status === 'ON_LEAVE' ? null : finalCheckIn,
+            check_out_time: status === 'ABSENT' || status === 'ON_LEAVE' ? null : finalCheckOut,
             late_minutes: lateMinutes,
             overtime_hours: overtimeHours,
             status,
