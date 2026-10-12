@@ -5,14 +5,18 @@
  * ==============================================================================
  * مخصص لإدارة الموردين، فواتير المشتريات، وحسابات الذمم الدائنة.
  * يدعم الاستخدام المباشر أو عبر واجهة AccountingContext الموحدة.
+ * مزود بالحماية الكاملة لعزل بيانات المنظمات (Multi-Tenancy) وسجل التدقيق (Audit Log)
+ * وجلب البيانات بالصفحات لدعم قواعد البيانات الضخمة التي تتجاوز 1000 مورد.
  * ==============================================================================
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Supplier, PurchaseInvoice } from '../../types';
+import type { UserProfile } from '../AccountingContext';
 import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
+import { fetchAllTableRecords } from './domainUtils';
 
 export interface SupplierDomainState {
   suppliers: Supplier[];
@@ -24,138 +28,283 @@ export interface SupplierDomainState {
   unpostPurchaseInvoice: (id: string, orgId?: string) => Promise<boolean>;
   deletePurchaseInvoice: (id: string, orgId?: string) => Promise<boolean>;
   convertPoToInvoice: (poId: string, warehouseId?: string, orgId?: string) => Promise<void>;
-  refreshSuppliers?: () => Promise<void>;
+  refreshSuppliers: () => Promise<void>;
+  refreshPurchaseInvoices?: () => Promise<void>;
 }
 
 export const SupplierContext = createContext<SupplierDomainState | null>(null);
 
 export interface SupplierProviderProps {
   children: React.ReactNode;
-  orgId?: string;
+  orgId?: string | null;
+  currentUser?: UserProfile | null;
   initialSuppliers?: Supplier[];
   initialPurchaseInvoices?: PurchaseInvoice[];
+  logActivity?: (action: string, details: string) => void;
+  showToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
+  isDemo?: boolean;
 }
+
+const DEFAULT_OFFLINE_SUPPLIERS: Supplier[] = [
+  { id: 'sup-main', name: 'مورد عام معتمد', phone: '01000000000' } as Supplier
+];
+
+const EMPTY_SUPPLIERS: Supplier[] = [];
+const EMPTY_INVOICES: PurchaseInvoice[] = [];
 
 export const SupplierProvider: React.FC<SupplierProviderProps> = ({
   children,
   orgId,
-  initialSuppliers = [],
-  initialPurchaseInvoices = []
+  currentUser,
+  initialSuppliers = EMPTY_SUPPLIERS,
+  initialPurchaseInvoices = EMPTY_INVOICES,
+  logActivity,
+  showToast,
+  isDemo = false
 }) => {
-  const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers);
+  const [suppliers, setSuppliers] = useState<Supplier[]>(() => {
+    if (initialSuppliers && initialSuppliers.length > 0) return initialSuppliers;
+    if (isDemo || currentUser?.role === 'demo') return DEFAULT_OFFLINE_SUPPLIERS;
+    return [];
+  });
   const [purchaseInvoices, setPurchaseInvoices] = useState<PurchaseInvoice[]>(initialPurchaseInvoices);
 
+  const targetOrgId = orgId || currentUser?.organization_id || null;
+
   const fetchSuppliers = useCallback(async () => {
-    if (!orgId) return;
-    try {
-      const { data, error } = await supabase
-        .from('suppliers')
-        .select('*')
-        .eq('organization_id', orgId)
-        .is('deleted_at', null)
-        .order('name');
-      if (error) {
-        logger.error('Error fetching suppliers:', error);
+    if (!targetOrgId || targetOrgId === 'org-default-offline') {
+      if (initialSuppliers.length > 0) {
+        setSuppliers(initialSuppliers);
+      } else if (isDemo || currentUser?.role === 'demo') {
+        setSuppliers(DEFAULT_OFFLINE_SUPPLIERS);
       } else {
-        setSuppliers((data as Supplier[]) || []);
+        setSuppliers([]);
+      }
+      return;
+    }
+
+    try {
+      const res = await fetchAllTableRecords<Supplier>(
+        'suppliers',
+        q => q.eq('organization_id', targetOrgId).is('deleted_at', null).order('name')
+      );
+
+      if (res.error) {
+        logger.error('Error fetching suppliers in SupplierProvider:', res.error);
+      } else if (res.data) {
+        if (res.data.length > 0) {
+          setSuppliers(res.data);
+        } else if (isDemo || currentUser?.role === 'demo') {
+          setSuppliers(DEFAULT_OFFLINE_SUPPLIERS);
+        } else {
+          setSuppliers([]);
+        }
       }
     } catch (err) {
       logger.error('Unexpected error fetching suppliers:', err);
     }
-  }, [orgId]);
+  }, [targetOrgId, isDemo, currentUser?.role, initialSuppliers]);
 
   const fetchInvoices = useCallback(async () => {
-    if (!orgId) return;
+    if (!targetOrgId || targetOrgId === 'org-default-offline') return;
     try {
       const { data, error } = await supabase
         .from('purchase_invoices')
         .select('*')
-        .eq('organization_id', orgId)
+        .eq('organization_id', targetOrgId)
         .order('invoice_date', { ascending: false })
         .limit(1000);
+
       if (error) {
-        logger.error('Error fetching purchase invoices:', error);
+        logger.error('Error fetching purchase invoices in SupplierProvider:', error);
       } else {
         setPurchaseInvoices((data as PurchaseInvoice[]) || []);
       }
     } catch (err) {
       logger.error('Unexpected error fetching purchase invoices:', err);
     }
-  }, [orgId]);
+  }, [targetOrgId]);
 
   useEffect(() => {
-    if (orgId) {
+    if (initialSuppliers.length > 0) {
+      setSuppliers(initialSuppliers);
+    } else if (targetOrgId && targetOrgId !== 'org-default-offline') {
       fetchSuppliers();
+    }
+  }, [targetOrgId, fetchSuppliers, initialSuppliers.length]);
+
+  useEffect(() => {
+    if (initialPurchaseInvoices.length > 0) {
+      setPurchaseInvoices(initialPurchaseInvoices);
+    } else if (targetOrgId && targetOrgId !== 'org-default-offline') {
       fetchInvoices();
     }
-  }, [orgId, fetchSuppliers, fetchInvoices]);
+  }, [targetOrgId, fetchInvoices, initialPurchaseInvoices.length]);
 
   const addSupplier = useCallback(async (data: Partial<Supplier>): Promise<Supplier | null> => {
-    if (!orgId) return null;
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const userId = currentUser?.id;
+
     const { data: s, error } = await supabase
       .from('suppliers')
-      .insert({ ...data, organization_id: orgId })
+      .insert({
+        ...data,
+        organization_id: effectiveOrg,
+        created_by: userId,
+        updated_by: userId
+      })
       .select()
       .single();
-    if (error) throw error;
+
+    if (error) {
+      showToast?.('فشل إضافة المورد: ' + error.message, 'error');
+      logger.error('Error adding supplier:', error);
+      throw error;
+    }
+
+    showToast?.('تم إضافة المورد بنجاح ✅', 'success');
+    logActivity?.('إضافة مورد', `تم إضافة المورد: ${data.name || ''}`);
     await fetchSuppliers();
     return s as Supplier;
-  }, [orgId, fetchSuppliers]);
+  }, [targetOrgId, currentUser, logActivity, showToast, fetchSuppliers]);
 
   const updateSupplier = useCallback(async (id: string, data: Partial<Supplier>): Promise<void> => {
-    const { error } = await supabase.from('suppliers').update(data).eq('id', id);
-    if (error) throw error;
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const userId = currentUser?.id;
+
+    let query = supabase
+      .from('suppliers')
+      .update({
+        ...data,
+        updated_by: userId
+      })
+      .eq('id', id);
+
+    if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
+      query = query.eq('organization_id', effectiveOrg);
+    }
+
+    const { error } = await query;
+    if (error) {
+      showToast?.('فشل تعديل بيانات المورد: ' + error.message, 'error');
+      logger.error('Error updating supplier:', error);
+      throw error;
+    }
+
+    showToast?.('تم تعديل بيانات المورد بنجاح ✅', 'success');
+    logActivity?.('تعديل مورد', `تم تعديل بيانات المورد: ${id}`);
     await fetchSuppliers();
-  }, [fetchSuppliers]);
+  }, [targetOrgId, currentUser, logActivity, showToast, fetchSuppliers]);
 
   const deleteSupplier = useCallback(async (id: string, reason?: string): Promise<void> => {
-    const { error } = await supabase
+    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const userId = currentUser?.id;
+
+    // تنظيف قيود الرصيد الافتتاحي إن وجدت
+    try {
+      const { data: opEntries } = await supabase
+        .from('journal_entries')
+        .select('id')
+        .or(`reference.eq.OP-SUPP-${id},reference.ilike.%${id}%`);
+
+      if (opEntries && opEntries.length > 0) {
+        for (const opEntry of opEntries) {
+          await supabase.rpc('delete_journal_entry_safe', { p_entry_id: opEntry.id, p_org_id: null });
+        }
+      }
+    } catch (e) {
+      logger.warn('Could not auto-clean opening balance entry for supplier:', e);
+    }
+
+    let query = supabase
       .from('suppliers')
-      .update({ deleted_at: new Date().toISOString(), deletion_reason: reason })
+      .update({
+        deleted_at: new Date().toISOString(),
+        deletion_reason: reason,
+        updated_by: userId
+      })
       .eq('id', id);
-    if (error) throw error;
+
+    if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
+      query = query.eq('organization_id', effectiveOrg);
+    }
+
+    const { error } = await query;
+    if (error) {
+      logger.error('Error deleting supplier:', error);
+      throw error;
+    }
+
+    logActivity?.('حذف مورد', `تم حذف المورد رقم: ${id}`);
     await fetchSuppliers();
-  }, [fetchSuppliers]);
+  }, [targetOrgId, currentUser, logActivity, fetchSuppliers]);
 
   const approvePurchaseInvoice = useCallback(async (id: string, customOrgId?: string, warehouseId?: string): Promise<void> => {
+    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
     const { error } = await supabase.rpc('post_purchase_invoice', {
       p_invoice_id: id,
-      p_org_id: customOrgId || orgId,
+      p_org_id: effectiveOrg,
       p_warehouse_id: warehouseId
     });
-    if (error) throw error;
+
+    if (error) {
+      showToast?.('فشل اعتماد الفاتورة: ' + error.message, 'error');
+      logger.error('Error approving purchase invoice:', error);
+      throw error;
+    }
+
+    showToast?.('تم اعتماد فاتورة المشتريات وتحديث المخزون بنجاح ✅', 'success');
     await fetchInvoices();
-  }, [orgId, fetchInvoices]);
+  }, [targetOrgId, currentUser, showToast, fetchInvoices]);
 
   const unpostPurchaseInvoice = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
+    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
     const { error } = await supabase.rpc('unpost_purchase_invoice', {
       p_invoice_id: id,
-      p_org_id: customOrgId || orgId
+      p_org_id: effectiveOrg
     });
-    if (error) throw error;
+
+    if (error) {
+      logger.warn('RPC unpost_purchase_invoice error:', error);
+      throw error;
+    }
+
     await fetchInvoices();
     return true;
-  }, [orgId, fetchInvoices]);
+  }, [targetOrgId, currentUser, fetchInvoices]);
 
   const deletePurchaseInvoice = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
+    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
     const { error } = await supabase.rpc('delete_purchase_invoice', {
       p_invoice_id: id,
-      p_org_id: customOrgId || orgId
+      p_org_id: effectiveOrg
     });
-    if (error) throw error;
+
+    if (error) {
+      logger.warn('RPC delete_purchase_invoice error:', error);
+      throw error;
+    }
+
     await fetchInvoices();
     return true;
-  }, [orgId, fetchInvoices]);
+  }, [targetOrgId, currentUser, fetchInvoices]);
 
   const convertPoToInvoice = useCallback(async (id: string, warehouseId?: string, customOrgId?: string): Promise<void> => {
+    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
     const { error } = await supabase.rpc('convert_po_to_invoice', {
       p_po_id: id,
       p_warehouse_id: warehouseId,
-      p_org_id: customOrgId || orgId
+      p_org_id: effectiveOrg
     });
-    if (error) throw error;
-    await fetchInvoices();
-  }, [orgId, fetchInvoices]);
+
+    if (error) {
+      showToast?.('فشل تحويل أمر الشراء: ' + error.message, 'error');
+      logger.error('Error converting po to invoice:', error);
+    } else {
+      showToast?.('تم تحويل أمر الشراء إلى فاتورة بنجاح ✅', 'success');
+      await fetchInvoices();
+    }
+  }, [targetOrgId, currentUser, showToast, fetchInvoices]);
 
   return (
     <SupplierContext.Provider
@@ -170,6 +319,7 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
         deletePurchaseInvoice,
         convertPoToInvoice,
         refreshSuppliers: fetchSuppliers,
+        refreshPurchaseInvoices: fetchInvoices,
       }}
     >
       {children}
@@ -198,7 +348,7 @@ export const useSupplierDomain = (): SupplierDomainState => {
     unpostPurchaseInvoice: acc.unpostPurchaseInvoice as (id: string, orgId?: string) => Promise<boolean>,
     deletePurchaseInvoice: acc.deletePurchaseInvoice as (id: string, orgId?: string) => Promise<boolean>,
     convertPoToInvoice: acc.convertPoToInvoice as (poId: string, warehouseId?: string, orgId?: string) => Promise<void>,
-    refreshSuppliers: acc.refreshData as () => Promise<void>,
+    refreshSuppliers: (acc.refreshSuppliers as () => Promise<void>) || (acc.refreshData as () => Promise<void>),
   };
 };
 

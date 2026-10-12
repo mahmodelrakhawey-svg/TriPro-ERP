@@ -212,7 +212,7 @@ export const useAccounting = () => {
 // --- Modular Domain Hooks (Facade Pattern) ---
 export { useProductDomain } from './domains/ProductContext';
 export { useCustomerDomain, CustomerProvider } from './domains/CustomerContext';
-export { useSupplierDomain } from './domains/SupplierContext';
+export { useSupplierDomain, SupplierProvider } from './domains/SupplierContext';
 export { useSettingsDomain } from './domains/AccountingSettingsContext';
 export { useSalesDomain } from './domains/SalesContext';
 export { useBankingDomain } from './domains/BankingContext';
@@ -220,6 +220,7 @@ export { useGeneralLedgerDomain } from './domains/GeneralLedgerContext';
 export { fetchAllTableRecords } from './domains/domainUtils';
 
 import { useCustomerDomain, CustomerProvider } from './domains/CustomerContext';
+import { useSupplierDomain, SupplierProvider } from './domains/SupplierContext';
 import { fetchAllTableRecords } from './domains/domainUtils';
 
 export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -657,7 +658,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         supabase.from('warehouses').select('*').eq('organization_id', fetchOrgId).eq('is_active', true),
         supabase.from('restaurant_tables').select('*').eq('organization_id', fetchOrgId).order('name'),
         Promise.resolve({ data: [] as Customer[], error: null }), // مُعالج بالكامل في سياق النطاق CustomerProvider
-        fetchAllTableRecords('suppliers', q => q.eq('organization_id', fetchOrgId).is('deleted_at', null).order('name')),
+        Promise.resolve({ data: [] as Supplier[], error: null }), // مُعالج بالكامل في سياق النطاق SupplierProvider
         supabase.from('cheques').select('*').eq('organization_id', fetchOrgId).order('due_date'),
         supabase.rpc('get_active_shift', { p_org_id: fetchOrgId }),
         supabase.from('assets').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
@@ -3117,9 +3118,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       isDemo={isDemo}
       initialCustomers={customers}
     >
-      <AccountingFacadeBridge coreValue={value}>
-        {children}
-      </AccountingFacadeBridge>
+      <SupplierProvider
+        orgId={effectiveOrgId}
+        currentUser={currentUser}
+        logActivity={logActivity}
+        showToast={showToast}
+        isDemo={isDemo}
+        initialSuppliers={suppliers}
+        initialPurchaseInvoices={purchaseInvoices}
+      >
+        <AccountingFacadeBridge coreValue={value}>
+          {children}
+        </AccountingFacadeBridge>
+      </SupplierProvider>
     </CustomerProvider>
   );
 };
@@ -3129,23 +3140,38 @@ const AccountingFacadeBridge: React.FC<{
   children: React.ReactNode;
 }> = ({ coreValue, children }) => {
   const customerDomain = useCustomerDomain();
+  const supplierDomain = useSupplierDomain();
 
   const handleRefreshData = useCallback(async () => {
     await Promise.all([
       coreValue.refreshData(),
-      customerDomain.refreshCustomers ? customerDomain.refreshCustomers() : Promise.resolve()
+      customerDomain.refreshCustomers ? customerDomain.refreshCustomers() : Promise.resolve(),
+      supplierDomain.refreshSuppliers ? supplierDomain.refreshSuppliers() : Promise.resolve(),
+      supplierDomain.refreshPurchaseInvoices ? supplierDomain.refreshPurchaseInvoices() : Promise.resolve(),
     ]);
-  }, [coreValue, customerDomain]);
+  }, [coreValue, customerDomain, supplierDomain]);
 
   const facadeValue: AccountingContextType = useMemo(() => ({
     ...coreValue,
+    // Customer Domain Delegation
     customers: customerDomain.customers,
     addCustomer: customerDomain.addCustomer as (data: Partial<Customer>) => Promise<any>,
     updateCustomer: customerDomain.updateCustomer,
     deleteCustomer: customerDomain.deleteCustomer,
     refreshCustomers: customerDomain.refreshCustomers,
+    // Supplier Domain Delegation
+    suppliers: supplierDomain.suppliers,
+    purchaseInvoices: supplierDomain.purchaseInvoices,
+    addSupplier: supplierDomain.addSupplier as (data: Partial<Supplier>) => Promise<any>,
+    updateSupplier: supplierDomain.updateSupplier,
+    deleteSupplier: supplierDomain.deleteSupplier,
+    approvePurchaseInvoice: supplierDomain.approvePurchaseInvoice,
+    unpostPurchaseInvoice: supplierDomain.unpostPurchaseInvoice,
+    deletePurchaseInvoice: supplierDomain.deletePurchaseInvoice,
+    convertPoToInvoice: supplierDomain.convertPoToInvoice,
+    refreshSuppliers: supplierDomain.refreshSuppliers,
     refreshData: handleRefreshData
-  }), [coreValue, customerDomain, handleRefreshData]);
+  }), [coreValue, customerDomain, supplierDomain, handleRefreshData]);
 
   return (
     <AccountingContext.Provider value={facadeValue}>
