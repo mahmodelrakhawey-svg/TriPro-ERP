@@ -228,6 +228,7 @@ export { useSalesDomain, SalesProvider } from './domains/SalesContext';
 export { useBankingDomain, BankingProvider } from './domains/BankingContext';
 export { useGeneralLedgerDomain, GeneralLedgerProvider } from './domains/GeneralLedgerContext';
 export { useHrDomain, HrProvider } from './domains/HrContext';
+export { useRestaurantDomain, RestaurantProvider } from './domains/RestaurantContext';
 export { fetchAllTableRecords } from './domains/domainUtils';
 
 import { useSettingsDomain, SettingsProvider } from './domains/AccountingSettingsContext';
@@ -238,6 +239,7 @@ import { useSalesDomain, SalesProvider } from './domains/SalesContext';
 import { useBankingDomain, BankingProvider } from './domains/BankingContext';
 import { useGeneralLedgerDomain, GeneralLedgerProvider } from './domains/GeneralLedgerContext';
 import { useHrDomain, HrProvider } from './domains/HrContext';
+import { useRestaurantDomain, RestaurantProvider } from './domains/RestaurantContext';
 import { fetchAllTableRecords } from './domains/domainUtils';
 
 export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -3195,9 +3197,23 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                     isDemo={isDemo}
                     initialEmployees={employees}
                   >
-                    <AccountingFacadeBridge coreValue={value}>
-                      {children}
-                    </AccountingFacadeBridge>
+                    <RestaurantProvider
+                      orgId={effectiveOrgId}
+                      currentUser={currentUser}
+                      logActivity={logActivity}
+                      showToast={showToast}
+                      isDemo={isDemo}
+                      initialTables={restaurantTables}
+                      initialShift={currentShift}
+                      products={products}
+                      defaultWarehouseId={settings?.default_warehouse_id}
+                      getSystemAccount={getSystemAccount}
+                      refreshData={refreshData}
+                    >
+                      <AccountingFacadeBridge coreValue={value}>
+                        {children}
+                      </AccountingFacadeBridge>
+                    </RestaurantProvider>
                   </HrProvider>
                 </GeneralLedgerProvider>
               </BankingProvider>
@@ -3221,6 +3237,7 @@ const AccountingFacadeBridge: React.FC<{
   const glDomain = useGeneralLedgerDomain();
   const settingsDomain = useSettingsDomain();
   const hrDomain = useHrDomain();
+  const restaurantDomain = useRestaurantDomain();
 
   const handleRefreshData = useCallback(async () => {
     await Promise.all([
@@ -3237,8 +3254,10 @@ const AccountingFacadeBridge: React.FC<{
       glDomain.refreshLedger ? glDomain.refreshLedger() : Promise.resolve(),
       settingsDomain.refreshSettings ? settingsDomain.refreshSettings() : Promise.resolve(),
       hrDomain.refreshEmployees ? hrDomain.refreshEmployees() : Promise.resolve(),
+      restaurantDomain.refreshRestaurant ? restaurantDomain.refreshRestaurant() : Promise.resolve(),
+      restaurantDomain.refreshShift ? restaurantDomain.refreshShift() : Promise.resolve(),
     ]);
-  }, [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, settingsDomain, hrDomain]);
+  }, [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, settingsDomain, hrDomain, restaurantDomain]);
 
   const facadeValue: AccountingContextType = useMemo(() => ({
     ...coreValue,
@@ -3306,6 +3325,7 @@ const AccountingFacadeBridge: React.FC<{
     refreshBankingAndShift: async () => {
       await Promise.all([
         bankingDomain.refreshBanking ? bankingDomain.refreshBanking() : Promise.resolve(),
+        restaurantDomain.refreshShift ? restaurantDomain.refreshShift() : Promise.resolve(),
         coreValue.refreshBankingAndShift ? coreValue.refreshBankingAndShift() : Promise.resolve(),
       ]);
     },
@@ -3341,8 +3361,28 @@ const AccountingFacadeBridge: React.FC<{
     payAccruedPayroll: hrDomain.payAccruedPayroll,
     cancelPayrollAccrual: hrDomain.cancelPayrollAccrual,
     refreshEmployees: hrDomain.refreshEmployees,
+    // Restaurant & POS Shift Domain Delegation
+    restaurantTables: restaurantDomain.restaurantTables,
+    currentShift: restaurantDomain.currentShift,
+    openTableSession: restaurantDomain.openTableSession,
+    reserveTable: restaurantDomain.reserveTable,
+    cancelReservation: restaurantDomain.cancelReservation,
+    transferTableSession: restaurantDomain.transferTableSession,
+    mergeTableSessions: restaurantDomain.mergeTableSessions,
+    createRestaurantOrder: restaurantDomain.createRestaurantOrder,
+    getOpenTableOrder: restaurantDomain.getOpenTableOrder,
+    completeRestaurantOrder: restaurantDomain.completeRestaurantOrder,
+    processSplitPayment: restaurantDomain.processSplitPayment,
+    addRestaurantTable: restaurantDomain.addRestaurantTable,
+    updateRestaurantTable: restaurantDomain.updateRestaurantTable,
+    deleteRestaurantTable: restaurantDomain.deleteRestaurantTable,
+    updateKitchenOrderStatus: restaurantDomain.updateKitchenOrderStatus,
+    startShift: restaurantDomain.startShift,
+    closeCurrentShift: restaurantDomain.closeCurrentShift,
+    getCurrentShiftSummary: restaurantDomain.getCurrentShiftSummary,
+    finalizeProductionOrder: restaurantDomain.finalizeProductionOrder,
     refreshData: handleRefreshData
-  }), [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, settingsDomain, hrDomain, handleRefreshData]);
+  }), [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, settingsDomain, hrDomain, restaurantDomain, handleRefreshData]);
 
   return (
     <AccountingContext.Provider value={facadeValue}>
