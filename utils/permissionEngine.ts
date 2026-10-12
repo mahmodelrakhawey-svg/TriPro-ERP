@@ -112,7 +112,9 @@ function checkRoleSpecificRules(
       return true;
     }
     if (module === 'reports') {
-      return ['view', 'general_view', 'export_data', 'export'].includes(action);
+      if (['view', 'general_view', 'export_data', 'export'].includes(action)) {
+        return true;
+      }
     }
   }
 
