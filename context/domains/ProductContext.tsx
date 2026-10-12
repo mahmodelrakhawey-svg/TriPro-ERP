@@ -275,8 +275,8 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
 
     if (payload.supplier_id === '') delete payload.supplier_id;
 
-    let p: any = null;
-    let error: any = null;
+    let p: Product | null = null;
+    let error: { code?: string; message?: string } | null = null;
 
     for (let attempt = 0; attempt < 3; attempt++) {
       const res = await supabase.from('products').insert(payload).select().single();
@@ -315,7 +315,7 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
     delete payload.organization_id;
     payload.updated_by = userId;
 
-    let error: any = null;
+    let error: { code?: string; message?: string } | null = null;
 
     for (let attempt = 0; attempt < 3; attempt++) {
       let query = supabase.from('products').update(payload).eq('id', id);

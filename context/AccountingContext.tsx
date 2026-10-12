@@ -735,7 +735,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       setEmployees(scopedEmployees);
-      const mappedSalespeople: Salesperson[] = scopedEmployees.map((e: any) => ({
+      const mappedSalespeople: Salesperson[] = scopedEmployees.map((e: { id: string; name?: string; full_name?: string }) => ({
         id: e.id,
         name: e.name || e.full_name || 'مندوب'
       }));
@@ -2511,7 +2511,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         logger.warn('cancel_payroll_accrual_rpc notice, applying direct rollback:', rpcError);
 
         const { data: items } = await supabase.from('payroll_items').select('id').eq('payroll_id', payrollId);
-        const itemIds = (items || []).map((i: any) => i.id);
+        const itemIds = (items || []).map((i: { id: string }) => i.id);
 
         if (itemIds.length > 0) {
           await supabase
@@ -2532,7 +2532,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             .eq('related_document_id', payrollId)
             .eq('related_document_type', 'payroll');
           if (relJes && relJes.length > 0) {
-            const jeIds = relJes.map((j: any) => j.id);
+            const jeIds = relJes.map((j: { id: string }) => j.id);
             await supabase.from('journal_lines').delete().in('journal_entry_id', jeIds);
             await supabase.from('journal_entries').delete().in('id', jeIds);
           }
@@ -2547,9 +2547,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           }
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('Error cancelling payroll accrual:', err);
-      throw new Error(err.message || 'فشل إلغاء قيد الاستحقاق');
+      const errMsg = err instanceof Error ? err.message : 'فشل إلغاء قيد الاستحقاق';
+      throw new Error(errMsg);
     }
 
     await refreshData();
@@ -2835,9 +2836,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       await refreshData();
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('processSplitPayment exception:', err);
-      showToast('فشل معالجة الدفع الجزئي: ' + (err?.message || ''), 'error');
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showToast('فشل معالجة الدفع الجزئي: ' + errMsg, 'error');
       return false;
     }
   };
@@ -3045,9 +3047,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         organization_name: organization?.name || 'TriPro Organization',
         settings,
         accounts: accounts.map(a => ({ code: a.code, name: a.name, type: a.type, balance: a.balance })),
-        customers: customers.map((c: any) => ({ id: c.id, name: c.name, phone: c.phone, balance: c.balance })),
-        suppliers: suppliers.map((s: any) => ({ id: s.id, name: s.name, phone: s.phone, balance: s.balance })),
-        products: products.map((p: any) => ({ id: p.id, name: p.name, sku: p.sku, price: p.price, stock: p.stock })),
+        customers: customers.map((c: { id: string; name: string; phone?: string; balance?: number }) => ({ id: c.id, name: c.name, phone: c.phone, balance: c.balance })),
+        suppliers: suppliers.map((s: { id: string; name: string; phone?: string; balance?: number }) => ({ id: s.id, name: s.name, phone: s.phone, balance: s.balance })),
+        products: products.map((p: { id: string; name: string; sku?: string; price?: number; stock?: number }) => ({ id: p.id, name: p.name, sku: p.sku, price: p.price, stock: p.stock })),
       };
       if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         const jsonStr = JSON.stringify(exportPayload, null, 2);
@@ -3063,9 +3065,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
       logActivity('تصدير بيانات', 'تم تصدير نسخة احتياطية من بيانات المنظمة بصيغة JSON');
       showToast('تم تصدير نسخة احتياطية من البيانات بنجاح ✅', 'success');
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('Failed to export data:', err);
-      showToast('فشل تصدير البيانات: ' + (err?.message || ''), 'error');
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showToast('فشل تصدير البيانات: ' + errMsg, 'error');
     }
   };
 

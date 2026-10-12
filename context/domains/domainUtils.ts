@@ -29,7 +29,7 @@ export async function fetchAllTableRecords<T = any>(
   while (hasMore) {
     let query = supabase.from(tableName).select('*');
     query = filterFn(query);
-    let res: { data: T[] | null; error: any };
+    let res: { data: T[] | null; error: unknown };
     if (typeof query.range === 'function') {
       res = await query.range(from, from + pageSize - 1);
     } else {

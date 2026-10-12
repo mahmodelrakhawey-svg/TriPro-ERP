@@ -350,8 +350,9 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
       }
       showToast?.('تم تسجيل التحويل المالي بنجاح ✅', 'success');
       logActivity?.('تحويل مالي', `تحويل بقيمة: ${transfer.amount || 0}`);
-    } catch (e: any) {
-      showToast?.('فشل تسجيل التحويل المالي: ' + (e?.message || ''), 'error');
+    } catch (e: unknown) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      showToast?.('فشل تسجيل التحويل المالي: ' + errMsg, 'error');
       throw e;
     }
   }, [targetOrgId, currentUser, logActivity, showToast]);
@@ -381,8 +382,9 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
         }
       }
       showToast?.('تم تعديل التحويل المالي بنجاح ✅', 'success');
-    } catch (e: any) {
-      showToast?.('فشل تعديل التحويل المالي: ' + (e?.message || ''), 'error');
+    } catch (e: unknown) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      showToast?.('فشل تعديل التحويل المالي: ' + errMsg, 'error');
       throw e;
     }
   }, [targetOrgId, currentUser, showToast]);
@@ -407,8 +409,9 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
         }
       }
       showToast?.('تم حذف التحويل المالي بنجاح', 'info');
-    } catch (e: any) {
-      showToast?.('فشل حذف التحويل المالي: ' + (e?.message || ''), 'error');
+    } catch (e: unknown) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      showToast?.('فشل حذف التحويل المالي: ' + errMsg, 'error');
       throw e;
     }
   }, [targetOrgId, currentUser, showToast]);

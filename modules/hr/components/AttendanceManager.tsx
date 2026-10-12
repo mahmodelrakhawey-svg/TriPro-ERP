@@ -301,7 +301,7 @@ export default function AttendanceManager() {
   };
 
   // دالة تحويل التاريخ من صيغ الإكسيل المختلفة إلى YYYY-MM-DD
-  const parseExcelDate = (val: any, defaultDate: string): string => {
+  const parseExcelDate = (val: unknown, defaultDate: string): string => {
     if (!val) return defaultDate;
 
     if (val instanceof Date && !isNaN(val.getTime())) {
@@ -347,7 +347,7 @@ export default function AttendanceManager() {
   };
 
   // دالة تحويل الوقت من الإكسيل بأمان إلى صيغة HH:MM
-  const parseExcelTime = (val: any): string | null => {
+  const parseExcelTime = (val: unknown): string | null => {
     if (val === null || val === undefined) return null;
 
     if (typeof val === 'number') {
@@ -594,12 +594,12 @@ export default function AttendanceManager() {
         }
 
         const existingMap = new Map<string, string>();
-        (existingLogs || []).forEach((l: any) => {
+        (existingLogs || []).forEach((l: { id: string; employee_id: string; log_date: string }) => {
           existingMap.set(`${l.employee_id}_${l.log_date}`, l.id);
         });
 
         const toInsert: any[] = [];
-        const toUpdate: { id: string; payload: any }[] = [];
+        const toUpdate: { id: string; payload: Record<string, unknown> }[] = [];
 
         for (const rec of validRecords) {
           const existingId = existingMap.get(`${rec.employee_id}_${rec.log_date}`);
@@ -636,9 +636,10 @@ export default function AttendanceManager() {
 
         setIsImportModalOpen(false);
         fetchData();
-      } catch (err: any) {
+      } catch (err: unknown) {
         logger.error('Failed to import attendance logs:', err);
-        showToast('فشل قراءة ملف الحضور: ' + (err.message || 'خطأ غير متوقع'), 'error');
+        const errMsg = err instanceof Error ? err.message : 'خطأ غير متوقع';
+        showToast('فشل قراءة ملف الحضور: ' + errMsg, 'error');
       } finally {
         setIsImporting(false);
         e.target.value = '';

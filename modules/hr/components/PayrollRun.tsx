@@ -602,9 +602,10 @@ const PayrollRun = () => {
       showToast('تم إلغاء قيد الاستحقاق وإعادة جميع السلف كـ [قائمة] بنجاح 🔄✅', 'success');
       setPayrollData([]);
       await fetchExistingPayroll(selectedMonth, selectedYear);
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('Error cancelling accrual:', err);
-      showToast('فشل إلغاء قيد الاستحقاق: ' + err.message, 'error');
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showToast('فشل إلغاء قيد الاستحقاق: ' + errMsg, 'error');
     } finally {
       setCancellingAccrual(false);
     }

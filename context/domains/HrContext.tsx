@@ -107,13 +107,13 @@ export const HrProvider: React.FC<HrProviderProps> = ({
   const sanitizeEmployeePayload = useCallback((raw: Record<string, any>) => {
     const payload: Record<string, any> = { ...raw };
 
-    const toNullableNum = (v: any) => {
+    const toNullableNum = (v: unknown) => {
       if (v === '' || v === null || v === undefined) return null;
       const n = Number(v);
       return Number.isFinite(n) ? n : null;
     };
 
-    const toNullableDate = (v: any) => {
+    const toNullableDate = (v: unknown) => {
       if (!v || v === '' || v === null) return null;
       return v;
     };
@@ -272,7 +272,7 @@ export const HrProvider: React.FC<HrProviderProps> = ({
         logger.warn('cancel_payroll_accrual_rpc notice, applying direct rollback:', rpcError);
 
         const { data: items } = await supabase.from('payroll_items').select('id').eq('payroll_id', payrollId);
-        const itemIds = (items || []).map((i: any) => i.id);
+        const itemIds = (items || []).map((i: { id: string }) => i.id);
 
         if (itemIds.length > 0) {
           await supabase
@@ -293,7 +293,7 @@ export const HrProvider: React.FC<HrProviderProps> = ({
             .eq('related_document_id', payrollId)
             .eq('related_document_type', 'payroll');
           if (relJes && relJes.length > 0) {
-            const jeIds = relJes.map((j: any) => j.id);
+            const jeIds = relJes.map((j: { id: string }) => j.id);
             await supabase.from('journal_lines').delete().in('journal_entry_id', jeIds);
             await supabase.from('journal_entries').delete().in('id', jeIds);
           }
@@ -311,10 +311,11 @@ export const HrProvider: React.FC<HrProviderProps> = ({
 
       showToast?.('تم إلغاء قيد استحقاق الرواتب والتراجع عن القيود بنجاح', 'info');
       logActivity?.('إلغاء استحقاق رواتب', `مسير: ${payrollId}`);
-    } catch (err: any) {
-      showToast?.('فشل إلغاء قيد الاستحقاق: ' + err.message, 'error');
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showToast?.('فشل إلغاء قيد الاستحقاق: ' + errMsg, 'error');
       logger.error('Error cancelling payroll accrual:', err);
-      throw new Error(err.message || 'فشل إلغاء قيد الاستحقاق');
+      throw new Error(errMsg || 'فشل إلغاء قيد الاستحقاق');
     }
 
     await fetchEmployees();

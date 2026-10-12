@@ -129,8 +129,9 @@ export const PenaltiesAndRewards: React.FC = () => {
       setFormReason('');
       setFormAmountValue(1);
       loadData();
-    } catch (e: any) {
-      showToast('خطأ: ' + e.message, 'error');
+    } catch (e: unknown) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      showToast('خطأ: ' + errMsg, 'error');
     } finally {
       setSaving(false);
     }
@@ -142,8 +143,9 @@ export const PenaltiesAndRewards: React.FC = () => {
       await hrEnterpriseService.deletePenaltyReward(id);
       showToast('تم إلغاء السجل بنجاح 🗑️', 'success');
       loadData();
-    } catch (e: any) {
-      showToast('خطأ: ' + e.message, 'error');
+    } catch (e: unknown) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      showToast('خطأ: ' + errMsg, 'error');
     }
   };
 

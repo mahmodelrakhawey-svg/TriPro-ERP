@@ -450,9 +450,10 @@ export const RestaurantProvider: React.FC<RestaurantProviderProps> = ({
       if (refreshData) await refreshData();
       else await fetchRestaurantTables();
       return true;
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('processSplitPayment exception:', err);
-      notify('فشل معالجة الدفع الجزئي: ' + (err?.message || ''), 'error');
+      const errMsg = err instanceof Error ? err.message : String(err);
+      notify('فشل معالجة الدفع الجزئي: ' + errMsg, 'error');
       return false;
     }
   }, [isDemo, targetOrgId, notify, refreshData, fetchRestaurantTables]);
