@@ -1374,37 +1374,92 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   // Sales & Purchases
   const addCustomer = async (data: Partial<Customer>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { data: c, error } = await supabase.from('customers').insert({
+    const payload: Record<string, any> = {
       ...data,
       organization_id: targetOrgId,
-      created_by: currentUser?.id,
-      updated_by: currentUser?.id
-    }).select().single(); 
+      created_by: currentUser?.id || null,
+      updated_by: currentUser?.id || null
+    };
+
+    let c: DynamicParam = null;
+    let error: DynamicParam = null;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const res = await supabase.from('customers').insert(payload).select().single();
+      c = res.data;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
+    }
+
     if (error) throw error;
     logActivity('إضافة عميل', `تم إضافة العميل: ${data.name || ''}`);
-    await refreshCustomers(); return c; 
+    await refreshCustomers(); 
+    return c; 
   };
   const updateCustomer = async (id: string, data: Partial<Customer>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    let query = supabase.from('customers').update({
-      ...data,
-      updated_by: currentUser?.id
-    }).eq('id', id);
-    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
-    const { error } = await query;
+    const payload: Record<string, any> = { ...data };
+    delete payload.id;
+    delete payload.organization_id;
+    if (currentUser?.id) payload.updated_by = currentUser.id;
+
+    let error: DynamicParam = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      let query = supabase.from('customers').update(payload).eq('id', id);
+      if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+      const res = await query;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
+    }
+
     if (error) throw error;
     logActivity('تعديل عميل', `تم تعديل بيانات العميل رقم: ${id}`);
     await refreshCustomers(); 
   };
   const deleteCustomer = async (id: string, reason?: string) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    let query = supabase.from('customers').update({
+    const payload: Record<string, any> = {
       deleted_at: new Date().toISOString(),
-      deletion_reason: reason,
-      updated_by: currentUser?.id
-    }).eq('id', id);
-    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
-    const { error } = await query;
+      deletion_reason: reason || null
+    };
+    if (currentUser?.id) payload.updated_by = currentUser.id;
+
+    let error: DynamicParam = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      let query = supabase.from('customers').update(payload).eq('id', id);
+      if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+      const res = await query;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
+    }
+
     if (error) throw error;
     logActivity('حذف عميل', `تم حذف العميل رقم: ${id}`);
     await refreshCustomers(); 

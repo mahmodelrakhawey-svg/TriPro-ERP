@@ -105,16 +105,35 @@ export const CustomerProvider: React.FC<CustomerProviderProps> = ({
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const userId = currentUser?.id;
 
-    const { data: c, error } = await supabase
-      .from('customers')
-      .insert({
-        ...data,
-        organization_id: effectiveOrg,
-        created_by: userId,
-        updated_by: userId
-      })
-      .select()
-      .single();
+    const payload: Record<string, any> = {
+      ...data,
+      organization_id: effectiveOrg,
+      created_by: userId || null,
+      updated_by: userId || null
+    };
+
+    let c: any = null;
+    let error: any = null;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const res = await supabase
+        .from('customers')
+        .insert(payload)
+        .select()
+        .single();
+      c = res.data;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
+    }
 
     if (error) {
       logger.error('Error adding customer:', error);
@@ -130,19 +149,33 @@ export const CustomerProvider: React.FC<CustomerProviderProps> = ({
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const userId = currentUser?.id;
 
-    let query = supabase
-      .from('customers')
-      .update({
-        ...data,
-        updated_by: userId
-      })
-      .eq('id', id);
+    const payload: Record<string, any> = {
+      ...data
+    };
+    delete payload.id;
+    delete payload.organization_id;
+    if (userId) payload.updated_by = userId;
 
-    if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
-      query = query.eq('organization_id', effectiveOrg);
+    let error: any = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      let query = supabase.from('customers').update(payload).eq('id', id);
+      if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
+        query = query.eq('organization_id', effectiveOrg);
+      }
+      const res = await query;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
     }
 
-    const { error } = await query;
     if (error) {
       logger.error('Error updating customer:', error);
       throw error;
@@ -156,20 +189,32 @@ export const CustomerProvider: React.FC<CustomerProviderProps> = ({
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const userId = currentUser?.id;
 
-    let query = supabase
-      .from('customers')
-      .update({
-        deleted_at: new Date().toISOString(),
-        deletion_reason: reason,
-        updated_by: userId
-      })
-      .eq('id', id);
+    const payload: Record<string, any> = {
+      deleted_at: new Date().toISOString(),
+      deletion_reason: reason || null
+    };
+    if (userId) payload.updated_by = userId;
 
-    if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
-      query = query.eq('organization_id', effectiveOrg);
+    let error: any = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      let query = supabase.from('customers').update(payload).eq('id', id);
+      if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
+        query = query.eq('organization_id', effectiveOrg);
+      }
+      const res = await query;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
     }
 
-    const { error } = await query;
     if (error) {
       logger.error('Error deleting customer:', error);
       throw error;

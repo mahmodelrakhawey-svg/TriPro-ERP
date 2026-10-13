@@ -210,16 +210,35 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
   const addCustomer = useCallback(async (customer: Partial<Customer>): Promise<Customer | null> => {
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const userId = currentUser?.id;
-    const { data, error } = await supabase
-      .from('customers')
-      .insert({
-        ...customer,
-        organization_id: effectiveOrg,
-        created_by: userId,
-        updated_by: userId
-      })
-      .select()
-      .single();
+    const payload: Record<string, any> = {
+      ...customer,
+      organization_id: effectiveOrg,
+      created_by: userId || null,
+      updated_by: userId || null
+    };
+
+    let data: any = null;
+    let error: any = null;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const res = await supabase
+        .from('customers')
+        .insert(payload)
+        .select()
+        .single();
+      data = res.data;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
+    }
 
     if (error) {
       logger.error('Error adding customer in SalesProvider:', error);
