@@ -113,4 +113,49 @@ describe('Banking & Treasury Domain Hardening & Security (اختبار أمان 
       p_user_id: null
     });
   });
+
+  it('يستعلم عن سندات الصرف مرتبة بحسب payment_date ويطابق الحقول الحسابية', async () => {
+    const rawVouchers = [
+      {
+        id: 'pv-101',
+        voucher_number: 'PV-001',
+        payment_date: '2026-10-13',
+        amount: 1500,
+        notes: 'دفعة حساب مورد',
+        supplier_id: 'sup-55'
+      }
+    ];
+
+    const limitMock = vi.fn().mockResolvedValue({ data: rawVouchers, error: null });
+    const orderMock = vi.fn().mockReturnValue({ limit: limitMock });
+    const isMock = vi.fn().mockReturnValue({ order: orderMock });
+    const eqMock = vi.fn().mockReturnValue({ is: isMock, order: orderMock });
+    const selectMock = vi.fn().mockReturnValue({ eq: eqMock, order: orderMock });
+
+    (supabase.from as any).mockImplementation((table: string) => {
+      if (table === 'payment_vouchers') {
+        return { select: selectMock };
+      }
+      return { select: vi.fn().mockReturnValue({ eq: vi.fn().mockReturnValue({ order: vi.fn().mockResolvedValue({ data: [] }) }) }) };
+    });
+
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <BankingProvider orgId="org-lenza-01">
+        {children}
+      </BankingProvider>
+    );
+
+    const { result } = renderHook(() => useBankingDomain(), { wrapper });
+
+    await act(async () => {
+      if (result.current.refreshVouchers) {
+        await result.current.refreshVouchers();
+      }
+    });
+
+    expect(orderMock).toHaveBeenCalledWith('payment_date', { ascending: false });
+    expect(result.current.vouchers[0].date).toBe('2026-10-13');
+    expect(result.current.vouchers[0].description).toBe('دفعة حساب مورد');
+    expect(result.current.vouchers[0].party_id).toBe('sup-55');
+  });
 });

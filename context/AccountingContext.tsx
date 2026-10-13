@@ -713,9 +713,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         .select('*')
         .eq('organization_id', fetchOrgId)
         .is('deleted_at', null)
-        .order('date', { ascending: false })
+        .order('payment_date', { ascending: false })
         .limit(200);
-      setVouchers(vchrs || []);
+      const mappedVchrs = (vchrs || []).map((row: any) => ({
+        ...row,
+        date: row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : ''),
+        payment_date: row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : ''),
+        description: row.notes || row.description || '',
+        notes: row.notes || row.description || '',
+        type: 'payment',
+        subType: row.supplier_id ? 'supplier' : 'account',
+        party_id: row.supplier_id || row.party_id,
+      }));
+      setVouchers(mappedVchrs);
       setCostCenters(ccs.data || []);
 
       // 🛡️ عزل نطاق الإشراف للموارد البشرية والرواتب (HR Supervisory Scope)
@@ -917,10 +927,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const [chqs, shift, vchrs] = await Promise.all([
         supabase.from('cheques').select('*').eq('organization_id', targetOrg).order('due_date'),
         supabase.rpc('get_active_shift', { p_org_id: targetOrg }),
-        supabase.from('payment_vouchers').select('*').eq('organization_id', targetOrg).is('deleted_at', null).order('date', { ascending: false }).limit(200)
+        supabase.from('payment_vouchers').select('*').eq('organization_id', targetOrg).is('deleted_at', null).order('payment_date', { ascending: false }).limit(200)
       ]);
       if (chqs.data) setCheques(chqs.data);
-      if (vchrs.data) setVouchers(vchrs.data);
+      if (vchrs.data) {
+        const mappedVchrs = (vchrs.data || []).map((row: any) => ({
+          ...row,
+          date: row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : ''),
+          payment_date: row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : ''),
+          description: row.notes || row.description || '',
+          notes: row.notes || row.description || '',
+          type: 'payment',
+          subType: row.supplier_id ? 'supplier' : 'account',
+          party_id: row.supplier_id || row.party_id,
+        }));
+        setVouchers(mappedVchrs);
+      }
       const activeShiftData = Array.isArray(shift.data) ? shift.data[0] : shift.data;
       if (activeShiftData && activeShiftData.id) {
         setCurrentShift(activeShiftData);
@@ -1098,7 +1120,24 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const updateVoucher = async (id: string, updates: DynamicParam) => {
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    let query = supabase.from('payment_vouchers').update(updates).eq('id', id);
+    const sanitizedUpdates: Record<string, any> = {};
+    if (updates.amount !== undefined) sanitizedUpdates.amount = updates.amount;
+    if (updates.notes !== undefined) sanitizedUpdates.notes = updates.notes;
+    else if (updates.description !== undefined) sanitizedUpdates.notes = updates.description;
+    if (updates.payment_date !== undefined) sanitizedUpdates.payment_date = updates.payment_date;
+    else if (updates.date !== undefined) sanitizedUpdates.payment_date = updates.date;
+    if (sanitizedUpdates.payment_date) sanitizedUpdates.date = sanitizedUpdates.payment_date;
+    if (updates.treasury_account_id !== undefined) sanitizedUpdates.treasury_account_id = updates.treasury_account_id;
+    if (updates.cost_center_id !== undefined) sanitizedUpdates.cost_center_id = updates.cost_center_id;
+    if (updates.payment_method !== undefined) sanitizedUpdates.payment_method = updates.payment_method;
+    if (updates.supplier_id !== undefined) sanitizedUpdates.supplier_id = updates.supplier_id;
+    else if (updates.party_id !== undefined) sanitizedUpdates.supplier_id = updates.party_id;
+    if (updates.voucher_number !== undefined) sanitizedUpdates.voucher_number = updates.voucher_number;
+    if (updates.recipient_name !== undefined) sanitizedUpdates.recipient_name = updates.recipient_name;
+    if (updates.currency !== undefined) sanitizedUpdates.currency = updates.currency;
+    if (updates.exchange_rate !== undefined) sanitizedUpdates.exchange_rate = updates.exchange_rate;
+
+    let query = supabase.from('payment_vouchers').update(sanitizedUpdates).eq('id', id);
     if (targetOrgId) query = query.eq('organization_id', targetOrgId);
     const { error } = await query;
     if (error) {

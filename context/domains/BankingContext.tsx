@@ -100,13 +100,23 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
         .select('*')
         .eq('organization_id', targetOrgId)
         .is('deleted_at', null)
-        .order('date', { ascending: false })
+        .order('payment_date', { ascending: false })
         .limit(200);
 
       if (error) {
         logger.error('Error fetching vouchers in BankingProvider:', error);
       } else {
-        setVouchers((data as PaymentVoucher[]) || []);
+        const mapped = (data || []).map((row: any) => ({
+          ...row,
+          date: row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : ''),
+          payment_date: row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : ''),
+          description: row.notes || row.description || '',
+          notes: row.notes || row.description || '',
+          type: 'payment',
+          subType: row.supplier_id ? 'supplier' : 'account',
+          party_id: row.supplier_id || row.party_id,
+        }));
+        setVouchers(mapped as PaymentVoucher[]);
       }
     } catch (err) {
       logger.error('Unexpected error fetching vouchers:', err);
@@ -294,11 +304,23 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const userId = currentUser?.id;
 
-    const { error } = await supabase.from('payment_vouchers').insert({
-      ...voucher,
+    const payload: Record<string, any> = {
       organization_id: effectiveOrg,
-      created_by: userId
-    });
+      created_by: userId,
+      amount: voucher.amount || 0,
+      payment_method: voucher.payment_method || 'cash',
+      notes: voucher.description || (voucher as any).notes || '',
+      treasury_account_id: voucher.treasury_account_id || null,
+      cost_center_id: voucher.cost_center_id || null,
+      payment_date: voucher.date || (voucher as any).payment_date || new Date().toISOString().split('T')[0],
+      date: voucher.date || (voucher as any).payment_date || new Date().toISOString().split('T')[0],
+      supplier_id: voucher.party_id || (voucher as any).supplier_id || null,
+    };
+    if (voucher.voucher_number || (voucher as any).voucherNumber) {
+      payload.voucher_number = voucher.voucher_number || (voucher as any).voucherNumber;
+    }
+
+    const { error } = await supabase.from('payment_vouchers').insert(payload);
 
     if (error) {
       showToast?.('فشل إضافة سند الصرف: ' + error.message, 'error');
@@ -312,7 +334,21 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
 
   const updateVoucher = useCallback(async (id: string, updates: Partial<PaymentVoucher>): Promise<boolean> => {
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
-    let query = supabase.from('payment_vouchers').update(updates).eq('id', id);
+    const sanitizedUpdates: Record<string, any> = {};
+    if (updates.amount !== undefined) sanitizedUpdates.amount = updates.amount;
+    if ((updates as any).notes !== undefined) sanitizedUpdates.notes = (updates as any).notes;
+    else if (updates.description !== undefined) sanitizedUpdates.notes = updates.description;
+    if ((updates as any).payment_date !== undefined) sanitizedUpdates.payment_date = (updates as any).payment_date;
+    else if (updates.date !== undefined) sanitizedUpdates.payment_date = updates.date;
+    if (sanitizedUpdates.payment_date) sanitizedUpdates.date = sanitizedUpdates.payment_date;
+    if (updates.treasury_account_id !== undefined) sanitizedUpdates.treasury_account_id = updates.treasury_account_id;
+    if (updates.cost_center_id !== undefined) sanitizedUpdates.cost_center_id = updates.cost_center_id;
+    if (updates.payment_method !== undefined) sanitizedUpdates.payment_method = updates.payment_method;
+    if (updates.party_id !== undefined) sanitizedUpdates.supplier_id = updates.party_id;
+    else if ((updates as any).supplier_id !== undefined) sanitizedUpdates.supplier_id = (updates as any).supplier_id;
+    if (updates.voucher_number !== undefined) sanitizedUpdates.voucher_number = updates.voucher_number;
+
+    let query = supabase.from('payment_vouchers').update(sanitizedUpdates).eq('id', id);
     if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
       query = query.eq('organization_id', effectiveOrg);
     }
