@@ -97,7 +97,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           hr_scope: (p as any).hr_scope,
           can_view_dashboard: (p as any).can_view_dashboard,
           can_access_mobile: (p as any).can_access_mobile,
-          dashboard_view_mode: (p as any).dashboard_view_mode || 'both'
+          dashboard_view_mode: (p as any).dashboard_view_mode || 'both',
+          allowed_treasury_ids: (p as any).allowed_treasury_ids || undefined
         }));
         
         // إضافة المدير العام الافتراضي للقائمة
@@ -212,7 +213,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           hr_scope: hrScope,
           can_view_dashboard: canViewDashboard,
           can_access_mobile: canAccessMobile,
-          dashboard_view_mode: dashboardViewMode
+          dashboard_view_mode: dashboardViewMode,
+          allowed_treasury_ids: (profile as any)?.allowed_treasury_ids || undefined
         } : {
           id: user.id,
           name: (user.user_metadata?.full_name as string) || user.email || '',
@@ -223,7 +225,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           hr_scope: hrScope,
           can_view_dashboard: canViewDashboard,
           can_access_mobile: canAccessMobile,
-          dashboard_view_mode: dashboardViewMode
+          dashboard_view_mode: dashboardViewMode,
+          allowed_treasury_ids: undefined
         };
 
         // 🔒 صمام أمان حاسم: منع الموظفين المعطلين أو المغادرين للشركة من الدخول

@@ -23,6 +23,7 @@ export interface UserProfile {
   can_view_dashboard?: boolean;
   can_access_mobile?: boolean;
   dashboard_view_mode?: DashboardViewMode;
+  allowed_treasury_ids?: string[];
 }
 
 
@@ -287,6 +288,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         can_view_dashboard: authUser.can_view_dashboard,
         can_access_mobile: authUser.can_access_mobile,
         dashboard_view_mode: authUser.dashboard_view_mode,
+        allowed_treasury_ids: authUser.allowed_treasury_ids,
       };
     }
     return null;
@@ -305,6 +307,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         can_view_dashboard: authUser.can_view_dashboard ?? prev?.can_view_dashboard,
         can_access_mobile: authUser.can_access_mobile ?? prev?.can_access_mobile,
         dashboard_view_mode: authUser.dashboard_view_mode || prev?.dashboard_view_mode || 'both',
+        allowed_treasury_ids: authUser.allowed_treasury_ids || prev?.allowed_treasury_ids,
         avatar_url: prev?.avatar_url
       }));
     }
@@ -405,7 +408,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       hr_scope: authUser?.hr_scope,
       can_view_dashboard: authUser?.can_view_dashboard,
       can_access_mobile: authUser?.can_access_mobile,
-      dashboard_view_mode: authUser?.dashboard_view_mode || 'both'
+      dashboard_view_mode: authUser?.dashboard_view_mode || 'both',
+      allowed_treasury_ids: authUser?.allowed_treasury_ids
     };
     setCurrentUser(fallbackProfile);
     setOrganization(effectiveOrgObj);
@@ -524,7 +528,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         hr_scope: authUser.hr_scope,
         can_view_dashboard: authUser.can_view_dashboard ?? true,
         can_access_mobile: authUser.can_access_mobile,
-        dashboard_view_mode: authUser.dashboard_view_mode || 'both'
+        dashboard_view_mode: authUser.dashboard_view_mode || 'both',
+        allowed_treasury_ids: authUser.allowed_treasury_ids
       });
 
       // جلب الإعدادات وتوحيد الحقول

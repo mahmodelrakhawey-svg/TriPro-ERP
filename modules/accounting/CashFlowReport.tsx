@@ -35,13 +35,41 @@ export default function CashFlowReport() {
     }
   }, [selectedFiscalYear]);
 
+  // 🛡️ فحص نطاق الخزن المخصصة للمستخدم (Enterprise Treasury Scope Restrictions)
+  const isPrivileged = useMemo(() => {
+    const role = currentUser?.role;
+    return role === 'super_admin' || role === 'admin' || role === 'owner' || role === 'manager';
+  }, [currentUser?.role]);
+
+  const allowedTreasuries = useMemo(() => {
+    const ids = currentUser?.allowed_treasury_ids || (currentUser as any)?.allowedTreasuryIds;
+    return Array.isArray(ids) ? ids.map(String) : [];
+  }, [currentUser]);
+
+  const isRestrictedToSpecificTreasury = !isPrivileged && allowedTreasuries.length > 0;
+
   const cashAccounts = useMemo(() => {
-    return (accounts || []).filter(acc => 
+    const allCash = (accounts || []).filter(acc => 
       !(acc.isGroup || acc.is_group) &&
       (String(acc.type).toLowerCase() === 'asset') &&
-      (acc.code?.startsWith('123') || acc.name?.includes('صندوق') || acc.name?.includes('بنك') || acc.name?.includes('نقد') || acc.name?.includes('خزينة'))
+      (acc.code?.startsWith('123') || acc.name?.includes('صندوق') || acc.name?.includes('بنك') || acc.name?.includes('نقد') || acc.name?.includes('خزينة') || acc.name?.includes('خزينه'))
     );
-  }, [accounts]);
+
+    if (isRestrictedToSpecificTreasury) {
+      return allCash.filter(acc => allowedTreasuries.includes(acc.id) || allowedTreasuries.includes(acc.code));
+    }
+
+    return allCash;
+  }, [accounts, isRestrictedToSpecificTreasury, allowedTreasuries]);
+
+  // التثبيت التلقائي للخزينة المصرح بها للمستخدم المقيد
+  useEffect(() => {
+    if (isRestrictedToSpecificTreasury && cashAccounts.length > 0) {
+      if (selectedAccount === 'all' || !cashAccounts.some(a => a.id === selectedAccount)) {
+        setSelectedAccount(cashAccounts[0].id);
+      }
+    }
+  }, [isRestrictedToSpecificTreasury, cashAccounts, selectedAccount]);
 
   const fetchCashFlow = useCallback(async () => {
     if (currentUser?.role === 'demo') {
@@ -206,6 +234,14 @@ export default function CashFlowReport() {
             <Wallet className="text-emerald-600" /> حركة الصندوق والبنوك
           </h1>
           <p className="text-slate-500">مراقبة التدفقات النقدية الواردة والصادرة</p>
+          {isRestrictedToSpecificTreasury && (
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50 text-amber-800 border border-amber-200 rounded-lg text-xs font-bold mt-2 shadow-2xs">
+              <span>🔒 نطاق الخزينة المصرح بها:</span>
+              <span className="text-amber-950 font-black">
+                {cashAccounts.map(a => a.name).join(' ، ') || 'خزينة مخصصة'}
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex gap-2">
           <button onClick={handleExportExcel} className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 font-bold text-sm shadow-sm">
@@ -240,9 +276,15 @@ export default function CashFlowReport() {
             <select 
               value={selectedAccount}
               onChange={(e) => setSelectedAccount(e.target.value)}
-              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500"
+              disabled={isRestrictedToSpecificTreasury && cashAccounts.length === 1}
+              className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-emerald-500 disabled:bg-slate-50 disabled:text-slate-800"
             >
-              <option value="all">-- جميع حسابات النقدية --</option>
+              {!isRestrictedToSpecificTreasury && (
+                <option value="all">-- جميع حسابات النقدية --</option>
+              )}
+              {isRestrictedToSpecificTreasury && cashAccounts.length > 1 && (
+                <option value="all">-- كافة الخزن المصرح بها ({cashAccounts.length}) --</option>
+              )}
               {cashAccounts.map(acc => (
                 <option key={acc.id} value={acc.id}>{acc.code} - {acc.name}</option>
               ))}

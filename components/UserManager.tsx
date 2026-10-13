@@ -1,5 +1,5 @@
 import { logger } from '../utils/logger';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAccounting } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext'; // Removed z import
@@ -23,16 +23,25 @@ type UserProfile = {
   can_view_dashboard?: boolean;
   can_access_mobile?: boolean;
   dashboard_view_mode?: 'both' | 'workflow_only' | 'analytics_only';
+  allowed_treasury_ids?: string[];
 };
 
 
 const UserManager = () => {
-  const { currentUser, currentSelectedOrgId } = useAccounting();
+  const { currentUser, currentSelectedOrgId, accounts } = useAccounting();
   const { showToast } = useToast();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [editingName, setEditingName] = useState<string>('');
+
+  const cashAccounts = useMemo(() => {
+    return (accounts || []).filter(acc => 
+      !(acc.isGroup || acc.is_group) &&
+      (String(acc.type).toLowerCase() === 'asset') &&
+      (acc.code?.startsWith('123') || acc.name?.includes('صندوق') || acc.name?.includes('خزينة') || acc.name?.includes('خزينه') || acc.name?.includes('نقد') || acc.name?.includes('بنك'))
+    );
+  }, [accounts]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [newUserData, setNewUserData] = useState({
     email: '',
@@ -189,6 +198,33 @@ const UserManager = () => {
       showToast('فشل تحديث نطاق الإشراف: ' + error.message, 'error');
     } else {
       showToast('تم تحديث نطاق إشراف الموظفين بنجاح ✅', 'success');
+      fetchUsers();
+    }
+  };
+
+  // تحديث الخزينة المصرح بها للمستخدم (Treasury Scope)
+  const updateUserAllowedTreasury = async (userId: string, treasuryId: string) => {
+    const newTreasuries = treasuryId === 'all' || !treasuryId ? null : [treasuryId];
+
+    if (currentUserRole === 'demo') {
+      showToast('تم تحديث الخزينة المصرح بها بنجاح (محاكاة)', 'success');
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, allowed_treasury_ids: newTreasuries || undefined } : u));
+      return;
+    }
+    if (currentUserRole !== 'super_admin' && currentUserRole !== 'admin') {
+      showToast('عذراً، هذه الصلاحية للمدراء فقط', 'error');
+      return;
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ allowed_treasury_ids: newTreasuries })
+      .eq('id', userId);
+
+    if (error) {
+      showToast('فشل تحديث الخزينة المصرح بها: ' + error.message, 'error');
+    } else {
+      showToast('تم تحديث الخزينة المصرح بها للمستخدم بنجاح ✅', 'success');
       fetchUsers();
     }
   };
@@ -603,6 +639,9 @@ const UserManager = () => {
               <th className="px-4 py-4 text-center bg-amber-100/70 text-amber-900 border-x border-amber-200 font-black">
                 👥 نطاق الإشراف (HR)
               </th>
+              <th className="px-4 py-4 text-center bg-emerald-100/70 text-emerald-950 border-l border-emerald-200 font-black">
+                💰 الخزينة المصرح بها
+              </th>
               <th className="px-4 py-4 text-center bg-blue-50 text-blue-900 font-black border-l border-blue-100">
                 📊 لوحة القيادة
               </th>
@@ -647,7 +686,7 @@ const UserManager = () => {
                         {(currentUserRole === 'super_admin' || currentUserRole === 'admin') && <PenTool size={14} className="text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity" />}
                     </div>
                   )}
-                  <div className="flex items-center gap-2 mt-1">
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
                     <span className="font-mono text-xs text-slate-400">{user.id.slice(0, 8)}...</span>
                     <span className={`text-[10px] font-black px-2 py-0.5 rounded-full border ${
                       user.hr_scope === 'factory' ? 'bg-amber-100 text-amber-900 border-amber-300' :
@@ -656,6 +695,11 @@ const UserManager = () => {
                     }`}>
                       {user.hr_scope === 'factory' ? '🏭 مصنع' : user.hr_scope === 'branches' ? '🏪 فروع' : '🏢 عام'}
                     </span>
+                    {user.allowed_treasury_ids && user.allowed_treasury_ids.length > 0 && (
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full border bg-emerald-100 text-emerald-900 border-emerald-300" title="مقيد بخزينة محددة">
+                        🔒 خزينة مقيدة
+                      </span>
+                    )}
                   </div>
                 </td>
                 {currentUserRole === 'super_admin' && (
@@ -733,6 +777,27 @@ const UserManager = () => {
                     <option value="all">🏢 كامل المنشأة (عام)</option>
                     <option value="factory">🏭 موظفو المصنع فقط</option>
                     <option value="branches">🏪 موظفو الفروع فقط</option>
+                  </select>
+                </td>
+
+                {/* 💰 تحديد الخزينة المصرح بها للمستخدم (Treasury Scope) */}
+                <td className="px-4 py-4 text-center bg-emerald-50/40 border-l border-emerald-200">
+                  <select
+                    value={user.allowed_treasury_ids?.[0] || 'all'}
+                    onChange={(e) => updateUserAllowedTreasury(user.id, e.target.value)}
+                    disabled={currentUserRole !== 'super_admin' && currentUserRole !== 'admin'}
+                    className={`px-3 py-2 rounded-xl text-xs font-black border-2 outline-none cursor-pointer transition-all shadow-sm max-w-[170px] truncate
+                      ${user.allowed_treasury_ids && user.allowed_treasury_ids.length > 0
+                        ? 'border-emerald-500 bg-emerald-100 text-emerald-950 font-black'
+                        : 'border-slate-300 bg-white text-slate-800 hover:border-slate-400'}`}
+                    title="تحديد الخزينة المصرح للمستخدم بالاطلاع على حركتها ورصيدها (أو الكل للمدراء)"
+                  >
+                    <option value="all">🌐 كل الخزن والبنوك (افتراضي)</option>
+                    {cashAccounts.map(acc => (
+                      <option key={acc.id} value={acc.id}>
+                        💰 {acc.code} - {acc.name}
+                      </option>
+                    ))}
                   </select>
                 </td>
 
