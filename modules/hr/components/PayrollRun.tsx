@@ -27,7 +27,9 @@ import {
   Columns,
   LayoutGrid,
   Trash2,
-  RotateCcw
+  RotateCcw,
+  Search,
+  X
 } from 'lucide-react';
 import {
   payrollRunSchema,
@@ -84,6 +86,7 @@ const PayrollRun = () => {
   const [treasuryId, setTreasuryId] = useState('');
   const [treasuryAccounts, setTreasuryAccounts] = useState<any[]>([]);
   const [selectedDepartment, setSelectedDepartment] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
   const [tableMode, setTableMode] = useState<'detailed' | 'summary'>('detailed');
 
   // Function to calculate last day of a month
@@ -733,9 +736,15 @@ const PayrollRun = () => {
   }, [payrollData]);
 
   const filteredPayrollData = useMemo(() => {
-    if (selectedDepartment === 'all') return payrollData;
-    return payrollData.filter(p => (p.department || 'بدون فرع').trim() === selectedDepartment);
-  }, [payrollData, selectedDepartment]);
+    return payrollData.filter(p => {
+      const matchDept = selectedDepartment === 'all' || (p.department || 'بدون فرع').trim() === selectedDepartment;
+      const term = searchTerm.trim().toLowerCase();
+      const matchSearch = !term ||
+        (p.full_name || '').toLowerCase().includes(term) ||
+        (p.department || '').toLowerCase().includes(term);
+      return matchDept && matchSearch;
+    });
+  }, [payrollData, selectedDepartment, searchTerm]);
 
   const totals = useMemo(() => {
     return payrollData.reduce(
@@ -825,10 +834,15 @@ const PayrollRun = () => {
     }));
 
     // إضافة صف الإجمالي
+    const filterDesc = [
+      selectedDepartment !== 'all' ? selectedDepartment : 'كل الفروع والأقسام',
+      searchTerm ? `بحث: ${searchTerm}` : ''
+    ].filter(Boolean).join(' - ');
+
     rows.push({
       'م': '' as any,
-      'اسم الموظف': `الإجمالي ${selectedDepartment !== 'all' ? `(${selectedDepartment})` : 'العام'} (${filteredPayrollData.length} موظف)`,
-      'الفرع / القسم': selectedDepartment !== 'all' ? selectedDepartment : 'كل الفروع والأقسام',
+      'اسم الموظف': `الإجمالي (${filteredPayrollData.length} موظف)${searchTerm ? ` [بحث: ${searchTerm}]` : ''}`,
+      'الفرع / القسم': filterDesc,
       'الراتب الأساسي (ج.م)': displayedTotals.gross,
       'ساعات العمل الإضافي': displayedTotals.overtime_hours,
       'أجر العمل الإضافي (ج.م)': displayedTotals.overtime_pay,
@@ -873,8 +887,9 @@ const PayrollRun = () => {
 
     const wb = XLSX.utils.book_new();
     const deptSuffix = selectedDepartment !== 'all' ? `_${selectedDepartment}` : '';
+    const searchSuffix = searchTerm ? `_بحث_${searchTerm}` : '';
     XLSX.utils.book_append_sheet(wb, ws, `مسير_${selectedMonth}_${selectedYear}`);
-    XLSX.writeFile(wb, `مسير_رواتب_شهر_${selectedMonth}_سنة_${selectedYear}${deptSuffix}.xlsx`);
+    XLSX.writeFile(wb, `مسير_رواتب_شهر_${selectedMonth}_سنة_${selectedYear}${deptSuffix}${searchSuffix}.xlsx`);
     showToast(`تم تصدير مسير رواتب شهر ${selectedMonth}/${selectedYear} لعدد ${filteredPayrollData.length} موظف إلى Excel بجميع الأعمدة المفصلة بنجاح ✅`, 'success');
   };
 
@@ -1077,48 +1092,100 @@ const PayrollRun = () => {
         </div>
       )}
 
-      {/* Branch / Department Filter Pills */}
-      {departments.length > 0 && (
-        <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 ml-2">
-            <Building2 className="w-4 h-4 text-indigo-600" />
-            <span>تصفية حسب الفرع / القسم:</span>
+      {/* Search & Department Filters Bar */}
+      {payrollData.length > 0 && (
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {/* حقل البحث باسم الموظف أو الفرع */}
+            <div className="relative flex-1 min-w-[280px] max-w-md">
+              <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                placeholder="بحث باسم الموظف..."
+                className="w-full pr-10 pl-9 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition shadow-sm bg-slate-50/50"
+              />
+              {searchTerm && (
+                <button
+                  type="button"
+                  onClick={() => setSearchTerm('')}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition"
+                  title="مسح نص البحث"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* عداد الموظفين وحالة الفلترة */}
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1.5">
+                <span>المعروض:</span>
+                <strong className="text-blue-600 font-mono text-sm">{filteredPayrollData.length}</strong>
+                <span>من إجمالي</span>
+                <strong className="text-slate-800 font-mono">{payrollData.length}</strong>
+                <span>موظف</span>
+              </span>
+              {(searchTerm || selectedDepartment !== 'all') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchTerm('');
+                    setSelectedDepartment('all');
+                  }}
+                  className="text-xs font-bold text-rose-600 hover:text-rose-800 hover:bg-rose-50 px-2.5 py-1.5 rounded-lg transition"
+                >
+                  إعادة ضبط الفلاتر
+                </button>
+              )}
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setSelectedDepartment('all')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-              selectedDepartment === 'all'
-                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-            }`}
-          >
-            <span>كل الفروع والأقسام</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedDepartment === 'all' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'}`}>
-              {payrollData.length}
-            </span>
-          </button>
-          {departments.map((dept) => {
-            const count = payrollData.filter(p => (p.department || 'بدون فرع').trim() === dept).length;
-            const isSelected = selectedDepartment === dept;
-            return (
+
+          {/* فلاتر الأقسام والفروع */}
+          {departments.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 pt-2.5 border-t border-slate-100">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 ml-2">
+                <Building2 className="w-4 h-4 text-indigo-600" />
+                <span>الفرع / القسم:</span>
+              </div>
               <button
-                key={dept}
                 type="button"
-                onClick={() => setSelectedDepartment(dept)}
+                onClick={() => setSelectedDepartment('all')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-                  isSelected
+                  selectedDepartment === 'all'
                     ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
-                <span>{dept}</span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                  {count}
+                <span>كل الفروع والأقسام</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedDepartment === 'all' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                  {payrollData.length}
                 </span>
               </button>
-            );
-          })}
+              {departments.map((dept) => {
+                const count = payrollData.filter(p => (p.department || 'بدون فرع').trim() === dept).length;
+                const isSelected = selectedDepartment === dept;
+                return (
+                  <button
+                    key={dept}
+                    type="button"
+                    onClick={() => setSelectedDepartment(dept)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
+                      isSelected
+                        ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                    }`}
+                  >
+                    <span>{dept}</span>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                      {count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -1558,13 +1625,28 @@ const PayrollRun = () => {
                   <td colSpan={tableMode === 'detailed' ? 14 : 9} className="p-10 text-center text-slate-400 space-y-2">
                     <Info className="w-8 h-8 text-slate-300 mx-auto" />
                     <p className="font-bold text-slate-600">
-                      {payrollData.length === 0 ? 'لم يتم تجهيز المسير بعد' : 'لا يوجد موظفون في هذا الفرع / القسم'}
+                      {payrollData.length === 0 
+                        ? 'لم يتم تجهيز المسير بعد' 
+                        : searchTerm
+                          ? `لا توجد نتائج مطابقة لبحث: "${searchTerm}"`
+                          : 'لا يوجد موظفون في هذا الفرع / القسم'}
                     </p>
                     <p className="text-[11px] text-slate-400">
                       {payrollData.length === 0 
                         ? 'حدد الشهر والسنة ثم اضغط على "تجهيز واحتساب المسير" لجلب بيانات الموظفين والبدلات والسلف والغياب آلياً.'
-                        : 'يمكنك اختيار "كل الفروع والأقسام" لعرض كافة موظفي المسير.'}
+                        : searchTerm
+                          ? 'تأكد من كتابة اسم الموظف بشكل صحيح، أو اضغط أدناه لمسح نص البحث.'
+                          : 'يمكنك اختيار "كل الفروع والأقسام" لعرض كافة موظفي المسير.'}
                     </p>
+                    {searchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchTerm('')}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl text-xs font-bold transition mt-2"
+                      >
+                        <RotateCcw className="w-3.5 h-3.5" /> مسح نص البحث
+                      </button>
+                    )}
                   </td>
                 </tr>
               )}

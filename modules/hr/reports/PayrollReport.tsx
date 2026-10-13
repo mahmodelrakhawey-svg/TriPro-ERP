@@ -1,10 +1,10 @@
 import { logger } from '../../../utils/logger';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
-import { FileText, Printer, Search, Loader2, Receipt, FileSpreadsheet } from 'lucide-react';
+import { FileText, Printer, Search, Loader2, Receipt, FileSpreadsheet, X } from 'lucide-react';
 import { PayslipModal, PayslipData } from '../components/PayslipModal';
 
 const PayrollReport = () => {
@@ -13,6 +13,7 @@ const PayrollReport = () => {
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState(selectedFiscalYear || new Date().getFullYear());
   const [payrollData, setPayrollData] = useState<any[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(false);
   const [payrollSummary, setPayrollSummary] = useState<any>(null);
   const [selectedPayslip, setSelectedPayslip] = useState<PayslipData | null>(null);
@@ -118,14 +119,37 @@ const PayrollReport = () => {
     });
   };
 
+  const filteredPayrollData = useMemo(() => {
+    if (!payrollData || payrollData.length === 0) return [];
+    if (!searchTerm.trim()) return payrollData;
+    const term = searchTerm.trim().toLowerCase();
+    return payrollData.filter(item => {
+      const name = (item.employees?.full_name || '').toLowerCase();
+      const dept = (item.employees?.department || '').toLowerCase();
+      const pos = (item.employees?.position || '').toLowerCase();
+      return name.includes(term) || dept.includes(term) || pos.includes(term);
+    });
+  }, [payrollData, searchTerm]);
+
+  const displayedSummary = useMemo(() => {
+    if (!filteredPayrollData || filteredPayrollData.length === 0) return null;
+    return filteredPayrollData.reduce((acc, curr) => ({
+      total_gross_salary: acc.total_gross_salary + Number(curr.gross_salary || 0),
+      total_additions: acc.total_additions + Number(curr.additions || 0),
+      total_payroll_tax: acc.total_payroll_tax + Number(curr.payroll_tax || 0),
+      total_deductions: acc.total_deductions + Number(curr.advances_deducted || 0) + Number(curr.other_deductions || 0),
+      total_net_salary: acc.total_net_salary + Number(curr.net_salary || 0),
+    }), { total_gross_salary: 0, total_additions: 0, total_payroll_tax: 0, total_deductions: 0, total_net_salary: 0 });
+  }, [filteredPayrollData]);
+
   // تصدير كشف الرواتب إلى Excel
   const handleExportExcel = () => {
-    if (!payrollData || payrollData.length === 0) {
+    if (!filteredPayrollData || filteredPayrollData.length === 0) {
       showToast('لا توجد بيانات رواتب للتصدير في هذا الشهر', 'warning');
       return;
     }
 
-    const rows = payrollData.map((item, idx) => ({
+    const rows = filteredPayrollData.map((item, idx) => ({
       'م': idx + 1,
       'اسم الموظف': item.employees?.full_name || 'موظف',
       'القسم / الفرع': item.employees?.department || '-',
@@ -138,18 +162,18 @@ const PayrollReport = () => {
       'صافي الراتب المستحق (ج.م)': Number(item.net_salary) || 0
     }));
 
-    if (payrollSummary) {
+    if (displayedSummary) {
       rows.push({
         'م': '' as any,
-        'اسم الموظف': `الإجمالي العام (${payrollData.length} موظف)`,
-        'القسم / الفرع': '',
+        'اسم الموظف': `الإجمالي العام (${filteredPayrollData.length} موظف)${searchTerm ? ` [بحث: ${searchTerm}]` : ''}`,
+        'القسم / الفرع': searchTerm ? `بحث: ${searchTerm}` : '',
         'المسمى الوظيفي': '',
-        'الراتب الأساسي (ج.م)': payrollSummary.total_gross_salary,
-        'الإضافي والبدلات (ج.م)': payrollSummary.total_additions,
-        'السلف المخصومة (ج.م)': payrollData.reduce((s, i) => s + Number(i.advances_deducted || 0), 0),
-        'ضريبة كسب العمل (ج.م)': payrollSummary.total_payroll_tax,
-        'استقطاعات أخرى (ج.م)': payrollData.reduce((s, i) => s + Number(i.other_deductions || 0), 0),
-        'صافي الراتب المستحق (ج.م)': payrollSummary.total_net_salary
+        'الراتب الأساسي (ج.م)': displayedSummary.total_gross_salary,
+        'الإضافي والبدلات (ج.م)': displayedSummary.total_additions,
+        'السلف المخصومة (ج.م)': filteredPayrollData.reduce((s, i) => s + Number(i.advances_deducted || 0), 0),
+        'ضريبة كسب العمل (ج.م)': displayedSummary.total_payroll_tax,
+        'استقطاعات أخرى (ج.م)': filteredPayrollData.reduce((s, i) => s + Number(i.other_deductions || 0), 0),
+        'صافي الراتب المستحق (ج.م)': displayedSummary.total_net_salary
       });
     }
 
@@ -169,9 +193,10 @@ const PayrollReport = () => {
     ];
 
     const wb = XLSX.utils.book_new();
+    const searchSuffix = searchTerm ? `_بحث_${searchTerm}` : '';
     XLSX.utils.book_append_sheet(wb, ws, `كشف_رواتب_${selectedMonth}_${selectedYear}`);
-    XLSX.writeFile(wb, `كشف_رواتب_شهر_${selectedMonth}_سنة_${selectedYear}.xlsx`);
-    showToast(`تم تصدير كشف رواتب شهر ${selectedMonth}/${selectedYear} إلى Excel بنجاح ✅`, 'success');
+    XLSX.writeFile(wb, `كشف_رواتب_شهر_${selectedMonth}_سنة_${selectedYear}${searchSuffix}.xlsx`);
+    showToast(`تم تصدير كشف رواتب شهر ${selectedMonth}/${selectedYear} لعدد ${filteredPayrollData.length} موظف إلى Excel بنجاح ✅`, 'success');
   };
 
   // حماية الصفحة من مستخدم الديمو
@@ -217,22 +242,52 @@ const PayrollReport = () => {
         </div>
       </div>
 
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex items-end gap-4 print:hidden">
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap items-end gap-4 print:hidden">
           <div>
               <label className="block text-sm font-bold text-slate-700 mb-1">عن شهر</label>
-              <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="w-full border rounded-lg p-2">
+              <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="w-full border rounded-lg p-2 text-sm font-bold">
                   {[...Array(12)].map((_, i) => <option key={i+1} value={i+1}>{i+1}</option>)}
               </select>
           </div>
           <div>
               <label className="block text-sm font-bold text-slate-700 mb-1">سنة</label>
-              <input type="number" value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="w-full border rounded-lg p-2" />
+              <input type="number" value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="w-full border rounded-lg p-2 text-sm font-bold font-mono" />
           </div>
-          <div className="flex-1">
-             <button onClick={fetchPayrollData} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-100 flex items-center gap-2">
+          <div>
+             <button onClick={fetchPayrollData} className="bg-blue-50 text-blue-600 px-4 py-2 rounded-lg font-bold hover:bg-blue-100 flex items-center gap-2 text-sm transition">
                 <Search size={18} /> عرض التقرير
              </button>
           </div>
+          {payrollData.length > 0 && (
+            <div className="flex-1 min-w-[260px] max-w-md">
+              <label className="block text-xs font-bold text-slate-700 mb-1">بحث باسم الموظف أو الفرع</label>
+              <div className="relative">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none" />
+                <input
+                  type="text"
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  placeholder="اكتب اسم الموظف..."
+                  className="w-full pr-9 pl-8 py-2 border rounded-lg text-xs font-bold bg-slate-50/50 outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200"
+                    title="مسح البحث"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {payrollData.length > 0 && (
+            <div className="text-xs font-bold text-slate-500 pb-2">
+              المعروض: <strong className="text-blue-600 font-mono text-sm">{filteredPayrollData.length}</strong> من <span className="font-mono">{payrollData.length}</span>
+            </div>
+          )}
       </div>
 
       <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200 print:shadow-none print:border-none">
@@ -243,7 +298,7 @@ const PayrollReport = () => {
 
         {loading ? (
             <div className="py-12 text-center"><Loader2 className="animate-spin mx-auto text-blue-600" size={32} /></div>
-        ) : payrollSummary ? (
+        ) : displayedSummary ? (
             <>
                 <table className="w-full text-right border-collapse">
                     <thead className="bg-slate-50 text-slate-600 font-bold text-sm border-y-2 border-slate-200">
@@ -260,7 +315,7 @@ const PayrollReport = () => {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                        {payrollData.map((item) => (
+                        {filteredPayrollData.map((item) => (
                     item && <tr key={item.id}>
                         <td className="p-3 font-bold">{item.employees?.full_name || 'غير محدد'} <span className="text-xs font-normal text-slate-500 block">{item.employees?.position || 'غير محدد'}</span></td>
                         <td className="p-3 text-slate-600 font-medium text-sm">
@@ -268,12 +323,12 @@ const PayrollReport = () => {
                                 {item.employees?.department || '-'}
                             </span>
                         </td>
-                        <td className="p-3">{(item.gross_salary || 0).toLocaleString()}</td>
-                        <td className="p-3 text-emerald-600">{(item.additions || 0).toLocaleString()}</td>
-                        <td className="p-3 text-red-600">{(item.payroll_tax || 0).toLocaleString()}</td>
-                        <td className="p-3 text-red-600">{(item.other_deductions || 0).toLocaleString()}</td>
-                        <td className="p-3 text-red-600">{(item.advances_deducted || 0).toLocaleString()}</td>
-                        <td className="p-3 font-bold text-slate-900 bg-slate-50">{(item.net_salary || 0).toLocaleString()}</td>
+                        <td className="p-3 font-mono">{(item.gross_salary || 0).toLocaleString()}</td>
+                        <td className="p-3 text-emerald-600 font-mono">{(item.additions || 0).toLocaleString()}</td>
+                        <td className="p-3 text-red-600 font-mono">{(item.payroll_tax || 0).toLocaleString()}</td>
+                        <td className="p-3 text-red-600 font-mono">{(item.other_deductions || 0).toLocaleString()}</td>
+                        <td className="p-3 text-red-600 font-mono">{(item.advances_deducted || 0).toLocaleString()}</td>
+                        <td className="p-3 font-bold text-slate-900 bg-slate-50 font-mono">{(item.net_salary || 0).toLocaleString()}</td>
                         <td className="p-3 print:hidden">
                             <button onClick={() => handlePrintSlip(item)} className="text-slate-400 hover:text-blue-600 p-1" title="طباعة قسيمة">
                                 <Receipt size={18} />
@@ -284,12 +339,14 @@ const PayrollReport = () => {
                     </tbody>
                     <tfoot className="bg-slate-100 font-bold border-t-2 border-slate-300">
                         <tr>
-                            <td className="p-3" colSpan={2}>الإجمالي</td>
-                            <td className="p-3">{payrollSummary.total_gross_salary.toLocaleString()}</td>
-                            <td className="p-3 text-emerald-700">{payrollSummary.total_additions.toLocaleString()}</td>
-                            <td className="p-3 text-red-700">{payrollSummary.total_payroll_tax.toLocaleString()}</td>
-                            <td className="p-3 text-red-700" colSpan={2}>{payrollSummary.total_deductions.toLocaleString()}</td>
-                            <td className="p-3 text-lg">{payrollSummary.total_net_salary.toLocaleString()}</td>
+                            <td className="p-3" colSpan={2}>
+                              الإجمالي {searchTerm ? `(المطابق للبحث: ${filteredPayrollData.length} موظف)` : `(${filteredPayrollData.length} موظف)`}
+                            </td>
+                            <td className="p-3 font-mono">{displayedSummary.total_gross_salary.toLocaleString()}</td>
+                            <td className="p-3 text-emerald-700 font-mono">{displayedSummary.total_additions.toLocaleString()}</td>
+                            <td className="p-3 text-red-700 font-mono">{displayedSummary.total_payroll_tax.toLocaleString()}</td>
+                            <td className="p-3 text-red-700 font-mono" colSpan={2}>{displayedSummary.total_deductions.toLocaleString()}</td>
+                            <td className="p-3 text-lg font-mono">{displayedSummary.total_net_salary.toLocaleString()}</td>
                             <td className="p-3 print:hidden"></td>
                         </tr>
                     </tfoot>
@@ -311,8 +368,21 @@ const PayrollReport = () => {
                 </div>
             </>
         ) : (
-            <div className="py-12 text-center text-slate-400 border-2 border-dashed rounded-lg">
-                لا توجد بيانات رواتب مسجلة لهذا الشهر
+            <div className="py-12 text-center text-slate-400 border-2 border-dashed rounded-lg space-y-2">
+                <p className="font-bold text-slate-600">
+                  {payrollData.length === 0 
+                    ? 'لا توجد بيانات رواتب مسجلة لهذا الشهر'
+                    : `لا توجد نتائج مطابقة لبحث: "${searchTerm}"`}
+                </p>
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm('')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl text-xs font-bold transition"
+                  >
+                    مسح نص البحث
+                  </button>
+                )}
             </div>
         )}
       </div>
