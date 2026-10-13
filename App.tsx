@@ -793,10 +793,10 @@ const MainLayout = () => {
                 <Route path="/cash-flow" element={<ModuleGuard module="accounting"><CashFlowStatement /></ModuleGuard>} />
                 <Route path="/annual-report" element={<ModuleGuard module="accounting"><AnnualFinancialReport /></ModuleGuard>} />
                 <Route path="/cfo-dashboard" element={<ModuleGuard module="accounting"><CFODashboard /></ModuleGuard>} />
-                <Route path="/cash-flow-report" element={<ModuleGuard module="accounting"><CashFlowReport /></ModuleGuard>} />
+                <Route path="/cash-flow-report" element={<ModuleGuard module="accounting" requiredPermission="reports.cash_bank_movement"><CashFlowReport /></ModuleGuard>} />
                 <Route path="/tax-return" element={<ModuleGuard module="accounting"><TaxReturnReport /></ModuleGuard>} />
                 <Route path="/performance-comparison" element={<ModuleGuard module="accounting"><PerformanceComparisonReport /></ModuleGuard>} /> 
-                <Route path="/multi-currency-statement" element={<ModuleGuard module="accounting"><MultiCurrencyStatement /></ModuleGuard>} /> 
+                <Route path="/multi-currency-statement" element={<ModuleGuard module="accounting" requiredPermission="reports.multi_currency_statement"><MultiCurrencyStatement /></ModuleGuard>} /> 
                 <Route path="/payment-method-report" element={<ModuleGuard module="accounting"><PaymentMethodReport /></ModuleGuard>} />
                 <Route path="/attachments-report" element={<ModuleGuard module="accounting"><AttachmentsReport /></ModuleGuard>} />
                 <Route path="/user-guide" element={<UserGuide />} />

@@ -107,7 +107,7 @@ export const TopMenuBar: React.FC = () => {
         { divider: true, label: '' },
         { header: 'الأصول والتحليلات' },
         { label: 'إدارة الأصول الثابتة والإهلاك', to: '/assets', icon: Landmark },
-        { label: 'إعادة تقييم العملات الأجنبية', to: '/multi-currency-statement', icon: Scale },
+        { label: 'إعادة تقييم العملات الأجنبية', to: '/multi-currency-statement', icon: Scale, permission: 'reports.multi_currency_statement' },
         { label: 'الموازنات التقديرية (Budgeting)', to: '/budget-setup', icon: BarChart3 },
         { label: 'لوحة المدير المالي (CFO Dashboard)', to: '/cfo-dashboard', icon: Sparkles }
       ]
@@ -297,6 +297,11 @@ export const TopMenuBar: React.FC = () => {
                             {item.header}
                           </div>
                         );
+                      }
+
+                      if (item.permission) {
+                        const [m, a] = item.permission.split('.');
+                        if (!can(m, a)) return null;
                       }
 
                       const Icon = item.icon;

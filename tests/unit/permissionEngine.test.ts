@@ -45,6 +45,24 @@ describe('🛡️ Permission Engine Tests', () => {
       expect(evaluatePermission('reports', 'delete', 'hr_manager', new Set(), dummyUser)).toBe(false);
     });
 
+    it('granular financial reports permissions should be isolated and not leaked by reports.view', () => {
+      const hrUser: User = { ...dummyUser, role: 'hr_officer' };
+      const baseHrPerms = new Set(['hr.view', 'hr.manage_employee', 'reports.view', 'reports.general_view']);
+
+      // Without granular permission, sensitive reports must be DENIED even if reports.view exists
+      expect(evaluatePermission('reports', 'multi_currency_statement', 'hr_officer', baseHrPerms, hrUser)).toBe(false);
+      expect(evaluatePermission('reports', 'cash_bank_movement', 'hr_officer', baseHrPerms, hrUser)).toBe(false);
+
+      // When granular permission is explicitly granted, it must be ALLOWED
+      const permsWithCash = new Set([...baseHrPerms, 'reports.cash_bank_movement']);
+      expect(evaluatePermission('reports', 'cash_bank_movement', 'hr_officer', permsWithCash, hrUser)).toBe(true);
+      expect(evaluatePermission('reports', 'multi_currency_statement', 'hr_officer', permsWithCash, hrUser)).toBe(false);
+
+      // When multi_currency_statement is explicitly granted, it must be ALLOWED
+      const permsWithBoth = new Set([...permsWithCash, 'reports.multi_currency_statement']);
+      expect(evaluatePermission('reports', 'multi_currency_statement', 'hr_officer', permsWithBoth, hrUser)).toBe(true);
+    });
+
     it('stadium_receptionist cannot delete', () => {
       expect(evaluatePermission('stadium/members', 'view', 'stadium_receptionist', new Set(), dummyUser)).toBe(true);
       expect(evaluatePermission('stadium/members', 'delete', 'stadium_receptionist', new Set(), dummyUser)).toBe(false);

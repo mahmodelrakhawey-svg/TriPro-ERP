@@ -378,8 +378,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     });
 
+    // 🔄 مزامنة تلقائية فورية لتحديث الصلاحيات عند عودة التركيز للنافذة أو التبويب
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          if (session?.user) {
+            handleAuthChange(session.user);
+          }
+        });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    window.addEventListener('focus', handleVisibility);
+
     return () => {
       authListener.subscription.unsubscribe();
+      document.removeEventListener('visibilitychange', handleVisibility);
+      window.removeEventListener('focus', handleVisibility);
     };
   }, [handleAuthChange, fetchUsers, handleAuthError]);
 

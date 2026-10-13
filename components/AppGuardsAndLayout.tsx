@@ -150,7 +150,15 @@ export const SuspendedScreen = ({ message }: { message?: string }) => {
     );
 };
 
-export const ModuleGuard = ({ module, children }: { module: string, children: React.ReactNode }) => {
+export const ModuleGuard = ({ 
+    module, 
+    requiredPermission, 
+    children 
+}: { 
+    module: string; 
+    requiredPermission?: string; 
+    children: React.ReactNode; 
+}) => {
     const { organization, currentUser, isLoading, can } = useAccounting();
     
     if (isLoading && !currentUser) {
@@ -203,34 +211,33 @@ export const ModuleGuard = ({ module, children }: { module: string, children: Re
     }
 
     const hasPermission = can ? (
-      can(module, 'view') || 
-      can(normalizedModule, 'view') || 
-      can(module, 'manage') || 
-      can(module, '*') || 
-      can(normalizedModule, '*') ||
-      can(module, 'pos') ||
-      can(module, 'kitchen') ||
-      (module === 'treasury' && (
-        can('treasury', 'receipt_create') || 
-        can('treasury', 'payment_create') || 
-        can('treasury', 'transfer') || 
-        can('treasury', 'create') ||
-        can('accounting', 'view')
-      )) ||
-      (module === 'reports' && (
-        can('reports', 'view') ||
-        can('accounting', 'view') ||
-        can('reports', 'multi_currency_statement') ||
-        can('reports', 'cash_bank_movement') ||
-        can('reports', 'financial_statements')
-      )) ||
-      (module === 'accounting' && (
-        can('accounting', 'view') ||
-        can('reports', 'view') ||
-        can('reports', 'multi_currency_statement') ||
-        can('reports', 'cash_bank_movement') ||
-        can('reports', 'financial_statements')
-      ))
+      requiredPermission ? (
+        can(requiredPermission.split('.')[0], requiredPermission.split('.')[1])
+      ) : (
+        can(module, 'view') || 
+        can(normalizedModule, 'view') || 
+        can(module, 'manage') || 
+        can(module, '*') || 
+        can(normalizedModule, '*') ||
+        can(module, 'pos') ||
+        can(module, 'kitchen') ||
+        (module === 'treasury' && (
+          can('treasury', 'receipt_create') || 
+          can('treasury', 'payment_create') || 
+          can('treasury', 'transfer') || 
+          can('treasury', 'create') ||
+          can('accounting', 'view')
+        )) ||
+        (module === 'reports' && (
+          can('reports', 'view') ||
+          can('accounting', 'view') ||
+          can('reports', 'financial_statements')
+        )) ||
+        (module === 'accounting' && (
+          can('accounting', 'view') ||
+          can('reports', 'financial_statements')
+        ))
+      )
     ) : true;
 
     const isAllowed = isPrivileged || (isAllowedByOrg && hasPermission);
