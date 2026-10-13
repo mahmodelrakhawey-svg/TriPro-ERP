@@ -734,13 +734,17 @@ const PurchaseInvoiceForm = () => {
   const handleProductFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const pPrice = Number(productFormData.purchase_price) || 0;
+    const sPrice = Number(productFormData.sales_price) || 0;
+    const effectiveSalesPrice = (sPrice > 0) ? sPrice : (pPrice > 0 ? pPrice : 0);
+
     const validationData = {
-      name: productFormData.name,
-      sku: productFormData.sku || undefined,
-      unit: productFormData.unit,
+      name: productFormData.name?.trim(),
+      sku: productFormData.sku?.trim() || undefined,
+      unit: productFormData.unit?.trim() || 'قطعة',
       product_type: productFormData.product_type,
-      purchase_price: Number(productFormData.purchase_price) || 0,
-      sales_price: Number(productFormData.sales_price) || 0,
+      purchase_price: pPrice,
+      sales_price: effectiveSalesPrice,
       inventory_account_id: productFormData.inventory_account_id || undefined,
       cogs_account_id: productFormData.cogs_account_id || undefined,
       sales_account_id: productFormData.sales_account_id || undefined,
@@ -754,36 +758,45 @@ const PurchaseInvoiceForm = () => {
       return;
     }
 
+    const toNullableUUID = (v: unknown) => {
+      if (!v || typeof v !== 'string' || v.trim() === '') return null;
+      const trimmed = v.trim();
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ? trimmed : null;
+    };
+
     try {
       const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const isPhysicalStock = productFormData.product_type === 'STOCK' || productFormData.product_type === 'RAW_MATERIAL' || productFormData.product_type === 'MANUFACTURED';
 
       if (editingProductId) {
         // تحديث الصنف الموجود
         const itemData: Record<string, any> = {
-          name: productFormData.name,
+          name: productFormData.name.trim(),
           sku: productFormData.sku?.trim() || generateUniqueSku(),
-          barcode: productFormData.barcode || null,
-          description: productFormData.description || null,
-          unit: productFormData.unit,
-          sales_price: productFormData.sales_price,
-          purchase_price: productFormData.purchase_price,
-          base_uom_id: productFormData.base_uom_id || null,
-          purchase_uom_id: productFormData.purchase_uom_id || null,
-          sale_uom_id: productFormData.sale_uom_id || null,
+          barcode: productFormData.barcode?.trim() || null,
+          description: productFormData.description?.trim() || null,
+          unit: productFormData.unit?.trim() || 'قطعة',
+          sales_price: effectiveSalesPrice,
+          purchase_price: pPrice,
+          cost: pPrice,
+          base_uom_id: toNullableUUID(productFormData.base_uom_id),
+          purchase_uom_id: toNullableUUID(productFormData.purchase_uom_id),
+          sale_uom_id: toNullableUUID(productFormData.sale_uom_id),
           product_type: productFormData.product_type,
-          inventory_account_id: productFormData.inventory_account_id || null,
-          cogs_account_id: productFormData.cogs_account_id || null,
-          sales_account_id: productFormData.sales_account_id || null,
-          image_url: productFormData.image_url || null,
-          category_id: productFormData.category_id || null,
-          min_stock_level: productFormData.min_stock_level,
-          requires_serial: productFormData.requires_serial,
+          inventory_account_id: isPhysicalStock ? toNullableUUID(productFormData.inventory_account_id) : null,
+          cogs_account_id: isPhysicalStock ? toNullableUUID(productFormData.cogs_account_id) : null,
+          sales_account_id: toNullableUUID(productFormData.sales_account_id),
+          image_url: productFormData.image_url?.trim() || null,
+          category_id: toNullableUUID(productFormData.category_id),
+          min_stock_level: Number(productFormData.min_stock_level) || 0,
+          requires_serial: Boolean(productFormData.requires_serial),
           expiry_date: productFormData.expiry_date || null,
-          tax_rate_override: productFormData.tax_rate_override || null,
-          barcode2: productFormData.barcode2 || null,
-          supplier_id: productFormData.supplier_id || null,
-          egs_code: productFormData.egs_code || null,
-          eta_unit_code: productFormData.eta_unit_code || null,
+          tax_rate_override: Number(productFormData.tax_rate_override) || null,
+          barcode2: productFormData.barcode2?.trim() || null,
+          supplier_id: toNullableUUID(productFormData.supplier_id),
+          egs_code: productFormData.egs_code?.trim() || null,
+          eta_unit_code: productFormData.eta_unit_code?.trim() || null,
+          item_code_type: productFormData.item_code_type || 'EGS'
         };
 
         await updateProduct(editingProductId, itemData);
@@ -796,7 +809,7 @@ const PurchaseInvoiceForm = () => {
               ...it,
               productName: productFormData.name,
               productSku: productFormData.sku,
-              unitPrice: productFormData.purchase_price > 0 ? productFormData.purchase_price : it.unitPrice,
+              unitPrice: pPrice > 0 ? pPrice : it.unitPrice,
               taxRate: productFormData.tax_rate_override > 0 ? productFormData.tax_rate_override : it.taxRate,
             };
           }
@@ -806,36 +819,36 @@ const PurchaseInvoiceForm = () => {
         showToast(`تم تحديث كارت الصنف (${productFormData.name}) بنجاح ✏️✅`, 'success');
       } else {
         // إضافة صنف جديد
-        const isPhysicalStock = productFormData.product_type === 'STOCK' || productFormData.product_type === 'RAW_MATERIAL' || productFormData.product_type === 'MANUFACTURED';
         const productPayload: Record<string, any> = {
-          name: productFormData.name,
+          name: productFormData.name.trim(),
           sku: productFormData.sku?.trim() || generateUniqueSku(),
-          barcode: productFormData.barcode || null,
-          description: productFormData.description || null,
-          unit: productFormData.unit,
-          base_uom_id: productFormData.base_uom_id || null,
-          purchase_uom_id: productFormData.purchase_uom_id || null,
-          sale_uom_id: productFormData.sale_uom_id || null,
-          sales_price: productFormData.sales_price,
-          purchase_price: productFormData.purchase_price,
-          cost: productFormData.purchase_price,
+          barcode: productFormData.barcode?.trim() || null,
+          description: productFormData.description?.trim() || null,
+          unit: productFormData.unit?.trim() || 'قطعة',
+          base_uom_id: toNullableUUID(productFormData.base_uom_id),
+          purchase_uom_id: toNullableUUID(productFormData.purchase_uom_id),
+          sale_uom_id: toNullableUUID(productFormData.sale_uom_id),
+          sales_price: effectiveSalesPrice,
+          purchase_price: pPrice,
+          cost: pPrice,
           stock: 0,
           item_type: productFormData.product_type === 'INTERMEDIATE_PRODUCT' ? 'STOCK' : productFormData.product_type,
           product_type: productFormData.product_type,
-          inventory_account_id: isPhysicalStock ? productFormData.inventory_account_id : null,
-          cogs_account_id: isPhysicalStock ? productFormData.cogs_account_id : null,
-          sales_account_id: productFormData.sales_account_id || null,
+          inventory_account_id: isPhysicalStock ? toNullableUUID(productFormData.inventory_account_id) : null,
+          cogs_account_id: isPhysicalStock ? toNullableUUID(productFormData.cogs_account_id) : null,
+          sales_account_id: toNullableUUID(productFormData.sales_account_id),
           is_active: true,
-          min_stock_level: productFormData.min_stock_level,
-          category_id: productFormData.category_id || null,
-          requires_serial: productFormData.requires_serial,
+          min_stock_level: Number(productFormData.min_stock_level) || 0,
+          category_id: toNullableUUID(productFormData.category_id),
+          requires_serial: Boolean(productFormData.requires_serial),
           expiry_date: productFormData.expiry_date || null,
           organization_id: orgId,
-          tax_rate_override: productFormData.tax_rate_override || null,
-          barcode2: productFormData.barcode2 || null,
-          supplier_id: productFormData.supplier_id || null,
-          egs_code: productFormData.egs_code || null,
-          eta_unit_code: productFormData.eta_unit_code || null,
+          tax_rate_override: Number(productFormData.tax_rate_override) || null,
+          barcode2: productFormData.barcode2?.trim() || null,
+          supplier_id: toNullableUUID(productFormData.supplier_id),
+          egs_code: productFormData.egs_code?.trim() || null,
+          eta_unit_code: productFormData.eta_unit_code?.trim() || null,
+          item_code_type: productFormData.item_code_type || 'EGS'
         };
 
         const createdProd = await addProduct(productPayload);

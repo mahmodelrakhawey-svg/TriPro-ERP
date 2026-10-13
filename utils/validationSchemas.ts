@@ -9,7 +9,7 @@ import { z } from 'zod';
 
 export const idSchema = z.string().min(1, 'هذا الحقل مطلوب').uuid('معرف غير صالح');
 export const emailSchema = z.string().email('بريد إلكتروني غير صالح');
-export const phoneSchema = z.string().regex(/^\+?[\d\s\-()]{10,}$/, 'رقم هاتف غير صالح');
+export const phoneSchema = z.string().regex(/^\+?[\d\s\-()٠-٩]{7,}$/, 'رقم هاتف غير صالح');
 export const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'صيغة التاريخ غير صحيحة (YYYY-MM-DD)');
 export const amountSchema = z.number().min(0, 'المبلغ يجب أن يكون أكبر من أو يساوي صفر');
 export const percentSchema = z.number().min(0, 'النسبة يجب أن تكون بين 0 و 100').max(100, 'النسبة يجب أن تكون بين 0 و 100');
@@ -37,11 +37,13 @@ export type UpdateCustomer = z.infer<typeof updateCustomerSchema>;
 
 export const createSupplierSchema = z.object({
   name: nameSchema,
+  code: z.string().optional().nullable().or(z.literal('')),
   email: emailSchema.optional().nullable().or(z.literal('')),
   phone: phoneSchema.optional().nullable().or(z.literal('')),
   tax_number: z.string().optional().nullable().or(z.literal('')),
   address: z.string().max(500).optional().nullable().or(z.literal('')),
   payment_terms: z.string().max(200).optional().nullable().or(z.literal('')),
+  opening_balance: z.coerce.number().optional().nullable(),
 });
 
 export const updateSupplierSchema = createSupplierSchema.partial();
@@ -68,7 +70,7 @@ const baseProductSchema = z.object({
 });
 
 export const createProductSchema = baseProductSchema.refine(
-  (data) => data.sales_price >= data.purchase_price || data.product_type === 'SERVICE' || data.product_type === 'RAW_MATERIAL' || data.product_type === 'INTERMEDIATE_PRODUCT',
+  (data) => data.sales_price === 0 || data.sales_price >= data.purchase_price || data.product_type === 'SERVICE' || data.product_type === 'RAW_MATERIAL' || data.product_type === 'INTERMEDIATE_PRODUCT',
   {
     message: 'سعر البيع يجب أن يكون أكبر من أو يساوي سعر الشراء',
     path: ['sales_price'],

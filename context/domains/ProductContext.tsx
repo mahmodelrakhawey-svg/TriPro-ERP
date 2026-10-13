@@ -253,19 +253,38 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const userId = currentUser?.id;
 
+    const toNullableUUID = (v: unknown) => {
+      if (!v || typeof v !== 'string' || v.trim() === '') return null;
+      const trimmed = v.trim();
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ? trimmed : null;
+    };
+
     const payload: Record<string, any> = {
       ...data,
       organization_id: effectiveOrg,
-      created_by: userId,
-      updated_by: userId
+      created_by: userId || null,
+      updated_by: userId || null
     };
 
-    if (payload.supplier_id === '') delete payload.supplier_id;
+    if ('category_id' in payload) payload.category_id = toNullableUUID(payload.category_id);
+    if ('base_uom_id' in payload) payload.base_uom_id = toNullableUUID(payload.base_uom_id);
+    if ('purchase_uom_id' in payload) payload.purchase_uom_id = toNullableUUID(payload.purchase_uom_id);
+    if ('sale_uom_id' in payload) payload.sale_uom_id = toNullableUUID(payload.sale_uom_id);
+    if ('inventory_account_id' in payload) payload.inventory_account_id = toNullableUUID(payload.inventory_account_id);
+    if ('cogs_account_id' in payload) payload.cogs_account_id = toNullableUUID(payload.cogs_account_id);
+    if ('sales_account_id' in payload) payload.sales_account_id = toNullableUUID(payload.sales_account_id);
+    if ('supplier_id' in payload) {
+      if (!payload.supplier_id || payload.supplier_id === '') {
+        delete payload.supplier_id;
+      } else {
+        payload.supplier_id = toNullableUUID(payload.supplier_id);
+      }
+    }
 
     let p: Product | null = null;
     let error: { code?: string; message?: string } | null = null;
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       const res = await supabase.from('products').insert(payload).select().single();
       p = res.data;
       error = res.error;
@@ -297,14 +316,29 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const userId = currentUser?.id;
 
+    const toNullableUUID = (v: unknown) => {
+      if (!v || typeof v !== 'string' || v.trim() === '') return null;
+      const trimmed = v.trim();
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ? trimmed : null;
+    };
+
     const payload: Record<string, any> = { ...data };
     delete payload.id;
     delete payload.organization_id;
-    payload.updated_by = userId;
+    if (userId) payload.updated_by = userId;
+
+    if ('category_id' in payload) payload.category_id = toNullableUUID(payload.category_id);
+    if ('base_uom_id' in payload) payload.base_uom_id = toNullableUUID(payload.base_uom_id);
+    if ('purchase_uom_id' in payload) payload.purchase_uom_id = toNullableUUID(payload.purchase_uom_id);
+    if ('sale_uom_id' in payload) payload.sale_uom_id = toNullableUUID(payload.sale_uom_id);
+    if ('inventory_account_id' in payload) payload.inventory_account_id = toNullableUUID(payload.inventory_account_id);
+    if ('cogs_account_id' in payload) payload.cogs_account_id = toNullableUUID(payload.cogs_account_id);
+    if ('sales_account_id' in payload) payload.sales_account_id = toNullableUUID(payload.sales_account_id);
+    if ('supplier_id' in payload) payload.supplier_id = toNullableUUID(payload.supplier_id);
 
     let error: { code?: string; message?: string } | null = null;
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       let query = supabase.from('products').update(payload).eq('id', id);
       if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
         query = query.eq('organization_id', effectiveOrg);

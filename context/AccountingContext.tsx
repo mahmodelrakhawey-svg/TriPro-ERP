@@ -1202,21 +1202,38 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const addProduct = async (data: Partial<Product>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const toNullableUUID = (v: unknown) => {
+      if (!v || typeof v !== 'string' || v.trim() === '') return null;
+      const trimmed = v.trim();
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ? trimmed : null;
+    };
+
     const payload: Record<string, any> = { 
       ...data, 
       organization_id: targetOrgId,
-      created_by: currentUser?.id,
-      updated_by: currentUser?.id
+      created_by: currentUser?.id || null,
+      updated_by: currentUser?.id || null
     };
     
-    // إزالة الحقول المؤقتة أو غير المتطابقة
-    if (payload.supplier_id === '') delete payload.supplier_id;
+    if ('category_id' in payload) payload.category_id = toNullableUUID(payload.category_id);
+    if ('base_uom_id' in payload) payload.base_uom_id = toNullableUUID(payload.base_uom_id);
+    if ('purchase_uom_id' in payload) payload.purchase_uom_id = toNullableUUID(payload.purchase_uom_id);
+    if ('sale_uom_id' in payload) payload.sale_uom_id = toNullableUUID(payload.sale_uom_id);
+    if ('inventory_account_id' in payload) payload.inventory_account_id = toNullableUUID(payload.inventory_account_id);
+    if ('cogs_account_id' in payload) payload.cogs_account_id = toNullableUUID(payload.cogs_account_id);
+    if ('sales_account_id' in payload) payload.sales_account_id = toNullableUUID(payload.sales_account_id);
+    if ('supplier_id' in payload) {
+      if (!payload.supplier_id || payload.supplier_id === '') {
+        delete payload.supplier_id;
+      } else {
+        payload.supplier_id = toNullableUUID(payload.supplier_id);
+      }
+    }
 
     let p: DynamicParam = null;
     let error: DynamicParam = null;
 
-    // محاولة الإدخال مع معالجة مرنة لأي عمود قديم
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       const res = await supabase.from('products').insert(payload).select().single();
       p = res.data;
       error = res.error;
@@ -1244,14 +1261,29 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const updateProduct = async (id: string, data: Partial<Product>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const toNullableUUID = (v: unknown) => {
+      if (!v || typeof v !== 'string' || v.trim() === '') return null;
+      const trimmed = v.trim();
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ? trimmed : null;
+    };
+
     const payload: Record<string, any> = { ...data };
     delete payload.id;
     delete payload.organization_id;
-    payload.updated_by = currentUser?.id;
+    if (currentUser?.id) payload.updated_by = currentUser.id;
+
+    if ('category_id' in payload) payload.category_id = toNullableUUID(payload.category_id);
+    if ('base_uom_id' in payload) payload.base_uom_id = toNullableUUID(payload.base_uom_id);
+    if ('purchase_uom_id' in payload) payload.purchase_uom_id = toNullableUUID(payload.purchase_uom_id);
+    if ('sale_uom_id' in payload) payload.sale_uom_id = toNullableUUID(payload.sale_uom_id);
+    if ('inventory_account_id' in payload) payload.inventory_account_id = toNullableUUID(payload.inventory_account_id);
+    if ('cogs_account_id' in payload) payload.cogs_account_id = toNullableUUID(payload.cogs_account_id);
+    if ('sales_account_id' in payload) payload.sales_account_id = toNullableUUID(payload.sales_account_id);
+    if ('supplier_id' in payload) payload.supplier_id = toNullableUUID(payload.supplier_id);
     
     let error: DynamicParam = null;
 
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       let query = supabase.from('products').update(payload).eq('id', id);
       if (targetOrgId) query = query.eq('organization_id', targetOrgId);
       const res = await query;
@@ -1379,12 +1411,41 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const addSupplier = async (data: Partial<Supplier>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { data: s, error } = await supabase.from('suppliers').insert({
-      ...data,
+    const payload: Record<string, any> = {
+      name: data.name?.trim() || '',
+      code: data.code?.trim() || null,
+      phone: data.phone?.trim() || null,
+      email: data.email?.trim() || null,
+      tax_number: (data.tax_number || (data as any).tax_id || (data as any).taxId)?.trim() || null,
+      tax_id: ((data as any).tax_id || (data as any).taxId || data.tax_number)?.trim() || null,
+      address: data.address?.trim() || null,
+      contact_person: (data.contact_person || (data as any).contactPerson)?.trim() || null,
+      opening_balance: Number(data.opening_balance || 0),
+      credit_limit: Number(data.credit_limit || 0),
       organization_id: targetOrgId,
-      created_by: currentUser?.id,
-      updated_by: currentUser?.id
-    }).select().single(); 
+      created_by: currentUser?.id || null,
+      updated_by: currentUser?.id || null
+    };
+
+    let s: DynamicParam = null;
+    let error: DynamicParam = null;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const res = await supabase.from('suppliers').insert(payload).select().single();
+      s = res.data;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
+    }
+
     if (error) {
       showToast('فشل إضافة المورد: ' + error.message, 'error');
       throw error;
@@ -1396,12 +1457,29 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const updateSupplier = async (id: string, data: Partial<Supplier>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    let query = supabase.from('suppliers').update({
-      ...data,
-      updated_by: currentUser?.id
-    }).eq('id', id);
-    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
-    const { error } = await query;
+    const payload: Record<string, any> = { ...data };
+    delete payload.id;
+    delete payload.organization_id;
+    if (currentUser?.id) payload.updated_by = currentUser.id;
+
+    let error: DynamicParam = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      let query = supabase.from('suppliers').update(payload).eq('id', id);
+      if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+      const res = await query;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
+    }
+
     if (error) throw error;
     logActivity('تعديل مورد', `تم تعديل بيانات المورد رقم: ${id}`);
     await refreshSuppliers(); 
