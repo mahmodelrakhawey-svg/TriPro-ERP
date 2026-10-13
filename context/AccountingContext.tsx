@@ -741,34 +741,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }));
       setSalespeople(mappedSalespeople);
 
-      const loadedProducts = (prods.data && prods.data.length > 0) ? prods.data : DEFAULT_OFFLINE_PRODUCTS;
+      const loadedProducts = (prods.data && prods.data.length > 0) ? prods.data : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_PRODUCTS : []);
       setProducts(loadedProducts);
       setTransfers(trns.data || []);
       setPurchaseInvoices(pinvs.data || []);
       setInvoices(invs.data || []);
 
-      const loadedCategories = (cats.data && cats.data.length > 0) ? cats.data : DEFAULT_OFFLINE_CATEGORIES;
+      const loadedCategories = (cats.data && cats.data.length > 0) ? cats.data : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_CATEGORIES : []);
       setCategories(loadedCategories);
       setMenuCategories(loadedCategories);
 
       setUsers(usrs.data || []);
 
-      let loadedWhs = whs.data || [];
-      // 🛡️ صمام أمان المنظمات الجديدة: إذا كانت المنظمة حقيقية أونلاين ولا يوجد لها أي مستودع، ننشئ لها مستودعاً رئيسياً فوراً بمعرف UUID سليم
-      if (loadedWhs.length === 0 && fetchOrgId && currentUser?.role !== 'demo') {
-        try {
-          const { data: createdWh } = await supabase
-            .from('warehouses')
-            .insert({ name: 'المستودع الرئيسي', organization_id: fetchOrgId, is_active: true })
-            .select('*')
-            .maybeSingle();
-          if (createdWh) {
-            loadedWhs = [createdWh];
-          }
-        } catch (e) {
-          logger.warn('Auto-create warehouse fallback:', e);
-        }
-      }
+      const loadedWhs = whs.data || [];
       setWarehouses(loadedWhs.length > 0 ? loadedWhs : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_WAREHOUSES : []));
 
       const loadedTables = (rTables.data && rTables.data.length > 0) ? rTables.data : DEFAULT_OFFLINE_TABLES;

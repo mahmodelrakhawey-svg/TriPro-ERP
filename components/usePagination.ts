@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../supabaseClient';
+import { getActiveOrgIdSync, isValidUUID } from '../services/tenantContext';
 
 export interface PaginationOptions {
   select?: string;
@@ -64,7 +65,9 @@ export function usePagination<T>(
         return;
       }
 
-      let userOrgId = organizationId || session.user.user_metadata?.org_id;
+      let userOrgId = getActiveOrgIdSync(organizationId) || 
+        (isValidUUID(organizationId) ? organizationId : null) || 
+        session.user.user_metadata?.org_id;
       let userRole = session.user.user_metadata?.role;
 
       // إذا لم يكن متوفراً في الميتاداتا، يتم جلبه كإجراء احتياطي من جدول profiles
@@ -76,7 +79,7 @@ export function usePagination<T>(
           .maybeSingle();
 
         if (profileData) {
-          userOrgId = profileData.organization_id;
+          userOrgId = getActiveOrgIdSync(profileData.organization_id) || profileData.organization_id;
           if (!userRole) userRole = profileData.role;
         }
       }
@@ -90,8 +93,8 @@ export function usePagination<T>(
         throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
       }
 
-      // تطبيق التصفية فقط إذا كان المعرف موجوداً وصحيحاً (وليس نصاً فارغاً)
-      if (userOrgId && userOrgId !== "") {
+      // تطبيق التصفية لعزل بيانات الشركة بشكل صارم
+      if (userOrgId && userOrgId !== "" && userOrgId !== 'org-default-offline') {
         query = query.eq('organization_id', userOrgId);
       }
 

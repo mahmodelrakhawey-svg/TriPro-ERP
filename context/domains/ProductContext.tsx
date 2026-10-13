@@ -151,20 +151,7 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
       if (error) {
         logger.error('Error fetching warehouses in ProductProvider:', error);
       } else {
-        let loaded = (data as Warehouse[]) || [];
-        // صمام أمان المنظمات الجديدة
-        if (loaded.length === 0 && currentUser?.role !== 'demo') {
-          try {
-            const { data: createdWh } = await supabase
-              .from('warehouses')
-              .insert({ name: 'المستودع الرئيسي', organization_id: targetOrgId, is_active: true })
-              .select('*')
-              .maybeSingle();
-            if (createdWh) loaded = [createdWh];
-          } catch (e) {
-            logger.warn('Auto-create warehouse fallback:', e);
-          }
-        }
+        const loaded = (data as Warehouse[]) || [];
         setWarehouses(loaded.length > 0 ? loaded : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_WAREHOUSES : []));
       }
     } catch (err) {
@@ -184,12 +171,12 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
         logger.error('Error fetching categories in ProductProvider:', error);
       } else {
         const loaded = (data as Category[]) || [];
-        setCategories(loaded.length > 0 ? loaded : DEFAULT_OFFLINE_CATEGORIES);
+        setCategories(loaded.length > 0 ? loaded : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_CATEGORIES : []));
       }
     } catch (err) {
       logger.error('Unexpected error fetching categories:', err);
     }
-  }, [targetOrgId]);
+  }, [targetOrgId, currentUser?.role]);
 
   const fetchTransfers = useCallback(async () => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') return;
@@ -211,36 +198,36 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
   }, [targetOrgId]);
 
   useEffect(() => {
-    if (initialProducts.length > 0) {
-      setProducts(initialProducts);
-    } else if (targetOrgId && targetOrgId !== 'org-default-offline') {
+    if (targetOrgId && targetOrgId !== 'org-default-offline') {
       fetchProducts();
+    } else if (initialProducts.length > 0) {
+      setProducts(initialProducts);
     }
-  }, [targetOrgId, fetchProducts, initialProducts.length]);
+  }, [targetOrgId, fetchProducts, initialProducts]);
 
   useEffect(() => {
-    if (initialWarehouses.length > 0) {
-      setWarehouses(initialWarehouses);
-    } else if (targetOrgId && targetOrgId !== 'org-default-offline') {
+    if (targetOrgId && targetOrgId !== 'org-default-offline') {
       fetchWarehouses();
+    } else if (initialWarehouses.length > 0) {
+      setWarehouses(initialWarehouses);
     }
-  }, [targetOrgId, fetchWarehouses, initialWarehouses.length]);
+  }, [targetOrgId, fetchWarehouses, initialWarehouses]);
 
   useEffect(() => {
-    if (initialCategories.length > 0) {
-      setCategories(initialCategories);
-    } else if (targetOrgId && targetOrgId !== 'org-default-offline') {
+    if (targetOrgId && targetOrgId !== 'org-default-offline') {
       fetchCategories();
+    } else if (initialCategories.length > 0) {
+      setCategories(initialCategories);
     }
-  }, [targetOrgId, fetchCategories, initialCategories.length]);
+  }, [targetOrgId, fetchCategories, initialCategories]);
 
   useEffect(() => {
-    if (initialTransfers.length > 0) {
-      setTransfers(initialTransfers);
-    } else if (targetOrgId && targetOrgId !== 'org-default-offline') {
+    if (targetOrgId && targetOrgId !== 'org-default-offline') {
       fetchTransfers();
+    } else if (initialTransfers.length > 0) {
+      setTransfers(initialTransfers);
     }
-  }, [targetOrgId, fetchTransfers, initialTransfers.length]);
+  }, [targetOrgId, fetchTransfers, initialTransfers]);
 
   const recalculateStock = useCallback(async (productId?: string): Promise<void> => {
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
