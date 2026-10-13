@@ -97,4 +97,47 @@ describe('HR Domain Hardening & Supervisory Scope', () => {
     expect(result.current.employees).toHaveLength(1);
     expect(result.current.employees[0].full_name).toBe('عامل المصنع 1');
   });
+
+  it('يجب أن يعقم بيانات الموظف عند التحويل لغير نشط ويحول shift_id الفارغ إلى null', async () => {
+    const mockEq: any = vi.fn();
+    mockEq.mockImplementation(() => Object.assign(Promise.resolve({ error: null }), { eq: mockEq }));
+    const mockUpdate = vi.fn().mockReturnValue({ eq: mockEq });
+
+    (supabase.from as any).mockReturnValue({
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      order: vi.fn().mockResolvedValue({ data: [], error: null }),
+      update: mockUpdate,
+    });
+
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <HrProvider
+        orgId={mockOrgId}
+        currentUser={mockUser as any}
+      >
+        {children}
+      </HrProvider>
+    );
+
+    const { result } = renderHook(() => useHrDomain(), { wrapper });
+
+    await act(async () => {
+      await result.current.updateEmployee('emp-202', {
+        status: 'inactive',
+        shift_id: '', // Empty string must be converted to null
+        basic_salary: 5000,
+        full_name: 'أحمد محمود',
+      } as any);
+    });
+
+    expect(mockUpdate).toHaveBeenCalledWith({
+      full_name: 'أحمد محمود',
+      name: 'أحمد محمود',
+      basic_salary: 5000,
+      salary: 5000,
+      shift_id: null,
+      status: 'inactive',
+      deleted_at: null,
+    });
+  });
 });

@@ -8,7 +8,7 @@ import {
   Users, Plus, Search, Edit, Trash2, Save, X, Phone, Mail, 
   Briefcase, Calendar, DollarSign, Loader2, Filter, Building2, 
   LayoutGrid, List, RotateCcw, CheckCircle2, XCircle, Printer,
-  UserCheck, MapPin, Sparkles, FileSpreadsheet, Clock
+  UserCheck, UserX, MapPin, Sparkles, FileSpreadsheet, Clock
 } from 'lucide-react';
 import { hrEnterpriseService, HrShift } from '../../../services/hrEnterpriseService';
 import { createEmployeeSchema } from '../../../utils/validationSchemas';
@@ -178,10 +178,15 @@ const EmployeeManager = () => {
 
     setSaving(true);
     try {
+      const payloadToSave = {
+        ...formData,
+        shift_id: (formData.shift_id && formData.shift_id.trim() !== '') ? formData.shift_id.trim() : null
+      };
+
       if (editingId) {
-        await updateEmployee(editingId, formData as any);
+        await updateEmployee(editingId, payloadToSave as any);
       } else {
-        await addEmployee(formData);
+        await addEmployee(payloadToSave as any);
       }
       
       showToast('تم حفظ بيانات الموظف بنجاح ✅', 'success');
@@ -780,7 +785,15 @@ const EmployeeManager = () => {
                     </div>
 
                     <div className="flex gap-2 pt-2 border-t border-slate-100">
-                        {employee.status !== 'active' && (
+                        {employee.status === 'active' ? (
+                          <button 
+                            onClick={() => handleToggleStatus(employee, 'inactive')} 
+                            className="py-2 px-3 bg-amber-50 text-amber-700 hover:bg-amber-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-sm border border-amber-200 hover:border-amber-600"
+                            title="تحويل الموظف لغير نشط / إجازة"
+                          >
+                            <UserX size={14} /> إيقاف
+                          </button>
+                        ) : (
                           <button 
                             onClick={() => handleToggleStatus(employee, 'active')} 
                             className="py-2 px-3 bg-emerald-50 text-emerald-700 hover:bg-emerald-600 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 shadow-sm border border-emerald-200 hover:border-emerald-600"
@@ -872,7 +885,15 @@ const EmployeeManager = () => {
                     <td className="p-4 text-xs text-slate-500">{employee.hire_date || '-'}</td>
                     <td className="p-4">
                       <div className="flex items-center justify-center gap-1">
-                        {employee.status !== 'active' && (
+                        {employee.status === 'active' ? (
+                          <button
+                            onClick={() => handleToggleStatus(employee, 'inactive')}
+                            className="p-1.5 text-amber-600 hover:text-white hover:bg-amber-600 rounded-lg transition-colors border border-amber-200 hover:border-amber-600"
+                            title="تحويل الموظف لغير نشط / إجازة"
+                          >
+                            <UserX size={15} />
+                          </button>
+                        ) : (
                           <button
                             onClick={() => handleToggleStatus(employee, 'active')}
                             className="p-1.5 text-emerald-600 hover:text-white hover:bg-emerald-600 rounded-lg transition-colors border border-emerald-200 hover:border-emerald-600"

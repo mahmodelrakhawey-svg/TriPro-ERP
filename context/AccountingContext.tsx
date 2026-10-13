@@ -2384,11 +2384,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (raw.status !== undefined) payload.status = raw.status || 'active';
     if (raw.hourly_rate !== undefined) payload.hourly_rate = Number(raw.hourly_rate) || 0;
     if (raw.biometric_id !== undefined) payload.biometric_id = raw.biometric_id || null;
+    if (raw.shift_id !== undefined) payload.shift_id = (raw.shift_id && typeof raw.shift_id === 'string' && raw.shift_id.trim() !== '') ? raw.shift_id.trim() : null;
     if (raw.organization_id !== undefined) payload.organization_id = raw.organization_id;
 
-    // 5. عند تحويل الحالة إلى نشط، إلغاء الحذف المؤرخ لضمان عودة الموظف للعمل بشكل كامل
-    if (raw.status === 'active') {
-      payload.deleted_at = null;
+    // 5. إدارة الحذف المؤرخ وحالة الموظف (نشط / غير نشط / منتهي)
+    if (raw.status !== undefined) {
+      if (raw.status === 'active' || raw.status === 'inactive') {
+        payload.deleted_at = null;
+      } else if (raw.status === 'terminated') {
+        payload.deleted_at = raw.deleted_at || new Date().toISOString();
+      }
     } else if (raw.deleted_at !== undefined) {
       payload.deleted_at = raw.deleted_at;
     }

@@ -105,7 +105,7 @@ export const HrProvider: React.FC<HrProviderProps> = ({
   }, [targetOrgId, fetchEmployees]);
 
   const sanitizeEmployeePayload = useCallback((raw: Record<string, any>) => {
-    const payload: Record<string, any> = { ...raw };
+    const payload: Record<string, any> = {};
 
     const toNullableNum = (v: unknown) => {
       if (v === '' || v === null || v === undefined) return null;
@@ -115,22 +115,67 @@ export const HrProvider: React.FC<HrProviderProps> = ({
 
     const toNullableDate = (v: unknown) => {
       if (!v || v === '' || v === null) return null;
-      return v;
+      const s = String(v).trim();
+      return s !== '' ? s : null;
     };
 
-    if ('basic_salary' in payload) payload.basic_salary = toNullableNum(payload.basic_salary);
-    if ('insurance_salary' in payload) payload.insurance_salary = toNullableNum(payload.insurance_salary);
-    if ('hourly_rate' in payload) payload.hourly_rate = toNullableNum(payload.hourly_rate);
-    if ('fixed_allowances' in payload) payload.fixed_allowances = toNullableNum(payload.fixed_allowances);
-    if ('housing_allowance' in payload) payload.housing_allowance = toNullableNum(payload.housing_allowance);
-    if ('transportation_allowance' in payload) payload.transportation_allowance = toNullableNum(payload.transportation_allowance);
-    if ('other_allowances' in payload) payload.other_allowances = toNullableNum(payload.other_allowances);
-    if ('hire_date' in payload) payload.hire_date = toNullableDate(payload.hire_date);
-    if ('birth_date' in payload) payload.birth_date = toNullableDate(payload.birth_date);
-    if ('contract_end_date' in payload) payload.contract_end_date = toNullableDate(payload.contract_end_date);
+    const toNullableUUID = (v: unknown) => {
+      if (!v || typeof v !== 'string' || v.trim() === '') return null;
+      const trimmed = v.trim();
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ? trimmed : null;
+    };
 
-    if (raw.status === 'active') {
-      payload.deleted_at = null;
+    const toNullableText = (v: unknown) => {
+      if (v === undefined) return undefined;
+      if (v === null || v === '') return null;
+      return String(v).trim() || null;
+    };
+
+    // Names
+    if (raw.full_name !== undefined) {
+      payload.full_name = toNullableText(raw.full_name);
+      payload.name = payload.full_name;
+    } else if (raw.name !== undefined) {
+      payload.name = toNullableText(raw.name);
+      payload.full_name = payload.name;
+    }
+
+    // Salaries
+    const salaryVal = raw.basic_salary !== undefined ? raw.basic_salary : raw.salary;
+    if (salaryVal !== undefined) {
+      const numSal = toNullableNum(salaryVal);
+      payload.basic_salary = numSal;
+      payload.salary = numSal;
+    }
+    if (raw.hourly_rate !== undefined) payload.hourly_rate = toNullableNum(raw.hourly_rate) || 0;
+
+    // Text details
+    if (raw.position !== undefined) payload.position = toNullableText(raw.position);
+    if (raw.department !== undefined) payload.department = toNullableText(raw.department);
+    if (raw.phone !== undefined) payload.phone = toNullableText(raw.phone);
+    if (raw.email !== undefined) payload.email = toNullableText(raw.email);
+    if (raw.notes !== undefined) payload.notes = toNullableText(raw.notes);
+    if (raw.biometric_id !== undefined) payload.biometric_id = toNullableText(raw.biometric_id);
+
+    // Dates
+    if (raw.hire_date !== undefined) payload.hire_date = toNullableDate(raw.hire_date);
+
+    // Shift (UUID only, empty string -> null)
+    if (raw.shift_id !== undefined) payload.shift_id = toNullableUUID(raw.shift_id);
+
+    // Organization
+    if (raw.organization_id !== undefined) {
+      payload.organization_id = toNullableUUID(raw.organization_id) || raw.organization_id;
+    }
+
+    // Status & deleted_at handling
+    if (raw.status !== undefined) {
+      payload.status = raw.status || 'active';
+      if (raw.status === 'active' || raw.status === 'inactive') {
+        payload.deleted_at = null;
+      } else if (raw.status === 'terminated') {
+        payload.deleted_at = raw.deleted_at || new Date().toISOString();
+      }
     } else if (raw.deleted_at !== undefined) {
       payload.deleted_at = raw.deleted_at;
     }
