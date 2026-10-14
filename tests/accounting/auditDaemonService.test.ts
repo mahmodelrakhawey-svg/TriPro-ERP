@@ -102,7 +102,7 @@ describe('🛡️ Midnight Financial Integrity & Audit Daemon Service', () => {
 
     expect(report).toBeDefined();
     expect(report.organizationId).toBe(testOrgId);
-    expect(report.checks).toHaveLength(4);
+    expect(report.checks).toHaveLength(5);
 
     // 1. توازن الأستاذ العام
     const glCheck = report.checks.find((c) => c.pillar === 'gl_balance');
@@ -125,8 +125,13 @@ describe('🛡️ Midnight Financial Integrity & Audit Daemon Service', () => {
     expect(invCheck).toBeDefined();
     expect(invCheck?.status).toBe('passed');
 
-    expect(report.summary.totalChecks).toBe(4);
-    expect(report.summary.passedCount).toBe(4);
+    // 5. مطابقة الخزائن والسندات
+    const treasuryCheck = report.checks.find((c) => c.pillar === 'treasury_subledger');
+    expect(treasuryCheck).toBeDefined();
+    expect(treasuryCheck?.status).toBe('passed');
+
+    expect(report.summary.totalChecks).toBe(5);
+    expect(report.summary.passedCount).toBe(5);
     expect(report.overallStatus).toBe('passed');
   });
 

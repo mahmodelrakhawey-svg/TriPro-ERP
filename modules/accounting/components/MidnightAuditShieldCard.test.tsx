@@ -108,4 +108,34 @@ describe('🛡️ MidnightAuditShieldCard Component Tests', () => {
       expect(screen.getAllByText(/0.00/i).length).toBeGreaterThan(0);
     });
   });
+
+  it('يعرض الركن الخامس لمطابقة الخزائن وسندات الصرف والقبض بدقة', async () => {
+    const { auditDaemonService } = await import('../../../services/auditDaemonService');
+    (auditDaemonService.runSystemAudit as any).mockResolvedValueOnce({
+      organizationId: 'test-org-123',
+      timestamp: '2026-10-14T19:00:00Z',
+      overallStatus: 'passed',
+      checks: [
+        {
+          id: 'pillar-treasury',
+          pillar: 'treasury_subledger',
+          title: 'مطابقة حركة وسندات الخزائن والبنوك مع الأستاذ العام',
+          expected: 439,
+          actual: 439,
+          variance: 0,
+          status: 'passed',
+          notes: 'كافة سندات الصرف والقبض مطابقة لحسابات الخزائن والبنوك بنسبة 100%'
+        }
+      ],
+      summary: { totalChecks: 1, passedCount: 1, failedCount: 0 }
+    });
+
+    render(<MidnightAuditShieldCard organizationId="test-org-123" />);
+
+    await waitFor(() => {
+      expect(screen.getByText(/مطابقة حركة وسندات الخزائن والبنوك مع الأستاذ العام/i)).toBeDefined();
+      expect(screen.getAllByText(/439 سند/i).length).toBe(2);
+    });
+  });
 });
+

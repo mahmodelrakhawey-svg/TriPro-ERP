@@ -111,12 +111,16 @@ export const MidnightAuditShieldCard: React.FC<MidnightAuditShieldCardProps> = (
                     ? 'bg-amber-100 text-amber-800' 
                     : 'bg-rose-100 text-rose-800'
               }`}>
-                {isHealthy ? '4/4 أركان متطابقة تماماً' : hasWarning ? 'تنبيه: يوجد فروقات طفيفة' : 'تحذير: عدم توازن في الأستاذ'}
+                {isHealthy 
+                  ? `${report?.checks?.length || 5}/${report?.checks?.length || 5} أركان متطابقة تماماً` 
+                  : hasWarning 
+                    ? 'تنبيه: يوجد ملاحظات رقابية' 
+                    : 'تحذير: عدم توازن في الأستاذ'}
               </span>
             </div>
             <p className="text-xs text-slate-500 flex items-center gap-1.5 mt-0.5">
               <Clock size={13} className="text-slate-400" />
-              <span>فحص آلي منتظم لمطابقة الأستاذ العام مع سجلات العملاء والموردين والمخزون</span>
+              <span>فحص آلي منتظم لمطابقة الأستاذ العام مع سجلات العملاء والموردين والمخزون والخزائن</span>
               {report?.timestamp && (
                 <span className="font-mono text-slate-400">
                   • آخر فحص: {new Date(report.timestamp).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
@@ -150,10 +154,11 @@ export const MidnightAuditShieldCard: React.FC<MidnightAuditShieldCardProps> = (
         </div>
       </div>
 
-      {/* 4 Pillars Grid */}
-      <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 5 Pillars Grid */}
+      <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
         {(report?.checks || []).map((check) => {
           const isPassed = check.status === 'passed';
+          const isTreasury = check.pillar === 'treasury_subledger';
           return (
             <div 
               key={check.id}
@@ -173,22 +178,41 @@ export const MidnightAuditShieldCard: React.FC<MidnightAuditShieldCardProps> = (
               </div>
 
               <div className="space-y-1 text-xs">
-                <div className="flex justify-between text-slate-500">
-                  <span>القيمة الدفترية:</span>
-                  <span className="font-mono font-semibold text-slate-700">
-                    {(Number(check.expected) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.م
-                  </span>
-                </div>
-                <div className="flex justify-between text-slate-500">
-                  <span>قيمة السجل/الأستاذ:</span>
-                  <span className="font-mono font-semibold text-slate-700">
-                    {(Number(check.actual) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.م
-                  </span>
-                </div>
+                {isTreasury ? (
+                  <>
+                    <div className="flex justify-between text-slate-500">
+                      <span>إجمالي السندات:</span>
+                      <span className="font-mono font-semibold text-slate-700">
+                        {check.expected} سند
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-slate-500">
+                      <span>السندات المتطابقة:</span>
+                      <span className="font-mono font-semibold text-slate-700">
+                        {check.actual} سند
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="flex justify-between text-slate-500">
+                      <span>القيمة الدفترية:</span>
+                      <span className="font-mono font-semibold text-slate-700">
+                        {(Number(check.expected) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.م
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-slate-500">
+                      <span>قيمة السجل/الأستاذ:</span>
+                      <span className="font-mono font-semibold text-slate-700">
+                        {(Number(check.actual) || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} ج.م
+                      </span>
+                    </div>
+                  </>
+                )}
                 <div className="flex justify-between pt-1 border-t border-slate-200/60 font-bold">
                   <span className="text-slate-600">الفارق:</span>
                   <span className={`font-mono ${isPassed ? 'text-emerald-600' : 'text-amber-600'}`}>
-                    {(Number(check.variance) || 0) === 0 ? '0.00 ج.م (مطابق تماماً)' : `${(Number(check.variance) || 0).toFixed(2)} ج.م`}
+                    {(Number(check.variance) || 0) === 0 ? '0 (مطابق تماماً)' : isTreasury ? `${check.variance} سند بحاجة لمزامنة` : `${(Number(check.variance) || 0).toFixed(2)} ج.م`}
                   </span>
                 </div>
               </div>
