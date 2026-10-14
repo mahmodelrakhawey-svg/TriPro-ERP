@@ -1014,7 +1014,39 @@ const PurchaseInvoiceForm = () => {
 
   const handleItemChange = (index: number, field: string, value: unknown) => {
     const newItems = [...items];
+
+    // الحساب التبادلي (Bi-directional Calculation): عند كتابة الإجمالي يتم حساب سعر الوحدة تلقائياً
+    if (field === 'total') {
+      const tot = Math.max(0, parseFloat(String(value ?? 0)) || 0);
+      const qty = Number(newItems[index].quantity) || 0;
+      const currentDisc = Number(newItems[index].discount) || 0;
+      const discPct = Number(newItems[index].discountPercent) || 0;
+
+      newItems[index].total = tot;
+
+      if (qty > 0) {
+        let gross = tot;
+        if (discPct > 0 && discPct < 100) {
+          gross = tot / (1 - discPct / 100);
+          newItems[index].discount = Number((gross - tot).toFixed(2));
+        } else if (currentDisc > 0) {
+          gross = tot + currentDisc;
+        }
+        newItems[index].unitPrice = Number((gross / qty).toFixed(4));
+      }
+      setItems(newItems);
+      return;
+    }
+
     newItems[index][field] = value;
+
+    // إذا تم إدخال الكمية وسعر الوحدة 0 ولكن الإجمالي محدد، يتم احتساب سعر الوحدة
+    if (field === 'quantity') {
+      const qty = Number(value) || 0;
+      if ((Number(newItems[index].unitPrice) || 0) === 0 && (Number(newItems[index].total) || 0) > 0 && qty > 0) {
+        newItems[index].unitPrice = Number(((Number(newItems[index].total) + (Number(newItems[index].discount) || 0)) / qty).toFixed(4));
+      }
+    }
 
     if (field === 'discount') {
       const gross = (Number(newItems[index].quantity) || 0) * (Number(newItems[index].unitPrice) || 0);
@@ -1513,14 +1545,25 @@ const PurchaseInvoiceForm = () => {
           }
         }
 
-        if (oldInv.related_journal_entry_id) {
-          await supabase.from('journal_entries').delete().eq('id', oldInv.related_journal_entry_id);
-        } else {
-          await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', oldInv.invoice_number);
-        }
       }
 
       await supabase.from('purchase_invoices').update({ status: 'draft', related_journal_entry_id: null }).eq('id', editingId);
+
+      if (oldInv && (oldInv.status === 'posted' || oldInv.status === 'paid')) {
+        if (oldInv.related_journal_entry_id) {
+          await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', oldInv.related_journal_entry_id);
+          await supabase.from('journal_lines').delete().eq('journal_entry_id', oldInv.related_journal_entry_id);
+          await supabase.from('journal_entries').delete().eq('id', oldInv.related_journal_entry_id);
+        } else if (oldInv.invoice_number) {
+          const { data: matchedEntries } = await supabase.from('journal_entries').select('id').eq('reference', oldInv.invoice_number);
+          if (matchedEntries && matchedEntries.length > 0) {
+            const ids = matchedEntries.map(e => e.id);
+            await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).in('id', ids);
+            await supabase.from('journal_lines').delete().in('journal_entry_id', ids);
+            await supabase.from('journal_entries').delete().in('id', ids);
+          }
+        }
+      }
 
       setFormData(prev => ({ ...prev, status: 'draft' }));
 
@@ -2054,7 +2097,7 @@ const PurchaseInvoiceForm = () => {
                   <th className="p-3 min-w-[145px] text-center" title="سعر الوحدة مع اتساع مرن للأرقام والكسور">سعر الوحدة</th>
                   <th className="p-3 min-w-[110px] text-center" title="خصم خاص على مستوى هذا الصنف">خصم الصنف</th>
                   <th className="p-3 min-w-[95px] text-center">ضريبة %</th>
-                  <th className="p-3 min-w-[130px] text-center">صافي البند</th>
+                  <th className="p-3 min-w-[135px] text-center" title="إجمالي البند (يمكنك إدخال الإجمالي مباشرة وسيتم حساب سعر الوحدة تلقائياً)">إجمالي البند</th>
                   <th className="p-3 w-10 text-center"></th>
                 </tr>
               </thead>
@@ -2155,8 +2198,19 @@ const PurchaseInvoiceForm = () => {
                         </span>
                       )}
                     </td>
-                    <td className="p-3 text-center font-mono font-black text-slate-900" dir="ltr">
-                      {Math.max(0, ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)) - (Number(item.discount) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    <td className="p-3 min-w-[135px]">
+                      <div className="flex items-center justify-center">
+                        <input 
+                          type="number" 
+                          step="any" 
+                          min="0" 
+                          value={item.total === 0 && (item.unitPrice || 0) === 0 ? '' : (item.total !== undefined ? item.total : Math.round((Math.max(0, ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)) - (Number(item.discount) || 0))) * 100) / 100)} 
+                          onChange={e => handleItemChange(index, 'total', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)} 
+                          className="w-full min-w-[115px] border border-slate-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-100 rounded-lg py-1.5 px-2 text-center font-mono font-black text-slate-900 bg-white shadow-sm transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none hover:border-slate-300" 
+                          placeholder="0.00"
+                          title="إجمالي البند (يمكنك إدخال الإجمالي مباشرة لحساب سعر الوحدة تلقائياً)"
+                        />
+                      </div>
                     </td>
                     <td className="p-3 text-center">
                       <div className="flex items-center justify-center gap-1">

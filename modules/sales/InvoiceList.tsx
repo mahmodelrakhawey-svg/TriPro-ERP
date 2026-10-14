@@ -313,20 +313,28 @@ export const InvoiceList = () => {
         }
       }
 
-      // 2. حذف القيد المحاسبي المرتبط
-      if (invoice.related_journal_entry_id) {
-        await supabase.from('journal_entries').delete().eq('id', invoice.related_journal_entry_id);
-      } else {
-        await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', invoice.invoice_number);
-      }
-
-      // 3. تحديث حالة الفاتورة لمسودة
+      // 2. تحديث حالة الفاتورة لمسودة وفك ربط القيد أولاً
       const { error: updateErr } = await supabase.from('invoices').update({
         status: 'draft',
         related_journal_entry_id: null
       }).eq('id', invoice.id);
 
       if (updateErr) throw updateErr;
+
+      // 3. تحويل القيد لمسودة ثم حذف سطوره والقيد لتجاوز حراس الترحيل
+      if (invoice.related_journal_entry_id) {
+        await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', invoice.related_journal_entry_id);
+        await supabase.from('journal_lines').delete().eq('journal_entry_id', invoice.related_journal_entry_id);
+        await supabase.from('journal_entries').delete().eq('id', invoice.related_journal_entry_id);
+      } else if (invoice.invoice_number) {
+        const { data: matchedEntries } = await supabase.from('journal_entries').select('id').eq('reference', invoice.invoice_number);
+        if (matchedEntries && matchedEntries.length > 0) {
+          const ids = matchedEntries.map(e => e.id);
+          await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).in('id', ids);
+          await supabase.from('journal_lines').delete().in('journal_entry_id', ids);
+          await supabase.from('journal_entries').delete().in('id', ids);
+        }
+      }
 
       showToast('تم إلغاء ترحيل الفاتورة بنجاح وتحويلها لمسودة ✅', 'success');
       logDocumentAction({

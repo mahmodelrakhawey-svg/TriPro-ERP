@@ -215,5 +215,44 @@ describe('Advanced Purchase Invoice Discounts & Tax Compliance (ETA)', () => {
     expect(result.totalAmount).toBe(1026);
     expect(result.totalDiscount).toBe(300);
   });
+
+  it('يدعم الحساب التبادلي: احتساب سعر الوحدة بدقة عند إدخال الإجمالي والكمية', async () => {
+    const { calculatePurchaseInvoiceTotals: calcTotals } = await import('../../modules/purchases/purchaseInvoiceUtils');
+
+    // السيناريو 1: إجمالي 450 والكمية 15 -> سعر الوحدة = 30
+    const total = 450;
+    const quantity = 15;
+    const computedUnitPrice = Number((total / quantity).toFixed(4));
+    expect(computedUnitPrice).toBe(30);
+
+    const result = calcTotals([
+      { quantity, unitPrice: computedUnitPrice }
+    ]);
+    expect(result.grossTotal).toBe(450);
+    expect(result.totalAmount).toBe(450);
+
+    // السيناريو 2: إجمالي 100 والكمية 3 -> سعر الوحدة = 33.3333
+    const total2 = 100;
+    const quantity2 = 3;
+    const computedUnitPrice2 = Number((total2 / quantity2).toFixed(4));
+    expect(computedUnitPrice2).toBe(33.3333);
+
+    // السيناريو 3: مع وجود خصم مباشر 50 على البند، والإجمالي المطلوب 450
+    // إجمالي قبل الخصم = 450 + 50 = 500، والكمية 10 -> سعر الوحدة = 50
+    const netTotal3 = 450;
+    const discount3 = 50;
+    const gross3 = netTotal3 + discount3;
+    const quantity3 = 10;
+    const computedUnitPrice3 = Number((gross3 / quantity3).toFixed(4));
+    expect(computedUnitPrice3).toBe(50);
+
+    const result3 = calcTotals([
+      { quantity: quantity3, unitPrice: computedUnitPrice3, discount: discount3 }
+    ]);
+    expect(result3.grossTotal).toBe(500);
+    expect(result3.itemsDiscountTotal).toBe(50);
+    expect(result3.totalAmount).toBe(450);
+  });
 });
+
 

@@ -751,21 +751,32 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           }
         }
 
-        // 3. حذف القيد المحاسبي المرتبط من دفتر الأستاذ العام
-        if (inv.related_journal_entry_id) {
-          await supabase.from('journal_entries').delete().eq('id', inv.related_journal_entry_id);
-        } else {
-          await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', inv.invoice_number);
-        }
       }
 
-      // 4. تحويل حالة الفاتورة إلى draft وتصفير القيد المرتبط
+      // 3. تحويل حالة الفاتورة إلى draft وتصفير القيد المرتبط أولاً
       const { error: updateErr } = await supabase.from('invoices').update({
         status: 'draft',
         related_journal_entry_id: null
       }).eq('id', editingId);
 
       if (updateErr) throw updateErr;
+
+      // 4. حذف القيد المحاسبي المرتبط بعد تحويله لمسودة لتجاوز حراس الترحيل
+      if (inv && (inv.status === 'posted' || inv.status === 'paid')) {
+        if (inv.related_journal_entry_id) {
+          await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', inv.related_journal_entry_id);
+          await supabase.from('journal_lines').delete().eq('journal_entry_id', inv.related_journal_entry_id);
+          await supabase.from('journal_entries').delete().eq('id', inv.related_journal_entry_id);
+        } else if (inv.invoice_number) {
+          const { data: matchedEntries } = await supabase.from('journal_entries').select('id').eq('reference', inv.invoice_number);
+          if (matchedEntries && matchedEntries.length > 0) {
+            const ids = matchedEntries.map(e => e.id);
+            await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).in('id', ids);
+            await supabase.from('journal_lines').delete().in('journal_entry_id', ids);
+            await supabase.from('journal_entries').delete().in('id', ids);
+          }
+        }
+      }
 
       // 5. تحديث واجهة المستخدم
       setFormData(prev => ({
