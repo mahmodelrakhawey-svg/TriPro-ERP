@@ -292,25 +292,15 @@ const ExpenseVoucherForm = () => {
 
             if (vErr) throw vErr;
 
-            // تحديث القيد المحاسبي المرتبط لضمان التزامن بين السند والحسابات
-            if (voucherData?.related_journal_entry_id) {
-                await supabase.from('journal_entries').update({
-                    transaction_date: formData.date,
-                    description: formData.description || `صرف مصروف: ${expenseAccountName}`
-                }).eq('id', voucherData.related_journal_entry_id);
+            // تحديث القيد المحاسبي المرتبط عبر RPC المعتمد لضمان التزامن المحاسبي وحماية القيود
+            const { error: rpcErr } = await supabase.rpc('approve_payment_voucher', { 
+                p_voucher_id: currentVoucherId, 
+                p_debit_account_id: formData.expenseAccountId 
+            });
+            if (rpcErr) throw rpcErr;
 
-                // تحديث سطر المصروف (المدين)
-                await supabase.from('journal_lines').update({
-                    account_id: formData.expenseAccountId,
-                    debit: Number(formData.amount),
-                    cost_center_id: formData.costCenterId || null
-                }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('debit', 0);
-
-                // تحديث سطر الخزينة (الدائن)
-                await supabase.from('journal_lines').update({
-                    account_id: formData.treasuryAccountId,
-                    credit: Number(formData.amount)
-                }).eq('journal_entry_id', voucherData.related_journal_entry_id).gt('credit', 0);
+            if (voucherData) {
+                setExpenseVouchers(prev => prev.map(v => v.id === currentVoucherId ? voucherData : v));
             }
 
             showToast('تم تعديل سند المصروف بنجاح ✅', 'success');
