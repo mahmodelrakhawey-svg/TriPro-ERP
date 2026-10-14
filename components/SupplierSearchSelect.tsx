@@ -552,7 +552,7 @@ export const SupplierSearchSelect: React.FC<SupplierSearchSelectProps> = ({
                           }`}>
                             {Math.abs(displayedBalance).toLocaleString()} ج.م
                             <span className="mr-1 text-[10px]">
-                              {displayedBalance > 0.01 ? '(مستحق له)' : displayedBalance < -0.01 ? '(مدين / عليه)' : '(خالص)'}
+                              {displayedBalance > 0.01 ? '(مستحق له)' : displayedBalance < -0.01 ? '(مدفوع مقدم)' : '(خالص)'}
                             </span>
                           </span>
                         ) : (

@@ -179,23 +179,32 @@ const SupplierStatement = () => {
         }
 
         // 7. جلب القيود اليدوية والافتتاحية (التي تؤثر على حسابات الموردين)
-        const [manualEntriesRes, openingEntriesRes] = await Promise.all([
+        const [manualEntriesByNameRes, allSupplierLinkedEntriesRes] = await Promise.all([
+            // أ. قيود يدوية بدون معرف مستند ولكن مذكور فيها اسم المورد في البيان
             supabase.from('journal_lines')
                 .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id), accounts!inner(code)')
                 .eq('journal_entries.status', 'posted')
                 .is('journal_entries.related_document_id', null)
                 .or('code.ilike.201%,code.ilike.221%', { foreignTable: 'accounts' })
-                .ilike('journal_entries.description', `%${selectedSupplier?.name}%`),
+                .ilike('journal_entries.description', `%${selectedSupplier?.name?.trim() || ''}%`),
+            // ب. كافة قيود اليومية والتسويات والقيود الافتتاحية المربوطة مباشرة بهذا المورد
             supabase.from('journal_lines')
                 .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id, related_document_type), accounts!inner(code)')
                 .eq('journal_entries.status', 'posted')
                 .eq('journal_entries.related_document_id', selectedSupplierId)
-                .eq('journal_entries.related_document_type', 'opening_balance')
                 .or('code.ilike.201%,code.ilike.221%', { foreignTable: 'accounts' })
         ]);
 
-        const manualEntries = manualEntriesRes.data;
-        const openingEntries = openingEntriesRes.data;
+        const openingEntries: any[] = [];
+        const manualEntries: any[] = [...(manualEntriesByNameRes.data || [])];
+
+        allSupplierLinkedEntriesRes.data?.forEach((line: Record<string, any>) => {
+            if (line.journal_entries?.related_document_type === 'opening_balance') {
+                openingEntries.push(line);
+            } else {
+                manualEntries.push(line);
+            }
+        });
 
         // تجميع كل الحركات
         let allTrans: any[] = [];
