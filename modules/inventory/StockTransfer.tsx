@@ -49,6 +49,48 @@ export interface TransferItem {
 }
 
 const DRAFT_STORAGE_KEY = 'tripro_stock_transfer_draft_v2';
+const LEGACY_DRAFT_STORAGE_KEY = 'tripro_stock_transfer_draft';
+
+export interface StockTransferDraftData {
+  formData?: {
+    date?: string;
+    fromWarehouseId?: string;
+    toWarehouseId?: string;
+    notes?: string;
+  };
+  items?: TransferItem[];
+}
+
+export const getStockTransferDraft = (): StockTransferDraftData | null => {
+  try {
+    let raw = secureStorage.getItem<any>(DRAFT_STORAGE_KEY);
+    if (!raw) {
+      raw = secureStorage.getItem<any>(LEGACY_DRAFT_STORAGE_KEY);
+    }
+    if (!raw) return null;
+    while (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        break;
+      }
+    }
+    if (raw && typeof raw === 'object') {
+      return raw as StockTransferDraftData;
+    }
+    return null;
+  } catch (err) {
+    logger.warn('Failed to parse stock transfer draft', err);
+    return null;
+  }
+};
+
+export const clearStockTransferDraft = () => {
+  try {
+    secureStorage.removeItem(DRAFT_STORAGE_KEY);
+    secureStorage.removeItem(LEGACY_DRAFT_STORAGE_KEY);
+  } catch {}
+};
 
 const StockTransfer = () => {
   const location = useLocation();
@@ -58,14 +100,35 @@ const StockTransfer = () => {
   const [loading, setLoading] = useState(false);
   const [systemUoms, setSystemUoms] = useState<any[]>([]);
   
-  const [formData, setFormData] = useState({
-    date: new Date().toISOString().split('T')[0],
-    fromWarehouseId: '',
-    toWarehouseId: '',
-    notes: ''
+  // استرجاع فوري متزامن للمسودة عند أول تصيير لمنع أي وميض أو تصفير بالخطأ
+  const [formData, setFormData] = useState(() => {
+    const defaultData = {
+      date: new Date().toISOString().split('T')[0],
+      fromWarehouseId: '',
+      toWarehouseId: '',
+      notes: ''
+    };
+    if (location.state?.editTransferId) return defaultData;
+    const draft = getStockTransferDraft();
+    if (draft?.formData) {
+      return {
+        ...defaultData,
+        ...draft.formData,
+        date: draft.formData.date || defaultData.date
+      };
+    }
+    return defaultData;
   });
 
-  const [items, setItems] = useState<TransferItem[]>([]);
+  const [items, setItems] = useState<TransferItem[]>(() => {
+    if (location.state?.editTransferId) return [];
+    const draft = getStockTransferDraft();
+    if (draft?.items && Array.isArray(draft.items) && draft.items.length > 0) {
+      return draft.items;
+    }
+    return [];
+  });
+
   const [selectedProductId, setSelectedProductId] = useState('');
   const [enteredQty, setEnteredQty] = useState<number>(1);
   const [selectedUnitName, setSelectedUnitName] = useState<string>('');
@@ -73,7 +136,14 @@ const StockTransfer = () => {
   const [packagingNote, setPackagingNote] = useState<string>('');
   const [filterAvailableOnly, setFilterAvailableOnly] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
-  const [hasDraftRestored, setHasDraftRestored] = useState(false);
+  
+  const [hasDraftRestored, setHasDraftRestored] = useState<boolean>(() => {
+    if (location.state?.editTransferId) return false;
+    const draft = getStockTransferDraft();
+    return !!(draft && ((draft.items && draft.items.length > 0) || draft.formData?.fromWarehouseId || draft.formData?.toWarehouseId || draft.formData?.notes));
+  });
+
+  const isMountedRef = useRef(false);
   const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
   const [editingTransferNumber, setEditingTransferNumber] = useState<string | null>(null);
   const [isLoadingTransfer, setIsLoadingTransfer] = useState(false);
@@ -121,46 +191,57 @@ const StockTransfer = () => {
     fetchUoms();
   }, [currentUser]);
 
-  // استعادة مسودة التحويل السابقة تلقائياً لحماية الموظف من فقدان البيانات (فقط عند عدم فتح تحويل للتعديل)
+  // إشعار المستخدم باستعادة المسودة تلقائياً عند فتح الشاشة
   useEffect(() => {
-    if (location.state?.editTransferId) return;
-    try {
-      const parsed = secureStorage.getItem<{ formData: any; items: TransferItem[] }>(DRAFT_STORAGE_KEY);
-      if (parsed && parsed.items && Array.isArray(parsed.items) && parsed.items.length > 0) {
-        setItems(parsed.items);
-        if (parsed.formData) {
-          setFormData(prev => ({
-            ...prev,
-            fromWarehouseId: parsed.formData.fromWarehouseId || prev.fromWarehouseId,
-            toWarehouseId: parsed.formData.toWarehouseId || prev.toWarehouseId,
-            notes: parsed.formData.notes || prev.notes,
-            date: parsed.formData.date || prev.date
-          }));
-        }
-        setHasDraftRestored(true);
-      }
-    } catch (e) {
-      logger.error('Failed to restore draft', e);
+    if (!location.state?.editTransferId && hasDraftRestored) {
+      showToast('تمت استعادة مسودة التحويل المخزني غير المكتملة تلقائياً ✅', 'info');
     }
-  }, [location.state?.editTransferId]);
+  }, []);
 
   // حفظ مسودة التحويل تلقائياً عند أي تغيير (فقط عند عدم العمل في وضع التعديل)
   useEffect(() => {
-    if (!editingTransferId && (items.length > 0 || formData.fromWarehouseId || formData.toWarehouseId)) {
+    if (!isMountedRef.current) {
+      isMountedRef.current = true;
+      return;
+    }
+    if (editingTransferId || location.state?.editTransferId) return;
+
+    const hasData = items.length > 0 || formData.fromWarehouseId || formData.toWarehouseId || (formData.notes && formData.notes.trim());
+    if (hasData) {
       try {
         secureStorage.setItem(DRAFT_STORAGE_KEY, { formData, items });
       } catch (e) {
         logger.error('Failed to save draft', e);
       }
+    } else {
+      clearStockTransferDraft();
     }
-  }, [formData, items, editingTransferId]);
+  }, [formData, items, editingTransferId, location.state?.editTransferId]);
+
+  // 🛡️ حماية ضد التحديث أو المغادرة غير المقصودة للصفحة أثناء وجود أصناف مدخلة
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if ((items.length > 0 || formData.fromWarehouseId) && !editingTransferId) {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [items.length, formData.fromWarehouseId, editingTransferId]);
 
   // مسح المسودة والبدء من جديد
   const handleClearDraft = () => {
     if (!window.confirm('هل أنت متأكد من مسح بيانات المسودة الحالية والبدء من جديد؟')) return;
-    secureStorage.removeItem(DRAFT_STORAGE_KEY);
+    clearStockTransferDraft();
     setItems([]);
-    setFormData(prev => ({ ...prev, notes: '' }));
+    setFormData({
+      date: new Date().toISOString().split('T')[0],
+      fromWarehouseId: '',
+      toWarehouseId: '',
+      notes: ''
+    });
     setHasDraftRestored(false);
     showToast('تم مسح المسودة والبدء من جديد', 'info');
   };
@@ -931,8 +1012,7 @@ const StockTransfer = () => {
         if (itemsInsertError) throw itemsInsertError;
 
         // 3. مسح المسودة وإعادة احتساب الأرصدة
-        secureStorage.removeItem(DRAFT_STORAGE_KEY);
-        setHasDraftRestored(false);
+        clearStockTransferDraft();
         await recalculateStock();
 
         setFormData(prev => ({ ...prev, notes: '' }));
@@ -972,8 +1052,7 @@ const StockTransfer = () => {
       if (itemsError) throw itemsError;
 
       // 3. مسح المسودة المحلية بعد نجاح الحفظ
-      secureStorage.removeItem(DRAFT_STORAGE_KEY);
-      setHasDraftRestored(false);
+      clearStockTransferDraft();
 
       // 4. إعادة احتساب الأرصدة وتحديث كروت الصنف
       await recalculateStock();
@@ -1024,16 +1103,18 @@ const StockTransfer = () => {
       )}
 
       {/* شريط تنبيه استعادة المسودة */}
-      {!editingTransferId && hasDraftRestored && items.length > 0 && (
+      {!editingTransferId && hasDraftRestored && (items.length > 0 || formData.fromWarehouseId || formData.toWarehouseId || (formData.notes && formData.notes.trim())) && (
         <div className="p-3 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between text-xs text-amber-800 animate-in fade-in">
           <div className="flex items-center gap-2">
             <Sparkles size={16} className="text-amber-600 shrink-0" />
-            <span className="font-bold">تمت استعادة مسودة تحويل سابقة غير مكتملة تلقائياً ({items.length} صنف) لحماية عملك من الضياع.</span>
+            <span className="font-bold">
+              تمت استعادة مسودة تحويل سابقة غير مرحلة تلقائياً ({items.length > 0 ? `${items.length} صنف` : 'بيانات المستودعات والملاحظات'}) لحماية عملك من الضياع عند إعادة تحميل الصفحة.
+            </span>
           </div>
           <button
             type="button"
             onClick={handleClearDraft}
-            className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg font-bold transition-colors"
+            className="px-2.5 py-1 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-lg font-bold transition-colors shadow-xs"
           >
             مسح والبدء من جديد
           </button>

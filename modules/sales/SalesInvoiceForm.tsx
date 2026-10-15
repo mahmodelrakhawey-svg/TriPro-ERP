@@ -34,6 +34,62 @@ import { InvoiceItemsTable } from './components/InvoiceItemsTable';
 import { InvoiceSummary } from './components/InvoiceSummary';
 import { SalesInvoiceExcelImporter } from './components/SalesInvoiceExcelImporter';
 
+const SALES_DRAFT_KEY = 'tripro_sales_invoice_draft_v2';
+const LEGACY_SALES_DRAFT_KEY = 'tripro_sales_invoice_draft';
+
+export interface SalesInvoiceDraftData {
+  formData?: {
+    customerId?: string;
+    invoiceNumber?: string;
+    warehouseId?: string;
+    salespersonId?: string;
+    costCenterId?: string;
+    date?: string;
+    dueDate?: string;
+    notes?: string;
+    status?: 'draft' | 'posted' | 'paid' | 'partial';
+    paidAmount?: number;
+    treasuryId?: string;
+    discountType?: 'percentage' | 'fixed';
+    discountValue?: number;
+    currency?: string;
+    exchangeRate?: number;
+  };
+  items?: any[];
+  pricingTier?: 'retail' | 'wholesale' | 'half';
+  customerSearchTerm?: string;
+}
+
+export const getSalesInvoiceDraft = (): SalesInvoiceDraftData | null => {
+  try {
+    let raw = secureStorage.getItem<any>(SALES_DRAFT_KEY);
+    if (!raw) {
+      raw = secureStorage.getItem<any>(LEGACY_SALES_DRAFT_KEY);
+    }
+    if (!raw) return null;
+    while (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        break;
+      }
+    }
+    if (raw && typeof raw === 'object') {
+      return raw as SalesInvoiceDraftData;
+    }
+    return null;
+  } catch (err) {
+    logger.warn('Failed to parse sales draft', err);
+    return null;
+  }
+};
+
+export const clearSalesInvoiceDraft = () => {
+  try {
+    secureStorage.removeItem(SALES_DRAFT_KEY);
+    secureStorage.removeItem(LEGACY_SALES_DRAFT_KEY);
+  } catch {}
+};
 
 const SalesInvoiceForm = () => { // Removed unused useParams import
   const { products, warehouses, salespeople, accounts, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice, currentSelectedOrgId, organization, organizations } = useAccounting();
@@ -42,31 +98,59 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const location = useLocation();
   const { showToast } = useToast();
 
-  const [formData, setFormData] = useState({
-    customerId: '',
-    invoiceNumber: '',
-    warehouseId: '',
-    salespersonId: '',
-    costCenterId: '',
-    date: new Date().toISOString().split('T')[0],
-    dueDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    notes: '',
-    status: 'draft' as 'draft' | 'posted' | 'paid' | 'partial',
-    paidAmount: 0,
-    treasuryId: '',
-    discountType: 'fixed' as 'percentage' | 'fixed',
-    discountValue: 0,
-    currency: 'EGP',
-    exchangeRate: 1
+  // استرجاع فوري متزامن للمسودة عند أول تصيير لمنع أي وميض أو تصفير بالخطأ
+  const [formData, setFormData] = useState(() => {
+    const defaultData = {
+      customerId: '',
+      invoiceNumber: '',
+      warehouseId: '',
+      salespersonId: '',
+      costCenterId: '',
+      date: new Date().toISOString().split('T')[0],
+      dueDate: new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+      notes: '',
+      status: 'draft' as 'draft' | 'posted' | 'paid' | 'partial',
+      paidAmount: 0,
+      treasuryId: '',
+      discountType: 'fixed' as 'percentage' | 'fixed',
+      discountValue: 0,
+      currency: 'EGP',
+      exchangeRate: 1
+    };
+    if (location.state?.invoiceToEdit || location.state?.quotationToConvert) return defaultData;
+    const draft = getSalesInvoiceDraft();
+    if (draft?.formData) {
+      return {
+        ...defaultData,
+        ...draft.formData,
+        status: 'draft' as const,
+        date: draft.formData.date || defaultData.date
+      };
+    }
+    return defaultData;
   });
 
-  const [pricingTier, setPricingTier] = useState<'retail' | 'wholesale' | 'half'>('retail');
+  const [pricingTier, setPricingTier] = useState<'retail' | 'wholesale' | 'half'>(() => {
+    if (location.state?.invoiceToEdit || location.state?.quotationToConvert) return 'retail';
+    const draft = getSalesInvoiceDraft();
+    return draft?.pricingTier || 'retail';
+  });
+
   const [isQuickMode, setIsQuickMode] = useState<boolean>(() => {
     return secureStorage.getItem<boolean>('tripro_sales_quick_mode', false) ?? false;
   });
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [showProductResults, setShowProductResults] = useState(false);
-  const [items, setItems] = useState<any[]>([]);
+
+  const [items, setItems] = useState<any[]>(() => {
+    if (location.state?.invoiceToEdit || location.state?.quotationToConvert) return [];
+    const draft = getSalesInvoiceDraft();
+    if (draft?.items && Array.isArray(draft.items) && draft.items.length > 0) {
+      return draft.items;
+    }
+    return [];
+  });
+
   const [uoms, setUoms] = useState<any[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -78,9 +162,22 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const [editCustomerData, setEditCustomerData] = useState({ name: '', phone: '' });
   const [saving, setSaving] = useState(false);
   const [customerBalance, setCustomerBalance] = useState(0);
+
+  const [customerSearchTerm, setCustomerSearchTerm] = useState(() => {
+    if (location.state?.invoiceToEdit || location.state?.quotationToConvert) return '';
+    const draft = getSalesInvoiceDraft();
+    return draft?.customerSearchTerm || '';
+  });
+
+  const [hasDraftRestored, setHasDraftRestored] = useState<boolean>(() => {
+    if (location.state?.invoiceToEdit || location.state?.quotationToConvert) return false;
+    const draft = getSalesInvoiceDraft();
+    return !!(draft && ((draft.items && draft.items.length > 0) || (draft.formData?.customerId && draft.formData.customerId.trim()) || (draft.formData?.notes && draft.formData.notes.trim())));
+  });
+
+  const isSalesMountedRef = useRef(false);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const [activeStockViewer, setActiveStockViewer] = useState<string | null>(null);
-  const [customerSearchTerm, setCustomerSearchTerm] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
   const [isRefreshingBalance, setIsRefreshingBalance] = useState(false);
   const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
@@ -618,40 +715,51 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     }
   };
 
-  // 🛡️ استعادة المسودة التلقائية من secureStorage عند فتح نموذج جديد
+  // 🛡️ إشعار استعادة المسودة التلقائية عند فتح الشاشة
   useEffect(() => {
     if (!editingId && (!location.state || (!(location.state as any).invoiceToEdit && !(location.state as any).quotationToConvert))) {
-      try {
-        const savedDraft = secureStorage.getItem('tripro_sales_invoice_draft');
-        if (savedDraft) {
-          const parsed = typeof savedDraft === 'string' ? JSON.parse(savedDraft) : savedDraft;
-          if (parsed.items && parsed.items.length > 0) {
-            setItems(parsed.items);
-            if (parsed.formData) {
-              setFormData(prev => ({ ...prev, ...parsed.formData }));
-            }
-            showToast('تمت استعادة مسودة الفاتورة غير المحفوظة تلقائياً ✅', 'info');
-          }
-        }
-      } catch (e) {
-        logger.warn('Failed to parse sales draft from secureStorage', e);
+      if (hasDraftRestored) {
+        showToast('تمت استعادة مسودة فاتورة البيع غير المحفوظة تلقائياً ✅', 'info');
       }
     }
   }, []);
 
   // 🛡️ حفظ المسودة التلقائي في secureStorage عند تعديل الأصناف أو البيانات
   useEffect(() => {
-    if (!editingId) {
-      if (items.length > 0 || formData.customerId || formData.notes) {
-        secureStorage.setItem('tripro_sales_invoice_draft', JSON.stringify({ formData, items }));
-      }
+    if (!isSalesMountedRef.current) {
+      isSalesMountedRef.current = true;
+      return;
     }
-  }, [formData, items, editingId]);
+    if (editingId || location.state?.invoiceToEdit || location.state?.quotationToConvert) return;
+
+    const hasItems = items.length > 0;
+    const hasNotes = !!(formData.notes && formData.notes.trim());
+    const hasDiscount = Number(formData.discountValue) > 0;
+    const hasPaid = Number(formData.paidAmount) > 0;
+    const cashCustomer = customers.find(c => c.name === 'عميل نقدي');
+    const hasCustomCustomer = formData.customerId && (!cashCustomer || formData.customerId !== cashCustomer.id);
+
+    if (hasItems || hasNotes || hasDiscount || hasPaid || hasCustomCustomer) {
+      try {
+        const draftPayload: SalesInvoiceDraftData = {
+          formData,
+          items,
+          pricingTier,
+          customerSearchTerm
+        };
+        secureStorage.setItem(SALES_DRAFT_KEY, draftPayload);
+      } catch (e) {
+        logger.error('Failed to save sales invoice draft', e);
+      }
+    } else {
+      clearSalesInvoiceDraft();
+    }
+  }, [formData, items, pricingTier, customerSearchTerm, editingId, customers, location.state]);
 
   // 🛡️ حماية ضد التحديث أو المغادرة غير المقصودة للصفحة
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (items.length > 0 && !editingId) {
+      if ((items.length > 0 || (formData.notes && formData.notes.trim())) && !editingId) {
         e.preventDefault();
         e.returnValue = '';
         return '';
@@ -659,12 +767,10 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [items.length, editingId]);
+  }, [items.length, formData.notes, editingId]);
 
   const handleNewInvoice = () => {
-    try {
-      secureStorage.removeItem('tripro_sales_invoice_draft');
-    } catch (e) {}
+    clearSalesInvoiceDraft();
     setEditingId(null);
     setCurrentIndex(-1);
     setItems([]);
@@ -685,7 +791,9 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       currency: settings.currency || 'EGP',
       exchangeRate: 1
     });
-    showToast('تم فتح نموذج فاتورة مبيعات جديدة ➕', 'info');
+    setCustomerSearchTerm('');
+    setHasDraftRestored(false);
+    showToast('تم فتح نموذج فاتورة مبيعات جديدة ومسح المسودة ➕', 'info');
   };
 
   const canUnpost = can?.('accounting', 'unpost') || can?.('sales', 'unpost') || can?.('sales', 'delete') || ['admin', 'super_admin', 'owner', 'manager'].includes(currentUserRole);
@@ -1432,6 +1540,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         // Use handleError for consistency
         addDemoInvoice(demoInvoice);
         setSuccessMessage('تم حفظ الفاتورة كمسودة بنجاح! (محاكاة)');
+        clearSalesInvoiceDraft();
         setItems([]);
         setFormData(prev => ({ ...prev, notes: '', paidAmount: 0, discountValue: 0, invoiceNumber: '' }));
         setTimeout(() => setSuccessMessage(null), 4000);
@@ -1623,9 +1732,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         }
 
         // تفريغ النموذج
-        try {
-            secureStorage.removeItem('tripro_sales_invoice_draft');
-        } catch (e) {}
+        clearSalesInvoiceDraft();
         setItems([]);
         setFormData(prev => ({
             ...prev,
@@ -1754,6 +1861,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         // Use handleError for consistency
         postDemoSalesInvoice(demoInvoice);
         setSuccessMessage('تم حفظ الفاتورة وترحيلها بنجاح!');
+        clearSalesInvoiceDraft();
         setItems([]);
         setFormData(prev => ({ ...prev, notes: '', paidAmount: 0, discountValue: 0, invoiceNumber: '' }));
         setTimeout(() => setSuccessMessage(null), 4000);
@@ -1827,9 +1935,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
         // --- 3. Handle UI feedback and form reset ---
         setSuccessMessage('تم حفظ الفاتورة وترحيلها بنجاح!');
-        try {
-            secureStorage.removeItem('tripro_sales_invoice_draft');
-        } catch (e) {}
+        clearSalesInvoiceDraft();
         setItems([]);
         setFormData(prev => ({ ...prev, notes: '', paidAmount: 0, discountValue: 0, invoiceNumber: '' }));
         setEditingId(null);
@@ -2175,6 +2281,32 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               إشعار دائن / مرتجع
             </button>
           </div>
+        </div>
+      )}
+
+      {/* 🛡️ شريط تنبيه استعادة مسودة فاتورة البيع */}
+      {!editingId && hasDraftRestored && (items.length > 0 || (formData.notes && formData.notes.trim()) || (formData.customerId && (!customers.find(c => c.name === 'عميل نقدي') || formData.customerId !== customers.find(c => c.name === 'عميل نقدي')?.id))) && (
+        <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-900 shadow-xs animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-amber-500 text-white rounded-xl shadow-xs shrink-0">
+              <Sparkles size={18} />
+            </div>
+            <div>
+              <div className="font-black text-sm text-amber-950 flex items-center gap-2">
+                تمت استعادة مسودة فاتورة بيع سابقة تلقائياً ({items.length > 0 ? `${items.length} صنف` : 'بيانات العميل والملاحظات'})
+              </div>
+              <p className="text-amber-700 mt-0.5">
+                تم الاحتفاظ بكافة بنود الفاتورة والعميل والخصومات والملاحظات لحماية عملك من الضياع عند إعادة تحميل الصفحة.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleNewInvoice}
+            className="px-3 py-1.5 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl font-bold transition-colors flex items-center gap-1.5 shrink-0 shadow-2xs"
+          >
+            <RefreshCw size={13} /> مسح المسودة والبدء من جديد
+          </button>
         </div>
       )}
 
