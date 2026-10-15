@@ -135,7 +135,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95">
         <div className="bg-slate-50 px-6 py-4 border-b flex justify-between items-center">
           <h3 className="font-bold text-lg text-slate-800">{editingId ? 'تعديل صنف' : 'إضافة صنف جديد'}</h3>
-          <button onClick={onClose}><X className="text-slate-400 hover:text-red-500" /></button>
+          <button type="button" onClick={onClose}><X className="text-slate-400 hover:text-red-500" /></button>
         </div>
         
         <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">

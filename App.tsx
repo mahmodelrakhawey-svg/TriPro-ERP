@@ -949,8 +949,8 @@ const AppContent = () => {
     return <Maintenance />;
   }
 
-  // Show loading screen until authentication is initialized or data is loading for a logged-in user
-  if (!authInitialized || authLoading) {
+  // Show loading screen only during initial boot until authentication is initialized
+  if (!authInitialized) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50" dir="rtl">
         <div className="text-center space-y-4">

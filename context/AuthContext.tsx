@@ -181,8 +181,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  const handleAuthChange = useCallback(async (user: SupabaseUser | null) => {
-    setIsLoading(true);
+  const handleAuthChange = useCallback(async (user: SupabaseUser | null, isSilent = false) => {
+    if (!isSilent) {
+      setIsLoading(true);
+    }
     if (user) {
       try {
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle() as { data: Profile | null };
@@ -364,8 +366,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   // جلب المستخدمين عند بدء التشغيل
   useEffect(() => {
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      handleAuthChange(session?.user || null);
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      const isSilent = event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED';
+      handleAuthChange(session?.user || null, isSilent);
     });
 
     // Initial check
@@ -381,23 +384,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     });
 
-    // 🔄 مزامنة تلقائية فورية لتحديث الصلاحيات عند عودة التركيز للنافذة أو التبويب
+    // 🔄 مزامنة صامتة لتحديث الصلاحيات في الخلفية عند عودة التبويب للظهور (بدون تفريغ الواجهة)
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         supabase.auth.getSession().then(({ data: { session } }) => {
           if (session?.user) {
-            handleAuthChange(session.user);
+            handleAuthChange(session.user, true);
           }
         });
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
-    window.addEventListener('focus', handleVisibility);
 
     return () => {
       authListener.subscription.unsubscribe();
       document.removeEventListener('visibilitychange', handleVisibility);
-      window.removeEventListener('focus', handleVisibility);
     };
   }, [handleAuthChange, fetchUsers, handleAuthError]);
 
@@ -633,8 +634,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const refreshPermissions = async () => {
     if (currentUser) {
-        // إعادة تحميل صلاحيات المستخدم الحالي
-        await handleAuthChange({ id: currentUser.id, email: currentUser.username } as unknown as SupabaseUser);
+        // إعادة تحميل صلاحيات المستخدم الحالي في الخلفية دون إعادة تعيين الشاشة
+        await handleAuthChange({ id: currentUser.id, email: currentUser.username } as unknown as SupabaseUser, true);
         // إعادة تحميل قائمة المستخدمين
         await fetchUsers();
     }
