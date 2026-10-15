@@ -200,8 +200,10 @@ export const secureStorage = {
   setItem(key: string, value: unknown): void {
     try {
       // Don't store sensitive system passwords or API keys in localStorage
+      // Allow user-explicit AI key storage ('user_gemini_api_key') while blocking system credentials
       const sensitiveKeys = ['password', 'secret', 'credential', 'api_key', 'private_key'];
-      if (sensitiveKeys.some(s => key.toLowerCase().includes(s))) {
+      const allowedExplicitKeys = ['user_gemini_api_key'];
+      if (!allowedExplicitKeys.includes(key) && sensitiveKeys.some(s => key.toLowerCase().includes(s))) {
         if (process.env.NODE_ENV === 'development') {
           logger.warn(`⚠️ Attempting to store sensitive data in localStorage: ${key}`);
         }
