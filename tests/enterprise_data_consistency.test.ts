@@ -151,7 +151,7 @@ describe('🛡️ Enterprise Data Consistency & 5-Pillar Financial Integrity Tes
         p_org_id: 'org-test-uuid'
       });
       expect(res.success).toBe(true);
-      expect(res.details.fixed_payment_vouchers).toBe(1);
+      expect(res.details?.fixed_payment_vouchers).toBe(1);
     });
 
     it('دالة triggerAutoReconciliation تستدعي recalculate_all_system_balances الشاملة بنجاح', async () => {

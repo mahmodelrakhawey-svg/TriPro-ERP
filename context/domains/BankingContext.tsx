@@ -106,17 +106,27 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
       if (error) {
         logger.error('Error fetching vouchers in BankingProvider:', error);
       } else {
-        const mapped = (data || []).map((row: any) => ({
+        interface RawBankingVoucherRow {
+          payment_date?: string | null;
+          date?: string | null;
+          created_at?: string | null;
+          notes?: string | null;
+          description?: string | null;
+          supplier_id?: string | null;
+          party_id?: string | null;
+          [key: string]: unknown;
+        }
+        const mapped = (data || []).map((row: RawBankingVoucherRow) => ({
           ...row,
-          date: row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : ''),
-          payment_date: row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : ''),
-          description: row.notes || row.description || '',
-          notes: row.notes || row.description || '',
+          date: (row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : '')) as string,
+          payment_date: (row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : '')) as string,
+          description: (row.notes || row.description || '') as string,
+          notes: (row.notes || row.description || '') as string,
           type: 'payment',
           subType: row.supplier_id ? 'supplier' : 'account',
-          party_id: row.supplier_id || row.party_id,
+          party_id: (row.supplier_id || row.party_id) as string,
         }));
-        setVouchers(mapped as PaymentVoucher[]);
+        setVouchers(mapped as unknown as PaymentVoucher[]);
       }
     } catch (err) {
       logger.error('Unexpected error fetching vouchers:', err);

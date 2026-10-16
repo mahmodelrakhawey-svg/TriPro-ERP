@@ -210,15 +210,15 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
   const addCustomer = useCallback(async (customer: Partial<Customer>): Promise<Customer | null> => {
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const userId = currentUser?.id;
-    const payload: Record<string, any> = {
+    const payload: Record<string, unknown> = {
       ...customer,
       organization_id: effectiveOrg,
       created_by: userId || null,
       updated_by: userId || null
     };
 
-    let data: any = null;
-    let error: any = null;
+    let data: Customer | null = null;
+    let error: { code?: string; message?: string } | null = null;
 
     for (let attempt = 0; attempt < 5; attempt++) {
       const res = await supabase

@@ -22,6 +22,7 @@ type Customer = {
   opening_balance?: number;
   balance?: number; // Added for sorting and display
   customer_type?: 'individual' | 'insurance_provider';
+  pricing_tier?: 'retail' | 'wholesale' | 'half';
 };
 
 const CustomerManager = () => {
@@ -107,7 +108,8 @@ const CustomerManager = () => {
               address: '',
               credit_limit: 0,
               opening_balance: Number(row.opening_balance || 0),
-              balance: Number(row.balance || 0)
+              balance: Number(row.balance || 0),
+              pricing_tier: row.pricing_tier || (contextCustomers?.find(c => c.id === row.customer_id) as any)?.pricing_tier || 'retail'
             });
             statsMap[row.customer_id] = {
               balance: Number(row.balance || 0),
@@ -223,7 +225,8 @@ const CustomerManager = () => {
         phone: formData.phone,
         tax_number: formData.tax_number,
         address: formData.address,
-        credit_limit: formData.credit_limit
+        credit_limit: formData.credit_limit,
+        pricing_tier: formData.pricing_tier || 'retail'
     });
 
     if (!validationResult.success) {
@@ -509,7 +512,7 @@ const CustomerManager = () => {
                 </button>
             </div>
         {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || can('customers', 'create')) && (
-            <button onClick={() => { setFormData({}); setIsModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-blue-700">
+            <button onClick={() => { setFormData({ pricing_tier: 'retail' }); setIsModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 font-bold hover:bg-blue-700">
                 <Plus size={18} /> إضافة عميل
             </button>
             )}
@@ -562,6 +565,19 @@ const CustomerManager = () => {
                         <td className="p-4 font-bold text-slate-800">
                           <div className="flex items-center gap-2">
                             {customer.name}
+                            {customer.pricing_tier === 'wholesale' ? (
+                              <span className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded-full font-bold">
+                                جملة
+                              </span>
+                            ) : customer.pricing_tier === 'half' ? (
+                              <span className="px-2 py-0.5 text-xs bg-sky-100 text-sky-700 rounded-full font-bold">
+                                نصف جملة
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 text-xs bg-slate-100 text-slate-600 rounded-full font-bold">
+                                قطاعي
+                              </span>
+                            )}
                             {customer.customer_type === 'insurance_provider' && (
                               <span className="px-2 py-0.5 text-xs bg-indigo-100 text-indigo-700 rounded-full font-bold">
                                 شركة تأمين 🛡️
@@ -581,7 +597,7 @@ const CustomerManager = () => {
                         <td className="p-4 text-center print:hidden">
                         <div className="flex justify-center gap-2">
                             {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || can('customers', 'update')) && (
-                            <button onClick={() => { setFormData(customer); setIsModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-2 rounded-full"><Edit2 size={16} /></button>
+                            <button onClick={() => { setFormData({ ...customer, pricing_tier: customer.pricing_tier || 'retail' }); setIsModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-2 rounded-full"><Edit2 size={16} /></button>
                             )}
                             {(currentUser?.role === 'admin' || currentUser?.role === 'super_admin' || can('customers', 'delete')) && (
                             <button onClick={() => handleDelete(customer.id)} className="text-red-500 hover:bg-red-50 p-2 rounded-full"><Trash2 size={16} /></button>
@@ -674,6 +690,18 @@ const CustomerManager = () => {
                 >
                   <option value="individual">عميل فردي / مريض</option>
                   <option value="insurance_provider">شركة تأمين طبي</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-1">مستوى / فئة التسعير الافتراضية</label>
+                <select 
+                  value={formData.pricing_tier || 'retail'} 
+                  onChange={e => setFormData({...formData, pricing_tier: e.target.value as any})} 
+                  className="w-full border rounded-lg p-2 font-bold bg-white text-slate-800"
+                >
+                  <option value="retail">قطاعي (سعر البيع العادي)</option>
+                  <option value="wholesale">جملة</option>
+                  <option value="half">نصف جملة</option>
                 </select>
               </div>
               <div><label className="block text-sm font-bold mb-1">رقم الهاتف</label><input type="text" value={formData.phone || ''} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full border rounded-lg p-2" /></div>

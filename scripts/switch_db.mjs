@@ -1,17 +1,30 @@
 import fs from 'fs';
 import path from 'path';
 
-const mode = process.argv[2]; // 'lenza' or 'test'
+const rawMode = (process.argv[2] || '').toLowerCase(); // 'lenza', 'test', 'general', 'master'
 const envPath = path.resolve('.env');
 
-if (!mode || (mode !== 'lenza' && mode !== 'test')) {
-  console.error('❌ يرجى تحديد الوضع المطلوب: node scripts/switch_db.mjs lenza أو node scripts/switch_db.mjs test');
+const VALID_MODES = ['lenza', 'test', 'general', 'master'];
+
+if (!rawMode || !VALID_MODES.includes(rawMode)) {
+  console.error('❌ يرجى تحديد الوضع المطلوب:');
+  console.error('   - node scripts/switch_db.mjs lenza    (لقاعدة لينزا الأساسية)');
+  console.error('   - node scripts/switch_db.mjs test     (لقاعدة استرجاع واختبار لينزا)');
+  console.error('   - node scripts/switch_db.mjs general  (لقاعدة الشركات العامة / استاد وملك)');
   process.exit(1);
 }
 
-// 🛡️ الأمان: قراءة الإعدادات من ملفات التوصيف المحلية المحمية (Git-ignored) أو متغيرات البيئة
-// لمنع تثبيت الروابط والمفاتيح الحساسة بنص صريح داخل الكود المصدري
-const profileFileName = mode === 'lenza' ? '.env.lenza' : '.env.test';
+const mode = rawMode === 'master' ? 'general' : rawMode;
+
+// تعيين اسم ملف البيئة
+const profileMap = {
+  lenza: { file: '.env.lenza', label: 'قاعدة لينزا الأصلية (Production)' },
+  test: { file: '.env.test', label: 'قاعدة استرجاع واختبار لينزا (Staging)' },
+  general: { file: '.env.general', label: 'قاعدة الشركات العامة / استاد وملك (General)' },
+};
+
+const activeProfile = profileMap[mode];
+const profileFileName = activeProfile.file;
 const profilePath = path.resolve(profileFileName);
 
 console.log('======================================================================');
@@ -19,11 +32,11 @@ console.log('===================================================================
 if (fs.existsSync(profilePath)) {
   const profileContent = fs.readFileSync(profilePath, 'utf8');
   fs.writeFileSync(envPath, profileContent, 'utf8');
-  console.log(` [1/2] تم تطبيق إعدادات بيئة [${mode === 'lenza' ? 'قاعدة لينزا الأصلية' : 'قاعدة الطوارئ التجريبية'}] من الملف المحلي ${profileFileName}`);
+  console.log(` [1/2] تم تطبيق إعدادات بيئة [${activeProfile.label}] من الملف المحلي ${profileFileName}`);
 } else {
   // فحص متغيرات البيئة إن كانت معرفة في النظام
-  const targetUrl = mode === 'lenza' ? process.env.LENZA_SUPABASE_URL : process.env.TEST_SUPABASE_URL;
-  const targetKey = mode === 'lenza' ? process.env.LENZA_SUPABASE_KEY : process.env.TEST_SUPABASE_KEY;
+  const targetUrl = mode === 'lenza' ? process.env.LENZA_SUPABASE_URL : mode === 'test' ? process.env.TEST_SUPABASE_URL : process.env.GENERAL_SUPABASE_URL;
+  const targetKey = mode === 'lenza' ? process.env.LENZA_SUPABASE_KEY : mode === 'test' ? process.env.TEST_SUPABASE_KEY : process.env.GENERAL_SUPABASE_KEY;
 
   if (targetUrl && targetKey) {
     if (fs.existsSync(envPath)) {
@@ -37,7 +50,7 @@ if (fs.existsSync(profilePath)) {
     console.log(` [1/2] تم تطبيق إعدادات بيئة [${mode}] من متغيرات النظام`);
   } else {
     console.error(`❌ لم يتم العثور على ملف الإعدادات المحلي (${profileFileName}).`);
-    console.error(`يرجى إنشاء ملف ${profileFileName} مستنداً إلى .env.example وتعبئة بيانات الاتصال بأمان.`);
+    console.error(`يرجى إنشاء ملف ${profileFileName} وتعبئة بيانات الاتصال بأمان.`);
     process.exit(1);
   }
 }
@@ -46,19 +59,13 @@ if (fs.existsSync(profilePath)) {
 const distPath = path.resolve('dist');
 if (fs.existsSync(distPath)) {
   fs.rmSync(distPath, { recursive: true, force: true });
-  console.log(' [2/2] تم تجهيز حزمة سطح المكتب وتفريغ الكاش لتطبيق التغيير فوراً');
+  console.log(' [2/2] تم تفريغ الكاش وتجهيز الحزمة لتطبيق التغيير فوراً');
 } else {
   console.log(' [2/2] النظام جاهز');
 }
 
 console.log('======================================================================');
-if (mode === 'lenza') {
-  console.log(' 🎉 تم التحويل بنجاح إلى: قاعدة لينزا الأساسية (Production)');
-  console.log(' - لتشغيل المتصفح: افتح TriPro-Web.bat');
-  console.log(' - لتشغيل الديسكتوب: افتح TriPro-ERP.bat');
-} else {
-  console.log(' 🎉 تم التحويل بنجاح إلى: قاعدة الطوارئ التجريبية (New DB)');
-  console.log(' - لتشغيل المتصفح: افتح TriPro-Web.bat');
-  console.log(' - لتشغيل الديسكتوب: افتح TriPro-ERP.bat');
-}
+console.log(` 🎉 تم التحويل بنجاح إلى: ${activeProfile.label}`);
+console.log(' - لتشغيل المتصفح: افتح TriPro-Web.bat (http://localhost:3000)');
+console.log(' - لتشغيل الديسكتوب: افتح TriPro-ERP.bat');
 console.log('======================================================================\n');

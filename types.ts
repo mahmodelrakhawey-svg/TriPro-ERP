@@ -298,6 +298,8 @@ export interface Customer {
   credit_limit?: number;
   creditLimit?: number;
   opening_balance?: number;
+  pricing_tier?: 'retail' | 'wholesale' | 'half' | string;
+  pricingTier?: 'retail' | 'wholesale' | 'half' | string;
 }
 
 export interface Supplier {

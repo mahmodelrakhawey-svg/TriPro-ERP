@@ -169,6 +169,10 @@ export const InvoiceHeader: React.FC<InvoiceHeaderProps> = ({
                       setFormData((prev: Record<string, any>) => ({ ...prev, customerId: c.id }));
                       setCustomerSearchTerm(c.name);
                       setShowCustomerDropdown(false);
+                      const tier = c.pricing_tier || c.pricingTier;
+                      if (tier && (tier === 'retail' || tier === 'wholesale' || tier === 'half')) {
+                        setPricingTier(tier);
+                      }
                     }}
                     className="p-3 hover:bg-blue-50 cursor-pointer border-b border-slate-50 last:border-0 flex justify-between items-center"
                   >

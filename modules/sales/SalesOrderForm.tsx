@@ -714,7 +714,15 @@ export const SalesOrderForm = () => {
           <select 
             className="w-full border rounded-xl p-2.5 bg-slate-50 focus:bg-white text-sm font-bold outline-none focus:border-blue-500" 
             value={formData.customerId} 
-            onChange={e => setFormData({...formData, customerId: e.target.value})}
+            onChange={e => {
+              const cid = e.target.value;
+              setFormData({...formData, customerId: cid});
+              const cust = customers.find(c => c.id === cid);
+              const tier = (cust as any)?.pricing_tier || (cust as any)?.pricingTier;
+              if (tier && (tier === 'retail' || tier === 'wholesale' || tier === 'half')) {
+                handlePricingTierChange(tier);
+              }
+            }}
           >
             <option value="">اختر العميل...</option>
             {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}

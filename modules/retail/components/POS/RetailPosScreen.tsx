@@ -428,7 +428,7 @@ export default function RetailPosScreen() {
       }
       const { data } = await supabase
         .from('customers')
-        .select('id, name, phone')
+        .select('id, name, phone, pricing_tier')
         .eq('organization_id', currentUser?.organization_id)
         .or(`name.ilike.%${customerSearch}%,phone.ilike.%${customerSearch}%`)
         .limit(5);
@@ -437,6 +437,18 @@ export default function RetailPosScreen() {
     const timer = setTimeout(searchCustomers, 300);
     return () => clearTimeout(timer);
   }, [customerSearch, currentUser]);
+
+  // 🏷️ ربط فئة التسعير آلياً بالعميل المختار في نقطة البيع (POS)
+  useEffect(() => {
+    if (selectedCustomer) {
+      const tier = selectedCustomer.pricing_tier || selectedCustomer.pricingTier;
+      if (tier && (tier === 'retail' || tier === 'wholesale' || tier === 'half')) {
+        setPricingTier(tier);
+      }
+    } else {
+      setPricingTier('retail');
+    }
+  }, [selectedCustomer, setPricingTier]);
 
   // Handle Card Auto Amount Paid
   useEffect(() => {

@@ -1,4 +1,4 @@
-﻿import React from 'react';
+import React from 'react';
 import { X } from 'lucide-react';
 
 export interface QuickCustomerModalsProps {
@@ -10,12 +10,14 @@ export interface QuickCustomerModalsProps {
   setNewCustomerPhone: (phone: string) => void;
   newCustomerOpeningBalance: string;
   setNewCustomerOpeningBalance: (bal: string) => void;
+  newCustomerPricingTier?: 'retail' | 'wholesale' | 'half';
+  setNewCustomerPricingTier?: (tier: 'retail' | 'wholesale' | 'half') => void;
   handleQuickAddCustomer: (e: React.FormEvent) => void;
 
   isEditCustomerModalOpen: boolean;
   setIsEditCustomerModalOpen: (open: boolean) => void;
-  editCustomerData: { name: string; phone: string };
-  setEditCustomerData: React.Dispatch<React.SetStateAction<{ name: string; phone: string }>>;
+  editCustomerData: { name: string; phone: string; pricing_tier?: 'retail' | 'wholesale' | 'half' };
+  setEditCustomerData: React.Dispatch<React.SetStateAction<{ name: string; phone: string; pricing_tier?: 'retail' | 'wholesale' | 'half' }>>;
   handleUpdateCustomerSubmit: (e: React.FormEvent) => void;
 }
 
@@ -28,6 +30,8 @@ export const QuickCustomerModals: React.FC<QuickCustomerModalsProps> = ({
   setNewCustomerPhone,
   newCustomerOpeningBalance,
   setNewCustomerOpeningBalance,
+  newCustomerPricingTier = 'retail',
+  setNewCustomerPricingTier,
   handleQuickAddCustomer,
   isEditCustomerModalOpen,
   setIsEditCustomerModalOpen,
@@ -73,6 +77,20 @@ export const QuickCustomerModals: React.FC<QuickCustomerModalsProps> = ({
                   className="w-full border-2 border-slate-50 rounded-2xl px-5 py-4 focus:outline-none focus:border-blue-500 bg-slate-50 font-bold"
                 />
               </div>
+              {setNewCustomerPricingTier && (
+                <div className="space-y-2">
+                  <label className="text-xs font-black text-slate-400 pr-2 uppercase">مستوى التسعير الافتراضي</label>
+                  <select
+                    value={newCustomerPricingTier}
+                    onChange={e => setNewCustomerPricingTier(e.target.value as any)}
+                    className="w-full border-2 border-slate-50 rounded-2xl px-5 py-4 focus:outline-none focus:border-blue-500 bg-slate-50 font-bold text-slate-800"
+                  >
+                    <option value="retail">قطاعي (افتراضي)</option>
+                    <option value="wholesale">جملة</option>
+                    <option value="half">نصف جملة</option>
+                  </select>
+                </div>
+              )}
               <div className="space-y-2">
                 <label className="text-xs font-black text-slate-400 pr-2 uppercase">الرصيد الافتتاحي (عليه)</label>
                 <input
@@ -128,6 +146,18 @@ export const QuickCustomerModals: React.FC<QuickCustomerModalsProps> = ({
                   onChange={e => setEditCustomerData({ ...editCustomerData, phone: e.target.value })}
                   className="w-full border-2 border-slate-50 rounded-2xl px-5 py-4 focus:outline-none focus:border-amber-500 bg-slate-50 font-bold"
                 />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-black text-slate-400 pr-2 uppercase">مستوى التسعير الافتراضي</label>
+                <select
+                  value={editCustomerData.pricing_tier || 'retail'}
+                  onChange={e => setEditCustomerData({ ...editCustomerData, pricing_tier: e.target.value as any })}
+                  className="w-full border-2 border-slate-50 rounded-2xl px-5 py-4 focus:outline-none focus:border-amber-500 bg-slate-50 font-bold text-slate-800"
+                >
+                  <option value="retail">قطاعي (افتراضي)</option>
+                  <option value="wholesale">جملة</option>
+                  <option value="half">نصف جملة</option>
+                </select>
               </div>
               <button
                 type="submit"

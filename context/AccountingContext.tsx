@@ -720,15 +720,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         .is('deleted_at', null)
         .order('payment_date', { ascending: false })
         .limit(200);
-      const mappedVchrs = (vchrs || []).map((row: any) => ({
+      interface RawVoucherRow {
+        payment_date?: string | null;
+        date?: string | null;
+        created_at?: string | null;
+        notes?: string | null;
+        description?: string | null;
+        supplier_id?: string | null;
+        party_id?: string | null;
+        [key: string]: unknown;
+      }
+      const mappedVchrs = (vchrs || []).map((row: RawVoucherRow) => ({
         ...row,
-        date: row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : ''),
-        payment_date: row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : ''),
-        description: row.notes || row.description || '',
-        notes: row.notes || row.description || '',
+        date: (row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : '')) as string,
+        payment_date: (row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : '')) as string,
+        description: (row.notes || row.description || '') as string,
+        notes: (row.notes || row.description || '') as string,
         type: 'payment',
         subType: row.supplier_id ? 'supplier' : 'account',
-        party_id: row.supplier_id || row.party_id,
+        party_id: (row.supplier_id || row.party_id) as string,
       }));
       setVouchers(mappedVchrs);
       setCostCenters(ccs.data || []);
@@ -936,15 +946,25 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       ]);
       if (chqs.data) setCheques(chqs.data);
       if (vchrs.data) {
-        const mappedVchrs = (vchrs.data || []).map((row: any) => ({
+        interface RawVoucherFetchRow {
+          payment_date?: string | null;
+          date?: string | null;
+          created_at?: string | null;
+          notes?: string | null;
+          description?: string | null;
+          supplier_id?: string | null;
+          party_id?: string | null;
+          [key: string]: unknown;
+        }
+        const mappedVchrs = (vchrs.data || []).map((row: RawVoucherFetchRow) => ({
           ...row,
-          date: row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : ''),
-          payment_date: row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : ''),
-          description: row.notes || row.description || '',
-          notes: row.notes || row.description || '',
+          date: (row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : '')) as string,
+          payment_date: (row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : '')) as string,
+          description: (row.notes || row.description || '') as string,
+          notes: (row.notes || row.description || '') as string,
           type: 'payment',
           subType: row.supplier_id ? 'supplier' : 'account',
-          party_id: row.supplier_id || row.party_id,
+          party_id: (row.supplier_id || row.party_id) as string,
         }));
         setVouchers(mappedVchrs);
       }

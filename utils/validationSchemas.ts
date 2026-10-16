@@ -26,6 +26,7 @@ export const createCustomerSchema = z.object({
   tax_number: z.string().optional().nullable().or(z.literal('')),
   address: z.string().max(500, 'العنوان طويل جداً').optional().nullable().or(z.literal('')),
   credit_limit: amountSchema.optional().nullable(),
+  pricing_tier: z.enum(['retail', 'wholesale', 'half']).optional().nullable().default('retail'),
 });
 
 export const updateCustomerSchema = createCustomerSchema.partial();

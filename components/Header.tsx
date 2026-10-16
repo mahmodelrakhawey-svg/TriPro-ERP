@@ -264,11 +264,20 @@ const Header: React.FC<HeaderProps> = ({
                 {supabaseUrl?.includes('rhwsarxgclszwaexthgv') ? (
                     <div 
                       className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-300 text-emerald-800 px-2.5 py-1.5 rounded-xl text-xs font-black shadow-sm"
-                      title={`قاعدة البيانات النشطة: سيرفر الطوارئ البديل (${supabaseUrl})`}
+                      title={`قاعدة البيانات النشطة: سيرفر استرجاع واختبار لينزا (${supabaseUrl})`}
                     >
                         <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-300 animate-pulse"></span>
                         <span className="hidden sm:inline">القاعدة:</span>
-                        <span className="text-emerald-700">سيرفر تجريبي (New DB) 🛡️</span>
+                        <span className="text-emerald-700">اختبار لينزا (Staging) 🛡️</span>
+                    </div>
+                ) : supabaseUrl?.includes('pjvphxfschfllpawfewn') ? (
+                    <div 
+                      className="flex items-center gap-1.5 bg-purple-50 border border-purple-300 text-purple-800 px-2.5 py-1.5 rounded-xl text-xs font-black shadow-sm"
+                      title={`قاعدة البيانات النشطة: قاعدة الشركات العامة (استاد / ملك) (${supabaseUrl})`}
+                    >
+                        <span className="w-2.5 h-2.5 rounded-full bg-purple-600 ring-2 ring-purple-300 animate-pulse"></span>
+                        <span className="hidden sm:inline">القاعدة:</span>
+                        <span className="text-purple-700">الشركات العامة (استاد / ملك) 🌐</span>
                     </div>
                 ) : (
                     <div 

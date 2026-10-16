@@ -376,10 +376,11 @@ class AuditDaemonService {
         success: true,
         message: 'تم تشغيل المعالجة الرقابية الشاملة وتحديث أرصدة المنظومة ومطابقة السندات بنجاح.'
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : (typeof err === 'object' && err !== null && 'message' in err ? String((err as { message: unknown }).message) : String(err));
       return {
         success: false,
-        message: err.message || 'فشلت معالجة إعادة حساب الأرصدة.'
+        message: errMsg || 'فشلت معالجة إعادة حساب الأرصدة.'
       };
     }
   }
@@ -387,7 +388,15 @@ class AuditDaemonService {
   /**
    * تشغيل المزامنة والإصلاح الذاتي لسندات الصرف والقبض مع الأستاذ العام
    */
-  public async reconcileVouchers(orgId: string): Promise<{ success: boolean; message: string; details?: any }> {
+  public async reconcileVouchers(orgId: string): Promise<{
+    success: boolean;
+    message: string;
+    details?: {
+      fixed_payment_vouchers?: number;
+      fixed_receipt_vouchers?: number;
+      [key: string]: unknown;
+    };
+  }> {
     try {
       const { data, error } = await supabase.rpc('auto_reconcile_all_vouchers_with_gl', {
         p_org_id: orgId
@@ -398,10 +407,11 @@ class AuditDaemonService {
         message: 'تمت مطابقة وإصلاح كافة سندات الصرف والقبض مع الأستاذ العام بنجاح.',
         details: data
       };
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : (typeof err === 'object' && err !== null && 'message' in err ? String((err as { message: unknown }).message) : String(err));
       return {
         success: false,
-        message: err.message || 'فشلت معالجة مطابقة السندات.'
+        message: errMsg || 'فشلت معالجة مطابقة السندات.'
       };
     }
   }

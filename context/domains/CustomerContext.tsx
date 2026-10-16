@@ -112,8 +112,8 @@ export const CustomerProvider: React.FC<CustomerProviderProps> = ({
       updated_by: userId || null
     };
 
-    let c: any = null;
-    let error: any = null;
+    let c: unknown = null;
+    let error: { code?: string; message?: string } | null = null;
 
     for (let attempt = 0; attempt < 5; attempt++) {
       const res = await supabase
@@ -149,14 +149,14 @@ export const CustomerProvider: React.FC<CustomerProviderProps> = ({
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const userId = currentUser?.id;
 
-    const payload: Record<string, any> = {
+    const payload: Record<string, unknown> = {
       ...data
     };
     delete payload.id;
     delete payload.organization_id;
     if (userId) payload.updated_by = userId;
 
-    let error: any = null;
+    let error: { code?: string; message?: string } | null = null;
     for (let attempt = 0; attempt < 5; attempt++) {
       let query = supabase.from('customers').update(payload).eq('id', id);
       if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
@@ -189,13 +189,13 @@ export const CustomerProvider: React.FC<CustomerProviderProps> = ({
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const userId = currentUser?.id;
 
-    const payload: Record<string, any> = {
+    const payload: Record<string, unknown> = {
       deleted_at: new Date().toISOString(),
       deletion_reason: reason || null
     };
     if (userId) payload.updated_by = userId;
 
-    let error: any = null;
+    let error: { code?: string; message?: string } | null = null;
     for (let attempt = 0; attempt < 5; attempt++) {
       let query = supabase.from('customers').update(payload).eq('id', id);
       if (effectiveOrg && effectiveOrg !== 'org-default-offline') {

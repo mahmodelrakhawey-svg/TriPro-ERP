@@ -158,8 +158,9 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const [newCustomerName, setNewCustomerName] = useState('');
   const [newCustomerPhone, setNewCustomerPhone] = useState('');
   const [newCustomerOpeningBalance, setNewCustomerOpeningBalance] = useState('');
+  const [newCustomerPricingTier, setNewCustomerPricingTier] = useState<'retail' | 'wholesale' | 'half'>('retail');
   const [isEditCustomerModalOpen, setIsEditCustomerModalOpen] = useState(false);
-  const [editCustomerData, setEditCustomerData] = useState({ name: '', phone: '' });
+  const [editCustomerData, setEditCustomerData] = useState<{ name: string; phone: string; pricing_tier?: 'retail' | 'wholesale' | 'half' }>({ name: '', phone: '', pricing_tier: 'retail' });
   const [saving, setSaving] = useState(false);
   const [customerBalance, setCustomerBalance] = useState(0);
 
@@ -1098,22 +1099,60 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       return false;
   };
 
-  const getProductPrice = (product: Record<string, any>, invDate?: string) => {
+  const getProductPrice = (product: Record<string, any>, invDate?: string, tierOverride?: 'retail' | 'wholesale' | 'half') => {
       // 🏷️ إذا كان هناك عرض ساري على الصنف، يتم تطبيق سعر العرض تلقائياً
       if (isOfferActive(product, invDate)) {
           return Number(product.offer_price || product.offerPrice);
       }
       const price = Number(product.sales_price || product.price || 0);
-      if (pricingTier === 'wholesale') {
+      const activeTier = tierOverride || pricingTier;
+      if (activeTier === 'wholesale') {
           const wsPrice = Number(product.wholesale_price ?? product.wholesalePrice);
           return wsPrice > 0 ? wsPrice : price;
       }
-      if (pricingTier === 'half') {
+      if (activeTier === 'half') {
           const halfWsPrice = Number(product.half_wholesale_price ?? product.halfWholesalePrice);
           return halfWsPrice > 0 ? halfWsPrice : price;
       }
       return price;
   };
+
+  const handlePricingTierChange = (newTier: 'retail' | 'wholesale' | 'half') => {
+      setPricingTier(newTier);
+      if (items.length > 0) {
+          setItems(prevItems => prevItems.map(item => {
+              const prod = products.find(p => p.id === item.productId);
+              if (!prod) return item;
+              const basePrice = getProductPrice(prod, formData.date, newTier);
+              const selectedUom = uoms.find(u => u.id === item.uomId);
+              const unitPrice = selectedUom ? Number((basePrice * (selectedUom.ratio || 1)).toFixed(4)) : basePrice;
+              const discount = item.discount || 0;
+              const qty = item.quantity || 0;
+              const total = Number(((qty * unitPrice) - discount).toFixed(2));
+              return {
+                  ...item,
+                  unitPrice,
+                  unit_price: unitPrice,
+                  total
+              };
+          }));
+      }
+  };
+
+  // 🏷️ مزامنة فئة التسعير تلقائياً عند تغيير العميل المختار
+  useEffect(() => {
+    if (formData.customerId) {
+        const selectedCustomer = customers.find(c => c.id === formData.customerId);
+        if (selectedCustomer) {
+            const custTier = (selectedCustomer as any).pricing_tier || (selectedCustomer as any).pricingTier;
+            if (custTier && (custTier === 'wholesale' || custTier === 'half' || custTier === 'retail')) {
+                if (!editingId && custTier !== pricingTier) {
+                    handlePricingTierChange(custTier);
+                }
+            }
+        }
+    }
+  }, [formData.customerId, customers, editingId, pricingTier]);
 
   const addProductToInvoice = (product: Product, matchedUomInfo?: { uom_name?: string; customPrice?: number; uom_id?: string }) => {
       const selectedUomId = matchedUomInfo?.uom_id || product.sale_uom_id || product.base_uom_id;
@@ -1273,7 +1312,8 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
       if(newCustomerName) {
           try {
-              const data = await addCustomer({ name: newCustomerName, phone: newCustomerPhone } as any);
+              const data = await addCustomer({ name: newCustomerName, phone: newCustomerPhone, pricing_tier: newCustomerPricingTier } as any);
+              handlePricingTierChange(newCustomerPricingTier);
               
               // معالجة الرصيد الافتتاحي
               const openingBalance = parseFloat(newCustomerOpeningBalance);
@@ -1326,7 +1366,11 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const handleEditCustomerClick = () => {
       const customer = customers.find(c => c.id === formData.customerId);
       if (customer) {
-          setEditCustomerData({ name: customer.name, phone: customer.phone || '' });
+          setEditCustomerData({ 
+            name: customer.name, 
+            phone: customer.phone || '',
+            pricing_tier: (customer as any).pricing_tier || (customer as any).pricingTier || 'retail'
+          });
           setIsEditCustomerModalOpen(true);
       }
   };
@@ -1341,7 +1385,8 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           email: '',
           tax_number: '',
           address: '',
-          credit_limit: 0
+          credit_limit: 0,
+          pricing_tier: editCustomerData.pricing_tier || 'retail'
       });
 
       if (!validationResult.success) {
@@ -1353,7 +1398,14 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
       if (formData.customerId && editCustomerData.name) {
           try {
-              await updateCustomer(formData.customerId, { name: editCustomerData.name, phone: editCustomerData.phone });
+              await updateCustomer(formData.customerId, { 
+                name: editCustomerData.name, 
+                phone: editCustomerData.phone,
+                pricing_tier: editCustomerData.pricing_tier || 'retail'
+              });
+              if (editCustomerData.pricing_tier) {
+                handlePricingTierChange(editCustomerData.pricing_tier);
+              }
               setCustomerSearchTerm(editCustomerData.name);
               setIsEditCustomerModalOpen(false);
               showToast('تم تحديث بيانات العميل بنجاح', 'success');
@@ -2336,7 +2388,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               salespeople={salespeople}
               warehouses={warehouses}
               pricingTier={pricingTier}
-              setPricingTier={setPricingTier}
+              setPricingTier={handlePricingTierChange}
               isQuickMode={isQuickMode}
             />
 
@@ -2431,6 +2483,8 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         setNewCustomerPhone={setNewCustomerPhone}
         newCustomerOpeningBalance={newCustomerOpeningBalance}
         setNewCustomerOpeningBalance={setNewCustomerOpeningBalance}
+        newCustomerPricingTier={newCustomerPricingTier}
+        setNewCustomerPricingTier={setNewCustomerPricingTier}
         handleQuickAddCustomer={handleQuickAddCustomer}
         isEditCustomerModalOpen={isEditCustomerModalOpen}
         setIsEditCustomerModalOpen={setIsEditCustomerModalOpen}
