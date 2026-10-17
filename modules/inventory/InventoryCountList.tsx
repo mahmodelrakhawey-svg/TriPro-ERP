@@ -1,13 +1,15 @@
-﻿﻿import { logger } from '../../utils/logger';
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { History, Eye, CheckCircle, Clock, X, Package, AlertTriangle, Check, Loader2 } from 'lucide-react';
+import { History, Eye, CheckCircle, Clock, X, Package, AlertTriangle, Check, Loader2, Search } from 'lucide-react';
+import { normalizeArabic } from '../../components/ProductSearchSelect';
 
 // --- Modal Component to show count details ---
 const CountDetailsModal = ({ count, items, onClose, onPost, isLoading }: { count: any, items: any[], onClose: () => void, onPost: (id: string) => void, isLoading: boolean }) => {
   const [showDiscrepanciesOnly, setShowDiscrepanciesOnly] = useState(false);
+  const [modalSearchTerm, setModalSearchTerm] = useState('');
 
   if (!count) return null;
 
@@ -17,20 +19,40 @@ const CountDetailsModal = ({ count, items, onClose, onPost, isLoading }: { count
     return sum + (diff * cost);
   }, 0);
 
-  const filteredItems = showDiscrepanciesOnly 
-    ? items.filter(item => ((item.counted_quantity || 0) - (item.system_quantity || 0)) !== 0)
-    : items;
+  const filteredItems = items.filter(item => {
+    if (showDiscrepanciesOnly) {
+      const diff = (item.counted_quantity || 0) - (item.system_quantity || 0);
+      if (diff === 0) return false;
+    }
+    if (modalSearchTerm.trim()) {
+      const clean = normalizeArabic(modalSearchTerm);
+      const name = normalizeArabic(item.products?.name || '');
+      const sku = normalizeArabic(item.products?.sku || '');
+      if (!name.includes(clean) && !sku.includes(clean)) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95" onClick={(e) => e.stopPropagation()}>
-        <div className="bg-slate-50 px-6 py-4 border-b flex justify-between items-center">
+        <div className="bg-slate-50 px-6 py-4 border-b flex flex-wrap justify-between items-center gap-3">
           <div>
             <h3 className="font-bold text-lg text-slate-800">تفاصيل الجرد: {count.count_number}</h3>
             <p className="text-sm text-slate-500">المستودع: {count.warehouses?.name} | التاريخ: {count.count_date}</p>
           </div>
-          <div className="flex items-center gap-3">
-             <label className={`flex items-center gap-2 text-xs font-bold cursor-pointer select-none px-3 py-2 rounded-lg border transition-all shadow-sm ${showDiscrepanciesOnly ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300'}`}>
+          <div className="flex flex-wrap items-center gap-3">
+             <div className="relative w-48">
+                <Search size={14} className="absolute right-2.5 top-2.5 text-slate-400" />
+                <input 
+                  type="text" 
+                  value={modalSearchTerm} 
+                  onChange={e => setModalSearchTerm(e.target.value)} 
+                  placeholder="ابحث بالاسم أو الكود..."
+                  className="w-full pr-8 pl-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold focus:border-purple-500 outline-none"
+                />
+             </div>
+             <label className={`flex items-center gap-2 text-xs font-bold cursor-pointer select-none px-3 py-1.5 rounded-lg border transition-all shadow-sm ${showDiscrepanciesOnly ? 'bg-blue-50 border-blue-200 text-blue-700' : 'bg-white border-slate-200 text-slate-600 hover:border-blue-300'}`}>
                 <input 
                     type="checkbox" 
                     checked={showDiscrepanciesOnly} 
@@ -64,7 +86,15 @@ const CountDetailsModal = ({ count, items, onClose, onPost, isLoading }: { count
                   const valueDiff = diff * cost;
                   return (
                     <tr key={item.id}>
-                      <td className="p-3 font-medium text-slate-800 flex items-center gap-2"><Package size={14} className="text-slate-400"/>{item.products?.name || 'صنف محذوف'}</td>
+                      <td className="p-3 font-medium text-slate-800 flex items-center gap-2">
+                        <Package size={14} className="text-slate-400 shrink-0"/>
+                        <span>{item.products?.name || 'صنف محذوف'}</span>
+                        {item.products?.sku && (
+                          <span className="text-[10px] bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded font-mono font-bold">
+                            [{item.products.sku}]
+                          </span>
+                        )}
+                      </td>
                       <td className="p-3 text-center font-mono text-slate-500">{item.system_quantity}</td>
                       <td className="p-3 text-center font-mono font-bold text-blue-600">{item.counted_quantity}</td>
                       <td className={`p-3 text-center font-mono font-bold ${diff === 0 ? 'text-slate-400' : diff > 0 ? 'text-emerald-600' : 'text-red-600'}`}>

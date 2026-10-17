@@ -4,6 +4,7 @@ import { QrCode, Search, CheckCircle, AlertTriangle, ArrowLeft, RefreshCw, Volum
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { fetchAllTableRecords } from '../../context/domains/domainUtils';
 
 interface PdaCountedItem {
   id: string;
@@ -18,7 +19,7 @@ interface PdaCountedItem {
 }
 
 export default function MobilePdaStocktaking() {
-  const { currentUser, currentSelectedOrgId, warehouses, accounts, addEntry, recalculateStock, getSystemAccount } = useAccounting() as any;
+  const { currentUser, currentSelectedOrgId, warehouses, accounts, addEntry, recalculateStock, getSystemAccount, products } = useAccounting() as any;
   const { showToast } = useToast();
   const orgId = currentSelectedOrgId || currentUser?.organization_id;
 
@@ -56,21 +57,43 @@ export default function MobilePdaStocktaking() {
   };
 
   useEffect(() => {
-    if (!orgId) return;
     const loadProducts = async () => {
-      const { data } = await supabase
-        .from('products')
-        .select('id, name, barcode, barcode2, sku, stock, purchase_price, sales_price, shelf_location, warehouse_stock')
-        .eq('organization_id', orgId)
-        .eq('is_active', true);
-      if (data) {
-        setAllProducts(data);
-        const uniqueShelves = Array.from(new Set(data.map(p => p.shelf_location).filter(Boolean))) as string[];
+      try {
+        if (currentUser?.role === 'demo') {
+          const demoList = products || [];
+          setAllProducts(demoList);
+          const uniqueShelves = Array.from(new Set(demoList.map((p: any) => p.shelf_location).filter(Boolean))) as string[];
+          setShelves(uniqueShelves);
+          return;
+        }
+
+        const { data: serverProducts } = await fetchAllTableRecords<any>(
+          'products',
+          (q) => {
+            let query = q.is('deleted_at', null).order('name');
+            if (orgId && orgId !== 'org-default-offline') {
+              query = query.eq('organization_id', orgId);
+            }
+            return query;
+          }
+        );
+
+        const mergedMap = new Map<string, any>();
+        (products || []).forEach((p: any) => { if (p?.id) mergedMap.set(p.id, p); });
+        (serverProducts || []).forEach((p: any) => { if (p?.id) mergedMap.set(p.id, p); });
+        const combined = Array.from(mergedMap.values());
+
+        setAllProducts(combined);
+        const uniqueShelves = Array.from(new Set(combined.map((p: any) => p.shelf_location).filter(Boolean))) as string[];
         setShelves(uniqueShelves);
+      } catch (err) {
+        logger.error('Error loading products for PDA stocktaking:', err);
+        const fallback = products || [];
+        setAllProducts(fallback);
       }
     };
     loadProducts();
-  }, [orgId]);
+  }, [orgId, products, currentUser?.role]);
 
   useEffect(() => {
     barcodeInputRef.current?.focus();
