@@ -47,7 +47,7 @@ interface CustomerStatementProps {
 }
 
 const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId }) => {
-  const { customers, settings, currentUser, approveInvoice, accounts, selectedFiscalYear, fiscalYearRange, getSystemAccount } = useAccounting();
+  const { customers, settings, currentUser, approveInvoice, addEntry, accounts, selectedFiscalYear, fiscalYearRange, getSystemAccount } = useAccounting();
   const [searchParams] = useSearchParams();
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(initialCustomerId || '');
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
@@ -95,8 +95,17 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
   const handleFixAll = async () => {
     const unpostedOrders = transactions.filter(t => t.type === 'pos_order' && !t.isPosted);
     const unpostedReceipts = transactions.filter(t => t.type === 'receipt' && !t.isPosted);
+    const unpostedInvoices = transactions.filter(t => t.type === 'invoice' && !t.isPosted);
+    const unpostedReturns = transactions.filter(t => t.type === 'return' && !t.isPosted);
+    const unpostedCreditNotes = transactions.filter(t => t.type === 'credit_note' && !t.isPosted);
     
-    if (unpostedOrders.length === 0 && unpostedReceipts.length === 0) {
+    if (
+      unpostedOrders.length === 0 && 
+      unpostedReceipts.length === 0 && 
+      unpostedInvoices.length === 0 &&
+      unpostedReturns.length === 0 &&
+      unpostedCreditNotes.length === 0
+    ) {
       showToast('لا توجد حركات غير مرحلة للعميل.', 'info');
       return;
     }
@@ -104,41 +113,210 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
     setLoading(true);
     let successCount = 0;
     try {
-      for (const ord of unpostedOrders) {
-        const { error } = await supabase.rpc('post_order_journal_entry', {
-          p_order_id: ord.id
-        });
+      const { data: { session } } = await supabase.auth.getSession();
+      const userOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
 
-        if (error) {
-          logger.error(`Failed to post order ${ord.reference}:`, error.message);
-        } else {
-          successCount++;
+      // 1. ترحيل طلبات نقاط البيع / المطاعم
+      for (const ord of unpostedOrders) {
+        try {
+          const { error } = await supabase.rpc('post_order_journal_entry', {
+            p_order_id: ord.id
+          });
+          if (error) {
+            logger.error(`Failed to post order ${ord.reference}:`, error.message);
+          } else {
+            successCount++;
+          }
+        } catch (ordErr) {
+          logger.error(`Exception posting order ${ord.reference}:`, ordErr);
         }
       }
 
+      // 2. ترحيل فواتير المبيعات غير المعتمدة
+      for (const inv of unpostedInvoices) {
+        if (inv.docId) {
+          try {
+            await approveInvoice(inv.docId);
+            successCount++;
+          } catch (invErr) {
+            logger.error(`Failed to approve invoice ${inv.reference}:`, invErr);
+          }
+        }
+      }
+
+      // 3. ترحيل مرتجعات المبيعات
+      for (const ret of unpostedReturns) {
+        if (ret.docId) {
+          try {
+            const { error } = await supabase.rpc('approve_sales_return', { p_return_id: ret.docId });
+            if (!error) successCount++;
+            else logger.error(`Failed to approve return ${ret.reference}:`, error.message);
+          } catch (retErr) {
+            logger.error(`Exception approving return ${ret.reference}:`, retErr);
+          }
+        }
+      }
+
+      // 4. ترحيل الإشعارات الدائنة
+      for (const cn of unpostedCreditNotes) {
+        if (cn.docId) {
+          try {
+            const { error } = await supabase.rpc('approve_credit_note', { p_note_id: cn.docId });
+            if (!error) successCount++;
+            else logger.error(`Failed to approve credit note ${cn.reference}:`, error.message);
+          } catch (cnErr) {
+            logger.error(`Exception approving credit note ${cn.reference}:`, cnErr);
+          }
+        }
+      }
+
+      // 5. ترحيل سندات القبض مع صمام الأمان الفولاذي المزدوج
       const custAcc = getSystemAccount?.('CUSTOMERS') || accounts.find(a => a.code === '1221' || a.name?.includes('عملاء'));
       for (const rec of unpostedReceipts) {
-        if (rec.docId && custAcc) {
-          const { error } = await supabase.rpc('approve_receipt_voucher', {
-            p_voucher_id: rec.docId,
-            p_credit_account_id: custAcc.id
-          });
-          if (error) {
-            logger.error(`Failed to post receipt ${rec.reference}:`, error.message);
-          } else {
+        const voucherId = rec.docId || rec.id;
+        if (!voucherId) continue;
+
+        let isHandled = false;
+
+        // أ) التحقق أولاً إذا كان القيد مسجل بالفعل في journal_entries برقم السند
+        try {
+          let jeQuery = supabase
+            .from('journal_entries')
+            .select('id')
+            .or(`reference.eq.${rec.reference},related_document_id.eq.${voucherId}`);
+
+          if (userOrgId) {
+            jeQuery = jeQuery.eq('organization_id', userOrgId);
+          }
+
+          const { data: existingJe } = await jeQuery.order('created_at', { ascending: false }).limit(1).maybeSingle();
+
+          if (existingJe?.id) {
+            await supabase
+              .from('receipt_vouchers')
+              .update({ related_journal_entry_id: existingJe.id })
+              .eq('id', voucherId);
+
+            isHandled = true;
             successCount++;
+            continue;
+          }
+        } catch (checkJeErr) {
+          logger.warn('Failed to check existing journal entry for voucher:', checkJeErr);
+        }
+
+        // ب) محاولة استدعاء الدالة في قاعدة البيانات approve_receipt_voucher
+        if (custAcc) {
+          try {
+            const { error: rpcErr } = await supabase.rpc('approve_receipt_voucher', {
+              p_voucher_id: voucherId,
+              p_credit_account_id: custAcc.id
+            });
+            if (!rpcErr) {
+              isHandled = true;
+              successCount++;
+              continue;
+            } else {
+              logger.warn(`approve_receipt_voucher RPC failed for ${rec.reference}, using addEntry fallback:`, rpcErr.message);
+            }
+          } catch (rpcEx) {
+            logger.warn(`approve_receipt_voucher RPC exception for ${rec.reference}, using addEntry fallback:`, rpcEx);
+          }
+        }
+
+        // ج) البديل الفولاذي المضمون: إنشاء القيد المحاسبي مباشرة عبر addEntry وربطه بالسند
+        if (!isHandled && custAcc) {
+          try {
+            // جلب تفاصيل السند للحصول على الخزينة المحددة بدقة
+            const { data: rvData } = await supabase
+              .from('receipt_vouchers')
+              .select('id, voucher_number, receipt_date, amount, notes, payment_method, treasury_account_id, cost_center_id')
+              .eq('id', voucherId)
+              .maybeSingle();
+
+            const treasuryAccId = 
+              rvData?.treasury_account_id ||
+              settings.account_mappings?.['CASH'] ||
+              getSystemAccount?.('CASH')?.id ||
+              accounts.find(a => a.code === '1211' || a.name?.includes('خزينة') || a.name?.includes('صندوق') || a.name?.includes('نقدية'))?.id ||
+              accounts.find(a => a.type === 'asset' && (a.code?.startsWith('121') || a.code?.startsWith('1101')))?.id;
+
+            if (!treasuryAccId) {
+              logger.error(`No treasury account resolved for receipt voucher ${rec.reference}`);
+              continue;
+            }
+
+            const voucherAmount = Number(rvData?.amount || rec.credit || 0);
+            const voucherRef = rvData?.voucher_number || rec.reference;
+            const voucherDate = rvData?.receipt_date || rec.date || new Date().toISOString().split('T')[0];
+            const customerName = selectedCustomer?.name ? `${selectedCustomer.name} - ` : '';
+            const fullDesc = `${customerName}${rvData?.notes || rec.description || `سند قبض رقم ${voucherRef}`}`;
+
+            await addEntry({
+              date: voucherDate,
+              reference: voucherRef,
+              description: fullDesc,
+              status: 'posted',
+              p_org_id: userOrgId,
+              lines: [
+                {
+                  account_id: treasuryAccId,
+                  accountId: treasuryAccId,
+                  debit: voucherAmount,
+                  credit: 0,
+                  description: `سند قبض رقم ${voucherRef}`
+                },
+                {
+                  account_id: custAcc.id,
+                  accountId: custAcc.id,
+                  debit: 0,
+                  credit: voucherAmount,
+                  description: fullDesc,
+                  costCenterId: rvData?.cost_center_id || null
+                }
+              ]
+            });
+
+            // ربط السند بمعرف القيد المنشأ فوراً
+            const { data: createdJe } = await supabase
+              .from('journal_entries')
+              .select('id')
+              .eq('reference', voucherRef)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (createdJe?.id) {
+              await supabase
+                .from('receipt_vouchers')
+                .update({ related_journal_entry_id: createdJe.id })
+                .eq('id', voucherId);
+
+              await supabase
+                .from('journal_entries')
+                .update({ 
+                  related_document_id: voucherId, 
+                  related_document_type: 'receipt_voucher' 
+                })
+                .eq('id', createdJe.id);
+            }
+
+            isHandled = true;
+            successCount++;
+          } catch (manualErr) {
+            logger.error(`Manual addEntry fallback failed for receipt ${rec.reference}:`, manualErr);
           }
         }
       }
 
       if (successCount > 0) {
-        showToast(`تم ترحيل عدد (${successCount}) حركة بنجاح ومطابقة الأستاذ العام.`, 'success');
+        showToast(`تم ترحيل ومطابقة عدد (${successCount}) حركة بنجاح مع الأستاذ العام ✅`, 'success');
         await fetchStatement();
       } else {
-        showToast('فشل ترحيل بعض الحركات. يرجى التحقق من قاعدة البيانات.', 'error');
+        showToast('لم يتم ترحيل أي حركات. يرجى التحقق من تفاصيل الحسابات.', 'error');
       }
-    } catch (err) {
-      logger.error(err);
+    } catch (err: any) {
+      logger.error('handleFixAll error:', err);
       showToast('حدث خطأ غير متوقع: ' + err.message, 'error');
     } finally {
       setLoading(false);
@@ -237,7 +415,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                : Promise.resolve({ data: [] }),
              SubledgerRegistry.fetchStatementCustomerEntryIds(userOrgId, selectedCustomerId, custName, allowedModules),
              // جلب مستندات وسندات العميل المباشرة لضمان عدم سقوط أي حركة في كشف الحساب
-             supabase.from('receipt_vouchers').select('id, voucher_number, receipt_date, amount, notes, payment_method, related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId),
+             supabase.from('receipt_vouchers').select('id, voucher_number, receipt_date, amount, notes, payment_method, treasury_account_id, related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId),
              supabase.from('invoices').select('id, invoice_number, invoice_date, total_amount, paid_amount, notes, related_journal_entry_id, status').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).neq('status', 'cancelled'),
              supabase.from('sales_returns').select('id, return_number, return_date, total_amount, notes, related_journal_entry_id, status').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).neq('status', 'cancelled'),
              supabase.from('credit_notes').select('id, credit_note_number, note_date, total_amount, notes, related_journal_entry_id, status').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).neq('status', 'cancelled'),
@@ -292,6 +470,33 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         manualEntriesRes.data?.forEach(je => { customerEntryIds.add(je.id); });
         modularEntryIds.forEach(id => { if (id) customerEntryIds.add(id); });
 
+        // فحص تلقائي لأي سندات قبض غير مربوطة لمعرفة إذا كان لها قيد مسجل مسبقاً برقم السند
+        const unlinkedVouchers = rawReceiptsRes.data?.filter(r => !r.related_journal_entry_id && r.voucher_number) || [];
+        if (unlinkedVouchers.length > 0) {
+          const voucherNums = unlinkedVouchers.map(v => v.voucher_number?.trim()).filter(Boolean);
+          if (voucherNums.length > 0) {
+            const { data: matchedJes } = await supabase
+              .from('journal_entries')
+              .select('id, reference')
+              .eq('organization_id', userOrgId)
+              .in('reference', voucherNums);
+
+            if (matchedJes && matchedJes.length > 0) {
+              const jeByRef = new Map(matchedJes.map(j => [j.reference?.trim().toUpperCase(), j.id]));
+              for (const v of unlinkedVouchers) {
+                const cleanVRef = v.voucher_number?.trim().toUpperCase();
+                const jeId = jeByRef.get(cleanVRef);
+                if (jeId) {
+                  v.related_journal_entry_id = jeId;
+                  customerEntryIds.add(jeId);
+                  entryToDocMap.set(jeId, { id: v.id, type: 'receipt' });
+                  supabase.from('receipt_vouchers').update({ related_journal_entry_id: jeId }).eq('id', v.id).then();
+                }
+              }
+            }
+          }
+        }
+
         let ledgerLines: any[] = [];
         let journalEntries: any[] = [];
 
@@ -332,7 +537,6 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         const journalEntryById = new Map((journalEntries || []).map((je) => [je.id, je]));
 
         let allTrans: Transaction[] = [];
-        let unpostedCount = 0;
 
         // 2. معالجة كل سطر قيد من الأستاذ العام للعميل المختار
         ledgerLines.forEach(line => {
@@ -421,9 +625,6 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                         isPosted: Boolean(rv.related_journal_entry_id),
                         docId: rv.id
                     });
-                    if (!rv.related_journal_entry_id) {
-                        unpostedCount++;
-                    }
                 }
             }
         });
@@ -456,7 +657,6 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                     isPosted: false, // غير مرحّل
                     docId: ord.id
                 });
-                unpostedCount++;
             }
         });
 
@@ -485,9 +685,6 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                         isPosted: Boolean(inv.related_journal_entry_id),
                         docId: inv.id
                     });
-                    if (!inv.related_journal_entry_id) {
-                        unpostedCount++;
-                    }
                 }
             }
         });
@@ -617,7 +814,8 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         });
 
         // 6. تحديث الحالات
-        setUnpostedCount(unpostedCount + finalTrans.filter(t => !t.isPosted && t.type !== 'pos_order').length);
+        const unpostedTotal = finalTrans.filter(t => !t.isPosted).length;
+        setUnpostedCount(unpostedTotal);
         setOpeningBalance(openBal);
         setTransactions(finalTrans);
         setClosingBalance(runningBal);
