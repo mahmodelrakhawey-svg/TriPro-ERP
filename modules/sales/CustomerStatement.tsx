@@ -47,7 +47,7 @@ interface CustomerStatementProps {
 }
 
 const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId }) => {
-  const { customers, settings, currentUser, approveInvoice, accounts, selectedFiscalYear, fiscalYearRange } = useAccounting();
+  const { customers, settings, currentUser, approveInvoice, accounts, selectedFiscalYear, fiscalYearRange, getSystemAccount } = useAccounting();
   const [searchParams] = useSearchParams();
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(initialCustomerId || '');
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
@@ -93,17 +93,18 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
   }, [searchParams, initialCustomerId]);
 
   const handleFixAll = async () => {
-    const unposted = transactions.filter(t => t.type === 'pos_order' && !t.isPosted);
+    const unpostedOrders = transactions.filter(t => t.type === 'pos_order' && !t.isPosted);
+    const unpostedReceipts = transactions.filter(t => t.type === 'receipt' && !t.isPosted);
     
-    if (unposted.length === 0) {
-      showToast('لا توجد طلبات غير مرحلة للعميل.', 'info');
+    if (unpostedOrders.length === 0 && unpostedReceipts.length === 0) {
+      showToast('لا توجد حركات غير مرحلة للعميل.', 'info');
       return;
     }
 
     setLoading(true);
     let successCount = 0;
     try {
-      for (const ord of unposted) {
+      for (const ord of unpostedOrders) {
         const { error } = await supabase.rpc('post_order_journal_entry', {
           p_order_id: ord.id
         });
@@ -115,11 +116,26 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         }
       }
 
+      const custAcc = getSystemAccount?.('CUSTOMERS') || accounts.find(a => a.code === '1221' || a.name?.includes('عملاء'));
+      for (const rec of unpostedReceipts) {
+        if (rec.docId && custAcc) {
+          const { error } = await supabase.rpc('approve_receipt_voucher', {
+            p_voucher_id: rec.docId,
+            p_credit_account_id: custAcc.id
+          });
+          if (error) {
+            logger.error(`Failed to post receipt ${rec.reference}:`, error.message);
+          } else {
+            successCount++;
+          }
+        }
+      }
+
       if (successCount > 0) {
-        showToast(`تم ترحيل عدد (${successCount}) طلبات بنجاح ومطابقة الأستاذ العام.`, 'success');
+        showToast(`تم ترحيل عدد (${successCount}) حركة بنجاح ومطابقة الأستاذ العام.`, 'success');
         await fetchStatement();
       } else {
-        showToast('فشل ترحيل الطلبات. يرجى التحقق من قاعدة البيانات.', 'error');
+        showToast('فشل ترحيل بعض الحركات. يرجى التحقق من قاعدة البيانات.', 'error');
       }
     } catch (err) {
       logger.error(err);
@@ -156,39 +172,25 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             return;
         }
 
-        // حساب العملاء: كود الدليل المصري هو 1221 (Accounts(code) = 1221)
-        // مهم: لا نعتمد على accounts المحملة من الـ context لأن عند إنشاء شركة جديدة قد تكون غير محدثة/فارغة.
-        const { data: customerAccounts, error: customerAccError } = await supabase
+        // حسابات العملاء: كود الدليل المصري 1221 أو أي حسابات فرعية للعملاء
+        const { data: customerAccounts } = await supabase
           .from('accounts')
-          .select('id')
+          .select('id, code, name')
           .eq('organization_id', userOrgId)
-          .eq('code', '1221')
-          .limit(1);
+          .or('code.eq.1221,code.ilike.122%,code.ilike.1103%,name.ilike.%العملاء%,name.ilike.%عملاء%');
 
-        if (customerAccError) throw customerAccError;
-        let customerAcc: { id: string } | null = customerAccounts?.[0] || null;
+        const targetAccountIds = new Set<string>();
+        customerAccounts?.forEach(a => targetAccountIds.add(a.id));
 
-        // احتياطي: البحث بالاسم إذا لم يُوجد الكود 1221
-        if (!customerAcc?.id) {
-          const { data: fallbackAcc } = await supabase
-            .from('accounts')
-            .select('id')
-            .eq('organization_id', userOrgId)
-            .or('name.ilike.%العملاء%,name.ilike.%عملاء%,code.ilike.122%')
-            .limit(1);
-          customerAcc = fallbackAcc?.[0] || null;
-        }
+        const mappedCustAcc = settings.account_mappings?.['CUSTOMERS'];
+        if (mappedCustAcc) targetAccountIds.add(mappedCustAcc);
 
-        if (!customerAcc?.id) {
-          showToast('تعذر تحديد حساب العملاء لهذه المنظمة. تأكد من وجود حساب بكود 1221 أو اسم يحتوي على "العملاء".', 'error');
-          setLoading(false);
-          return;
-        }
+        const sysCustAcc = getSystemAccount?.('CUSTOMERS');
+        if (sysCustAcc?.id) targetAccountIds.add(sysCustAcc.id);
 
+        const custAccId = (selectedCustomer as any)?.account_id;
+        if (custAccId) targetAccountIds.add(custAccId);
 
-
-
-        let targetAccountId = customerAcc.id;
         if (selectedCustomer?.customer_type === 'insurance_provider') {
           const { data: insAcc } = await supabase
             .from('accounts')
@@ -197,7 +199,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             .eq('code', '122101')
             .limit(1);
           if (insAcc && insAcc.length > 0) {
-            targetAccountId = insAcc[0].id;
+            targetAccountIds.add(insAcc[0].id);
           }
         }
 
@@ -209,13 +211,18 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
           .maybeSingle();
         const allowedModules: string[] | undefined = orgData?.allowed_modules || undefined;
 
-        // 1) جلب معرفات القيود المرتبطة بمستندات المديول الأساسي والقيود اليدوية التي تحوي اسمه
+        // 1) جلب معرفات القيود المرتبطة بمستندات المديول الأساسي والقيود اليدوية والمستندات المباشرة للعميل
         const custName = selectedCustomer?.name?.trim();
         const custPhone = selectedCustomer?.phone?.replace(/[^0-9]/g, '');
 
         const [
           invRes, recRes, retRes, cnRes, chqRes, ordRes, manualEntriesRes,
-          modularEntryIds
+          modularEntryIds,
+          rawReceiptsRes,
+          rawInvoicesRes,
+          rawReturnsRes,
+          rawCreditNotesRes,
+          rawChequesRes
         ] = await Promise.all([
              supabase.from('invoices').select('id, related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
              supabase.from('receipt_vouchers').select('id, related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
@@ -228,7 +235,13 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
              custName
                ? supabase.from('journal_entries').select('id').eq('organization_id', userOrgId).eq('status', 'posted').ilike('description', `%${custName}%`)
                : Promise.resolve({ data: [] }),
-             SubledgerRegistry.fetchStatementCustomerEntryIds(userOrgId, selectedCustomerId, custName, allowedModules)
+             SubledgerRegistry.fetchStatementCustomerEntryIds(userOrgId, selectedCustomerId, custName, allowedModules),
+             // جلب مستندات وسندات العميل المباشرة لضمان عدم سقوط أي حركة في كشف الحساب
+             supabase.from('receipt_vouchers').select('id, voucher_number, receipt_date, amount, notes, payment_method, related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId),
+             supabase.from('invoices').select('id, invoice_number, invoice_date, total_amount, paid_amount, notes, related_journal_entry_id, status').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).neq('status', 'cancelled'),
+             supabase.from('sales_returns').select('id, return_number, return_date, total_amount, notes, related_journal_entry_id, status').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).neq('status', 'cancelled'),
+             supabase.from('credit_notes').select('id, credit_note_number, note_date, total_amount, notes, related_journal_entry_id, status').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).neq('status', 'cancelled'),
+             supabase.from('cheques').select('id, cheque_number, due_date, created_at, amount, notes, related_journal_entry_id, status').eq('party_id', selectedCustomerId).eq('organization_id', userOrgId).eq('type', 'incoming').neq('status', 'rejected')
         ]);
 
         const customerEntryIds = new Set<string>();
@@ -241,6 +254,12 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
           }
         });
         recRes.data?.forEach(r => {
+          if (r.related_journal_entry_id) {
+            customerEntryIds.add(r.related_journal_entry_id);
+            entryToDocMap.set(r.related_journal_entry_id, { id: r.id, type: 'receipt' });
+          }
+        });
+        rawReceiptsRes.data?.forEach(r => {
           if (r.related_journal_entry_id) {
             customerEntryIds.add(r.related_journal_entry_id);
             entryToDocMap.set(r.related_journal_entry_id, { id: r.id, type: 'receipt' });
@@ -278,14 +297,19 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
 
         if (customerEntryIds.size > 0) {
             const entryIdList = Array.from(customerEntryIds);
+            const targetAccArray = Array.from(targetAccountIds);
             ledgerLines = await fetchInChunks(entryIdList, 70, async (chunk) => {
-                const { data: lines, error: ledgerError } = await supabase
+                let linesQuery = supabase
                     .from('journal_lines')
                     .select('id, journal_entry_id, debit, credit, account_id, organization_id')
-                    .eq('account_id', targetAccountId)
                     .eq('organization_id', userOrgId)
                     .in('journal_entry_id', chunk);
 
+                if (targetAccArray.length > 0) {
+                    linesQuery = linesQuery.in('account_id', targetAccArray);
+                }
+
+                const { data: lines, error: ledgerError } = await linesQuery;
                 if (ledgerError) throw ledgerError;
                 return lines || [];
             });
@@ -354,7 +378,57 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             });
         });
 
-        // 3. إضافة مبيعات المطاعم غير المرحّلة (التي لم تُنشأ لها قيود يومية بعد)
+        // 🛡️ صمام الأمان الفولاذي المزدوج: تتبع الحركات المسجلة لمنع الازدواجية وسد أي ثغرة
+        const capturedDocIds = new Set<string>();
+        const capturedRefs = new Set<string>();
+        const capturedJeIds = new Set<string>();
+
+        allTrans.forEach(t => {
+            if (t.docId) capturedDocIds.add(t.docId);
+            if (t.reference) {
+                const clean = t.reference.trim().toUpperCase();
+                capturedRefs.add(clean);
+                const rawNum = clean.replace(/^(INV-|RV-|SR-|CN-|CHQ-|REJ-CHQ-|REJ-|OB-|OP-)/i, '');
+                if (rawNum) capturedRefs.add(rawNum);
+            }
+        });
+        ledgerLines.forEach(l => {
+            if (l.journal_entry_id) capturedJeIds.add(l.journal_entry_id);
+        });
+
+        // 3. إضافة أي سندات قبض تخص العميل مباشرة لم تلتقطها قيود اليومية (لضمان ظهور RV-417184 و RV-358090 ومثيلاتها)
+        rawReceiptsRes.data?.forEach(rv => {
+            const cleanRef = (rv.voucher_number || '').trim().toUpperCase();
+            const rawNum = cleanRef.replace(/^(RV-)/i, '');
+            const isAlreadyCaptured = 
+                capturedDocIds.has(rv.id) ||
+                capturedRefs.has(cleanRef) ||
+                (rawNum && capturedRefs.has(rawNum)) ||
+                (rv.related_journal_entry_id && capturedJeIds.has(rv.related_journal_entry_id));
+
+            if (!isAlreadyCaptured) {
+                const amountVal = Number(rv.amount || 0);
+                if (amountVal > 0) {
+                    allTrans.push({
+                        id: rv.id,
+                        date: rv.receipt_date,
+                        type: 'receipt',
+                        reference: rv.voucher_number || `RV-${rv.id.slice(-6)}`,
+                        description: rv.notes ? rv.notes : `سند قبض رقم ${rv.voucher_number || ''}`,
+                        debit: 0,
+                        credit: amountVal,
+                        balance: 0,
+                        isPosted: Boolean(rv.related_journal_entry_id),
+                        docId: rv.id
+                    });
+                    if (!rv.related_journal_entry_id) {
+                        unpostedCount++;
+                    }
+                }
+            }
+        });
+
+        // 4. إضافة مبيعات المطاعم غير المرحّلة (التي لم تُنشأ لها قيود يومية بعد)
         const { data: openOrders } = await supabase.from('orders')
             .select('id, order_number, created_at, grand_total, order_type, status')
             .eq('customer_id', selectedCustomerId)
@@ -386,9 +460,137 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             }
         });
 
+        // 5. إضافة أي فواتير مبيعات أخرى تخص العميل لم تسجل لها قيود بعد
+        rawInvoicesRes.data?.forEach(inv => {
+            const cleanRef = (inv.invoice_number || '').trim().toUpperCase();
+            const rawNum = cleanRef.replace(/^(INV-)/i, '');
+            const isAlreadyCaptured = 
+                capturedDocIds.has(inv.id) ||
+                capturedRefs.has(cleanRef) ||
+                (rawNum && capturedRefs.has(rawNum)) ||
+                (inv.related_journal_entry_id && capturedJeIds.has(inv.related_journal_entry_id));
 
-        // 4. فرز الحركات زمنياً
-        allTrans.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+            if (!isAlreadyCaptured && inv.status !== 'draft') {
+                const totalVal = Number(inv.total_amount || 0);
+                if (totalVal > 0) {
+                    allTrans.push({
+                        id: inv.id,
+                        date: inv.invoice_date,
+                        type: 'invoice',
+                        reference: inv.invoice_number || `INV-${inv.id.slice(-6)}`,
+                        description: inv.notes ? `فاتورة مبيعات: ${inv.notes}` : `فاتورة مبيعات رقم ${inv.invoice_number || ''}`,
+                        debit: totalVal,
+                        credit: 0,
+                        balance: 0,
+                        isPosted: Boolean(inv.related_journal_entry_id),
+                        docId: inv.id
+                    });
+                    if (!inv.related_journal_entry_id) {
+                        unpostedCount++;
+                    }
+                }
+            }
+        });
+
+        // 6. إضافة أي مرتجعات مبيعات تخص العميل لم تسجل لها قيود بعد
+        rawReturnsRes.data?.forEach(ret => {
+            const cleanRef = (ret.return_number || '').trim().toUpperCase();
+            const rawNum = cleanRef.replace(/^(SR-)/i, '');
+            const isAlreadyCaptured = 
+                capturedDocIds.has(ret.id) ||
+                capturedRefs.has(cleanRef) ||
+                (rawNum && capturedRefs.has(rawNum)) ||
+                (ret.related_journal_entry_id && capturedJeIds.has(ret.related_journal_entry_id));
+
+            if (!isAlreadyCaptured && ret.status !== 'draft') {
+                const totalVal = Number(ret.total_amount || 0);
+                if (totalVal > 0) {
+                    allTrans.push({
+                        id: ret.id,
+                        date: ret.return_date,
+                        type: 'return',
+                        reference: ret.return_number || `SR-${ret.id.slice(-6)}`,
+                        description: ret.notes ? `مرتجع مبيعات: ${ret.notes}` : `مرتجع مبيعات رقم ${ret.return_number || ''}`,
+                        debit: 0,
+                        credit: totalVal,
+                        balance: 0,
+                        isPosted: Boolean(ret.related_journal_entry_id),
+                        docId: ret.id
+                    });
+                }
+            }
+        });
+
+        // 7. إضافة أي إشعارات دائنة لم تسجل لها قيود
+        rawCreditNotesRes.data?.forEach(cn => {
+            const cleanRef = (cn.credit_note_number || '').trim().toUpperCase();
+            const rawNum = cleanRef.replace(/^(CN-)/i, '');
+            const isAlreadyCaptured = 
+                capturedDocIds.has(cn.id) ||
+                capturedRefs.has(cleanRef) ||
+                (rawNum && capturedRefs.has(rawNum)) ||
+                (cn.related_journal_entry_id && capturedJeIds.has(cn.related_journal_entry_id));
+
+            if (!isAlreadyCaptured && cn.status !== 'draft') {
+                const totalVal = Number(cn.total_amount || 0);
+                if (totalVal > 0) {
+                    allTrans.push({
+                        id: cn.id,
+                        date: cn.note_date,
+                        type: 'credit_note',
+                        reference: cn.credit_note_number || `CN-${cn.id.slice(-6)}`,
+                        description: cn.notes ? `إشعار دائن: ${cn.notes}` : `إشعار دائن رقم ${cn.credit_note_number || ''}`,
+                        debit: 0,
+                        credit: totalVal,
+                        balance: 0,
+                        isPosted: Boolean(cn.related_journal_entry_id),
+                        docId: cn.id
+                    });
+                }
+            }
+        });
+
+        // 8. إضافة أي شيكات واردة لم تسجل لها قيود
+        rawChequesRes.data?.forEach(chq => {
+            const cleanRef = (chq.cheque_number || '').trim().toUpperCase();
+            const rawNum = cleanRef.replace(/^(CHQ-)/i, '');
+            const isAlreadyCaptured = 
+                capturedDocIds.has(chq.id) ||
+                capturedRefs.has(cleanRef) ||
+                (rawNum && capturedRefs.has(rawNum)) ||
+                (chq.related_journal_entry_id && capturedJeIds.has(chq.related_journal_entry_id));
+
+            if (!isAlreadyCaptured) {
+                const amountVal = Number(chq.amount || 0);
+                if (amountVal > 0) {
+                    allTrans.push({
+                        id: chq.id,
+                        date: chq.created_at ? chq.created_at.split('T')[0] : chq.due_date,
+                        type: 'receipt',
+                        reference: chq.cheque_number || `CHQ-${chq.id.slice(-6)}`,
+                        description: `شيك وارد رقم ${chq.cheque_number || ''} (استحقاق ${chq.due_date || ''})`,
+                        debit: 0,
+                        credit: amountVal,
+                        balance: 0,
+                        isPosted: Boolean(chq.related_journal_entry_id),
+                        docId: chq.id
+                    });
+                }
+            }
+        });
+
+        // 9. فرز الحركات زمنياً بترتيب محاسبي منضبط
+        allTrans.sort((a, b) => {
+            const timeDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+            if (timeDiff !== 0) return timeDiff;
+            const isAOpening = a.description?.includes('افتتاحي') || a.reference?.startsWith('OB-') || a.reference?.startsWith('OP-');
+            const isBOpening = b.description?.includes('افتتاحي') || b.reference?.startsWith('OB-') || b.reference?.startsWith('OP-');
+            if (isAOpening && !isBOpening) return -1;
+            if (!isAOpening && isBOpening) return 1;
+            if (a.debit > 0 && b.debit === 0) return -1;
+            if (a.debit === 0 && b.debit > 0) return 1;
+            return 0;
+        });
 
         // 5. حساب الرصيد الافتتاحي والرصيد الجاري بدون تكرار
         // إذا كان القيد الافتتاحي موجوداً بالفعل ضمن الحركات المجلوبة، نبدأ من 0 حتى لا يُحتسب مرتين

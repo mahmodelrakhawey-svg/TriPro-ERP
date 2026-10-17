@@ -502,16 +502,38 @@ const ReceiptVoucherForm = () => {
             if (rpcError) throw rpcError;
         } catch (err) {
             logger.warn("RPC failed, falling back to manual entry:", err);
+            const customerName = customer?.name ? `${customer.name} - ` : '';
+            const fullDesc = `${customerName}${formData.notes || `سند قبض رقم ${voucherNumber}`}`;
             // في حال فشل الدالة (مثلاً غير موجودة)، نقوم بإنشاء القيد يدوياً لضمان سلامة البيانات
             await addEntry({
                 date: formData.date,
                 reference: voucherNumber,
-                description: formData.notes || `سند قبض من العميل`,
+                description: fullDesc,
                 lines: [
                     { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: formData.amount, credit: 0, description: `سند قبض رقم ${voucherNumber}` },
-                    { account_id: customerAcc.id, accountId: customerAcc.id, debit: 0, credit: formData.amount, description: `قبض من العميل`, costCenterId: formData.costCenterId || null }
+                    { account_id: customerAcc.id, accountId: customerAcc.id, debit: 0, credit: formData.amount, description: fullDesc, costCenterId: formData.costCenterId || null }
                 ]
             });
+
+            // ربط السند بمعرف القيد المنشأ فوراً
+            try {
+              const { data: createdJe } = await supabase
+                .from('journal_entries')
+                .select('id')
+                .eq('reference', voucherNumber)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+              if (createdJe?.id) {
+                await supabase
+                  .from('receipt_vouchers')
+                  .update({ related_journal_entry_id: createdJe.id })
+                  .eq('id', voucherData.id);
+              }
+            } catch (linkErr) {
+              logger.warn("Non-blocking voucher journal link error:", linkErr);
+            }
         }
 
         showToast('تم حفظ سند القبض وترحيل القيد بنجاح ✅', 'success');
