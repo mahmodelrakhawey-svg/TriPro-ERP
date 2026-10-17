@@ -293,11 +293,25 @@ const ExpenseVoucherForm = () => {
             if (vErr) throw vErr;
 
             // تحديث القيد المحاسبي المرتبط عبر RPC المعتمد لضمان التزامن المحاسبي وحماية القيود
-            const { error: rpcErr } = await supabase.rpc('approve_payment_voucher', { 
-                p_voucher_id: currentVoucherId, 
-                p_debit_account_id: formData.expenseAccountId 
-            });
-            if (rpcErr) throw rpcErr;
+            try {
+                const { error: rpcErr } = await supabase.rpc('approve_payment_voucher', { 
+                    p_voucher_id: currentVoucherId, 
+                    p_debit_account_id: formData.expenseAccountId 
+                });
+                if (rpcErr) throw rpcErr;
+            } catch (editRpcErr) {
+                logger.warn("RPC approve_payment_voucher failed during edit, falling back to manual entry:", editRpcErr);
+                await addEntry({
+                    date: formData.date,
+                    reference: voucherData?.voucher_number || formData.voucherNumber || `EXP-${Date.now().toString().slice(-6)}`,
+                    description: formData.description || `تعديل صرف مصروف: ${expenseAccountName}`,
+                    status: 'posted',
+                    lines: [
+                        { account_id: formData.expenseAccountId, accountId: formData.expenseAccountId, debit: Number(formData.amount), credit: 0, description: `مصروف - ${expenseAccountName}`, costCenterId: formData.costCenterId || null },
+                        { account_id: formData.treasuryAccountId, accountId: formData.treasuryAccountId, debit: 0, credit: Number(formData.amount), description: `تعديل سند صرف مصروف` }
+                    ]
+                });
+            }
 
             if (voucherData) {
                 setExpenseVouchers(prev => prev.map(v => v.id === currentVoucherId ? voucherData : v));
@@ -354,11 +368,32 @@ const ExpenseVoucherForm = () => {
                     date: formData.date,
                     reference: voucherNumber,
                     description: formData.description || `صرف مصروف: ${expenseAccountName}`,
+                    status: 'posted',
                     lines: [
                         { account_id: formData.expenseAccountId, accountId: formData.expenseAccountId, debit: Number(formData.amount), credit: 0, description: `مصروف - ${expenseAccountName}`, costCenterId: formData.costCenterId || null },
                         { account_id: formData.treasuryAccountId, accountId: formData.treasuryAccountId, debit: 0, credit: Number(formData.amount), description: `سند صرف رقم ${voucherNumber}` }
                     ]
                 });
+
+                // ربط السند بمعرف القيد المنشأ فوراً
+                try {
+                  const { data: createdJe } = await supabase
+                    .from('journal_entries')
+                    .select('id')
+                    .eq('reference', voucherNumber)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                  if (createdJe?.id) {
+                    await supabase
+                      .from('payment_vouchers')
+                      .update({ related_journal_entry_id: createdJe.id })
+                      .eq('id', voucherData.id);
+                  }
+                } catch (linkErr) {
+                  logger.warn("Non-blocking voucher journal link error:", linkErr);
+                }
             }
 
             setSuccess(true);

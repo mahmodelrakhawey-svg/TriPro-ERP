@@ -492,10 +492,25 @@ const PaymentVoucherForm = () => {
           // 🚀 الحل الجذري: استدعاء الدالة المحاسبية الموحدة لإعادة ترحيل القيد بشكل صحيح ومتوازن
           const supplierAcc = getSystemAccount('SUPPLIERS');
           if (supplierAcc) {
-              await supabase.rpc('approve_payment_voucher', { 
-                  p_voucher_id: currentVoucherId, 
-                  p_debit_account_id: supplierAcc.id 
-              });
+              try {
+                  const { error: rpcErr } = await supabase.rpc('approve_payment_voucher', { 
+                      p_voucher_id: currentVoucherId, 
+                      p_debit_account_id: supplierAcc.id 
+                  });
+                  if (rpcErr) throw rpcErr;
+              } catch (editRpcErr) {
+                  logger.warn("RPC approve_payment_voucher failed during edit, falling back to manual entry:", editRpcErr);
+                  await addEntry({
+                      date: formData.date,
+                      reference: formData.voucherNumber || `PV-${Date.now().toString().slice(-6)}`,
+                      description: formData.notes || `تعديل سند صرف للمورد`,
+                      status: 'posted',
+                      lines: [
+                          { account_id: supplierAcc.id, accountId: supplierAcc.id, debit: formData.amount, credit: 0, description: `صرف للمورد`, costCenterId: formData.costCenterId || null },
+                          { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: `تعديل سند صرف رقم ${formData.voucherNumber || ''}` }
+                      ]
+                  });
+              }
           }
 
           showToast('تم تعديل سند الصرف بنجاح ✅', 'success');
@@ -610,11 +625,32 @@ const PaymentVoucherForm = () => {
                 date: formData.date,
                 reference: voucherNumber,
                 description: formData.notes || `سند صرف للمورد`,
+                status: 'posted',
                 lines: [
                     { account_id: supplierAcc.id, accountId: supplierAcc.id, debit: formData.amount, credit: 0, description: `صرف للمورد`, costCenterId: formData.costCenterId || null },
                     { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: `سند صرف رقم ${voucherNumber}` }
                 ]
             });
+
+            // ربط السند بمعرف القيد المنشأ فوراً
+            try {
+              const { data: createdJe } = await supabase
+                .from('journal_entries')
+                .select('id')
+                .eq('reference', voucherNumber)
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+
+              if (createdJe?.id) {
+                await supabase
+                  .from('payment_vouchers')
+                  .update({ related_journal_entry_id: createdJe.id })
+                  .eq('id', voucherData.id);
+              }
+            } catch (linkErr) {
+              logger.warn("Non-blocking voucher journal link error:", linkErr);
+            }
         }
 
         showToast('تم حفظ سند الصرف وترحيل القيد بنجاح', 'success');
