@@ -499,19 +499,38 @@ export const PurchaseInvoiceList = () => {
 
     try {
       showToast('جاري تجهيز الفاتورة للطباعة...', 'info');
+      let printData: any = null;
       const { data, error } = await supabase
         .from('purchase_invoices')
         .select(`
           *,
           suppliers(id, name, phone, address, tax_number),
           warehouses(id, name),
-          purchase_invoice_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku, tax_rate_override))
+          purchase_invoice_items(*, products(name, sku, tax_rate_override))
         `)
         .eq('id', invoice.id)
         .single();
 
-      if (error) throw error;
-      setInvoiceToPrint(data || invoice);
+      if (error && (error as any).code === '42703') {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('purchase_invoices')
+          .select(`
+            *,
+            suppliers(id, name, phone, address, tax_number),
+            warehouses(id, name),
+            purchase_invoice_items(id, product_id, quantity, unit_price, total, discount, discount_percent, tax_rate, tax_amount, uom_id, products(name, sku, tax_rate_override))
+          `)
+          .eq('id', invoice.id)
+          .single();
+        if (fallbackError) throw fallbackError;
+        printData = fallbackData;
+      } else if (error) {
+        throw error;
+      } else {
+        printData = data;
+      }
+
+      setInvoiceToPrint(printData || invoice);
       setTimeout(() => {
         window.print();
         setInvoiceToPrint(null);

@@ -209,18 +209,38 @@ const PurchaseInvoiceForm = () => {
   const loadInvoiceById = async (id: string) => {
     setLoadingInvoice(true);
     try {
-      const { data: fullInv, error: invError } = await supabase
+      let fullInv: any = null;
+      let { data: primaryData, error: invError } = await supabase
         .from('purchase_invoices')
         .select(`
           *,
           suppliers(id, name, phone),
           warehouses(id, name),
-          purchase_invoice_items(id, product_id, quantity, unit_price, total, uom_id, batch_number, expiry_date, products(name, sku, purchase_price, base_uom_id, tax_rate_override))
+          purchase_invoice_items(*, products(name, sku, purchase_price, base_uom_id, tax_rate_override))
         `)
         .eq('id', id)
         .single();
 
-      if (invError) throw invError;
+      if (invError && (invError as any).code === '42703') {
+        // احتياطي في حال حدوث أي خطأ في الكاش لقاعدة البيانات
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('purchase_invoices')
+          .select(`
+            *,
+            suppliers(id, name, phone),
+            warehouses(id, name),
+            purchase_invoice_items(id, product_id, quantity, unit_price, total, discount, discount_percent, tax_rate, tax_amount, uom_id, batch_number, expiry_date, products(name, sku, purchase_price, base_uom_id, tax_rate_override))
+          `)
+          .eq('id', id)
+          .single();
+        if (fallbackError) throw fallbackError;
+        fullInv = fallbackData;
+      } else if (invError) {
+        throw invError;
+      } else {
+        fullInv = primaryData;
+      }
+
       if (!fullInv) throw new Error('الفاتورة غير موجودة');
 
       setEditingId(fullInv.id);
@@ -252,8 +272,12 @@ const PurchaseInvoiceForm = () => {
         const qty = Number(i.quantity) || 0;
         const uPrice = Number(i.unit_price) || 0;
         const gross = qty * uPrice;
-        const disc = Number(i.discount) || 0;
-        const discPct = Number(i.discount_percent) || (gross > 0 && disc > 0 ? Number(((disc / gross) * 100).toFixed(2)) : 0);
+        let disc = Number(i.discount ?? i.discount_amount) || 0;
+        // استرجاع احتياطي للخصم إذا كان الإجمالي المسجل أقل من حاصل ضرب الكمية في السعر
+        if (disc === 0 && Number(i.total) > 0 && gross > Number(i.total)) {
+          disc = Number((gross - Number(i.total)).toFixed(2));
+        }
+        const discPct = Number(i.discount_percent ?? i.discount_percentage) || (gross > 0 && disc > 0 ? Number(((disc / gross) * 100).toFixed(2)) : 0);
 
         return {
           id: i.id,
@@ -314,18 +338,37 @@ const PurchaseInvoiceForm = () => {
   const loadAndDuplicateInvoice = async (id: string) => {
     setLoadingInvoice(true);
     try {
-      const { data: fullInv, error: invError } = await supabase
+      let fullInv: any = null;
+      let { data: primaryData, error: invError } = await supabase
         .from('purchase_invoices')
         .select(`
           *,
           suppliers(id, name, phone),
           warehouses(id, name),
-          purchase_invoice_items(id, product_id, quantity, unit_price, total, uom_id, batch_number, expiry_date, products(name, sku, purchase_price, base_uom_id, tax_rate_override))
+          purchase_invoice_items(*, products(name, sku, purchase_price, base_uom_id, tax_rate_override))
         `)
         .eq('id', id)
         .single();
 
-      if (invError) throw invError;
+      if (invError && (invError as any).code === '42703') {
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('purchase_invoices')
+          .select(`
+            *,
+            suppliers(id, name, phone),
+            warehouses(id, name),
+            purchase_invoice_items(id, product_id, quantity, unit_price, total, discount, discount_percent, tax_rate, tax_amount, uom_id, batch_number, expiry_date, products(name, sku, purchase_price, base_uom_id, tax_rate_override))
+          `)
+          .eq('id', id)
+          .single();
+        if (fallbackError) throw fallbackError;
+        fullInv = fallbackData;
+      } else if (invError) {
+        throw invError;
+      } else {
+        fullInv = primaryData;
+      }
+
       if (!fullInv) throw new Error('الفاتورة المراد تكرارها غير موجودة');
 
       const originalNumber = fullInv.invoice_number || 'غير محدد';
@@ -364,8 +407,11 @@ const PurchaseInvoiceForm = () => {
         const qty = Number(i.quantity) || 0;
         const uPrice = Number(i.unit_price) || 0;
         const gross = qty * uPrice;
-        const disc = Number(i.discount) || 0;
-        const discPct = Number(i.discount_percent) || (gross > 0 && disc > 0 ? Number(((disc / gross) * 100).toFixed(2)) : 0);
+        let disc = Number(i.discount ?? i.discount_amount) || 0;
+        if (disc === 0 && Number(i.total) > 0 && gross > Number(i.total)) {
+          disc = Number((gross - Number(i.total)).toFixed(2));
+        }
+        const discPct = Number(i.discount_percent ?? i.discount_percentage) || (gross > 0 && disc > 0 ? Number(((disc / gross) * 100).toFixed(2)) : 0);
 
         return {
           id: `dup-${Date.now()}-${idx}-${Math.random().toString(36).substring(2, 7)}`,
