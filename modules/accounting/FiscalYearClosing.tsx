@@ -23,6 +23,7 @@ import {
   DollarSign,
   TrendingDown
 } from 'lucide-react';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 const FiscalYearClosing: React.FC = () => {
   const { closeFinancialYear, reopenFinancialYear, settings, organization, currentUser, currentSelectedOrgId, accounts } = useAccounting();
@@ -71,14 +72,16 @@ const FiscalYearClosing: React.FC = () => {
       const { count: drafts } = await qDraft;
       setUnpostedCount(drafts || 0);
 
-      // 2. فحص توازن ميزان المراجعة
-      let qLines = supabase
-        .from('journal_lines')
-        .select('debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
-        .eq('journal_entries.status', 'posted')
-        .lte('journal_entries.transaction_date', `${year}-12-31`);
-      if (userOrgId) qLines = qLines.eq('journal_entries.organization_id', userOrgId);
-      const { data: lines } = await qLines;
+      // 2. فحص توازن ميزان المراجعة (بالتجزئة لمنع سقف 1000 سجل)
+      const lines = await fetchCompleteDataset<any>(async (from, to) => {
+        let qLines = supabase
+          .from('journal_lines')
+          .select('debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+          .eq('journal_entries.status', 'posted')
+          .lte('journal_entries.transaction_date', `${year}-12-31`);
+        if (userOrgId) qLines = qLines.eq('journal_entries.organization_id', userOrgId);
+        return qLines.range(from, to);
+      });
 
       let totalDr = 0;
       let totalCr = 0;
@@ -117,15 +120,17 @@ const FiscalYearClosing: React.FC = () => {
       const { data: depEntry } = await qDepEntry;
       setDepAlreadyPosted(Boolean(depEntry && depEntry.length > 0));
 
-      // 5. تقدير صافي الربح والضريبة
-      let qPnl = supabase
-        .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
-        .eq('journal_entries.status', 'posted')
-        .gte('journal_entries.transaction_date', `${year}-01-01`)
-        .lte('journal_entries.transaction_date', `${year}-12-31`);
-      if (userOrgId) qPnl = qPnl.eq('journal_entries.organization_id', userOrgId);
-      const { data: pnlLines } = await qPnl;
+      // 5. تقدير صافي الربح والضريبة (بالتجزئة لمنع سقف 1000 سجل)
+      const pnlLines = await fetchCompleteDataset<any>(async (from, to) => {
+        let qPnl = supabase
+          .from('journal_lines')
+          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
+          .eq('journal_entries.status', 'posted')
+          .gte('journal_entries.transaction_date', `${year}-01-01`)
+          .lte('journal_entries.transaction_date', `${year}-12-31`);
+        if (userOrgId) qPnl = qPnl.eq('journal_entries.organization_id', userOrgId);
+        return qPnl.range(from, to);
+      });
 
       let rev = 0;
       let exp = 0;

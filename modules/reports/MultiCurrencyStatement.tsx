@@ -5,6 +5,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { FileText, Printer, Loader2, Filter, Download, CircleDollarSign } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 const MultiCurrencyStatement = () => {
   const { accounts, selectedFiscalYear, fiscalYearRange } = useAccounting();
@@ -34,27 +35,19 @@ const MultiCurrencyStatement = () => {
     }
     setLoading(true);
     try {
-      // 1. جلب القيود للحساب المختار
-      let query = supabase
-        .from('journal_lines')
-        .select(`
-            id, debit, credit, description, 
-            journal_entry:journal_entries!inner(transaction_date, reference, description, status)
-        `)
-        .eq('account_id', selectedAccountId)
-        .eq('journal_entry.status', 'posted')
-        .order('journal_entry(transaction_date)', { ascending: true });
-
-      // ملاحظة: حالياً جدول journal_lines لا يحتوي على حقل العملة بشكل مباشر، 
-      // العملة موجودة في الفواتير والسندات المرتبطة بالقيد.
-      // لدعم الفلترة بالعملة بدقة، يجب أن يكون حقل العملة موجوداً في journal_entries أو journal_lines.
-      // سنفترض هنا أننا نعرض جميع الحركات بالعملة المحلية (Base Currency) كما هي مسجلة في القيود.
-      // إذا أردنا عرض العملة الأصلية، نحتاج لربط القيد بالمستند الأصلي (فاتورة/سند) وجلب العملة منه.
-      
-      // للتبسيط في هذه المرحلة، سنعرض القيم المسجلة في القيود (وهي بالعملة المحلية بعد التحويل).
-      
-      const { data, error } = await query;
-      if (error) throw error;
+      // 1. جلب القيود للحساب المختار (بالتجزئة لمنع سقف 1000 حركة)
+      const data = await fetchCompleteDataset<any>(async (from, to) => {
+        return supabase
+          .from('journal_lines')
+          .select(`
+              id, debit, credit, description, 
+              journal_entry:journal_entries!inner(transaction_date, reference, description, status)
+          `)
+          .eq('account_id', selectedAccountId)
+          .eq('journal_entry.status', 'posted')
+          .order('journal_entry(transaction_date)', { ascending: true })
+          .range(from, to);
+      });
 
       // معالجة البيانات وحساب الرصيد الافتراضي
       let openBal = 0;

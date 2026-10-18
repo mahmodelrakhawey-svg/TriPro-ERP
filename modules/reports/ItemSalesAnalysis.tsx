@@ -5,6 +5,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { BarChart2, Search, Download, Loader2, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 const ItemSalesAnalysis = () => {
   const { currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
@@ -48,53 +49,57 @@ const ItemSalesAnalysis = () => {
       if (!userOrgId) return;
 
       // 1. جلب بنود الفواتير (غير المسودة) مع تفاصيل المنتج
-      const { data: invItems, error: invError } = await supabase
-        .from('invoice_items')
-        .select(`
-          quantity,
-          total,
-          cost,
-          product_id,
-          products (name, sku, purchase_price, weighted_average_cost),
-          invoices!inner (invoice_date, status, invoice_number)
-        `)
-        .eq('invoices.organization_id', userOrgId) // 🔒 فلترة المبيعات حسب المنظمة
-        .gte('invoices.invoice_date', startDate)
-        .lte('invoices.invoice_date', endDate)
-        .neq('invoices.status', 'draft')
-        .neq('invoices.status', 'cancelled');
-
-      if (invError) logger.error('Error fetching invoice items:', invError);
+      const invItems = await fetchCompleteDataset<any>(async (from, to) =>
+        supabase
+          .from('invoice_items')
+          .select(`
+            quantity,
+            total,
+            cost,
+            product_id,
+            products (name, sku, purchase_price, weighted_average_cost),
+            invoices!inner (invoice_date, status, invoice_number)
+          `)
+          .eq('invoices.organization_id', userOrgId) // 🔒 فلترة المبيعات حسب المنظمة
+          .gte('invoices.invoice_date', startDate)
+          .lte('invoices.invoice_date', endDate)
+          .neq('invoices.status', 'draft')
+          .neq('invoices.status', 'cancelled')
+          .range(from, to)
+      );
 
       // 2. جلب مبيعات نقاط البيع والكاشير والتجزئة والهايبر ماركت والمطاعم (POS Orders)
-      const { data: posItems, error: posError } = await supabase
-        .from('order_items')
-        .select(`
-          quantity,
-          total_price,
-          unit_cost,
-          product_id,
-          products (name, sku, purchase_price, weighted_average_cost),
-          orders!inner (created_at, status)
-        `)
-        .eq('orders.organization_id', userOrgId)
-        .in('orders.status', ['COMPLETED', 'PAID'])
-        .gte('orders.created_at', `${startDate}T00:00:00`)
-        .lte('orders.created_at', `${endDate}T23:59:59`);
-
-      if (posError) logger.error('Error fetching POS order items:', posError);
+      const posItems = await fetchCompleteDataset<any>(async (from, to) =>
+        supabase
+          .from('order_items')
+          .select(`
+            quantity,
+            total_price,
+            unit_cost,
+            product_id,
+            products (name, sku, purchase_price, weighted_average_cost),
+            orders!inner (created_at, status)
+          `)
+          .eq('orders.organization_id', userOrgId)
+          .in('orders.status', ['COMPLETED', 'PAID'])
+          .gte('orders.created_at', `${startDate}T00:00:00`)
+          .lte('orders.created_at', `${endDate}T23:59:59`)
+          .range(from, to)
+      );
 
       // 3. جلب مبيعات وصرف الصيدليات والعيادات (إن وجدت)
       let himsItems: any[] = [];
       try {
-        const { data: himsData } = await supabase
-          .from('hims_billing_items')
-          .select('quantity, total_price, product_id, products(name, sku, purchase_price, weighted_average_cost), hims_billing!inner(created_at, organization_id)')
-          .eq('hims_billing.organization_id', userOrgId)
-          .not('product_id', 'is', null)
-          .gte('hims_billing.created_at', `${startDate}T00:00:00`)
-          .lte('hims_billing.created_at', `${endDate}T23:59:59`);
-        if (himsData) himsItems = himsData;
+        himsItems = await fetchCompleteDataset<any>(async (from, to) =>
+          supabase
+            .from('hims_billing_items')
+            .select('quantity, total_price, product_id, products(name, sku, purchase_price, weighted_average_cost), hims_billing!inner(created_at, organization_id)')
+            .eq('hims_billing.organization_id', userOrgId)
+            .not('product_id', 'is', null)
+            .gte('hims_billing.created_at', `${startDate}T00:00:00`)
+            .lte('hims_billing.created_at', `${endDate}T23:59:59`)
+            .range(from, to)
+        );
       } catch (himsErr) {
         // Safe ignore if hims module not installed
       }

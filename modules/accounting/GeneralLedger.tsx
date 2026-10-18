@@ -1,4 +1,4 @@
-﻿import { logger } from '../../utils/logger';
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
@@ -7,6 +7,7 @@ import { Book, Filter, Search, Printer } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import ReportHeader from '../../components/ReportHeader';
 import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 type Account = {
   id: string;
@@ -193,25 +194,26 @@ const GeneralLedger = () => {
         }
       }
 
-      // 🛡️ Graceful Degradation: الرجوع للاستعلام العادي إذا لم تنجح الدالة أو إذا كان هناك فلتر عميل
+      // 🛡️ Graceful Degradation: الرجوع للاستعلام العادي إذا لم تنجح الدالة أو إذا كان هناك فلتر عميل (مقسم لتجاوز سقف 1000)
       if (!rpcSucceeded) {
-        let openingQuery = supabase
-          .from('journal_lines')
-          .select('debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
-          .in('account_id', targetAccountIds) // استخدام .in بدلاً من .eq
-          .eq('journal_entries.status', 'posted') // الاعتماد على status='posted' أدق
-          .eq('journal_entries.organization_id', userOrgId)
-          .lt('journal_entries.transaction_date', startDate || '1970-01-01');
+        const openingData = await fetchCompleteDataset(async (from, to) => {
+          let openingQuery = supabase
+            .from('journal_lines')
+            .select('debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+            .in('account_id', targetAccountIds)
+            .eq('journal_entries.status', 'posted')
+            .eq('journal_entries.organization_id', userOrgId)
+            .lt('journal_entries.transaction_date', startDate || '1970-01-01');
 
-        if (customerEntryIds) {
-          openingQuery = openingQuery.in('journal_entry_id', customerEntryIds);
-        }
+          if (customerEntryIds) {
+            openingQuery = openingQuery.in('journal_entry_id', customerEntryIds);
+          }
 
-        const { data: openingData, error: openingError } = await openingQuery;
-        if (openingError) throw openingError;
+          return openingQuery.range(from, to);
+        });
 
         // الرصيد الافتتاحي = مجموع المدين - مجموع الدائن (للفترة السابقة)
-        openBal = openingData?.reduce((sum, line) => sum + (line.debit - line.credit), 0) || 0;
+        openBal = openingData?.reduce((sum, line: any) => sum + (Number(line.debit || 0) - Number(line.credit || 0)), 0) || 0;
       }
 
       setOpeningBalance(openBal);

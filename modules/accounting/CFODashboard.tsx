@@ -25,6 +25,7 @@ import {
   ArrowUpRight,
   ArrowDownRight
 } from 'lucide-react';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 export const CFODashboard: React.FC = () => {
   const { accounts, settings, organization, currentUser, currentSelectedOrgId, selectedFiscalYear } = useAccounting();
@@ -45,27 +46,29 @@ export const CFODashboard: React.FC = () => {
       const { data: { session } } = await supabase.auth.getSession();
       const userOrgId = currentSelectedOrgId || session?.user?.user_metadata?.org_id || (organization as any)?.id;
 
-      // 1. حركات السنة لبيان الدخل والمبيعات والتكلفة
-      let qPeriod = supabase
-        .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
-        .eq('journal_entries.status', 'posted')
-        .gte('journal_entries.transaction_date', startDate)
-        .lte('journal_entries.transaction_date', endDate);
-      if (userOrgId) qPeriod = qPeriod.eq('journal_entries.organization_id', userOrgId);
-      const { data: periodData, error: err1 } = await qPeriod;
-      if (err1) throw err1;
+      // 1. حركات السنة لبيان الدخل والمبيعات والتكلفة (بالتجزئة لمنع سقف 1000 سجل)
+      const periodData = await fetchCompleteDataset<any>(async (from, to) => {
+        let qPeriod = supabase
+          .from('journal_lines')
+          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
+          .eq('journal_entries.status', 'posted')
+          .gte('journal_entries.transaction_date', startDate)
+          .lte('journal_entries.transaction_date', endDate);
+        if (userOrgId) qPeriod = qPeriod.eq('journal_entries.organization_id', userOrgId);
+        return qPeriod.range(from, to);
+      });
       setLedgerLines(periodData || []);
 
-      // 2. الأرصدة التراكمية حتى نهاية السنة لحسابات المركز المالي
-      let qCum = supabase
-        .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
-        .eq('journal_entries.status', 'posted')
-        .lte('journal_entries.transaction_date', endDate);
-      if (userOrgId) qCum = qCum.eq('journal_entries.organization_id', userOrgId);
-      const { data: cumData, error: err2 } = await qCum;
-      if (err2) throw err2;
+      // 2. الأرصدة التراكمية حتى نهاية السنة لحسابات المركز المالي (بالتجزئة لمنع سقف 1000 سجل)
+      const cumData = await fetchCompleteDataset<any>(async (from, to) => {
+        let qCum = supabase
+          .from('journal_lines')
+          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+          .eq('journal_entries.status', 'posted')
+          .lte('journal_entries.transaction_date', endDate);
+        if (userOrgId) qCum = qCum.eq('journal_entries.organization_id', userOrgId);
+        return qCum.range(from, to);
+      });
       setCumulativeLines(cumData || []);
 
     } catch (err) {

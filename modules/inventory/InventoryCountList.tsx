@@ -10,6 +10,7 @@ import {
   Calendar, Warehouse, FileText, ArrowUpDown, RefreshCw
 } from 'lucide-react';
 import { normalizeArabic } from '../../components/ProductSearchSelect';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 // =========================================================================
 // 1. مودال عرض تفاصيل الجرد (CountDetailsModal)
@@ -561,8 +562,7 @@ const InventoryCountList = () => {
           .lte('count_date', `${selectedFiscalYear}-12-31`);
       }
 
-      const { data, error } = await query;
-      if (error) throw error;
+      const data = await fetchCompleteDataset<any>(async (from, to) => query.range(from, to));
       setCounts(data || []);
     } catch (err: any) {
       logger.error('Error fetching inventory counts:', err);

@@ -3,6 +3,7 @@ import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { ArrowRight, TrendingUp, TrendingDown, DollarSign, Users, HardHat, Package } from 'lucide-react';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 
 interface ProfitabilityData {
   projectName: string;
@@ -41,27 +42,41 @@ const ProjectProfitabilityDashboard: React.FC<Props> = ({ projectId, onBack }) =
         .eq('organization_id', organization?.id)
         .single();
 
-      // 2. جلب إجمالي ما تم فوترته للعميل (Approved Billings)
-      const { data: clientBillings } = await supabase
-        .from('project_progress_billings')
-        .select('gross_amount')
-        .eq('project_id', projectId)
-        .eq('status', 'approved');
+      // 2. جلب إجمالي ما تم فوترته للعميل (Approved Billings) بالتجزئة
+      const clientBillings = await fetchCompleteDataset<any>(async (from, to) => {
+        return supabase
+          .from('project_progress_billings')
+          .select('gross_amount')
+          .eq('project_id', projectId)
+          .eq('status', 'approved')
+          .range(from, to);
+      });
 
       // 3. جلب إجمالي تكاليف مقاولي الباطن
-      const { data: subBillings } = await supabase
-        .from('subcontractor_billings')
-        .select('gross_amount')
-        .eq('status', 'approved')
-        .in('contract_id', (
-          await supabase.from('subcontractor_contracts').select('id').eq('project_id', projectId)
-        ).data?.map(c => c.id) || []);
+      const subContracts = await supabase.from('subcontractor_contracts').select('id').eq('project_id', projectId);
+      const contractIds = subContracts.data?.map(c => c.id) || [];
 
-      // 4. جلب المصاريف المباشرة من الأستاذ العام (المواد والعمالة)
-      const { data: ledgerCosts } = await supabase
-        .from('journal_lines')
-        .select('debit, credit')
-        .eq('cost_center_id', project?.cost_center_account_id);
+      const subBillings = contractIds.length > 0 
+        ? await fetchCompleteDataset<any>(async (from, to) => {
+            return supabase
+              .from('subcontractor_billings')
+              .select('gross_amount')
+              .eq('status', 'approved')
+              .in('contract_id', contractIds)
+              .range(from, to);
+          })
+        : [];
+
+      // 4. جلب المصاريف المباشرة من الأستاذ العام (المواد والعمالة) بالتجزئة لمنع سقف 1000 حركة
+      const ledgerCosts = project?.cost_center_account_id
+        ? await fetchCompleteDataset<any>(async (from, to) => {
+            return supabase
+              .from('journal_lines')
+              .select('debit, credit')
+              .eq('cost_center_id', project.cost_center_account_id)
+              .range(from, to);
+          })
+        : [];
 
       const totalRevenue = clientBillings?.reduce((sum, b) => sum + b.gross_amount, 0) || 0;
       const totalSubCosts = subBillings?.reduce((sum, b) => sum + b.gross_amount, 0) || 0;

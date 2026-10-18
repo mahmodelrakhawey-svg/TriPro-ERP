@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { createEmployeeAdvanceSchema } from '../../../utils/validationSchemas';
 import EmployeeSearchSelect, { EmployeeOption } from '../../../components/EmployeeSearchSelect';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 
 const EmployeeAdvances = () => {
   const { addEntry, getSystemAccount, accounts, currentUser, refreshData } = useAccounting();
@@ -50,12 +51,15 @@ const EmployeeAdvances = () => {
 
       if (!userOrgId) return;
 
-      // 1. جلب السلف مع تفاصيل الموظف
-      const { data: advData } = await supabase
-        .from('employee_advances')
-        .select('*, employees(full_name, department, position, basic_salary)')
-        .eq('organization_id', userOrgId)
-        .order('created_at', { ascending: false });
+      // 1. جلب السلف مع تفاصيل الموظف (بالتجزئة لمنع سقف 1000 سجل)
+      const advData = await fetchCompleteDataset<any>(async (from, to) => {
+        return supabase
+          .from('employee_advances')
+          .select('*, employees(full_name, department, position, basic_salary)')
+          .eq('organization_id', userOrgId)
+          .order('created_at', { ascending: false })
+          .range(from, to);
+      });
       if (advData) setAdvances(advData);
 
       // 2. جلب الموظفين مع كافة الحقول التفصيلية

@@ -110,8 +110,8 @@ type SupabaseRpcCaller = (fn: string, args: Record<string, unknown>) => Promise<
  * @param buildQuery دالة منشئ الاستعلام تستلم مدى الصفوف (from, to)
  * @returns وعد بمصفوفة كاملة تحتوي على كافة السجلات المجمعة
  */
-export async function fetchCompleteDataset<T = Record<string, unknown>>(
-  buildQuery: (from: number, to: number) => Promise<{ data: T[] | null; error: unknown }>
+export async function fetchCompleteDataset<T = any>(
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }> | Promise<{ data: T[] | null; error: unknown }> | any
 ): Promise<T[]> {
   const CHUNK_SIZE = 1000;
   let allRows: T[] = [];

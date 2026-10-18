@@ -9,6 +9,7 @@ import {
   CheckCircle, Clock, X, Edit3, Package, FileSpreadsheet, Plus 
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 const StockTransferList = () => {
   const { warehouses, products, currentUser, transfers: contextTransfers, approveStockTransfer, cancelStockTransfer, can, selectedFiscalYear } = useAccounting();
@@ -34,29 +35,30 @@ const StockTransferList = () => {
     }
 
     try {
-      let query = supabase
-        .from('stock_transfers')
-        .select(`
-          *,
-          stock_transfer_items (
-            id,
-            product_id,
-            quantity,
-            uom_id,
-            products (id, name, unit, sku)
-          )
-        `)
-        .order('transfer_date', { ascending: false });
+      const data = await fetchCompleteDataset<any>(async (from, to) => {
+        let query = supabase
+          .from('stock_transfers')
+          .select(`
+            *,
+            stock_transfer_items (
+              id,
+              product_id,
+              quantity,
+              uom_id,
+              products (id, name, unit, sku)
+            )
+          `)
+          .order('transfer_date', { ascending: false });
 
-      if (selectedFiscalYear) {
-        query = query
-          .gte('transfer_date', `${selectedFiscalYear}-01-01`)
-          .lte('transfer_date', `${selectedFiscalYear}-12-31`);
-      }
+        if (selectedFiscalYear) {
+          query = query
+            .gte('transfer_date', `${selectedFiscalYear}-01-01`)
+            .lte('transfer_date', `${selectedFiscalYear}-12-31`);
+        }
 
-      const { data, error } = await query;
+        return query.range(from, to);
+      });
 
-      if (error) throw error;
       setTransfers(data || []);
     } catch (error) {
       logger.error('Error fetching transfers:', error);

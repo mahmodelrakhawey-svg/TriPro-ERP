@@ -18,6 +18,7 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { ReceiptVoucherPrint } from './ReceiptVoucherPrint';
 import { usePagination } from '../../../components/usePagination';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 
 // Interface for Receipt Voucher
 interface ReceiptVoucher {
@@ -409,8 +410,7 @@ const ReceiptVoucherList = () => {
           q = q.eq('payment_method', paymentMethodFilter);
         }
 
-        const { data, error } = await q;
-        if (error) throw error;
+        const data = await fetchCompleteDataset<any>(async (from, to) => q.range(from, to));
         if (isCancelled) return;
 
         let cTotal = 0, cCount = 0, oTotal = 0, oCount = 0, cash = 0, bank = 0, cheque = 0;

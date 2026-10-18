@@ -7,6 +7,7 @@ import { Package, Search, Printer, Loader2, ArrowUpRight, ArrowDownLeft, Filter,
 import * as XLSX from 'xlsx';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ProductSearchSelect from '../../components/ProductSearchSelect';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 type Movement = {
   id: string;
@@ -138,7 +139,7 @@ const ItemMovementReport = () => {
         .eq('organization_id', userOrgId); 
       
       if (selectedWarehouseId) salesQuery = salesQuery.eq('invoices.warehouse_id', selectedWarehouseId);
-      const { data: salesItems } = await salesQuery;
+      const salesItems = await fetchCompleteDataset<any>((from, to) => salesQuery.range(from, to));
 
       // 2. جلب حركات المشتريات (Purchase Invoices) - وارد
       let purchaseQuery = supabase
@@ -149,7 +150,7 @@ const ItemMovementReport = () => {
         .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) purchaseQuery = purchaseQuery.eq('purchase_invoices.warehouse_id', selectedWarehouseId);
-      const { data: purchaseItems } = await purchaseQuery;
+      const purchaseItems = await fetchCompleteDataset<any>((from, to) => purchaseQuery.range(from, to));
 
       // 2.1 جلب حركات توريد الاعتمادات المستندية (LC Receipts) - وارد
       let lcQuery = supabase
@@ -159,7 +160,7 @@ const ItemMovementReport = () => {
         .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) lcQuery = lcQuery.eq('warehouse_id', selectedWarehouseId);
-      const { data: lcReceipts } = await lcQuery;
+      const lcReceipts = await fetchCompleteDataset<any>((from, to) => lcQuery.range(from, to));
 
       // 3. جلب مرتجعات المبيعات (Sales Returns) - وارد
       let salesReturnsQuery = supabase
@@ -170,7 +171,7 @@ const ItemMovementReport = () => {
         .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) salesReturnsQuery = salesReturnsQuery.eq('sales_returns.warehouse_id', selectedWarehouseId);
-      const { data: salesReturns } = await salesReturnsQuery;
+      const salesReturns = await fetchCompleteDataset<any>((from, to) => salesReturnsQuery.range(from, to));
 
       // 4. جلب مرتجعات المشتريات (Purchase Returns) - صادر
       let purchaseReturnsQuery = supabase
@@ -181,7 +182,7 @@ const ItemMovementReport = () => {
         .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) purchaseReturnsQuery = purchaseReturnsQuery.eq('purchase_returns.warehouse_id', selectedWarehouseId);
-      const { data: purchaseReturns } = await purchaseReturnsQuery;
+      const purchaseReturns = await fetchCompleteDataset<any>((from, to) => purchaseReturnsQuery.range(from, to));
 
       // 5. جلب التسويات المخزنية (Stock Adjustments)
       let adjustmentsQuery = supabase
@@ -192,7 +193,7 @@ const ItemMovementReport = () => {
         .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) adjustmentsQuery = adjustmentsQuery.eq('stock_adjustments.warehouse_id', selectedWarehouseId);
-      const { data: adjustments } = await adjustmentsQuery;
+      const adjustments = await fetchCompleteDataset<any>((from, to) => adjustmentsQuery.range(from, to));
 
       // 6. جلب رصيد أول المدة (Opening Inventory)
       let openingQuery = supabase
@@ -202,7 +203,7 @@ const ItemMovementReport = () => {
         .eq('organization_id', userOrgId);
       
       if (selectedWarehouseId) openingQuery = openingQuery.eq('warehouse_id', selectedWarehouseId);
-      const { data: openingInventory } = await openingQuery;
+      const openingInventory = await fetchCompleteDataset<any>((from, to) => openingQuery.range(from, to));
 
       // 7. جلب التحويلات المخزنية (Stock Transfers) - الإصلاح النهائي للـ 400 Bad Request
       let transfersQuery = supabase
@@ -212,7 +213,7 @@ const ItemMovementReport = () => {
         .eq('stock_transfers.status', 'posted')
         .eq('organization_id', userOrgId);
       
-      const { data: transfers } = await transfersQuery;
+      const transfers = await fetchCompleteDataset<any>((from, to) => transfersQuery.range(from, to));
 
       // 8. جلب حركات التصنيع (Manufacturing)
       // أ. المنتج التام (زيادة)
@@ -223,7 +224,7 @@ const ItemMovementReport = () => {
         .eq('status', 'completed')
         .eq('organization_id', userOrgId);
       if (selectedWarehouseId) mfgFinishedQuery = mfgFinishedQuery.eq('warehouse_id', selectedWarehouseId);
-      const { data: mfgFinished } = await mfgFinishedQuery;
+      const mfgFinished = await fetchCompleteDataset<any>((from, to) => mfgFinishedQuery.range(from, to));
 
       // ب. المواد الخام المستهلكة فعلياً (نقصان)
       let mfgActualQuery = supabase
@@ -247,7 +248,7 @@ const ItemMovementReport = () => {
         .eq('raw_material_id', selectedProductId)
         .eq('organization_id', userOrgId);
       if (selectedWarehouseId) mfgActualQuery = mfgActualQuery.eq('mfg_order_progress.mfg_production_orders.warehouse_id', selectedWarehouseId);
-      const { data: mfgActuals } = await mfgActualQuery;
+      const mfgActuals = await fetchCompleteDataset<any>((from, to) => mfgActualQuery.range(from, to));
       
       const ordersWithActualUsage = new Set<string>();
       mfgActuals?.forEach((item: Record<string, any>) => {
@@ -278,7 +279,7 @@ const ItemMovementReport = () => {
         .eq('organization_id', userOrgId)
         .eq('mfg_material_requests.status', 'issued');
       if (selectedWarehouseId) mfgRawQuery = mfgRawQuery.eq('mfg_material_requests.mfg_production_orders.warehouse_id', selectedWarehouseId);
-      const { data: mfgRaws } = await mfgRawQuery;
+      const mfgRaws = await fetchCompleteDataset<any>((from, to) => mfgRawQuery.range(from, to));
 
       // د. الهالك الصناعي (نقصان)
       let mfgScrapQuery = supabase
@@ -301,15 +302,18 @@ const ItemMovementReport = () => {
         .eq('product_id', selectedProductId)
         .eq('organization_id', userOrgId);
       if (selectedWarehouseId) mfgScrapQuery = mfgScrapQuery.eq('mfg_order_progress.mfg_production_orders.warehouse_id', selectedWarehouseId);
-      const { data: mfgScraps } = await mfgScrapQuery;
+      const mfgScraps = await fetchCompleteDataset<any>((from, to) => mfgScrapQuery.range(from, to));
 
       // 9. جلب مبيعات واستهلاك المطاعم (Restaurant Module)
       // أ. البيع المباشر للصنف
-      const { data: restaurantDirectSales } = await supabase
-        .from('order_items')
-        .select('quantity, uom_id, order_id, orders!inner(created_at, order_number, status, user_id)')
-        .eq('product_id', selectedProductId)
-        .in('orders.status', ['COMPLETED', 'PAID']);
+      const restaurantDirectSales = await fetchCompleteDataset<any>((from, to) => 
+        supabase
+          .from('order_items')
+          .select('quantity, uom_id, order_id, orders!inner(created_at, order_number, status, user_id)')
+          .eq('product_id', selectedProductId)
+          .in('orders.status', ['COMPLETED', 'PAID'])
+          .range(from, to)
+      );
 
       // ب. استهلاك المواد الخام (إذا كان الصنف مادة خام لوجبة)
       const { data: restaurantBoms } = await supabase
@@ -320,11 +324,14 @@ const ItemMovementReport = () => {
       let restaurantConsumption: any[] = [];
       if (restaurantBoms && restaurantBoms.length > 0) {
           const parentIds = restaurantBoms.map(b => b.product_id);
-          const { data: parentOrders } = await supabase
-            .from('order_items')
-            .select('quantity, product_id, order_id, orders!inner(created_at, order_number, status, user_id)')
-            .in('product_id', parentIds)
-            .in('orders.status', ['COMPLETED', 'PAID']);
+          const parentOrders = await fetchCompleteDataset<any>((from, to) =>
+            supabase
+              .from('order_items')
+              .select('quantity, product_id, order_id, orders!inner(created_at, order_number, status, user_id)')
+              .in('product_id', parentIds)
+              .in('orders.status', ['COMPLETED', 'PAID'])
+              .range(from, to)
+          );
           if (parentOrders) restaurantConsumption = parentOrders;
       }
 
@@ -339,7 +346,7 @@ const ItemMovementReport = () => {
         .eq('hims_billing.organization_id', userOrgId);
 
       if (selectedWarehouseId) himsQuery = himsQuery.eq('warehouse_id', selectedWarehouseId);
-      const { data: himsItems } = await himsQuery;
+      const himsItems = await fetchCompleteDataset<any>((from, to) => himsQuery.range(from, to));
 
       // 10. جلب حركات صرف المواد لمشاريع المقاولات (Construction Material Issues) - صادر
       let constructionQuery = supabase
@@ -353,7 +360,7 @@ const ItemMovementReport = () => {
         .eq('organization_id', userOrgId);
 
       if (selectedWarehouseId) constructionQuery = constructionQuery.eq('project_material_issues.warehouse_id', selectedWarehouseId);
-      const { data: constructionIssues } = await constructionQuery;
+      const constructionIssues = await fetchCompleteDataset<any>((from, to) => constructionQuery.range(from, to));
 
       // تجميع الحركات
       let allMovements: any[] = [];

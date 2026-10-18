@@ -10,6 +10,7 @@ import ProductSearchSelect from '../../components/ProductSearchSelect';
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { stockCardProductUpdateSchema, stockCardOpeningBalanceUpdateSchema } from '../../utils/validationSchemas';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 interface Product {
   id: string;
@@ -264,14 +265,59 @@ const StockCard = () => {
 
       if (selectedWarehouseId) queryLc = queryLc.eq('warehouse_id', selectedWarehouseId);
 
-      // تنفيذ الاستعلامات بالتوازي
-      const [sales, purchases, sReturns, pReturns, adjustments, transfers, opening, restDirect, restConsumption, mfgFin, mfgRaw, mfgScrap, mfgActual, hims, construction, lcReceipts] = await Promise.all([
-        querySales, queryPurchases, querySalesReturns, queryPurchaseReturns, queryAdjustments, queryTransfers, queryOpening,
-        queryRestDirect,
-        queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] }),
-        queryMfgFinished, queryMfgRaw, queryMfgScrap, queryMfgActual,
-        queryHims, queryConstruction, queryLc
+      // تنفيذ الاستعلامات بالتوازي مع التجزئة لمنع سقف 1000 حركة للصنف الواحد
+      const [
+        salesData,
+        purchasesData,
+        sReturnsData,
+        pReturnsData,
+        adjustmentsData,
+        transfersData,
+        openingData,
+        restDirectData,
+        restConsumptionData,
+        mfgFinData,
+        mfgRawData,
+        mfgScrapData,
+        mfgActualData,
+        himsData,
+        constructionData,
+        lcReceiptsData
+      ] = await Promise.all([
+        fetchCompleteDataset<any>(async (from, to) => querySales.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryPurchases.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => querySalesReturns.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryPurchaseReturns.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryAdjustments.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryTransfers.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryOpening.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryRestDirect.range(from, to)),
+        queryRestConsumption ? fetchCompleteDataset<any>(async (from, to) => queryRestConsumption!.range(from, to)) : Promise.resolve([]),
+        fetchCompleteDataset<any>(async (from, to) => queryMfgFinished.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryMfgRaw.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryMfgScrap.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryMfgActual.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryHims.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryConstruction.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryLc.range(from, to))
       ]);
+
+      const sales = { data: salesData };
+      const purchases = { data: purchasesData };
+      const sReturns = { data: sReturnsData };
+      const pReturns = { data: pReturnsData };
+      const adjustments = { data: adjustmentsData };
+      const transfers = { data: transfersData };
+      const opening = { data: openingData };
+      const restDirect = { data: restDirectData };
+      const restConsumption = { data: restConsumptionData };
+      const mfgFin = { data: mfgFinData };
+      const mfgRaw = { data: mfgRawData };
+      const mfgScrap = { data: mfgScrapData };
+      const mfgActual = { data: mfgActualData };
+      const hims = { data: himsData };
+      const construction = { data: constructionData };
+      const lcReceipts = { data: lcReceiptsData };
 
       const allTxns: Transaction[] = [];
       const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';

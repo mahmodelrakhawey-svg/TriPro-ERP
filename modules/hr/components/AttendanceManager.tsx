@@ -11,6 +11,7 @@ import {
   Download, Loader2
 } from 'lucide-react';
 import { hrEnterpriseService, HrShift } from '../../../services/hrEnterpriseService';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 
 interface AttendanceLog {
   id: string;
@@ -176,31 +177,28 @@ export default function AttendanceManager() {
       }
       setEmployeesList(empList);
 
-      // 2. Attendance Logs
-      let query = supabase
-        .from('hr_attendance_logs')
-        .select('*')
-        .eq('organization_id', orgId)
-        .order('log_date', { ascending: false });
+      // 2. Attendance Logs (بالتجزئة لمنع سقف 1000 سجل)
+      const data = await fetchCompleteDataset<any>(async (from, to) => {
+        let q = supabase
+          .from('hr_attendance_logs')
+          .select('*')
+          .eq('organization_id', orgId)
+          .order('log_date', { ascending: false });
 
-      if (selectedDate) {
-        query = query.eq('log_date', selectedDate);
-      }
+        if (selectedDate) {
+          q = q.eq('log_date', selectedDate);
+        }
+        return q.range(from, to);
+      });
 
-      const { data, error } = await query;
-      if (error) {
-        logger.warn('hr_attendance_logs table notice:', error.message);
-        setLogs([]);
-      } else {
-        setLogs((data || []).map((d: Record<string, any>) => {
-          const emp = empList.find(e => e.id === d.employee_id);
-          return {
-            ...d,
-            employee_name: emp?.name || 'موظف',
-            department: emp?.department || 'الفرع الرئيسي'
-          };
-        }) as AttendanceLog[]);
-      }
+      setLogs((data || []).map((d: Record<string, any>) => {
+        const emp = empList.find(e => e.id === d.employee_id);
+        return {
+          ...d,
+          employee_name: emp?.name || 'موظف',
+          department: emp?.department || 'الفرع الرئيسي'
+        };
+      }) as AttendanceLog[]);
     } catch (err) {
       logger.error(err);
       setLogs([]);
@@ -582,16 +580,15 @@ export default function AttendanceManager() {
         const empIds = Array.from(new Set(validRecords.map(v => v.employee_id)));
         const logDates = Array.from(new Set(validRecords.map(v => v.log_date)));
 
-        const { data: existingLogs, error: fetchErr } = await supabase
-          .from('hr_attendance_logs')
-          .select('id, employee_id, log_date')
-          .eq('organization_id', orgId)
-          .in('employee_id', empIds)
-          .in('log_date', logDates);
-
-        if (fetchErr) {
-          logger.warn('hr_attendance_logs fetch notice during import:', fetchErr.message);
-        }
+        const existingLogs = await fetchCompleteDataset<any>(async (from, to) => {
+          return supabase
+            .from('hr_attendance_logs')
+            .select('id, employee_id, log_date')
+            .eq('organization_id', orgId)
+            .in('employee_id', empIds)
+            .in('log_date', logDates)
+            .range(from, to);
+        });
 
         const existingMap = new Map<string, string>();
         (existingLogs || []).forEach((l: { id: string; employee_id: string; log_date: string }) => {

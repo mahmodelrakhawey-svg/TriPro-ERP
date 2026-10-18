@@ -179,21 +179,30 @@ const SupplierStatement = () => {
         }
 
         // 7. جلب القيود اليدوية والافتتاحية (التي تؤثر على حسابات الموردين)
-        const [manualEntriesByNameRes, allSupplierLinkedEntriesRes] = await Promise.all([
+        const [manualEntriesByNameData, allSupplierLinkedEntriesData] = await Promise.all([
             // أ. قيود يدوية بدون معرف مستند ولكن مذكور فيها اسم المورد في البيان
-            supabase.from('journal_lines')
+            fetchCompleteDataset<any>(async (from, to) =>
+              supabase.from('journal_lines')
                 .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id), accounts!inner(code)')
                 .eq('journal_entries.status', 'posted')
                 .is('journal_entries.related_document_id', null)
                 .or('code.ilike.201%,code.ilike.221%', { foreignTable: 'accounts' })
-                .ilike('journal_entries.description', `%${selectedSupplier?.name?.trim() || ''}%`),
+                .ilike('journal_entries.description', `%${selectedSupplier?.name?.trim() || ''}%`)
+                .range(from, to)
+            ),
             // ب. كافة قيود اليومية والتسويات والقيود الافتتاحية المربوطة مباشرة بهذا المورد
-            supabase.from('journal_lines')
+            fetchCompleteDataset<any>(async (from, to) =>
+              supabase.from('journal_lines')
                 .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id, related_document_type), accounts!inner(code)')
                 .eq('journal_entries.status', 'posted')
                 .eq('journal_entries.related_document_id', selectedSupplierId)
                 .or('code.ilike.201%,code.ilike.221%', { foreignTable: 'accounts' })
+                .range(from, to)
+            )
         ]);
+
+        const manualEntriesByNameRes = { data: manualEntriesByNameData };
+        const allSupplierLinkedEntriesRes = { data: allSupplierLinkedEntriesData };
 
         const openingEntries: any[] = [];
         const manualEntries: any[] = [...(manualEntriesByNameRes.data || [])];

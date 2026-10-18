@@ -11,6 +11,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 export const SupplierBalanceReconciliation: React.FC = () => {
   const { accounts, suppliers, getSystemAccount, settings, currentUser, currentSelectedOrgId, organization } = useAccounting();
@@ -86,19 +87,19 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         return;
       }
 
-      let glQuery = supabase
-        .from('journal_lines')
-        .select('id, debit, credit, description, account_id, journal_entries!inner(id, reference, transaction_date, description, status, related_document_id, related_document_type)')
-        .in('account_id', accountIds)
-        .eq('journal_entries.status', 'posted');
+      const glLines = await fetchCompleteDataset<any>(async (from, to) => {
+        let glQuery = supabase
+          .from('journal_lines')
+          .select('id, debit, credit, description, account_id, journal_entries!inner(id, reference, transaction_date, description, status, related_document_id, related_document_type)')
+          .in('account_id', accountIds)
+          .eq('journal_entries.status', 'posted');
 
-      if (userOrgId) {
-        glQuery = glQuery.eq('journal_entries.organization_id', userOrgId);
-      }
+        if (userOrgId) {
+          glQuery = glQuery.eq('journal_entries.organization_id', userOrgId);
+        }
 
-      const { data: glLines, error: glError } = await glQuery;
-
-      if (glError) throw glError;
+        return glQuery.range(from, to);
+      });
 
       let totalGlDebit  = 0;
       let totalGlCredit = 0;
@@ -160,86 +161,97 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         : { data: null };
       const allowedModules: string[] | undefined = orgData?.allowed_modules || undefined;
 
-      let suppQuery = supabase
-        .from('suppliers')
-        .select('id, name, phone, opening_balance')
-        .is('deleted_at', null);
+      const suppliersList = await fetchCompleteDataset<any>(async (from, to) => {
+        let suppQuery = supabase
+          .from('suppliers')
+          .select('id, name, phone, opening_balance')
+          .is('deleted_at', null);
 
-      if (userOrgId) {
-        suppQuery = suppQuery.eq('organization_id', userOrgId);
-      }
+        if (userOrgId) {
+          suppQuery = suppQuery.eq('organization_id', userOrgId);
+        }
+        return suppQuery.range(from, to);
+      });
 
-      const { data: suppliersList } = await suppQuery;
-
-      // جلب المستندات الأساسية + المستندات الموديلية من مجمع الأستاذ المساعد
-      let piQuery = supabase
-        .from('purchase_invoices')
-        .select('id, supplier_id, invoice_number, total_amount, paid_amount, treasury_account_id, related_journal_entry_id, status')
-        .not('status', 'in', '("draft","cancelled")');
-
-      let prQuery = supabase
-        .from('purchase_returns')
-        .select('id, supplier_id, return_number, total_amount, related_journal_entry_id, status')
-        .not('status', 'in', '("draft","cancelled")');
-
-      let dnQuery = supabase
-        .from('debit_notes')
-        .select('id, supplier_id, debit_note_number, total_amount, related_journal_entry_id, status')
-        .eq('status', 'posted');
-
-      let pvQuery = supabase
-        .from('payment_vouchers')
-        .select('id, supplier_id, voucher_number, amount, payment_method, related_journal_entry_id')
-        .not('supplier_id', 'is', null);
-
-      let chqQuery = supabase
-        .from('cheques')
-        .select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id')
-        .eq('type', 'outgoing');
-
-      let subBillQuery = supabase
-        .from('subcontractor_billings')
-        .select(`
-          id,
-          billing_number,
-          net_amount,
-          gross_amount,
-          status,
-          billing_date,
-          related_journal_entry_id,
-          subcontractor_contracts (
-            subcontractor_id,
-            subcontractors ( id, name, supplier_id )
-          )
-        `)
-        .not('status', 'in', '("draft","cancelled")');
-
-      if (userOrgId) {
-        piQuery = piQuery.eq('organization_id', userOrgId);
-        prQuery = prQuery.eq('organization_id', userOrgId);
-        dnQuery = dnQuery.eq('organization_id', userOrgId);
-        pvQuery = pvQuery.eq('organization_id', userOrgId);
-        chqQuery = chqQuery.eq('organization_id', userOrgId);
-        subBillQuery = subBillQuery.eq('organization_id', userOrgId);
-      }
-
+      // جلب المستندات الأساسية + المستندات الموديلية من مجمع الأستاذ المساعد مع معالجة التجزئة لمنع حد الـ 1000 سجل
       const [
-        invRes,       // فواتير المشتريات
-        retRes,       // مرتجعات المشتريات
-        dnRes,        // الإشعارات المدينة
-        pvRes,        // سندات الصرف
-        chqRes,       // الشيكات الصادرة
-        subBillRes,   // مستخلصات مقاولي الباطن (للعرض في التبويب)
-        modularSupplierDocs // المستندات الموديلية المفعلة
+        piData,
+        prData,
+        dnData,
+        pvData,
+        chqData,
+        subBillData,
+        modularSupplierDocs
       ] = await Promise.all([
-        piQuery,
-        prQuery,
-        dnQuery,
-        pvQuery,
-        chqQuery,
-        subBillQuery,
+        fetchCompleteDataset(async (from, to) => {
+          let q = supabase
+            .from('purchase_invoices')
+            .select('id, supplier_id, invoice_number, total_amount, paid_amount, treasury_account_id, related_journal_entry_id, status')
+            .not('status', 'in', '("draft","cancelled")');
+          if (userOrgId) q = q.eq('organization_id', userOrgId);
+          return q.range(from, to);
+        }),
+        fetchCompleteDataset(async (from, to) => {
+          let q = supabase
+            .from('purchase_returns')
+            .select('id, supplier_id, return_number, total_amount, related_journal_entry_id, status')
+            .not('status', 'in', '("draft","cancelled")');
+          if (userOrgId) q = q.eq('organization_id', userOrgId);
+          return q.range(from, to);
+        }),
+        fetchCompleteDataset(async (from, to) => {
+          let q = supabase
+            .from('debit_notes')
+            .select('id, supplier_id, debit_note_number, total_amount, related_journal_entry_id, status')
+            .eq('status', 'posted');
+          if (userOrgId) q = q.eq('organization_id', userOrgId);
+          return q.range(from, to);
+        }),
+        fetchCompleteDataset(async (from, to) => {
+          let q = supabase
+            .from('payment_vouchers')
+            .select('id, supplier_id, voucher_number, amount, payment_method, related_journal_entry_id')
+            .not('supplier_id', 'is', null);
+          if (userOrgId) q = q.eq('organization_id', userOrgId);
+          return q.range(from, to);
+        }),
+        fetchCompleteDataset(async (from, to) => {
+          let q = supabase
+            .from('cheques')
+            .select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id')
+            .eq('type', 'outgoing');
+          if (userOrgId) q = q.eq('organization_id', userOrgId);
+          return q.range(from, to);
+        }),
+        fetchCompleteDataset(async (from, to) => {
+          let q = supabase
+            .from('subcontractor_billings')
+            .select(`
+              id,
+              billing_number,
+              net_amount,
+              gross_amount,
+              status,
+              billing_date,
+              related_journal_entry_id,
+              subcontractor_contracts (
+                subcontractor_id,
+                subcontractors ( id, name, supplier_id )
+              )
+            `)
+            .not('status', 'in', '("draft","cancelled")');
+          if (userOrgId) q = q.eq('organization_id', userOrgId);
+          return q.range(from, to);
+        }),
         SubledgerRegistry.fetchSupplierDocs(userOrgId, allowedModules)
       ]);
+
+      const invRes = { data: piData };
+      const retRes = { data: prData };
+      const dnRes = { data: dnData };
+      const pvRes = { data: pvData };
+      const chqRes = { data: chqData };
+      const subBillRes: { data: any[] | null; error?: any } = { data: subBillData, error: subBillData ? null : new Error('fetch error') };
 
       // خريطة أسماء الموردين للربط التلقائي
       const supplierNameToIdMap = new Map<string, string>();
@@ -256,9 +268,11 @@ export const SupplierBalanceReconciliation: React.FC = () => {
 
       // بناء خريطة الربط بين مقاولي الباطن والموردين
       (chqRes as any); // Type safety
-      let subQuery = supabase.from('subcontractors').select('id, name, supplier_id');
-      if (userOrgId) subQuery = subQuery.eq('organization_id', userOrgId);
-      const subcontractorsList = (subBillRes as any).data ? (await subQuery).data : [];
+      const subcontractorsList = (subBillRes as any).data ? await fetchCompleteDataset<any>(async (from, to) => {
+        let subQuery = supabase.from('subcontractors').select('id, name, supplier_id');
+        if (userOrgId) subQuery = subQuery.eq('organization_id', userOrgId);
+        return subQuery.range(from, to);
+      }) : [];
       
       subcontractorsList?.forEach((sub: Record<string, any>) => {
         if (sub.supplier_id) {
@@ -298,12 +312,14 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           };
         });
       } else {
-        let basicBillQ = supabase
-          .from('subcontractor_billings')
-          .select('id, billing_number, net_amount, gross_amount, status, billing_date, related_journal_entry_id')
-          .not('status', 'in', '("draft","cancelled")');
-        if (userOrgId) basicBillQ = basicBillQ.eq('organization_id', userOrgId);
-        const { data: basicBillings } = await basicBillQ;
+        const basicBillings = await fetchCompleteDataset<any>(async (from, to) => {
+          let basicBillQ = supabase
+            .from('subcontractor_billings')
+            .select('id, billing_number, net_amount, gross_amount, status, billing_date, related_journal_entry_id')
+            .not('status', 'in', '("draft","cancelled")');
+          if (userOrgId) basicBillQ = basicBillQ.eq('organization_id', userOrgId);
+          return basicBillQ.range(from, to);
+        });
         if (basicBillings) {
           subBillingsNormalized = basicBillings.map((sb: Record<string, any>) => ({
             id:                       sb.id,

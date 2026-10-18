@@ -14,6 +14,7 @@ import { SalesInvoicePrint } from './SalesInvoicePrint';
 import { useToast } from '../../context/ToastContext';
 import { logDocumentAction } from '../../services/auditService';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 export const InvoiceList = () => {
   const { 
@@ -171,7 +172,9 @@ export const InvoiceList = () => {
         summaryQuery = summaryQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
       }
 
-      const { data: sumRows } = await summaryQuery;
+      const sumRows = await fetchCompleteDataset<any>(async (from, to) => {
+        return summaryQuery.range(from, to);
+      });
       if (sumRows) {
         let tAmount = 0;
         let tTax = 0;
@@ -553,8 +556,9 @@ export const InvoiceList = () => {
         expQuery = expQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
       }
 
-      const { data: exportRows, error } = await expQuery;
-      if (error) throw error;
+      const exportRows = await fetchCompleteDataset<any>(async (from, to) => {
+        return expQuery.range(from, to);
+      });
 
       if (!exportRows || exportRows.length === 0) {
         showToast('لا توجد بيانات للتصدير', 'warning');

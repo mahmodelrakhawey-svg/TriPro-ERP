@@ -15,6 +15,7 @@ import { PurchaseInvoicePrint } from './PurchaseInvoicePrint';
 import SupplierInvoiceExcelImporter from './SupplierInvoiceExcelImporter';
 import { FileSpreadsheet } from 'lucide-react';
 import { logDocumentAction } from '../../services/auditService';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 export const PurchaseInvoiceList = () => {
   const navigate = useNavigate();
@@ -189,13 +190,21 @@ export const PurchaseInvoiceList = () => {
         summaryQuery = summaryQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
       }
 
-      let { data: sumRows, error: sumErr }: { data: any[] | null; error: any } = await summaryQuery;
-      if (sumErr && sumErr.code === '42703') {
-        const fbSum = await supabase
-          .from('purchase_invoices')
-          .select('total_amount, tax_amount, paid_amount, status')
-          .eq('organization_id', userOrgId);
-        sumRows = fbSum.data;
+      let sumRows: any[] = [];
+      try {
+        sumRows = await fetchCompleteDataset<any>(async (from, to) => {
+          return summaryQuery.range(from, to);
+        });
+      } catch (sumErr: any) {
+        if (sumErr && sumErr.code === '42703') {
+          sumRows = await fetchCompleteDataset<any>(async (from, to) => {
+            return supabase
+              .from('purchase_invoices')
+              .select('total_amount, tax_amount, paid_amount, status')
+              .eq('organization_id', userOrgId)
+              .range(from, to);
+          });
+        }
       }
 
       if (sumRows) {
@@ -592,26 +601,37 @@ export const PurchaseInvoiceList = () => {
         expQuery = expQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
       }
 
-      let { data: exportRows, error }: { data: any[] | null; error: any } = await expQuery;
-      if (error && error.code === '42703') {
-        let fbExp = supabase
-          .from('purchase_invoices')
-          .select(`
-            invoice_number, invoice_date, total_amount, tax_amount, paid_amount,
-            status, notes, suppliers(name), warehouses(name)
-          `)
-          .eq('organization_id', userOrgId)
-          .order('invoice_date', { ascending: false });
-        if (startDate) fbExp = fbExp.gte('invoice_date', startDate);
-        if (endDate) fbExp = fbExp.lte('invoice_date', endDate);
-        if (selectedSupplierId) fbExp = fbExp.eq('supplier_id', selectedSupplierId);
-        if (selectedWarehouseId) fbExp = fbExp.eq('warehouse_id', selectedWarehouseId);
-        if (filterStatus !== 'all') fbExp = fbExp.eq('status', filterStatus);
-        const fbRes = await fbExp;
-        exportRows = fbRes.data;
-        error = fbRes.error;
+      let exportRows: any[] = [];
+      try {
+        exportRows = await fetchCompleteDataset<any>(async (from, to) => {
+          return expQuery.range(from, to);
+        });
+      } catch (expErr: any) {
+        if (expErr && expErr.code === '42703') {
+          let fbExp = supabase
+            .from('purchase_invoices')
+            .select(`
+              invoice_number, invoice_date, total_amount, tax_amount, paid_amount,
+              status, notes, suppliers(name), warehouses(name)
+            `)
+            .eq('organization_id', userOrgId)
+            .order('invoice_date', { ascending: false });
+          if (startDate) fbExp = fbExp.gte('invoice_date', startDate);
+          if (endDate) fbExp = fbExp.lte('invoice_date', endDate);
+          if (selectedSupplierId) fbExp = fbExp.eq('supplier_id', selectedSupplierId);
+          if (selectedWarehouseId) fbExp = fbExp.eq('warehouse_id', selectedWarehouseId);
+          if (filterStatus !== 'all') fbExp = fbExp.eq('status', filterStatus);
+          if (debouncedSearch.trim()) {
+            const term = debouncedSearch.trim();
+            fbExp = fbExp.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
+          }
+          exportRows = await fetchCompleteDataset<any>(async (from, to) => {
+            return fbExp.range(from, to);
+          });
+        } else {
+          throw expErr;
+        }
       }
-      if (error) throw error;
 
       if (!exportRows || exportRows.length === 0) {
         showToast('لا توجد بيانات للتصدير', 'warning');

@@ -9,6 +9,7 @@ import {
     Award, Store, Smartphone, LayoutGrid, Building2, MapPin, FileText, RefreshCw
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 const SalesReports = () => {
   const { invoices, salespeople, customers, settings, warehouses, recalculateStock, currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
@@ -74,8 +75,9 @@ const SalesReports = () => {
             return;
         }
 
-        // 1. جلب فواتير المعرض (Showroom Invoices) مع بنود الأصناف
-        const { data: invData, error: invError } = await supabase
+        // 1. جلب فواتير المعرض (Showroom Invoices) مع بنود الأصناف (بالتجزئة لمنع سقف 1000 فاتورة)
+        const invData = await fetchCompleteDataset<any>(async (from, to) => {
+          let q = supabase
             .from('invoices')
             .select(`
                 id, invoice_number, invoice_date, total_amount, salesperson_id, customer_id, warehouse_id, status,
@@ -88,8 +90,10 @@ const SalesReports = () => {
             .not('status', 'in', '("draft","cancelled")')
             .gte('invoice_date', startDate)
             .lte('invoice_date', endDate);
+          return q.range(from, to);
+        });
 
-        if (!invError && invData) {
+        if (invData) {
             const mappedShowroom = invData.map((inv: Record<string, any>) => ({
                 id: inv.id,
                 invoiceNumber: inv.invoice_number,
@@ -111,8 +115,9 @@ const SalesReports = () => {
             setShowroomInvoices(mappedShowroom);
         }
 
-        // 2. جلب طلبات المطعم (Restaurant Orders)
-        const { data: ordData, error: ordError } = await supabase
+        // 2. جلب طلبات المطعم (Restaurant Orders) (بالتجزئة لمنع سقف 1000 طلب)
+        const ordData = await fetchCompleteDataset<any>(async (from, to) => {
+          let q = supabase
             .from('orders')
             .select(`
                 id, order_number, created_at, grand_total, user_id, customer_id, warehouse_id, status,
@@ -125,8 +130,10 @@ const SalesReports = () => {
             .not('status', 'in', '("DRAFT","CANCELLED")')
             .gte('created_at', `${startDate}T00:00:00`)
             .lte('created_at', `${endDate}T23:59:59`);
+          return q.range(from, to);
+        });
 
-        if (!ordError && ordData) {
+        if (ordData) {
             const mappedOrders = ordData.map((o: Record<string, any>) => ({
                 id: o.id,
                 invoiceNumber: o.order_number,

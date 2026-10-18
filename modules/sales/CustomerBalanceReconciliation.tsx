@@ -9,8 +9,9 @@ import {
   FileText, FileCheck, Download
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import * as XLSX from 'xlsx';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
+import { fetchCompleteDataset } from '../../services/balanceService';
+import * as XLSX from 'xlsx';
 
 export const CustomerBalanceReconciliation: React.FC = () => {
   const { accounts, customers, getSystemAccount, settings, currentUser, currentSelectedOrgId, organization } = useAccounting();
@@ -86,19 +87,19 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         return;
       }
 
-      let glQuery = supabase
-        .from('journal_lines')
-        .select('id, debit, credit, description, account_id, journal_entries!inner(id, reference, transaction_date, description, status, related_document_id, related_document_type)')
-        .in('account_id', accountIds)
-        .eq('journal_entries.status', 'posted');
+      const glLines = await fetchCompleteDataset(async (from, to) => {
+        let glQuery = supabase
+          .from('journal_lines')
+          .select('id, debit, credit, description, account_id, journal_entries!inner(id, reference, transaction_date, description, status, related_document_id, related_document_type)')
+          .in('account_id', accountIds)
+          .eq('journal_entries.status', 'posted');
 
-      if (userOrgId) {
-        glQuery = glQuery.eq('journal_entries.organization_id', userOrgId);
-      }
+        if (userOrgId) {
+          glQuery = glQuery.eq('journal_entries.organization_id', userOrgId);
+        }
 
-      const { data: glLines, error: glError } = await glQuery;
-
-      if (glError) throw glError;
+        return glQuery.range(from, to);
+      });
 
       let totalGlDebit = 0;
       let totalGlCredit = 0;
@@ -166,51 +167,67 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         : { data: null };
       const allowedModules: string[] | undefined = orgData?.allowed_modules || undefined;
 
-      let custQuery = supabase
-        .from('customers')
-        .select('id, name, phone, opening_balance')
-        .is('deleted_at', null);
+      const customersList = await fetchCompleteDataset(async (from, to) => {
+        let custQuery = supabase
+          .from('customers')
+          .select('id, name, phone, opening_balance')
+          .is('deleted_at', null);
 
-      if (userOrgId) {
-        custQuery = custQuery.eq('organization_id', userOrgId);
-      }
+        if (userOrgId) {
+          custQuery = custQuery.eq('organization_id', userOrgId);
+        }
+        return custQuery.range(from, to);
+      });
 
-      const { data: customersList } = await custQuery;
-
-      // جلب المستندات الأساسية + المستندات الموديلية من مجمع الأستاذ المساعد
-      let invQuery = supabase.from('invoices').select('id, customer_id, invoice_number, total_amount, paid_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")');
-      let recQuery = supabase.from('receipt_vouchers').select('id, customer_id, voucher_number, amount, related_journal_entry_id');
-      let retQuery = supabase.from('sales_returns').select('id, customer_id, return_number, total_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")');
-      let cnQuery = supabase.from('credit_notes').select('id, customer_id, credit_note_number, total_amount, related_journal_entry_id').eq('status', 'posted');
-      let chqQuery = supabase.from('cheques').select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id').eq('type', 'incoming');
-      let ordQuery = supabase.from('orders').select('id, customer_id, order_number, related_journal_entry_id').not('status', 'eq', 'CANCELLED');
-
-      if (userOrgId) {
-        invQuery = invQuery.eq('organization_id', userOrgId);
-        recQuery = recQuery.eq('organization_id', userOrgId);
-        retQuery = retQuery.eq('organization_id', userOrgId);
-        cnQuery = cnQuery.eq('organization_id', userOrgId);
-        chqQuery = chqQuery.eq('organization_id', userOrgId);
-        ordQuery = ordQuery.eq('organization_id', userOrgId);
-      }
-
+      // جلب المستندات الأساسية مقسمة لضمان تجاوز سقف 1000 + المستندات الموديلية
       const [
-        invRes,
-        recRes,
-        retRes,
-        cnRes,
-        chqRes,
-        ordRes,
+        invData,
+        recData,
+        retData,
+        cnData,
+        chqData,
+        ordData,
         modularCustomerDocs
       ] = await Promise.all([
-        invQuery,
-        recQuery,
-        retQuery,
-        cnQuery,
-        chqQuery,
-        ordQuery,
+        fetchCompleteDataset(async (from, to) => {
+          let q = supabase.from('invoices').select('id, customer_id, invoice_number, total_amount, paid_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")');
+          if (userOrgId) q = q.eq('organization_id', userOrgId);
+          return q.range(from, to);
+        }),
+        fetchCompleteDataset(async (from, to) => {
+          let q = supabase.from('receipt_vouchers').select('id, customer_id, voucher_number, amount, related_journal_entry_id');
+          if (userOrgId) q = q.eq('organization_id', userOrgId);
+          return q.range(from, to);
+        }),
+        fetchCompleteDataset(async (from, to) => {
+          let q = supabase.from('sales_returns').select('id, customer_id, return_number, total_amount, related_journal_entry_id').not('status', 'in', '("draft","cancelled")');
+          if (userOrgId) q = q.eq('organization_id', userOrgId);
+          return q.range(from, to);
+        }),
+        fetchCompleteDataset(async (from, to) => {
+          let q = supabase.from('credit_notes').select('id, customer_id, credit_note_number, total_amount, related_journal_entry_id').eq('status', 'posted');
+          if (userOrgId) q = q.eq('organization_id', userOrgId);
+          return q.range(from, to);
+        }),
+        fetchCompleteDataset(async (from, to) => {
+          let q = supabase.from('cheques').select('id, party_id, party_name, cheque_number, amount, status, related_journal_entry_id').eq('type', 'incoming');
+          if (userOrgId) q = q.eq('organization_id', userOrgId);
+          return q.range(from, to);
+        }),
+        fetchCompleteDataset(async (from, to) => {
+          let q = supabase.from('orders').select('id, customer_id, order_number, related_journal_entry_id').not('status', 'eq', 'CANCELLED');
+          if (userOrgId) q = q.eq('organization_id', userOrgId);
+          return q.range(from, to);
+        }),
         SubledgerRegistry.fetchCustomerDocs(userOrgId, allowedModules)
       ]);
+
+      const invRes = { data: invData };
+      const recRes = { data: recData };
+      const retRes = { data: retData };
+      const cnRes = { data: cnData };
+      const chqRes = { data: chqData };
+      const ordRes = { data: ordData };
 
       // خريطة أسماء وأرقام هواتف العملاء للربط التلقائي
       const customerNameToIdMap = new Map<string, string>();

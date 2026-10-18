@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAccounting } from '../../context/AccountingContext';
 import { BarChart3, Filter, Loader2, Printer, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 const PaymentMethodReport = () => {
   const { selectedFiscalYear, fiscalYearRange } = useAccounting();
@@ -43,24 +44,26 @@ const PaymentMethodReport = () => {
       if (!userOrgId) return;
 
       // 1. Fetch receipts
-      const { data: receipts, error: receiptsError } = await supabase
-        .from('receipt_vouchers')
-        .select('payment_method, amount, organization_id')
-        .eq('organization_id', userOrgId)
-        .gte('receipt_date', startDate)
-        .lte('receipt_date', endDate);
-      
-      if (receiptsError) throw receiptsError;
+      const receipts = await fetchCompleteDataset<any>(async (from, to) =>
+        supabase
+          .from('receipt_vouchers')
+          .select('payment_method, amount, organization_id')
+          .eq('organization_id', userOrgId)
+          .gte('receipt_date', startDate)
+          .lte('receipt_date', endDate)
+          .range(from, to)
+      );
 
       // 2. Fetch payments
-      const { data: payments, error: paymentsError } = await supabase
-        .from('payment_vouchers')
-        .select('payment_method, amount, organization_id')
-        .eq('organization_id', userOrgId)
-        .gte('payment_date', startDate)
-        .lte('payment_date', endDate);
-
-      if (paymentsError) throw paymentsError;
+      const payments = await fetchCompleteDataset<any>(async (from, to) =>
+        supabase
+          .from('payment_vouchers')
+          .select('payment_method, amount, organization_id')
+          .eq('organization_id', userOrgId)
+          .gte('payment_date', startDate)
+          .lte('payment_date', endDate)
+          .range(from, to)
+      );
 
       // 3. Aggregate data
       const aggregatedData: { [key: string]: { method: string, totalIn: number, totalOut: number, net: number } } = {};

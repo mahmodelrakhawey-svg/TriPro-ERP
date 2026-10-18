@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { 
   BookOpen, 
   Printer, 
@@ -62,47 +63,54 @@ const AnnualFinancialReport: React.FC = () => {
       const { data: { session } } = await supabase.auth.getSession();
       const userOrgId = currentSelectedOrgId || session?.user?.user_metadata?.org_id || (organization as any)?.id;
 
-      // 1. حركات السنة الحالية
-      let qCurr = supabase
-        .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
-        .eq('journal_entries.status', 'posted')
-        .gte('journal_entries.transaction_date', currentStart)
-        .lte('journal_entries.transaction_date', currentEnd);
-      if (userOrgId) qCurr = qCurr.eq('journal_entries.organization_id', userOrgId);
-      const { data: currData, error: currErr } = await qCurr;
-      if (currErr) throw currErr;
+      // 1. حركات السنة الحالية (مقسمة بدفعات لضمان جلب كافة القيود وتجاوز سقف 1000)
+      const currData = await fetchCompleteDataset(async (from, to) => {
+        let q = supabase
+          .from('journal_lines')
+          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
+          .eq('journal_entries.status', 'posted')
+          .gte('journal_entries.transaction_date', currentStart)
+          .lte('journal_entries.transaction_date', currentEnd);
+        if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
+        return q.range(from, to);
+      });
       setLedgerLinesCurrent(currData || []);
 
       // 2. حركات السنة السابقة
-      let qPrior = supabase
-        .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
-        .eq('journal_entries.status', 'posted')
-        .gte('journal_entries.transaction_date', priorStart)
-        .lte('journal_entries.transaction_date', priorEnd);
-      if (userOrgId) qPrior = qPrior.eq('journal_entries.organization_id', userOrgId);
-      const { data: prData } = await qPrior;
+      const prData = await fetchCompleteDataset(async (from, to) => {
+        let q = supabase
+          .from('journal_lines')
+          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
+          .eq('journal_entries.status', 'posted')
+          .gte('journal_entries.transaction_date', priorStart)
+          .lte('journal_entries.transaction_date', priorEnd);
+        if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
+        return q.range(from, to);
+      });
       setLedgerLinesPrior(prData || []);
 
       // 3. الأرصدة التراكمية حتى نهاية السنة الحالية (للمركز المالي)
-      let qCumCurr = supabase
-        .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
-        .eq('journal_entries.status', 'posted')
-        .lte('journal_entries.transaction_date', currentEnd);
-      if (userOrgId) qCumCurr = qCumCurr.eq('journal_entries.organization_id', userOrgId);
-      const { data: cumCurrData } = await qCumCurr;
+      const cumCurrData = await fetchCompleteDataset(async (from, to) => {
+        let q = supabase
+          .from('journal_lines')
+          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+          .eq('journal_entries.status', 'posted')
+          .lte('journal_entries.transaction_date', currentEnd);
+        if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
+        return q.range(from, to);
+      });
       setCumulativeLinesCurrent(cumCurrData || []);
 
       // 4. الأرصدة التراكمية حتى نهاية السنة السابقة
-      let qCumPrior = supabase
-        .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
-        .eq('journal_entries.status', 'posted')
-        .lte('journal_entries.transaction_date', priorEnd);
-      if (userOrgId) qCumPrior = qCumPrior.eq('journal_entries.organization_id', userOrgId);
-      const { data: cumPrData } = await qCumPrior;
+      const cumPrData = await fetchCompleteDataset(async (from, to) => {
+        let q = supabase
+          .from('journal_lines')
+          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+          .eq('journal_entries.status', 'posted')
+          .lte('journal_entries.transaction_date', priorEnd);
+        if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
+        return q.range(from, to);
+      });
       setCumulativeLinesPrior(cumPrData || []);
 
       // 5. سجل الأصول الثابتة

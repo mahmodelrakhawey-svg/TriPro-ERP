@@ -1,4 +1,4 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { logger } from '../../utils/logger';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿import { logger } from '../../utils/logger';
 import { useMemo, useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { 
@@ -14,6 +14,7 @@ import {
 import * as XLSX from 'xlsx';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 const FinancialRatios = () => {
   const { accounts, entries, currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
@@ -68,18 +69,20 @@ const FinancialRatios = () => {
         throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
       }
 
-      let query = supabase
-        .from('journal_lines')
-        .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
-        .eq('journal_entries.status', 'posted')
-        .lte('journal_entries.transaction_date', endDate);
+      const data = await fetchCompleteDataset<any>(async (from, to) => {
+        let query = supabase
+          .from('journal_lines')
+          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+          .eq('journal_entries.status', 'posted')
+          .lte('journal_entries.transaction_date', endDate);
 
-      if (userOrgId) {
-        query = query.eq('journal_entries.organization_id', userOrgId);
-      }
+        if (userOrgId) {
+          query = query.eq('journal_entries.organization_id', userOrgId);
+        }
 
-      const { data, error } = await query;
-      if (error) throw error;
+        return query.range(from, to);
+      });
+
       setLedgerLines(data || []);
     } catch (err) {
       logger.error('Error fetching ledger data for financial ratios:', err);

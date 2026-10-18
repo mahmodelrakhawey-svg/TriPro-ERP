@@ -8,6 +8,7 @@ import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from 'recha
 import { ChequePrint } from './ChequePrint';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 export const ChequesPage = () => {
   const { addCheque, updateCheque, deleteCheque, updateChequeStatus, currentUser, addEntry, getSystemAccount, selectedFiscalYear } = useAccounting();
@@ -108,12 +109,18 @@ export const ChequesPage = () => {
         return;
     }
 
-    // 1. Fetch Cheques
-    let chequesQuery = supabase.from('cheques').select('*, cheque_attachments(*)').eq('organization_id', userOrgId).order('created_at', { ascending: false });
-    if (selectedFiscalYear) {
-      chequesQuery = chequesQuery.gte('due_date', `${selectedFiscalYear}-01-01`).lte('due_date', `${selectedFiscalYear}-12-31`);
-    }
-    const { data: chequesData } = await chequesQuery;
+    // 1. Fetch Cheques (بالتجزئة لمنع سقف 1000 شيك)
+    const chequesData = await fetchCompleteDataset<any>(async (from, to) => {
+      let q = supabase
+        .from('cheques')
+        .select('*, cheque_attachments(*)')
+        .eq('organization_id', userOrgId)
+        .order('created_at', { ascending: false });
+      if (selectedFiscalYear) {
+        q = q.gte('due_date', `${selectedFiscalYear}-01-01`).lte('due_date', `${selectedFiscalYear}-12-31`);
+      }
+      return q.range(from, to);
+    });
     if (chequesData) setCheques(chequesData);
 
     // 2. Fetch Parties

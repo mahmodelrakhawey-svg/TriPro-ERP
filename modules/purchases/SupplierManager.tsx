@@ -9,7 +9,7 @@ import { Truck, Plus, Search, Edit2, Trash2, X, Phone, Mail, Loader2, Upload, Do
 import { createSupplierSchema, updateSupplierSchema } from '../../utils/validationSchemas';
 import { useNavigate } from 'react-router-dom';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
-import { fetchAllSupplierBalances } from '../../services/balanceService';
+import { fetchAllSupplierBalances, fetchCompleteDataset } from '../../services/balanceService';
 
 
 type Supplier = {
@@ -230,19 +230,30 @@ const SupplierManager = () => {
 
         // 2) جلب كافة المستندات المرتبطة بالموردين
         const [
-          invRes, payRes, retRes, dnRes, chqRes, subBillingsRes, contractsRes, subsRes, rebatesRes, manualEntriesRes
+          invData, payData, retData, dnData, chqData, subBillingsData, contractsData, subsData, rebatesData, manualEntriesData
         ] = await Promise.all([
-          supabase.from('purchase_invoices').select('id, supplier_id, total_amount, invoice_date, invoice_number, related_journal_entry_id').eq('organization_id', userOrgId).neq('status', 'draft'),
-          supabase.from('payment_vouchers').select('id, supplier_id, amount, notes, voucher_number, related_journal_entry_id').eq('organization_id', userOrgId).not('supplier_id', 'is', null),
-          supabase.from('purchase_returns').select('id, supplier_id, total_amount, related_journal_entry_id').eq('organization_id', userOrgId).neq('status', 'draft'),
-          supabase.from('debit_notes').select('id, supplier_id, total_amount, related_journal_entry_id').eq('organization_id', userOrgId).eq('status', 'posted'),
-          supabase.from('cheques').select('id, party_id, amount, related_journal_entry_id').eq('organization_id', userOrgId).eq('type', 'outgoing').neq('status', 'rejected'),
-          supabase.from('subcontractor_billings').select('id, contract_id, net_amount, billing_date, billing_number, related_journal_entry_id').eq('organization_id', userOrgId).neq('status', 'draft'),
-          supabase.from('subcontractor_contracts').select('id, subcontractor_id').eq('organization_id', userOrgId),
-          supabase.from('subcontractors').select('id, name').eq('organization_id', userOrgId),
-          supabase.from('vendor_rebate_settlements').select('vendor_id, total_claim_amount').eq('organization_id', userOrgId).in('status', ['APPROVED', 'SETTLED']),
-          supabase.from('journal_entries').select('id, transaction_date, description, reference, status, related_document_id, related_document_type').eq('organization_id', userOrgId).eq('status', 'posted')
+          fetchCompleteDataset<any>(async (from, to) => supabase.from('purchase_invoices').select('id, supplier_id, total_amount, invoice_date, invoice_number, related_journal_entry_id').eq('organization_id', userOrgId).neq('status', 'draft').range(from, to)),
+          fetchCompleteDataset<any>(async (from, to) => supabase.from('payment_vouchers').select('id, supplier_id, amount, notes, voucher_number, related_journal_entry_id').eq('organization_id', userOrgId).not('supplier_id', 'is', null).range(from, to)),
+          fetchCompleteDataset<any>(async (from, to) => supabase.from('purchase_returns').select('id, supplier_id, total_amount, related_journal_entry_id').eq('organization_id', userOrgId).neq('status', 'draft').range(from, to)),
+          fetchCompleteDataset<any>(async (from, to) => supabase.from('debit_notes').select('id, supplier_id, total_amount, related_journal_entry_id').eq('organization_id', userOrgId).eq('status', 'posted').range(from, to)),
+          fetchCompleteDataset<any>(async (from, to) => supabase.from('cheques').select('id, party_id, amount, related_journal_entry_id').eq('organization_id', userOrgId).eq('type', 'outgoing').neq('status', 'rejected').range(from, to)),
+          fetchCompleteDataset<any>(async (from, to) => supabase.from('subcontractor_billings').select('id, contract_id, net_amount, billing_date, billing_number, related_journal_entry_id').eq('organization_id', userOrgId).neq('status', 'draft').range(from, to)),
+          fetchCompleteDataset<any>(async (from, to) => supabase.from('subcontractor_contracts').select('id, subcontractor_id').eq('organization_id', userOrgId).range(from, to)),
+          fetchCompleteDataset<any>(async (from, to) => supabase.from('subcontractors').select('id, name').eq('organization_id', userOrgId).range(from, to)),
+          fetchCompleteDataset<any>(async (from, to) => supabase.from('vendor_rebate_settlements').select('vendor_id, total_claim_amount').eq('organization_id', userOrgId).in('status', ['APPROVED', 'SETTLED']).range(from, to)),
+          fetchCompleteDataset<any>(async (from, to) => supabase.from('journal_entries').select('id, transaction_date, description, reference, status, related_document_id, related_document_type').eq('organization_id', userOrgId).eq('status', 'posted').range(from, to))
         ]);
+
+        const invRes = { data: invData };
+        const payRes = { data: payData };
+        const retRes = { data: retData };
+        const dnRes = { data: dnData };
+        const chqRes = { data: chqData };
+        const subBillingsRes = { data: subBillingsData };
+        const contractsRes = { data: contractsData };
+        const subsRes = { data: subsData };
+        const rebatesRes = { data: rebatesData };
+        const manualEntriesRes = { data: manualEntriesData };
 
         const allEntryIds = new Set<string>();
         const entryToSupplier: Record<string, string> = {};
@@ -356,11 +367,13 @@ const SupplierManager = () => {
 
         // ⚖️ تجميع أرصدة الأستاذ العام من journal_lines (حساب المورد دائن بطبيعته: credit - debit)
         if (supplierAccId && allEntryIds.size > 0) {
-            const { data: ledgerLines } = await supabase.from('journal_lines')
-              .select('journal_entry_id, debit, credit')
-              .in('journal_entry_id', Array.from(allEntryIds))
-              .eq('account_id', supplierAccId)
-              .eq('organization_id', userOrgId);
+            const ledgerLines = await fetchCompleteDataset<any>(async (from, to) =>
+              supabase.from('journal_lines')
+                .select('journal_entry_id, debit, credit')
+                .eq('account_id', supplierAccId)
+                .eq('organization_id', userOrgId)
+                .range(from, to)
+            );
 
             ledgerLines?.forEach(line => {
                 const suppId = entryToSupplier[line.journal_entry_id];

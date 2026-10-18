@@ -4,6 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { History, Printer, Download, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 const SupplierAgingReport = () => {
   const { currentUser } = useAccounting();
@@ -33,36 +34,29 @@ const SupplierAgingReport = () => {
 
       const filter = { organization_id: userOrgId };
 
-      // 1. جلب الموردين ومحرك الأرصدة الشامل المباشر (مطابق 100% للأستاذ العام وشاشة المطابقة)
-      const { data: suppliers } = await supabase.from('suppliers').select('id, name, opening_balance').match(filter).is('deleted_at', null);
-      
-      // 2. جلب الفواتير المرحلة والمدفوعة (مرتبة من الأحدث للأقدم لتطبيق FIFO)
-      const { data: invoices } = await supabase
-        .from('purchase_invoices')
-        .select('id, supplier_id, invoice_number, invoice_date, total_amount, paid_amount')
-        .eq('organization_id', userOrgId)
-        .neq('status', 'draft')
-        .order('invoice_date', { ascending: false });
-
-      // 3. جلب كافة المدفوعات والخصومات لحساب الرصيد الفعلي
-      const { data: payments } = await supabase.from('payment_vouchers').select('supplier_id, amount, notes').match(filter).not('supplier_id', 'is', null);
-      const { data: returns } = await supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).neq('status', 'draft');
-      const { data: debitNotes } = await supabase.from('debit_notes').select('supplier_id, total_amount').match(filter).eq('status', 'posted');
-      const { data: cheques } = await supabase.from('cheques')
-            .select('party_id, amount')
-            .match(filter)
-            .eq('type', 'outgoing')
-            .neq('status', 'rejected');
-      
-      const { data: rebates } = await supabase.from('vendor_rebate_settlements')
-            .select('vendor_id, total_claim_amount')
-            .match(filter)
-            .in('status', ['APPROVED', 'SETTLED']);
-      
-      // 4. جلب مقاولي الباطن ومستخلصاتهم
-      const { data: subs } = await supabase.from('subcontractors').select('id, name, supplier_id').match(filter);
-      const { data: contracts } = await supabase.from('subcontractor_contracts').select('id, subcontractor_id').match(filter);
-      const { data: subBillings } = await supabase.from('subcontractor_billings').select('contract_id, net_amount, billing_date').match(filter).neq('status', 'draft').order('billing_date', { ascending: false });
+      const [
+        suppliers,
+        invoices,
+        payments,
+        returns,
+        debitNotes,
+        cheques,
+        rebates,
+        subs,
+        contracts,
+        subBillings
+      ] = await Promise.all([
+        fetchCompleteDataset<any>(async (from, to) => supabase.from('suppliers').select('id, name, opening_balance').match(filter).is('deleted_at', null).range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => supabase.from('purchase_invoices').select('id, supplier_id, invoice_number, invoice_date, total_amount, paid_amount').eq('organization_id', userOrgId).neq('status', 'draft').order('invoice_date', { ascending: false }).range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => supabase.from('payment_vouchers').select('supplier_id, amount, notes').match(filter).not('supplier_id', 'is', null).range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).neq('status', 'draft').range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => supabase.from('debit_notes').select('supplier_id, total_amount').match(filter).eq('status', 'posted').range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'outgoing').neq('status', 'rejected').range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => supabase.from('vendor_rebate_settlements').select('vendor_id, total_claim_amount').match(filter).in('status', ['APPROVED', 'SETTLED']).range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => supabase.from('subcontractors').select('id, name, supplier_id').match(filter).range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => supabase.from('subcontractor_contracts').select('id, subcontractor_id').match(filter).range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => supabase.from('subcontractor_billings').select('contract_id, net_amount, billing_date').match(filter).neq('status', 'draft').order('billing_date', { ascending: false }).range(from, to))
+      ]);
 
       if (!suppliers || !invoices) return;
 

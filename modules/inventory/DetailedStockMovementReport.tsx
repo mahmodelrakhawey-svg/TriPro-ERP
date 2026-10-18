@@ -6,6 +6,7 @@ import { Search, Download, Printer, Loader2, ArrowRightLeft } from 'lucide-react
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 import ProductSearchSelect from '../../components/ProductSearchSelect';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 type StockMovement = {
   id: string;
@@ -103,7 +104,7 @@ const DetailedStockMovementReport = () => {
       if (selectedProduct) salesQuery = salesQuery.eq('product_id', selectedProduct);
       if (selectedWarehouse) salesQuery = salesQuery.eq('invoices.warehouse_id', selectedWarehouse);
 
-      const { data: sales } = await salesQuery;
+      const sales = await fetchCompleteDataset<any>((from, to) => salesQuery.range(from, to));
       sales?.forEach((item: Record<string, any>) => {
         allMovements.push({
           id: `SALE-${item.invoices.invoice_number}-${item.product_id}`,
@@ -133,7 +134,7 @@ const DetailedStockMovementReport = () => {
       if (selectedProduct) purchaseQuery = purchaseQuery.eq('product_id', selectedProduct);
       if (selectedWarehouse) purchaseQuery = purchaseQuery.eq('purchase_invoices.warehouse_id', selectedWarehouse);
 
-      const { data: purchases } = await purchaseQuery;
+      const purchases = await fetchCompleteDataset<any>((from, to) => purchaseQuery.range(from, to));
       purchases?.forEach((item: Record<string, any>) => {
         allMovements.push({
           id: `PUR-${item.purchase_invoices.invoice_number}-${item.product_id}`,
@@ -162,7 +163,7 @@ const DetailedStockMovementReport = () => {
       if (selectedProduct) lcQuery = lcQuery.eq('product_id', selectedProduct);
       if (selectedWarehouse) lcQuery = lcQuery.eq('warehouse_id', selectedWarehouse);
 
-      const { data: lcReceipts } = await lcQuery;
+      const lcReceipts = await fetchCompleteDataset<any>((from, to) => lcQuery.range(from, to));
       lcReceipts?.forEach((item: Record<string, any>) => {
         allMovements.push({
           id: `LC-${item.letters_of_credit?.lc_number}-${item.product_id}`,
@@ -192,7 +193,7 @@ const DetailedStockMovementReport = () => {
       if (selectedProduct) salesRetQuery = salesRetQuery.eq('product_id', selectedProduct);
       if (selectedWarehouse) salesRetQuery = salesRetQuery.eq('sales_returns.warehouse_id', selectedWarehouse);
 
-      const { data: salesReturns } = await salesRetQuery;
+      const salesReturns = await fetchCompleteDataset<any>((from, to) => salesRetQuery.range(from, to));
       salesReturns?.forEach((item: Record<string, any>) => {
         allMovements.push({
           id: `SR-${item.sales_returns.return_number}-${item.product_id}`,
@@ -222,7 +223,7 @@ const DetailedStockMovementReport = () => {
       if (selectedProduct) purRetQuery = purRetQuery.eq('product_id', selectedProduct);
       if (selectedWarehouse) purRetQuery = purRetQuery.eq('purchase_returns.warehouse_id', selectedWarehouse);
 
-      const { data: purReturns } = await purRetQuery;
+      const purReturns = await fetchCompleteDataset<any>((from, to) => purRetQuery.range(from, to));
       purReturns?.forEach((item: Record<string, any>) => {
         allMovements.push({
           id: `PR-${item.purchase_returns.return_number}-${item.product_id}`,
@@ -253,7 +254,7 @@ const DetailedStockMovementReport = () => {
       if (selectedProduct) productionInQuery = productionInQuery.eq('product_id', selectedProduct);
       if (selectedWarehouse) productionInQuery = productionInQuery.eq('warehouse_id', selectedWarehouse);
 
-      const { data: productionIn } = await productionInQuery;
+      const productionIn = await fetchCompleteDataset<any>((from, to) => productionInQuery.range(from, to));
       productionIn?.forEach((item: Record<string, any>) => {
         allMovements.push({
           id: `MFG-IN-${item.id}`,
@@ -298,7 +299,7 @@ const DetailedStockMovementReport = () => {
       if (selectedProduct) mfgActualQuery = mfgActualQuery.eq('raw_material_id', selectedProduct);
       if (selectedWarehouse) mfgActualQuery = mfgActualQuery.eq('mfg_order_progress.mfg_production_orders.warehouse_id', selectedWarehouse);
 
-      const { data: mfgActuals } = await mfgActualQuery;
+      const mfgActuals = await fetchCompleteDataset<any>((from, to) => mfgActualQuery.range(from, to));
       const ordersWithActualUsage = new Set<string>();
       
       mfgActuals?.forEach((item: Record<string, any>) => {
@@ -351,7 +352,7 @@ const DetailedStockMovementReport = () => {
       if (selectedProduct) mfgRawQuery = mfgRawQuery.eq('raw_material_id', selectedProduct);
       if (selectedWarehouse) mfgRawQuery = mfgRawQuery.eq('mfg_material_requests.mfg_production_orders.warehouse_id', selectedWarehouse);
 
-      const { data: mfgRaws } = await mfgRawQuery;
+      const mfgRaws = await fetchCompleteDataset<any>((from, to) => mfgRawQuery.range(from, to));
       mfgRaws?.forEach((item: Record<string, any>) => {
         const po = item.mfg_material_requests?.mfg_production_orders;
         const poId = item.mfg_material_requests?.production_order_id;
@@ -402,7 +403,7 @@ const DetailedStockMovementReport = () => {
       if (selectedProduct) mfgScrapQuery = mfgScrapQuery.eq('product_id', selectedProduct);
       if (selectedWarehouse) mfgScrapQuery = mfgScrapQuery.eq('mfg_order_progress.mfg_production_orders.warehouse_id', selectedWarehouse);
 
-      const { data: mfgScraps } = await mfgScrapQuery;
+      const mfgScraps = await fetchCompleteDataset<any>((from, to) => mfgScrapQuery.range(from, to));
       mfgScraps?.forEach((item: Record<string, any>) => {
         const po = item.mfg_order_progress?.mfg_production_orders;
         allMovements.push({
@@ -432,7 +433,7 @@ const DetailedStockMovementReport = () => {
       if (selectedProduct) adjustmentsQuery = adjustmentsQuery.eq('product_id', selectedProduct);
       if (selectedWarehouse) adjustmentsQuery = adjustmentsQuery.eq('stock_adjustments.warehouse_id', selectedWarehouse);
 
-      const { data: adjustments } = await adjustmentsQuery;
+      const adjustments = await fetchCompleteDataset<any>((from, to) => adjustmentsQuery.range(from, to));
       
       adjustments?.forEach((item: Record<string, any>) => {
         const qty = Number(item.quantity);
@@ -463,7 +464,7 @@ const DetailedStockMovementReport = () => {
 
       if (selectedProduct) transfersQuery = transfersQuery.eq('product_id', selectedProduct);
       
-      const { data: transfers } = await transfersQuery;
+      const transfers = await fetchCompleteDataset<any>((from, to) => transfersQuery.range(from, to));
       const getWName = (id: string) => warehouses.find(w => w.id === id)?.name || 'غير محدد';
 
       transfers?.forEach((item: Record<string, any>) => {
@@ -534,7 +535,7 @@ const DetailedStockMovementReport = () => {
       if (selectedProduct) restDirectQuery = restDirectQuery.eq('product_id', selectedProduct);
       if (selectedWarehouse) restDirectQuery = restDirectQuery.eq('orders.warehouse_id', selectedWarehouse);
 
-      const { data: restDirect } = await restDirectQuery;
+      const restDirect = await fetchCompleteDataset<any>((from, to) => restDirectQuery.range(from, to));
 
       restDirect?.forEach((item: Record<string, any>) => {
           allMovements.push({
@@ -580,7 +581,7 @@ const DetailedStockMovementReport = () => {
           restConsQuery = restConsQuery.eq('orders.warehouse_id', selectedWarehouse);
         }
 
-        const { data: restConsData } = await restConsQuery;
+        const restConsData = await fetchCompleteDataset<any>((from, to) => restConsQuery.range(from, to));
         restConsData?.forEach((item: Record<string, any>) => {
           const matchingBoms = boms.filter((b: Record<string, any>) => b.product_id === item.product_id && (!selectedProduct || b.raw_material_id === selectedProduct));
           matchingBoms.forEach((bom: Record<string, any>) => {
@@ -617,7 +618,7 @@ const DetailedStockMovementReport = () => {
       if (selectedProduct) openingQuery = openingQuery.eq('product_id', selectedProduct);
       if (selectedWarehouse) openingQuery = openingQuery.eq('warehouse_id', selectedWarehouse);
 
-      const { data: opening } = await openingQuery;
+      const opening = await fetchCompleteDataset<any>((from, to) => openingQuery.range(from, to));
       opening?.forEach((item: Record<string, any>) => {
           allMovements.push({
               id: `OPEN-${item.product_id}-${item.created_at}`,
@@ -668,7 +669,7 @@ const DetailedStockMovementReport = () => {
       if (selectedProduct) constructionQuery = constructionQuery.eq('product_id', selectedProduct);
       if (selectedWarehouse) constructionQuery = constructionQuery.eq('project_material_issues.warehouse_id', selectedWarehouse);
 
-      const { data: constructionIssues } = await constructionQuery;
+      const constructionIssues = await fetchCompleteDataset<any>((from, to) => constructionQuery.range(from, to));
       constructionIssues?.forEach((item: Record<string, any>) => {
         const issue = item.project_material_issues;
         allMovements.push({
