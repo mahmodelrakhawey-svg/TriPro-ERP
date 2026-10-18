@@ -1,12 +1,12 @@
 import { logger } from '../../../utils/logger';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
-import { Save, Calculator, AlertCircle, CheckCircle, History, Wallet, Loader2 } from 'lucide-react';
+import { Save, Calculator, AlertCircle, CheckCircle, History, Wallet, Loader2, RefreshCw } from 'lucide-react';
 
 const CashClosingForm = () => {
-  const { accounts, currentUser, addEntry, settings } = useAccounting();
+  const { accounts, currentUser, addEntry, settings, currentSelectedOrgId } = useAccounting();
   const [selectedAccountId, setSelectedAccountId] = useState('');
   const [systemBalance, setSystemBalance] = useState(0);
   const [actualBalance, setActualBalance] = useState<number | ''>('');
@@ -17,95 +17,153 @@ const CashClosingForm = () => {
   const [lastClosings, setLastClosings] = useState<any[]>([]);
   const { showToast } = useToast();
 
+  const targetOrg = currentSelectedOrgId || (currentUser as any)?.organization_id;
+  const isUuid = (val: unknown): boolean => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+  const validOrgId = isUuid(targetOrg) ? targetOrg : null;
+
   // تصفية حسابات النقدية/الصناديق فقط
   const cashAccounts = useMemo(() => {
     return accounts.filter(a => 
       !a.isGroup && 
-      (a.code.startsWith('123') || a.code.startsWith('1101') || a.name.includes('صندوق') || a.name.includes('خزينة') || a.name.includes('Cash'))
+      (a.code.startsWith('123') || a.code.startsWith('1101') || a.name.includes('صندوق') || a.name.includes('خزينة') || a.name.includes('خزينه') || a.name.includes('Cash'))
     );
   }, [accounts]);
+
+  const fetchAccountData = useCallback(async () => {
+    const isAccountUuid = isUuid(selectedAccountId);
+    if (currentUser?.role === 'demo' || !isAccountUuid) {
+      setSystemBalance(12500);
+      setTodayMovement({ in: 5000, out: 1200 });
+      setActualBalance(prev => (prev === '' ? 12500 : prev));
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+
+      // 🚀 المسار 1: محاولة جلب الرصيد التجميعي فائق الدقة من خادم PostgreSQL (نفس محرك ميزان المراجعة)
+      let rpcBalance: number | null = null;
+      if (validOrgId) {
+        try {
+          const { data: rpcData, error: rpcErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
+            p_org_id: validOrgId,
+            p_start_date: '1970-01-01',
+            p_end_date: today
+          });
+
+          if (!rpcErr && Array.isArray(rpcData) && rpcData.length > 0) {
+            const accRow = rpcData.find((r: any) => r.account_id === selectedAccountId);
+            if (accRow) {
+              rpcBalance = Number(accRow.closing_balance) || 0;
+            }
+          }
+        } catch (rpcEx) {
+          logger.warn('[CashClosingForm] RPC trial balance query failed, falling back to chunked traversal:', rpcEx);
+        }
+      }
+
+      // 🚀 المسار 2: محرك الجلب المجزأ (Chunked Query Engine) لمنع اقتطاع السجلات عند حد 1000 سجل في Supabase
+      // يضمن دقة 100% ومطابقة تامة مع ميزان المراجعة وتقرير حركة الصندوق والبنوك
+      let allLines: Record<string, any>[] = [];
+      let from = 0;
+      const CHUNK_SIZE = 1000;
+
+      while (true) {
+        let query = supabase
+          .from('journal_lines')
+          .select(`
+            debit, credit,
+            journal_entries!inner(transaction_date, status, organization_id)
+          `)
+          .eq('account_id', selectedAccountId)
+          .eq('journal_entries.status', 'posted');
+
+        if (validOrgId) {
+          query = query.eq('journal_entries.organization_id', validOrgId);
+        }
+
+        const { data: chunk, error: chunkErr } = await query
+          .range(from, from + CHUNK_SIZE - 1);
+
+        if (chunkErr) throw chunkErr;
+        if (!chunk || chunk.length === 0) break;
+
+        allLines = allLines.concat(chunk);
+        if (chunk.length < CHUNK_SIZE) break;
+        from += CHUNK_SIZE;
+      }
+
+      let chunkedBalance = 0;
+      let todayIn = 0;
+      let todayOut = 0;
+
+      allLines.forEach((line: Record<string, any>) => {
+        const debit = Number(line.debit) || 0;
+        const credit = Number(line.credit) || 0;
+        chunkedBalance += (debit - credit);
+
+        const rawJe = line.journal_entries || line.journal_entry;
+        const je = Array.isArray(rawJe) ? rawJe[0] : rawJe;
+        const entryDate = (je?.transaction_date || '').split('T')[0];
+
+        if (entryDate === today) {
+          todayIn += debit;
+          todayOut += credit;
+        }
+      });
+
+      const finalBalance = rpcBalance !== null ? rpcBalance : chunkedBalance;
+      setSystemBalance(finalBalance);
+      setTodayMovement({ in: todayIn, out: todayOut });
+      setActualBalance(prev => (prev === '' ? finalBalance : prev));
+
+    } catch (error: any) {
+      logger.error('Error fetching balance:', error);
+      showToast('حدث خطأ أثناء جلب رصيد الخزينة: ' + (error?.message || ''), 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedAccountId, validOrgId, currentUser, showToast]);
+
+  const fetchLastClosings = useCallback(async () => {
+    const isAccountUuid = isUuid(selectedAccountId);
+    if (currentUser?.role === 'demo' || !isAccountUuid) {
+      setLastClosings([
+        { id: 'demo-1', closing_date: new Date(Date.now() - 86400000).toISOString(), actual_balance: 12000, difference: 0 },
+        { id: 'demo-2', closing_date: new Date(Date.now() - 172800000).toISOString(), actual_balance: 11500, difference: -50 }
+      ]);
+      return;
+    }
+
+    let query = supabase
+      .from('cash_closings')
+      .select('*')
+      .eq('treasury_account_id', selectedAccountId);
+
+    if (validOrgId) {
+      query = query.eq('organization_id', validOrgId);
+    }
+
+    const { data } = await query
+      .order('created_at', { ascending: false })
+      .limit(5);
+
+    if (data) setLastClosings(data);
+  }, [selectedAccountId, validOrgId, currentUser]);
 
   useEffect(() => {
     if (cashAccounts.length > 0 && !selectedAccountId) {
       setSelectedAccountId(cashAccounts[0].id);
     }
-  }, [cashAccounts]);
+  }, [cashAccounts, selectedAccountId]);
 
   useEffect(() => {
     if (selectedAccountId) {
       fetchAccountData();
       fetchLastClosings();
     }
-  }, [selectedAccountId]);
-
-  const fetchAccountData = async () => {
-    // التحقق من وضع الديمو أو معرف غير صالح لتجنب أخطاء قاعدة البيانات
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(selectedAccountId);
-    if (currentUser?.role === 'demo' || !isUuid) {
-        setSystemBalance(12500);
-        setTodayMovement({ in: 5000, out: 1200 });
-        if (actualBalance === '') setActualBalance(12500);
-        return;
-    }
-
-    setLoading(true);
-    try {
-      // 1. حساب الرصيد الحالي للنظام (من جميع القيود المرحلة)
-      // ملاحظة: نستخدم استعلام مباشر لضمان الدقة بدلاً من الاعتماد على الذاكرة
-      const { data: lines, error } = await supabase
-        .from('journal_lines')
-        .select('debit, credit, journal_entries!inner(transaction_date, status)')
-        .eq('account_id', selectedAccountId)
-        .eq('journal_entries.status', 'posted');
-
-      if (error) throw error;
-
-      let balance = 0;
-      let todayIn = 0;
-      let todayOut = 0;
-      const today = new Date().toISOString().split('T')[0];
-
-      lines?.forEach((line: Record<string, any>) => {
-        // طبيعة حساب الصندوق مدين (Debit)
-        // الرصيد = المدين - الدائن
-        balance += (Number(line.debit) - Number(line.credit));
-
-        if (line.journal_entries.transaction_date === today) {
-          todayIn += Number(line.debit);
-          todayOut += Number(line.credit);
-        }
-      });
-
-      setSystemBalance(balance);
-      setTodayMovement({ in: todayIn, out: todayOut });
-      // تعيين الرصيد الفعلي الافتراضي ليكون مطابقاً للنظام
-      if (actualBalance === '') setActualBalance(balance);
-
-    } catch (error) {
-      logger.error('Error fetching balance:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchLastClosings = async () => {
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(selectedAccountId);
-    if (currentUser?.role === 'demo' || !isUuid) {
-        setLastClosings([
-            { id: 'demo-1', closing_date: new Date(Date.now() - 86400000).toISOString(), actual_balance: 12000, difference: 0 },
-            { id: 'demo-2', closing_date: new Date(Date.now() - 172800000).toISOString(), actual_balance: 11500, difference: -50 }
-        ]);
-        return;
-    }
-
-    const { data } = await supabase
-      .from('cash_closings')
-      .select('*')
-      .eq('treasury_account_id', selectedAccountId)
-      .order('created_at', { ascending: false })
-      .limit(5);
-    if (data) setLastClosings(data);
-  };
+  }, [selectedAccountId, fetchAccountData, fetchLastClosings]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -133,7 +191,8 @@ const CashClosingForm = () => {
                 difference: difference,
                 notes: `محاولة إقفال بعجز يتجاوز الحد: ${notes}`,
                 rejected_by: currentUser?.id,
-                max_allowed_deficit: MAX_ALLOWED_DEFICIT
+                max_allowed_deficit: MAX_ALLOWED_DEFICIT,
+                organization_id: validOrgId
             });
         } catch (logError) {
             logger.error("Failed to log rejected cash closing:", logError);
@@ -156,7 +215,9 @@ const CashClosingForm = () => {
         difference: difference,
         notes: notes,
         created_by: currentUser?.id,
-        closing_date: new Date().toISOString()
+        user_id: currentUser?.id,
+        closing_date: new Date().toISOString(),
+        organization_id: validOrgId
       });
 
       if (error) throw error;
@@ -216,7 +277,8 @@ const CashClosingForm = () => {
 
       showToast('تم إقفال الصندوق بنجاح ✅', 'success');
       setNotes('');
-      fetchLastClosings();
+      await fetchLastClosings();
+      await fetchAccountData();
     } catch (error) {
       showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
@@ -228,14 +290,30 @@ const CashClosingForm = () => {
 
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in">
-      <div className="flex items-center gap-3 mb-6">
-        <div className="bg-emerald-100 p-3 rounded-xl text-emerald-600">
-          <Wallet size={32} />
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+        <div className="flex items-center gap-3">
+          <div className="bg-emerald-100 p-3 rounded-xl text-emerald-600">
+            <Wallet size={32} />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-slate-800">إقفال الصندوق اليومي</h2>
+            <p className="text-slate-500">مطابقة الرصيد الفعلي مع رصيد النظام وتسجيل العجز أو الزيادة</p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800">إقفال الصندوق اليومي</h2>
-          <p className="text-slate-500">مطابقة الرصيد الفعلي مع رصيد النظام وتسجيل العجز أو الزيادة</p>
-        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            fetchAccountData();
+            fetchLastClosings();
+          }}
+          disabled={loading}
+          className="px-4 py-2.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-bold text-xs flex items-center gap-2 shadow-xs transition-colors self-end sm:self-center"
+          title="تحديث رصيد النظام وحركات اليوم"
+        >
+          <RefreshCw size={15} className={loading ? "animate-spin text-emerald-600" : "text-slate-400"} />
+          تحديث الرصيد
+        </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -246,7 +324,10 @@ const CashClosingForm = () => {
               <label className="block text-sm font-bold text-slate-700 mb-2">اختر الصندوق / الخزينة</label>
               <select 
                 value={selectedAccountId}
-                onChange={(e) => setSelectedAccountId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedAccountId(e.target.value);
+                  setActualBalance('');
+                }}
                 className="w-full border border-slate-300 rounded-xl px-4 py-3 font-bold text-slate-700 focus:outline-none focus:border-emerald-500"
               >
                 {cashAccounts.map(acc => (

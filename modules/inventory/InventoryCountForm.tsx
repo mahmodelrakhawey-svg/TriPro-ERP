@@ -1,6 +1,6 @@
 import { logger } from '../../utils/logger';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -8,12 +8,14 @@ import {
   Calculator, RefreshCw, Save, Search, CheckCircle2, AlertTriangle, 
   Loader2, Scan, RotateCcw, Plus, Trash2, Check, Filter, Layers, 
   ArrowUpDown, ChevronLeft, ChevronRight, X, Package, CheckCheck,
-  Barcode as BarcodeIcon, SlidersHorizontal, ArrowRightLeft
+  Barcode as BarcodeIcon, SlidersHorizontal, ArrowRightLeft, Sparkles,
+  ShieldCheck, Clock, Edit3
 } from 'lucide-react';
 import { createInventoryCountSchema } from '../../utils/validationSchemas';
 import ProductSearchSelect, { normalizeArabic } from '../../components/ProductSearchSelect';
 import { fetchAllTableRecords } from '../../context/domains/domainUtils';
 import { getCurrencySymbol } from '../../utils/constants';
+import { secureStorage } from '../../utils/securityMiddleware';
 
 export interface CountTableItem {
   productId: string;
@@ -34,14 +36,111 @@ export interface CountTableItem {
   searchableText: string;
 }
 
+const INVENTORY_COUNT_DRAFT_KEY = 'tripro_inventory_count_draft_v1';
+const LEGACY_INVENTORY_COUNT_DRAFT_KEY = 'tripro_inventory_count_draft';
+
+export interface InventoryCountDraftData {
+  warehouseId: string;
+  date: string;
+  items: CountTableItem[];
+  includeServices?: boolean;
+  savedAt?: string;
+  savedAtTimestamp?: number;
+}
+
+export const getInventoryCountDraft = (): InventoryCountDraftData | null => {
+  try {
+    let raw = secureStorage.getItem<any>(INVENTORY_COUNT_DRAFT_KEY);
+    if (!raw) {
+      raw = secureStorage.getItem<any>(LEGACY_INVENTORY_COUNT_DRAFT_KEY);
+    }
+    if (!raw) return null;
+    while (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        break;
+      }
+    }
+    if (raw && typeof raw === 'object') {
+      const validItems = Array.isArray(raw.items) ? raw.items : [];
+      if (validItems.length > 0 || raw.warehouseId) {
+        return {
+          warehouseId: raw.warehouseId || '',
+          date: raw.date || new Date().toISOString().split('T')[0],
+          items: validItems,
+          includeServices: !!raw.includeServices,
+          savedAt: raw.savedAt,
+          savedAtTimestamp: raw.savedAtTimestamp
+        };
+      }
+    }
+    return null;
+  } catch (err) {
+    logger.warn('Failed to parse inventory count draft', err);
+    return null;
+  }
+};
+
+export const clearInventoryCountDraft = () => {
+  try {
+    secureStorage.removeItem(INVENTORY_COUNT_DRAFT_KEY);
+    secureStorage.removeItem(LEGACY_INVENTORY_COUNT_DRAFT_KEY);
+  } catch {}
+};
+
 const InventoryCountForm = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { products, warehouses, categories, settings, recalculateStock, currentUser, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
+
+  const [editingCountId, setEditingCountId] = useState<string | null>(null);
+  const [editingCountNumber, setEditingCountNumber] = useState<string | null>(null);
   
-  const [warehouseId, setWarehouseId] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
-  const [items, setItems] = useState<CountTableItem[]>([]);
+  // 🛡️ استرجاع فوري متزامن للمسودة عند أول تصيير لمنع أي وميض أو ضياع للبيانات عند إعادة تحميل الشاشة
+  const [hasDraftRestored, setHasDraftRestored] = useState<boolean>(() => {
+    const draft = getInventoryCountDraft();
+    return !!(draft && (draft.items.length > 0 || draft.warehouseId));
+  });
+
+  const [draftInfo, setDraftInfo] = useState<{ itemCount: number; savedAt?: string } | null>(() => {
+    const draft = getInventoryCountDraft();
+    if (draft && (draft.items.length > 0 || draft.warehouseId)) {
+      return {
+        itemCount: draft.items.length,
+        savedAt: draft.savedAt
+      };
+    }
+    return null;
+  });
+
+  const [lastAutoSaveTime, setLastAutoSaveTime] = useState<string | null>(() => {
+    const draft = getInventoryCountDraft();
+    return draft?.savedAt || null;
+  });
+
+  const [warehouseId, setWarehouseId] = useState<string>(() => {
+    const draft = getInventoryCountDraft();
+    return draft?.warehouseId || '';
+  });
+
+  const [date, setDate] = useState<string>(() => {
+    const draft = getInventoryCountDraft();
+    return draft?.date || new Date().toISOString().split('T')[0];
+  });
+
+  const [items, setItems] = useState<CountTableItem[]>(() => {
+    const draft = getInventoryCountDraft();
+    if (draft?.items && Array.isArray(draft.items) && draft.items.length > 0) {
+      return draft.items.map(item => ({
+        ...item,
+        searchableText: item.searchableText || `${item.productName || ''} ${item.sku || ''} ${item.barcode || ''}`
+      }));
+    }
+    return [];
+  });
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'diff_only' | 'matched_only' | 'surplus_only' | 'shortage_only' | 'zero_stock'>('all');
@@ -51,13 +150,17 @@ const InventoryCountForm = () => {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [allAvailableProducts, setAllAvailableProducts] = useState<any[]>([]);
   const [highlightedProductId, setHighlightedProductId] = useState<string | null>(null);
-  const [includeServices, setIncludeServices] = useState(false);
+  const [includeServices, setIncludeServices] = useState<boolean>(() => {
+    const draft = getInventoryCountDraft();
+    return !!draft?.includeServices;
+  });
 
   // التحكم في الصفحات (Pagination)
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(50);
 
   const itemInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
+  const isMountedRef = useRef(false);
   const orgId = currentSelectedOrgId || (settings as any)?.organization_id || (currentUser as any)?.organization_id;
   const currency = getCurrencySymbol(settings?.currency) || 'ج.م';
 
@@ -107,6 +210,154 @@ const InventoryCountForm = () => {
   useEffect(() => {
     loadFreshProducts();
   }, [orgId, products]);
+
+  // 🛡️ تحميل كشف الجرد للتعديل في حال تم التوجيه من سجل الجرد المخزني
+  useEffect(() => {
+    const editId = (location.state as any)?.editCountId;
+    if (!editId) return;
+
+    const loadCountForEdit = async (countId: string) => {
+      try {
+        setLoadingProducts(true);
+        const { data: countDoc, error: countErr } = await supabase
+          .from('inventory_counts')
+          .select('*, warehouses(name)')
+          .eq('id', countId)
+          .single();
+
+        if (countErr || !countDoc) throw countErr || new Error('الجرد غير موجود');
+
+        const { data: countItems, error: itemsErr } = await supabase
+          .from('inventory_count_items')
+          .select('*, products(*)')
+          .eq('inventory_count_id', countId);
+
+        if (itemsErr) throw itemsErr;
+
+        setEditingCountId(countDoc.id);
+        setEditingCountNumber(countDoc.count_number);
+        setWarehouseId(countDoc.warehouse_id);
+        setDate(countDoc.count_date);
+
+        if (countItems && countItems.length > 0) {
+          const mappedItems: CountTableItem[] = countItems.map(ci => {
+            const prod = ci.products || {};
+            const sysQty = Number(ci.system_quantity || 0);
+            const actQty = Number(ci.counted_quantity || 0);
+            const diff = Number(ci.difference !== undefined ? ci.difference : actQty - sysQty);
+            return {
+              productId: ci.product_id,
+              productName: prod.name || 'صنف',
+              productDescription: prod.description || '',
+              sku: prod.sku || '',
+              barcode: prod.barcode || '',
+              barcode2: prod.barcode2 || '',
+              purchasePrice: Number(prod.purchase_price || prod.cost || 0),
+              systemQty: sysQty,
+              actualQty: actQty,
+              difference: diff,
+              unit: prod.unit || 'قطعة',
+              categoryId: prod.category_id || '',
+              categoryName: '',
+              notes: ci.notes || '',
+              isCounted: true,
+              searchableText: `${prod.name || ''} ${prod.sku || ''} ${prod.barcode || ''}`
+            };
+          });
+          setItems(mappedItems);
+        }
+        showToast(`تم فتح كشف الجرد رقم (${countDoc.count_number}) للتعديل ✅`, 'info');
+      } catch (err: any) {
+        logger.error('Error loading count for edit:', err);
+        showToast('فشل في تحميل كشف الجرد للتعديل: ' + (err?.message || ''), 'error');
+      } finally {
+        setLoadingProducts(false);
+      }
+    };
+
+    loadCountForEdit(editId);
+  }, [(location.state as any)?.editCountId]);
+
+  // 🛡️ إشعار المستخدم باستعادة مسودة الجرد تلقائياً عند فتح الشاشة
+  useEffect(() => {
+    if (hasDraftRestored && items.length > 0 && !location.state?.editCountId) {
+      showToast(`تمت استعادة كشف الجرد المخزني تلقائياً (${items.length} صنف) ✅`, 'info');
+    }
+  }, []);
+
+  // 🛡️ حفظ مسودة كشف الجرد تلقائياً في التخزين الآمن عند أي تغيير
+  useEffect(() => {
+    if (!isMountedRef.current) {
+      isMountedRef.current = true;
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      if (items.length > 0 || warehouseId) {
+        try {
+          const nowStr = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          const draftPayload: InventoryCountDraftData = {
+            warehouseId,
+            date,
+            items,
+            includeServices,
+            savedAt: nowStr,
+            savedAtTimestamp: Date.now()
+          };
+          secureStorage.setItem(INVENTORY_COUNT_DRAFT_KEY, draftPayload);
+          setLastAutoSaveTime(nowStr);
+        } catch (e) {
+          logger.error('Failed to save inventory count draft', e);
+        }
+      } else {
+        clearInventoryCountDraft();
+        setLastAutoSaveTime(null);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [warehouseId, date, items, includeServices]);
+
+  // 🛡️ حماية ضد التحديث أو المغادرة غير المقصودة للصفحة أثناء وجود أصناف مدخلة
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (items.length > 0 || warehouseId) {
+        // نضمن حفظ آخر مسودة فورياً وبشكل متزامن قبل الإغلاق أو الريفريش
+        try {
+          const nowStr = new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          const draftPayload: InventoryCountDraftData = {
+            warehouseId,
+            date,
+            items,
+            includeServices,
+            savedAt: nowStr,
+            savedAtTimestamp: Date.now()
+          };
+          secureStorage.setItem(INVENTORY_COUNT_DRAFT_KEY, draftPayload);
+        } catch {}
+
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [warehouseId, date, items, includeServices]);
+
+  // 🛡️ مسح المسودة والبدء من جديد
+  const handleClearDraft = () => {
+    if (!window.confirm('هل أنت متأكد من مسح بيانات المسودة الحالية والبدء من جديد؟ سيتم تصفير كشف الجرد الحالي.')) {
+      return;
+    }
+    clearInventoryCountDraft();
+    setItems([]);
+    setWarehouseId('');
+    setHasDraftRestored(false);
+    setDraftInfo(null);
+    setLastAutoSaveTime(null);
+    showToast('تم مسح المسودة وتصفير كشف الجرد بنجاح', 'info');
+  };
 
   // بناء صنف كشف الجرد مع الفهرسة النصية والتطبيع الشامل للعربية
   const buildCountItem = (p: Record<string, any>, targetWhId: string): CountTableItem => {
@@ -202,6 +453,12 @@ const InventoryCountForm = () => {
       return;
     }
     
+    if (items.length > 0) {
+      if (!window.confirm('لديك كشف جرد حالي يحتوي على أصناف وكميات مدخلة. هل أنت متأكد من إعادة تحميل كافة الأصناف وإعادة ضبط الكميات؟')) {
+        return;
+      }
+    }
+
     setLoadingProducts(true);
     try {
       const prodsToUse = allAvailableProducts.length > 0 ? allAvailableProducts : await loadFreshProducts();
@@ -289,48 +546,86 @@ const InventoryCountForm = () => {
 
     setSaving(true);
     try {
-      const countNumber = `CNT-${Date.now().toString().slice(-6)}`;
+      let countDocId = editingCountId;
 
-      // 1. حفظ رأس الجرد
-      const { data: countDoc, error: countError } = await supabase.from('inventory_counts').insert({
-        warehouse_id: warehouseId,
-        count_date: date,
-        count_number: countNumber,
-        status: isFinal ? 'completed' : 'draft',
-        notes: `جرد مخزني فعلي (${items.length} صنف)`,
-        organization_id: orgId
-      }).select().single();
+      if (editingCountId) {
+        // تحديث كشف الجرد الحالي
+        const { error: updateError } = await supabase
+          .from('inventory_counts')
+          .update({
+            warehouse_id: warehouseId,
+            count_date: date,
+            status: 'draft',
+            notes: `جرد مخزني فعلي (${items.length} صنف) - معدل`,
+          })
+          .eq('id', editingCountId);
+        if (updateError) throw updateError;
 
-      if (countError) throw countError;
+        // حذف الأسطر القديمة وإعادة إدراج الأسطر المحدثة
+        await supabase.from('inventory_count_items').delete().eq('inventory_count_id', editingCountId);
 
-      // 2. حفظ تفاصيل الجرد
-      const countItems = items.map(item => ({
-        inventory_count_id: countDoc.id,
-        product_id: item.productId,
-        system_quantity: item.systemQty,
-        counted_quantity: item.actualQty,
-        difference: item.difference,
-        organization_id: orgId
-      }));
+        const countItemsPayload = items.map(item => ({
+          inventory_count_id: editingCountId,
+          product_id: item.productId,
+          system_quantity: item.systemQty,
+          counted_quantity: item.actualQty,
+          difference: item.difference,
+          organization_id: orgId
+        }));
+        const { error: itemsError } = await supabase.from('inventory_count_items').insert(countItemsPayload);
+        if (itemsError) throw itemsError;
+      } else {
+        const countNumber = `CNT-${Date.now().toString().slice(-6)}`;
 
-      const { error: itemsError } = await supabase.from('inventory_count_items').insert(countItems);
-      if (itemsError) throw itemsError;
+        // 1. حفظ رأس الجرد الجديد
+        const { data: countDoc, error: countError } = await supabase.from('inventory_counts').insert({
+          warehouse_id: warehouseId,
+          count_date: date,
+          count_number: countNumber,
+          status: 'draft',
+          notes: `جرد مخزني فعلي (${items.length} صنف)`,
+          organization_id: orgId
+        }).select().single();
+
+        if (countError) throw countError;
+        countDocId = countDoc.id;
+
+        // 2. حفظ تفاصيل الجرد
+        const countItems = items.map(item => ({
+          inventory_count_id: countDoc.id,
+          product_id: item.productId,
+          system_quantity: item.systemQty,
+          counted_quantity: item.actualQty,
+          difference: item.difference,
+          organization_id: orgId
+        }));
+
+        const { error: itemsError } = await supabase.from('inventory_count_items').insert(countItems);
+        if (itemsError) throw itemsError;
+      }
 
       // 🚀 إذا كان المستخدم يريد الاعتماد الفوري، نستخدم المحرك المركزي (RPC)
-      if (isFinal) {
+      if (isFinal && countDocId) {
         const { error: postError } = await supabase.rpc('post_inventory_count', { 
-          p_count_id: countDoc.id 
+          p_count_id: countDocId 
         });
         if (postError) throw postError;
         
         await recalculateStock();
         showToast('تم ترحيل الجرد واعتماد التسويات والقيود المحاسبية بنجاح ✅', 'success');
       } else {
-        showToast('تم حفظ كشف الجرد كمسودة بنجاح ✅', 'success');
+        showToast(editingCountId ? 'تم حفظ تعديلات كشف الجرد بنجاح ✅' : 'تم حفظ كشف الجرد كمسودة بنجاح ✅', 'success');
       }
 
+      // 🛡️ مسح المسودة المحلية بعد إتمام الحفظ بنجاح
+      clearInventoryCountDraft();
+      setHasDraftRestored(false);
+      setDraftInfo(null);
+      setLastAutoSaveTime(null);
       setItems([]);
       setWarehouseId('');
+      setEditingCountId(null);
+      setEditingCountNumber(null);
       navigate('/inventory-history');
     } catch (error: any) {
       logger.error('Error saving count:', error);
@@ -502,6 +797,13 @@ const InventoryCountForm = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {items.length > 0 && (
+            <span className="hidden sm:flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-2 rounded-xl shadow-2xs">
+              <ShieldCheck size={15} className="text-emerald-600" />
+              <span>الحفظ التلقائي مفعّل</span>
+              {lastAutoSaveTime && <span className="text-[11px] font-mono text-emerald-600">({lastAutoSaveTime})</span>}
+            </span>
+          )}
           <button 
             type="button" 
             onClick={() => loadFreshProducts()} 
@@ -515,6 +817,83 @@ const InventoryCountForm = () => {
         </div>
       </div>
 
+      {/* 🛡️ شريط وضع تعديل كشف الجرد */}
+      {editingCountNumber && (
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-amber-950 shadow-xs animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-amber-500 text-white rounded-xl shadow-xs shrink-0">
+              <Edit3 size={20} />
+            </div>
+            <div>
+              <div className="font-black text-sm text-amber-900 flex items-center gap-2">
+                <span>أنت الآن في وضع تعديل كشف الجرد رقم:</span>
+                <span className="font-mono bg-white px-2.5 py-0.5 rounded-lg border border-amber-300 text-amber-900 font-black">
+                  {editingCountNumber}
+                </span>
+              </div>
+              <p className="text-amber-800 mt-0.5 font-medium">
+                يمكنك تعديل الكميات الفعلية أو إضافة أصناف جديدة عبر الباركود، وعند الضغط على حفظ سيتم تحديث نفس كشف الجرد دون تكرار.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setEditingCountId(null);
+              setEditingCountNumber(null);
+              setItems([]);
+              clearInventoryCountDraft();
+              showToast('تم الخروج من وضع التعديل', 'info');
+            }}
+            className="px-3.5 py-2 bg-white hover:bg-amber-100 text-amber-900 border border-amber-300 rounded-xl font-bold transition-colors flex items-center gap-1.5 shadow-xs shrink-0 self-end sm:self-center"
+          >
+            <RotateCcw size={14} /> إلغاء التعديل وبدء كشف جديد
+          </button>
+        </div>
+      )}
+
+      {/* 🛡️ شريط تنبيه استعادة كشف الجرد تلقائياً */}
+      {hasDraftRestored && draftInfo && items.length > 0 && !editingCountNumber && (
+        <div className="p-4 bg-gradient-to-r from-purple-50 via-amber-50/60 to-orange-50 border border-purple-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-purple-950 shadow-xs animate-in fade-in">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-purple-600 text-white rounded-xl shadow-xs shrink-0">
+              <Sparkles size={20} />
+            </div>
+            <div>
+              <div className="font-black text-sm text-purple-950 flex items-center gap-2">
+                <span>تمت استعادة كشف الجرد المخزني المحفوظ تلقائياً ({items.length} صنف)</span>
+                {draftInfo.savedAt && (
+                  <span className="text-[11px] font-mono font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded-md border border-purple-200 flex items-center gap-1">
+                    <Clock size={11} /> آخر حفظ: {draftInfo.savedAt}
+                  </span>
+                )}
+              </div>
+              <p className="text-slate-600 mt-1 font-medium">
+                تم الاحتفاظ بكافة بيانات المستودع والأصناف والكميات الفعلية المدخلة لحماية عملك من الضياع عند إعادة تحميل الشاشة أو تحديث المتصفح.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            <button
+              type="button"
+              onClick={handleClearDraft}
+              className="px-3.5 py-2 bg-white hover:bg-red-50 text-red-700 border border-red-200 rounded-xl font-bold transition-colors flex items-center gap-1.5 shadow-xs"
+              title="تصفير القائمة وحذف المسودة المحفوظة"
+            >
+              <RotateCcw size={14} /> مسح المسودة وبدء جديد
+            </button>
+            <button
+              type="button"
+              onClick={() => setHasDraftRestored(false)}
+              className="p-2 hover:bg-purple-100 text-slate-400 hover:text-purple-700 rounded-xl transition-colors"
+              title="إخفاء التنبيه"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* قسم الإعدادات وبدء الجرد */}
       <div className="bg-white p-6 rounded-[28px] shadow-sm border border-slate-200 space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
@@ -523,11 +902,18 @@ const InventoryCountForm = () => {
             <select 
               value={warehouseId} 
               onChange={e => {
-                setWarehouseId(e.target.value);
-                if (items.length > 0) {
-                  if (window.confirm('تغيير المستودع سيقوم بإعادة ضبط قائمة الجرد الحالية، هل تريد المتابعة؟')) {
+                const newWh = e.target.value;
+                if (items.length > 0 && newWh !== warehouseId) {
+                  if (window.confirm('تغيير المستودع سيقوم بإعادة ضبط قائمة الجرد الحالية ومسح المسودة، هل تريد المتابعة؟')) {
+                    setWarehouseId(newWh);
                     setItems([]);
+                    clearInventoryCountDraft();
+                    setHasDraftRestored(false);
+                    setDraftInfo(null);
+                    setLastAutoSaveTime(null);
                   }
+                } else {
+                  setWarehouseId(newWh);
                 }
               }}
               className="w-full border-2 border-slate-100 rounded-2xl px-4 py-3 font-bold text-slate-700 focus:border-purple-500 focus:bg-white outline-none bg-slate-50 transition-all text-sm"
@@ -559,13 +945,9 @@ const InventoryCountForm = () => {
 
             {items.length > 0 && (
               <button 
-                onClick={() => {
-                  if (window.confirm('هل أنت متأكد من إلغاء الجرد الحالي ومسح القائمة؟')) {
-                    setItems([]);
-                  }
-                }} 
+                onClick={handleClearDraft} 
                 className="px-4 bg-red-50 text-red-600 rounded-2xl font-bold border border-red-100 hover:bg-red-100 transition-colors text-sm"
-                title="إلغاء الجرد وتصفير القائمة"
+                title="إلغاء الجرد وتصفير القائمة ومسح المسودة"
               >
                 إلغاء
               </button>
