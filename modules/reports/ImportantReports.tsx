@@ -1,4 +1,4 @@
-﻿import { useMemo } from 'react';
+import { useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { Link } from 'react-router-dom';
 import { 
@@ -46,8 +46,11 @@ const ImportantReports = () => {
     const totalSales = wholesaleSales + restaurantSales;
     const totalPurchases = (purchaseInvoices || []).reduce((sum, inv) => sum + (Number(inv.total_amount) || 0), 0);
     
-    // Calculate Inventory Value
-    const inventoryValue = (products || []).reduce((sum, p) => sum + ((p.stock || 0) * (p.purchase_price || 0)), 0);
+    // Calculate Inventory Value (aligned with unit cost in Inventory Dashboard)
+    const inventoryValue = (products || []).reduce((sum, p) => {
+      const unitCost = Number(p.cost !== undefined && p.cost !== null ? p.cost : p.purchase_price) || 0;
+      return sum + ((p.stock || 0) * unitCost);
+    }, 0);
 
     // 2. Monthly Trends (Last 6 Months)
     const monthlyTrends: any[] = [];

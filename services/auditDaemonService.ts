@@ -327,13 +327,35 @@ class AuditDaemonService {
     };
 
     try {
-      const { data: products } = await supabase
+      let productsList: Array<{ stock?: number; cost?: number; cost_price?: number }> = [];
+      const prodQuery = supabase
         .from('products')
-        .select('stock, cost')
+        .select('stock, cost, cost_price')
         .eq('organization_id', orgId)
         .is('deleted_at', null);
 
-      const totalStockValuation = (products || []).reduce(
+      if (typeof (prodQuery as any).range === 'function') {
+        let from = 0;
+        const pageSize = 1000;
+        while (true) {
+          const { data: chunk, error: chunkErr } = await supabase
+            .from('products')
+            .select('stock, cost, cost_price')
+            .eq('organization_id', orgId)
+            .is('deleted_at', null)
+            .range(from, from + pageSize - 1);
+
+          if (chunkErr || !chunk || chunk.length === 0) break;
+          productsList = productsList.concat(chunk as any);
+          if (chunk.length < pageSize) break;
+          from += pageSize;
+        }
+      } else {
+        const { data } = await prodQuery;
+        if (data) productsList = data as any;
+      }
+
+      const totalStockValuation = (productsList || []).reduce(
         (sum, p: { stock?: number; cost?: number; cost_price?: number }) => {
           const unitCost = Number(p.cost !== undefined ? p.cost : p.cost_price) || 0;
           return sum + (Number(p.stock) || 0) * unitCost;
