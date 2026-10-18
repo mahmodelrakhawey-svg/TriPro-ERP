@@ -231,14 +231,29 @@ class AuditDaemonService {
         0
       );
 
-      const { data: apAccount } = await supabase
-        .from('accounts')
-        .select('balance')
-        .eq('organization_id', orgId)
-        .or('code.eq.201,code.eq.221,code.eq.2211,code.eq.2101')
-        .maybeSingle();
+      let glApBalance = 0;
+      try {
+        const { data: direct201 } = await supabase
+          .from('accounts')
+          .select('balance')
+          .eq('organization_id', orgId)
+          .eq('code', '201')
+          .maybeSingle();
+        if (direct201 && Number(direct201.balance) > 0) {
+          glApBalance = Number(direct201.balance);
+        }
+      } catch (_) {}
 
-      const glApBalance = Number(apAccount?.balance || totalSupplierBalances);
+      if (glApBalance === 0) {
+        const { data: apAccount } = await supabase
+          .from('accounts')
+          .select('balance')
+          .eq('organization_id', orgId)
+          .or('code.eq.201,code.eq.221,code.eq.2211,code.eq.2101')
+          .maybeSingle();
+        glApBalance = Number(apAccount?.balance || totalSupplierBalances);
+      }
+
       const variance = Math.abs(totalSupplierBalances - glApBalance);
 
       apCheck.expected = Number(totalSupplierBalances.toFixed(2));
