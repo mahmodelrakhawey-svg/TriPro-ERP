@@ -327,10 +327,10 @@ class AuditDaemonService {
     };
 
     try {
-      let productsList: Array<{ stock?: number; cost?: number; cost_price?: number }> = [];
+      let productsList: Array<{ stock?: number; cost?: number }> = [];
       const prodQuery = supabase
         .from('products')
-        .select('stock, cost, cost_price')
+        .select('stock, cost')
         .eq('organization_id', orgId)
         .is('deleted_at', null);
 
@@ -340,7 +340,7 @@ class AuditDaemonService {
         while (true) {
           const { data: chunk, error: chunkErr } = await supabase
             .from('products')
-            .select('stock, cost, cost_price')
+            .select('stock, cost')
             .eq('organization_id', orgId)
             .is('deleted_at', null)
             .range(from, from + pageSize - 1);
@@ -356,8 +356,8 @@ class AuditDaemonService {
       }
 
       const totalStockValuation = (productsList || []).reduce(
-        (sum, p: { stock?: number; cost?: number; cost_price?: number }) => {
-          const unitCost = Number(p.cost !== undefined ? p.cost : p.cost_price) || 0;
+        (sum, p: { stock?: number; cost?: number }) => {
+          const unitCost = Number(p.cost) || 0;
           return sum + (Number(p.stock) || 0) * unitCost;
         },
         0
