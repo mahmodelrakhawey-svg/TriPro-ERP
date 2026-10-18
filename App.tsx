@@ -251,7 +251,7 @@ const RestaurantSalesReport = lazy(() => import('./modules/restaurant/reports/Re
 const SalesByUserReport = lazy(() => import('./modules/restaurant/reports/SalesByUserReport'));
 const WastageAnalysisReport = lazy(() => import('./modules/restaurant/reports/WastageAnalysisReport'));
 const RestaurantProfitReport = lazy(() => import('./modules/restaurant/reports/RestaurantProfitReport'));
-const RestaurantAnalytics = lazy(() => import('./services/RestaurantAnalytics'));
+const RestaurantAnalytics = lazy(() => import('./modules/restaurant/reports/RestaurantAnalytics'));
 import { OfflineSyncProvider } from './components/OfflineSyncProvider';
 const CustomerDisplay = lazy(() => import('./modules/restaurant/components/POS/CustomerDisplay'));
 const MobileWaiterScreen = lazy(() => import('./modules/restaurant/components/POS/MobileWaiterScreen'));

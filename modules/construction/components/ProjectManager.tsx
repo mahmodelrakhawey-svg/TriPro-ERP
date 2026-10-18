@@ -20,9 +20,9 @@ import EquipmentManager from './EquipmentManager'; // New import
 import SubcontractorStatement from './SubcontractorStatement'; // New import
 import SiteAssetsCustody from './SiteAssetsCustody'; // 🏗️ استيراد الموديول الجديد
 import ProjectClosingForm from './ProjectClosingForm'; // New import
-import SiteAttendanceManager from '../../../services/SiteAttendanceManager';
-import SiteImageGallery from '../../../services/SiteImageGallery';
-import DailyReportForm from '../../../services/DailyReportForm';
+import SiteAttendanceManager from './SiteAttendanceManager';
+import SiteImageGallery from './SiteImageGallery';
+import DailyReportForm from './DailyReportForm';
 import { Link } from 'react-router-dom';
 
 interface Project {

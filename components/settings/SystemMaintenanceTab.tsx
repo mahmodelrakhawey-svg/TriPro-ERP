@@ -16,7 +16,7 @@ import {
   Upload,
   AlertTriangle,
 } from 'lucide-react';
-import ArchiveManager from '../../services/ArchiveManager';
+import ArchiveManager from './ArchiveManager';
 import { CloudBackup } from './types';
 
 interface SystemMaintenanceTabProps {

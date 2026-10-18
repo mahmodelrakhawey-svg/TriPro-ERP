@@ -6,3 +6,5 @@ export { AccountMappingTab } from './AccountMappingTab';
 export { TerminalsSettingsTab } from './TerminalsSettingsTab';
 export { EtaIntegrationTab } from './EtaIntegrationTab';
 export { DemoModeTab } from './DemoModeTab';
+export { default as ArchiveManager } from './ArchiveManager';
+export { BackupRestoreManager } from './BackupRestoreManager';
