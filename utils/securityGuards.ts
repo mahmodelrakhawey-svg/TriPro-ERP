@@ -164,3 +164,16 @@ export function sanitizeForCSV(value: string): string {
 export function createSafeString(input: string): string {
   return sanitizeHtml(encodeHtmlEntities(input));
 }
+
+/**
+ * Sanitize search term for PostgREST filter queries (.or, .ilike)
+ * Prevents PostgREST delimiter manipulation (, . ( ) \ quotes)
+ */
+export function sanitizeSearchTerm(term: string): string {
+  if (!term || typeof term !== 'string') return '';
+  return term
+    .replace(/[,\(\)\\]/g, ' ')
+    .replace(/["']/g, '')
+    .trim();
+}
+
