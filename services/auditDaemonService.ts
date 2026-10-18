@@ -284,7 +284,7 @@ class AuditDaemonService {
           const { count: unlinkedCount } = await supabase
             .from('journal_lines')
             .select('id', { count: 'exact', head: true })
-            .eq('account_id', direct201?.id || '')
+            .eq('account_id', apAccountId || '')
             .is('journal_entries.related_document_id', null);
 
           // إذا كانت كافة القيود مرتبطة بمستندات وموردين (0 قيود غير مربوطة)، فالأستاذ المساعد مطابق للأستاذ العام
