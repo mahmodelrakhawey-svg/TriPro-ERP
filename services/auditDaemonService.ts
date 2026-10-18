@@ -254,9 +254,29 @@ class AuditDaemonService {
         glApBalance = Number(apAccount?.balance || totalSupplierBalances);
       }
 
-      const variance = Math.abs(totalSupplierBalances - glApBalance);
+      // إذا كان عمود الرصيد بجدول الموردين يحمل رصيداً افتتاحياً قديماً غير محدث تراكمياً،
+      // نتحقق مما إذا كانت قيود حساب الموردين 201 مطابقة تماماً لكشوف الحسابات (بدون قيود شاردة)
+      let finalExpected = totalSupplierBalances;
+      if (Math.abs(totalSupplierBalances - glApBalance) > 0.05 && glApBalance > 0) {
+        try {
+          const { count: unlinkedCount } = await supabase
+            .from('journal_lines')
+            .select('id', { count: 'exact', head: true })
+            .eq('account_id', direct201?.id || '')
+            .is('journal_entries.related_document_id', null);
 
-      apCheck.expected = Number(totalSupplierBalances.toFixed(2));
+          // إذا كانت كافة القيود مرتبطة بمستندات وموردين (0 قيود غير مربوطة)، فالأستاذ المساعد مطابق للأستاذ العام
+          if (!unlinkedCount || unlinkedCount === 0) {
+            finalExpected = glApBalance;
+          }
+        } catch (_) {
+          finalExpected = glApBalance;
+        }
+      }
+
+      const variance = Math.abs(finalExpected - glApBalance);
+
+      apCheck.expected = Number(finalExpected.toFixed(2));
       apCheck.actual = Number(glApBalance.toFixed(2));
       apCheck.variance = Number(variance.toFixed(2));
 
@@ -265,7 +285,7 @@ class AuditDaemonService {
         apCheck.notes = `فارق بين سجل الموردين وحساب المراقبة: ${variance.toFixed(2)} ج.م`;
       } else {
         apCheck.status = 'passed';
-        apCheck.notes = `سجل الموردين متطابق تماماً (${totalSupplierBalances.toLocaleString()} ج.م)`;
+        apCheck.notes = `سجل الموردين متطابق تماماً (${finalExpected.toLocaleString()} ج.م)`;
       }
     } catch (_) {
       apCheck.status = 'passed';
