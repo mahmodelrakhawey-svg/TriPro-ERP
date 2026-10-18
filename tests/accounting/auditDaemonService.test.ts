@@ -187,5 +187,46 @@ describe('🛡️ Midnight Financial Integrity & Audit Daemon Service', () => {
     expect(report.checks).toHaveLength(2);
     expect(report.summary.passedCount).toBe(2);
   });
+
+  it('يستكمل الأركان الأربعة عندما تعيد قاعدة البيانات ركن الأستاذ العام فقط (pillar-gl)', async () => {
+    const singleGlRpcReport = {
+      success: true,
+      overall_status: 'passed',
+      timestamp: '2026-10-18T19:52:00Z',
+      checks: [
+        {
+          id: 'pillar-gl',
+          pillar: 'gl_balance',
+          title: 'توازن الأستاذ العام (إجمالي المدين = إجمالي الدائن)',
+          expected: 44257974.10,
+          actual: 44257974.10,
+          variance: 0,
+          status: 'passed',
+          notes: 'الأستاذ العام متوازن تماماً: مدين (44,257,974.10 ج.م) = دائن (44,257,974.10 ج.م)',
+        },
+      ],
+    };
+
+    (supabase.rpc as any).mockResolvedValueOnce({
+      data: singleGlRpcReport,
+      error: null,
+    });
+
+    const report = await auditDaemonService.runSystemAudit(testOrgId);
+
+    expect(report).toBeDefined();
+    // يجب أن يحتوي التقرير على جميع الأركان الخمسة وليس ركناً واحداً
+    expect(report.checks).toHaveLength(5);
+    expect(report.summary.totalChecks).toBe(5);
+    expect(report.summary.passedCount).toBe(5);
+    // ركن الأستاذ العام يحتفظ بقيمة الـ RPC الدقيقة
+    const glCheck = report.checks.find((c) => c.pillar === 'gl_balance');
+    expect(glCheck?.expected).toBe(44257974.10);
+    // باقي الأركان تم حسابها بنجاح
+    expect(report.checks.some((c) => c.pillar === 'ar_subledger')).toBe(true);
+    expect(report.checks.some((c) => c.pillar === 'ap_subledger')).toBe(true);
+    expect(report.checks.some((c) => c.pillar === 'inventory_valuation')).toBe(true);
+    expect(report.checks.some((c) => c.pillar === 'treasury_subledger')).toBe(true);
+  });
 });
 

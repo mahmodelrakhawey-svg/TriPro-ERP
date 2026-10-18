@@ -45,32 +45,8 @@ class AuditDaemonService {
    * تنفيذ التدقيق المالي الشامل على الأركان الأربعة
    */
   public async runSystemAudit(orgId: string): Promise<SystemAuditReport> {
-    // المحاولة الأولى الفائقة: عبر دالة RPC المباشرة بقاعدة البيانات
-    try {
-      const { data, error } = await supabase.rpc('get_financial_audit_summary', {
-        p_org_id: orgId || null
-      });
-
-      if (!error && data?.success && Array.isArray(data.checks)) {
-        const passedCount = data.checks.filter((c: Record<string, any>) => c.status === 'passed').length;
-        const failedCount = data.checks.filter((c: Record<string, any>) => c.status === 'failed' || c.status === 'warning').length;
-        return {
-          organizationId: orgId,
-          timestamp: data.timestamp || new Date().toISOString(),
-          overallStatus: (data.overall_status as 'passed' | 'warning' | 'failed') || 'passed',
-          checks: data.checks as AuditCheckItem[],
-          summary: {
-            totalChecks: data.checks.length,
-            passedCount,
-            failedCount
-          }
-        };
-      }
-    } catch (_) {
-      // الاستمرار إلى التدقيق الاحتياطي عبر العميل
-    }
-
     const checks: AuditCheckItem[] = [];
+    let skipGlQuery = false;
 
     // 1. الركن الأول: توازن دفتر الأستاذ العام (General Ledger Balance)
     let glCheck: AuditCheckItem = {
@@ -84,7 +60,39 @@ class AuditDaemonService {
       notes: 'القيود المرحلة متوازنة بالكامل بنسبة 100%'
     };
 
+    // المحاولة الأولى الفائقة: عبر دالة RPC المباشرة بقاعدة البيانات
     try {
+      const { data, error } = await supabase.rpc('get_financial_audit_summary', {
+        p_org_id: orgId || null
+      });
+
+      if (!error && data?.success && Array.isArray(data.checks)) {
+        if (data.checks.length === 1 && data.checks[0]?.id === 'pillar-gl') {
+          // تم إرجاع ركن الأستاذ العام فقط من قاعدة البيانات؛ نعتمد نتيجته الدقيقة ونستكمل باقي الأركان الأربعة
+          glCheck = data.checks[0] as AuditCheckItem;
+          skipGlQuery = true;
+        } else {
+          const passedCount = data.checks.filter((c: Record<string, any>) => c.status === 'passed').length;
+          const failedCount = data.checks.filter((c: Record<string, any>) => c.status === 'failed' || c.status === 'warning').length;
+          return {
+            organizationId: orgId,
+            timestamp: data.timestamp || new Date().toISOString(),
+            overallStatus: (data.overall_status as 'passed' | 'warning' | 'failed') || 'passed',
+            checks: data.checks as AuditCheckItem[],
+            summary: {
+              totalChecks: data.checks.length,
+              passedCount,
+              failedCount
+            }
+          };
+        }
+      }
+    } catch (_) {
+      // الاستمرار إلى التدقيق الاحتياطي عبر العميل
+    }
+
+    if (!skipGlQuery) {
+      try {
       // 🛡️ الاستعلام الشامل لكافة أسطر القيود المرحلة بنظام التقطيع (Chunking) لمنع قطع الـ 1000 سطر
       let totalDebit = 0;
       let totalCredit = 0;
@@ -148,7 +156,8 @@ class AuditDaemonService {
       glCheck.status = 'warning';
       glCheck.notes = 'تعذر فحص أسطر الأستاذ العام';
     }
-    checks.push(glCheck);
+  }
+  checks.push(glCheck);
 
     // 2. الركن الثاني: مطابقة سجل الأستاذ المساعد للعملاء مع حساب المراقبة (AR Subledger)
     let arCheck: AuditCheckItem = {
