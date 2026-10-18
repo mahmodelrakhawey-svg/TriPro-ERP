@@ -232,17 +232,39 @@ class AuditDaemonService {
       );
 
       let glApBalance = 0;
+      let apAccountId = '';
       try {
         const { data: direct201 } = await supabase
           .from('accounts')
-          .select('balance')
+          .select('id, balance')
           .eq('organization_id', orgId)
           .eq('code', '201')
           .maybeSingle();
-        if (direct201 && Number(direct201.balance) > 0) {
-          glApBalance = Number(direct201.balance);
+        if (direct201) {
+          apAccountId = direct201.id;
+          glApBalance = Number(direct201.balance || 0);
         }
       } catch (_) {}
+
+      // استعلام الرصيد الحي الفعلي من قيود اليومية لحساب الموردين 201 (الدائن - المدين)
+      if (apAccountId) {
+        try {
+          const { data: lines } = await supabase
+            .from('journal_lines')
+            .select('debit, credit, journal_entries!inner(status)')
+            .eq('account_id', apAccountId)
+            .eq('journal_entries.status', 'posted');
+
+          if (lines && lines.length > 0) {
+            const totalCredit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
+            const totalDebit = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
+            const dynamicBalance = totalCredit - totalDebit;
+            if (dynamicBalance > 0) {
+              glApBalance = dynamicBalance;
+            }
+          }
+        } catch (_) {}
+      }
 
       if (glApBalance === 0) {
         const { data: apAccount } = await supabase
