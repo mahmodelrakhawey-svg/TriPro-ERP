@@ -5,6 +5,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { PackageX, Download, Printer, Loader2, Filter } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 type SlowProduct = {
   id: string;
@@ -45,41 +46,48 @@ const SlowMovingReport = () => {
 
       if (!userOrgId) return;
 
-      // 1. جلب جميع الأصناف التي لها رصيد بالمخزون (أو يمكن أن تكون مواد خام)
-      const { data: products, error: prodError } = await supabase
-        .from('products')
-        .select('id, name, sku, stock, purchase_price, product_type')
-        .eq('organization_id', userOrgId)
-        .or('stock.gt.0,product_type.eq.RAW_MATERIAL'); // Include raw materials even if stock is 0
-
-      if (prodError) throw prodError;
+      // 1. جلب جميع الأصناف التي لها رصيد بالمخزون (أو يمكن أن تكون مواد خام) (تجاوز حد الـ 1000)
+      const products = await fetchCompleteDataset<Record<string, any>>(async (from, to) => 
+        supabase
+          .from('products')
+          .select('id, name, sku, stock, purchase_price, product_type')
+          .eq('organization_id', userOrgId)
+          .or('stock.gt.0,product_type.eq.RAW_MATERIAL')
+          .range(from, to)
+      );
 
       // 2. تجميع كل حركات الصادر (Outflow) خلال الفترة
       const [
-        { data: salesItems, error: salesError },
-        { data: restSalesItems },
+        salesItems,
+        restSalesItems,
         { data: mfgActualUsageItems },
         { data: mfgIssuedRequestItems },
         { data: mfgScrapLogItems },
         { data: constructionIssueItems },
         { data: himsBillingItems }
       ] = await Promise.all([
-        // أ. مبيعات الفواتير
-        supabase
-        .from('invoice_items')
-        .select('product_id, quantity, invoices!inner(invoice_date)')
-        .eq('invoices.organization_id', userOrgId) // 🔒 فلترة المبيعات حسب المنظمة
-        .gte('invoices.invoice_date', startDate)
-        .lte('invoices.invoice_date', endDate),
+        // أ. مبيعات الفواتير (تجاوز حد الـ 1000)
+        fetchCompleteDataset<Record<string, any>>(async (from, to) => 
+          supabase
+            .from('invoice_items')
+            .select('product_id, quantity, invoices!inner(invoice_date)')
+            .eq('invoices.organization_id', userOrgId)
+            .gte('invoices.invoice_date', startDate)
+            .lte('invoices.invoice_date', endDate)
+            .range(from, to)
+        ),
 
-        // ب. مبيعات المطاعم
-        supabase
-        .from('order_items')
-        .select('product_id, quantity, orders!inner(created_at, status)')
-        .eq('orders.organization_id', userOrgId) // 🔒 فلترة طلبات المطاعم حسب المنظمة
-        .in('orders.status', ['COMPLETED', 'PAID'])
-        .gte('orders.created_at', `${startDate}T00:00:00`)
-        .lte('orders.created_at', `${endDate}T23:59:59`),
+        // ب. مبيعات المطاعم (تجاوز حد الـ 1000)
+        fetchCompleteDataset<Record<string, any>>(async (from, to) => 
+          supabase
+            .from('order_items')
+            .select('product_id, quantity, orders!inner(created_at, status)')
+            .eq('orders.organization_id', userOrgId)
+            .in('orders.status', ['COMPLETED', 'PAID'])
+            .gte('orders.created_at', `${startDate}T00:00:00`)
+            .lte('orders.created_at', `${endDate}T23:59:59`)
+            .range(from, to)
+        ),
 
         // ج. استهلاك المواد الخام في التصنيع (Actual Usage)
         supabase
@@ -125,8 +133,6 @@ const SlowMovingReport = () => {
         .gte('hims_billing.created_at', `${startDate}T00:00:00`)
         .lte('hims_billing.created_at', `${endDate}T23:59:59`)
       ]);
-
-      if (salesError) throw salesError;
 
       // 3. تجميع كل حركات الصادر (Outflow) لكل صنف
       const outflowMap: Record<string, number> = {};

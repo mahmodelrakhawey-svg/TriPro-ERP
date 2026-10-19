@@ -209,7 +209,7 @@ const PurchaseInvoiceForm = () => {
   const loadInvoiceById = async (id: string) => {
     setLoadingInvoice(true);
     try {
-      let fullInv: any = null;
+      let fullInv: Record<string, any> | null = null;
       let { data: primaryData, error: invError } = await supabase
         .from('purchase_invoices')
         .select(`
@@ -338,7 +338,7 @@ const PurchaseInvoiceForm = () => {
   const loadAndDuplicateInvoice = async (id: string) => {
     setLoadingInvoice(true);
     try {
-      let fullInv: any = null;
+      let fullInv: Record<string, any> | null = null;
       let { data: primaryData, error: invError } = await supabase
         .from('purchase_invoices')
         .select(`

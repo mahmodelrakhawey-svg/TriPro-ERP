@@ -5,6 +5,7 @@ import { AlertTriangle, TrendingUp, Package, RefreshCw, BarChart3, Printer, Sear
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import ReportHeader from '../../components/ReportHeader';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 interface WastageItemAnalysis {
     product_id: string;
@@ -66,11 +67,14 @@ const WastageReport = () => {
                 adjustmentsQuery = adjustmentsQuery.eq('organization_id', orgId);
             }
 
-            const { data: adjustmentsData, error: adjError } = await adjustmentsQuery;
+            // تجاوز حد الـ 1000
+            const adjustmentsData = await fetchCompleteDataset<Record<string, any>>(async (from, to) => 
+                adjustmentsQuery.range(from, to)
+            );
 
             // تجميع كميات الهالك لكل صنف
             const wastedQtyMap: Record<string, number> = {};
-            if (adjustmentsData && !adjError) {
+            if (adjustmentsData) {
                 adjustmentsData.forEach((adj: Record<string, any>) => {
                     const items = adj.stock_adjustment_items || [];
                     items.forEach((item: Record<string, any>) => {

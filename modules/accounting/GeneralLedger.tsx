@@ -214,7 +214,7 @@ const GeneralLedger = () => {
         });
 
         // الرصيد الافتتاحي = مجموع المدين - مجموع الدائن (للفترة السابقة)
-        openBal = openingData?.reduce((sum, line: any) => sum + (Number(line.debit || 0) - Number(line.credit || 0)), 0) || 0;
+        openBal = openingData?.reduce((sum, line: { debit?: number; credit?: number }) => sum + (Number(line.debit || 0) - Number(line.credit || 0)), 0) || 0;
       }
 
       setOpeningBalance(openBal);
@@ -421,7 +421,7 @@ const GeneralLedger = () => {
                 return openingQuery.range(from, to);
               });
 
-              openBal = openingData?.reduce((sum, line: any) => sum + (Number(line.debit || 0) - Number(line.credit || 0)), 0) || 0;
+              openBal = openingData?.reduce((sum, line: { debit?: number; credit?: number }) => sum + (Number(line.debit || 0) - Number(line.credit || 0)), 0) || 0;
             }
             exportOpeningBal = openBal;
           } else {
@@ -452,9 +452,9 @@ const GeneralLedger = () => {
           });
 
           let running = exportOpeningBal;
-          exportEntries = periodLines.map((item: any) => {
+          exportEntries = (periodLines as Record<string, any>[]).map(item => {
             running += (Number(item.debit || 0) - Number(item.credit || 0));
-            return { ...item, balance: running };
+            return { ...item, balance: running } as LedgerEntry;
           });
         }
       }
@@ -553,9 +553,10 @@ const GeneralLedger = () => {
       XLSX.writeFile(wb, fileName);
       showToast('تم تصدير كشف الحساب إلى Excel بنجاح', 'success');
 
-    } catch (err: any) {
+    } catch (err) {
+      const errorObj = err as Error;
       logger.error('[GeneralLedger] Export error:', err);
-      showToast('حدث خطأ أثناء تصدير Excel: ' + (err?.message || 'خطأ غير متوقع'), 'error');
+      showToast('حدث خطأ أثناء تصدير Excel: ' + (errorObj?.message || 'خطأ غير متوقع'), 'error');
     } finally {
       setIsExporting(false);
     }

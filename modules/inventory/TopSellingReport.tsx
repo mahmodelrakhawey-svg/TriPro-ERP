@@ -5,6 +5,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { TrendingUp, Download, Printer, Loader2, Filter, Package } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 type TopProduct = {
   id: string;
@@ -53,33 +54,40 @@ const TopSellingReport = () => {
 
       if (!userOrgId) return;
 
-      // 1. جلب بنود فواتير المبيعات خلال الفترة
-      const { data: items, error } = await supabase
-        .from('invoice_items')
-        .select('quantity, total, product_id, products:product_id(name, sku), invoices!inner(invoice_date)')
-        .eq('organization_id', userOrgId) // 🔒 فلترة مباشرة لضمان العزل
-        .gte('invoices.invoice_date', startDate)
-        .lte('invoices.invoice_date', endDate);
+      // 1. جلب بنود فواتير المبيعات خلال الفترة (تجاوز حد الـ 1000)
+      const items = await fetchCompleteDataset<Record<string, any>>(async (from, to) => 
+        supabase
+          .from('invoice_items')
+          .select('quantity, total, product_id, products:product_id(name, sku), invoices!inner(invoice_date)')
+          .eq('organization_id', userOrgId)
+          .gte('invoices.invoice_date', startDate)
+          .lte('invoices.invoice_date', endDate)
+          .range(from, to)
+      );
 
-      if (error) throw error;
+      // 1.5 جلب مبيعات المطاعم (تجاوز حد الـ 1000)
+      const restItems = await fetchCompleteDataset<Record<string, any>>(async (from, to) => 
+        supabase
+          .from('order_items')
+          .select('quantity, total_price, product_id, products:product_id(name, sku), orders!inner(created_at, status)')
+          .eq('organization_id', userOrgId)
+          .in('orders.status', ['COMPLETED', 'PAID'])
+          .gte('orders.created_at', `${startDate}T00:00:00`)
+          .lte('orders.created_at', `${endDate}T23:59:59`)
+          .range(from, to)
+      );
 
-      // 1.5 جلب مبيعات المطاعم
-      const { data: restItems } = await supabase
-        .from('order_items')
-        .select('quantity, total_price, product_id, products:product_id(name, sku), orders!inner(created_at, status)')
-        .eq('organization_id', userOrgId) // 🔒 فلترة مباشرة لضمان العزل
-        .in('orders.status', ['COMPLETED', 'PAID'])
-        .gte('orders.created_at', `${startDate}T00:00:00`)
-        .lte('orders.created_at', `${endDate}T23:59:59`);
-
-      // 1.8 جلب مبيعات وصرف المستشفيات والصيدلية
-      const { data: himsItems } = await supabase
-        .from('hims_billing_items')
-        .select('quantity, total_price, product_id, products:product_id(name, sku), hims_billing!inner(created_at)')
-        .eq('hims_billing.organization_id', userOrgId)
-        .not('product_id', 'is', null)
-        .gte('hims_billing.created_at', `${startDate}T00:00:00`)
-        .lte('hims_billing.created_at', `${endDate}T23:59:59`);
+      // 1.8 جلب مبيعات وصرف المستشفيات والصيدلية (تجاوز حد الـ 1000)
+      const himsItems = await fetchCompleteDataset<Record<string, any>>(async (from, to) => 
+        supabase
+          .from('hims_billing_items')
+          .select('quantity, total_price, product_id, products:product_id(name, sku), hims_billing!inner(created_at)')
+          .eq('hims_billing.organization_id', userOrgId)
+          .not('product_id', 'is', null)
+          .gte('hims_billing.created_at', `${startDate}T00:00:00`)
+          .lte('hims_billing.created_at', `${endDate}T23:59:59`)
+          .range(from, to)
+      );
 
       // 2. تجميع البيانات
       const productMap: Record<string, TopProduct> = {};

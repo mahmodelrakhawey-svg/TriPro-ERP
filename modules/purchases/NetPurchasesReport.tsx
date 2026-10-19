@@ -5,6 +5,7 @@ import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { BarChart2, Filter, Loader2, Printer, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 const NetPurchasesReport = () => {
   const { currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
@@ -40,36 +41,39 @@ const NetPurchasesReport = () => {
 
       if (!userOrgId) return;
 
-      // 1. جلب الموردين
-      const { data: suppliers, error: suppError } = await supabase
-        .from('suppliers')
-        .select('id, name')
-        .eq('organization_id', userOrgId)
-        .is('deleted_at', null);
-      
-      if (suppError) throw suppError;
+      // 1. جلب الموردين (تجاوز حد الـ 1000)
+      const suppliers = await fetchCompleteDataset(async (from, to) => 
+        supabase
+          .from('suppliers')
+          .select('id, name')
+          .eq('organization_id', userOrgId)
+          .is('deleted_at', null)
+          .range(from, to)
+      );
 
-      // 2. جلب فواتير المشتريات المرحلة والمدفوعة
-      const { data: invoices, error: invError } = await supabase
-        .from('purchase_invoices')
-        .select('supplier_id, total_amount, tax_amount')
-        .eq('organization_id', userOrgId)
-        .in('status', ['posted', 'paid'])
-        .gte('invoice_date', startDate)
-        .lte('invoice_date', endDate);
+      // 2. جلب فواتير المشتريات المرحلة والمدفوعة (تجاوز حد الـ 1000)
+      const invoices = await fetchCompleteDataset(async (from, to) => 
+        supabase
+          .from('purchase_invoices')
+          .select('supplier_id, total_amount, tax_amount')
+          .eq('organization_id', userOrgId)
+          .in('status', ['posted', 'paid'])
+          .gte('invoice_date', startDate)
+          .lte('invoice_date', endDate)
+          .range(from, to)
+      );
 
-      if (invError) throw invError;
-
-      // 3. جلب مرتجعات المشتريات المرحلة
-      const { data: returns, error: retError } = await supabase
-        .from('purchase_returns')
-        .select('supplier_id, total_amount, tax_amount')
-        .eq('organization_id', userOrgId)
-        .in('status', ['posted', 'paid'])
-        .gte('return_date', startDate)
-        .lte('return_date', endDate);
-
-      if (retError) throw retError;
+      // 3. جلب مرتجعات المشتريات المرحلة (تجاوز حد الـ 1000)
+      const returns = await fetchCompleteDataset(async (from, to) => 
+        supabase
+          .from('purchase_returns')
+          .select('supplier_id, total_amount, tax_amount')
+          .eq('organization_id', userOrgId)
+          .in('status', ['posted', 'paid'])
+          .gte('return_date', startDate)
+          .lte('return_date', endDate)
+          .range(from, to)
+      );
 
       // 4. تجميع البيانات
       const supplierMap: Record<string, any> = {};

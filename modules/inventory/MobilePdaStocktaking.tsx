@@ -62,7 +62,7 @@ export default function MobilePdaStocktaking() {
         if (currentUser?.role === 'demo') {
           const demoList = products || [];
           setAllProducts(demoList);
-          const uniqueShelves = Array.from(new Set(demoList.map((p: any) => p.shelf_location).filter(Boolean))) as string[];
+          const uniqueShelves = Array.from(new Set(demoList.map((p: Record<string, unknown>) => p.shelf_location).filter(Boolean))) as string[];
           setShelves(uniqueShelves);
           return;
         }
@@ -78,13 +78,13 @@ export default function MobilePdaStocktaking() {
           }
         );
 
-        const mergedMap = new Map<string, any>();
-        (products || []).forEach((p: any) => { if (p?.id) mergedMap.set(p.id, p); });
-        (serverProducts || []).forEach((p: any) => { if (p?.id) mergedMap.set(p.id, p); });
+        const mergedMap = new Map<string, Record<string, unknown>>();
+        (products || []).forEach((p: Record<string, unknown>) => { if (p?.id) mergedMap.set(String(p.id), p); });
+        (serverProducts || []).forEach((p: Record<string, unknown>) => { if (p?.id) mergedMap.set(String(p.id), p); });
         const combined = Array.from(mergedMap.values());
 
         setAllProducts(combined);
-        const uniqueShelves = Array.from(new Set(combined.map((p: any) => p.shelf_location).filter(Boolean))) as string[];
+        const uniqueShelves = Array.from(new Set(combined.map((p: Record<string, unknown>) => p.shelf_location).filter(Boolean))) as string[];
         setShelves(uniqueShelves);
       } catch (err) {
         logger.error('Error loading products for PDA stocktaking:', err);

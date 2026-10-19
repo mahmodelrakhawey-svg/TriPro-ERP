@@ -4,6 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Package, Search, Download, LayoutGrid, AlertTriangle, ArrowUpCircle, CheckCircle2, RefreshCw, MapPin } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 interface ShelfItem {
   id: string;
@@ -45,15 +46,16 @@ export default function ShelfRestockReport() {
     if (!orgId) return;
     setIsLoading(true);
     try {
-      // 1. جلب المنتجات النشطة
-      const { data: prodsData, error: pErr } = await supabase
-        .from('products')
-        .select('id, name, sku, barcode, stock, min_stock_level, shelf_location, brand, image_url, sales_price, purchase_price, item_categories(name)')
-        .eq('organization_id', orgId)
-        .eq('is_active', true)
-        .in('product_type', ['STOCK', 'MANUFACTURED']);
-
-      if (pErr) throw pErr;
+      // 1. جلب المنتجات النشطة (تجاوز حد الـ 1000)
+      const prodsData = await fetchCompleteDataset<Record<string, any>>(async (from, to) => 
+        supabase
+          .from('products')
+          .select('id, name, sku, barcode, stock, min_stock_level, shelf_location, brand, image_url, sales_price, purchase_price, item_categories(name)')
+          .eq('organization_id', orgId)
+          .eq('is_active', true)
+          .in('product_type', ['STOCK', 'MANUFACTURED'])
+          .range(from, to)
+      );
 
       // 2. جلب مواقع وخانات الرفوف (WMS Bins)
       const { data: binsData } = await supabase

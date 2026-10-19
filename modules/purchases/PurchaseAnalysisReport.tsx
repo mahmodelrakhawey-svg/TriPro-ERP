@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 type SupplierAnalysis = {
   supplierId: string;
@@ -280,8 +281,9 @@ export default function PurchaseAnalysisReport() {
         analysisQuery = analysisQuery.eq('purchase_invoices.organization_id', userOrgId);
       }
 
-      const { data, error } = await analysisQuery;
-      if (error) throw error;
+      const data = await fetchCompleteDataset<Record<string, any>>(async (from, to) => 
+        analysisQuery.range(from, to)
+      );
 
       const supplierMap: Record<string, SupplierAnalysis> = {};
       const itemMap: Record<string, ItemAnalysis> = {};
@@ -359,8 +361,9 @@ export default function PurchaseAnalysisReport() {
         allItemsQuery = allItemsQuery.eq('purchase_invoices.organization_id', userOrgId);
       }
 
-      const { data: allItems, error: allErr } = await allItemsQuery;
-      if (allErr) throw allErr;
+      const allItems = await fetchCompleteDataset<Record<string, any>>(async (from, to) => 
+        allItemsQuery.range(from, to)
+      );
 
       // فرز البنود تنازلياً حسب تاريخ الفاتورة ورقمها في الذاكرة لضمان التقاط آخر عمليتي شراء حقيقيتين 100%
       const sortedItems = [...(allItems || [])].sort((a: Record<string, any>, b: Record<string, any>) => {

@@ -23,11 +23,11 @@ const CountDetailsModal = ({
   onEdit,
   isLoading 
 }: { 
-  count: any, 
+  count: Record<string, any>, 
   items: any[], 
   onClose: () => void, 
   onPost: (id: string) => void, 
-  onEdit: (count: any) => void,
+  onEdit: (count: Record<string, any>) => void,
   isLoading: boolean 
 }) => {
   const [showDiscrepanciesOnly, setShowDiscrepanciesOnly] = useState(false);
@@ -564,9 +564,10 @@ const InventoryCountList = () => {
 
       const data = await fetchCompleteDataset<any>(async (from, to) => query.range(from, to));
       setCounts(data || []);
-    } catch (err: any) {
+    } catch (err) {
+      const errorObj = err as Error;
       logger.error('Error fetching inventory counts:', err);
-      showToast('فشل في جلب سجلات الجرد المخزني', 'error');
+      showToast('فشل في جلب سجلات الجرد المخزني: ' + (errorObj?.message || ''), 'error');
     } finally {
       setLoading(false);
     }
@@ -669,9 +670,10 @@ const InventoryCountList = () => {
       showToast(`تم حفظ تعديلات كشف الجرد (${updatedCount.count_number}) بنجاح ✅`, 'success');
       setIsEditModalOpen(false);
       await fetchCounts();
-    } catch (err: any) {
+    } catch (err) {
+      const errorObj = err as Error;
       logger.error('Error saving count edit:', err);
-      showToast('فشل في حفظ التعديلات: ' + (err?.message || ''), 'error');
+      showToast('فشل في حفظ التعديلات: ' + (errorObj?.message || ''), 'error');
     } finally {
       setIsSavingEdit(false);
     }
@@ -753,9 +755,10 @@ const InventoryCountList = () => {
 
       showToast(`تم حذف كشف الجرد (${count.count_number}) بنجاح ✅`, 'success');
       await fetchCounts();
-    } catch (err: any) {
+    } catch (err) {
+      const errorObj = err as Error;
       logger.error('Error deleting inventory count:', err);
-      showToast('فشل في حذف كشف الجرد: ' + (err?.message || ''), 'error');
+      showToast('فشل في حذف كشف الجرد: ' + (errorObj?.message || ''), 'error');
     } finally {
       setDeletingId(null);
     }
@@ -783,9 +786,10 @@ const InventoryCountList = () => {
         setIsModalOpen(false);
         setIsEditModalOpen(false);
         fetchCounts();
-    } catch (error: any) {
+    } catch (error) {
+        const errObj = error as Error;
         logger.error(error);
-        showToast('فشل ترحيل الجرد: ' + (error?.message || ''), 'error');
+        showToast('فشل ترحيل الجرد: ' + (errObj?.message || ''), 'error');
     }
   };
 

@@ -315,9 +315,10 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
       } else {
         showToast('لم يتم ترحيل أي حركات. يرجى التحقق من تفاصيل الحسابات.', 'error');
       }
-    } catch (err: any) {
+    } catch (err) {
+      const errorObj = err as Error;
       logger.error('handleFixAll error:', err);
-      showToast('حدث خطأ غير متوقع: ' + err.message, 'error');
+      showToast('حدث خطأ غير متوقع: ' + (errorObj?.message || ''), 'error');
     } finally {
       setLoading(false);
     }

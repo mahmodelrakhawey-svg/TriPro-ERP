@@ -5,6 +5,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Download, Printer, Loader2, Filter, DollarSign } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 type ItemProfit = {
   id: string;
@@ -58,24 +59,28 @@ const ItemProfitReport = () => {
 
       if (!userOrgId) return;
 
-      // 1. جلب بنود فواتير المبيعات خلال الفترة مع بيانات المنتج (بما في ذلك التكلفة)
-      const { data: items, error } = await supabase
-        .from('invoice_items')
-        .select('quantity, total, cost, product_id, products(name, sku, weighted_average_cost, purchase_price), invoices!inner(invoice_date)')
-        .eq('organization_id', userOrgId) // 🔒 فلترة مباشرة
-        .gte('invoices.invoice_date', startDate)
-        .lte('invoices.invoice_date', endDate);
+      // 1. جلب بنود فواتير المبيعات خلال الفترة مع بيانات المنتج (تجاوز حد الـ 1000)
+      const items = await fetchCompleteDataset<Record<string, any>>(async (from, to) => 
+        supabase
+          .from('invoice_items')
+          .select('quantity, total, cost, product_id, products(name, sku, weighted_average_cost, purchase_price), invoices!inner(invoice_date)')
+          .eq('organization_id', userOrgId)
+          .gte('invoices.invoice_date', startDate)
+          .lte('invoices.invoice_date', endDate)
+          .range(from, to)
+      );
 
-      if (error) throw error;
-
-      // 1.5 مبيعات المطاعم
-      const { data: restItems } = await supabase
-        .from('order_items')
-        .select('quantity, total_price, unit_cost, product_id, products(name, sku, weighted_average_cost, purchase_price), orders!inner(created_at, status)')
-        .eq('organization_id', userOrgId) // 🔒 فلترة مباشرة
-        .in('orders.status', ['COMPLETED', 'PAID'])
-        .gte('orders.created_at', `${startDate}T00:00:00`)
-        .lte('orders.created_at', `${endDate}T23:59:59`);
+      // 1.5 مبيعات المطاعم (تجاوز حد الـ 1000)
+      const restItems = await fetchCompleteDataset<Record<string, any>>(async (from, to) => 
+        supabase
+          .from('order_items')
+          .select('quantity, total_price, unit_cost, product_id, products(name, sku, weighted_average_cost, purchase_price), orders!inner(created_at, status)')
+          .eq('organization_id', userOrgId)
+          .in('orders.status', ['COMPLETED', 'PAID'])
+          .gte('orders.created_at', `${startDate}T00:00:00`)
+          .lte('orders.created_at', `${endDate}T23:59:59`)
+          .range(from, to)
+      );
 
       // 2. تجميع البيانات
       const productMap: Record<string, ItemProfit> = {};

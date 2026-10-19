@@ -195,8 +195,9 @@ export const PurchaseInvoiceList = () => {
         sumRows = await fetchCompleteDataset<any>(async (from, to) => {
           return summaryQuery.range(from, to);
         });
-      } catch (sumErr: any) {
-        if (sumErr && sumErr.code === '42703') {
+      } catch (sumErr) {
+        const errObj = sumErr as { code?: string };
+        if (errObj && errObj.code === '42703') {
           sumRows = await fetchCompleteDataset<any>(async (from, to) => {
             return supabase
               .from('purchase_invoices')
@@ -508,7 +509,7 @@ export const PurchaseInvoiceList = () => {
 
     try {
       showToast('جاري تجهيز الفاتورة للطباعة...', 'info');
-      let printData: any = null;
+      let printData: Record<string, unknown> | null = null;
       const { data, error } = await supabase
         .from('purchase_invoices')
         .select(`
@@ -606,8 +607,9 @@ export const PurchaseInvoiceList = () => {
         exportRows = await fetchCompleteDataset<any>(async (from, to) => {
           return expQuery.range(from, to);
         });
-      } catch (expErr: any) {
-        if (expErr && expErr.code === '42703') {
+      } catch (expErr) {
+        const errObj = expErr as { code?: string };
+        if (errObj && errObj.code === '42703') {
           let fbExp = supabase
             .from('purchase_invoices')
             .select(`

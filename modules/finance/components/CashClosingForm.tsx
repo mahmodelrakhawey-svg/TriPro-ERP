@@ -53,7 +53,7 @@ const CashClosingForm = () => {
           });
 
           if (!rpcErr && Array.isArray(rpcData) && rpcData.length > 0) {
-            const accRow = rpcData.find((r: any) => r.account_id === selectedAccountId);
+            const accRow = rpcData.find((r: { account_id?: string; closing_balance?: number }) => r.account_id === selectedAccountId);
             if (accRow) {
               rpcBalance = Number(accRow.closing_balance) || 0;
             }
@@ -118,9 +118,10 @@ const CashClosingForm = () => {
       setTodayMovement({ in: todayIn, out: todayOut });
       setActualBalance(prev => (prev === '' ? finalBalance : prev));
 
-    } catch (error: any) {
+    } catch (error) {
+      const errObj = error as Error;
       logger.error('Error fetching balance:', error);
-      showToast('حدث خطأ أثناء جلب رصيد الخزينة: ' + (error?.message || ''), 'error');
+      showToast('حدث خطأ أثناء جلب رصيد الخزينة: ' + (errObj?.message || ''), 'error');
     } finally {
       setLoading(false);
     }

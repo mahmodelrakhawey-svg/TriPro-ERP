@@ -8,6 +8,7 @@ import ReportHeader from '../../components/ReportHeader';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { useToast } from '../../context/ToastContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 const FreeReturnsReport = () => {
   const { warehouses, selectedFiscalYear, fiscalYearRange } = useAccounting();
@@ -61,9 +62,10 @@ const FreeReturnsReport = () => {
         query = query.eq('warehouse_id', selectedWarehouseId);
       }
 
-      const { data, error } = await query.order('return_date', { ascending: false });
+      const data = await fetchCompleteDataset<any>(async (from, to) => 
+        query.order('return_date', { ascending: false }).range(from, to)
+      );
 
-      if (error) throw error;
       setReturns(data || []);
     } catch (error) {
       logger.error('Error fetching free returns:', error);

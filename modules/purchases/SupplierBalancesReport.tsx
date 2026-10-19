@@ -56,8 +56,10 @@ const SupplierBalancesReport = () => {
       }
 
       // احتياطي أمان (Fallback) عبر خدمة الأرصدة الموحدة
-      const { fetchAllSupplierBalances } = await import('../../services/balanceService');
-      const { data: suppliers } = await supabase.from('suppliers').select('id, name, phone').match(filter).is('deleted_at', null);
+      const { fetchAllSupplierBalances, fetchCompleteDataset } = await import('../../services/balanceService');
+      const suppliers = await fetchCompleteDataset(async (from, to) => 
+        supabase.from('suppliers').select('id, name, phone').match(filter).is('deleted_at', null).range(from, to)
+      );
       const balancesMap = await fetchAllSupplierBalances(userOrgId);
 
       const balances = (suppliers || []).map(s => ({

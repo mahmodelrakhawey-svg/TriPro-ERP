@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { createInventoryCountSchema } from '../../utils/validationSchemas';
 import ProductSearchSelect, { normalizeArabic } from '../../components/ProductSearchSelect';
+import { Product } from '../../types';
 import { fetchAllTableRecords } from '../../context/domains/domainUtils';
 import { getCurrencySymbol } from '../../utils/constants';
 import { secureStorage } from '../../utils/securityMiddleware';
@@ -267,9 +268,10 @@ const InventoryCountForm = () => {
           setItems(mappedItems);
         }
         showToast(`تم فتح كشف الجرد رقم (${countDoc.count_number}) للتعديل ✅`, 'info');
-      } catch (err: any) {
+      } catch (err) {
+        const errObj = err as Error;
         logger.error('Error loading count for edit:', err);
-        showToast('فشل في تحميل كشف الجرد للتعديل: ' + (err?.message || ''), 'error');
+        showToast('فشل في تحميل كشف الجرد للتعديل: ' + (errObj?.message || ''), 'error');
       } finally {
         setLoadingProducts(false);
       }
@@ -390,7 +392,7 @@ const InventoryCountForm = () => {
     const normCat = normalizeArabic(categoryName);
 
     const normUnitBarcodes = Array.isArray(p.unit_barcodes)
-      ? p.unit_barcodes.map((ub: any) => normalizeArabic(ub?.barcode || '')).filter(Boolean).join(' ')
+      ? p.unit_barcodes.map((ub: { barcode?: string }) => normalizeArabic(ub?.barcode || '')).filter(Boolean).join(' ')
       : '';
 
     // توليد كلمات البحث مع وبدون الـ التعريفية لمطابقة فائقة الدقة
@@ -478,16 +480,17 @@ const InventoryCountForm = () => {
         setCurrentPage(1);
         showToast(`تم تجهيز وتحميل ${warehouseProducts.length} صنف للجرد بنجاح ✅`, 'success');
       }
-    } catch (error: any) {
+    } catch (error) {
+      const errObj = error as Error;
       logger.error("Error fetching products:", error);
-      showToast("حدث خطأ أثناء جلب بيانات الأصناف: " + error.message, 'error');
+      showToast("حدث خطأ أثناء جلب بيانات الأصناف: " + (errObj?.message || ''), 'error');
     } finally {
       setLoadingProducts(false);
     }
   };
 
   // اختيار أو إضافة صنف فردي عبر البحث الذكي ProductSearchSelect (مثل شاشة التحويل)
-  const handleSelectOrAddProduct = (productId: string, productObj?: any) => {
+  const handleSelectOrAddProduct = (productId: string, productObj?: Product) => {
     if (!productId) return;
     if (!warehouseId) {
       showToast('الرجاء اختيار مستودع الجرد أولاً', 'warning');
@@ -627,9 +630,10 @@ const InventoryCountForm = () => {
       setEditingCountId(null);
       setEditingCountNumber(null);
       navigate('/inventory-history');
-    } catch (error: any) {
+    } catch (error) {
+      const errObj = error as Error;
       logger.error('Error saving count:', error);
-      showToast('حدث خطأ أثناء الحفظ: ' + (error?.message || ''), 'error');
+      showToast('حدث خطأ أثناء الحفظ: ' + (errObj?.message || ''), 'error');
     } finally {
       setSaving(false);
     }
