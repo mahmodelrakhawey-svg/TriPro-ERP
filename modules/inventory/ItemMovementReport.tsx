@@ -3,7 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Package, Search, Printer, Loader2, ArrowUpRight, ArrowDownLeft, Filter, Download, X, User, ArrowRightLeft, Factory } from 'lucide-react';
+import { Package, Search, Printer, Loader2, ArrowUpRight, ArrowDownLeft, Filter, Download, X, User, ArrowRightLeft, Factory, ChevronLeft, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ProductSearchSelect from '../../components/ProductSearchSelect';
@@ -36,6 +36,8 @@ const ItemMovementReport = () => {
   const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [loading, setLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [openingBalance, setOpeningBalance] = useState(0);
   const [currentStock, setCurrentStock] = useState(0);
   const [uoms, setUoms] = useState<any[]>([]);
@@ -692,6 +694,17 @@ const ItemMovementReport = () => {
     });
   }, [movements, displayUnit, uoms, selectedProduct]);
 
+  // إعادة ضبط الصفحة إلى 1 عند تغيير الصنف أو المستودع أو التواريخ
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedProductId, selectedWarehouseId, startDate, endDate]);
+
+  const totalPages = Math.ceil(processedMovements.length / pageSize) || 1;
+  const paginatedMovements = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return processedMovements.slice(start, start + pageSize);
+  }, [processedMovements, currentPage, pageSize]);
+
   const handleExportExcel = () => {
     const productName = selectedProduct?.name || 'Product';
     
@@ -862,7 +875,7 @@ const ItemMovementReport = () => {
                     <th className="p-4 text-center">المستخدم</th>
                 </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100">
                 {/* الرصيد الافتراضي */}
                 <tr className="bg-blue-50/50 font-bold text-slate-700">
                     <td className="p-4 text-center">-</td>
@@ -874,7 +887,7 @@ const ItemMovementReport = () => {
                     <td className="p-4 text-center">-</td>
                 </tr>
 
-                {processedMovements.map((mov) => (
+                {paginatedMovements.map((mov) => (
                     <tr key={mov.id} className="hover:bg-slate-50 transition-colors">
                         <td className="p-4 whitespace-nowrap">{mov.date}</td>
                         <td className="p-4 font-bold text-slate-600">{mov.documentType}</td>
@@ -926,6 +939,49 @@ const ItemMovementReport = () => {
                 </tr>
             </tfoot>
         </table>
+
+        {/* شريط التحكم في الصفحات (Pagination Controls) */}
+        {processedMovements.length > pageSize && (
+          <div className="flex flex-wrap items-center justify-between p-4 bg-slate-50 border-t border-slate-200 print:hidden text-sm gap-3">
+            <div className="text-slate-600 font-medium">
+              عرض {((currentPage - 1) * pageSize) + 1} إلى {Math.min(currentPage * pageSize, processedMovements.length)} من إجمالي {processedMovements.length} حركة
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+                disabled={currentPage === 1}
+                className="flex items-center gap-1 px-3 py-1.5 border border-slate-300 rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed font-medium text-slate-700 transition-colors"
+              >
+                <ChevronRight size={16} />
+                السابق
+              </button>
+              <span className="font-bold text-slate-700 px-2">
+                صفحة {currentPage} من {totalPages}
+              </span>
+              <button
+                onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+                disabled={currentPage >= totalPages}
+                className="flex items-center gap-1 px-3 py-1.5 border border-slate-300 rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed font-medium text-slate-700 transition-colors"
+              >
+                التالي
+                <ChevronLeft size={16} />
+              </button>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="border border-slate-300 rounded-lg px-2 py-1 text-slate-700 bg-white ml-2 text-xs"
+              >
+                <option value={25}>25 حركة / صفحة</option>
+                <option value={50}>50 حركة / صفحة</option>
+                <option value={100}>100 حركة / صفحة</option>
+                <option value={200}>200 حركة / صفحة</option>
+              </select>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

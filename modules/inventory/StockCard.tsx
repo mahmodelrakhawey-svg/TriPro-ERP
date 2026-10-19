@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext'; // Removed z import
-import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle, RefreshCw, PlusCircle, Trash2, Tag, Percent, ImageIcon, UtensilsCrossed } from 'lucide-react';
+import { History, Search, Loader2, Printer, Package, AlertCircle, ArrowRightLeft, ClipboardList, Warehouse, Download, Barcode, X, Upload, Edit, Clock, AlertTriangle, RefreshCw, PlusCircle, Trash2, Tag, Percent, ImageIcon, UtensilsCrossed, ChevronLeft, ChevronRight } from 'lucide-react';
 import SearchableSelect from '../../components/SearchableSelect';
 import ProductSearchSelect from '../../components/ProductSearchSelect';
 import * as XLSX from 'xlsx';
@@ -54,6 +54,8 @@ const StockCard = () => {
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [loading, setLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [isImageModalOpen, setIsImageModalOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -723,6 +725,17 @@ const StockCard = () => {
     });
   }, [filteredTransactions, displayUnit, uoms, selectedProduct]);
 
+  // إعادة ضبط الصفحة إلى 1 عند تغيير الصنف أو الفلاتر
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedProductId, selectedWarehouseId, startDate, endDate, notesSearch]);
+
+  const totalPages = Math.ceil(processedTransactions.length / pageSize) || 1;
+  const paginatedTransactions = useMemo(() => {
+    const start = (currentPage - 1) * pageSize;
+    return processedTransactions.slice(start, start + pageSize);
+  }, [processedTransactions, currentPage, pageSize]);
+
   const handleExportExcel = () => {
     if (processedTransactions.length === 0) return;
 
@@ -1246,6 +1259,7 @@ const StockCard = () => {
                   <Loader2 className="animate-spin text-blue-600" size={32} />
               </div>
           ) : (
+            <>
             <table className="w-full text-right">
                 <thead className="bg-slate-100 text-slate-600 font-bold text-sm border-b">
                 <tr>
@@ -1260,7 +1274,7 @@ const StockCard = () => {
                 </tr>
                 </thead>
                 <tbody className="divide-y">
-                {processedTransactions.map(t => (
+                {paginatedTransactions.map(t => (
                     <tr key={t.id} className={`hover:bg-slate-50 transition-colors ${t.warehouseName === 'غير محدد' ? 'bg-amber-50' : ''}`}>
                         <td className="p-4 text-slate-600 font-medium">{new Date(t.date).toLocaleDateString('ar-EG')}</td>
                         <td className="p-4 font-bold text-slate-700">{t.documentType}</td>
@@ -1303,6 +1317,50 @@ const StockCard = () => {
                     </tr>
                 </tfoot>
             </table>
+
+            {/* شريط التحكم في الصفحات (Pagination Controls) */}
+            {processedTransactions.length > pageSize && (
+              <div className="flex flex-wrap items-center justify-between p-4 bg-slate-50 border-t border-slate-200 print:hidden text-sm gap-3">
+                <div className="text-slate-600 font-medium">
+                  عرض {((currentPage - 1) * pageSize) + 1} إلى {Math.min(currentPage * pageSize, processedTransactions.length)} من إجمالي {processedTransactions.length} حركة
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(p - 1, 1))}
+                    disabled={currentPage === 1}
+                    className="flex items-center gap-1 px-3 py-1.5 border border-slate-300 rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed font-medium text-slate-700 transition-colors"
+                  >
+                    <ChevronRight size={16} />
+                    السابق
+                  </button>
+                  <span className="font-bold text-slate-700 px-2">
+                    صفحة {currentPage} من {totalPages}
+                  </span>
+                  <button
+                    onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages))}
+                    disabled={currentPage >= totalPages}
+                    className="flex items-center gap-1 px-3 py-1.5 border border-slate-300 rounded-lg hover:bg-white disabled:opacity-50 disabled:cursor-not-allowed font-medium text-slate-700 transition-colors"
+                  >
+                    التالي
+                    <ChevronLeft size={16} />
+                  </button>
+                  <select
+                    value={pageSize}
+                    onChange={(e) => {
+                      setPageSize(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="border border-slate-300 rounded-lg px-2 py-1 text-slate-700 bg-white ml-2 text-xs"
+                  >
+                    <option value={25}>25 حركة / صفحة</option>
+                    <option value={50}>50 حركة / صفحة</option>
+                    <option value={100}>100 حركة / صفحة</option>
+                    <option value={200}>200 حركة / صفحة</option>
+                  </select>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </div>
       )}
