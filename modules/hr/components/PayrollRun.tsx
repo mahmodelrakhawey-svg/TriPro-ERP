@@ -304,9 +304,9 @@ const PayrollRun = () => {
 
         const unpaidLeaveDeduction = Math.round(totalUnpaidLeaveDays * dailyRate * 100) / 100;
 
-        // ج) سجلات الغياب غير المبرر وساعات الإضافي
+        // ج) سجلات الغياب غير المبرر والمصرح به وساعات الإضافي
         const empAttendance = attendanceLogs.filter(att => att.employee_id === emp.id);
-        const absenceDays = empAttendance.filter(a => a.status === 'ABSENT').length;
+        const absenceDays = empAttendance.filter(a => a.status === 'ABSENT' || a.status === 'UNEXCUSED_ABSENCE' || a.status === 'EXCUSED_ABSENCE').length;
         const absenceDeduction = Math.round(absenceDays * dailyRate * 100) / 100;
 
         const totalLateMinutes = empAttendance.reduce((sum, a) => sum + Number(a.late_minutes || 0), 0);

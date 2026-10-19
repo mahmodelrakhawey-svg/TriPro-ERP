@@ -320,7 +320,7 @@ const EmployeeManager = () => {
       'تاريخ التعيين': emp.hire_date || '-',
       'رقم الهاتف': emp.phone || '-',
       'البريد الإلكتروني': emp.email || '-',
-      'الحالة': emp.status === 'active' ? 'نشط' : emp.status === 'on_leave' ? 'في إجازة' : emp.status === 'terminated' ? 'منهي خدمته' : emp.status || 'نشط',
+      'الحالة': emp.status === 'active' ? 'نشط' : emp.status === 'on_leave' ? 'في إجازة' : emp.status === 'resigned' ? 'مستقيل' : emp.status === 'inactive' ? 'موقوف' : emp.status === 'terminated' ? 'منهي خدمته' : emp.status || 'نشط',
       'ملاحظات': emp.notes || '-'
     }));
 
@@ -635,8 +635,10 @@ const EmployeeManager = () => {
             >
                 <option value="all">⚡ كل الحالات</option>
                 <option value="active">🟢 نشط (على رأس العمل)</option>
-                <option value="inactive">🟡 إجازة / غير نشط</option>
+                <option value="on_leave">🏖️ في إجازة</option>
+                <option value="resigned">🟣 مستقيل</option>
                 <option value="terminated">🔴 منتهي الخدمات</option>
+                <option value="inactive">⚪ غير نشط / موقوف</option>
             </select>
         </div>
 
@@ -737,11 +739,15 @@ const EmployeeManager = () => {
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-black ${
                           employee.status === 'active' 
                             ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                            : employee.status === 'on_leave'
+                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                            : employee.status === 'resigned'
+                            ? 'bg-purple-50 text-purple-700 border border-purple-200'
                             : employee.status === 'inactive'
                             ? 'bg-amber-50 text-amber-700 border border-amber-200'
                             : 'bg-red-50 text-red-700 border border-red-200'
                         }`}>
-                            {employee.status === 'active' ? 'نشط' : employee.status === 'inactive' ? 'إجازة' : 'منتهي'}
+                            {employee.status === 'active' ? 'نشط' : employee.status === 'on_leave' ? 'في إجازة' : employee.status === 'resigned' ? 'مستقيل' : employee.status === 'inactive' ? 'موقوف' : 'منتهي'}
                         </span>
                     </div>
 
@@ -871,9 +877,15 @@ const EmployeeManager = () => {
                       <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
                         employee.status === 'active' 
                           ? 'bg-emerald-50 text-emerald-700' 
+                          : employee.status === 'on_leave'
+                          ? 'bg-blue-50 text-blue-700'
+                          : employee.status === 'resigned'
+                          ? 'bg-purple-50 text-purple-700'
+                          : employee.status === 'inactive'
+                          ? 'bg-amber-50 text-amber-700'
                           : 'bg-red-50 text-red-700'
                       }`}>
-                        {employee.status === 'active' ? 'نشط' : 'غير نشط'}
+                        {employee.status === 'active' ? 'نشط' : employee.status === 'on_leave' ? 'في إجازة' : employee.status === 'resigned' ? 'مستقيل' : employee.status === 'inactive' ? 'موقوف' : 'منتهي'}
                       </span>
                     </td>
                     <td className="p-4 font-mono font-bold text-slate-800">
@@ -1041,8 +1053,10 @@ const EmployeeManager = () => {
                               className="w-full border border-slate-200 rounded-xl p-2.5 text-sm font-bold focus:border-blue-500 focus:ring-2 focus:ring-blue-100 outline-none bg-white cursor-pointer"
                             >
                                 <option value="active">🟢 نشط (على رأس العمل)</option>
-                                <option value="inactive">🟡 إجازة / غير نشط</option>
+                                <option value="on_leave">🏖️ في إجازة</option>
+                                <option value="resigned">🟣 مستقيل</option>
                                 <option value="terminated">🔴 منتهي الخدمات</option>
+                                <option value="inactive">⚪ غير نشط / موقوف</option>
                             </select>
                         </div>
 

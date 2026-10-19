@@ -1,8 +1,8 @@
-﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { logger } from '../../utils/logger';
+﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿﻿import { logger } from '../../utils/logger';
 import React, { useState, useMemo } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles, Lock, Calendar } from 'lucide-react';
+import { Folder, FileText, ChevronRight, ChevronDown, Plus, Search, Download, Trash2, Edit, FolderOpen, ExternalLink, X, Edit2, RefreshCw, Wrench, Sparkles, Lock, Calendar, BookOpen } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import AddAccountModal from './AddAccountModal';
 import { useNavigate } from 'react-router-dom';
@@ -516,6 +516,13 @@ const AccountList = () => {
                                 )}
                             </td>
                             <td className="p-4 flex justify-end gap-2">
+                                <button 
+                                    onClick={() => navigate('/ledger', { state: { accountId: acc.id } })} 
+                                    className="p-1 text-slate-400 hover:text-blue-600 transition-colors" 
+                                    title="عرض في دفتر الأستاذ"
+                                >
+                                    <BookOpen size={16} />
+                                </button>
                                 <button onClick={() => handleEdit(acc)} className="p-1 text-slate-400 hover:text-blue-600" title="تعديل الحساب"><Edit size={16} /></button>
                                 <button onClick={() => handleDelete(acc.id, acc.name, acc.balance)} className="p-1 text-slate-400 hover:text-red-600"><Trash2 size={16} /></button>
                             </td>

@@ -250,7 +250,15 @@ export default function EndOfServiceCalculator() {
       const { error } = await supabase.from('hr_end_of_service_settlements').insert(payload);
       if (error) throw error;
 
-      showToast('تم احتساب وتسجيل مخالصة نهاية الخدمة بنجاح 💼', 'success');
+      // تحديث حالة الموظف فوراً في جدول الموظفين (مستقيل في حالة الاستقالة، أو منتهي الخدمات)
+      const newStatus = formTerminationType === 'RESIGNATION' ? 'resigned' : 'terminated';
+      try {
+        await supabase.from('employees').update({ status: newStatus }).eq('id', formEmpId);
+      } catch (empErr) {
+        logger.warn('Could not update employee status upon settlement save:', empErr);
+      }
+
+      showToast('تم احتساب وتسجيل مخالصة نهاية الخدمة وتحديث حالة الموظف بنجاح 💼', 'success');
       setIsModalOpen(false);
       fetchData();
     } catch (err) {

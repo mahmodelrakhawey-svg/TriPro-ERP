@@ -229,6 +229,62 @@ export default function LeaveManager() {
         }
       }
 
+      // Sync approved leave days to attendance logs (SICK_LEAVE / ON_LEAVE)
+      if (isApproved && orgId && activeRequest.employee_id) {
+        try {
+          const attStatus = activeRequest.leave_type === 'SICK' ? 'SICK_LEAVE' : 'ON_LEAVE';
+          const todayStr = new Date().toISOString().split('T')[0];
+
+          // If current leave is active today, update employee status to on_leave
+          if (activeRequest.start_date <= todayStr && todayStr <= activeRequest.end_date) {
+            await supabase.from('employees').update({ status: 'on_leave' }).eq('id', activeRequest.employee_id);
+          }
+
+          // Loop each day in the approved range and sync attendance logs
+          const cur = new Date(activeRequest.start_date + 'T00:00:00');
+          const end = new Date(activeRequest.end_date + 'T00:00:00');
+
+          while (cur <= end) {
+            const dateStr = cur.toISOString().split('T')[0];
+            const { data: existingAtt } = await supabase
+              .from('hr_attendance_logs')
+              .select('id')
+              .eq('organization_id', orgId)
+              .eq('employee_id', activeRequest.employee_id)
+              .eq('log_date', dateStr)
+              .maybeSingle();
+
+            const attPayload = {
+              organization_id: orgId,
+              employee_id: activeRequest.employee_id,
+              log_date: dateStr,
+              check_in_time: null,
+              check_out_time: null,
+              late_minutes: 0,
+              overtime_hours: 0,
+              status: attStatus,
+              source: 'MANUAL',
+              notes: `إجازة رسمية معتمدة: ${
+                activeRequest.leave_type === 'SICK' ? 'مرضية' :
+                activeRequest.leave_type === 'ANNUAL' ? 'اعتيادية سنوية' :
+                activeRequest.leave_type === 'CASUAL' ? 'عارضة' :
+                activeRequest.leave_type === 'UNPAID' ? 'بدون راتب' : 'أخرى'
+              }`
+            };
+
+            if (existingAtt?.id) {
+              await supabase.from('hr_attendance_logs').update(attPayload).eq('id', existingAtt.id);
+            } else {
+              await supabase.from('hr_attendance_logs').insert(attPayload);
+            }
+
+            cur.setDate(cur.getDate() + 1);
+          }
+        } catch (syncErr) {
+          logger.warn('Failed to sync approved leave to attendance logs:', syncErr);
+        }
+      }
+
       showToast(isApproved ? 'تم اعتماد الإجازة بنجاح ✅' : 'تم رفض الإجازة', 'info');
       setIsDecisionModalOpen(false);
       fetchData();

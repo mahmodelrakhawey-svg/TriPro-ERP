@@ -3,7 +3,8 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { useAccounting } from '../../context/AccountingContext';
-import { Book, Filter, Search, Printer } from 'lucide-react';
+import { Book, Filter, Search, Printer, FileSpreadsheet, Loader2 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useLocation } from 'react-router-dom';
 import ReportHeader from '../../components/ReportHeader';
 import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
@@ -304,6 +305,262 @@ const GeneralLedger = () => {
     }
   }, [page]);
 
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportExcel = async () => {
+    if (!selectedAccount) {
+      showToast('يرجى اختيار الحساب أولاً لتصدير كشف الحساب.', 'warning');
+      return;
+    }
+
+    setIsExporting(true);
+
+    try {
+      const currentAccount = accounts.find(a => a.id === selectedAccount);
+      const accountCode = currentAccount?.code || '';
+      const accountName = currentAccount?.name || 'حساب';
+      const customerName = selectedCustomerId 
+        ? customers.find(c => c.id === selectedCustomerId)?.name 
+        : null;
+
+      let exportEntries: LedgerEntry[] = [];
+      let exportOpeningBal = openingBalance;
+
+      // دعم وضع الديمو
+      if (currentUser?.role === 'demo') {
+        exportOpeningBal = openingBalance || 5000;
+        exportEntries = entries.length > 0 ? entries : [
+          { 
+            id: 'demo-1', debit: 1000, credit: 0, balance: 6000, 
+            journal_entries: { id: 'j1', transaction_date: new Date().toISOString(), reference: 'INV-001', description: 'فاتورة مبيعات آجلة', is_posted: true } 
+          },
+          { 
+            id: 'demo-2', debit: 0, credit: 2000, balance: 4000, 
+            journal_entries: { id: 'j2', transaction_date: new Date().toISOString(), reference: 'RCT-001', description: 'سداد من العميل', is_posted: true } 
+          }
+        ];
+      } else {
+        const targetAccountIds = getAccountAndChildrenIds(selectedAccount, accounts as unknown as Account[]);
+
+        let userOrgId: string | undefined | null =
+          getActiveOrgIdSync(currentSelectedOrgId) ||
+          (currentUser as any)?.organization_id ||
+          (currentUser as any)?.user_metadata?.org_id;
+
+        if (!userOrgId) {
+          userOrgId = await resolveActiveOrgId(currentSelectedOrgId);
+        }
+
+        if (!userOrgId) {
+          throw new Error('تعذر تحديد المنظمة.');
+        }
+
+        // قيود العميل إن كانت محددة
+        let customerEntryIds = searchParamsState?.customerEntryIds || null;
+        if (selectedCustomerId && !customerEntryIds) {
+          const [inv, rec, ret, cn, restOrders] = await Promise.all([
+            supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null),
+            supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null),
+            supabase.from('sales_returns').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null),
+            supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null),
+            supabase.from('orders').select('related_journal_entry_id').eq('customer_id', selectedCustomerId).not('related_journal_entry_id', 'is', null)
+          ]);
+
+          customerEntryIds = Array.from(new Set([
+            ...(inv.data?.map(i => i.related_journal_entry_id) || []),
+            ...(rec.data?.map(r => r.related_journal_entry_id) || []),
+            ...(ret.data?.map(r => r.related_journal_entry_id) || []),
+            ...(cn.data?.map(c => c.related_journal_entry_id) || []),
+            ...(restOrders.data?.map(o => o.related_journal_entry_id) || [])
+          ]));
+        }
+
+        // إذا كانت البيانات محملة بالكامل لنفس الحساب ونفس الفترة
+        const isCurrentDataMatching = searchParamsState &&
+          searchParamsState.start === startDate &&
+          searchParamsState.end === endDate &&
+          searchParamsState.ids[0] === selectedAccount;
+
+        if (isCurrentDataMatching && !hasMore && entries.length > 0) {
+          exportEntries = entries;
+          exportOpeningBal = openingBalance;
+        } else {
+          // حساب الرصيد الافتتاحي
+          if (!isCurrentDataMatching) {
+            let rpcSucceeded = false;
+            let openBal = 0;
+            if (!customerEntryIds) {
+              try {
+                const { data: rpcBal, error: rpcErr } = await supabase.rpc('get_account_opening_balance_rpc', {
+                  p_account_ids: targetAccountIds,
+                  p_start_date: startDate || '1970-01-01',
+                  p_org_id: userOrgId
+                });
+                if (!rpcErr && rpcBal !== null && rpcBal !== undefined) {
+                  openBal = Number(rpcBal);
+                  rpcSucceeded = true;
+                }
+              } catch (rpcEx) {
+                logger.warn('[GeneralLedger] RPC opening balance fallback to client query:', rpcEx);
+              }
+            }
+
+            if (!rpcSucceeded) {
+              const openingData = await fetchCompleteDataset(async (from, to) => {
+                let openingQuery = supabase
+                  .from('journal_lines')
+                  .select('debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+                  .in('account_id', targetAccountIds)
+                  .eq('journal_entries.status', 'posted')
+                  .eq('journal_entries.organization_id', userOrgId)
+                  .lt('journal_entries.transaction_date', startDate || '1970-01-01');
+
+                if (customerEntryIds) {
+                  openingQuery = openingQuery.in('journal_entry_id', customerEntryIds);
+                }
+                return openingQuery.range(from, to);
+              });
+
+              openBal = openingData?.reduce((sum, line: any) => sum + (Number(line.debit || 0) - Number(line.credit || 0)), 0) || 0;
+            }
+            exportOpeningBal = openBal;
+          } else {
+            exportOpeningBal = openingBalance;
+          }
+
+          // جلب كافة حركات الفترة بالكامل
+          const periodLines = await fetchCompleteDataset(async (from, to) => {
+            let query = supabase
+              .from('journal_lines')
+              .select(`
+                id, debit, credit,
+                journal_entries!inner ( 
+                  id, transaction_date, reference, description, status, organization_id
+                )
+              `) 
+              .in('account_id', targetAccountIds)
+              .eq('journal_entries.status', 'posted')
+              .eq('journal_entries.organization_id', userOrgId)
+              .gte('journal_entries.transaction_date', startDate || '1970-01-01')
+              .lte('journal_entries.transaction_date', endDate)
+              .order('transaction_date', { foreignTable: 'journal_entries', ascending: true });
+
+            if (customerEntryIds) {
+              query = query.in('journal_entry_id', customerEntryIds);
+            }
+            return query.range(from, to);
+          });
+
+          let running = exportOpeningBal;
+          exportEntries = periodLines.map((item: any) => {
+            running += (Number(item.debit || 0) - Number(item.credit || 0));
+            return { ...item, balance: running };
+          });
+        }
+      }
+
+      if (exportEntries.length === 0 && exportOpeningBal === 0) {
+        showToast('لا توجد حركات أو أرصدة لهذا الحساب خلال الفترة المحددة.', 'info');
+        return;
+      }
+
+      const totalDebit = exportEntries.reduce((sum, e) => sum + Number(e.debit || 0), 0);
+      const totalCredit = exportEntries.reduce((sum, e) => sum + Number(e.credit || 0), 0);
+      const finalBalance = exportEntries.length > 0
+        ? exportEntries[exportEntries.length - 1].balance
+        : exportOpeningBal;
+
+      // إعداد صفوف ملف الإكسيل
+      const sheetData: (string | number)[][] = [
+        ['دفتر الأستاذ العام - كشف حساب'],
+        ['الحساب:', `${accountCode} - ${accountName}`],
+        ['الفترة من:', startDate, 'إلى:', endDate],
+      ];
+
+      if (customerName) {
+        sheetData.push(['العميل:', customerName]);
+      }
+
+      sheetData.push(['تاريخ الاستخراج:', new Date().toLocaleString('ar-EG')]);
+      sheetData.push([]); // سطر فارغ
+
+      // رأس الجدول
+      sheetData.push(['التاريخ', 'رقم القيد / المرجع', 'البيان', 'مدين', 'دائن', 'الرصيد']);
+
+      // سطر الرصيد الافتتاحي
+      sheetData.push([
+        '-',
+        '-',
+        'رصيد ما قبل الفترة (افتتاحي)',
+        0,
+        0,
+        Number(exportOpeningBal.toFixed(2))
+      ]);
+
+      // أسطر الحركات
+      exportEntries.forEach(entry => {
+        let dateStr = '-';
+        if (entry.journal_entries?.transaction_date) {
+          const d = new Date(entry.journal_entries.transaction_date);
+          dateStr = !isNaN(d.getTime()) ? d.toISOString().split('T')[0] : String(entry.journal_entries.transaction_date);
+        }
+
+        sheetData.push([
+          dateStr,
+          entry.journal_entries?.reference || '-',
+          entry.journal_entries?.description || '-',
+          Number(Number(entry.debit || 0).toFixed(2)),
+          Number(Number(entry.credit || 0).toFixed(2)),
+          Number(Number(entry.balance || 0).toFixed(2))
+        ]);
+      });
+
+      // سطر الإجمالي والرصيد الختامي
+      sheetData.push([
+        'الإجمالي والرصيد الختامي',
+        '-',
+        '-',
+        Number(totalDebit.toFixed(2)),
+        Number(totalCredit.toFixed(2)),
+        Number(finalBalance.toFixed(2))
+      ]);
+
+      const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+      ws['!cols'] = [
+        { wch: 15 }, // التاريخ
+        { wch: 18 }, // رقم القيد / المرجع
+        { wch: 45 }, // البيان
+        { wch: 16 }, // مدين
+        { wch: 16 }, // دائن
+        { wch: 18 }, // الرصيد
+      ];
+
+      // إعداد العرض من اليمين إلى اليسار
+      ws['!views'] = [{ rightToLeft: true }];
+
+      const wb = XLSX.utils.book_new();
+      const safeSheetName = (accountName || 'دفتر الأستاذ')
+        .replace(/[\\/?*:[\]]/g, '')
+        .trim()
+        .slice(0, 30) || 'دفتر الأستاذ';
+      XLSX.utils.book_append_sheet(wb, ws, safeSheetName);
+
+      const codePrefix = accountCode ? `${accountCode}_` : '';
+      const cleanName = `${codePrefix}${accountName}`.replace(/[/\\?%*:|"<>]/g, '_');
+      const fileName = `General_Ledger_${cleanName}_${startDate}_${endDate}.xlsx`;
+
+      XLSX.writeFile(wb, fileName);
+      showToast('تم تصدير كشف الحساب إلى Excel بنجاح', 'success');
+
+    } catch (err: any) {
+      logger.error('[GeneralLedger] Export error:', err);
+      showToast('حدث خطأ أثناء تصدير Excel: ' + (err?.message || 'خطأ غير متوقع'), 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handlePrint = () => {
     window.print();
   };
@@ -315,9 +572,29 @@ const GeneralLedger = () => {
           <Book className="text-blue-600" />
           دفتر الأستاذ العام
         </h1>
-        <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-100 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-200 font-bold text-sm">
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={handleExportExcel}
+            disabled={!selectedAccount || isExporting}
+            className="flex items-center gap-2 bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700 font-bold text-sm shadow-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="تصدير كشف الحساب إلى Excel"
+          >
+            {isExporting ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                <span>جاري التصدير...</span>
+              </>
+            ) : (
+              <>
+                <FileSpreadsheet size={16} />
+                <span>تصدير Excel</span>
+              </>
+            )}
+          </button>
+          <button onClick={handlePrint} className="flex items-center gap-2 bg-slate-100 text-slate-600 px-4 py-2 rounded-lg hover:bg-slate-200 font-bold text-sm">
             <Printer size={16} /> طباعة
-        </button>
+          </button>
+        </div>
       </div>
 
       {/* فلاتر البحث */}
@@ -378,7 +655,25 @@ const GeneralLedger = () => {
                 className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
             />
         </div>
-        <div className="md:col-span-4 flex justify-end">
+        <div className="md:col-span-4 flex justify-end gap-3">
+            <button 
+                onClick={handleExportExcel}
+                disabled={!selectedAccount || isExporting}
+                className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-2.5 rounded-lg hover:bg-emerald-700 font-bold shadow-md disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="تصدير كشف الحساب إلى Excel"
+            >
+                {isExporting ? (
+                  <>
+                    <Loader2 size={18} className="animate-spin" />
+                    <span>جاري التصدير...</span>
+                  </>
+                ) : (
+                  <>
+                    <FileSpreadsheet size={18} />
+                    <span>تصدير Excel</span>
+                  </>
+                )}
+            </button>
             <button 
                 onClick={handleSearch}
                 id="search-btn"
@@ -395,6 +690,26 @@ const GeneralLedger = () => {
         title="كشف حساب (دفتر الأستاذ)" 
         subtitle={`${accounts.find(a => a.id === selectedAccount)?.name || ''} - الفترة من ${startDate} إلى ${endDate}`} 
       />
+
+      {/* شريط معلومات الحساب والتصدير السريع أعلى الجدول */}
+      {selectedAccount && (
+        <div className="flex flex-wrap justify-between items-center mb-4 p-3 bg-slate-50 border border-slate-200 rounded-lg no-print">
+          <div className="flex items-center gap-2 text-slate-700 font-bold text-sm">
+            <span className="text-blue-600">الحساب المحدد:</span>
+            <span>{accounts.find(a => a.id === selectedAccount)?.code} - {accounts.find(a => a.id === selectedAccount)?.name}</span>
+            <span className="text-xs text-slate-500 font-normal">({entries.length} حركة معروضة)</span>
+          </div>
+          <button 
+            onClick={handleExportExcel}
+            disabled={isExporting}
+            className="flex items-center gap-1.5 bg-emerald-600 text-white px-3 py-1.5 rounded-md hover:bg-emerald-700 font-bold text-xs shadow-sm transition-colors disabled:opacity-50"
+            title="تصدير كشف الحساب إلى Excel"
+          >
+            {isExporting ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
+            <span>تصدير كشف الحساب (Excel)</span>
+          </button>
+        </div>
+      )}
 
       {/* جدول البيانات */}
       <div className="overflow-x-auto">

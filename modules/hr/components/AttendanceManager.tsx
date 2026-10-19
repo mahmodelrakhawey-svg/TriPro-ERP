@@ -23,7 +23,7 @@ interface AttendanceLog {
   check_out_time?: string;
   late_minutes: number;
   overtime_hours: number;
-  status: 'PRESENT' | 'ABSENT' | 'ON_LEAVE' | 'LATE';
+  status: 'PRESENT' | 'ABSENT' | 'EXCUSED_ABSENCE' | 'UNEXCUSED_ABSENCE' | 'SICK_LEAVE' | 'ON_LEAVE' | 'LATE';
   source: 'MANUAL' | 'BIOMETRIC_DEVICE' | 'EXCEL_IMPORT';
   notes?: string;
   created_at: string;
@@ -250,14 +250,15 @@ export default function AttendanceManager() {
     }
 
     try {
+      const isAway = formStatus === 'ABSENT' || formStatus === 'EXCUSED_ABSENCE' || formStatus === 'UNEXCUSED_ABSENCE' || formStatus === 'SICK_LEAVE' || formStatus === 'ON_LEAVE';
       const payload = {
         organization_id: orgId,
         employee_id: formEmpId,
         log_date: formDate,
-        check_in_time: formCheckIn,
-        check_out_time: formCheckOut,
-        late_minutes: formLateMinutes,
-        overtime_hours: formOvertimeHours,
+        check_in_time: isAway ? null : formCheckIn,
+        check_out_time: isAway ? null : formCheckOut,
+        late_minutes: isAway ? 0 : formLateMinutes,
+        overtime_hours: isAway ? 0 : formOvertimeHours,
         status: formStatus,
         notes: formNotes || null
       };
@@ -496,8 +497,11 @@ export default function AttendanceManager() {
             const s = String(rawStatus).trim();
             if (s === 'حاضر' || /present/i.test(s)) status = 'PRESENT';
             else if (s === 'متأخر' || /late/i.test(s)) status = 'LATE';
-            else if (s === 'غائب' || s === 'غياب' || /absent/i.test(s)) status = 'ABSENT';
+            else if (s === 'غياب بإذن' || s === 'إذن' || s === 'باذن' || s === 'بإذن' || /excused/i.test(s)) status = 'EXCUSED_ABSENCE';
+            else if (s === 'غياب بدون إذن' || s === 'بدون إذن' || s === 'بدون اذن' || /unexcused/i.test(s)) status = 'UNEXCUSED_ABSENCE';
+            else if (s === 'مرضي' || s === 'مرضية' || s === 'إجازة مرضية' || /sick/i.test(s)) status = 'SICK_LEAVE';
             else if (s === 'إجازة' || s === 'اجازة' || /leave/i.test(s)) status = 'ON_LEAVE';
+            else if (s === 'غائب' || s === 'غياب' || /absent/i.test(s)) status = 'ABSENT';
           } else {
             status = checkInTime ? 'PRESENT' : 'ABSENT';
           }
@@ -551,14 +555,16 @@ export default function AttendanceManager() {
 
           const notes = r['ملاحظات'] || r['الملاحظات'] || r['Notes'] || r['notes'] || null;
 
+          const isAway = status === 'ABSENT' || status === 'EXCUSED_ABSENCE' || status === 'UNEXCUSED_ABSENCE' || status === 'SICK_LEAVE' || status === 'ON_LEAVE';
+
           validRecords.push({
             organization_id: orgId,
             employee_id: matchedEmp.id,
             log_date: logDate,
-            check_in_time: status === 'ABSENT' || status === 'ON_LEAVE' ? null : finalCheckIn,
-            check_out_time: status === 'ABSENT' || status === 'ON_LEAVE' ? null : finalCheckOut,
-            late_minutes: lateMinutes,
-            overtime_hours: overtimeHours,
+            check_in_time: isAway ? null : finalCheckIn,
+            check_out_time: isAway ? null : finalCheckOut,
+            late_minutes: isAway ? 0 : lateMinutes,
+            overtime_hours: isAway ? 0 : overtimeHours,
             status,
             source: 'EXCEL_IMPORT',
             notes: notes ? String(notes).trim() : null
@@ -673,19 +679,34 @@ export default function AttendanceManager() {
     let presentCount = 0;
     let lateCount = 0;
     let absentCount = 0;
+    let excusedAbsentCount = 0;
+    let unexcusedAbsentCount = 0;
+    let sickLeaveCount = 0;
+    let onLeaveCount = 0;
     let totalOvertime = 0;
 
     filteredLogs.forEach(l => {
       if (l.status === 'PRESENT') presentCount++;
-      if (l.status === 'LATE') lateCount++;
-      if (l.status === 'ABSENT') absentCount++;
+      else if (l.status === 'LATE') lateCount++;
+      else if (l.status === 'EXCUSED_ABSENCE') excusedAbsentCount++;
+      else if (l.status === 'UNEXCUSED_ABSENCE') unexcusedAbsentCount++;
+      else if (l.status === 'SICK_LEAVE') sickLeaveCount++;
+      else if (l.status === 'ON_LEAVE') onLeaveCount++;
+      else if (l.status === 'ABSENT') absentCount++;
       totalOvertime += Number(l.overtime_hours || 0);
     });
+
+    const totalAbsenceAll = absentCount + excusedAbsentCount + unexcusedAbsentCount;
 
     return {
       presentCount,
       lateCount,
       absentCount,
+      excusedAbsentCount,
+      unexcusedAbsentCount,
+      sickLeaveCount,
+      onLeaveCount,
+      totalAbsenceAll,
       totalOvertime: Math.round(totalOvertime * 10) / 10,
       totalCount: filteredLogs.length
     };
@@ -706,7 +727,13 @@ export default function AttendanceManager() {
         'وقت الانصراف': l.check_out_time || '',
         'التأخير (دقيقة)': l.late_minutes ?? 0,
         'العمل الإضافي (ساعة)': l.overtime_hours ?? 0,
-        'الحالة': l.status === 'PRESENT' ? 'حاضر' : l.status === 'LATE' ? 'متأخر' : l.status === 'ABSENT' ? 'غائب' : 'إجازة',
+        'الحالة': l.status === 'PRESENT' ? 'حاضر'
+          : l.status === 'LATE' ? 'متأخر'
+          : l.status === 'EXCUSED_ABSENCE' ? 'غياب بإذن'
+          : l.status === 'UNEXCUSED_ABSENCE' ? 'غياب بدون إذن'
+          : l.status === 'SICK_LEAVE' ? 'إجازة مرضية'
+          : l.status === 'ON_LEAVE' ? 'إجازة اعتيادية / رسمية'
+          : 'غائب',
         'المصدر': l.source === 'BIOMETRIC_DEVICE' ? 'جهاز بصمة' : l.source === 'EXCEL_IMPORT' ? 'استيراد إكسيل' : 'يدوي',
         'ملاحظات': l.notes || ''
       }));
@@ -821,44 +848,54 @@ export default function AttendanceManager() {
       </div>
 
       {/* 📊 KPI Summary */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs text-slate-500 font-bold mb-1">حاضرين في الموعد</p>
-            <h3 className="text-2xl font-black text-emerald-600">{kpis.presentCount} <span className="text-xs text-slate-400 font-normal">موظف</span></h3>
+            <h3 className="text-xl font-black text-emerald-600">{kpis.presentCount} <span className="text-xs text-slate-400 font-normal">موظف</span></h3>
           </div>
-          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
-            <CheckCircle2 size={24} />
+          <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
+            <CheckCircle2 size={20} />
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
             <p className="text-xs text-slate-500 font-bold mb-1">حالات التأخير</p>
-            <h3 className="text-2xl font-black text-amber-600">{kpis.lateCount} <span className="text-xs text-slate-400 font-normal">موظف</span></h3>
+            <h3 className="text-xl font-black text-amber-600">{kpis.lateCount} <span className="text-xs text-slate-400 font-normal">موظف</span></h3>
           </div>
-          <div className="p-3 bg-amber-50 text-amber-600 rounded-xl">
-            <Clock size={24} />
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs text-slate-500 font-bold mb-1">حالات الغياب</p>
-            <h3 className="text-2xl font-black text-rose-600">{kpis.absentCount} <span className="text-xs text-slate-400 font-normal">موظف</span></h3>
-          </div>
-          <div className="p-3 bg-rose-50 text-rose-600 rounded-xl">
-            <XCircle size={24} />
+          <div className="p-2.5 bg-amber-50 text-amber-600 rounded-xl">
+            <Clock size={20} />
           </div>
         </div>
 
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-500 font-bold mb-1">ساعات العمل الإضافي</p>
-            <h3 className="text-2xl font-black text-indigo-700">{kpis.totalOvertime} <span className="text-xs text-slate-400 font-normal">ساعة</span></h3>
+            <p className="text-xs text-slate-500 font-bold mb-1">غياب بدون إذن</p>
+            <h3 className="text-xl font-black text-rose-600">{kpis.unexcusedAbsentCount + kpis.absentCount} <span className="text-xs text-slate-400 font-normal">موظف</span></h3>
           </div>
-          <div className="p-3 bg-indigo-50 text-indigo-600 rounded-xl">
-            <Zap size={24} />
+          <div className="p-2.5 bg-rose-50 text-rose-600 rounded-xl">
+            <XCircle size={20} />
+          </div>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs text-slate-500 font-bold mb-1">إذن / مرضي / إجازة</p>
+            <h3 className="text-xl font-black text-sky-600">{kpis.excusedAbsentCount + kpis.sickLeaveCount + kpis.onLeaveCount} <span className="text-xs text-slate-400 font-normal">موظف</span></h3>
+          </div>
+          <div className="p-2.5 bg-sky-50 text-sky-600 rounded-xl">
+            <Calendar size={20} />
+          </div>
+        </div>
+
+        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between col-span-2 lg:col-span-1">
+          <div>
+            <p className="text-xs text-slate-500 font-bold mb-1">ساعات الإضافي</p>
+            <h3 className="text-xl font-black text-indigo-700">{kpis.totalOvertime} <span className="text-xs text-slate-400 font-normal">ساعة</span></h3>
+          </div>
+          <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
+            <Zap size={20} />
           </div>
         </div>
       </div>
@@ -911,10 +948,13 @@ export default function AttendanceManager() {
             className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700"
           >
             <option value="ALL">🔘 كل الحالات</option>
-            <option value="PRESENT">حاضر في الموعد</option>
-            <option value="LATE">متأخر</option>
-            <option value="ABSENT">غائب</option>
-            <option value="ON_LEAVE">إجازة</option>
+            <option value="PRESENT">🟢 حاضر في الموعد</option>
+            <option value="LATE">🟡 متأخر</option>
+            <option value="EXCUSED_ABSENCE">🔵 غياب بإذن</option>
+            <option value="UNEXCUSED_ABSENCE">🔴 غياب بدون إذن</option>
+            <option value="SICK_LEAVE">🟣 إجازة مرضية</option>
+            <option value="ON_LEAVE">🏖️ إجازة اعتيادية / رسمية</option>
+            <option value="ABSENT">غائب (عام)</option>
           </select>
         </div>
 
@@ -981,20 +1021,32 @@ export default function AttendanceManager() {
                     </td>
                     <td className="p-3.5">
                       {l.status === 'PRESENT' ? (
-                        <span className="bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full text-xs font-bold">
-                          حاضر
+                        <span className="bg-emerald-100 text-emerald-800 px-2.5 py-0.5 rounded-full text-xs font-bold inline-flex items-center gap-1">
+                          🟢 حاضر
                         </span>
                       ) : l.status === 'LATE' ? (
-                        <span className="bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full text-xs font-bold">
-                          متأخر
+                        <span className="bg-amber-100 text-amber-800 px-2.5 py-0.5 rounded-full text-xs font-bold inline-flex items-center gap-1">
+                          🟡 متأخر
+                        </span>
+                      ) : l.status === 'EXCUSED_ABSENCE' ? (
+                        <span className="bg-sky-100 text-sky-800 px-2.5 py-0.5 rounded-full text-xs font-bold inline-flex items-center gap-1">
+                          🔵 غياب بإذن
+                        </span>
+                      ) : l.status === 'UNEXCUSED_ABSENCE' ? (
+                        <span className="bg-rose-100 text-rose-800 px-2.5 py-0.5 rounded-full text-xs font-bold inline-flex items-center gap-1">
+                          🔴 بدون إذن
+                        </span>
+                      ) : l.status === 'SICK_LEAVE' ? (
+                        <span className="bg-purple-100 text-purple-800 px-2.5 py-0.5 rounded-full text-xs font-bold inline-flex items-center gap-1">
+                          🟣 مرضي
                         </span>
                       ) : l.status === 'ON_LEAVE' ? (
-                        <span className="bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full text-xs font-bold">
-                          إجازة
+                        <span className="bg-blue-100 text-blue-800 px-2.5 py-0.5 rounded-full text-xs font-bold inline-flex items-center gap-1">
+                          🏖️ إجازة
                         </span>
                       ) : (
-                        <span className="bg-rose-100 text-rose-800 px-2.5 py-0.5 rounded-full text-xs font-bold">
-                          غائب
+                        <span className="bg-rose-100 text-rose-800 px-2.5 py-0.5 rounded-full text-xs font-bold inline-flex items-center gap-1">
+                          🔴 غائب
                         </span>
                       )}
                     </td>
@@ -1134,10 +1186,13 @@ export default function AttendanceManager() {
                     onChange={(e) => setFormStatus(e.target.value as any)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold"
                   >
-                    <option value="PRESENT">حاضر في الموعد</option>
-                    <option value="LATE">متأخر</option>
-                    <option value="ABSENT">غائب</option>
-                    <option value="ON_LEAVE">إجازة</option>
+                    <option value="PRESENT">🟢 حاضر في الموعد</option>
+                    <option value="LATE">🟡 متأخر عن الوردية</option>
+                    <option value="EXCUSED_ABSENCE">🔵 غياب بإذن (مصرح به)</option>
+                    <option value="UNEXCUSED_ABSENCE">🔴 غياب بدون إذن (غير مبرر)</option>
+                    <option value="SICK_LEAVE">🟣 إجازة مرضية (بتقرير طبي)</option>
+                    <option value="ON_LEAVE">🏖️ في إجازة اعتيادية / رسمية</option>
+                    <option value="ABSENT">غائب (عام)</option>
                   </select>
                 </div>
                 <div>
