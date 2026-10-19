@@ -10,7 +10,7 @@
  * ==============================================================================
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { Invoice, Customer, Salesperson } from '../../types';
 import type { UserProfile } from '../AccountingContext';
 import { useAccounting } from '../AccountingContext';
@@ -252,20 +252,29 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     return data as Customer;
   }, [targetOrgId, currentUser, logActivity, fetchSalesData]);
 
+  const value = useMemo<SalesDomainState>(() => ({
+    invoices,
+    customers,
+    salespeople,
+    approveInvoice,
+    unpostSalesInvoice,
+    deleteSalesInvoice,
+    addCustomer,
+    refreshSales: fetchSalesData,
+    refreshInvoices: fetchSalesData,
+  }), [
+    invoices,
+    customers,
+    salespeople,
+    approveInvoice,
+    unpostSalesInvoice,
+    deleteSalesInvoice,
+    addCustomer,
+    fetchSalesData,
+  ]);
+
   return (
-    <SalesContext.Provider
-      value={{
-        invoices,
-        customers,
-        salespeople,
-        approveInvoice,
-        unpostSalesInvoice,
-        deleteSalesInvoice,
-        addCustomer,
-        refreshSales: fetchSalesData,
-        refreshInvoices: fetchSalesData,
-      }}
-    >
+    <SalesContext.Provider value={value}>
       {children}
     </SalesContext.Provider>
   );

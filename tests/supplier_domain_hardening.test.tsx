@@ -48,7 +48,8 @@ describe('Supplier Domain Hardening & Security (اختبار أمان ونطاق
           range: rangeFetchMock
         }),
         order: vi.fn().mockReturnValue({
-          limit: vi.fn().mockResolvedValue({ data: [], error: null })
+          limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+          range: rangeFetchMock
         }),
         range: rangeFetchMock
       }),
@@ -120,7 +121,8 @@ describe('Supplier Domain Hardening & Security (اختبار أمان ونطاق
           range: rangeFetchMock
         }),
         order: vi.fn().mockReturnValue({
-          limit: vi.fn().mockResolvedValue({ data: [], error: null })
+          limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+          range: rangeFetchMock
         }),
         range: rangeFetchMock
       }),
@@ -139,8 +141,10 @@ describe('Supplier Domain Hardening & Security (اختبار أمان ونطاق
           or: vi.fn().mockResolvedValue({ data: [], error: null }),
           eq: vi.fn().mockReturnValue({
             order: vi.fn().mockReturnValue({
-              limit: vi.fn().mockResolvedValue({ data: [], error: null })
-            })
+              limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+              range: rangeFetchMock
+            }),
+            range: rangeFetchMock
           })
         })
       };
@@ -186,7 +190,8 @@ describe('Supplier Domain Hardening & Security (اختبار أمان ونطاق
             range: rangeFetchMock
           }),
           order: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue({ data: [], error: null })
+            limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+            range: rangeFetchMock
           }),
           range: rangeFetchMock
         }),

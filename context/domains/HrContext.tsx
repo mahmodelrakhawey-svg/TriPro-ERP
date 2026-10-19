@@ -366,20 +366,30 @@ export const HrProvider: React.FC<HrProviderProps> = ({
     await fetchEmployees();
   }, [targetOrgId, logActivity, showToast, fetchEmployees]);
 
+  const value = useMemo<HrDomainState>(() => ({
+    employees: scopedEmployees,
+    addEmployee,
+    updateEmployee,
+    deleteEmployee,
+    runPayroll,
+    runPayrollAccrual,
+    payAccruedPayroll,
+    cancelPayrollAccrual,
+    refreshEmployees: fetchEmployees,
+  }), [
+    scopedEmployees,
+    addEmployee,
+    updateEmployee,
+    deleteEmployee,
+    runPayroll,
+    runPayrollAccrual,
+    payAccruedPayroll,
+    cancelPayrollAccrual,
+    fetchEmployees,
+  ]);
+
   return (
-    <HrContext.Provider
-      value={{
-        employees: scopedEmployees,
-        addEmployee,
-        updateEmployee,
-        deleteEmployee,
-        runPayroll,
-        runPayrollAccrual,
-        payAccruedPayroll,
-        cancelPayrollAccrual,
-        refreshEmployees: fetchEmployees,
-      }}
-    >
+    <HrContext.Provider value={value}>
       {children}
     </HrContext.Provider>
   );

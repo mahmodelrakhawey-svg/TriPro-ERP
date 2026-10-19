@@ -10,7 +10,7 @@
  * ==============================================================================
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { Supplier, PurchaseInvoice } from '../../types';
 import type { UserProfile } from '../AccountingContext';
 import { useAccounting } from '../AccountingContext';
@@ -342,22 +342,34 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
     }
   }, [targetOrgId, currentUser, showToast, fetchInvoices]);
 
+  const value = useMemo<SupplierDomainState>(() => ({
+    suppliers,
+    purchaseInvoices,
+    addSupplier,
+    updateSupplier,
+    deleteSupplier,
+    approvePurchaseInvoice,
+    unpostPurchaseInvoice,
+    deletePurchaseInvoice,
+    convertPoToInvoice,
+    refreshSuppliers: fetchSuppliers,
+    refreshPurchaseInvoices: fetchInvoices,
+  }), [
+    suppliers,
+    purchaseInvoices,
+    addSupplier,
+    updateSupplier,
+    deleteSupplier,
+    approvePurchaseInvoice,
+    unpostPurchaseInvoice,
+    deletePurchaseInvoice,
+    convertPoToInvoice,
+    fetchSuppliers,
+    fetchInvoices,
+  ]);
+
   return (
-    <SupplierContext.Provider
-      value={{
-        suppliers,
-        purchaseInvoices,
-        addSupplier,
-        updateSupplier,
-        deleteSupplier,
-        approvePurchaseInvoice,
-        unpostPurchaseInvoice,
-        deletePurchaseInvoice,
-        convertPoToInvoice,
-        refreshSuppliers: fetchSuppliers,
-        refreshPurchaseInvoices: fetchInvoices,
-      }}
-    >
+    <SupplierContext.Provider value={value}>
       {children}
     </SupplierContext.Provider>
   );

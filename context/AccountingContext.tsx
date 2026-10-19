@@ -3296,7 +3296,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   }, [currentUser, showToast, refreshData]);
 
-  const value: AccountingContextType = {
+  const value: AccountingContextType = useMemo(() => ({
     organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, effectiveOrgId, getEffectiveOrgId, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
     fetchEntriesPaged, employees, products, transfers, purchaseInvoices, invoices, salespeople, categories,
     users, warehouses, restaurantTables, menuCategories, customers, suppliers, cheques,
@@ -3328,7 +3328,32 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     addDemoEntry, addDemoPaymentVoucher, addDemoReceiptVoucher, addDemoInvoice,
     deleteOrganization,
     postDemoSalesInvoice, addDemoPurchaseInvoice
-  };
+  }), [
+    organization, currentUser, organizations, currentSelectedOrgId, effectiveOrgId, getEffectiveOrgId, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
+    fetchEntriesPaged, employees, products, transfers, purchaseInvoices, invoices, salespeople, categories,
+    users, warehouses, restaurantTables, menuCategories, customers, suppliers, cheques,
+    currentShift, activityLog, logActivity, refreshData, refreshBankingAndShift, refreshCustomers, refreshSuppliers, isDemo, can, clearCache,
+    addEntry, getSystemAccount, updateVoucher, getAccountBalanceInPeriod, addAccount, updateAccount, deleteAccount, clearTransactions, emptyRecycleBin, saveBudget,
+    recalculateStock, addProduct, updateProduct, deleteProduct, addStockTransfer,
+    approveStockTransfer, cancelStockTransfer, addWarehouse, updateWarehouse,
+    deleteWarehouse, addWastage, produceItem,
+    addCustomer, updateCustomer, deleteCustomer, addSupplier, updateSupplier,
+    deleteSupplier, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, approvePurchaseInvoice, unpostPurchaseInvoice, deletePurchaseInvoice, convertPoToInvoice,
+    addOpeningBalanceTransaction, addPaymentVoucher,
+    addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, addCheque, updateCheque, deleteCheque, updateChequeStatus, addTransfer, updateTransfer, deleteTransfer,
+    restoreItem, permanentDeleteItem, exportJournalToCSV,
+    addEmployee, updateEmployee, deleteEmployee, runPayroll, runPayrollAccrual, payAccruedPayroll, cancelPayrollAccrual,
+    finalizeProductionOrder, openTableSession, reserveTable, cancelReservation,
+    transferTableSession, mergeTableSessions, createRestaurantOrder, getOpenTableOrder,
+    completeRestaurantOrder, processSplitPayment, addRestaurantTable, updateRestaurantTable,
+    deleteRestaurantTable, updateKitchenOrderStatus, startShift, closeCurrentShift,
+    getCurrentShiftSummary, createMissingSystemAccounts, recalculateAllBalances,
+    purgeDeletedRecords, refreshSaasSchema, closeFinancialYear, reopenFinancialYear, exportData,
+    selectedFiscalYear, fiscalYearRange,
+    addDemoEntry, addDemoPaymentVoucher, addDemoReceiptVoucher, addDemoInvoice,
+    deleteOrganization,
+    postDemoSalesInvoice, addDemoPurchaseInvoice
+  ]);
 
   return (
     <SettingsProvider
@@ -3452,25 +3477,68 @@ const AccountingFacadeBridge: React.FC<{
   const hrDomain = useHrDomain();
   const restaurantDomain = useRestaurantDomain();
 
+  const domainsRef = useRef({
+    coreValue,
+    customerDomain,
+    supplierDomain,
+    productDomain,
+    salesDomain,
+    bankingDomain,
+    glDomain,
+    settingsDomain,
+    hrDomain,
+    restaurantDomain
+  });
+  domainsRef.current = {
+    coreValue,
+    customerDomain,
+    supplierDomain,
+    productDomain,
+    salesDomain,
+    bankingDomain,
+    glDomain,
+    settingsDomain,
+    hrDomain,
+    restaurantDomain
+  };
+
   const handleRefreshData = useCallback(async () => {
+    const d = domainsRef.current;
     await Promise.all([
-      coreValue.refreshData(),
-      customerDomain.refreshCustomers ? customerDomain.refreshCustomers() : Promise.resolve(),
-      supplierDomain.refreshSuppliers ? supplierDomain.refreshSuppliers() : Promise.resolve(),
-      supplierDomain.refreshPurchaseInvoices ? supplierDomain.refreshPurchaseInvoices() : Promise.resolve(),
-      productDomain.refreshProducts ? productDomain.refreshProducts() : Promise.resolve(),
-      productDomain.refreshWarehouses ? productDomain.refreshWarehouses() : Promise.resolve(),
-      productDomain.refreshCategories ? productDomain.refreshCategories() : Promise.resolve(),
-      productDomain.refreshTransfers ? productDomain.refreshTransfers() : Promise.resolve(),
-      salesDomain.refreshSales ? salesDomain.refreshSales() : Promise.resolve(),
-      bankingDomain.refreshBanking ? bankingDomain.refreshBanking() : Promise.resolve(),
-      glDomain.refreshLedger ? glDomain.refreshLedger() : Promise.resolve(),
-      settingsDomain.refreshSettings ? settingsDomain.refreshSettings() : Promise.resolve(),
-      hrDomain.refreshEmployees ? hrDomain.refreshEmployees() : Promise.resolve(),
-      restaurantDomain.refreshRestaurant ? restaurantDomain.refreshRestaurant() : Promise.resolve(),
-      restaurantDomain.refreshShift ? restaurantDomain.refreshShift() : Promise.resolve(),
+      d.coreValue.refreshData(),
+      d.customerDomain.refreshCustomers ? d.customerDomain.refreshCustomers() : Promise.resolve(),
+      d.supplierDomain.refreshSuppliers ? d.supplierDomain.refreshSuppliers() : Promise.resolve(),
+      d.supplierDomain.refreshPurchaseInvoices ? d.supplierDomain.refreshPurchaseInvoices() : Promise.resolve(),
+      d.productDomain.refreshProducts ? d.productDomain.refreshProducts() : Promise.resolve(),
+      d.productDomain.refreshWarehouses ? d.productDomain.refreshWarehouses() : Promise.resolve(),
+      d.productDomain.refreshCategories ? d.productDomain.refreshCategories() : Promise.resolve(),
+      d.productDomain.refreshTransfers ? d.productDomain.refreshTransfers() : Promise.resolve(),
+      d.salesDomain.refreshSales ? d.salesDomain.refreshSales() : Promise.resolve(),
+      d.bankingDomain.refreshBanking ? d.bankingDomain.refreshBanking() : Promise.resolve(),
+      d.glDomain.refreshLedger ? d.glDomain.refreshLedger() : Promise.resolve(),
+      d.settingsDomain.refreshSettings ? d.settingsDomain.refreshSettings() : Promise.resolve(),
+      d.hrDomain.refreshEmployees ? d.hrDomain.refreshEmployees() : Promise.resolve(),
+      d.restaurantDomain.refreshRestaurant ? d.restaurantDomain.refreshRestaurant() : Promise.resolve(),
+      d.restaurantDomain.refreshShift ? d.restaurantDomain.refreshShift() : Promise.resolve(),
     ]);
-  }, [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, settingsDomain, hrDomain, restaurantDomain]);
+  }, []);
+
+  const handleRefreshSalesAndPurchases = useCallback(async () => {
+    const d = domainsRef.current;
+    await Promise.all([
+      d.salesDomain.refreshSales ? d.salesDomain.refreshSales() : Promise.resolve(),
+      d.supplierDomain.refreshPurchaseInvoices ? d.supplierDomain.refreshPurchaseInvoices() : Promise.resolve(),
+    ]);
+  }, []);
+
+  const handleRefreshBankingAndShift = useCallback(async () => {
+    const d = domainsRef.current;
+    await Promise.all([
+      d.bankingDomain.refreshBanking ? d.bankingDomain.refreshBanking() : Promise.resolve(),
+      d.restaurantDomain.refreshShift ? d.restaurantDomain.refreshShift() : Promise.resolve(),
+      d.coreValue.refreshBankingAndShift ? d.coreValue.refreshBankingAndShift() : Promise.resolve(),
+    ]);
+  }, []);
 
   const facadeValue: AccountingContextType = useMemo(() => ({
     ...coreValue,
@@ -3521,12 +3589,7 @@ const AccountingFacadeBridge: React.FC<{
     approveInvoice: salesDomain.approveInvoice,
     unpostSalesInvoice: salesDomain.unpostSalesInvoice,
     deleteSalesInvoice: salesDomain.deleteSalesInvoice,
-    refreshSalesAndPurchases: async () => {
-      await Promise.all([
-        salesDomain.refreshSales ? salesDomain.refreshSales() : Promise.resolve(),
-        supplierDomain.refreshPurchaseInvoices ? supplierDomain.refreshPurchaseInvoices() : Promise.resolve(),
-      ]);
-    },
+    refreshSalesAndPurchases: handleRefreshSalesAndPurchases,
     // Banking & Treasury Domain Delegation
     cheques: bankingDomain.cheques,
     vouchers: bankingDomain.vouchers,
@@ -3535,13 +3598,7 @@ const AccountingFacadeBridge: React.FC<{
     deleteCheque: bankingDomain.deleteCheque,
     updateChequeStatus: bankingDomain.updateChequeStatus,
     refreshBanking: bankingDomain.refreshBanking,
-    refreshBankingAndShift: async () => {
-      await Promise.all([
-        bankingDomain.refreshBanking ? bankingDomain.refreshBanking() : Promise.resolve(),
-        restaurantDomain.refreshShift ? restaurantDomain.refreshShift() : Promise.resolve(),
-        coreValue.refreshBankingAndShift ? coreValue.refreshBankingAndShift() : Promise.resolve(),
-      ]);
-    },
+    refreshBankingAndShift: handleRefreshBankingAndShift,
     // General Ledger Domain Delegation
     entries: glDomain.entries,
     accounts: glDomain.accounts,
@@ -3595,7 +3652,21 @@ const AccountingFacadeBridge: React.FC<{
     getCurrentShiftSummary: restaurantDomain.getCurrentShiftSummary,
     finalizeProductionOrder: restaurantDomain.finalizeProductionOrder,
     refreshData: handleRefreshData
-  }), [coreValue, customerDomain, supplierDomain, productDomain, salesDomain, bankingDomain, glDomain, settingsDomain, hrDomain, restaurantDomain, handleRefreshData]);
+  }), [
+    coreValue,
+    customerDomain,
+    supplierDomain,
+    productDomain,
+    salesDomain,
+    bankingDomain,
+    glDomain,
+    settingsDomain,
+    hrDomain,
+    restaurantDomain,
+    handleRefreshData,
+    handleRefreshSalesAndPurchases,
+    handleRefreshBankingAndShift
+  ]);
 
   return (
     <AccountingContext.Provider value={facadeValue}>

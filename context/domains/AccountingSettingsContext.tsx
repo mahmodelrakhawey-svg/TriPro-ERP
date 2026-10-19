@@ -224,20 +224,30 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({
     return accounts.find(a => a.code === key);
   }, [accounts, settings]);
 
+  const value = useMemo<SettingsDomainState>(() => ({
+    organization,
+    currentUser,
+    settings,
+    accounts,
+    isLoading,
+    can,
+    getSystemAccount,
+    updateSettings,
+    refreshSettings: fetchSettingsData,
+  }), [
+    organization,
+    currentUser,
+    settings,
+    accounts,
+    isLoading,
+    can,
+    getSystemAccount,
+    updateSettings,
+    fetchSettingsData,
+  ]);
+
   return (
-    <SettingsContext.Provider
-      value={{
-        organization,
-        currentUser,
-        settings,
-        accounts,
-        isLoading,
-        can,
-        getSystemAccount,
-        updateSettings,
-        refreshSettings: fetchSettingsData,
-      }}
-    >
+    <SettingsContext.Provider value={value}>
       {children}
     </SettingsContext.Provider>
   );

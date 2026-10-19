@@ -10,7 +10,7 @@
  * ==============================================================================
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { Customer } from '../../types';
 import type { UserProfile } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -224,16 +224,16 @@ export const CustomerProvider: React.FC<CustomerProviderProps> = ({
     await fetchCustomers();
   }, [targetOrgId, currentUser, logActivity, fetchCustomers]);
 
+  const value = useMemo<CustomerDomainState>(() => ({
+    customers,
+    addCustomer,
+    updateCustomer,
+    deleteCustomer,
+    refreshCustomers: fetchCustomers,
+  }), [customers, addCustomer, updateCustomer, deleteCustomer, fetchCustomers]);
+
   return (
-    <CustomerContext.Provider
-      value={{
-        customers,
-        addCustomer,
-        updateCustomer,
-        deleteCustomer,
-        refreshCustomers: fetchCustomers,
-      }}
-    >
+    <CustomerContext.Provider value={value}>
       {children}
     </CustomerContext.Provider>
   );

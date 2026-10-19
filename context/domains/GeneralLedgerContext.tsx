@@ -509,33 +509,54 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
     }
   }, [targetOrgId, selectedFiscalYear]);
 
+  const value = useMemo<GeneralLedgerDomainState>(() => ({
+    entries,
+    accounts,
+    costCenters,
+    budgets,
+    fiscalYearRange,
+    selectedFiscalYear,
+    setSelectedFiscalYear,
+    addEntry,
+    fetchEntriesPaged,
+    getAccountBalanceInPeriod,
+    addAccount,
+    updateAccount,
+    deleteAccount,
+    getSystemAccount,
+    saveBudget,
+    exportJournalToCSV,
+    closeFinancialYear,
+    reopenFinancialYear,
+    recalculateAllBalances,
+    refreshLedger: fetchLedgerData,
+    refreshAccounts: fetchLedgerData,
+    refreshEntries: fetchLedgerData,
+  }), [
+    entries,
+    accounts,
+    costCenters,
+    budgets,
+    fiscalYearRange,
+    selectedFiscalYear,
+    setSelectedFiscalYear,
+    addEntry,
+    fetchEntriesPaged,
+    getAccountBalanceInPeriod,
+    addAccount,
+    updateAccount,
+    deleteAccount,
+    getSystemAccount,
+    saveBudget,
+    exportJournalToCSV,
+    closeFinancialYear,
+    reopenFinancialYear,
+    recalculateAllBalances,
+    fetchLedgerData,
+  ]);
+
   return (
-    <GeneralLedgerContext.Provider
-      value={{
-        entries,
-        accounts,
-        costCenters,
-        budgets,
-        fiscalYearRange,
-        selectedFiscalYear,
-        setSelectedFiscalYear,
-        addEntry,
-        fetchEntriesPaged,
-        getAccountBalanceInPeriod,
-        addAccount,
-        updateAccount,
-        deleteAccount,
-        getSystemAccount,
-        saveBudget,
-        exportJournalToCSV,
-        closeFinancialYear,
-        reopenFinancialYear,
-        recalculateAllBalances,
-        refreshLedger: fetchLedgerData,
-        refreshAccounts: fetchLedgerData,
-        refreshEntries: fetchLedgerData,
-      }}
-    >
+    <GeneralLedgerContext.Provider value={value}>
       {children}
     </GeneralLedgerContext.Provider>
   );

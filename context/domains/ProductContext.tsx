@@ -10,7 +10,7 @@
  * ==============================================================================
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useAccounting } from '../AccountingContext';
 import { Product, Warehouse, StockTransfer, Category } from '../../types';
 import type { UserProfile } from '../AccountingContext';
@@ -469,31 +469,52 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
     });
   }, []);
 
+  const value = useMemo<ProductDomainState>(() => ({
+    products,
+    warehouses,
+    categories,
+    transfers,
+    recalculateStock,
+    addProduct,
+    updateProduct,
+    deleteProduct,
+    addStockTransfer,
+    approveStockTransfer,
+    cancelStockTransfer,
+    addWarehouse,
+    updateWarehouse,
+    deleteWarehouse,
+    addWastage,
+    produceItem,
+    refreshProducts: fetchProducts,
+    refreshWarehouses: fetchWarehouses,
+    refreshCategories: fetchCategories,
+    refreshTransfers: fetchTransfers,
+  }), [
+    products,
+    warehouses,
+    categories,
+    transfers,
+    recalculateStock,
+    addProduct,
+    updateProduct,
+    deleteProduct,
+    addStockTransfer,
+    approveStockTransfer,
+    cancelStockTransfer,
+    addWarehouse,
+    updateWarehouse,
+    deleteWarehouse,
+    addWastage,
+    produceItem,
+    fetchProducts,
+    fetchWarehouses,
+    fetchCategories,
+    fetchTransfers,
+  ]);
+
   return (
-    <ProductContext.Provider
-      value={{
-        products,
-        warehouses,
-        categories,
-        transfers,
-        recalculateStock,
-        addProduct,
-        updateProduct,
-        deleteProduct,
-        addStockTransfer,
-        approveStockTransfer,
-        cancelStockTransfer,
-        addWarehouse,
-        updateWarehouse,
-        deleteWarehouse,
-        addWastage,
-        produceItem,
-        refreshProducts: fetchProducts,
-        refreshWarehouses: fetchWarehouses,
-        refreshCategories: fetchCategories,
-        refreshTransfers: fetchTransfers,
-      }}
-    >
+    <ProductContext.Provider value={value}>
       {children}
     </ProductContext.Provider>
   );

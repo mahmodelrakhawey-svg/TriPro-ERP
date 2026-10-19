@@ -10,7 +10,7 @@
  * ==============================================================================
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useAccounting } from '../AccountingContext';
 import { Cheque, PaymentVoucher } from '../../types';
 import type { UserProfile } from '../AccountingContext';
@@ -466,25 +466,40 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
     await Promise.all([fetchCheques(), fetchVouchers()]);
   }, [fetchCheques, fetchVouchers]);
 
+  const value = useMemo<BankingDomainState>(() => ({
+    cheques,
+    vouchers,
+    addCheque,
+    updateCheque,
+    deleteCheque,
+    updateChequeStatus,
+    addPaymentVoucher,
+    updateVoucher,
+    addTransfer,
+    updateTransfer,
+    deleteTransfer,
+    refreshBanking: refreshAllBanking,
+    refreshCheques: fetchCheques,
+    refreshVouchers: fetchVouchers,
+  }), [
+    cheques,
+    vouchers,
+    addCheque,
+    updateCheque,
+    deleteCheque,
+    updateChequeStatus,
+    addPaymentVoucher,
+    updateVoucher,
+    addTransfer,
+    updateTransfer,
+    deleteTransfer,
+    refreshAllBanking,
+    fetchCheques,
+    fetchVouchers,
+  ]);
+
   return (
-    <BankingContext.Provider
-      value={{
-        cheques,
-        vouchers,
-        addCheque,
-        updateCheque,
-        deleteCheque,
-        updateChequeStatus,
-        addPaymentVoucher,
-        updateVoucher,
-        addTransfer,
-        updateTransfer,
-        deleteTransfer,
-        refreshBanking: refreshAllBanking,
-        refreshCheques: fetchCheques,
-        refreshVouchers: fetchVouchers,
-      }}
-    >
+    <BankingContext.Provider value={value}>
       {children}
     </BankingContext.Provider>
   );

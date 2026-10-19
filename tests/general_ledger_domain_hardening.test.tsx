@@ -28,6 +28,17 @@ describe('General Ledger Domain Hardening & Multi-tenancy', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    const mockChain = {
+      select: vi.fn().mockReturnThis(),
+      eq: vi.fn().mockReturnThis(),
+      gte: vi.fn().mockReturnThis(),
+      lte: vi.fn().mockReturnThis(),
+      order: vi.fn().mockReturnThis(),
+      range: vi.fn().mockResolvedValue({ data: [], error: null }),
+      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
+      then: vi.fn((cb) => Promise.resolve({ data: [], error: null }).then(cb))
+    };
+    (supabase.from as unknown as { mockReturnValue: (val: unknown) => void }).mockReturnValue(mockChain);
   });
 
   it('يجب أن يرفض addEntry القيد غير المتوازن ويرمي استثناء قبل الوصول لقاعدة البيانات', async () => {
@@ -70,6 +81,7 @@ describe('General Ledger Domain Hardening & Multi-tenancy', () => {
       gte: vi.fn().mockReturnThis(),
       lte: vi.fn().mockReturnThis(),
       order: vi.fn().mockReturnThis(),
+      range: vi.fn().mockResolvedValue({ data: [], error: null }),
       limit: vi.fn().mockResolvedValue({ data: [], error: null }),
     });
 
