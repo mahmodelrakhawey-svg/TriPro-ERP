@@ -17,6 +17,7 @@ import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { fetchAllTableRecords } from './domainUtils';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 export interface SupplierDomainState {
   suppliers: Supplier[];
@@ -108,18 +109,16 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
   const fetchInvoices = useCallback(async () => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') return;
     try {
-      const { data, error } = await supabase
-        .from('purchase_invoices')
-        .select('*')
-        .eq('organization_id', targetOrgId)
-        .order('invoice_date', { ascending: false })
-        .limit(1000);
+      const data = await fetchCompleteDataset<PurchaseInvoice>(async (from, to) =>
+        supabase
+          .from('purchase_invoices')
+          .select('*')
+          .eq('organization_id', targetOrgId)
+          .order('invoice_date', { ascending: false })
+          .range(from, to)
+      );
 
-      if (error) {
-        logger.error('Error fetching purchase invoices in SupplierProvider:', error);
-      } else {
-        setPurchaseInvoices((data as PurchaseInvoice[]) || []);
-      }
+      setPurchaseInvoices(data || []);
     } catch (err) {
       logger.error('Unexpected error fetching purchase invoices:', err);
     }

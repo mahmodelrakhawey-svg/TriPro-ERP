@@ -7,6 +7,7 @@ import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis } from 'recharts';
 import { useToast } from '../../context/ToastContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 const OfferBeneficiariesReport = () => {
   const { customers, products, settings, selectedFiscalYear, fiscalYearRange, currentUser } = useAccounting();
@@ -54,37 +55,43 @@ const OfferBeneficiariesReport = () => {
         customerMap[c.id] = c;
       });
 
-      // 1. جلب فواتير المبيعات مع بنود الأصناف
-      const { data: invData, error: invErr } = await supabase
-        .from('invoices')
-        .select(`
-          id, invoice_number, invoice_date, total_amount, discount_amount, customer_id, status,
-          invoice_items (
-            product_id, quantity, unit_price, total
-          )
-        `)
-        .eq('organization_id', userOrgId)
-        .not('status', 'in', '("draft","cancelled")')
-        .gte('invoice_date', startDate)
-        .lte('invoice_date', endDate);
+      // 1. جلب فواتير المبيعات مع بنود الأصناف دون التقيد بـ 1000 سجل
+      const invData = await fetchCompleteDataset<any>(async (from, to) =>
+        supabase
+          .from('invoices')
+          .select(`
+            id, invoice_number, invoice_date, total_amount, discount_amount, customer_id, status,
+            invoice_items (
+              product_id, quantity, unit_price, total
+            )
+          `)
+          .eq('organization_id', userOrgId)
+          .not('status', 'in', '("draft","cancelled")')
+          .gte('invoice_date', startDate)
+          .lte('invoice_date', endDate)
+          .range(from, to)
+      );
 
       // 2. جلب طلبات المطعم مع بنودها
-      const { data: ordData, error: ordErr } = await supabase
-        .from('orders')
-        .select(`
-          id, order_number, created_at, grand_total, customer_id, status,
-          order_items (
-            product_id, quantity, unit_price, total_price
-          )
-        `)
-        .eq('organization_id', userOrgId)
-        .not('status', 'in', '("DRAFT","CANCELLED")')
-        .gte('created_at', `${startDate}T00:00:00`)
-        .lte('created_at', `${endDate}T23:59:59`);
+      const ordData = await fetchCompleteDataset<any>(async (from, to) =>
+        supabase
+          .from('orders')
+          .select(`
+            id, order_number, created_at, grand_total, customer_id, status,
+            order_items (
+              product_id, quantity, unit_price, total_price
+            )
+          `)
+          .eq('organization_id', userOrgId)
+          .not('status', 'in', '("DRAFT","CANCELLED")')
+          .gte('created_at', `${startDate}T00:00:00`)
+          .lte('created_at', `${endDate}T23:59:59`)
+          .range(from, to)
+      );
 
       const allRecords: any[] = [];
 
-      if (!invErr && invData) {
+      if (invData) {
         invData.forEach((inv: Record<string, any>) => {
           const cust = customerMap[inv.customer_id];
           allRecords.push({
@@ -115,7 +122,7 @@ const OfferBeneficiariesReport = () => {
         });
       }
 
-      if (!ordErr && ordData) {
+      if (ordData) {
         ordData.forEach((ord: Record<string, any>) => {
           const cust = customerMap[ord.customer_id];
           allRecords.push({

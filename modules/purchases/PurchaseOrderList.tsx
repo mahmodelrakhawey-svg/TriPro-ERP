@@ -9,6 +9,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import * as XLSX from 'xlsx';
 import { PurchaseOrderPrint } from './PurchaseOrderPrint';
 
@@ -66,63 +67,67 @@ export const PurchaseOrderList = () => {
         return;
       }
 
-      let query = supabase
-        .from('purchase_orders')
-        .select(`
-          *,
-          suppliers(id, name, phone),
-          purchase_order_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku))
-        `)
-        .eq('organization_id', userOrgId)
-        .order('order_date', { ascending: false })
-        .order('created_at', { ascending: false });
+      let data: any[] = [];
+      try {
+        data = await fetchCompleteDataset<any>(async (from, to) => {
+          let query = supabase
+            .from('purchase_orders')
+            .select(`
+              *,
+              suppliers(id, name, phone),
+              purchase_order_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku))
+            `)
+            .eq('organization_id', userOrgId)
+            .order('order_date', { ascending: false })
+            .order('created_at', { ascending: false });
 
-      if (startDate) query = query.gte('order_date', startDate);
-      if (endDate) query = query.lte('order_date', endDate);
-      if (selectedSupplierId) query = query.eq('supplier_id', selectedSupplierId);
-      if (statusFilter !== 'all') {
-        if (statusFilter === 'converted') {
-          query = query.in('status', ['converted', 'invoiced']);
-        } else if (statusFilter === 'posted') {
-          query = query.in('status', ['posted', 'completed']);
-        } else {
-          query = query.eq('status', statusFilter);
-        }
-      }
-
-      let { data, error } = await query;
-
-      if (error && (error.code === 'PGRST201' || error.message?.includes('more than one relationship'))) {
-        let retryQuery = supabase
-          .from('purchase_orders')
-          .select(`
-            *,
-            suppliers(id, name, phone),
-            purchase_order_items!purchase_order_id(id, product_id, quantity, unit_price, total, uom_id, products(name, sku))
-          `)
-          .eq('organization_id', userOrgId)
-          .order('order_date', { ascending: false })
-          .order('created_at', { ascending: false });
-
-        if (startDate) retryQuery = retryQuery.gte('order_date', startDate);
-        if (endDate) retryQuery = retryQuery.lte('order_date', endDate);
-        if (selectedSupplierId) retryQuery = retryQuery.eq('supplier_id', selectedSupplierId);
-        if (statusFilter !== 'all') {
-          if (statusFilter === 'converted') {
-            retryQuery = retryQuery.in('status', ['converted', 'invoiced']);
-          } else if (statusFilter === 'posted') {
-            retryQuery = retryQuery.in('status', ['posted', 'completed']);
-          } else {
-            retryQuery = retryQuery.eq('status', statusFilter);
+          if (startDate) query = query.gte('order_date', startDate);
+          if (endDate) query = query.lte('order_date', endDate);
+          if (selectedSupplierId) query = query.eq('supplier_id', selectedSupplierId);
+          if (statusFilter !== 'all') {
+            if (statusFilter === 'converted') {
+              query = query.in('status', ['converted', 'invoiced']);
+            } else if (statusFilter === 'posted') {
+              query = query.in('status', ['posted', 'completed']);
+            } else {
+              query = query.eq('status', statusFilter);
+            }
           }
+          return query.range(from, to);
+        });
+      } catch (queryErr) {
+        const qErr = queryErr as { code?: string; message?: string };
+        if (qErr?.code === 'PGRST201' || qErr?.message?.includes('more than one relationship')) {
+          data = await fetchCompleteDataset<any>(async (from, to) => {
+            let retryQuery = supabase
+              .from('purchase_orders')
+              .select(`
+                *,
+                suppliers(id, name, phone),
+                purchase_order_items!purchase_order_id(id, product_id, quantity, unit_price, total, uom_id, products(name, sku))
+              `)
+              .eq('organization_id', userOrgId)
+              .order('order_date', { ascending: false })
+              .order('created_at', { ascending: false });
+
+            if (startDate) retryQuery = retryQuery.gte('order_date', startDate);
+            if (endDate) retryQuery = retryQuery.lte('order_date', endDate);
+            if (selectedSupplierId) retryQuery = retryQuery.eq('supplier_id', selectedSupplierId);
+            if (statusFilter !== 'all') {
+              if (statusFilter === 'converted') {
+                retryQuery = retryQuery.in('status', ['converted', 'invoiced']);
+              } else if (statusFilter === 'posted') {
+                retryQuery = retryQuery.in('status', ['posted', 'completed']);
+              } else {
+                retryQuery = retryQuery.eq('status', statusFilter);
+              }
+            }
+            return retryQuery.range(from, to);
+          });
+        } else {
+          throw queryErr;
         }
-
-        const retryRes = await retryQuery;
-        data = retryRes.data;
-        error = retryRes.error;
       }
-
-      if (error) throw error;
 
       setOrders(data || []);
     } catch (err) {

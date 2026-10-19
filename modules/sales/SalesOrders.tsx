@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { 
   FileCheck, Search, Plus, Trash2, Edit, Printer, Download, 
   MessageCircle, Loader2, ArrowRightLeft, CheckCircle2, Clock, 
@@ -65,47 +66,53 @@ export const SalesOrders: React.FC = () => {
         return;
       }
 
-      let query = supabase
-        .from('sales_orders')
-        .select(`
-          *,
-          customers(id, name, phone),
-          sales_order_items(id, product_id, quantity, unit_price, uom_id, products(name, sku))
-        `)
-        .eq('organization_id', userOrgId)
-        .order('order_date', { ascending: false })
-        .order('created_at', { ascending: false });
+      let data: any[] = [];
+      try {
+        data = await fetchCompleteDataset<any>(async (from, to) => {
+          let query = supabase
+            .from('sales_orders')
+            .select(`
+              *,
+              customers(id, name, phone),
+              sales_order_items(id, product_id, quantity, unit_price, uom_id, products(name, sku))
+            `)
+            .eq('organization_id', userOrgId)
+            .order('order_date', { ascending: false })
+            .order('created_at', { ascending: false });
 
-      if (startDate) query = query.gte('order_date', startDate);
-      if (endDate) query = query.lte('order_date', endDate);
-      if (selectedCustomerId) query = query.eq('customer_id', selectedCustomerId);
-      if (statusFilter !== 'all') query = query.eq('status', statusFilter);
+          if (startDate) query = query.gte('order_date', startDate);
+          if (endDate) query = query.lte('order_date', endDate);
+          if (selectedCustomerId) query = query.eq('customer_id', selectedCustomerId);
+          if (statusFilter !== 'all') query = query.eq('status', statusFilter);
 
-      let { data, error } = await query;
+          return query.range(from, to);
+        });
+      } catch (queryErr) {
+        const qErr = queryErr as { code?: string; message?: string };
+        if (qErr?.code === 'PGRST201' || qErr?.message?.includes('more than one relationship')) {
+          data = await fetchCompleteDataset<any>(async (from, to) => {
+            let retryQuery = supabase
+              .from('sales_orders')
+              .select(`
+                *,
+                customers(id, name, phone),
+                sales_order_items!sales_order_id(id, product_id, quantity, unit_price, uom_id, products(name, sku))
+              `)
+              .eq('organization_id', userOrgId)
+              .order('order_date', { ascending: false })
+              .order('created_at', { ascending: false });
 
-      if (error && (error.code === 'PGRST201' || error.message?.includes('more than one relationship'))) {
-        let retryQuery = supabase
-          .from('sales_orders')
-          .select(`
-            *,
-            customers(id, name, phone),
-            sales_order_items!sales_order_id(id, product_id, quantity, unit_price, uom_id, products(name, sku))
-          `)
-          .eq('organization_id', userOrgId)
-          .order('order_date', { ascending: false })
-          .order('created_at', { ascending: false });
+            if (startDate) retryQuery = retryQuery.gte('order_date', startDate);
+            if (endDate) retryQuery = retryQuery.lte('order_date', endDate);
+            if (selectedCustomerId) retryQuery = retryQuery.eq('customer_id', selectedCustomerId);
+            if (statusFilter !== 'all') retryQuery = retryQuery.eq('status', statusFilter);
 
-        if (startDate) retryQuery = retryQuery.gte('order_date', startDate);
-        if (endDate) retryQuery = retryQuery.lte('order_date', endDate);
-        if (selectedCustomerId) retryQuery = retryQuery.eq('customer_id', selectedCustomerId);
-        if (statusFilter !== 'all') retryQuery = retryQuery.eq('status', statusFilter);
-
-        const retryRes = await retryQuery;
-        data = retryRes.data;
-        error = retryRes.error;
+            return retryQuery.range(from, to);
+          });
+        } else {
+          throw queryErr;
+        }
       }
-
-      if (error) throw error;
 
       setOrders(data || []);
     } catch (err) {

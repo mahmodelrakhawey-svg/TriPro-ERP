@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { 
   FileText, Search, Plus, Trash2, Edit, Printer, Download, 
   MessageCircle, Loader2, ArrowRightLeft, CheckCircle2, Clock, 
@@ -60,32 +61,32 @@ export const QuotationList = () => {
         return;
       }
 
-      let query = supabase
-        .from('quotations')
-        .select(`
-          *,
-          customers(id, name, phone),
-          quotation_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku))
-        `)
-        .eq('organization_id', userOrgId)
-        .order('quotation_date', { ascending: false })
-        .order('created_at', { ascending: false });
+      const data = await fetchCompleteDataset<any>(async (from, to) => {
+        let query = supabase
+          .from('quotations')
+          .select(`
+            *,
+            customers(id, name, phone),
+            quotation_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku))
+          `)
+          .eq('organization_id', userOrgId)
+          .order('quotation_date', { ascending: false })
+          .order('created_at', { ascending: false });
 
-      if (startDate) query = query.gte('quotation_date', startDate);
-      if (endDate) query = query.lte('quotation_date', endDate);
-      if (selectedCustomerId) query = query.eq('customer_id', selectedCustomerId);
-      if (statusFilter !== 'all') {
-        if (statusFilter === 'converted') {
-          query = query.in('status', ['converted', 'invoiced']);
-        } else if (statusFilter === 'posted') {
-          query = query.in('status', ['posted', 'completed']);
-        } else {
-          query = query.eq('status', statusFilter);
+        if (startDate) query = query.gte('quotation_date', startDate);
+        if (endDate) query = query.lte('quotation_date', endDate);
+        if (selectedCustomerId) query = query.eq('customer_id', selectedCustomerId);
+        if (statusFilter !== 'all') {
+          if (statusFilter === 'converted') {
+            query = query.in('status', ['converted', 'invoiced']);
+          } else if (statusFilter === 'posted') {
+            query = query.in('status', ['posted', 'completed']);
+          } else {
+            query = query.eq('status', statusFilter);
+          }
         }
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
+        return query.range(from, to);
+      });
 
       setQuotations(data || []);
     } catch (err) {

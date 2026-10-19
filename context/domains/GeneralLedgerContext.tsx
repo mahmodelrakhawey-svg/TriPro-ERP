@@ -18,6 +18,7 @@ import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { closeFinancialYearEngine, reopenFinancialYearEngine } from '../../services/financialYearService';
 import { validateEntryBalance } from '../../utils/financialSafety';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { SYSTEM_ACCOUNTS } from '../accountingConstants';
 
 export interface FiscalYearRange {
@@ -135,14 +136,16 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
           .select('*')
           .eq('organization_id', effectiveOrg)
           .order('code'),
-        supabase
-          .from('journal_entries')
-          .select('*, journal_lines(*)')
-          .eq('organization_id', effectiveOrg)
-          .gte('transaction_date', fiscalYearRange.startDate)
-          .lte('transaction_date', fiscalYearRange.endDate)
-          .order('transaction_date', { ascending: false })
-          .limit(1000),
+        fetchCompleteDataset<JournalEntryItem>(async (from, to) =>
+          supabase
+            .from('journal_entries')
+            .select('*, journal_lines(*)')
+            .eq('organization_id', effectiveOrg)
+            .gte('transaction_date', fiscalYearRange.startDate)
+            .lte('transaction_date', fiscalYearRange.endDate)
+            .order('transaction_date', { ascending: false })
+            .range(from, to)
+        ).then(data => ({ data, error: null })),
         supabase
           .from('cost_centers')
           .select('*')

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { UserCheck, Download, Printer, Loader2, Filter, Calendar, Users } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../../components/ReportHeader';
@@ -59,18 +60,24 @@ return;
         // 2. بديل فوري وآمن (Direct Client Query Fallback)
         const [profilesRes, ordersRes, invoicesRes] = await Promise.all([
           supabase.from('profiles').select('id, full_name').eq('organization_id', userOrgId),
-          supabase.from('orders')
-            .select('id, user_id, grand_total, created_at, status')
-            .eq('organization_id', userOrgId)
-            .not('status', 'in', '("CANCELLED","draft")')
-            .gte('created_at', `${startDate}T00:00:00`)
-            .lte('created_at', `${endDate}T23:59:59`),
-          supabase.from('invoices')
-            .select('id, user_id, salesperson_id, total_amount, invoice_date, status')
-            .eq('organization_id', userOrgId)
-            .not('status', 'in', '("draft","cancelled")')
-            .gte('invoice_date', startDate)
-            .lte('invoice_date', endDate)
+          fetchCompleteDataset<any>(async (from, to) =>
+            supabase.from('orders')
+              .select('id, user_id, grand_total, created_at, status')
+              .eq('organization_id', userOrgId)
+              .not('status', 'in', '("CANCELLED","draft")')
+              .gte('created_at', `${startDate}T00:00:00`)
+              .lte('created_at', `${endDate}T23:59:59`)
+              .range(from, to)
+          ).then(data => ({ data, error: null })),
+          fetchCompleteDataset<any>(async (from, to) =>
+            supabase.from('invoices')
+              .select('id, user_id, salesperson_id, total_amount, invoice_date, status')
+              .eq('organization_id', userOrgId)
+              .not('status', 'in', '("draft","cancelled")')
+              .gte('invoice_date', startDate)
+              .lte('invoice_date', endDate)
+              .range(from, to)
+          ).then(data => ({ data, error: null }))
         ]);
 
         const profileNameMap: Record<string, string> = {};

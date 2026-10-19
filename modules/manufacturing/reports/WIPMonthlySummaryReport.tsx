@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAuth } from '../../../context/AuthContext';
 import { useToast } from '../../../context/ToastContext';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { FileBarChart, Loader2, Calendar } from 'lucide-react';
 
@@ -16,8 +17,9 @@ const WIPMonthlySummaryReport = () => {
       const orgId = (currentUser as any)?.organization_id;
       if (!orgId) return;
       try {
-        const { data: result, error } = await supabase.from('v_mfg_wip_monthly_summary').select('*').eq('organization_id', orgId);
-        if (error) throw error;
+        const result = await fetchCompleteDataset<any>(async (from, to) =>
+          supabase.from('v_mfg_wip_monthly_summary').select('*').eq('organization_id', orgId).range(from, to)
+        );
         setData(result || []);
       } catch (error) {
         showToast(error.message, 'error');

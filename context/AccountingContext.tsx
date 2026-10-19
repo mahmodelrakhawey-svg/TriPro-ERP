@@ -31,6 +31,7 @@ import { offlineService, isValidUUID } from '../services/offlineService';
 import { setActiveOrgId, getActiveOrgIdSync } from '../services/tenantContext';
 import { closeFinancialYearEngine, reopenFinancialYearEngine } from '../services/financialYearService';
 import { deleteOrganizationSafe } from '../services/organizationService';
+import { fetchCompleteDataset } from '../services/balanceService';
 import {
   SYSTEM_ACCOUNTS,
   DEFAULT_OFFLINE_ORG,
@@ -652,13 +653,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // جلب الحسابات والمستودعات مع ترشيد الاستعلامات المالية بالسنة المالية النشطة
       const [accs, ents, ccs, emps, prods, trns, pinvs, invs, cats, usrs, whs, rTables, custs, sups, chqs, shift, assetData, budgetData] = await Promise.all([
         supabase.from('accounts').select('*').eq('organization_id', fetchOrgId).order('code'),
-        supabase.from('journal_entries')
-          .select('*, journal_lines(*)')
-          .eq('organization_id', fetchOrgId)
-          .gte('transaction_date', fiscalYearRange.startDate)
-          .lte('transaction_date', fiscalYearRange.endDate)
-          .order('transaction_date', { ascending: false })
-          .limit(1000),
+        fetchCompleteDataset<JournalEntry>(async (from, to) =>
+          supabase.from('journal_entries')
+            .select('*, journal_lines(*)')
+            .eq('organization_id', fetchOrgId)
+            .gte('transaction_date', fiscalYearRange.startDate)
+            .lte('transaction_date', fiscalYearRange.endDate)
+            .order('transaction_date', { ascending: false })
+            .range(from, to)
+        ).then(data => ({ data, error: null })),
         supabase.from('cost_centers').select('*').eq('organization_id', fetchOrgId).order('name'),
         supabase.from('employees').select('*').eq('organization_id', fetchOrgId).order('full_name'),
         Promise.resolve({ data: [] as Product[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
@@ -831,13 +834,15 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       const [accs, ents, ccs, budgetData] = await Promise.all([
         supabase.from('accounts').select('*').eq('organization_id', targetOrg).order('code'),
-        supabase.from('journal_entries')
-          .select('*, journal_lines(*)')
-          .eq('organization_id', targetOrg)
-          .gte('transaction_date', fiscalYearRange.startDate)
-          .lte('transaction_date', fiscalYearRange.endDate)
-          .order('transaction_date', { ascending: false })
-          .limit(1000),
+        fetchCompleteDataset<JournalEntry>(async (from, to) =>
+          supabase.from('journal_entries')
+            .select('*, journal_lines(*)')
+            .eq('organization_id', targetOrg)
+            .gte('transaction_date', fiscalYearRange.startDate)
+            .lte('transaction_date', fiscalYearRange.endDate)
+            .order('transaction_date', { ascending: false })
+            .range(from, to)
+        ).then(data => ({ data, error: null })),
         supabase.from('cost_centers').select('*').eq('organization_id', targetOrg).order('name'),
         supabase.from('budgets').select('*').eq('organization_id', targetOrg)
       ]);
@@ -887,7 +892,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       const [prods, trns, cats, whs] = await Promise.all([
         fetchAllTableRecords('products', q => q.eq('organization_id', targetOrg).is('deleted_at', null).order('name')),
-        supabase.from('stock_transfers').select('*').eq('organization_id', targetOrg).order('transfer_date', { ascending: false }).limit(500),
+        fetchCompleteDataset<StockTransfer>(async (from, to) =>
+          supabase.from('stock_transfers')
+            .select('*')
+            .eq('organization_id', targetOrg)
+            .order('transfer_date', { ascending: false })
+            .range(from, to)
+        ).then(data => ({ data, error: null })),
         supabase.from('item_categories').select('*').eq('organization_id', targetOrg).order('name'),
         supabase.from('warehouses').select('*').eq('organization_id', targetOrg).eq('is_active', true)
       ]);
@@ -912,20 +923,24 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!targetOrg || targetOrg === 'org-default-offline') return;
     try {
       const [pinvs, invs] = await Promise.all([
-        supabase.from('purchase_invoices')
-          .select('*')
-          .eq('organization_id', targetOrg)
-          .gte('invoice_date', fiscalYearRange.startDate)
-          .lte('invoice_date', fiscalYearRange.endDate)
-          .order('invoice_date', { ascending: false })
-          .limit(1000),
-        supabase.from('invoices')
-          .select('*')
-          .eq('organization_id', targetOrg)
-          .gte('invoice_date', fiscalYearRange.startDate)
-          .lte('invoice_date', fiscalYearRange.endDate)
-          .order('invoice_date', { ascending: false })
-          .limit(1000)
+        fetchCompleteDataset<PurchaseInvoice>(async (from, to) =>
+          supabase.from('purchase_invoices')
+            .select('*')
+            .eq('organization_id', targetOrg)
+            .gte('invoice_date', fiscalYearRange.startDate)
+            .lte('invoice_date', fiscalYearRange.endDate)
+            .order('invoice_date', { ascending: false })
+            .range(from, to)
+        ).then(data => ({ data, error: null })),
+        fetchCompleteDataset<Invoice>(async (from, to) =>
+          supabase.from('invoices')
+            .select('*')
+            .eq('organization_id', targetOrg)
+            .gte('invoice_date', fiscalYearRange.startDate)
+            .lte('invoice_date', fiscalYearRange.endDate)
+            .order('invoice_date', { ascending: false })
+            .range(from, to)
+        ).then(data => ({ data, error: null }))
       ]);
       if (pinvs.data) setPurchaseInvoices(pinvs.data);
       if (invs.data) setInvoices(invs.data);
@@ -939,23 +954,31 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const targetOrg = getEffectiveOrgId();
     if (!targetOrg || targetOrg === 'org-default-offline') return;
     try {
+      interface RawVoucherFetchRow {
+        payment_date?: string | null;
+        date?: string | null;
+        created_at?: string | null;
+        notes?: string | null;
+        description?: string | null;
+        supplier_id?: string | null;
+        party_id?: string | null;
+        [key: string]: unknown;
+      }
+
       const [chqs, shift, vchrs] = await Promise.all([
         supabase.from('cheques').select('*').eq('organization_id', targetOrg).order('due_date'),
         supabase.rpc('get_active_shift', { p_org_id: targetOrg }),
-        supabase.from('payment_vouchers').select('*').eq('organization_id', targetOrg).is('deleted_at', null).order('payment_date', { ascending: false }).limit(200)
+        fetchCompleteDataset<RawVoucherFetchRow>(async (from, to) =>
+          supabase.from('payment_vouchers')
+            .select('*')
+            .eq('organization_id', targetOrg)
+            .is('deleted_at', null)
+            .order('payment_date', { ascending: false })
+            .range(from, to)
+        ).then(data => ({ data, error: null }))
       ]);
       if (chqs.data) setCheques(chqs.data);
       if (vchrs.data) {
-        interface RawVoucherFetchRow {
-          payment_date?: string | null;
-          date?: string | null;
-          created_at?: string | null;
-          notes?: string | null;
-          description?: string | null;
-          supplier_id?: string | null;
-          party_id?: string | null;
-          [key: string]: unknown;
-        }
         const mappedVchrs = (vchrs.data || []).map((row: RawVoucherFetchRow) => ({
           ...row,
           date: (row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : '')) as string,

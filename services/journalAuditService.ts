@@ -9,6 +9,7 @@
 
 import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
+import { fetchCompleteDataset } from './balanceService';
 
 export interface UnbalancedJournalEntrySummary {
   id: string;
@@ -143,37 +144,39 @@ class JournalAuditService {
         from += pageSize;
       }
 
-      // 3. المسار الاحتياطي الثاني: إذا لم ترجع أسطر القيود شيء، نستعلم journal_entries مباشرة
+      // 3. المسار الاحتياطي الثاني: إذا لم ترجع أسطر القيود شيء، نستعلم journal_entries بالكامل بأمان
       if (allLines.length === 0) {
-        let entriesQuery = supabase
-          .from('journal_entries')
-          .select('id, reference, description, transaction_date, status, organization_id, journal_lines(id, account_id, debit, credit)')
-          .limit(1000);
+        const directEntries = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) => {
+          let entriesQuery = supabase
+            .from('journal_entries')
+            .select('id, reference, description, transaction_date, status, organization_id, journal_lines(id, account_id, debit, credit)');
 
-        if (effectiveOrgId && effectiveOrgId !== '') {
-          entriesQuery = entriesQuery.eq('organization_id', effectiveOrgId);
-        }
+          if (effectiveOrgId && effectiveOrgId !== '') {
+            entriesQuery = entriesQuery.eq('organization_id', effectiveOrgId);
+          }
 
-        if (statusFilter !== 'all') {
-          entriesQuery = entriesQuery.eq('status', statusFilter);
-        }
+          if (statusFilter !== 'all') {
+            entriesQuery = entriesQuery.eq('status', statusFilter);
+          }
 
-        const { data: directEntries, error: directErr } = await entriesQuery;
-        if (!directErr && Array.isArray(directEntries)) {
+          return entriesQuery.range(from, to);
+        });
+
+        if (Array.isArray(directEntries)) {
           for (const ent of directEntries) {
-            const lines = ent.journal_lines || [];
+            const lines = (ent.journal_lines as Array<Record<string, unknown>>) || [];
             for (const l of lines) {
               allLines.push({
-                journal_entry_id: ent.id,
-                debit: l.debit,
-                credit: l.credit,
+                journal_entry_id: ent.id as string,
+                debit: l.debit as number,
+                credit: l.credit as number,
                 journal_entries: {
-                  id: ent.id,
-                  reference: ent.reference,
-                  description: ent.description,
-                  transaction_date: ent.transaction_date,
-                  status: ent.status,
-                  organization_id: ent.organization_id
+                  id: ent.id as string,
+                  reference: ent.reference as string,
+                  description: ent.description as string,
+                  transaction_date: ent.transaction_date as string,
+                  status: ent.status as string,
+                  organization_id: ent.organization_id as string
                 }
               });
             }
@@ -182,8 +185,17 @@ class JournalAuditService {
       }
 
       // تجميع الحركات حسب القيد
+      interface JournalHeaderMeta {
+        id?: string;
+        reference?: string;
+        description?: string;
+        transaction_date?: string;
+        status?: string;
+        organization_id?: string;
+      }
+
       const entryMap = new Map<string, {
-        header: any;
+        header: JournalHeaderMeta | null | undefined;
         debit: number;
         credit: number;
       }>();
@@ -194,7 +206,7 @@ class JournalAuditService {
 
         if (!entryMap.has(entryId)) {
           entryMap.set(entryId, {
-            header: line.journal_entries,
+            header: line.journal_entries as JournalHeaderMeta | null | undefined,
             debit: 0,
             credit: 0
           });

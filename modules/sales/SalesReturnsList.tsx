@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { 
   RotateCcw, Search, Plus, Trash2, Edit, Printer, Download, 
   MessageCircle, Loader2, Filter, AlertCircle, ChevronLeft, 
@@ -59,26 +60,27 @@ export const SalesReturnsList: React.FC = () => {
         return;
       }
 
-      let query = supabase
-        .from('sales_returns')
-        .select(`
-          *,
-          customers(id, name, phone),
-          warehouses(id, name),
-          invoices:original_invoice_id(id, invoice_number),
-          sales_return_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku))
-        `)
-        .eq('organization_id', userOrgId)
-        .order('return_date', { ascending: false });
+      const data = await fetchCompleteDataset<any>(async (from, to) => {
+        let query = supabase
+          .from('sales_returns')
+          .select(`
+            *,
+            customers(id, name, phone),
+            warehouses(id, name),
+            invoices:original_invoice_id(id, invoice_number),
+            sales_return_items(id, product_id, quantity, unit_price, total, uom_id, products(name, sku))
+          `)
+          .eq('organization_id', userOrgId)
+          .order('return_date', { ascending: false });
 
-      if (startDate) query = query.gte('return_date', startDate);
-      if (endDate) query = query.lte('return_date', endDate);
-      if (selectedWarehouseId) query = query.eq('warehouse_id', selectedWarehouseId);
-      if (selectedCustomerId) query = query.eq('customer_id', selectedCustomerId);
-      if (statusFilter !== 'all') query = query.eq('status', statusFilter);
+        if (startDate) query = query.gte('return_date', startDate);
+        if (endDate) query = query.lte('return_date', endDate);
+        if (selectedWarehouseId) query = query.eq('warehouse_id', selectedWarehouseId);
+        if (selectedCustomerId) query = query.eq('customer_id', selectedCustomerId);
+        if (statusFilter !== 'all') query = query.eq('status', statusFilter);
 
-      const { data, error } = await query;
-      if (error) throw error;
+        return query.range(from, to);
+      });
 
       setReturns(data || []);
     } catch (err) {

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { 
   FileMinus, Search, Plus, Trash2, Edit, Printer, Download, 
   MessageCircle, Loader2, CheckCircle2, ChevronLeft, ChevronRight, 
@@ -57,23 +58,24 @@ export const CreditNoteList = () => {
         return;
       }
 
-      let query = supabase
-        .from('credit_notes')
-        .select(`
-          *,
-          customers(id, name, phone)
-        `)
-        .eq('organization_id', userOrgId)
-        .order('note_date', { ascending: false })
-        .order('created_at', { ascending: false });
+      const data = await fetchCompleteDataset<any>(async (from, to) => {
+        let query = supabase
+          .from('credit_notes')
+          .select(`
+            *,
+            customers(id, name, phone)
+          `)
+          .eq('organization_id', userOrgId)
+          .order('note_date', { ascending: false })
+          .order('created_at', { ascending: false });
 
-      if (startDate) query = query.gte('note_date', startDate);
-      if (endDate) query = query.lte('note_date', endDate);
-      if (selectedCustomerId) query = query.eq('customer_id', selectedCustomerId);
-      if (statusFilter !== 'all') query = query.eq('status', statusFilter);
+        if (startDate) query = query.gte('note_date', startDate);
+        if (endDate) query = query.lte('note_date', endDate);
+        if (selectedCustomerId) query = query.eq('customer_id', selectedCustomerId);
+        if (statusFilter !== 'all') query = query.eq('status', statusFilter);
 
-      const { data, error } = await query;
-      if (error) throw error;
+        return query.range(from, to);
+      });
 
       setNotes(data || []);
     } catch (err) {

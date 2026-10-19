@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { Printer, FileText, Loader2, Search, Download, User } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -42,13 +43,17 @@ const EmployeeStatement = () => {
     if (!selectedEmployeeId) return;
     setLoading(true);
     try {
-        // 1. جلب السلف (مدين - على الموظف)
-        const { data: advances } = await supabase.from('employee_advances')
+        // 1. جلب السلف (مدين - على الموظف) دون التقيد بسقف 1000 سجل
+        const advances = await fetchCompleteDataset<any>(async (from, to) =>
+          supabase.from('employee_advances')
             .select('id, request_date, amount, notes, reference')
-            .eq('employee_id', selectedEmployeeId);
+            .eq('employee_id', selectedEmployeeId)
+            .range(from, to)
+        );
 
         // 2. جلب الرواتب (دائن - للموظف) والخصومات (مدين) من بنود الرواتب
-        const { data: payrollItems } = await supabase.from('payroll_items')
+        const payrollItems = await fetchCompleteDataset<any>(async (from, to) =>
+          supabase.from('payroll_items')
             .select(`
                 id, 
                 gross_salary, 
@@ -59,7 +64,9 @@ const EmployeeStatement = () => {
                 net_salary,
                 payrolls!inner(payroll_month, payroll_year, created_at, payment_date)
             `)
-            .eq('employee_id', selectedEmployeeId);
+            .eq('employee_id', selectedEmployeeId)
+            .range(from, to)
+        );
 
         // تجميع كل الحركات
         let allTrans: any[] = [];

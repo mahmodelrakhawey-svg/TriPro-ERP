@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { Layers, Search, Warehouse, Package, Download, Loader2, Filter, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
@@ -37,8 +38,8 @@ const MultiUomStockReport = () => {
           query = query.ilike('product_name', `%${searchTerm}%`);
         }
 
-        const { data: res, error } = await query;
-        if (!error && res) {
+        const res = await fetchCompleteDataset<any>(async (from, to) => query.range(from, to));
+        if (res && res.length > 0) {
           setData(res);
           return;
         }
@@ -47,20 +48,21 @@ const MultiUomStockReport = () => {
       }
 
       // Fallback calculation directly from products and conversions
-      const { data: prods, error: prodErr } = await supabase
-        .from('products')
-        .select(`
-          id, name, sku, stock, unit, base_uom_id,
-          uoms:base_uom_id(id, name, symbol),
-          product_uom_conversions(
-            ratio,
-            uoms:to_uom_id(id, name, symbol)
-          )
-        `)
-        .eq('organization_id', userOrgId)
-        .eq('is_active', true);
-
-      if (prodErr) throw prodErr;
+      const prods = await fetchCompleteDataset<any>(async (from, to) =>
+        supabase
+          .from('products')
+          .select(`
+            id, name, sku, stock, unit, base_uom_id,
+            uoms:base_uom_id(id, name, symbol),
+            product_uom_conversions(
+              ratio,
+              uoms:to_uom_id(id, name, symbol)
+            )
+          `)
+          .eq('organization_id', userOrgId)
+          .eq('is_active', true)
+          .range(from, to)
+      );
 
       const computed: any[] = [];
       prods?.forEach((p: Record<string, any>) => {

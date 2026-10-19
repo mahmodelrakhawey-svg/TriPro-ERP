@@ -16,6 +16,7 @@ import type { UserProfile } from '../AccountingContext';
 import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 export type SalesInvoice = Invoice & { total?: number; [key: string]: unknown };
 
@@ -77,19 +78,20 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     }
 
     try {
-      let invQuery = supabase
-        .from('invoices')
-        .select('*')
-        .eq('organization_id', targetOrgId);
-
-      if (fiscalYearRange?.startDate && fiscalYearRange?.endDate) {
-        invQuery = invQuery
-          .gte('invoice_date', fiscalYearRange.startDate)
-          .lte('invoice_date', fiscalYearRange.endDate);
-      }
-
       const [invRes, custRes, spRes] = await Promise.all([
-        invQuery.order('invoice_date', { ascending: false }).limit(1000),
+        fetchCompleteDataset<SalesInvoice>(async (from, to) => {
+          let invQuery = supabase
+            .from('invoices')
+            .select('*')
+            .eq('organization_id', targetOrgId);
+
+          if (fiscalYearRange?.startDate && fiscalYearRange?.endDate) {
+            invQuery = invQuery
+              .gte('invoice_date', fiscalYearRange.startDate)
+              .lte('invoice_date', fiscalYearRange.endDate);
+          }
+          return invQuery.order('invoice_date', { ascending: false }).range(from, to);
+        }).then(data => ({ data, error: null })),
         supabase
           .from('customers')
           .select('*')

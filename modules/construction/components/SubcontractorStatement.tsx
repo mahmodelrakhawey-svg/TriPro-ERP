@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { ArrowRight, History, Printer, Download, Loader2, Wallet, ShieldAlert, BadgeDollarSign } from 'lucide-react';
 
 const SubcontractorStatement: React.FC<{ subcontractorId: string, onBack: () => void }> = ({ subcontractorId, onBack }) => {
@@ -28,18 +29,26 @@ const SubcontractorStatement: React.FC<{ subcontractorId: string, onBack: () => 
       if (error) throw error;
       setStatement(data || []);
 
-      // 🏗️ جلب بيانات العقود والمستخلصات لحساب المحتجزات بدقة
-      const { data: contractData } = await supabase
-        .from('subcontractor_contracts')
-        .select('id, advance_payment_balance, total_value')
-        .eq('subcontractor_id', subcontractorId);
+      // 🏗️ جلب بيانات العقود والمستخلصات لحساب المحتجزات بدقة دون التقيد بسقف 1000 سجل
+      const contractData = await fetchCompleteDataset<{ id: string; advance_payment_balance: number; total_value: number }>(async (from, to) =>
+        supabase
+          .from('subcontractor_contracts')
+          .select('id, advance_payment_balance, total_value')
+          .eq('subcontractor_id', subcontractorId)
+          .range(from, to)
+      );
 
       const contractIds = contractData?.map(c => c.id) || [];
-      const { data: billingsData } = await supabase
-        .from('subcontractor_billings')
-        .select('retention_amount')
-        .eq('status', 'approved')
-        .in('contract_id', contractIds);
+      const billingsData = contractIds.length > 0
+        ? await fetchCompleteDataset<{ retention_amount: number }>(async (from, to) =>
+            supabase
+              .from('subcontractor_billings')
+              .select('retention_amount')
+              .eq('status', 'approved')
+              .in('contract_id', contractIds)
+              .range(from, to)
+          )
+        : [];
       
       setBalances({
         total_advances: contractData?.reduce((sum, c) => sum + Number(c.advance_payment_balance || 0), 0) || 0,
