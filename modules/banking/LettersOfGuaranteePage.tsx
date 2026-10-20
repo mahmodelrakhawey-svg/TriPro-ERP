@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { 
   Landmark, Plus, Edit, Trash2, Calendar, Search, Filter, 
   ArrowUpRight, RefreshCw, AlertTriangle, FileText, CheckCircle, Ban, 
@@ -170,23 +171,23 @@ export default function LettersOfGuaranteePage() {
         return;
       }
 
-      // Fetch LGs
-      let query = supabase.from('letters_of_guarantee')
-        .select(`
-          *,
-          project:projects(name),
-          issuing_bank:accounts!letters_of_guarantee_issuing_bank_id_fkey(name, code),
-          margin_account:accounts!letters_of_guarantee_margin_account_id_fkey(name, code)
-        `)
-        .eq('organization_id', userOrgId)
-        .order('created_at', { ascending: false });
+      // Fetch LGs (مُحرّر بالكامل من سقف الـ 1000 خطاب ضمان)
+      const lgsData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) => {
+        let q = supabase.from('letters_of_guarantee')
+          .select(`
+            *,
+            project:projects(name),
+            issuing_bank:accounts!letters_of_guarantee_issuing_bank_id_fkey(name, code),
+            margin_account:accounts!letters_of_guarantee_margin_account_id_fkey(name, code)
+          `)
+          .eq('organization_id', userOrgId)
+          .order('created_at', { ascending: false });
 
-      if (selectedFiscalYear) {
-        query = query.gte('issue_date', `${selectedFiscalYear}-01-01`).lte('issue_date', `${selectedFiscalYear}-12-31`);
-      }
-
-      const { data: lgsData, error: lgsError } = await query;
-      if (lgsError) throw lgsError;
+        if (selectedFiscalYear) {
+          q = q.gte('issue_date', `${selectedFiscalYear}-01-01`).lte('issue_date', `${selectedFiscalYear}-12-31`);
+        }
+        return q.range(from, to);
+      });
       setLgs(lgsData || []);
       
       if (selectedLgDetail && lgsData) {

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { useToast } from '../../../context/ToastContext';
 import { useAccounting } from '../../../context/AccountingContext';
 import { Users, Star, Clock, DollarSign, Loader2, RefreshCw, Briefcase } from 'lucide-react';
@@ -29,16 +30,18 @@ const SubcontractorAnalytics: React.FC = () => {
   const fetchPerformanceData = async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('v_subcontractor_performance')
-        .select('*')
-        .eq('organization_id', organization?.id)
-        .order('total_work_value', { ascending: false });
-
-      if (error) throw error;
+      // جلب تحليلات أداء كافة مقاولي الباطن دون سقف 1000 مقاول
+      const data = await fetchCompleteDataset<SubcontractorPerformance>(async (from, to) =>
+        supabase
+          .from('v_subcontractor_performance')
+          .select('*')
+          .eq('organization_id', organization?.id)
+          .order('total_work_value', { ascending: false })
+          .range(from, to)
+      );
       setPerformanceData(data || []);
     } catch (error) {
-      showToast('فشل تحميل بيانات أداء مقاولي الباطن: ' + error.message, 'error');
+      showToast('فشل تحميل بيانات أداء مقاولي الباطن: ' + (error instanceof Error ? error.message : String(error)), 'error');
     } finally {
       setLoading(false);
     }

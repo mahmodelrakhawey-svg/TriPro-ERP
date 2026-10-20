@@ -2,6 +2,7 @@ import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '@/context/AccountingContext';
 import { supabase } from '@/supabaseClient';
+import { fetchCompleteDataset } from '@/services/balanceService';
 import { DISBURSEMENT_CATEGORY_LABELS, StadiumDisbursementCategory } from '../stadium.types';
 
 import {
@@ -70,113 +71,122 @@ export const StadiumExpenseReport: React.FC = () => {
     try {
       const items: ExpenseItem[] = [];
 
-      // 1. أوامر صيانة الملاعب والمرافق المكتملة (stadium_maintenance_tickets)
-      const { data: maintData } = await supabase
-        .from('stadium_maintenance_tickets')
-        .select('*, stadium_facilities(name)')
-        .eq('organization_id', orgId)
-        .eq('status', 'completed')
-        .gte('end_date', startDate)
-        .lte('end_date', endDate);
+      // 1. أوامر صيانة الملاعب والمرافق المكتملة (مُحرّر بالكامل من سقف 1000 سجل)
+      const maintData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('stadium_maintenance_tickets')
+          .select('*, stadium_facilities(name)')
+          .eq('organization_id', orgId)
+          .eq('status', 'completed')
+          .gte('end_date', startDate)
+          .lte('end_date', endDate)
+          .range(from, to)
+      );
 
-      if (maintData) {
-        maintData.forEach(m => {
-          const cost = Number(m.actual_cost || 0);
-          if (cost > 0) {
-            items.push({
-              id: m.id,
-              date: m.end_date || m.start_date || startDate,
-              type: 'maintenance',
-              typeLabel: 'صيانة منشأة / ملعب',
-              category: 'maintenance',
-              categoryLabel: 'مصروفات صيانة الملاعب والمرافق (5101)',
-              title: `صيانة: ${m.title} — ${(m as any).stadium_facilities?.name || 'منشأة'}`,
-              beneficiary: m.assigned_technician || 'فني / مقاول صيانة',
-              amount: cost,
-              paymentMethod: m.payment_method === 'cheque' ? 'شيك صادر' : (m.payment_method === 'bank' ? 'تحويل بنكي' : 'نقدي'),
-              referenceDoc: m.ticket_number || 'صيانة',
-            });
-          }
-        });
-      }
-
-      // 2. طلبات الصرف المنفذة (stadium_disbursements)
-      const { data: disbData } = await supabase
-        .from('stadium_disbursements')
-        .select('*')
-        .eq('organization_id', orgId)
-        .eq('status', 'paid')
-        .gte('created_at', `${startDate}T00:00:00Z`)
-        .lte('created_at', `${endDate}T23:59:59Z`);
-
-      if (disbData) {
-        disbData.forEach(d => {
+      (maintData || []).forEach((m: Record<string, unknown>) => {
+        const cost = Number(m.actual_cost || 0);
+        if (cost > 0) {
+          const fac = m.stadium_facilities as { name?: string } | null;
           items.push({
-            id: d.id,
-            date: d.created_at ? d.created_at.split('T')[0] : startDate,
-            type: 'disbursement',
-            typeLabel: 'طلب صرف معتمد',
-            category: d.category,
-            categoryLabel: DISBURSEMENT_CATEGORY_LABELS[d.category as StadiumDisbursementCategory] || 'مصروف عام',
-            title: d.title,
-            beneficiary: d.beneficiary_name,
-            amount: Number(d.amount),
-            paymentMethod: d.payment_type === 'cheque' ? 'شيك صادر' : d.payment_type,
-            referenceDoc: d.request_number,
+            id: String(m.id),
+            date: (m.end_date as string) || (m.start_date as string) || startDate,
+            type: 'maintenance',
+            typeLabel: 'صيانة منشأة / ملعب',
+            category: 'maintenance',
+            categoryLabel: 'مصروفات صيانة الملاعب والمرافق (5101)',
+            title: `صيانة: ${m.title} — ${fac?.name || 'منشأة'}`,
+            beneficiary: (m.assigned_technician as string) || 'فني / مقاول صيانة',
+            amount: cost,
+            paymentMethod: m.payment_method === 'cheque' ? 'شيك صادر' : (m.payment_method === 'bank' ? 'تحويل بنكي' : 'نقدي'),
+            referenceDoc: (m.ticket_number as string) || 'صيانة',
           });
+        }
+      });
+
+      // 2. طلبات الصرف المنفذة (مُحرّر بالكامل)
+      const disbData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('stadium_disbursements')
+          .select('*')
+          .eq('organization_id', orgId)
+          .eq('status', 'paid')
+          .gte('created_at', `${startDate}T00:00:00Z`)
+          .lte('created_at', `${endDate}T23:59:59Z`)
+          .range(from, to)
+      );
+
+      (disbData || []).forEach((d: Record<string, unknown>) => {
+        const cat = d.category as StadiumDisbursementCategory;
+        items.push({
+          id: String(d.id),
+          date: d.created_at ? String(d.created_at).split('T')[0] : startDate,
+          type: 'disbursement',
+          typeLabel: 'طلب صرف معتمد',
+          category: String(d.category || 'other'),
+          categoryLabel: DISBURSEMENT_CATEGORY_LABELS[cat] || 'مصروف عام',
+          title: String(d.title || ''),
+          beneficiary: String(d.beneficiary_name || ''),
+          amount: Number(d.amount || 0),
+          paymentMethod: d.payment_type === 'cheque' ? 'شيك صادر' : String(d.payment_type || 'نقدي'),
+          referenceDoc: String(d.request_number || ''),
         });
-      }
+      });
 
-      // 3. العهد المسواة (stadium_custodies)
-      const { data: custData } = await supabase
-        .from('stadium_custodies')
-        .select('*')
-        .eq('organization_id', orgId)
-        .eq('status', 'settled')
-        .gte('issue_date', startDate)
-        .lte('issue_date', endDate);
+      // 3. العهد المسواة (مُحرّر بالكامل)
+      const custData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('stadium_custodies')
+          .select('*')
+          .eq('organization_id', orgId)
+          .eq('status', 'settled')
+          .gte('issue_date', startDate)
+          .lte('issue_date', endDate)
+          .range(from, to)
+      );
 
-      if (custData) {
-        custData.forEach(c => {
-          if (Number(c.spent_amount) > 0) {
-            items.push({
-              id: c.id,
-              date: c.settlement_date || c.issue_date,
-              type: 'custody',
-              typeLabel: 'عهدة نشاط / بطولة',
-              category: 'tournament',
-              categoryLabel: 'أنشطة وبطولات (عهدة)',
-              title: `تسوية عهدة: ${c.purpose}`,
-              beneficiary: c.custodian_name,
-              amount: Number(c.spent_amount),
-              paymentMethod: c.disbursement_method === 'cheque' ? 'شيك صادر' : 'نقدي',
-              referenceDoc: c.cheque_number ? `شيك ${c.cheque_number}` : 'عهدة',
-            });
-          }
-        });
-      }
+      (custData || []).forEach((c: Record<string, unknown>) => {
+        if (Number(c.spent_amount) > 0) {
+          items.push({
+            id: String(c.id),
+            date: (c.settlement_date as string) || (c.issue_date as string) || startDate,
+            type: 'custody',
+            typeLabel: 'عهدة نشاط / بطولة',
+            category: 'tournament',
+            categoryLabel: 'أنشطة وبطولات (عهدة)',
+            title: `تسوية عهدة: ${c.purpose}`,
+            beneficiary: String(c.custodian_name || ''),
+            amount: Number(c.spent_amount || 0),
+            paymentMethod: c.disbursement_method === 'cheque' ? 'شيك صادر' : 'نقدي',
+            referenceDoc: c.cheque_number ? `شيك ${c.cheque_number}` : 'عهدة',
+          });
+        }
+      });
 
-      // 4. عمولات ومستحقات المدربين والكوادر (stadium_coach_payments)
-      const { data: coachData } = await supabase
-        .from('stadium_coach_payments')
-        .select('*, stadium_coaches(full_name)')
-        .eq('organization_id', orgId)
-        .gte('payment_date', startDate)
-        .lte('payment_date', endDate);
+      // 4. عمولات ومستحقات المدربين والكوادر (مُحرّر بالكامل)
+      const coachData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('stadium_coach_payments')
+          .select('*, stadium_coaches(full_name)')
+          .eq('organization_id', orgId)
+          .gte('payment_date', startDate)
+          .lte('payment_date', endDate)
+          .range(from, to)
+      );
 
       if (coachData) {
-        coachData.forEach(cp => {
+        coachData.forEach((cp: Record<string, unknown>) => {
+          const coach = cp.stadium_coaches as { full_name?: string } | null;
           items.push({
-            id: cp.id,
-            date: cp.payment_date,
+            id: String(cp.id || ''),
+            date: String(cp.payment_date || startDate),
             type: 'coach_payment',
             typeLabel: 'مستحقات مدربين',
             category: 'staff',
             categoryLabel: 'كوادر ومدربون',
-            title: `مستحقات تدريب عن الفترة ${cp.period_from} إلى ${cp.period_to}`,
-            beneficiary: (cp as any).stadium_coaches?.full_name || 'مدرب',
-            amount: Number(cp.amount_paid),
-            paymentMethod: cp.payment_method || 'نقدي',
+            title: `مستحقات تدريب عن الفترة ${cp.period_from || ''} إلى ${cp.period_to || ''}`,
+            beneficiary: coach?.full_name || 'مدرب',
+            amount: Number(cp.amount_paid || 0),
+            paymentMethod: String(cp.payment_method || 'نقدي'),
             referenceDoc: 'عمولة تدريب',
           });
         });

@@ -1,5 +1,7 @@
+import { logger } from '@/utils/logger';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
+import { fetchCompleteDataset } from '@/services/balanceService';
 import { Card, Row, Col, Table, Statistic, Typography, Tag, Progress, Avatar } from 'antd';
 import { UserOutlined, RiseOutlined, FallOutlined, DollarOutlined, ExperimentOutlined } from '@ant-design/icons';
 import { useAuth } from '@/context/AuthContext';
@@ -11,13 +13,19 @@ export const DoctorKPIs: React.FC = () => {
 
   const fetchDoctorStats = async () => {
     setLoading(true);
-    // نستخدم الرؤية v_hims_doctor_profitability التي تم تأسيسها في المحرك الموحد
-    const { data, error } = await supabase
-      .from('v_hims_doctor_profitability')
-      .select('*')
-      .eq('organization_id', currentUser?.organization_id);
-
-    if (!error) setStats(data || []);
+    // نستخدم الرؤية v_hims_doctor_profitability المحررة بالكامل من سقف 1000 سجل
+    try {
+      const data = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('v_hims_doctor_profitability')
+          .select('*')
+          .eq('organization_id', currentUser?.organization_id)
+          .range(from, to)
+      );
+      setStats(data || []);
+    } catch (e) {
+      logger.warn('Doctor KPIs query notice:', e);
+    }
     setLoading(false);
   };
 

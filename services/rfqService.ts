@@ -9,6 +9,7 @@
 
 import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
+import { fetchCompleteDataset } from './balanceService';
 import { PurchaseRfq, PurchaseRfqItem, VendorQuotationBid, VendorQuotationBidItem, PurchaseRfqStatus } from '../types';
 import NotificationService from './notificationService';
 import { secureStorage } from '../utils/securityMiddleware';
@@ -83,22 +84,23 @@ export class RfqService {
     const validOrgId = this.sanitizeUuid(orgId);
 
     try {
-      let query = supabase
-        .from('purchase_rfqs')
-        .select(`
-          *,
-          items:purchase_rfq_items(*),
-          bids:vendor_quotation_bids(*, items:vendor_quotation_bid_items(*))
-        `)
-        .order('created_at', { ascending: false });
+      const data = await fetchCompleteDataset<PurchaseRfq>(async (from, to) => {
+        let query = supabase
+          .from('purchase_rfqs')
+          .select(`
+            *,
+            items:purchase_rfq_items(*),
+            bids:vendor_quotation_bids(*, items:vendor_quotation_bid_items(*))
+          `)
+          .order('created_at', { ascending: false });
 
-      if (validOrgId) query = query.eq('organization_id', validOrgId);
-      if (filters?.status && filters.status !== 'all') {
-        query = query.eq('status', filters.status);
-      }
+        if (validOrgId) query = query.eq('organization_id', validOrgId);
+        if (filters?.status && filters.status !== 'all') {
+          query = query.eq('status', filters.status);
+        }
+        return query.range(from, to);
+      });
 
-      const { data, error } = await query;
-      if (error) throw error;
       if (!data || data.length === 0) {
         return this.getLocalRfqs(orgId);
       }

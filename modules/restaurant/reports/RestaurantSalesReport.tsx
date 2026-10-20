@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { BarChart3, Download, Printer, Loader2, Filter, Calendar } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../../components/ReportHeader';
@@ -58,30 +59,32 @@ const RestaurantSalesReport = () => {
         logger.warn('RPC get_restaurant_sales_report not available, falling back to direct query:', rpcErr);
       }
 
-      // Dynamic Fallback: Direct query on order_items
-      const { data: orderItems, error: itemsErr } = await supabase
-        .from('order_items')
-        .select(`
-          quantity,
-          total_price,
-          products (
-            name,
-            category_id,
-            item_categories (name)
-          ),
-          orders!inner (created_at, status, organization_id)
-        `)
-        .eq('orders.organization_id', userOrgId)
-        .in('orders.status', ['COMPLETED', 'PAID'])
-        .gte('orders.created_at', `${startDate}T00:00:00`)
-        .lte('orders.created_at', `${endDate}T23:59:59`);
-
-      if (itemsErr) throw itemsErr;
+      // Dynamic Fallback: Direct query on order_items (مُحرّر بالكامل من قيد الـ 1000 سجل)
+      const orderItems = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('order_items')
+          .select(`
+            quantity,
+            total_price,
+            products (
+              name,
+              category_id,
+              item_categories (name)
+            ),
+            orders!inner (created_at, status, organization_id)
+          `)
+          .eq('orders.organization_id', userOrgId)
+          .in('orders.status', ['COMPLETED', 'PAID'])
+          .gte('orders.created_at', `${startDate}T00:00:00`)
+          .lte('orders.created_at', `${endDate}T23:59:59`)
+          .range(from, to)
+      );
 
       const salesMap: Record<string, ReportItem> = {};
-      orderItems?.forEach((item: Record<string, any>) => {
-        const name = item.products?.name || 'صنف غير محدد';
-        const category = item.products?.item_categories?.name || 'عام';
+      (orderItems || []).forEach((item: Record<string, unknown>) => {
+        const prod = item.products as { name?: string; item_categories?: { name?: string } } | null;
+        const name = prod?.name || 'صنف غير محدد';
+        const category = prod?.item_categories?.name || 'عام';
         const key = `${name}_${category}`;
 
         if (!salesMap[key]) {
@@ -100,7 +103,7 @@ const RestaurantSalesReport = () => {
       setReportData(Object.values(salesMap));
     } catch (error) {
       logger.error('Error fetching report:', error);
-      showToast('حدث خطأ أثناء جلب البيانات: ' + error.message, 'error');
+      showToast('حدث خطأ أثناء جلب البيانات: ' + (error instanceof Error ? error.message : String(error)), 'error');
     } finally {
       setLoading(false);
     }

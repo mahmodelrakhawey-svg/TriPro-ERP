@@ -5,6 +5,7 @@ import { useToast } from '../../../context/ToastContext';
 import { BarChart, Loader2, Filter, Trash2, Printer } from 'lucide-react';
 import ReportHeader from '../../../components/ReportHeader';
 import { useAccounting } from '../../../context/AccountingContext';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 
 // تعريف نوع البيانات المتوقع من التقرير
 type WastageReasonAnalysis = {
@@ -66,28 +67,29 @@ const WastageAnalysisReport = () => {
         // Fallback to direct calculation if RPC is missing
       }
 
-      // 2. الحساب الديناميكي المباشر من جداول حركات الهالك والتسويات المخزنية الرسمية
-      let adjustmentsQuery = supabase
-        .from('stock_adjustments')
-        .select(`
-          id, reason, notes, adjustment_date,
-          stock_adjustment_items (
-            product_id, quantity,
-            products (id, name, purchase_price, weighted_average_cost, cost)
-          )
-        `)
-        .gte('adjustment_date', startDate)
-        .lte('adjustment_date', endDate);
+      // 2. الحساب الديناميكي المباشر من جداول حركات الهالك (مُحرّر بالكامل من سقف الـ 1000 سجل)
+      const adjData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) => {
+        let adjustmentsQuery = supabase
+          .from('stock_adjustments')
+          .select(`
+            id, reason, notes, adjustment_date,
+            stock_adjustment_items (
+              product_id, quantity,
+              products (id, name, purchase_price, weighted_average_cost, cost)
+            )
+          `)
+          .gte('adjustment_date', startDate)
+          .lte('adjustment_date', endDate);
 
-      if (userOrgId && userRole !== 'super_admin') {
-        adjustmentsQuery = adjustmentsQuery.eq('organization_id', userOrgId);
-      }
-
-      const { data: adjData, error: adjError } = await adjustmentsQuery;
+        if (userOrgId && userRole !== 'super_admin') {
+          adjustmentsQuery = adjustmentsQuery.eq('organization_id', userOrgId);
+        }
+        return adjustmentsQuery.range(from, to);
+      });
 
       const reasonMap: Record<string, { count: number; qty: number; cost: number }> = {};
 
-      if (adjData && !adjError) {
+      if (adjData && Array.isArray(adjData)) {
         adjData.forEach((adj: Record<string, any>) => {
           const reasonKey = (adj.reason || adj.notes || 'هالك عام').trim();
           if (!reasonMap[reasonKey]) {

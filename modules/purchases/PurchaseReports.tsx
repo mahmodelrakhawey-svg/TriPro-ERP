@@ -5,6 +5,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { BarChart3, Filter, Download, Users, Package, UserCheck, Loader2, ShoppingCart, Wallet } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 const PurchaseReports = () => {
   const { currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
@@ -49,29 +50,38 @@ const PurchaseReports = () => {
 
       if (!userOrgId) throw new Error('تعذر تحديد المنظمة');
 
-      // Fetch Purchase Invoices (Exclude draft and cancelled)
-      const { data: invData, error: invError } = await supabase
-        .from('purchase_invoices')
-        .select('*, suppliers(name)')
-        .eq('organization_id', userOrgId)
-        .not('status', 'in', '("draft","cancelled")')
-        .gte('invoice_date', startDate)
-        .lte('invoice_date', endDate);
+      // Fetch Purchase Invoices (Exclude draft and cancelled) with fetchCompleteDataset
+      const invData = await fetchCompleteDataset<any>(async (from, to) => {
+        let q = supabase
+          .from('purchase_invoices')
+          .select('*, suppliers(name)')
+          .eq('organization_id', userOrgId)
+          .not('status', 'in', '("draft","cancelled")')
+          .gte('invoice_date', startDate)
+          .lte('invoice_date', endDate);
+        return q.range(from, to);
+      });
 
-      if (invError) throw invError;
       setInvoices(invData || []);
 
       if (invData && invData.length > 0) {
-          const invIds = invData.map(i => i.id);
-          // Fetch Invoice Items for product analysis
-          const { data: itemsData, error: itemsError } = await supabase
-            .from('purchase_invoice_items')
-            .select('*, products(name)')
-            .eq('organization_id', userOrgId) // 🔒 فلترة بنود المشتريات مباشرة
-            .in('purchase_invoice_id', invIds);
-            
-          if (itemsError) throw itemsError;
-          setInvoiceItems(itemsData || []);
+          const invIds = invData.map((i: { id: string }) => i.id);
+          // Fetch Invoice Items in chunks to avoid URL size limits and eliminate 1000-row limit
+          const CHUNK_IDS_SIZE = 100;
+          let allItems: any[] = [];
+          for (let i = 0; i < invIds.length; i += CHUNK_IDS_SIZE) {
+            const chunkIds = invIds.slice(i, i + CHUNK_IDS_SIZE);
+            const chunkItems = await fetchCompleteDataset<any>(async (from, to) => {
+              let q = supabase
+                .from('purchase_invoice_items')
+                .select('*, products(name)')
+                .eq('organization_id', userOrgId)
+                .in('purchase_invoice_id', chunkIds);
+              return q.range(from, to);
+            });
+            allItems = allItems.concat(chunkItems || []);
+          }
+          setInvoiceItems(allItems);
       } else {
           setInvoiceItems([]);
       }

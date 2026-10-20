@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { 
   Landmark, Plus, Edit, Trash2, Calendar, Search, Filter, 
   ArrowUpRight, RefreshCw, AlertTriangle, FileText, CheckCircle, Ban, 
@@ -153,24 +154,24 @@ export default function LettersOfCreditPage() {
         return;
       }
 
-      // Fetch LCs
-      let query = supabase.from('letters_of_credit')
-        .select(`
-          *,
-          project:projects(name),
-          supplier:suppliers(name),
-          bank:accounts!letters_of_credit_bank_id_fkey(name, code),
-          lc_account:accounts!letters_of_credit_lc_account_id_fkey(name, code)
-        `)
-        .eq('organization_id', userOrgId)
-        .order('created_at', { ascending: false });
+      // Fetch LCs (مُحرّر بالكامل من سقف الـ 1000 اعتماد مستندي)
+      const lcsData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) => {
+        let q = supabase.from('letters_of_credit')
+          .select(`
+            *,
+            project:projects(name),
+            supplier:suppliers(name),
+            bank:accounts!letters_of_credit_bank_id_fkey(name, code),
+            lc_account:accounts!letters_of_credit_lc_account_id_fkey(name, code)
+          `)
+          .eq('organization_id', userOrgId)
+          .order('created_at', { ascending: false });
 
-      if (selectedFiscalYear) {
-        query = query.gte('opening_date', `${selectedFiscalYear}-01-01`).lte('opening_date', `${selectedFiscalYear}-12-31`);
-      }
-
-      const { data: lcsData, error: lcsError } = await query;
-      if (lcsError) throw lcsError;
+        if (selectedFiscalYear) {
+          q = q.gte('opening_date', `${selectedFiscalYear}-01-01`).lte('opening_date', `${selectedFiscalYear}-12-31`);
+        }
+        return q.range(from, to);
+      });
       setLgs(lcsData || []);
 
       // Fetch Suppliers
@@ -205,7 +206,7 @@ export default function LettersOfCreditPage() {
       }
 
     } catch (err) {
-      showToast('خطأ أثناء جلب البيانات: ' + err.message, 'error');
+      showToast('خطأ أثناء جلب البيانات: ' + (err instanceof Error ? err.message : String(err)), 'error');
     } finally {
       setLoading(false);
     }

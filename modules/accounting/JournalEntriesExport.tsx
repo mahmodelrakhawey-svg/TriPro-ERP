@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Download, Calendar, Loader2, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { useToast } from '../../context/ToastContext';
 import { useAccounting } from '../../context/AccountingContext';
 
@@ -24,30 +25,31 @@ export default function JournalEntriesExport() {
   const handleExport = async () => {
     setLoading(true);
     try {
-      // جلب القيود مع التفاصيل وأسماء الحسابات
-      const { data, error } = await supabase
-        .from('journal_entries')
-        .select(`
-          id,
-          transaction_date,
-          reference,
-          description,
-          status,
-          journal_lines (
-            debit,
-            credit,
+      // جلب القيود مع التفاصيل وأسماء الحسابات بدون سقف 1000
+      const data = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) => {
+        let q = supabase
+          .from('journal_entries')
+          .select(`
+            id,
+            transaction_date,
+            reference,
             description,
-            accounts (
-              code,
-              name
+            status,
+            journal_lines (
+              debit,
+              credit,
+              description,
+              accounts (
+                code,
+                name
+              )
             )
-          )
-        `)
-        .gte('transaction_date', startDate)
-        .lte('transaction_date', endDate)
-        .order('transaction_date', { ascending: true });
-
-      if (error) throw error;
+          `)
+          .gte('transaction_date', startDate)
+          .lte('transaction_date', endDate)
+          .order('transaction_date', { ascending: true });
+        return q.range(from, to);
+      });
 
       if (!data || data.length === 0) {
         showToast('لا توجد قيود في الفترة المحددة.', 'info');

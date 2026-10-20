@@ -1,6 +1,7 @@
 import Dexie, { Table } from 'dexie';
 import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
+import { fetchCompleteDataset } from './balanceService';
 import { secureStorage } from '../utils/securityMiddleware';
 
 export const isValidUUID = (str: unknown): boolean => {
@@ -531,53 +532,63 @@ export const offlineService = {
   async syncProductsLocally(orgId: string): Promise<void> {
     if (!navigator.onLine) return;
     try {
-      let data: any[] | null = null;
+      let data: Array<Record<string, unknown>> | null = null;
       
-      // 1. Fetch with select('*') so it dynamically adapts to available columns without throwing error 42703
-      const { data: allData, error: allErr } = await supabase
-        .from('products')
-        .select('*')
-        .eq('organization_id', orgId);
+      // 1. مزامنة شاملة لكافة منتجات الهايبرماركت ونقاط البيع دون سقف 1000 صنف
+      try {
+        const allData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+          supabase
+            .from('products')
+            .select('*')
+            .eq('organization_id', orgId)
+            .range(from, to)
+        );
+        if (allData && allData.length > 0) {
+          data = allData;
+        }
+      } catch (e) {
+        logger.warn('Offline product sync select(*) notice, attempting core columns:', e);
+      }
 
-      if (!allErr && allData) {
-        data = allData;
-      } else {
+      if (!data || data.length === 0) {
         // Fallback: fetch with safe core columns only
-        const { data: fallbackData, error: fallbackErr } = await supabase
-          .from('products')
-          .select('id, name, barcode, sku, sales_price, cost, category_id, stock, image_url')
-          .eq('organization_id', orgId);
-        if (fallbackErr) throw fallbackErr;
-        data = fallbackData;
+        const fallbackData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+          supabase
+            .from('products')
+            .select('id, name, barcode, sku, sales_price, cost, category_id, stock, image_url')
+            .eq('organization_id', orgId)
+            .range(from, to)
+        );
+        data = fallbackData || [];
       }
       
       if (data) {
         await db.products.clear();
-        const productsToCache: CachedProduct[] = data.map(p => ({
-          id: p.id,
-          name: p.name,
-          barcode: p.barcode || null,
-          sku: p.sku || null,
+        const productsToCache: CachedProduct[] = data.map((p: Record<string, unknown>) => ({
+          id: String(p.id || ''),
+          name: String(p.name || ''),
+          barcode: (p.barcode as string | null) || null,
+          sku: (p.sku as string | null) || null,
           sales_price: Number(p.sales_price || 0),
           cost: Number(p.cost || 0),
-          category_id: p.category_id || null,
+          category_id: (p.category_id as string | null) || null,
           stock: Number(p.stock || 0),
-          image_url: p.image_url || null,
-          is_scale_item: p.is_scale_item || false,
+          image_url: (p.image_url as string | null) || null,
+          is_scale_item: Boolean(p.is_scale_item),
           plu_number: p.plu_number ? Number(p.plu_number) : null,
-          scale_prefix: p.scale_prefix || '22',
-          barcode2: p.barcode2 || null,
-          age_restricted: p.age_restricted || false,
+          scale_prefix: String(p.scale_prefix || '22'),
+          barcode2: (p.barcode2 as string | null) || null,
+          age_restricted: Boolean(p.age_restricted),
           tax_rate_override: p.tax_rate_override ? Number(p.tax_rate_override) : null,
-          unit_barcodes: Array.isArray(p.unit_barcodes) ? p.unit_barcodes : [],
+          unit_barcodes: Array.isArray(p.unit_barcodes) ? (p.unit_barcodes as Array<{ uom_id?: string; barcode: string; price?: number; uom_name?: string }>) : [],
           offer_price: p.offer_price !== null && p.offer_price !== undefined ? Number(p.offer_price) : null,
-          offer_start_date: p.offer_start_date || null,
-          offer_end_date: p.offer_end_date || null,
+          offer_start_date: (p.offer_start_date as string | null) || null,
+          offer_end_date: (p.offer_end_date as string | null) || null,
           min_sales_price: Number(p.min_sales_price || 0),
           max_stock_level: Number(p.max_stock_level || 0),
           wholesale_price: Number(p.wholesale_price || 0),
           half_wholesale_price: Number(p.half_wholesale_price || 0),
-          warehouse_stock: p.warehouse_stock || null,
+          warehouse_stock: (p.warehouse_stock as Record<string, number> | null) || null,
         }));
         await db.products.bulkAdd(productsToCache);
         logger.log(`Synced ${productsToCache.length} products locally.`);

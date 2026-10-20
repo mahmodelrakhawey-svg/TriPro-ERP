@@ -1,5 +1,6 @@
 import { logger } from '../../../../utils/logger';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../../../services/balanceService';
 import { supabase } from '../../../../supabaseClient';
 import { JournalEntry } from '../../../../types';
 import { getEntrySource } from './journalSourceClassifier';
@@ -161,11 +162,36 @@ export const exportJournalToExcel = async ({
       query = query.eq('organization_id', orgId);
     }
 
-    // تطبيق الفلاتر الحالية نفسها
-    query = queryModifier(query as Record<string, any>) as any;
+    // تطبيق الفلاتر الحالية نفسها مع جلب كافة السجلات متجاوزة سقف 1000
+    const entries = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) => {
+      let q = supabase
+        .from('journal_entries')
+        .select(`
+          id,
+          transaction_date,
+          reference,
+          description,
+          status,
+          user_id,
+          created_at,
+          journal_lines (
+            id,
+            account_id,
+            debit,
+            credit,
+            description,
+            cost_center_id
+          )
+        `)
+        .order('transaction_date', { ascending: false });
 
-    const { data: entries, error } = await query;
-    if (error) throw error;
+      if (orgId) {
+        q = q.eq('organization_id', orgId);
+      }
+
+      q = queryModifier(q as Record<string, any>) as any;
+      return q.range(from, to);
+    });
 
     if (!entries || entries.length === 0) {
       toast.error('لا توجد بيانات مطابقة للفلاتر الحالية لتصديرها.');

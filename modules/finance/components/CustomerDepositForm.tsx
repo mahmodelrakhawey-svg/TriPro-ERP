@@ -2,6 +2,7 @@ import { logger } from '../../../utils/logger';
 import React, { useState, useMemo, useEffect } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { Save, ArrowRight, ArrowLeft, ShieldCheck, Plus, Search, Loader2, Printer, MessageCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom'; 
 import { supabase } from '../../../supabaseClient';
@@ -35,15 +36,17 @@ const CustomerDepositForm = () => {
   // حالة لتخزين السندات المجلوبة من قاعدة البيانات
   const [depositVouchers, setDepositVouchers] = useState<any[]>([]);
 
-  // جلب سندات التأمين من قاعدة البيانات مباشرة (لتجاوز حد الـ 50 في السياق)
+  // جلب سندات التأمين من قاعدة البيانات مباشرة (مُحرّر بالكامل من سقف الـ 1000 سند)
   useEffect(() => {
     const fetchVouchers = async () => {
-      const { data } = await supabase
-        .from('receipt_vouchers')
-        .select('*')
-        .ilike('notes', '%تأمين%') // البحث عن السندات التي تحتوي على كلمة "تأمين"
-        .order('receipt_date', { ascending: false }); // الأحدث أولاً
-      
+      const data = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('receipt_vouchers')
+          .select('*')
+          .ilike('notes', '%تأمين%')
+          .order('receipt_date', { ascending: false })
+          .range(from, to)
+      );
       if (data) setDepositVouchers(data);
     };
     fetchVouchers();

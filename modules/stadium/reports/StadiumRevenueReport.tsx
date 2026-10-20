@@ -1,6 +1,7 @@
 import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
+import { fetchCompleteDataset } from '@/services/balanceService';
 import { useAccounting } from '@/context/AccountingContext';
 import toast from 'react-hot-toast';
 import { BarChart3, Download, Filter, TrendingUp } from 'lucide-react';
@@ -44,82 +45,106 @@ const StadiumRevenueReport: React.FC = () => {
       
       let allRecords: RevenueRecord[] = [];
 
-      // 1. Fetch Subscriptions (الاشتراكات)
-      const { data: subs } = await supabase
-        .from('stadium_subscriptions')
-        .select('id, created_at, duration, amount_paid, payment_method, member_id, stadium_members(full_name, membership_type)')
-        .eq('organization_id', orgId)
-        .gte('created_at', `${dateFrom}T00:00:00`)
-        .lte('created_at', `${dateTo}T23:59:59`);
+      // 1. Fetch Subscriptions (مُحرّر بالكامل عبر fetchCompleteDataset)
+      const subs = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('stadium_subscriptions')
+          .select('id, created_at, duration, amount_paid, payment_method, member_id, stadium_members(full_name, membership_type)')
+          .eq('organization_id', orgId)
+          .gte('created_at', `${dateFrom}T00:00:00`)
+          .lte('created_at', `${dateTo}T23:59:59`)
+          .range(from, to)
+      );
         
       if (subs) {
-        allRecords = [...allRecords, ...subs.map(s => ({
-          id: s.id,
-          date: s.created_at,
-          type: 'subscription' as const,
-          description: `اشتراك - ${(s as any).stadium_members?.full_name || 'عضو'} (${(s as any).stadium_members?.membership_type || s.duration || ''})`,
-          amount: Number(s.amount_paid) || 0,
-          payment_method: s.payment_method || 'cash'
-        }))];
+        allRecords = [...allRecords, ...subs.map((s: Record<string, unknown>) => {
+          const mem = s.stadium_members as { full_name?: string; membership_type?: string } | null;
+          return {
+            id: String(s.id),
+            date: String(s.created_at),
+            type: 'subscription' as const,
+            description: `اشتراك - ${mem?.full_name || 'عضو'} (${mem?.membership_type || s.duration || ''})`,
+            amount: Number(s.amount_paid) || 0,
+            payment_method: (s.payment_method as string) || 'cash'
+          };
+        })];
       }
 
-      // 2. Fetch Bookings (الحجوزات)
-      const { data: bookings } = await supabase
-        .from('stadium_bookings')
-        .select('id, created_at, total_amount, payment_method, booker_name, stadium_facilities(name)')
-        .eq('organization_id', orgId)
-        .in('status', ['confirmed', 'paid'])
-        .gte('created_at', `${dateFrom}T00:00:00`)
-        .lte('created_at', `${dateTo}T23:59:59`);
+      // 2. Fetch Bookings (مُحرّر بالكامل)
+      const bookings = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('stadium_bookings')
+          .select('id, created_at, total_amount, payment_method, booker_name, stadium_facilities(name)')
+          .eq('organization_id', orgId)
+          .in('status', ['confirmed', 'paid'])
+          .gte('created_at', `${dateFrom}T00:00:00`)
+          .lte('created_at', `${dateTo}T23:59:59`)
+          .range(from, to)
+      );
         
       if (bookings) {
-        allRecords = [...allRecords, ...bookings.map(b => ({
-          id: b.id,
-          date: b.created_at,
-          type: 'booking' as const,
-          description: `حجز - ${(b as any).stadium_facilities?.name || 'مرفق'} - ${b.booker_name || ''}`,
-          amount: Number(b.total_amount) || 0,
-          payment_method: b.payment_method || 'cash'
-        }))];
+        allRecords = [...allRecords, ...bookings.map((b: Record<string, unknown>) => {
+          const fac = b.stadium_facilities as { name?: string } | null;
+          return {
+            id: String(b.id),
+            date: String(b.created_at),
+            type: 'booking' as const,
+            description: `حجز - ${fac?.name || 'مرفق'} - ${b.booker_name || ''}`,
+            amount: Number(b.total_amount) || 0,
+            payment_method: (b.payment_method as string) || 'cash'
+          };
+        })];
       }
 
-      // 3. Fetch Rental Payments (الإيجارات)
-      const { data: rentals } = await supabase
-        .from('stadium_rental_payments')
-        .select('id, created_at, amount_paid, payment_method, stadium_rental_contracts(tenant_name, stadium_facilities(name))')
-        .eq('organization_id', orgId)
-        .gte('created_at', `${dateFrom}T00:00:00`)
-        .lte('created_at', `${dateTo}T23:59:59`);
+      // 3. Fetch Rental Payments (مُحرّر بالكامل)
+      const rentals = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('stadium_rental_payments')
+          .select('id, created_at, amount_paid, payment_method, stadium_rental_contracts(tenant_name, stadium_facilities(name))')
+          .eq('organization_id', orgId)
+          .gte('created_at', `${dateFrom}T00:00:00`)
+          .lte('created_at', `${dateTo}T23:59:59`)
+          .range(from, to)
+      );
 
       if (rentals) {
-        allRecords = [...allRecords, ...rentals.map(r => ({
-          id: r.id,
-          date: r.created_at,
-          type: 'rental' as const,
-          description: `إيجار - ${(r as any).stadium_rental_contracts?.tenant_name || 'مستأجر'} (${(r as any).stadium_rental_contracts?.stadium_facilities?.name || 'مرفق'})`,
-          amount: Number(r.amount_paid) || 0,
-          payment_method: r.payment_method || 'cash'
-        }))];
+        allRecords = [...allRecords, ...rentals.map((r: Record<string, unknown>) => {
+          const c = r.stadium_rental_contracts as { tenant_name?: string; stadium_facilities?: { name?: string } } | null;
+          return {
+            id: String(r.id),
+            date: String(r.created_at),
+            type: 'rental' as const,
+            description: `إيجار - ${c?.tenant_name || 'مستأجر'} (${c?.stadium_facilities?.name || 'مرفق'})`,
+            amount: Number(r.amount_paid) || 0,
+            payment_method: (r.payment_method as string) || 'cash'
+          };
+        })];
       }
 
-      // 4. Fetch Enrollments (البرامج التدريبية)
-      const { data: enrollments } = await supabase
-        .from('stadium_program_enrollments')
-        .select('id, created_at, amount_paid, payment_method, participant_name, stadium_training_programs(name)')
-        .eq('organization_id', orgId)
-        .neq('status', 'cancelled')
-        .gte('created_at', `${dateFrom}T00:00:00`)
-        .lte('created_at', `${dateTo}T23:59:59`);
+      // 4. Fetch Enrollments (مُحرّر بالكامل)
+      const enrollments = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('stadium_program_enrollments')
+          .select('id, created_at, amount_paid, payment_method, participant_name, stadium_training_programs(name)')
+          .eq('organization_id', orgId)
+          .neq('status', 'cancelled')
+          .gte('created_at', `${dateFrom}T00:00:00`)
+          .lte('created_at', `${dateTo}T23:59:59`)
+          .range(from, to)
+      );
         
       if (enrollments) {
-        allRecords = [...allRecords, ...enrollments.map(e => ({
-          id: e.id,
-          date: e.created_at,
-          type: 'program' as const,
-          description: `برنامج - ${(e as any).stadium_training_programs?.name || 'تدريب'} - ${e.participant_name || ''}`,
-          amount: Number(e.amount_paid) || 0,
-          payment_method: e.payment_method || 'cash'
-        }))];
+        allRecords = [...allRecords, ...enrollments.map((e: Record<string, unknown>) => {
+          const prog = e.stadium_training_programs as { name?: string } | null;
+          return {
+            id: String(e.id),
+            date: String(e.created_at),
+            type: 'program' as const,
+            description: `برنامج - ${prog?.name || 'تدريب'} - ${e.participant_name || ''}`,
+            amount: Number(e.amount_paid) || 0,
+            payment_method: (e.payment_method as string) || 'cash'
+          };
+        })];
       }
 
       // Sort by date descending

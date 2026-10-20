@@ -1,6 +1,7 @@
 import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { AccountingEngine } from '../../services/accountingEngine';
@@ -106,14 +107,15 @@ export default function VendorContractsManager() {
     if (!orgId) return;
     setIsLoading(true);
     try {
-      // 1. Contracts
-      const { data: contractsData, error: cErr } = await supabase
-        .from('vendor_contracts')
-        .select('*')
-        .eq('organization_id', orgId)
-        .order('created_at', { ascending: false });
-
-      if (cErr) throw cErr;
+      // 1. Contracts (Uncapped with fetchCompleteDataset)
+      const contractsData = await fetchCompleteDataset<any>(async (from, to) => {
+        let q = supabase
+          .from('vendor_contracts')
+          .select('*')
+          .eq('organization_id', orgId)
+          .order('created_at', { ascending: false });
+        return q.range(from, to);
+      });
 
       const formattedContracts = (contractsData || []).map(c => ({
         ...c,
@@ -121,14 +123,15 @@ export default function VendorContractsManager() {
       }));
       setContracts(formattedContracts);
 
-      // 2. Settlements
-      const { data: settlementsData, error: sErr } = await supabase
-        .from('vendor_rebate_settlements')
-        .select('*')
-        .eq('organization_id', orgId)
-        .order('created_at', { ascending: false });
-
-      if (sErr) throw sErr;
+      // 2. Settlements (Uncapped with fetchCompleteDataset)
+      const settlementsData = await fetchCompleteDataset<any>(async (from, to) => {
+        let q = supabase
+          .from('vendor_rebate_settlements')
+          .select('*')
+          .eq('organization_id', orgId)
+          .order('created_at', { ascending: false });
+        return q.range(from, to);
+      });
 
       const formattedSettlements = (settlementsData || []).map(s => ({
         ...s,
@@ -283,16 +286,17 @@ export default function VendorContractsManager() {
 
     setIsCalculating(true);
     try {
-      // Fetch purchase invoices for this vendor in the date range
-      const { data: invoices, error } = await supabase
-        .from('purchase_invoices')
-        .select('total_amount, subtotal')
-        .eq('organization_id', orgId)
-        .eq('supplier_id', contract.vendor_id)
-        .gte('invoice_date', calcPeriodStart)
-        .lte('invoice_date', calcPeriodEnd);
-
-      if (error) throw error;
+      // Fetch purchase invoices for this vendor in the date range (Uncapped with fetchCompleteDataset)
+      const invoices = await fetchCompleteDataset<any>(async (from, to) => {
+        let q = supabase
+          .from('purchase_invoices')
+          .select('total_amount, subtotal')
+          .eq('organization_id', orgId)
+          .eq('supplier_id', contract.vendor_id)
+          .gte('invoice_date', calcPeriodStart)
+          .lte('invoice_date', calcPeriodEnd);
+        return q.range(from, to);
+      });
 
       const actualPurchases = (invoices || []).reduce(
         (sum, inv) => sum + Number(inv.subtotal || inv.total_amount || 0), 

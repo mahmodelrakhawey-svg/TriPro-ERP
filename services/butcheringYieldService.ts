@@ -12,6 +12,7 @@
  */
 
 import { supabase } from '../supabaseClient';
+import { fetchCompleteDataset } from './balanceService';
 import { logger } from '../utils/logger';
 import { AccountingEngine } from './accountingEngine';
 import { secureStorage } from '../utils/securityMiddleware';
@@ -636,26 +637,47 @@ class ButcheringYieldService {
   /**
    * جلب قائمة أوامر التشفية مع دعم السقوط الآلي
    */
-  public async getOrders(organizationId?: string, limit = 50): Promise<ButcheringOrder[]> {
+  public async getOrders(organizationId?: string, limit?: number): Promise<ButcheringOrder[]> {
     try {
-      let query = supabase
-        .from('butchering_orders')
-        .select(`
-          *,
-          items:butchering_order_items(*)
-        `)
-        .order('order_date', { ascending: false })
-        .order('created_at', { ascending: false })
-        .limit(limit);
+      let data: ButcheringOrder[] = [];
+      if (limit && limit > 0) {
+        let query = supabase
+          .from('butchering_orders')
+          .select(`
+            *,
+            items:butchering_order_items(*)
+          `)
+          .order('order_date', { ascending: false })
+          .order('created_at', { ascending: false })
+          .limit(limit);
 
-      if (isValidUUID(organizationId)) {
-        query = query.eq('organization_id', organizationId);
-      }
+        if (isValidUUID(organizationId)) {
+          query = query.eq('organization_id', organizationId);
+        }
 
-      const { data, error } = await query;
-      if (error) {
-        logger.warn('Notice loading orders from database, using fallback:', error.message);
-        return this.getLocalOrders(organizationId);
+        const { data: resData, error } = await query;
+        if (error) {
+          logger.warn('Notice loading orders from database, using fallback:', error.message);
+          return this.getLocalOrders(organizationId);
+        }
+        data = (resData || []) as ButcheringOrder[];
+      } else {
+        // مُحرّر بالكامل من سقف الـ 1000 سجل عند طلب تقارير أوامر التشفية
+        data = await fetchCompleteDataset<ButcheringOrder>(async (from, to) => {
+          let q = supabase
+            .from('butchering_orders')
+            .select(`
+              *,
+              items:butchering_order_items(*)
+            `)
+            .order('order_date', { ascending: false })
+            .order('created_at', { ascending: false });
+
+          if (isValidUUID(organizationId)) {
+            q = q.eq('organization_id', organizationId);
+          }
+          return q.range(from, to);
+        });
       }
 
       // جلب أسماء الأصناف الخام لتجنب أخطاء PostgREST

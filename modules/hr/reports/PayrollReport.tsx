@@ -1,6 +1,7 @@
 import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -50,14 +51,38 @@ const PayrollReport = () => {
       if (payrollsList && payrollsList.length > 0) {
         const payrollIds = payrollsList.map(p => p.id);
         
-        // 2. جلب تفاصيل الرواتب للموظفين مع القسم
-        const { data: items, error: itemsError } = await supabase
-          .from('payroll_items')
-          .select('*, employees(full_name, position, department)')
-          .eq('organization_id', userOrgId)
-          .in('payroll_id', payrollIds);
+        // 2. جلب تفاصيل الرواتب للموظفين مع القسم (Uncapped with fetchCompleteDataset)
+        interface PayrollItemRow {
+          gross_salary?: number;
+          additions?: number;
+          payroll_tax?: number;
+          advances_deducted?: number;
+          other_deductions?: number;
+          net_salary?: number;
+          employees?: {
+            full_name?: string;
+            position?: string;
+            department?: string;
+          };
+          [key: string]: unknown;
+        }
 
-        if (itemsError) throw itemsError;
+        interface PayrollSummaryTotals {
+          total_gross_salary: number;
+          total_additions: number;
+          total_payroll_tax: number;
+          total_deductions: number;
+          total_net_salary: number;
+        }
+
+        const items = await fetchCompleteDataset<PayrollItemRow>(async (from, to) => {
+          let q = supabase
+            .from('payroll_items')
+            .select('*, employees(full_name, position, department)')
+            .eq('organization_id', userOrgId)
+            .in('payroll_id', payrollIds);
+          return q.range(from, to);
+        });
 
         // تطبيق عزل نطاق الإشراف (HR Scope)
         const hrScope = currentUser?.hr_scope || (currentUser as any)?.user_metadata?.hr_scope || 'all';
@@ -75,8 +100,7 @@ const PayrollReport = () => {
         }
 
         // حساب الملخص بناء على الموظفين المتاحين للمستخدم فقط
-        const summary = filteredItems.reduce((acc, curr) => ({
-            ...acc,
+        const summary = filteredItems.reduce<PayrollSummaryTotals>((acc, curr) => ({
             total_gross_salary: acc.total_gross_salary + Number(curr.gross_salary || 0),
             total_additions: acc.total_additions + Number(curr.additions || 0),
             total_payroll_tax: acc.total_payroll_tax + Number(curr.payroll_tax || 0),

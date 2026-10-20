@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { 
@@ -41,12 +42,14 @@ export const UnitCostDrillDown: React.FC = () => {
   const fetchUnitCosts = async () => {
     setLoading(true);
     try {
-      const { data: anatomyData, error } = await supabase
-        .from('v_mfg_unit_cost_anatomy')
-        .select('*')
-        .eq('organization_id', organization?.id);
+      const anatomyData = await fetchCompleteDataset<UnitCostAnatomy>(async (from, to) => {
+        let q = supabase
+          .from('v_mfg_unit_cost_anatomy')
+          .select('*')
+          .eq('organization_id', organization?.id);
+        return q.range(from, to);
+      });
 
-      if (error) throw error;
       setData(anatomyData || []);
     } catch (err) {
       showToast(err.message, 'error');

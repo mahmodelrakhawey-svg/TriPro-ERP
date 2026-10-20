@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/supabaseClient';
+import { fetchCompleteDataset } from '@/services/balanceService';
 import { useAccounting as useOrg } from '@/context/AccountingContext';
 import { useToast } from '@/context/ToastContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, ComposedChart, Line } from 'recharts';
@@ -29,15 +30,17 @@ const ProductionProfitabilityReport = () => {
   useEffect(() => {
     const fetchData = async () => {
       if (!orgId) return;
-      const { data: results, error } = await supabase
-        .from('v_mfg_order_profitability')
-        .select('*')
-        .eq('organization_id', orgId);
-      
-      if (error) {
-        showToast('خطأ في جلب بيانات الربحية', 'error');
-      } else {
+      try {
+        const results = await fetchCompleteDataset<ProfitabilityData>(async (from, to) => {
+          let q = supabase
+            .from('v_mfg_order_profitability')
+            .select('*')
+            .eq('organization_id', orgId);
+          return q.range(from, to);
+        });
         setData(results || []);
+      } catch {
+        showToast('خطأ في جلب بيانات الربحية', 'error');
       }
       setLoading(false);
     };

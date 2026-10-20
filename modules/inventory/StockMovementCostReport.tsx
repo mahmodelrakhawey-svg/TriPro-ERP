@@ -5,6 +5,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { Package, Search, Printer, Loader2, Filter, Download, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchCompleteDataset } from '../../services/balanceService';
 
 interface Product {
   id: string;
@@ -201,11 +202,56 @@ const StockMovementCostReport = () => {
         .eq('product_id', selectedProductId)
         .eq('organization_id', userOrgId);
 
-      // تنفيذ الاستعلامات بالتوازي وجلب البيانات الفعلية بشكل منضبط
-      const [sales, purchases, adjustments, sReturns, pReturns, mfgIn, mfgOut, mfgScrap, opening, transfers, restDirect, restConsumption, hims, construction, lcReceipts] = await Promise.all([
-        querySales, queryPurchases, queryAdjustments, querySalesReturns, queryPurchaseReturns, mfgInQuery, mfgOutQuery, mfgScrapQuery, queryOpening, queryTransfers, queryRestDirect, queryRestConsumption ? queryRestConsumption : Promise.resolve({ data: [] }),
-        queryHims, queryConstruction, queryLc
+      // تنفيذ الاستعلامات بالتوازي وجلب البيانات الفعلية متجاوزة سقف الـ 1000 بأمان
+      const [
+        salesData,
+        purchasesData,
+        adjustmentsData,
+        sReturnsData,
+        pReturnsData,
+        mfgInData,
+        mfgOutData,
+        mfgScrapData,
+        openingData,
+        transfersData,
+        restDirectData,
+        restConsumptionData,
+        himsData,
+        constructionData,
+        lcReceiptsData
+      ] = await Promise.all([
+        fetchCompleteDataset<any>(async (from, to) => querySales.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryPurchases.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryAdjustments.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => querySalesReturns.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryPurchaseReturns.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => mfgInQuery.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => mfgOutQuery.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => mfgScrapQuery.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryOpening.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryTransfers.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryRestDirect.range(from, to)),
+        queryRestConsumption ? fetchCompleteDataset<any>(async (from, to) => queryRestConsumption!.range(from, to)) : Promise.resolve([]),
+        fetchCompleteDataset<any>(async (from, to) => queryHims.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryConstruction.range(from, to)),
+        fetchCompleteDataset<any>(async (from, to) => queryLc.range(from, to))
       ]);
+
+      const sales = { data: salesData };
+      const purchases = { data: purchasesData };
+      const adjustments = { data: adjustmentsData };
+      const sReturns = { data: sReturnsData };
+      const pReturns = { data: pReturnsData };
+      const mfgIn = { data: mfgInData };
+      const mfgOut = { data: mfgOutData };
+      const mfgScrap = { data: mfgScrapData };
+      const opening = { data: openingData };
+      const transfers = { data: transfersData };
+      const restDirect = { data: restDirectData };
+      const restConsumption = { data: restConsumptionData };
+      const hims = { data: himsData };
+      const construction = { data: constructionData };
+      const lcReceipts = { data: lcReceiptsData };
 
       // تجميع الحركات
       let allMovements: any[] = [];

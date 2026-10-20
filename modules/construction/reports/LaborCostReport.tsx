@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../../../supabaseClient';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { FileBarChart, Calendar, DollarSign, Users, Loader2, ArrowRight, Download, TrendingUp } from 'lucide-react';
@@ -46,35 +47,37 @@ const LaborCostReport = () => {
       const startDate = `${year}-${month}-01`;
       const endDate = new Date(parseInt(year), parseInt(month), 0).toISOString().split('T')[0];
 
-      // جلب سجلات الحضور المعتمدة للفترة المحددة
-      const { data, error } = await supabase
-        .from('v_project_site_attendance')
-        .select('project_id, project_name, total_day_cost, hours_worked, employee_id')
-        .eq('organization_id', organization?.id)
-        .gte('attendance_date', startDate)
-        .lte('attendance_date', endDate)
-        .eq('status', 'approved');
-
-      if (error) throw error;
+      // جلب سجلات الحضور المعتمدة للفترة المحددة (مُحرّر بالكامل من سقف 1000 سجل)
+      const data = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('v_project_site_attendance')
+          .select('project_id, project_name, total_day_cost, hours_worked, employee_id')
+          .eq('organization_id', organization?.id)
+          .gte('attendance_date', startDate)
+          .lte('attendance_date', endDate)
+          .eq('status', 'approved')
+          .range(from, to)
+      );
 
       // تجميع البيانات يدوياً لضمان الدقة وتجنب استعلامات SQL المعقدة
       const summaryMap: Record<string, ProjectLaborSummary> = {};
       const projectWorkers: Record<string, Set<string>> = {};
 
-      (data || []).forEach(row => {
-        if (!summaryMap[row.project_id]) {
-          summaryMap[row.project_id] = {
-            project_id: row.project_id,
-            project_name: row.project_name,
+      (data || []).forEach((row: Record<string, unknown>) => {
+        const pId = String(row.project_id || '');
+        if (!summaryMap[pId]) {
+          summaryMap[pId] = {
+            project_id: pId,
+            project_name: String(row.project_name || ''),
             total_labor_cost: 0,
             total_hours: 0,
             worker_count: 0
           };
-          projectWorkers[row.project_id] = new Set();
+          projectWorkers[pId] = new Set();
         }
-        summaryMap[row.project_id].total_labor_cost += Number(row.total_day_cost);
-        summaryMap[row.project_id].total_hours += Number(row.hours_worked);
-        projectWorkers[row.project_id].add(row.employee_id);
+        summaryMap[pId].total_labor_cost += Number(row.total_day_cost || 0);
+        summaryMap[pId].total_hours += Number(row.hours_worked || 0);
+        if (row.employee_id) projectWorkers[pId].add(String(row.employee_id));
       });
 
       const finalData = Object.values(summaryMap).map(item => ({

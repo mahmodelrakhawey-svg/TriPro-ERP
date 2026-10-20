@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { 
@@ -69,64 +70,68 @@ export default function HypermarketReplenishment() {
       // Map product sales velocity
       const salesMap: Record<string, number> = {};
 
+      // 1. جلب بنود الفواتير لآخر 30 يوماً (مُحرّر بالكامل من سقف 1000 سجل)
       try {
-        let invQuery = supabase
-          .from('invoice_items')
-          .select('product_id, quantity, invoices!inner(invoice_date, status)')
-          .gte('invoices.invoice_date', thirtyDaysAgo);
-
-        if (orgId) {
-          invQuery = invQuery.eq('organization_id', orgId);
-        }
-
-        const { data: salesData, error: salesErr } = await invQuery;
-
-        if (!salesErr && salesData) {
-          salesData.forEach((item: Record<string, any>) => {
-            if (item.product_id) {
-              salesMap[item.product_id] = (salesMap[item.product_id] || 0) + Number(item.quantity || 0);
-            }
-          });
-        } else if (salesErr) {
-          // Fallback if organization_id isn't directly on invoice_items
-          const { data: fallbackSales } = await supabase
+        const salesData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) => {
+          let invQuery = supabase
             .from('invoice_items')
-            .select('product_id, quantity, invoices!inner(invoice_date, status, organization_id)')
-            .eq('invoices.organization_id', orgId)
+            .select('product_id, quantity, invoices!inner(invoice_date, status)')
             .gte('invoices.invoice_date', thirtyDaysAgo);
 
-          if (fallbackSales) {
-            fallbackSales.forEach((item: Record<string, any>) => {
-              if (item.product_id) {
-                salesMap[item.product_id] = (salesMap[item.product_id] || 0) + Number(item.quantity || 0);
-              }
-            });
+          if (orgId) {
+            invQuery = invQuery.eq('organization_id', orgId);
           }
-        }
+          return invQuery.range(from, to);
+        });
+
+        (salesData || []).forEach((item: Record<string, unknown>) => {
+          const pid = item.product_id as string;
+          if (pid) {
+            salesMap[pid] = (salesMap[pid] || 0) + Number(item.quantity || 0);
+          }
+        });
       } catch (e) {
-        logger.warn('Invoice sales velocity query notice:', e);
-      }
-
-      // Also check POS / Restaurant / Retail order_items if available
-      try {
-        let posQuery = supabase
-          .from('order_items')
-          .select('product_id, quantity, orders!inner(created_at, status)')
-          .gte('orders.created_at', `${thirtyDaysAgo}T00:00:00`);
-
-        if (orgId) {
-          posQuery = posQuery.eq('orders.organization_id', orgId);
-        }
-
-        const { data: posItems, error: posErr } = await posQuery;
-
-        if (!posErr && posItems) {
-          posItems.forEach((item: Record<string, any>) => {
-            if (item.product_id) {
-              salesMap[item.product_id] = (salesMap[item.product_id] || 0) + Number(item.quantity || 0);
+        logger.warn('Invoice sales velocity query fallback notice:', e);
+        try {
+          const fallbackSales = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+            supabase
+              .from('invoice_items')
+              .select('product_id, quantity, invoices!inner(invoice_date, status, organization_id)')
+              .eq('invoices.organization_id', orgId)
+              .gte('invoices.invoice_date', thirtyDaysAgo)
+              .range(from, to)
+          );
+          (fallbackSales || []).forEach((item: Record<string, unknown>) => {
+            const pid = item.product_id as string;
+            if (pid) {
+              salesMap[pid] = (salesMap[pid] || 0) + Number(item.quantity || 0);
             }
           });
+        } catch (fErr) {
+          logger.warn('Fallback sales error:', fErr);
         }
+      }
+
+      // Also check POS / Restaurant / Retail order_items (مُحرّر بالكامل عبر fetchCompleteDataset)
+      try {
+        const posItems = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) => {
+          let posQuery = supabase
+            .from('order_items')
+            .select('product_id, quantity, orders!inner(created_at, status)')
+            .gte('orders.created_at', `${thirtyDaysAgo}T00:00:00`);
+
+          if (orgId) {
+            posQuery = posQuery.eq('orders.organization_id', orgId);
+          }
+          return posQuery.range(from, to);
+        });
+
+        (posItems || []).forEach((item: Record<string, unknown>) => {
+          const pid = item.product_id as string;
+          if (pid) {
+            salesMap[pid] = (salesMap[pid] || 0) + Number(item.quantity || 0);
+          }
+        });
       } catch (e) {
         logger.warn('POS order sales velocity query notice:', e);
       }

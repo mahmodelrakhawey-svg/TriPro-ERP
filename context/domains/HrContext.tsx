@@ -15,6 +15,7 @@ import { Employee } from '../../types';
 import type { UserProfile } from '../AccountingContext';
 import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { logger } from '../../utils/logger';
 
 export interface HrDomainState {
@@ -82,15 +83,16 @@ export const HrProvider: React.FC<HrProviderProps> = ({
     const effectiveOrg = targetOrgId;
     if (!effectiveOrg || effectiveOrg === 'org-default-offline') return;
     try {
-      const { data, error } = await supabase
-        .from('employees')
-        .select('*')
-        .eq('organization_id', effectiveOrg)
-        .order('full_name');
+      const data = await fetchCompleteDataset<Employee>(async (from, to) => {
+        let q = supabase
+          .from('employees')
+          .select('*')
+          .eq('organization_id', effectiveOrg)
+          .order('full_name');
+        return q.range(from, to);
+      });
 
-      if (error) {
-        logger.error('Error fetching employees in HrProvider:', error);
-      } else if (data) {
+      if (data) {
         setRawEmployees(data as Employee[]);
       }
     } catch (e) {

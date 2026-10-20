@@ -1,6 +1,7 @@
 import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { etaService, ETAInvoiceResponse } from '../../services/etaService';
@@ -103,31 +104,32 @@ export const ETATracker: React.FC = () => {
         .maybeSingle();
       setCompanySettings(cSettings);
 
-      // 2. Invoices (posted or paid sales invoices)
-      const { data: invData, error: invErr } = await supabase
-        .from('invoices')
-        .select(`
-          id,
-          invoice_number,
-          invoice_date,
-          total_amount,
-          tax_amount,
-          status,
-          eta_status,
-          eta_uuid,
-          eta_submission_id,
-          eta_error,
-          eta_qr_code,
-          customers (
-            name,
-            tax_number,
-            tax_id
-          )
-        `)
-        .eq('organization_id', orgId)
-        .order('invoice_date', { ascending: false });
-
-      if (invErr) throw invErr;
+      // 2. Invoices (posted or paid sales invoices) - Uncapped with fetchCompleteDataset
+      const invData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) => {
+        let q = supabase
+          .from('invoices')
+          .select(`
+            id,
+            invoice_number,
+            invoice_date,
+            total_amount,
+            tax_amount,
+            status,
+            eta_status,
+            eta_uuid,
+            eta_submission_id,
+            eta_error,
+            eta_qr_code,
+            customers (
+              name,
+              tax_number,
+              tax_id
+            )
+          `)
+          .eq('organization_id', orgId)
+          .order('invoice_date', { ascending: false });
+        return q.range(from, to);
+      });
 
       const formatted: ETAInvoice[] = (invData || []).map((inv: Record<string, any>) => ({
         id: inv.id,

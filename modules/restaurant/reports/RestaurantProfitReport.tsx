@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { Download, Printer, Loader2, Search, DollarSign, Utensils, AlertTriangle, TrendingUp, CheckCircle2, ArrowUpCircle, Calendar } from 'lucide-react';
 import * as XLSX from 'xlsx';
 
@@ -62,34 +63,45 @@ const RestaurantProfitReport = () => {
 
       if (!userOrgId) return;
 
-      // 1. جلب المنتجات (وجبات المطعم والأصناف الجاهزة)
-      const { data: products, error: prodError } = await supabase
-        .from('products')
-        .select('id, name, sku, sales_price, cost, category_id, product_type, item_categories(name)')
-        .eq('organization_id', userOrgId)
-        .in('product_type', ['MANUFACTURED', 'STOCK']) 
-        .eq('is_active', true);
-
-      if (prodError) throw prodError;
+      // 1. جلب المنتجات (وجبات المطعم والأصناف الجاهزة - مُحرّر بالكامل من سقف الـ 1000 سجل)
+      const products = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('products')
+          .select('id, name, sku, sales_price, cost, category_id, product_type, item_categories(name)')
+          .eq('organization_id', userOrgId)
+          .in('product_type', ['MANUFACTURED', 'STOCK'])
+          .eq('is_active', true)
+          .range(from, to)
+      );
 
       // 2. جلب مكونات الوصفات (BOM) للمنتجات الخاصة بهذه المنظمة فقط
-      // نستخدم مصفوفة المعرفات المفلترة سابقاً لتجنب الخطأ في حال عدم وجود عمود organization_id في جدول BOM
-      const productIds = products?.map(p => p.id) || [];
-      const { data: boms, error: bomError } = await supabase
-        .from('bill_of_materials')
-        .select('product_id, quantity_required, raw_material_id, products:raw_material_id(purchase_price, cost, weighted_average_cost)')
-        .in('product_id', productIds);
+      const productIds = (products || []).map(p => String(p.id));
+      let boms: Record<string, unknown>[] = [];
+      if (productIds.length > 0) {
+        // تجزئة المعرفات لحماية الاستعلام من قيود حجم الرابط
+        const CHUNK = 300;
+        for (let i = 0; i < productIds.length; i += CHUNK) {
+          const chunkIds = productIds.slice(i, i + CHUNK);
+          const { data: bomChunk, error: bomError } = await supabase
+            .from('bill_of_materials')
+            .select('product_id, quantity_required, raw_material_id, products:raw_material_id(purchase_price, cost, weighted_average_cost)')
+            .in('product_id', chunkIds);
+          if (bomError) throw bomError;
+          if (bomChunk) boms = boms.concat(bomChunk);
+        }
+      }
 
-      if (bomError) throw bomError;
-
-      // 2.5 جلب كميات المبيعات للفترة المحددة لحساب الخسارة المتراكمة
-      const { data: salesItems } = await supabase
-        .from('order_items')
-        .select('product_id, quantity, orders!inner(created_at, status, organization_id)')
-        .eq('orders.organization_id', userOrgId)
-        .in('orders.status', ['COMPLETED', 'PAID'])
-        .gte('orders.created_at', `${startDate}T00:00:00`)
-        .lte('orders.created_at', `${endDate}T23:59:59`);
+      // 2.5 جلب كميات المبيعات للفترة المحددة (مُحرّر بالكامل عبر fetchCompleteDataset)
+      const salesItems = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('order_items')
+          .select('product_id, quantity, orders!inner(created_at, status, organization_id)')
+          .eq('orders.organization_id', userOrgId)
+          .in('orders.status', ['COMPLETED', 'PAID'])
+          .gte('orders.created_at', `${startDate}T00:00:00`)
+          .lte('orders.created_at', `${endDate}T23:59:59`)
+          .range(from, to)
+      );
 
       const salesMap: Record<string, number> = {};
       salesItems?.forEach((item: Record<string, any>) => {

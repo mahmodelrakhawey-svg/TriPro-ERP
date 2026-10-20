@@ -4,6 +4,7 @@ import { HospitalBillingEngine } from '../components/HospitalBillingEngine';
 import { Card, Select, Empty, Spin, Table, Tag, Button, Tooltip, Row, Col, Statistic } from 'antd';
 import { SearchOutlined, CreditCardOutlined, UserOutlined, ClockCircleOutlined, DollarOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
+import { fetchCompleteDataset } from '@/services/balanceService';
 import { useAuth } from '@/context/AuthContext';
 import dayjs from 'dayjs';
 
@@ -37,16 +38,17 @@ const MedicalBilling: React.FC = () => {
     if (!orgId) return;
     setBillsLoading(true);
     try {
-      const { data, error } = await supabase
-        .from('hims_billing')
-        .select('*, hims_patients(full_name), hims_visits!inner(id, status, created_at, visit_type)')
-        .eq('organization_id', orgId)
-        .neq('hims_visits.status', 'discharged')
-        .order('created_at', { ascending: false });
-      
-      if (!error) {
-        setActiveBills(data || []);
-      }
+      // جلب كافة الفواتير الطبية النشطة دون سقف 1000 فاتورة
+      const data = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('hims_billing')
+          .select('*, hims_patients(full_name), hims_visits!inner(id, status, created_at, visit_type)')
+          .eq('organization_id', orgId)
+          .neq('hims_visits.status', 'discharged')
+          .order('created_at', { ascending: false })
+          .range(from, to)
+      );
+      setActiveBills(data || []);
     } catch (e) {
       logger.error('[MedicalBilling] Error fetching active bills:', e);
     } finally {

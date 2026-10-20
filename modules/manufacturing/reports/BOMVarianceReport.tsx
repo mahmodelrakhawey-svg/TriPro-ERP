@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../../../supabaseClient';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { useAccounting as useOrg } from '../../../context/AccountingContext';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { AlertTriangle, TrendingDown, TrendingUp, Filter, FileBarChart, Download, Search } from 'lucide-react';
@@ -23,12 +24,16 @@ const BOMVarianceReport = () => {
   useEffect(() => {
     const fetchVariance = async () => {
       if (!orgId) return;
-      const { data: result, error } = await supabase
-        .from('v_mfg_bom_variance')
-        .select('*')
-        .eq('organization_id', orgId);
-      
-      if (!error) setData(result || []);
+      try {
+        const result = await fetchCompleteDataset<VarianceData>(async (from, to) => {
+          let q = supabase
+            .from('v_mfg_bom_variance')
+            .select('*')
+            .eq('organization_id', orgId);
+          return q.range(from, to);
+        });
+        setData(result || []);
+      } catch {}
       setLoading(false);
     };
     if (orgId) {

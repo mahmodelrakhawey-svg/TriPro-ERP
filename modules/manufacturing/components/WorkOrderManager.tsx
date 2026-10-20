@@ -1,6 +1,7 @@
 import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { Factory, Plus, Play, CheckCircle, XCircle, Save, DollarSign, Eye, BarChart3, Settings2, Printer, Trash2 } from 'lucide-react';
@@ -71,16 +72,18 @@ const WorkOrderManager = () => {
 
   const fetchOrders = async () => {
     setLoading(true);
-    let query = supabase
-      .from('mfg_production_orders')
-      .select('*, products(name, sku), warehouses(name)')
-      .order('created_at', { ascending: false });
+    const data = await fetchCompleteDataset<any>(async (from, to) => {
+      let q = supabase
+        .from('mfg_production_orders')
+        .select('*, products(name, sku), warehouses(name)')
+        .order('created_at', { ascending: false });
 
-    if (activeOrgId) {
-      query = query.eq('organization_id', activeOrgId);
-    }
+      if (activeOrgId) {
+        q = q.eq('organization_id', activeOrgId);
+      }
+      return q.range(from, to);
+    });
 
-    const { data } = await query;
     setOrders(data || []);
     setLoading(false);
   };

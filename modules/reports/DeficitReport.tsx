@@ -1,6 +1,7 @@
 import { logger } from '../../utils/logger';
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { useToast } from '../../context/ToastContext';
 import { useAccounting } from '../../context/AccountingContext';
 import { AlertTriangle, Filter, Loader2 } from 'lucide-react';
@@ -52,32 +53,33 @@ const DeficitReport = () => {
       const { data: { session } } = await supabase.auth.getSession();
       const userOrgId = session?.user?.user_metadata?.org_id;
 
-      let query = supabase
-        .from('rejected_cash_closings')
-        .select('*, rejected_by_profile:profiles(full_name), treasury_account:accounts(name)')
-        .gte('rejection_date', startDate)
-        .lte('rejection_date', `${endDate}T23:59:59`)
-        .order('rejection_date', { ascending: false });
-
-      if (userOrgId) {
-        query = query.eq('organization_id', userOrgId);
-      }
-
-      let { data, error } = await query;
-
-      // Fallback if organization_id column does not exist yet
-      if (error && error.code === '42703') {
-        const fallbackRes = await supabase
+      // جلب كامل سجلات عجز الصناديق دون سقف 1000 حركة عبر fetchCompleteDataset
+      let data = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) => {
+        let q = supabase
           .from('rejected_cash_closings')
           .select('*, rejected_by_profile:profiles(full_name), treasury_account:accounts(name)')
           .gte('rejection_date', startDate)
           .lte('rejection_date', `${endDate}T23:59:59`)
           .order('rejection_date', { ascending: false });
-        data = fallbackRes.data;
-        error = fallbackRes.error;
+
+        if (userOrgId) {
+          q = q.eq('organization_id', userOrgId);
+        }
+        return q.range(from, to);
+      });
+
+      if (!data || data.length === 0) {
+        data = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+          supabase
+            .from('rejected_cash_closings')
+            .select('*, rejected_by_profile:profiles(full_name), treasury_account:accounts(name)')
+            .gte('rejection_date', startDate)
+            .lte('rejection_date', `${endDate}T23:59:59`)
+            .order('rejection_date', { ascending: false })
+            .range(from, to)
+        );
       }
 
-      if (error) throw error;
       setLogs(data || []);
     } catch (err) {
       logger.warn('Notice fetching deficit logs:', err.message);

@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient';
+import { fetchCompleteDataset } from './balanceService';
 
 /**
  * 🏥 HIMS Frontend Service Bridge
@@ -135,32 +136,32 @@ export const himsService = {
     if (error) throw error;
     return data;
   },
-  // 20. جلب تقارير ربحية الأطباء
+  // 20. جلب تقارير ربحية الأطباء (مُحرّر بالكامل من سقف 1000 سجل)
   async getDoctorProfitability(orgId?: string) {
-    let query = supabase
-      .from('v_hims_doctor_profitability')
-      .select('*')
-      .order('total_revenue', { ascending: false });
-    if (orgId) {
-      query = query.eq('organization_id', orgId);
-    }
-    const { data, error } = await query;
-    if (error) throw error;
-    return data;
+    return fetchCompleteDataset<Record<string, unknown>>(async (from, to) => {
+      let query = supabase
+        .from('v_hims_doctor_profitability')
+        .select('*')
+        .order('total_revenue', { ascending: false });
+      if (orgId) {
+        query = query.eq('organization_id', orgId);
+      }
+      return query.range(from, to);
+    });
   },
 
-  // 21. جلب تقارير ربحية الأقسام
+  // 21. جلب تقارير ربحية الأقسام (مُحرّر بالكامل من سقف 1000 سجل)
   async getDeptProfitability(orgId?: string) {
-    let query = supabase
-      .from('v_hims_dept_profitability')
-      .select('*')
-      .order('total_revenue', { ascending: false });
-    if (orgId) {
-      query = query.eq('organization_id', orgId);
-    }
-    const { data, error } = await query;
-    if (error) throw error;
-    return data;
+    return fetchCompleteDataset<Record<string, unknown>>(async (from, to) => {
+      let query = supabase
+        .from('v_hims_dept_profitability')
+        .select('*')
+        .order('total_revenue', { ascending: false });
+      if (orgId) {
+        query = query.eq('organization_id', orgId);
+      }
+      return query.range(from, to);
+    });
   },
 
   // 18. البحث في أكواد الأمراض العالمية ICD-10
@@ -219,14 +220,15 @@ export const himsService = {
     return data;
   },
 
-  // 13. جلب كافة الفواتير الطبية للمنظمة
+  // 13. جلب كافة الفواتير الطبية للمنظمة (مُحرّر بالكامل من سقف 1000 فاتورة)
   async getMedicalBills() {
-    const { data, error } = await supabase
-      .from('hims_billing')
-      .select('*, hims_patients(full_name), hims_visits(visit_type, status)')
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return data;
+    return fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+      supabase
+        .from('hims_billing')
+        .select('*, hims_patients(full_name), hims_visits(visit_type, status)')
+        .order('created_at', { ascending: false })
+        .range(from, to)
+    );
   },
 
   // 14. جلب تفاصيل قيد اليومية المرتبط بالفاتورة (الربط مع الأستاذ العام)

@@ -1,6 +1,7 @@
 import { logger } from '../../utils/logger';
 import { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import { useToast } from '../../context/ToastContext';
 import { FileText, Download, Eye, Search, Filter, Paperclip } from 'lucide-react';
 
@@ -30,31 +31,33 @@ const AttachmentsReport = () => {
   const fetchAttachments = async () => {
     setLoading(true);
     try {
-      // Fetch Journal Attachments
-      const { data: journalAtts } = await supabase
-        .from('journal_attachments')
-        .select('*, journal_entries(reference, transaction_date)');
-
-      // Fetch Receipt Voucher Attachments
-      const { data: receiptAtts } = await supabase
-        .from('receipt_voucher_attachments')
-        .select('*, receipt_vouchers(voucher_number, receipt_date)');
-
-      // Fetch Payment Voucher Attachments
-      const { data: paymentAtts } = await supabase
-        .from('payment_voucher_attachments')
-        .select('*, payment_vouchers(voucher_number, payment_date)');
-
-      // Fetch Purchase Invoice Attachments
-      let purchaseAtts: any[] | null = null;
-      try {
-        const { data } = await supabase
-          .from('purchase_invoice_attachments')
-          .select('*, purchase_invoices(invoice_number, invoice_date)');
-        purchaseAtts = data;
-      } catch (pErr) {
-        logger.warn('Purchase attachments query:', pErr);
-      }
+      // جلب كافة مرفقات النظام دون سقف 1000 مرفق عبر fetchCompleteDataset
+      const [journalAtts, receiptAtts, paymentAtts, purchaseAtts] = await Promise.all([
+        fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+          supabase
+            .from('journal_attachments')
+            .select('*, journal_entries(reference, transaction_date)')
+            .range(from, to)
+        ),
+        fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+          supabase
+            .from('receipt_voucher_attachments')
+            .select('*, receipt_vouchers(voucher_number, receipt_date)')
+            .range(from, to)
+        ),
+        fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+          supabase
+            .from('payment_voucher_attachments')
+            .select('*, payment_vouchers(voucher_number, payment_date)')
+            .range(from, to)
+        ),
+        fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+          supabase
+            .from('purchase_invoice_attachments')
+            .select('*, purchase_invoices(invoice_number, invoice_date)')
+            .range(from, to)
+        ).catch(() => [] as Record<string, unknown>[])
+      ]);
 
       const normalized: Attachment[] = [];
 

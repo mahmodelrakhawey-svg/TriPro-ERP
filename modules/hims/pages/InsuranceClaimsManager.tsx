@@ -1,6 +1,7 @@
 import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/supabaseClient';
+import { fetchCompleteDataset } from '@/services/balanceService';
 import { Card, Table, Button, Tag, Space, message, Statistic, Divider, Modal, Select, Empty, Tabs } from 'antd';
 import { himsService } from '@/services/himsService';
 import { SafetyCertificateOutlined, SendOutlined, DollarOutlined, CheckCircleOutlined, HistoryOutlined, DownloadOutlined } from '@ant-design/icons';
@@ -36,31 +37,32 @@ export const InsuranceClaimsManager: React.FC = () => {
       if (providersError) message.error('فشل جلب شركات التأمين');
       else setInsuranceProviders(providersData || []);
 
-      // 🛡️ إضافة organization_id filter — كان يُسرّب فواتير كل المستشفيات!
-      const billQuery = supabase
-        .from('hims_billing')
-        .select('*, hims_patients(full_name), insurance:insurance_provider_id(name)')
-        .eq('organization_id', currentUser.organization_id)
-        .gt('insurance_covered_amount', 0)
-        .is('insurance_claim_id', null)
-        .order('created_at', { ascending: true });
+      // جلب كافة فواتير التأمين المؤهلة دون اقتطاع 1000 فاتورة
+      const data = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('hims_billing')
+          .select('*, hims_patients(full_name), insurance:insurance_provider_id(name)')
+          .eq('organization_id', currentUser.organization_id)
+          .gt('insurance_covered_amount', 0)
+          .is('insurance_claim_id', null)
+          .order('created_at', { ascending: true })
+          .range(from, to)
+      );
 
-      const { data, error: billError } = await billQuery;
-      if (billError) throw billError;
-
-      // فلترة حسب شركة التأمين المختارة (في الـ client لتحسين UX)
+      // فلترة حسب شركة التأمين المختارة
       const filteredData = selectedInsuranceProvider && selectedInsuranceProvider !== 'all'
-        ? data?.filter(bill => bill.insurance_provider_id === selectedInsuranceProvider)
-        : data;
+        ? (data || []).filter((bill: Record<string, unknown>) => bill.insurance_provider_id === selectedInsuranceProvider)
+        : (data || []);
 
-      // جلب المطالبات المرسلة
-      const { data: claims, error: claimsError } = await supabase
-        .from('hims_insurance_claims')
-        .select('*, insurance:insurance_provider_id(name)')
-        .eq('organization_id', currentUser.organization_id)
-        .eq('status', 'submitted');
-
-      if (claimsError) throw claimsError;
+      // جلب المطالبات المرسلة دون سقف عددي
+      const claims = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('hims_insurance_claims')
+          .select('*, insurance:insurance_provider_id(name)')
+          .eq('organization_id', currentUser.organization_id)
+          .eq('status', 'submitted')
+          .range(from, to)
+      );
       
       let finalPending = filteredData || [];
       let finalSubmitted = claims || [];

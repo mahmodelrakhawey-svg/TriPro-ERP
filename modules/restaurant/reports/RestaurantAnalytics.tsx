@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import ReportBuilder from './ReportBuilder';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
+import { fetchCompleteDataset } from '@/services/balanceService';
 import { BarChart3, TrendingUp, Users, Clock, Utensils, CreditCard, AlertTriangle, PieChart as PieIcon, Layout, DollarSign, Activity, ArrowUpRight, ArrowDownRight, Zap, Sparkles, BrainCircuit, Lightbulb, Star, Target, HelpCircle, AlertOctagon } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, ReferenceLine, ScatterChart, Scatter, ZAxis } from 'recharts';
 import * as XLSX from 'xlsx';
@@ -52,14 +53,17 @@ const RestaurantAnalytics = () => {
       if (activeTab === 'prediction') viewName = 'view_restaurant_sales_prediction';
       if (activeTab === 'loyalty') viewName = 'view_restaurant_loyalty_analytics';
 
-      const { data: reportData, error } = await supabase
-        .from(viewName)
-        .select('*')
-        .eq('organization_id', userOrgId) // 🛡️ فلترة صريحة بمعرف المنظمة
-        .gte('sale_date', currentFilters.startDate)
-        .lte('sale_date', currentFilters.endDate);
+      // جلب تقارير وجهات المطعم التجميعية دون اقتطاع عبر fetchCompleteDataset
+      const reportData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from(viewName)
+          .select('*')
+          .eq('organization_id', userOrgId)
+          .gte('sale_date', currentFilters.startDate)
+          .lte('sale_date', currentFilters.endDate)
+          .range(from, to)
+      );
 
-      if (error) throw error;
       setData(reportData || []);
       setFilters(currentFilters); // حفظ الفلاتر الحالية لضمان استمراريتها عند تبديل التبويبات
     } catch (error) {

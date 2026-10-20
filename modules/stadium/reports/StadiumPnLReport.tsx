@@ -2,6 +2,7 @@ import { logger } from '../../../utils/logger';
 import React, { useState, useEffect } from 'react';
 import { useAccounting } from '@/context/AccountingContext';
 import { supabase } from '@/supabaseClient';
+import { fetchCompleteDataset } from '@/services/balanceService';
 
 import {
   BarChart,
@@ -91,18 +92,17 @@ export const StadiumPnLReport: React.FC = () => {
     setDataSource(null);
     try {
       // ─────────────────────────────────────────────
-      // 1. جلب القيود المحاسبية من دفتر اليومية العام للمنشأة
+      // 1. جلب القيود المحاسبية من دفتر اليومية العام للمنشأة (مُحرّر بالكامل من سقف 1000 قيد)
       // ─────────────────────────────────────────────
-      const { data: entries, error: jErr } = await supabase
-        .from('journal_entries')
-        .select('id, transaction_date, status, journal_lines(debit, credit, accounts:account_id(code, name, type))')
-        .eq('organization_id', orgId)
-        .gte('transaction_date', startDate)
-        .lte('transaction_date', endDate);
-
-      if (jErr) {
-        logger.warn('Journal entries query warning:', jErr);
-      }
+      const entries = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+        supabase
+          .from('journal_entries')
+          .select('id, transaction_date, status, journal_lines(debit, credit, accounts:account_id(code, name, type))')
+          .eq('organization_id', orgId)
+          .gte('transaction_date', startDate)
+          .lte('transaction_date', endDate)
+          .range(from, to)
+      );
 
       if (entries && entries.length > 0) {
         let subTotal = 0;

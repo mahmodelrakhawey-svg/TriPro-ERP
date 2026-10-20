@@ -1,6 +1,7 @@
 import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import * as XLSX from 'xlsx';
@@ -108,38 +109,34 @@ export default function LeaveManager() {
       }
       setEmployeesList(empList);
 
-      // 2. Fetch Leave Requests
-      const { data: reqData, error: reqErr } = await supabase
-        .from('hr_leave_requests')
-        .select('*')
-        .eq('organization_id', orgId)
-        .order('start_date', { ascending: false });
+      // 2. Fetch Leave Requests (Uncapped with fetchCompleteDataset)
+      const reqData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) => {
+        let q = supabase
+          .from('hr_leave_requests')
+          .select('*')
+          .eq('organization_id', orgId)
+          .order('start_date', { ascending: false });
+        return q.range(from, to);
+      });
 
-      if (reqErr) {
-        logger.warn('hr_leave_requests table notice:', reqErr.message);
-        setRequests([]);
-      } else {
-        setRequests((reqData || []).map((r: Record<string, any>) => ({
-          ...r,
-          employee_name: empList.find(e => e.id === r.employee_id)?.name || 'موظف'
-        })) as LeaveRequest[]);
-      }
+      setRequests((reqData || []).map((r: Record<string, any>) => ({
+        ...r,
+        employee_name: empList.find(e => e.id === r.employee_id)?.name || 'موظف'
+      })) as LeaveRequest[]);
 
-      // 3. Fetch Balances
-      const { data: balData, error: balErr } = await supabase
-        .from('hr_leave_balances')
-        .select('*')
-        .eq('organization_id', orgId);
+      // 3. Fetch Balances (Uncapped with fetchCompleteDataset)
+      const balData = await fetchCompleteDataset<Record<string, any>>(async (from, to) => {
+        let q = supabase
+          .from('hr_leave_balances')
+          .select('*')
+          .eq('organization_id', orgId);
+        return q.range(from, to);
+      });
 
-      if (balErr) {
-        logger.warn('hr_leave_balances table notice:', balErr.message);
-        setBalances([]);
-      } else {
-        setBalances((balData || []).map((b: Record<string, any>) => ({
-          ...b,
-          employee_name: empList.find(e => e.id === b.employee_id)?.name || 'موظف'
-        })) as LeaveBalance[]);
-      }
+      setBalances((balData || []).map((b: Record<string, any>) => ({
+        ...b,
+        employee_name: empList.find(e => e.id === b.employee_id)?.name || 'موظف'
+      })) as LeaveBalance[]);
     } catch (err) {
       logger.error(err);
       setRequests([]);

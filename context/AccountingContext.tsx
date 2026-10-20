@@ -676,8 +676,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         Promise.resolve({ data: [] as Supplier[], error: null }), // مُعالج بالكامل في سياق النطاق SupplierProvider
         Promise.resolve({ data: [] as Cheque[], error: null }), // مُعالج بالكامل في سياق النطاق BankingProvider
         supabase.rpc('get_active_shift', { p_org_id: fetchOrgId }),
-        supabase.from('assets').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
-        supabase.from('budgets').select('*').eq('organization_id', fetchOrgId)
+        fetchCompleteDataset<Asset>(async (from, to) =>
+          supabase.from('assets').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null).range(from, to)
+        ).then(data => ({ data: data || [], error: null })),
+        fetchCompleteDataset<Budget>(async (from, to) =>
+          supabase.from('budgets').select('*').eq('organization_id', fetchOrgId).range(from, to)
+        ).then(data => ({ data: data || [], error: null }))
       ]);
 
       const loadedAccounts = (accs.data && accs.data.length > 0) ? accs.data.map((acc: Record<string, any>) => ({
@@ -966,7 +970,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       const [chqs, shift, vchrs] = await Promise.all([
-        supabase.from('cheques').select('*').eq('organization_id', targetOrg).order('due_date'),
+        fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+          supabase.from('cheques')
+            .select('*')
+            .eq('organization_id', targetOrg)
+            .order('due_date')
+            .range(from, to)
+        ).then(data => ({ data, error: null })),
         supabase.rpc('get_active_shift', { p_org_id: targetOrg }),
         fetchCompleteDataset<RawVoucherFetchRow>(async (from, to) =>
           supabase.from('payment_vouchers')
@@ -1005,7 +1015,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const targetOrg = getEffectiveOrgId();
     if (!targetOrg || targetOrg === 'org-default-offline') return;
     try {
-      const { data } = await supabase.from('assets').select('*').eq('organization_id', targetOrg).is('deleted_at', null);
+      const data = await fetchCompleteDataset<Asset>(async (from, to) =>
+        supabase.from('assets').select('*').eq('organization_id', targetOrg).is('deleted_at', null).range(from, to)
+      );
       if (data) setAssets(data);
       setLastUpdated(new Date());
     } catch (e) {

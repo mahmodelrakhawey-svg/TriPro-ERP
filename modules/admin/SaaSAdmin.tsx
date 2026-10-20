@@ -1,6 +1,7 @@
 import { logger } from '../../utils/logger';
 import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
+import { fetchCompleteDataset } from '../../services/balanceService';
 import * as XLSX from 'xlsx';
 import { useAccounting } from '../../context/AccountingContext';
 import { 
@@ -127,10 +128,12 @@ const SaaSAdmin: React.FC = () => {
       
       if (orgsError) throw orgsError;
 
-      // جلب البيانات الإضافية (مستخدمين ومبيعات) لكل الشركات
-      const [{ data: profiles }, { data: salesData }] = await Promise.all([
-        supabase.from('profiles').select('organization_id'),
-        supabase.from('invoices').select('organization_id, total_amount').eq('status', 'posted')
+      // جلب البيانات الإضافية (مستخدمين ومبيعات) لكل الشركات دون سقف 1000 فاتورة
+      const [profiles, salesData] = await Promise.all([
+        supabase.from('profiles').select('organization_id').then(res => res.data || []),
+        fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+          supabase.from('invoices').select('organization_id, total_amount').eq('status', 'posted').range(from, to)
+        )
       ]);
 
       const userCounts: Record<string, number> = {};
@@ -139,8 +142,9 @@ const SaaSAdmin: React.FC = () => {
       });
 
       const salesMap: Record<string, number> = {};
-      salesData?.forEach(inv => {
-        if (inv.organization_id) salesMap[inv.organization_id] = (salesMap[inv.organization_id] || 0) + Number(inv.total_amount);
+      (salesData || []).forEach((inv: Record<string, unknown>) => {
+        const oId = inv.organization_id as string;
+        if (oId) salesMap[oId] = (salesMap[oId] || 0) + Number(inv.total_amount || 0);
       });
 
       const processedOrgs = (orgsData || []).map(org => ({
