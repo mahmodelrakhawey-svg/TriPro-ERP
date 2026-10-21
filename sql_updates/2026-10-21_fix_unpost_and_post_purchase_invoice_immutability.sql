@@ -6,6 +6,47 @@
 --              عبر تفعيل نطاق السماح الداخلي (Scoped Mutation Bypass) في الدوال المخزنة المعتمدة
 -- ==============================================================================
 
+-- 0. تحديث مشغل حماية أطراف القيود المرحّلة ليدعم التجاوز النظامي المعتمد وإلغاء الترحيل
+CREATE OR REPLACE FUNCTION public.fn_protect_posted_journal_lines()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+    v_status TEXT;
+    v_bypass TEXT;
+BEGIN
+    BEGIN
+        v_bypass := current_setting('app.allow_financial_ledger_mutation', true);
+    EXCEPTION WHEN OTHERS THEN
+        v_bypass := 'false';
+    END;
+
+    IF v_bypass = 'true' THEN
+        IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+        ELSE
+            RETURN NEW;
+        END IF;
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        SELECT status INTO v_status FROM public.journal_entries WHERE id = OLD.journal_entry_id;
+        IF v_status = 'posted' THEN
+            RAISE EXCEPTION 'لا يمكن حذف أطراف قيد يومية مرحل (%s). يرجى إلغاء ترحيل القيد أولاً.', OLD.journal_entry_id;
+        END IF;
+        RETURN OLD;
+    ELSIF TG_OP = 'UPDATE' THEN
+        SELECT status INTO v_status FROM public.journal_entries WHERE id = NEW.journal_entry_id;
+        IF v_status = 'posted' AND (OLD.debit <> NEW.debit OR OLD.credit <> NEW.credit OR OLD.account_id <> NEW.account_id) THEN
+            RAISE EXCEPTION 'لا يمكن تعديل أطراف قيد يومية مرحل (%s). يرجى إلغاء ترحيل القيد أولاً.', NEW.journal_entry_id;
+        END IF;
+        RETURN NEW;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
 -- 1. تحديث دالة اعتماد وترحيل فاتورة المشتريات (approve_purchase_invoice)
 CREATE OR REPLACE FUNCTION public.approve_purchase_invoice(
     p_invoice_id uuid,
@@ -161,7 +202,13 @@ BEGIN
         END IF;
     END LOOP;
 
-    -- ج. مسح أي قيود محاسبية سابقة متبقية للفاتورة (مع تجاوز الحصانة المحاسبية بأمان)
+    -- ج. مسح أي قيود محاسبية سابقة متبقية للفاتورة (مع إلغاء ترحيلها أولاً وتجاوز الحصانة المحاسبية بأمان)
+    UPDATE public.journal_entries 
+    SET status = 'draft', is_posted = false 
+    WHERE (related_document_id = p_invoice_id AND related_document_type = 'purchase_invoice')
+       OR id = v_invoice.related_journal_entry_id
+       OR (reference = v_invoice.invoice_number AND organization_id = v_org_id AND reference IS NOT NULL);
+
     DELETE FROM public.journal_lines 
     WHERE journal_entry_id IN (
         SELECT id FROM public.journal_entries 
@@ -479,7 +526,11 @@ BEGIN
             WHERE id = v_orig_journal_id;
 
         ELSE
-            -- النمط المباشر: حذف أسطر القيد وقيده بأمان تحت نطاق السماح
+            -- النمط المباشر: إلغاء ترحيل القيد أولاً ثم حذف أسطره وقيده بأمان تحت نطاق السماح
+            UPDATE public.journal_entries 
+            SET status = 'draft', is_posted = false 
+            WHERE id = v_orig_journal_id;
+
             DELETE FROM public.journal_lines WHERE journal_entry_id = v_orig_journal_id;
             DELETE FROM public.journal_entries WHERE id = v_orig_journal_id;
         END IF;
@@ -488,6 +539,11 @@ BEGIN
     IF v_cancel_mode != 'reversal' THEN
         -- تنظيف أي قيود أخرى مرتبطة بالرقم المرجعي أو معرف الفاتورة
         IF v_invoice.invoice_number IS NOT NULL THEN
+            UPDATE public.journal_entries 
+            SET status = 'draft', is_posted = false 
+            WHERE reference = v_invoice.invoice_number 
+              AND (v_org_id IS NULL OR organization_id = v_org_id);
+
             DELETE FROM public.journal_lines 
             WHERE journal_entry_id IN (
                 SELECT id FROM public.journal_entries 
@@ -499,6 +555,11 @@ BEGIN
             WHERE reference = v_invoice.invoice_number 
               AND (v_org_id IS NULL OR organization_id = v_org_id);
         END IF;
+
+        UPDATE public.journal_entries 
+        SET status = 'draft', is_posted = false 
+        WHERE related_document_id = p_invoice_id 
+          AND related_document_type = 'purchase_invoice';
 
         DELETE FROM public.journal_lines 
         WHERE journal_entry_id IN (
@@ -634,7 +695,8 @@ BEGIN
 
     -- فحص وخصم المخزون مع القفل المتشائم
     FOR v_item IN
-        SELECT ii.*, p.product_type, p.base_uom_id
+        SELECT ii.*, p.product_type, p.base_uom_id,
+               COALESCE(NULLIF(p.weighted_average_cost, 0), NULLIF(p.cost, 0), p.purchase_price, ii.cost, 0) AS item_cost
         FROM public.invoice_items ii
         JOIN public.products p ON ii.product_id = p.id
         WHERE ii.invoice_id = p_invoice_id
@@ -675,7 +737,8 @@ BEGIN
                 END IF;
             END IF;
 
-            v_total_cost := v_total_cost + (v_base_qty * COALESCE(v_item.cost_price, 0));
+            v_total_cost := v_total_cost + (v_base_qty * COALESCE(v_item.item_cost, 0));
+            UPDATE public.invoice_items SET cost = v_item.item_cost WHERE id = v_item.id;
 
             IF v_wh_id IS NOT NULL THEN
                 UPDATE public.products
@@ -695,7 +758,13 @@ BEGIN
         END IF;
     END LOOP;
 
-    -- مسح أي قيود سابقة مرتبطة بالفاتورة بأمان
+    -- إلغاء ترحيل ومسح أي قيود سابقة مرتبطة بالفاتورة بأمان
+    UPDATE public.journal_entries
+    SET status = 'draft', is_posted = false
+    WHERE (related_document_id = p_invoice_id AND related_document_type = 'invoice')
+       OR id = v_invoice.related_journal_entry_id
+       OR (reference = v_invoice.invoice_number AND organization_id = v_org_id AND reference IS NOT NULL);
+
     DELETE FROM public.journal_lines
     WHERE journal_entry_id IN (
         SELECT id FROM public.journal_entries
@@ -806,6 +875,26 @@ EXCEPTION WHEN OTHERS THEN
     RAISE;
 END;
 $$;
+
+
+-- Alias دالة ترحيل فاتورة المبيعات (post_sales_invoice)
+CREATE OR REPLACE FUNCTION public.post_sales_invoice(
+    p_invoice_id uuid,
+    p_org_id uuid DEFAULT NULL,
+    p_warehouse_id uuid DEFAULT NULL
+)
+RETURNS void 
+LANGUAGE plpgsql 
+SECURITY DEFINER 
+SET search_path = public 
+AS $$
+BEGIN
+    PERFORM public.approve_invoice(p_invoice_id, p_org_id, p_warehouse_id);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.approve_invoice(uuid, uuid, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.post_sales_invoice(uuid, uuid, uuid) TO authenticated, service_role;
 
 
 -- 5. تحديث دالة إلغاء ترحيل فاتورة المبيعات (unpost_sales_invoice) لدعم الحصانة
@@ -974,6 +1063,10 @@ BEGIN
             WHERE id = v_orig_journal_id;
 
         ELSE
+            UPDATE public.journal_entries 
+            SET status = 'draft', is_posted = false 
+            WHERE id = v_orig_journal_id;
+
             DELETE FROM public.journal_lines WHERE journal_entry_id = v_orig_journal_id;
             DELETE FROM public.journal_entries WHERE id = v_orig_journal_id;
         END IF;
@@ -981,6 +1074,11 @@ BEGIN
 
     IF v_cancel_mode != 'reversal' THEN
         IF v_invoice.invoice_number IS NOT NULL THEN
+            UPDATE public.journal_entries 
+            SET status = 'draft', is_posted = false 
+            WHERE reference = v_invoice.invoice_number 
+              AND (v_org_id IS NULL OR organization_id = v_org_id);
+
             DELETE FROM public.journal_lines 
             WHERE journal_entry_id IN (
                 SELECT id FROM public.journal_entries 
@@ -992,6 +1090,11 @@ BEGIN
             WHERE reference = v_invoice.invoice_number 
               AND (v_org_id IS NULL OR organization_id = v_org_id);
         END IF;
+
+        UPDATE public.journal_entries 
+        SET status = 'draft', is_posted = false 
+        WHERE related_document_id = p_invoice_id 
+          AND related_document_type = 'invoice';
 
         DELETE FROM public.journal_lines 
         WHERE journal_entry_id IN (
@@ -1079,6 +1182,11 @@ BEGIN
     UPDATE public.payroll_variables 
     SET is_processed = false 
     WHERE month = v_payroll.payroll_month AND year = v_payroll.payroll_year AND organization_id = v_org_id;
+
+    UPDATE public.journal_entries 
+    SET status = 'draft', is_posted = false 
+    WHERE (id = v_payroll.accrual_je_id OR (related_document_id = p_payroll_id AND related_document_type = 'payroll'))
+      AND organization_id = v_org_id;
 
     DELETE FROM public.journal_lines 
     WHERE journal_entry_id IN (
