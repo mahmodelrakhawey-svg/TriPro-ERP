@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>دليل إغلاق وردية الكاشير واستلام النقدية - TriPro ERP</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Cairo', sans-serif; }
+        .step-active { border-color: #2563eb; background-color: #eff6ff; }
+        .pulse-btn { animation: pulse 2s infinite; }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.03); }
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen py-8 px-4 sm:px-6">
+
+    <div class="max-w-5xl mx-auto space-y-6">
+
+        <!-- Header -->
+        <header class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-4">
+                <div class="w-14 h-14 bg-blue-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-blue-500/30">
+                    <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
+                <div>
+                    <span class="text-xs font-bold text-blue-400 bg-blue-900/50 px-2.5 py-1 rounded-md border border-blue-500/30">دليل تشغيلي مرئي وصوتي</span>
+                    <h1 class="text-2xl font-black text-white mt-1">طريقة إغلاق الوردية واستلام النقدية (الإغلاق الأعمى)</h1>
+                    <p class="text-xs text-slate-400">نظام TriPro ERP — معايير الأمان المالي والرقابة المزدوجة</p>
+                </div>
+            </div>
+
+            <!-- Audio Player Card -->
+            <div class="bg-slate-950 border border-blue-500/40 p-4 rounded-xl shadow-inner w-full md:w-auto flex flex-col items-center gap-2">
+                <div class="flex items-center gap-2 text-xs font-bold text-blue-300">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping"></span>
+                    <span>التعليق الصوتي التدريبي (Audio)</span>
+                </div>
+                <audio controls class="w-full md:w-80 h-9 outline-none rounded-lg" style="filter: invert(0.9) hue-rotate(180deg);">
+                    <source src="shift_closing_tutorial.mp3" type="audio/mpeg">
+                    متصفحك لا يدعم تشغيل الصوت.
+                </audio>
+            </div>
+        </header>
+
+        <!-- Steps Timeline Navigation -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <button onclick="setStep(1)" id="btn-step-1" class="step-btn bg-slate-800 border-2 border-blue-600 p-3 rounded-xl text-right transition-all hover:bg-slate-700">
+                <span class="text-xs font-bold text-blue-400 block">الخطوة 1</span>
+                <span class="text-sm font-black text-white">طلب إغلاق الوردية</span>
+            </button>
+            <button onclick="setStep(2)" id="btn-step-2" class="step-btn bg-slate-800 border border-slate-700 p-3 rounded-xl text-right transition-all hover:bg-slate-700">
+                <span class="text-xs font-bold text-slate-400 block">الخطوة 2</span>
+                <span class="text-sm font-black text-white">عد الفئات (أعمى)</span>
+            </button>
+            <button onclick="setStep(3)" id="btn-step-3" class="step-btn bg-slate-800 border border-slate-700 p-3 rounded-xl text-right transition-all hover:bg-slate-700">
+                <span class="text-xs font-bold text-slate-400 block">الخطوة 3</span>
+                <span class="text-sm font-black text-white">مطابقة الفيزا والمحافظ</span>
+            </button>
+            <button onclick="setStep(4)" id="btn-step-4" class="step-btn bg-slate-800 border border-slate-700 p-3 rounded-xl text-right transition-all hover:bg-slate-700">
+                <span class="text-xs font-bold text-slate-400 block">الخطوة 4</span>
+                <span class="text-sm font-black text-white">التسليم والقيد الآلي</span>
+            </button>
+        </div>
+
+        <!-- Interactive Simulator Canvas -->
+        <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
+            
+            <!-- Step 1 Content -->
+            <div id="step-1" class="step-content space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-700 pb-3">
+                    <h2 class="text-lg font-bold text-blue-400 flex items-center gap-2">
+                        <span>1️⃣ زر إغلاق الوردية بشاشة الكاشير</span>
+                    </h2>
+                    <span class="text-xs bg-slate-700 px-3 py-1 rounded-full text-slate-300">موقع الزر: الشريط العلوي</span>
+                </div>
+                <p class="text-sm text-slate-300 leading-relaxed">
+                    عند انتهاء فترة عمل الكاشير أو تبديل الشيفت، يقوم الكاشير بالضغط على زر 
+                    <strong class="text-rose-400 font-bold">"إغلاق الوردية / تسليم الشيفت"</strong> 
+                    الموجود أعلى شاشة نقاط البيع (POS).
+                </p>
+                <!-- Simulation UI Mockup -->
+                <div class="bg-slate-900 border border-slate-700 rounded-xl p-4 shadow-inner">
+                    <div class="bg-slate-800 p-3 rounded-lg flex items-center justify-between border border-slate-700">
+                        <div class="flex items-center gap-3">
+                            <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span class="font-bold text-sm text-white">الوردية الحالية: #SHIFT-2026-10-21-01</span>
+                            <span class="text-xs text-slate-400 font-mono">(الكاشير: أحمد محمود)</span>
+                        </div>
+                        <button onclick="setStep(2)" class="pulse-btn bg-rose-600 hover:bg-rose-700 text-white font-black text-xs px-4 py-2 rounded-lg shadow-lg flex items-center gap-2 cursor-pointer">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+                            <span>إغلاق الوردية وتسليم النقدية</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2 Content -->
+            <div id="step-2" class="step-content hidden space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-700 pb-3">
+                    <h2 class="text-lg font-bold text-amber-400 flex items-center gap-2">
+                        <span>2️⃣ الإغلاق الأعمى وعد فئات النقدية (Blind Counting)</span>
+                    </h2>
+                    <span class="text-xs bg-amber-900/50 border border-amber-500/40 text-amber-300 px-3 py-1 rounded-full">🛡️ صمام منع التلاعب</span>
+                </div>
+                <p class="text-sm text-slate-300 leading-relaxed">
+                    <strong>لماذا يسمى إغلاقاً أعمى؟</strong> النظام يتعمد <span class="text-amber-400 underline decoration-wavy">إخفاء إجمالي مبيعات الدرج المحسوبة</span> عن الكاشير، ويطلب منه عد النقود الموجودة فعلياً في الدرج فئة بفئة لمنع أي سرقة أو مطابقة وهمية.
+                </p>
+
+                <!-- Interactive Cash Counter -->
+                <div class="bg-slate-900 border border-slate-700 rounded-xl p-4 space-y-3">
+                    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                        <div class="bg-slate-800 p-2.5 rounded-lg border border-slate-700 text-center">
+                            <span class="text-xs font-bold text-slate-400 block mb-1">فئة 200 ج.م</span>
+                            <input type="number" id="c200" value="10" oninput="calcCash()" class="w-full bg-slate-950 border border-slate-600 rounded px-2 py-1 text-center font-bold text-emerald-400 text-sm">
+                            <span class="text-[11px] text-slate-500 block mt-1" id="sum200">2,000 ج.م</span>
+                        </div>
+                        <div class="bg-slate-800 p-2.5 rounded-lg border border-slate-700 text-center">
+                            <span class="text-xs font-bold text-slate-400 block mb-1">فئة 100 ج.م</span>
+                            <input type="number" id="c100" value="15" oninput="calcCash()" class="w-full bg-slate-950 border border-slate-600 rounded px-2 py-1 text-center font-bold text-emerald-400 text-sm">
+                            <span class="text-[11px] text-slate-500 block mt-1" id="sum100">1,500 ج.م</span>
+                        </div>
+                        <div class="bg-slate-800 p-2.5 rounded-lg border border-slate-700 text-center">
+                            <span class="text-xs font-bold text-slate-400 block mb-1">فئة 50 ج.م</span>
+                            <input type="number" id="c50" value="8" oninput="calcCash()" class="w-full bg-slate-950 border border-slate-600 rounded px-2 py-1 text-center font-bold text-emerald-400 text-sm">
+                            <span class="text-[11px] text-slate-500 block mt-1" id="sum50">400 ج.م</span>
+                        </div>
+                        <div class="bg-slate-800 p-2.5 rounded-lg border border-slate-700 text-center">
+                            <span class="text-xs font-bold text-slate-400 block mb-1">فئة 20 ج.م</span>
+                            <input type="number" id="c20" value="5" oninput="calcCash()" class="w-full bg-slate-950 border border-slate-600 rounded px-2 py-1 text-center font-bold text-emerald-400 text-sm">
+                            <span class="text-[11px] text-slate-500 block mt-1" id="sum20">100 ج.م</span>
+                        </div>
+                        <div class="bg-slate-800 p-2.5 rounded-lg border border-slate-700 text-center">
+                            <span class="text-xs font-bold text-slate-400 block mb-1">فئة 10 ج.م وأقل</span>
+                            <input type="number" id="c10" value="10" oninput="calcCash()" class="w-full bg-slate-950 border border-slate-600 rounded px-2 py-1 text-center font-bold text-emerald-400 text-sm">
+                            <span class="text-[11px] text-slate-500 block mt-1" id="sum10">100 ج.م</span>
+                        </div>
+                    </div>
+
+                    <div class="bg-emerald-950/40 border border-emerald-500/30 p-3 rounded-lg flex items-center justify-between">
+                        <span class="text-xs font-bold text-emerald-300">إجمالي النقدية الفعلية المحصية بالدرج:</span>
+                        <span class="text-lg font-black text-emerald-400" id="totalCash">4,100.00 ج.م</span>
+                    </div>
+
+                    <div class="text-left">
+                        <button onclick="setStep(3)" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-5 py-2 rounded-lg cursor-pointer">
+                            التالي: مطابقة الفيزا والمحافظ ➔
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3 Content -->
+            <div id="step-3" class="step-content hidden space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-700 pb-3">
+                    <h2 class="text-lg font-bold text-purple-400 flex items-center gap-2">
+                        <span>3️⃣ مطابقة المدفوعات غير النقدية (الفيزا، إنستاباي، المحافظ)</span>
+                    </h2>
+                    <span class="text-xs bg-purple-900/50 border border-purple-500/40 text-purple-300 px-3 py-1 rounded-full">إيصالات الماكينات البنكية</span>
+                </div>
+                <p class="text-sm text-slate-300 leading-relaxed">
+                    يقوم الكاشير بجمع إيصالات ماكينة نقاط البيع البنكية (POS Terminal Slip) وإدخال الإجماليات لكل وسيلة دفع للتأكد من توريدها للحسابات البنكية.
+                </p>
+
+                <div class="bg-slate-900 border border-slate-700 rounded-xl p-4 space-y-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div class="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                            <label class="text-xs font-bold text-slate-400 block mb-1">💳 بطاقات الفيزا / ماستركارد:</label>
+                            <input type="number" value="1250.00" class="w-full bg-slate-950 border border-slate-600 rounded px-3 py-1.5 font-bold text-purple-300 text-sm">
+                        </div>
+                        <div class="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                            <label class="text-xs font-bold text-slate-400 block mb-1">⚡ شبكة إنستاباي (InstaPay):</label>
+                            <input type="number" value="450.00" class="w-full bg-slate-950 border border-slate-600 rounded px-3 py-1.5 font-bold text-purple-300 text-sm">
+                        </div>
+                        <div class="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                            <label class="text-xs font-bold text-slate-400 block mb-1">📱 المحافظ الإلكترونية (Vodafone Cash):</label>
+                            <input type="number" value="200.00" class="w-full bg-slate-950 border border-slate-600 rounded px-3 py-1.5 font-bold text-purple-300 text-sm">
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between pt-2">
+                        <button onclick="setStep(2)" class="text-xs text-slate-400 hover:text-white font-bold cursor-pointer">
+                            ⬅ العودة للعد النقدي
+                        </button>
+                        <button onclick="setStep(4)" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-5 py-2 rounded-lg cursor-pointer">
+                            التالي: التوقيع والإقفال النهائي ➔
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4 Content -->
+            <div id="step-4" class="step-content hidden space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-700 pb-3">
+                    <h2 class="text-lg font-bold text-emerald-400 flex items-center gap-2">
+                        <span>4️⃣ التوقيع المشترك والتسليم وقيد الأستاذ العام الآلي</span>
+                    </h2>
+                    <span class="text-xs bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 px-3 py-1 rounded-full">🤝 الرقابة المزدوجة</span>
+                </div>
+                <p class="text-sm text-slate-300 leading-relaxed">
+                    يقوم المشرف أو الكاشير المستلم بالتوقيع على استلام النقدية المحصورة؛ وبمجرد التأكيد يقوم النظام بإنشاء قيد الإقفال الآلي فوراً:
+                </p>
+
+                <div class="bg-slate-900 border border-emerald-500/40 rounded-xl p-4 space-y-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div class="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                            <span class="text-xs text-slate-400 font-bold block mb-1">المسلم (الكاشير المنتهي شيفته):</span>
+                            <div class="font-bold text-sm text-white">أحمد محمود حسانين ✔️</div>
+                            <span class="text-[11px] text-emerald-400">تم التوقيع الرقمي: 21-10-2026 23:05</span>
+                        </div>
+                        <div class="bg-slate-800 p-3 rounded-lg border border-slate-700">
+                            <span class="text-xs text-slate-400 font-bold block mb-1">المستلم (المشرف / كاشير الوردية التالية):</span>
+                            <div class="font-bold text-sm text-blue-300">محمد علي إبراهيم (مشرف الفرع) ✔️</div>
+                            <span class="text-[11px] text-blue-400">تم اعتماد استلام المبلغ وتوريده للخزينة</span>
+                        </div>
+                    </div>
+
+                    <!-- Journal Entry Preview -->
+                    <div class="bg-slate-950 p-3 rounded-lg border border-slate-700 font-mono text-xs space-y-1">
+                        <div class="text-emerald-400 font-bold pb-1 border-b border-slate-800">📋 القيد المحاسبي المتولد آلياً (Auto Shift Closing Entry):</div>
+                        <div class="flex justify-between text-slate-300">
+                            <span>من حـ/ الخزينة الرئيسية (نقدية الوردية المستلمة)</span>
+                            <span class="font-bold text-emerald-400">4,100.00 ج.م (مدين)</span>
+                        </div>
+                        <div class="flex justify-between text-slate-300">
+                            <span>من حـ/ البنك - مبيعات نقاط البيع (فيزا وإنستاباي)</span>
+                            <span class="font-bold text-purple-400">1,900.00 ج.م (مدين)</span>
+                        </div>
+                        <div class="flex justify-between text-slate-300">
+                            <span>إلى حـ/ إيرادات مبيعات الكاشير</span>
+                            <span class="font-bold text-blue-400">6,000.00 ج.م (دائن)</span>
+                        </div>
+                    </div>
+
+                    <div class="text-center pt-2">
+                        <div class="inline-flex items-center gap-2 bg-emerald-600 text-white font-black text-sm px-6 py-2.5 rounded-xl shadow-lg">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                            <span>تم إقفال الوردية بنجاح تام وتصفير الدرج للوردية الجديدة</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Footer Help -->
+        <footer class="text-center text-xs text-slate-500 py-2">
+            تم إنشاء هذا الدليل التفاعلي والصوتي آلياً بواسطة TriPro ERP Intelligent Documentation Suite.
+        </footer>
+
+    </div>
+
+    <script>
+        function setStep(stepNum) {
+            document.querySelectorAll('.step-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById('step-' + stepNum).classList.remove('hidden');
+
+            document.querySelectorAll('.step-btn').forEach(btn => {
+                btn.classList.remove('border-blue-600', 'bg-blue-900/30');
+                btn.classList.add('border-slate-700', 'bg-slate-800');
+            });
+
+            const activeBtn = document.getElementById('btn-step-' + stepNum);
+            activeBtn.classList.remove('border-slate-700', 'bg-slate-800');
+            activeBtn.classList.add('border-blue-600', 'bg-blue-900/30');
+        }
+
+        function calcCash() {
+            const v200 = (parseFloat(document.getElementById('c200').value) || 0) * 200;
+            const v100 = (parseFloat(document.getElementById('c100').value) || 0) * 100;
+            const v50 = (parseFloat(document.getElementById('c50').value) || 0) * 50;
+            const v20 = (parseFloat(document.getElementById('c20').value) || 0) * 20;
+            const v10 = (parseFloat(document.getElementById('c10').value) || 0) * 10;
+
+            document.getElementById('sum200').innerText = v200.toLocaleString() + ' ج.م';
+            document.getElementById('sum100').innerText = v100.toLocaleString() + ' ج.م';
+            document.getElementById('sum50').innerText = v50.toLocaleString() + ' ج.م';
+            document.getElementById('sum20').innerText = v20.toLocaleString() + ' ج.م';
+            document.getElementById('sum10').innerText = v10.toLocaleString() + ' ج.م';
+
+            const total = v200 + v100 + v50 + v20 + v10;
+            document.getElementById('totalCash').innerText = total.toLocaleString(undefined, {minimumFractionDigits: 2}) + ' ج.م';
+        }
+    </script>
+</body>
+</html>
