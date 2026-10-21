@@ -58,7 +58,7 @@ import RetailPosHeader from './RetailPosHeader';
 import RetailPosCartTable from './RetailPosCartTable';
 import RetailPosShiftOpenView from './RetailPosShiftOpenView';
 import RetailPosPaymentPanel from './RetailPosPaymentPanel';
-import RetailPosShiftCloseModal from './RetailPosShiftCloseModal';
+import RetailPosShiftCloseModal, { ShiftReconciliationPayload } from './RetailPosShiftCloseModal';
 import RetailPosPrintReceipt from './RetailPosPrintReceipt';
 import RetailPosShortcutsFooter from './RetailPosShortcutsFooter';
 
@@ -975,7 +975,7 @@ export default function RetailPosScreen() {
   };
 
   // Close Shift Final
-  const handleConfirmCloseShift = async () => {
+  const handleConfirmCloseShift = async (reconciliation?: ShiftReconciliationPayload) => {
     if (actualCash === 0 && Number(shiftSummary?.expected_cash || 0) > 0) {
       const confirmZero = window.confirm(
         `تنبيه هـام: لقد تم إدخال المبلغ الفعلي بالدرج 0.00 ${currencySymbol}، بينما المتوقع هو ${Number(shiftSummary.expected_cash).toFixed(2)} ${currencySymbol}.\n\nسيتم تسجيل هذا النقص كعجز صندوق بالكامل.\n\nهل أنت متأكد من المتابعة والإغلاق؟`
@@ -998,7 +998,8 @@ export default function RetailPosScreen() {
         p_shift_id: activeShift.id,
         p_actual_cash: Number(actualCash),
         p_notes: closingNotes || 'إغلاق وردية التجزئة السريعة',
-        p_org_id: currentUser.organization_id
+        p_org_id: currentUser.organization_id,
+        p_reconciliation: reconciliation || null
       });
       if (error) throw error;
 
@@ -1359,14 +1360,35 @@ export default function RetailPosScreen() {
           };
           setCashDrops(prev => [newDrop, ...prev]);
 
-          // Save cash drop to database with type, accounts, and public_shift_id
+          // Map payoutType to unified pos_drawer_transactions type & persist via RPC
+          let drawerType = 'SAFE_DROP';
+          if (payoutType === 'EXPENSE') drawerType = 'PAID_OUT_EXPENSE';
+          else if (payoutType === 'PAID_IN') drawerType = 'PAID_IN';
+          else if (payoutType === 'ADVANCE_DEPOSIT_IN') drawerType = 'ADVANCE_DEPOSIT_IN';
+          else if (payoutType === 'VAULT_TRANSFER' || payoutType === 'CUSTODIAN') drawerType = 'SAFE_DROP';
+
+          try {
+            if (activeShift?.id && isValidUUID(activeShift.id)) {
+              await supabase.rpc('record_pos_drawer_transaction', {
+                p_shift_id: activeShift.id,
+                p_transaction_type: drawerType,
+                p_amount: amt,
+                p_reason: reason || payoutType,
+                p_account_id: payoutType === 'EXPENSE' ? expenseAccountId : (targetAccountId || null),
+                p_custodian_name: payoutType === 'CUSTODIAN' ? receiver : null,
+                p_org_id: currentSelectedOrgId || currentUser?.organization_id
+              });
+            }
+          } catch (drawerErr) {
+            logger.warn('Error recording drawer transaction via RPC:', drawerErr);
+          }
           try {
             const { error: dropErr } = await supabase.from('pos_petty_cash_payouts').insert({
               organization_id: currentSelectedOrgId || currentUser?.organization_id,
               public_shift_id: (activeShift?.id && isValidUUID(activeShift.id)) ? activeShift.id : null,   // UUID من public.shifts
               cashier_id: currentUser?.id,
               amount: amt,
-              payout_type: payoutType,
+              payout_type: (payoutType === 'PAID_IN' || (payoutType as string) === 'ADVANCE_DEPOSIT_IN') ? 'PAID_IN' : (payoutType === 'EXPENSE' ? 'EXPENSE' : 'SAFE_DROP'),
               reason: reason || payoutType,
               expense_account_id: expenseAccountId || null,
               target_account_id: targetAccountId || null,

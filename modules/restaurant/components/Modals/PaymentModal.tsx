@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
-import { X, CreditCard, Banknote, Wallet, CheckCircle2, Loader2, Receipt, Minus, Plus } from 'lucide-react';
+import { X, CreditCard, Banknote, Wallet, CheckCircle2, Loader2, Receipt, Minus, Plus, Zap } from 'lucide-react';
 import { getCurrencySymbol } from '../../../../utils/constants';
 import { driverDispatchService } from '../../../../services/driverDispatchService';
 
@@ -18,7 +18,7 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [order, setOrder] = useState<any>(null);
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'WALLET'>('CASH');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'WALLET' | 'INSTAPAY'>('CASH');
   
   const [splitMode, setSplitMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<any[]>([]);
@@ -233,23 +233,24 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
           </div>
 
           {/* Payment Methods */}
-          <div className="grid grid-cols-3 gap-4 mb-8">
+          <div className="grid grid-cols-4 gap-2.5 mb-8">
             {[
               { id: 'CASH', label: 'نقدي', icon: Banknote, color: 'emerald' },
               { id: 'CARD', label: 'شبكة', icon: CreditCard, color: 'blue' },
+              { id: 'INSTAPAY', label: 'إنستاباي', icon: Zap, color: 'amber' },
               { id: 'WALLET', label: 'محفظة', icon: Wallet, color: 'purple' }
             ].map((method) => (
               <button
                 key={method.id}
-                onClick={() => setPaymentMethod(method.id as any)}
-                className={`flex flex-col items-center gap-3 p-4 rounded-2xl border-2 transition-all ${
+                onClick={() => setPaymentMethod(method.id as 'CASH' | 'CARD' | 'WALLET' | 'INSTAPAY')}
+                className={`flex flex-col items-center gap-2 p-3 rounded-2xl border-2 transition-all ${
                   paymentMethod === method.id 
                   ? `border-${method.color}-500 bg-${method.color}-50 text-${method.color}-700 shadow-inner` 
                   : 'border-slate-100 hover:border-slate-300 text-slate-500'
                 }`}
               >
-                <method.icon size={28} />
-                <span className="font-bold text-sm">{method.label}</span>
+                <method.icon size={24} />
+                <span className="font-bold text-xs">{method.label}</span>
               </button>
             ))}
           </div>

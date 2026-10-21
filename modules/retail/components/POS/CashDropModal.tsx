@@ -1,10 +1,10 @@
 import { logger } from '../../../../utils/logger';
 import React, { useState, useEffect } from 'react';
-import { Banknote, Printer, X, AlertCircle, Building2, Landmark, Receipt } from 'lucide-react';
+import { Banknote, Printer, X, AlertCircle, Building2, Landmark, Receipt, PlusCircle, CalendarCheck } from 'lucide-react';
 import { useToast } from '../../../../context/ToastContext';
 import { supabase } from '../../../../supabaseClient';
 
-export type CashDropPayoutType = 'EXPENSE' | 'CUSTODIAN' | 'VAULT_TRANSFER';
+export type CashDropPayoutType = 'EXPENSE' | 'CUSTODIAN' | 'VAULT_TRANSFER' | 'PAID_IN' | 'ADVANCE_DEPOSIT_IN';
 
 interface AccountOption {
   id: string;
@@ -37,6 +37,13 @@ const PAYOUT_TYPES: { value: CashDropPayoutType; label: string; icon: React.Reac
     desc: 'دفع مصاريف مباشرة من الدرج (كهرباء، نظافة، مستلزمات)'
   },
   {
+    value: 'VAULT_TRANSFER',
+    label: 'تحويل لخزينة',
+    icon: <Building2 size={18} />,
+    color: 'border-blue-400 bg-blue-50 text-blue-700',
+    desc: 'توريد نقدية فائضة إلى خزينة الإدارة أو خزينة أخرى'
+  },
+  {
     value: 'CUSTODIAN',
     label: 'سحب عهدة',
     icon: <Landmark size={18} />,
@@ -44,11 +51,18 @@ const PAYOUT_TYPES: { value: CashDropPayoutType; label: string; icon: React.Reac
     desc: 'سحب نقدية كعهدة مع المدير أو الأمين (تُسترد لاحقاً)'
   },
   {
-    value: 'VAULT_TRANSFER',
-    label: 'تحويل لخزينة',
-    icon: <Building2 size={18} />,
-    color: 'border-blue-400 bg-blue-50 text-blue-700',
-    desc: 'توريد نقدية فائضة إلى خزينة الإدارة أو خزينة أخرى'
+    value: 'PAID_IN',
+    label: 'تزويد فكة (إيداع بالدرج)',
+    icon: <PlusCircle size={18} />,
+    color: 'border-emerald-400 bg-emerald-50 text-emerald-700',
+    desc: 'إيداع نقدية إضافية بالدرج كفكة ترفع رصيد الدرج'
+  },
+  {
+    value: 'ADVANCE_DEPOSIT_IN',
+    label: 'استلام عربون حجز نقداً',
+    icon: <CalendarCheck size={18} />,
+    color: 'border-teal-400 bg-teal-50 text-teal-700',
+    desc: 'استلام عربون أو دفعة حجز نقدية بالدرج (التزام عملاء - دفعات مقدمة)'
   }
 ];
 
@@ -113,8 +127,10 @@ export default function CashDropModal({
     setSelectedExpenseAccount('');
     setSelectedTargetAccount('');
     setReason(
-      payoutType === 'VAULT_TRANSFER' ? 'توريد نقدية فائضة لخزينة الإدارة' :
-      payoutType === 'CUSTODIAN'      ? 'سحب عهدة نقدية' :
+      payoutType === 'VAULT_TRANSFER'    ? 'توريد نقدية فائضة لخزينة الإدارة' :
+      payoutType === 'CUSTODIAN'         ? 'سحب عهدة نقدية' :
+      payoutType === 'PAID_IN'           ? 'تزويد نقدية فكة بالدرج' :
+      payoutType === 'ADVANCE_DEPOSIT_IN' ? 'استلام عربون حجز نقداً' :
       ''
     );
   }, [payoutType]);
@@ -131,7 +147,7 @@ export default function CashDropModal({
       showToast('يرجى إدخال مبلغ صحيح', 'error');
       return;
     }
-    if (numAmount > currentDrawerTotal) {
+    if (payoutType !== 'PAID_IN' && payoutType !== 'ADVANCE_DEPOSIT_IN' && numAmount > currentDrawerTotal) {
       if (!window.confirm(`المبلغ (${numAmount.toFixed(2)}) أكبر من الرصيد التقديري بالدرج (${currentDrawerTotal.toFixed(2)}). هل تريد المتابعة؟`)) {
         return;
       }

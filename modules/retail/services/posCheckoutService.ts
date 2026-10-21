@@ -113,6 +113,20 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
     paymentAmount: total
   };
 
+  // Build multi-channel payments payload for atomic RPC & payments ledger
+  const paymentsPayload: Array<{ amount: number; method: string; sub_method?: string; auth_reference?: string }> = [];
+  if (splitData) {
+    if (splitData.cash > 0) paymentsPayload.push({ amount: splitData.cash, method: 'CASH', sub_method: 'CASH' });
+    if (splitData.card > 0) paymentsPayload.push({ amount: splitData.card, method: 'CARD', sub_method: 'CARD' });
+    if (splitData.instapay && splitData.instapay > 0) paymentsPayload.push({ amount: splitData.instapay, method: 'INSTAPAY', sub_method: 'INSTAPAY' });
+    if (splitData.wallet && splitData.wallet > 0) paymentsPayload.push({ amount: splitData.wallet, method: 'WALLET', sub_method: 'WALLET' });
+    if (splitData.deposit && splitData.deposit > 0) paymentsPayload.push({ amount: splitData.deposit, method: 'DEPOSIT_REDEEMED', sub_method: 'DEPOSIT_REDEEMED' });
+    if (splitData.credit > 0) paymentsPayload.push({ amount: splitData.credit, method: 'CREDIT', sub_method: 'CREDIT' });
+    if (splitData.loyalty > 0) paymentsPayload.push({ amount: splitData.loyalty, method: 'LOYALTY', sub_method: 'LOYALTY' });
+  } else {
+    paymentsPayload.push({ amount: total, method: effectiveMethod, sub_method: effectiveMethod });
+  }
+
   let orderId: string | null = null;
   let actualOrderNumber = '';
 
@@ -143,7 +157,8 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
         p_total_discount: totalDiscount || 0,
         p_notes: orderData.notes,
         p_cash_account_id: validTreasuryId,
-        p_tax: tax || 0
+        p_tax: tax || 0,
+        p_payments: paymentsPayload
       });
 
       if (!atomicErr && atomicData?.success) {
@@ -216,6 +231,26 @@ export async function processPosCheckout(params: PosCheckoutParams): Promise<Pos
         });
 
         if (payErr) throw payErr;
+
+        // If split payment, insert individual channel records for shift summary accounting
+        if (paymentsPayload.length > 1) {
+          try {
+            await supabase.from('payments').delete().eq('order_id', orderId);
+            const splitInserts = paymentsPayload.map(p => ({
+              order_id: orderId,
+              amount: p.amount,
+              payment_method: p.method,
+              sub_method: p.sub_method || p.method,
+              status: 'COMPLETED',
+              organization_id: effectiveOrgId,
+              cash_account_id: validTreasuryId,
+              shift_id: validShiftId
+            }));
+            await supabase.from('payments').insert(splitInserts);
+          } catch (splitInsertErr) {
+            logger.warn('Could not insert split payment detail records:', splitInsertErr);
+          }
+        }
       }
     }
 

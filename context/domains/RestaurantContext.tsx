@@ -11,6 +11,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import type { UserProfile } from '../AccountingContext';
+import type { ShiftReconciliationData } from '../../types';
 import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
@@ -39,7 +40,7 @@ export interface RestaurantDomainState {
   deleteRestaurantTable: (id: string) => Promise<void>;
   updateKitchenOrderStatus: (id: string, status: string) => Promise<void>;
   startShift: (amount: number) => Promise<void>;
-  closeCurrentShift: (actualCash: number, notes: string) => Promise<void>;
+  closeCurrentShift: (actualCash: number, notes: string, reconciliation?: ShiftReconciliationData | null) => Promise<void>;
   getCurrentShiftSummary: () => Promise<any>;
   finalizeProductionOrder: (id: string, status: string, notes: string) => Promise<any>;
   refreshRestaurant?: () => Promise<void>;
@@ -570,7 +571,7 @@ export const RestaurantProvider: React.FC<RestaurantProviderProps> = ({
     }
   }, [getSystemAccount, cashAccountId, isDemo, currentUser, targetOrgId, notify, logActivity, refreshData, fetchActiveShift]);
 
-  const closeCurrentShift = useCallback(async (actualCash: number, notes: string): Promise<void> => {
+  const closeCurrentShift = useCallback(async (actualCash: number, notes: string, reconciliation?: ShiftReconciliationData | null): Promise<void> => {
     const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
     if (!navigator.onLine || isDemo || !isValidUUID(shiftId)) {
       setCurrentShift(null);
@@ -591,7 +592,8 @@ export const RestaurantProvider: React.FC<RestaurantProviderProps> = ({
         p_shift_id: shiftId,
         p_actual_cash: actualCash,
         p_notes: notes,
-        p_org_id: effectiveOrg
+        p_org_id: effectiveOrg,
+        p_reconciliation: reconciliation || null
       });
       if (error) throw error;
       setCurrentShift(null);
@@ -711,7 +713,7 @@ export const useRestaurantDomain = (): RestaurantDomainState => {
     deleteRestaurantTable: acc.deleteRestaurantTable as (id: string) => Promise<void>,
     updateKitchenOrderStatus: acc.updateKitchenOrderStatus as (id: string, status: string) => Promise<void>,
     startShift: acc.startShift as (amount: number) => Promise<void>,
-    closeCurrentShift: acc.closeCurrentShift as (actualCash: number, notes: string) => Promise<void>,
+    closeCurrentShift: acc.closeCurrentShift as (actualCash: number, notes: string, reconciliation?: ShiftReconciliationData | null) => Promise<void>,
     getCurrentShiftSummary: acc.getCurrentShiftSummary as () => Promise<any>,
     finalizeProductionOrder: acc.finalizeProductionOrder as (id: string, status: string, notes: string) => Promise<any>,
     refreshRestaurant: acc.refreshData as () => Promise<void>,

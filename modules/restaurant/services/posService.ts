@@ -1,6 +1,7 @@
 import { supabase } from '../../../supabaseClient';
 import { handleError } from '../../../utils/errorHandler';
 import { toast } from 'react-hot-toast';
+import type { ShiftReconciliationData } from '../../../types';
 
 /**
  * خدمة نقاط البيع والمحاسبة (POS & Accounting Service)
@@ -93,15 +94,48 @@ export const posService = {
   },
 
   /**
+   * تسجيل حركة نقدية بالدرج (مصروف نثري، تزويد فكة، توريد خزينة، استلام عربون)
+   */
+  async recordDrawerTransaction(params: {
+    shiftId: string;
+    type: 'PAID_OUT_EXPENSE' | 'SAFE_DROP' | 'PAID_IN' | 'ADVANCE_DEPOSIT_IN';
+    amount: number;
+    reason?: string | null;
+    accountId?: string | null;
+    custodianName?: string | null;
+    orgId?: string | null;
+  }) {
+    try {
+      const { data, error } = await supabase.rpc('record_pos_drawer_transaction', {
+        p_shift_id: params.shiftId,
+        p_transaction_type: params.type,
+        p_amount: params.amount,
+        p_reason: params.reason || null,
+        p_account_id: params.accountId || null,
+        p_custodian_name: params.custodianName || null,
+        p_org_id: params.orgId || null
+      });
+
+      if (error) throw error;
+      toast.success('تم تسجيل حركة الدرج النقدية بنجاح 💵');
+      return data;
+    } catch (err) {
+      handleError(err, { context: { functionName: 'recordDrawerTransaction' } });
+      throw err;
+    }
+  },
+
+  /**
    * إغلاق الوردية وتوليد القيود
    */
-  async closeShift(shiftId: string, actualCash: number, orgId: string, notes?: string) {
+  async closeShift(shiftId: string, actualCash: number, orgId: string, notes?: string, reconciliation?: ShiftReconciliationData | null) {
     try {
       const { error } = await supabase.rpc('close_shift', {
         p_shift_id: shiftId,
         p_actual_cash: actualCash,
         p_notes: notes || 'إغلاق وردية من الواجهة الأمامية',
-        p_org_id: orgId
+        p_org_id: orgId,
+        p_reconciliation: reconciliation || null
       });
 
       if (error) throw error;

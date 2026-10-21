@@ -6,7 +6,7 @@ import {
   Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization, 
   HrScope, DashboardViewMode, Customer, Supplier, Warehouse, Category, Product, 
   Salesperson, Invoice, Employee, Cheque, Asset, Budget, CostCenter, PaymentVoucher, 
-  PurchaseInvoice, RestaurantTable, MenuCategory, StockTransfer, User 
+  PurchaseInvoice, RestaurantTable, MenuCategory, StockTransfer, User, ShiftReconciliationData 
 } from '../types';
 import { secureStorage } from '../utils/securityMiddleware';
 import { logger } from '../utils/logger';
@@ -191,7 +191,7 @@ interface AccountingContextType {
   deleteRestaurantTable: (id: string) => Promise<void>;
   updateKitchenOrderStatus: (id: string, status: string) => Promise<void>;
   startShift: (amount: number) => Promise<void>;
-  closeCurrentShift: (actualCash: number, notes: string) => Promise<void>;
+  closeCurrentShift: (actualCash: number, notes: string, reconciliation?: ShiftReconciliationData | null) => Promise<void>;
   getCurrentShiftSummary: () => Promise<any>;
   createMissingSystemAccounts: () => Promise<any>;
   recalculateAllBalances: () => Promise<void>;
@@ -3168,7 +3168,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const closeCurrentShift = async (actualCash: number, notes: string) => { 
+  const closeCurrentShift = async (actualCash: number, notes: string, reconciliation?: ShiftReconciliationData | null) => { 
     const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
     if (!navigator.onLine || isDemo || !isValidUUID(shiftId)) {
       setCurrentShift(null);
@@ -3190,7 +3190,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         p_shift_id: shiftId, 
         p_actual_cash: actualCash, 
         p_notes: notes,
-        p_org_id: effectiveOrgId
+        p_org_id: effectiveOrgId,
+        p_reconciliation: reconciliation || null
       }); 
       if (error) throw error;
       setCurrentShift(null);

@@ -237,6 +237,7 @@ describe('🍽️ Restaurant POS & Accounting Engine Tests', () => {
         p_actual_cash: 2500,
         p_notes: 'إغلاق نهاية اليوم',
         p_org_id: 'org-1',
+        p_reconciliation: null,
       });
     });
   });

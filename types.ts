@@ -1033,3 +1033,63 @@ export interface PurchaseRfq {
 
 
 
+
+export interface ShiftReconciliationData {
+  card_slip_total: number;
+  card_diff: number;
+  instapay_slip_total: number;
+  instapay_diff: number;
+  wallet_slip_total: number;
+  wallet_diff: number;
+}
+
+export interface ShiftSummaryData {
+  opening_cash?: number;
+  opening_balance?: number;
+  cash_sales?: number;
+  card_sales?: number;
+  card_count?: number;
+  instapay_sales?: number;
+  instapay_count?: number;
+  wallet_sales?: number;
+  wallet_count?: number;
+  deposit_sales?: number;
+  redeemed_deposits?: number;
+  redeemed_count?: number;
+  credit_sales?: number;
+  returns_total?: number;
+  cash_returns?: number;
+  paid_ins?: number;
+  paid_outs?: number;
+  petty_cash?: number;
+  safe_drops?: number;
+  cash_drops?: number;
+  orders_count?: number;
+  order_count?: number;
+  gross_sales?: number;
+  total_sales?: number;
+  total_discount?: number;
+  total_discounts?: number;
+  total_tax?: number;
+  expected_cash?: number;
+  opening_time?: string;
+  closing_time?: string;
+  actual_cash?: number;
+  cash_difference?: number;
+  totalSales?: number;
+  orderCount?: number;
+  netCashDue?: number;
+  expectedCash?: number;
+  cashSales?: number;
+  cardSales?: number;
+  instapaySales?: number;
+  walletSales?: number;
+  paidIns?: number;
+  paidOuts?: number;
+  drops?: number;
+  returnsCash?: number;
+  depositRedeemed?: number;
+  creditSales?: number;
+  loyaltySales?: number;
+  openingCash?: number;
+}

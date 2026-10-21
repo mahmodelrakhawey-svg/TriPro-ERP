@@ -312,12 +312,17 @@ export const PurchaseInvoiceList = () => {
             note: `إلغاء ترحيل فاتورة المشتريات رقم ${invoice.invoice_number} وتحويلها لمسودة`
           },
           userId: currentUser?.id,
-          userName: (currentUser as any)?.name || (currentUser as any)?.email,
+          userName: currentUser?.full_name || 'مستخدم',
           organizationId: userOrgId
         });
         fetchInvoices();
         return;
-      } catch (rpcErr) {
+      } catch (rpcErr: unknown) {
+        const errObj = rpcErr as { message?: string; code?: string } | null;
+        if (errObj?.message?.includes('TRIPRO_SECURITY_ALERT') || errObj?.code === 'P0001' || errObj?.message?.includes('محصنة')) {
+          showToast('فشل إلغاء اعتماد الفاتورة: ' + (errObj.message || 'خطأ في التحقق الأمني'), 'error');
+          return;
+        }
         logger.warn('Atomic unpost RPC unavailable, attempting client fallback:', rpcErr);
       }
 

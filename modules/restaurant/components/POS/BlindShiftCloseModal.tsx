@@ -7,6 +7,7 @@ import {
   CashDenominationBreakdown,
   cashShiftService
 } from '../../../../services/cashShiftService';
+import type { ShiftSummaryData } from '../../../../types';
 import {
   Lock,
   DollarSign,
@@ -17,7 +18,11 @@ import {
   X,
   Eye,
   EyeOff,
-  Sparkles
+  Sparkles,
+  CreditCard,
+  Zap,
+  Smartphone,
+  CalendarCheck
 } from 'lucide-react';
 
 interface BlindShiftCloseModalProps {
@@ -31,7 +36,7 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
   onClose,
   onSuccess
 }) => {
-  const { accounts, currentUser, currentShift, getCurrentShiftSummary, closeCurrentShift, refreshData } = useAccounting();
+  const { currentUser, currentShift, getCurrentShiftSummary, closeCurrentShift } = useAccounting();
   const { showToast } = useToast();
 
   const [step, setStep] = useState<'COUNT' | 'RESULT'>('COUNT');
@@ -49,8 +54,13 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
   const [closingNotes, setClosingNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Non-cash slip inputs
+  const [cardSlips, setCardSlips] = useState<string>('');
+  const [instapaySlips, setInstapaySlips] = useState<string>('');
+  const [walletSlips, setWalletSlips] = useState<string>('');
+
   // Result state
-  const [shiftSummary, setShiftSummary] = useState<any>(null);
+  const [shiftSummary, setShiftSummary] = useState<ShiftSummaryData | null>(null);
   const [difference, setDifference] = useState<number>(0);
 
   // Fetch real database shift summary on mount
@@ -89,15 +99,38 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
 
       const openingFloat = Number(summary?.opening_balance ?? shift?.opening_float ?? (currentShift?.opening_balance || 0));
       const cashSales = Number(summary?.cash_sales ?? shift?.total_cash_sales ?? 0);
-      const pettyCash = Number(summary?.petty_cash ?? shift?.total_petty_cash_payouts ?? 0);
-      const expected = Number((openingFloat + cashSales - pettyCash).toFixed(2));
+      const cardSales = Number(summary?.card_sales ?? shift?.total_card_sales ?? 0);
+      const instapaySales = Number(summary?.instapay_sales ?? 0);
+      const walletSales = Number(summary?.wallet_sales ?? 0);
+      const paidIns = Number(summary?.paid_ins ?? 0);
+      const paidOuts = Number(summary?.paid_outs ?? summary?.petty_cash ?? shift?.total_petty_cash_payouts ?? 0);
+      const safeDrops = Number(summary?.safe_drops ?? summary?.cash_drops ?? 0);
+      const cashReturns = Number(summary?.cash_returns ?? 0);
+
+      // المعادلة المستقلة الدقيقة لنقدية الدرج
+      const expected = summary?.expected_cash !== undefined
+        ? Number(summary.expected_cash)
+        : Number(Math.max(0, (openingFloat + cashSales + paidIns) - (paidOuts + safeDrops + cashReturns)).toFixed(2));
 
       const diff = Number((calculatedTotal - expected).toFixed(2));
       setDifference(diff);
 
-      // 1. Close REAL database shift in PostgreSQL
+      const cardSlipNum = cardSlips === '' ? cardSales : Number(cardSlips);
+      const instapaySlipNum = instapaySlips === '' ? instapaySales : Number(instapaySlips);
+      const walletSlipNum = walletSlips === '' ? walletSales : Number(walletSlips);
+
+      const reconciliation = {
+        card_slip_total: cardSlipNum,
+        card_diff: cardSlipNum - cardSales,
+        instapay_slip_total: instapaySlipNum,
+        instapay_diff: instapaySlipNum - instapaySales,
+        wallet_slip_total: walletSlipNum,
+        wallet_diff: walletSlipNum - walletSales
+      };
+
+      // 1. Close REAL database shift in PostgreSQL with full reconciliation
       if (currentShift) {
-        await closeCurrentShift(calculatedTotal, closingNotes || 'إقفال الوردية (الجرد الأعمى)');
+        await closeCurrentShift(calculatedTotal, closingNotes || 'إقفال الوردية (الجرد الأعمى)', reconciliation);
       }
 
       // 2. Also close local cashier shift for records
@@ -119,7 +152,6 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
               : undefined,
             closingNotes,
             organizationId: currentUser?.organization_id || undefined
-            // Note: Journal entries are generated officially and automatically by PostgreSQL close_shift
           });
         } catch (localErr) {
           logger.warn('Local shift sync notice:', localErr);
@@ -127,29 +159,30 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
       }
 
       setStep('RESULT');
-      showToast('تم اعتماد الجرد وإقفال الوردية بنجاح 🔒', 'success');
-    } catch (e) {
-      showToast('خطأ أثناء إقفال الوردية: ' + (e.message || 'خطأ غير متوقع'), 'error');
+      showToast('تم اعتماد الجرد وإقفال الوردية وترحيل القيود بنجاح 🔒', 'success');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'خطأ غير متوقع';
+      showToast('خطأ أثناء إقفال الوردية: ' + msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const cashierName = shift?.cashier_name || (currentUser as any)?.full_name || (currentUser as any)?.name || 'الكاشير';
+  const cashierName = shift?.cashier_name || currentUser?.full_name || 'الكاشير';
   const shiftStartTime = shift?.opened_at || currentShift?.start_time || new Date().toISOString();
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden space-y-4 p-6">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in" dir="rtl">
+      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-xl overflow-hidden space-y-4 p-6 max-h-[92vh] flex flex-col">
         {/* Header */}
-        <div className="flex justify-between items-center border-b pb-4">
+        <div className="flex justify-between items-center border-b pb-4 flex-shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-rose-100 text-rose-600 rounded-2xl">
               <Lock className="w-6 h-6" />
             </div>
             <div>
               <h3 className="font-bold text-lg text-slate-800">
-                {step === 'COUNT' ? 'الجرد الأعمى وإقفال الوردية (Blind Close)' : 'تقرير مطابقة الوردية'}
+                {step === 'COUNT' ? 'الجرد الأعمى وإقفال وردية المطعم (Blind Close)' : 'تقرير مطابقة وردية المطعم'}
               </h3>
               <p className="text-xs text-slate-400">
                 الكاشير: <span className="font-bold text-slate-700">{cashierName}</span> | البداية:{' '}
@@ -165,14 +198,14 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
         </div>
 
         {step === 'COUNT' ? (
-          <div className="space-y-5">
+          <div className="space-y-4 overflow-y-auto flex-1">
             {/* Blind Close Disclaimer */}
-            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 flex items-start gap-3 text-xs text-amber-900">
+            <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 flex items-start gap-3 text-xs text-amber-900">
               <EyeOff className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
               <div>
-                <span className="font-bold block mb-0.5">نظام الجرد الأعمى (Blind Drop Protocol):</span>
+                <span className="font-bold block mb-0.5">بروتوكول الجرد الأعمى (Blind Drop Protocol):</span>
                 <span>
-                  لحماية النزاهة ودقة الحسابات، يتم إدخال النقدية الفعلية الموجودة في الدرج بالكامل. سيقوم النظام بمطابقتها مع المبيعات المسجلة وإظهار الفروقات آلياً بعد الاعتماد.
+                  لحماية النزاهة المحاسبية، يتم جرد النقدية بالدرج دون كشف المتوقع. سيقوم النظام بمطابقتها مع المبيعات المسجلة واحتساب أي عجز أو فائض وتوليد القيود آلياً.
                 </span>
               </div>
             </div>
@@ -182,7 +215,7 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
               <button
                 onClick={() => setBreakdownMode(true)}
                 className={`px-4 py-1.5 rounded-xl text-xs font-bold transition ${
-                  breakdownMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'
+                  breakdownMode ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600'
                 }`}
               >
                 تفنيط الفئات النقدية (200, 100...)
@@ -190,7 +223,7 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
               <button
                 onClick={() => setBreakdownMode(false)}
                 className={`px-4 py-1.5 rounded-xl text-xs font-bold transition ${
-                  !breakdownMode ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'
+                  !breakdownMode ? 'bg-slate-800 text-white shadow-sm' : 'bg-slate-100 text-slate-600'
                 }`}
               >
                 إدخال إجمالي النقدية مباشرة
@@ -199,7 +232,7 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
 
             {/* Denomination Inputs */}
             {breakdownMode ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-2xl border border-slate-100 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 bg-slate-50 p-3.5 rounded-2xl border border-slate-100 text-xs">
                 <div>
                   <label className="block text-slate-500 font-bold mb-1">فئة 200 جنيه</label>
                   <input
@@ -275,8 +308,8 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100 text-center">
-                <label className="block text-slate-600 font-bold text-sm mb-2">إجمالي النقدية المعدودة في الدرج</label>
+              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-100 text-center">
+                <label className="block text-slate-600 font-bold text-xs mb-2">إجمالي النقدية المعدودة في الدرج</label>
                 <input
                   type="number"
                   min="0"
@@ -284,15 +317,44 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
                   value={directTotal || ''}
                   onChange={e => setDirectTotal(parseFloat(e.target.value) || 0)}
                   placeholder="0.00"
-                  className="w-48 mx-auto text-3xl font-black border-2 border-slate-300 rounded-2xl p-3 text-center outline-none focus:ring-2 focus:ring-rose-500 font-mono"
+                  className="w-44 mx-auto text-3xl font-black border-2 border-slate-300 rounded-2xl p-2.5 text-center outline-none focus:ring-2 focus:ring-rose-500 font-mono"
                 />
               </div>
             )}
 
             {/* Total Display */}
-            <div className="bg-rose-50 p-4 rounded-2xl border border-rose-100 flex justify-between items-center">
-              <span className="font-bold text-sm text-rose-900">إجمالي النقدية المعدودة:</span>
+            <div className="bg-rose-50 p-3.5 rounded-2xl border border-rose-100 flex justify-between items-center">
+              <span className="font-bold text-xs text-rose-900">إجمالي النقدية المعدودة بالدرج:</span>
               <span className="text-2xl font-black text-rose-600 font-mono">{calculatedTotal.toFixed(2)} ج</span>
+            </div>
+
+            {/* Non-Cash Slip Reconciliation Section */}
+            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2.5">
+              <span className="font-bold text-xs text-slate-700 block">مطابقة إيصالات الدفع الإلكتروني (اختياري):</span>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <label className="text-[11px] text-slate-500 font-semibold mb-1 block">إجمالي بونات ماكينة الفيزا:</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={cardSlips}
+                    onChange={e => setCardSlips(e.target.value)}
+                    className="w-full border rounded-xl p-2 font-mono text-xs outline-none focus:ring-2 focus:ring-rose-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] text-slate-500 font-semibold mb-1 block">إجمالي حركات انستاباي:</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={instapaySlips}
+                    onChange={e => setInstapaySlips(e.target.value)}
+                    className="w-full border rounded-xl p-2 font-mono text-xs outline-none focus:ring-2 focus:ring-rose-500"
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Notes */}
@@ -301,19 +363,20 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
               <textarea
                 value={closingNotes}
                 onChange={e => setClosingNotes(e.target.value)}
-                placeholder="أية ملاحظات خاصة بالوردية..."
-                className="w-full border rounded-xl p-2.5 text-xs outline-none focus:ring-2 focus:ring-rose-500 h-16 resize-none"
+                placeholder="أية ملاحظات خاصة بالوردية أو فروقات الجرد..."
+                className="w-full border rounded-xl p-2 text-xs outline-none focus:ring-2 focus:ring-rose-500 h-14 resize-none"
               />
             </div>
 
             {/* Actions */}
-            <div className="flex justify-end gap-2.5 pt-2">
+            <div className="flex justify-end gap-2.5 pt-2 border-t">
               <button onClick={onClose} className="px-5 py-2.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-600">
                 إلغاء
               </button>
               <button
+                disabled={isSubmitting}
                 onClick={handleSubmitCount}
-                className="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-rose-600/20"
+                className="px-6 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-rose-600/20"
               >
                 <Lock className="w-4 h-4" /> اعتماد الجرد وإقفال الوردية
               </button>
@@ -321,10 +384,10 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
           </div>
         ) : (
           /* RESULT DISCLOSURE STEP */
-          <div className="space-y-5 animate-in zoom-in-95">
+          <div className="space-y-4 overflow-y-auto flex-1 animate-in zoom-in-95">
             {/* Status Alert */}
             <div
-              className={`p-5 rounded-2xl border flex items-center gap-4 ${
+              className={`p-4 rounded-2xl border flex items-center gap-4 ${
                 Math.abs(difference) <= 0.01
                   ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
                   : difference < 0
@@ -333,65 +396,130 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
               }`}
             >
               {Math.abs(difference) <= 0.01 ? (
-                <CheckCircle2 className="w-10 h-10 text-emerald-600 flex-shrink-0" />
+                <CheckCircle2 className="w-9 h-9 text-emerald-600 flex-shrink-0" />
               ) : (
-                <AlertTriangle className="w-10 h-10 text-red-600 flex-shrink-0" />
+                <AlertTriangle className="w-9 h-9 text-red-600 flex-shrink-0" />
               )}
               <div>
-                <h4 className="font-bold text-base">
+                <h4 className="font-bold text-sm">
                   {Math.abs(difference) <= 0.01
-                    ? 'الوردية متطابقة 100%! لا يوجد أي عجز أو زيادة 🎉'
+                    ? 'الدرج متطابق 100%! لا يوجد أي عجز أو زيادة 🎉'
                     : difference < 0
-                    ? `يوجد عجز نقدي في الصندوق بقيمة ${Math.abs(difference).toFixed(2)} ج`
-                    : `توجد زيادة نقدية في الصندوق بقيمة ${difference.toFixed(2)} ج`}
+                    ? `عجز نقدي في الصندوق بقيمة ${Math.abs(difference).toFixed(2)} ج (ذمة كاشير)`
+                    : `فائض نقدي في الصندوق بقيمة ${difference.toFixed(2)} ج (إيراد متنوع)`}
                 </h4>
-                <p className="text-xs opacity-80 mt-0.5">تم إنشاء سجل الإقفال والقيود المحاسبية التلقائية بنجاح</p>
+                <p className="text-[11px] opacity-80 mt-0.5">تم ترحيل القيد المحاسبي المجمع الشامل وإغلاق الوردية بنجاح</p>
               </div>
             </div>
 
-            {/* Reconciliation Numbers */}
+            {/* Reconciliation Detailed Breakdown */}
             {(() => {
               const openingFloat = Number(shiftSummary?.opening_balance ?? shift?.opening_float ?? (currentShift?.opening_balance || 0));
               const cashSales = Number(shiftSummary?.cash_sales ?? shift?.total_cash_sales ?? 0);
               const cardSales = Number(shiftSummary?.card_sales ?? shift?.total_card_sales ?? 0);
-              const pettyPayouts = Number(shiftSummary?.petty_cash ?? shift?.total_petty_cash_payouts ?? 0);
-              const expectedCash = Number((openingFloat + cashSales - pettyPayouts).toFixed(2));
+              const instapaySales = Number(shiftSummary?.instapay_sales ?? 0);
+              const walletSales = Number(shiftSummary?.wallet_sales ?? 0);
+              const redeemedDeposits = Number(shiftSummary?.redeemed_deposits ?? 0);
+              const paidIns = Number(shiftSummary?.paid_ins ?? 0);
+              const paidOuts = Number(shiftSummary?.paid_outs ?? shiftSummary?.petty_cash ?? shift?.total_petty_cash_payouts ?? 0);
+              const safeDrops = Number(shiftSummary?.safe_drops ?? shiftSummary?.cash_drops ?? 0);
+              const cashReturns = Number(shiftSummary?.cash_returns ?? 0);
+              const grossSales = Number(shiftSummary?.total_sales ?? shiftSummary?.gross_sales ?? 0);
+
+              const expectedCash = shiftSummary?.expected_cash !== undefined
+                ? Number(shiftSummary.expected_cash)
+                : Number(Math.max(0, (openingFloat + cashSales + paidIns) - (paidOuts + safeDrops + cashReturns)).toFixed(2));
 
               return (
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2.5 text-xs">
-                  <div className="flex justify-between text-slate-600">
-                    <span>رصيد عهدة البداية (Float):</span>
-                    <span className="font-mono font-bold">{openingFloat.toFixed(2)} ج</span>
-                  </div>
-                  <div className="flex justify-between text-slate-600">
-                    <span>إجمالي المبيعات النقدية:</span>
-                    <span className="font-mono font-bold text-emerald-600">+{cashSales.toFixed(2)} ج</span>
-                  </div>
-                  <div className="flex justify-between text-slate-600">
-                    <span>المبيعات الإلكترونية (فيزا / بطاقات):</span>
-                    <span className="font-mono font-bold text-indigo-600">{cardSales.toFixed(2)} ج</span>
-                  </div>
-                  {pettyPayouts > 0 && (
+                <div className="space-y-3">
+                  {/* Drawer Cash Due Box */}
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2 text-xs">
+                    <span className="font-bold text-slate-800 block text-xs border-b pb-1.5">معادلة نقدية الدرج الفعلية (Cash Tray Due):</span>
+                    
                     <div className="flex justify-between text-slate-600">
-                      <span>المصروفات النثرية المسحوبة من الدرج:</span>
-                      <span className="font-mono font-bold text-rose-600">-{pettyPayouts.toFixed(2)} ج</span>
+                      <span>رصيد عهدة البداية (Float):</span>
+                      <span className="font-mono font-bold">{openingFloat.toFixed(2)} ج</span>
                     </div>
-                  )}
-                  <div className="border-t border-slate-200 pt-2 flex justify-between font-bold text-slate-800 text-sm">
-                    <span>النقدية المتوقعة في الدرج (System Expected):</span>
-                    <span className="font-mono">{expectedCash.toFixed(2)} ج</span>
+                    <div className="flex justify-between text-slate-600">
+                      <span>المبيعات النقدية بالدرج:</span>
+                      <span className="font-mono font-bold text-emerald-600">+{cashSales.toFixed(2)} ج</span>
+                    </div>
+                    {paidIns > 0 && (
+                      <div className="flex justify-between text-slate-600">
+                        <span>إيداعات فكة / عربون نقدي:</span>
+                        <span className="font-mono font-bold text-teal-600">+{paidIns.toFixed(2)} ج</span>
+                      </div>
+                    )}
+                    {paidOuts > 0 && (
+                      <div className="flex justify-between text-slate-600">
+                        <span>المصروفات النثرية المنصرفة:</span>
+                        <span className="font-mono font-bold text-rose-600">-{paidOuts.toFixed(2)} ج</span>
+                      </div>
+                    )}
+                    {safeDrops > 0 && (
+                      <div className="flex justify-between text-slate-600">
+                        <span>توريدات نقدية للخزينة (Safe Drops):</span>
+                        <span className="font-mono font-bold text-amber-600">-{safeDrops.toFixed(2)} ج</span>
+                      </div>
+                    )}
+                    {cashReturns > 0 && (
+                      <div className="flex justify-between text-slate-600">
+                        <span>مرتجعات نقدية من الدرج:</span>
+                        <span className="font-mono font-bold text-red-600">-{cashReturns.toFixed(2)} ج</span>
+                      </div>
+                    )}
+
+                    <div className="border-t border-slate-200 pt-2 flex justify-between font-bold text-slate-800">
+                      <span>النقدية المتوقعة دفترياً بالدرج:</span>
+                      <span className="font-mono text-indigo-700">{expectedCash.toFixed(2)} ج</span>
+                    </div>
+                    <div className="flex justify-between font-bold text-slate-800">
+                      <span>النقدية الفعلية بعد الجرد:</span>
+                      <span className="font-mono text-rose-600">{calculatedTotal.toFixed(2)} ج</span>
+                    </div>
+                    <div
+                      className={`border-t border-slate-200 pt-2 flex justify-between font-black text-sm ${
+                        Math.abs(difference) <= 0.01 ? 'text-emerald-700' : difference < 0 ? 'text-red-600' : 'text-blue-600'
+                      }`}
+                    >
+                      <span>الفارق الصافي (العجز / الزيادة):</span>
+                      <span className="font-mono">{difference >= 0 ? `+${difference.toFixed(2)}` : difference.toFixed(2)} ج</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between font-bold text-slate-800 text-sm">
-                    <span>النقدية الفعلية بالجرد (Actual Counted):</span>
-                    <span className="font-mono text-rose-600">{calculatedTotal.toFixed(2)} ج</span>
-                  </div>
-                  <div
-                    className={`border-t border-slate-200 pt-2 flex justify-between font-black text-base ${
-                      Math.abs(difference) <= 0.01 ? 'text-emerald-700' : difference < 0 ? 'text-red-600' : 'text-blue-600'
-                    }`}
-                  >
-                    <span>الفارق الصافي (Difference):</span>
-                    <span className="font-mono">{difference >= 0 ? `+${difference.toFixed(2)}` : difference.toFixed(2)} ج</span>
+
+                  {/* Non-Cash Channels Summary */}
+                  <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2 text-xs">
+                    <span className="font-bold text-slate-800 block text-xs border-b pb-1.5">المتحصلات غير النقدية (Non-Cash Channels):</span>
+                    <div className="grid grid-cols-2 gap-2 text-slate-600">
+                      <div className="flex justify-between">
+                        <span className="flex items-center gap-1"><CreditCard size={13} /> فيزا وبطاقات:</span>
+                        <span className="font-mono font-bold text-slate-800">{cardSales.toFixed(2)} ج</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="flex items-center gap-1"><Zap size={13} /> انستاباي:</span>
+                        <span className="font-mono font-bold text-slate-800">{instapaySales.toFixed(2)} ج</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="flex items-center gap-1"><Smartphone size={13} /> محافظ إلكترونية:</span>
+                        <span className="font-mono font-bold text-slate-800">{walletSales.toFixed(2)} ج</span>
+                      </div>
+                      {redeemedDeposits > 0 && (
+                        <div className="flex justify-between">
+                          <span className="flex items-center gap-1"><CalendarCheck size={13} /> عربون مستهلك:</span>
+                          <span className="font-mono font-bold text-slate-800">{redeemedDeposits.toFixed(2)} ج</span>
+                        </div>
+                      )}
+                    </div>
+                    {Number(shiftSummary?.total_discounts || 0) > 0 && (
+                      <div className="flex justify-between text-rose-700 font-bold">
+                        <span>إجمالي خصومات وعروض الوردية (مسموح به):</span>
+                        <span className="font-mono">-{Number(shiftSummary?.total_discounts || 0).toFixed(2)} ج</span>
+                      </div>
+                    )}
+                    <div className="border-t border-slate-200 pt-1.5 flex justify-between font-bold text-slate-800 text-[11px]">
+                      <span>إجمالي مبيعات الوردية الكلية (Gross Sales):</span>
+                      <span className="font-mono font-black text-indigo-700">{grossSales.toFixed(2)} ج</span>
+                    </div>
                   </div>
                 </div>
               );
@@ -401,9 +529,9 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
             <div className="flex justify-end pt-2">
               <button
                 onClick={onSuccess}
-                className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow"
+                className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow transition"
               >
-                إغلاق والعودة للرئيسية
+                إغلاق والعودة لنقاط البيع
               </button>
             </div>
           </div>
