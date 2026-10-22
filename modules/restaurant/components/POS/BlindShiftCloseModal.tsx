@@ -186,7 +186,19 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
     const pOuts = Number(shiftSummary?.paid_outs ?? shiftSummary?.petty_cash ?? 0);
     const sDrops = Number(shiftSummary?.safe_drops ?? 0);
     const cReturns = Number(shiftSummary?.cash_returns ?? 0);
-    const expCash = Number(shiftSummary?.expected_cash ?? (openFloat + cSales + pIns - pOuts - sDrops - cReturns));
+
+    const cashDepositsIn = Number(shiftSummary?.cash_deposits_in ?? 0);
+    const walletDepositsIn = Number(shiftSummary?.wallet_deposits_in ?? 0);
+    const instapayDepositsIn = Number(shiftSummary?.instapay_deposits_in ?? 0);
+    const cardDepositsIn = Number(shiftSummary?.card_deposits_in ?? 0);
+    const totalDepositsIn = Number(shiftSummary?.total_deposits_in ?? (cashDepositsIn + walletDepositsIn + instapayDepositsIn + cardDepositsIn));
+
+    const cashDepositsRefund = Number(shiftSummary?.cash_deposits_refund ?? 0);
+    const walletDepositsRefund = Number(shiftSummary?.wallet_deposits_refund ?? 0);
+    const instapayDepositsRefund = Number(shiftSummary?.instapay_deposits_refund ?? 0);
+    const totalDepositsRefund = Number(shiftSummary?.total_deposits_refund ?? (cashDepositsRefund + walletDepositsRefund + instapayDepositsRefund));
+
+    const expCash = Number(shiftSummary?.expected_cash ?? (openFloat + cSales + pIns + cashDepositsIn - pOuts - sDrops - cReturns - cashDepositsRefund));
 
     const html = `
       <!DOCTYPE html>
@@ -229,20 +241,34 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
         <div class="flex"><span>مبيعات نقدية (Cash):</span><span>${cSales.toFixed(2)} ج.م</span></div>
         <div class="flex"><span>بطاقات وشبكة (Card):</span><span>${kSales.toFixed(2)} ج.م</span></div>
         <div class="flex"><span>إنستاباي (InstaPay):</span><span>${iSales.toFixed(2)} ج.م</span></div>
-        <div class="flex"><span>محافظ إلكترونية (Wallet):</span><span>${wSales.toFixed(2)} ج.م</span></div>
-        ${rDeposits > 0 ? `<div class="flex"><span>عربونات مستهلكة:</span><span>${rDeposits.toFixed(2)} ج.م</span></div>` : ''}
-        ${Number(shiftSummary?.total_discounts || 0) > 0 ? `<div class="flex"><span>إجمالي الخصومات:</span><span>-${Number(shiftSummary?.total_discounts).toFixed(2)} ج.م</span></div>` : ''}
+        <div class="flex"><span>محافظ إلكترونية وفودافون كاش:</span><span>${wSales.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>عربونات وحجوزات مستهلكة:</span><span>${rDeposits.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>إجمالي الخصومات:</span><span>-${Number(shiftSummary?.total_discounts || 0).toFixed(2)} ج.م</span></div>
         <div class="divider"></div>
         <div class="flex font-bold" style="font-size: 13px;"><span>إجمالي المبيعات الكلية:</span><span>${gSales.toFixed(2)} ج.م</span></div>
         <div class="double-divider"></div>
 
-        <div class="font-bold" style="margin-bottom: 4px;">💵 حركة نقدية الدرج (Drawer Cash Flow):</div>
+        <div class="font-bold" style="margin-bottom: 4px;">🎯 حركة عربونات وحجوزات الوردية (Bookings & Deposits):</div>
+        <div class="flex"><span>(+) استلام عربون نقداً بالدرج:</span><span>${cashDepositsIn.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>(+) استلام عربون محفظة (فودافون كاش):</span><span>${walletDepositsIn.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>(+) استلام عربون تحويل إنستاباي:</span><span>${instapayDepositsIn.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>(+) استلام عربون بطاقة وشبكة:</span><span>${cardDepositsIn.toFixed(2)} ج.م</span></div>
+        <div class="flex font-bold" style="background:#f1f5f9; padding:2px 4px; border-radius:4px;"><span>إجمالي العربونات المستلمة:</span><span>${totalDepositsIn.toFixed(2)} ج.م</span></div>
+        <div class="flex" style="margin-top: 3px;"><span>(-) رد عربون ملغي نقداً من الدرج:</span><span>${cashDepositsRefund.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>(-) رد عربون ملغي إلكتروني:</span><span>${(walletDepositsRefund + instapayDepositsRefund).toFixed(2)} ج.م</span></div>
+        <div class="flex font-bold" style="background:#f1f5f9; padding:2px 4px; border-radius:4px;"><span>إجمالي العربونات المردودة للعملاء:</span><span>${totalDepositsRefund.toFixed(2)} ج.م</span></div>
+        <div class="flex" style="margin-top: 3px;"><span>(~) تنفيذ حجز (عربونات مستهلكة):</span><span>${rDeposits.toFixed(2)} ج.م</span></div>
+        <div class="double-divider"></div>
+
+        <div class="font-bold" style="margin-bottom: 4px;">💵 حركة نقدية الدرج الفعلية (Drawer Cash Flow):</div>
         <div class="flex"><span>(+) الرصيد الافتتاحي (العهدة):</span><span>${openFloat.toFixed(2)} ج.م</span></div>
         <div class="flex"><span>(+) مبيعات نقدية مقبوضة:</span><span>${cSales.toFixed(2)} ج.م</span></div>
-        ${pIns > 0 ? `<div class="flex"><span>(+) تزويد نقدية فكة بالدرج:</span><span>${pIns.toFixed(2)} ج.م</span></div>` : ''}
-        ${pOuts > 0 ? `<div class="flex"><span>(-) مصروفات نثرية من الدرج:</span><span>${pOuts.toFixed(2)} ج.م</span></div>` : ''}
-        ${sDrops > 0 ? `<div class="flex"><span>(-) توريدات نقدية للخزينة:</span><span>${sDrops.toFixed(2)} ج.م</span></div>` : ''}
-        ${cReturns > 0 ? `<div class="flex"><span>(-) مرتجعات نقدية من الدرج:</span><span>${cReturns.toFixed(2)} ج.م</span></div>` : ''}
+        <div class="flex"><span>(+) عربونات حجز مستلمة نقداً:</span><span>${cashDepositsIn.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>(+) تزويد نقدية فكة بالدرج:</span><span>${pIns.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>(-) مصروفات نثرية منصرفة:</span><span>${pOuts.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>(-) توريدات نقدية للخزينة:</span><span>${sDrops.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>(-) رد عربونات حجز ملغاة نقداً:</span><span>${cashDepositsRefund.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>(-) مرتجعات مبيعات نقدية:</span><span>${cReturns.toFixed(2)} ج.م</span></div>
         <div class="divider"></div>
         <div class="flex font-bold"><span>النقدية المتوقعة بالدرج:</span><span>${expCash.toFixed(2)} ج.م</span></div>
         <div class="flex font-bold" style="font-size: 13px;"><span>النقدية الفعلية المحصورة:</span><span>${calculatedTotal.toFixed(2)} ج.م</span></div>

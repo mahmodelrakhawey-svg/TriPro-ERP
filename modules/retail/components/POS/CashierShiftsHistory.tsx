@@ -334,9 +334,20 @@ export default function CashierShiftsHistory() {
     const safeDrops = shift.total_safe_drops || 0;
     const cashReturns = shift.total_cash_returns || 0;
 
+    const cashDepositsIn = (shift as any).total_cash_deposits_in || (shift as any).cash_deposits_in || 0;
+    const walletDepositsIn = (shift as any).total_wallet_deposits_in || (shift as any).wallet_deposits_in || 0;
+    const instapayDepositsIn = (shift as any).total_instapay_deposits_in || (shift as any).instapay_deposits_in || 0;
+    const cardDepositsIn = (shift as any).total_card_deposits_in || (shift as any).card_deposits_in || 0;
+    const totalDepositsIn = (shift as any).total_deposits_in || (cashDepositsIn + walletDepositsIn + instapayDepositsIn + cardDepositsIn);
+
+    const cashDepositsRefund = (shift as any).total_cash_deposits_refund || (shift as any).cash_deposits_refund || 0;
+    const walletDepositsRefund = (shift as any).total_wallet_deposits_refund || (shift as any).wallet_deposits_refund || 0;
+    const instapayDepositsRefund = (shift as any).total_instapay_deposits_refund || (shift as any).instapay_deposits_refund || 0;
+    const totalDepositsRefund = (shift as any).total_deposits_refund || (cashDepositsRefund + walletDepositsRefund + instapayDepositsRefund);
+
     const expected = shift.expected_cash !== undefined
       ? shift.expected_cash
-      : Math.max(0, (openFloat + cashSales + paidIns) - (paidOuts + safeDrops + cashReturns));
+      : Math.max(0, (openFloat + cashSales + paidIns + cashDepositsIn) - (paidOuts + safeDrops + cashReturns + cashDepositsRefund));
 
     const actual = shift.actual_cash ?? 0;
     const diff = shift.difference ?? (actual - expected);
@@ -385,20 +396,34 @@ export default function CashierShiftsHistory() {
         <div class="flex"><span>مبيعات نقدية (Cash):</span><span>${cashSales.toFixed(2)} ${currencySymbol}</span></div>
         <div class="flex"><span>بطاقات وشبكة (Card):</span><span>${cardSales.toFixed(2)} ${currencySymbol}</span></div>
         <div class="flex"><span>إنستاباي (InstaPay):</span><span>${instapaySales.toFixed(2)} ${currencySymbol}</span></div>
-        <div class="flex"><span>محافظ إلكترونية (Wallet):</span><span>${walletSales.toFixed(2)} ${currencySymbol}</span></div>
-        ${redeemedDeposits > 0 ? `<div class="flex"><span>عربونات مستهلكة:</span><span>${redeemedDeposits.toFixed(2)} ${currencySymbol}</span></div>` : ''}
-        ${creditSales > 0 ? `<div class="flex"><span>مبيعات آجلة (ذمم):</span><span>${creditSales.toFixed(2)} ${currencySymbol}</span></div>` : ''}
+        <div class="flex"><span>محافظ إلكترونية وفودافون كاش:</span><span>${walletSales.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>عربونات وحجوزات مستهلكة:</span><span>${redeemedDeposits.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>مبيعات آجلة (ذمم عملاء):</span><span>${creditSales.toFixed(2)} ${currencySymbol}</span></div>
         <div class="divider"></div>
         <div class="flex font-bold" style="font-size: 13px;"><span>إجمالي المبيعات الكلية:</span><span>${grossSales.toFixed(2)} ${currencySymbol}</span></div>
         <div class="double-divider"></div>
 
-        <div class="font-bold" style="margin-bottom: 4px;">💵 حركة نقدية الدرج (Drawer Cash Flow):</div>
+        <div class="font-bold" style="margin-bottom: 4px;">🎯 حركة عربونات وحجوزات الوردية (Bookings & Deposits):</div>
+        <div class="flex"><span>(+) استلام عربون نقداً بالدرج:</span><span>${cashDepositsIn.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(+) استلام عربون محفظة (فودافون كاش):</span><span>${walletDepositsIn.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(+) استلام عربون تحويل إنستاباي:</span><span>${instapayDepositsIn.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(+) استلام عربون بطاقة وشبكة:</span><span>${cardDepositsIn.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex font-bold" style="background:#f1f5f9; padding:2px 4px; border-radius:4px;"><span>إجمالي العربونات المستلمة:</span><span>${totalDepositsIn.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex" style="margin-top: 3px;"><span>(-) رد عربون ملغي نقداً من الدرج:</span><span>${cashDepositsRefund.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(-) رد عربون ملغي إلكتروني:</span><span>${(walletDepositsRefund + instapayDepositsRefund).toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex font-bold" style="background:#f1f5f9; padding:2px 4px; border-radius:4px;"><span>إجمالي العربونات المردودة للعملاء:</span><span>${totalDepositsRefund.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex" style="margin-top: 3px;"><span>(~) تنفيذ حجز (عربونات مستهلكة):</span><span>${redeemedDeposits.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="double-divider"></div>
+
+        <div class="font-bold" style="margin-bottom: 4px;">💵 حركة نقدية الدرج الفعلية (Drawer Cash Flow):</div>
         <div class="flex"><span>(+) الرصيد الافتتاحي (العهدة):</span><span>${openFloat.toFixed(2)} ${currencySymbol}</span></div>
         <div class="flex"><span>(+) مبيعات نقدية مقبوضة:</span><span>${cashSales.toFixed(2)} ${currencySymbol}</span></div>
-        ${paidIns > 0 ? `<div class="flex"><span>(+) تزويد نقدية فكة بالدرج:</span><span>${paidIns.toFixed(2)} ${currencySymbol}</span></div>` : ''}
-        ${paidOuts > 0 ? `<div class="flex"><span>(-) مصروفات نثرية من الدرج:</span><span>${paidOuts.toFixed(2)} ${currencySymbol}</span></div>` : ''}
-        ${safeDrops > 0 ? `<div class="flex"><span>(-) توريدات نقدية للخزينة:</span><span>${safeDrops.toFixed(2)} ${currencySymbol}</span></div>` : ''}
-        ${cashReturns > 0 ? `<div class="flex"><span>(-) مرتجعات نقدية من الدرج:</span><span>${cashReturns.toFixed(2)} ${currencySymbol}</span></div>` : ''}
+        <div class="flex"><span>(+) عربونات حجز مستلمة نقداً:</span><span>${cashDepositsIn.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(+) تزويد نقدية فكة بالدرج:</span><span>${paidIns.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(-) مصروفات نثرية منصرفة:</span><span>${paidOuts.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(-) توريدات نقدية للخزينة:</span><span>${safeDrops.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(-) رد عربونات حجز ملغاة نقداً:</span><span>${cashDepositsRefund.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(-) مرتجعات مبيعات نقدية:</span><span>${cashReturns.toFixed(2)} ${currencySymbol}</span></div>
         <div class="divider"></div>
         <div class="flex font-bold"><span>النقدية المتوقعة بالدرج:</span><span>${expected.toFixed(2)} ${currencySymbol}</span></div>
         <div class="flex font-bold" style="font-size: 13px;"><span>النقدية الفعلية المحصورة:</span><span>${actual.toFixed(2)} ${currencySymbol}</span></div>

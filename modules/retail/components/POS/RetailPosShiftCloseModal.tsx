@@ -61,11 +61,23 @@ export const RetailPosShiftCloseModal: React.FC<RetailPosShiftCloseModalProps> =
   const safeDrops = Number(shiftSummary.safe_drops || shiftSummary.cash_drops || 0);
   const cashReturns = Number(shiftSummary.cash_returns || 0);
 
+  // تفاصيل العربونات والحجوزات (المستلمة والمردودة والمستهلكة)
+  const cashDepositsIn = Number(shiftSummary.cash_deposits_in || 0);
+  const walletDepositsIn = Number(shiftSummary.wallet_deposits_in || 0);
+  const instapayDepositsIn = Number(shiftSummary.instapay_deposits_in || 0);
+  const cardDepositsIn = Number(shiftSummary.card_deposits_in || 0);
+  const totalDepositsIn = Number(shiftSummary.total_deposits_in || (cashDepositsIn + walletDepositsIn + instapayDepositsIn + cardDepositsIn));
+
+  const cashDepositsRefund = Number(shiftSummary.cash_deposits_refund || 0);
+  const walletDepositsRefund = Number(shiftSummary.wallet_deposits_refund || 0);
+  const instapayDepositsRefund = Number(shiftSummary.instapay_deposits_refund || 0);
+  const totalDepositsRefund = Number(shiftSummary.total_deposits_refund || (cashDepositsRefund + walletDepositsRefund + instapayDepositsRefund));
+
   // المعادلة المستقلة الدقيقة لنقدية الدرج
   const expectedCash = Number(
     shiftSummary.expected_cash !== undefined
       ? shiftSummary.expected_cash
-      : Math.max(0, (openingBalance + cashSales + paidIns) - (paidOuts + safeDrops + cashReturns))
+      : Math.max(0, (openingBalance + cashSales + paidIns + cashDepositsIn) - (paidOuts + safeDrops + cashReturns + cashDepositsRefund))
   );
 
   const cashDiff = actualCash - expectedCash;
@@ -140,21 +152,35 @@ export const RetailPosShiftCloseModal: React.FC<RetailPosShiftCloseModalProps> =
         <div class="flex"><span>مبيعات نقدية (Cash):</span><span>${cashSales.toFixed(2)} ${currencySymbol}</span></div>
         <div class="flex"><span>بطاقات وشبكة (Card):</span><span>${cardSales.toFixed(2)} ${currencySymbol}</span></div>
         <div class="flex"><span>إنستاباي (InstaPay):</span><span>${instapaySales.toFixed(2)} ${currencySymbol}</span></div>
-        <div class="flex"><span>محافظ إلكترونية (Wallet):</span><span>${walletSales.toFixed(2)} ${currencySymbol}</span></div>
-        ${redeemedDeposits > 0 ? `<div class="flex"><span>عربونات مستهلكة:</span><span>${redeemedDeposits.toFixed(2)} ${currencySymbol}</span></div>` : ''}
-        ${creditSales > 0 ? `<div class="flex"><span>مبيعات آجلة (ذمم):</span><span>${creditSales.toFixed(2)} ${currencySymbol}</span></div>` : ''}
-        ${Number(shiftSummary?.total_discounts || 0) > 0 ? `<div class="flex"><span>إجمالي الخصومات:</span><span>-${Number(shiftSummary?.total_discounts || 0).toFixed(2)} ${currencySymbol}</span></div>` : ''}
+        <div class="flex"><span>محافظ إلكترونية وفودافون كاش:</span><span>${walletSales.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>عربونات وحجوزات مستهلكة:</span><span>${redeemedDeposits.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>مبيعات آجلة (ذمم عملاء):</span><span>${creditSales.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>إجمالي الخصومات:</span><span>-${Number(shiftSummary?.total_discounts || 0).toFixed(2)} ${currencySymbol}</span></div>
         <div class="divider"></div>
         <div class="flex font-bold" style="font-size: 13px;"><span>إجمالي المبيعات الكلية:</span><span>${grossSales.toFixed(2)} ${currencySymbol}</span></div>
         <div class="double-divider"></div>
 
-        <div class="font-bold" style="margin-bottom: 4px;">💵 حركة نقدية الدرج (Drawer Cash Flow):</div>
+        <div class="font-bold" style="margin-bottom: 4px;">🎯 حركة عربونات وحجوزات الوردية (Bookings & Deposits):</div>
+        <div class="flex"><span>(+) استلام عربون نقداً بالدرج:</span><span>${cashDepositsIn.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(+) استلام عربون محفظة (فودافون كاش):</span><span>${walletDepositsIn.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(+) استلام عربون تحويل إنستاباي:</span><span>${instapayDepositsIn.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(+) استلام عربون بطاقة وشبكة:</span><span>${cardDepositsIn.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex font-bold" style="background:#f1f5f9; padding:2px 4px; border-radius:4px;"><span>إجمالي العربونات المستلمة:</span><span>${totalDepositsIn.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex" style="margin-top: 3px;"><span>(-) رد عربون ملغي نقداً من الدرج:</span><span>${cashDepositsRefund.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(-) رد عربون ملغي إلكتروني:</span><span>${(walletDepositsRefund + instapayDepositsRefund).toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex font-bold" style="background:#f1f5f9; padding:2px 4px; border-radius:4px;"><span>إجمالي العربونات المردودة للعملاء:</span><span>${totalDepositsRefund.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex" style="margin-top: 3px;"><span>(~) تنفيذ حجز (عربونات مستهلكة):</span><span>${redeemedDeposits.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="double-divider"></div>
+
+        <div class="font-bold" style="margin-bottom: 4px;">💵 حركة نقدية الدرج الفعلية (Drawer Cash Flow):</div>
         <div class="flex"><span>(+) الرصيد الافتتاحي (العهدة):</span><span>${openingBalance.toFixed(2)} ${currencySymbol}</span></div>
         <div class="flex"><span>(+) مبيعات نقدية مقبوضة:</span><span>${cashSales.toFixed(2)} ${currencySymbol}</span></div>
-        ${paidIns > 0 ? `<div class="flex"><span>(+) تزويد نقدية فكة بالدرج:</span><span>${paidIns.toFixed(2)} ${currencySymbol}</span></div>` : ''}
-        ${paidOuts > 0 ? `<div class="flex"><span>(-) مصروفات نثرية من الدرج:</span><span>${paidOuts.toFixed(2)} ${currencySymbol}</span></div>` : ''}
-        ${safeDrops > 0 ? `<div class="flex"><span>(-) توريدات نقدية للخزينة:</span><span>${safeDrops.toFixed(2)} ${currencySymbol}</span></div>` : ''}
-        ${cashReturns > 0 ? `<div class="flex"><span>(-) مرتجعات نقدية من الدرج:</span><span>${cashReturns.toFixed(2)} ${currencySymbol}</span></div>` : ''}
+        <div class="flex"><span>(+) عربونات حجز مستلمة نقداً:</span><span>${cashDepositsIn.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(+) تزويد نقدية فكة بالدرج:</span><span>${paidIns.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(-) مصروفات نثرية منصرفة:</span><span>${paidOuts.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(-) توريدات نقدية للخزينة:</span><span>${safeDrops.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(-) رد عربونات حجز ملغاة نقداً:</span><span>${cashDepositsRefund.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(-) مرتجعات مبيعات نقدية:</span><span>${cashReturns.toFixed(2)} ${currencySymbol}</span></div>
         <div class="divider"></div>
         <div class="flex font-bold"><span>النقدية المتوقعة بالدرج:</span><span>${expectedCash.toFixed(2)} ${currencySymbol}</span></div>
         <div class="flex font-bold" style="font-size: 13px;"><span>النقدية الفعلية المحصورة:</span><span>${actualCash.toFixed(2)} ${currencySymbol}</span></div>
@@ -246,59 +272,75 @@ export const RetailPosShiftCloseModal: React.FC<RetailPosShiftCloseModalProps> =
           {activeTab === 'CASH_DRAWER' ? (
             <>
               {/* Cash Equation Breakdown Cards */}
-              <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="grid grid-cols-4 gap-2 text-xs">
                 {/* 1. Opening */}
-                <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-800">
-                  <span className="block text-slate-500 text-[11px] mb-0.5">رصيد افتتاحي (عهدة)</span>
-                  <span className="font-mono font-bold text-sm text-slate-200">
-                    {openingBalance.toFixed(2)} {currencySymbol}
+                <div className="bg-slate-950 p-2 rounded-xl border border-slate-800">
+                  <span className="block text-slate-500 text-[10px] mb-0.5">رصيد افتتاحي (عهدة)</span>
+                  <span className="font-mono font-bold text-xs text-slate-200">
+                    {openingBalance.toFixed(2)}
                   </span>
                 </div>
 
                 {/* 2. Cash Sales */}
-                <div className="bg-emerald-950/30 p-2.5 rounded-xl border border-emerald-900/40">
-                  <span className="block text-emerald-400 text-[11px] font-bold mb-0.5">مبيعات نقدية (درج)</span>
-                  <span className="font-mono font-bold text-sm text-emerald-300">
-                    +{cashSales.toFixed(2)} {currencySymbol}
+                <div className="bg-emerald-950/30 p-2 rounded-xl border border-emerald-900/40">
+                  <span className="block text-emerald-400 text-[10px] font-bold mb-0.5">مبيعات كاش</span>
+                  <span className="font-mono font-bold text-xs text-emerald-300">
+                    +{cashSales.toFixed(2)}
                   </span>
                 </div>
 
-                {/* 3. Paid Ins */}
-                <div className="bg-teal-950/30 p-2.5 rounded-xl border border-teal-900/40">
-                  <span className="block text-teal-400 text-[11px] font-bold mb-0.5">إيداعات فكة / عربون</span>
-                  <span className="font-mono font-bold text-sm text-teal-300">
-                    +{paidIns.toFixed(2)} {currencySymbol}
+                {/* 3. Cash Deposits In */}
+                <div className="bg-teal-950/30 p-2 rounded-xl border border-teal-900/40">
+                  <span className="block text-teal-400 text-[10px] font-bold mb-0.5">عربون كاش بالدرج</span>
+                  <span className="font-mono font-bold text-xs text-teal-300">
+                    +{cashDepositsIn.toFixed(2)}
                   </span>
                 </div>
 
-                {/* 4. Petty Cash Paid Outs */}
-                <div className="bg-rose-950/30 p-2.5 rounded-xl border border-rose-900/40">
-                  <span className="block text-rose-400 text-[11px] font-bold mb-0.5">مصروفات نثرية</span>
-                  <span className="font-mono font-bold text-sm text-rose-300">
-                    -{paidOuts.toFixed(2)} {currencySymbol}
+                {/* 4. Paid Ins */}
+                <div className="bg-cyan-950/30 p-2 rounded-xl border border-cyan-900/40">
+                  <span className="block text-cyan-400 text-[10px] font-bold mb-0.5">تزويد فكة بالدرج</span>
+                  <span className="font-mono font-bold text-xs text-cyan-300">
+                    +{paidIns.toFixed(2)}
                   </span>
                 </div>
 
-                {/* 5. Safe Drops */}
-                <div className="bg-amber-950/30 p-2.5 rounded-xl border border-amber-900/40">
-                  <span className="block text-amber-400 text-[11px] font-bold mb-0.5">توريدات للخزينة</span>
-                  <span className="font-mono font-bold text-sm text-amber-300">
-                    -{safeDrops.toFixed(2)} {currencySymbol}
+                {/* 5. Petty Cash Paid Outs */}
+                <div className="bg-rose-950/30 p-2 rounded-xl border border-rose-900/40">
+                  <span className="block text-rose-400 text-[10px] font-bold mb-0.5">مصروفات نثرية</span>
+                  <span className="font-mono font-bold text-xs text-rose-300">
+                    -{paidOuts.toFixed(2)}
                   </span>
                 </div>
 
-                {/* 6. Cash Returns */}
-                <div className="bg-red-950/30 p-2.5 rounded-xl border border-red-900/40">
-                  <span className="block text-red-400 text-[11px] font-bold mb-0.5">مرتجعات نقدية</span>
-                  <span className="font-mono font-bold text-sm text-red-300">
-                    -{cashReturns.toFixed(2)} {currencySymbol}
+                {/* 6. Safe Drops */}
+                <div className="bg-amber-950/30 p-2 rounded-xl border border-amber-900/40">
+                  <span className="block text-amber-400 text-[10px] font-bold mb-0.5">توريدات للخزينة</span>
+                  <span className="font-mono font-bold text-xs text-amber-300">
+                    -{safeDrops.toFixed(2)}
+                  </span>
+                </div>
+
+                {/* 7. Cash Deposits Refund */}
+                <div className="bg-orange-950/30 p-2 rounded-xl border border-orange-900/40">
+                  <span className="block text-orange-400 text-[10px] font-bold mb-0.5">رد عربون كاش</span>
+                  <span className="font-mono font-bold text-xs text-orange-300">
+                    -{cashDepositsRefund.toFixed(2)}
+                  </span>
+                </div>
+
+                {/* 8. Cash Returns */}
+                <div className="bg-red-950/30 p-2 rounded-xl border border-red-900/40">
+                  <span className="block text-red-400 text-[10px] font-bold mb-0.5">مرتجعات مبيعات</span>
+                  <span className="font-mono font-bold text-xs text-red-300">
+                    -{cashReturns.toFixed(2)}
                   </span>
                 </div>
               </div>
 
               {/* Equation Formula Explanation */}
-              <div className="text-[11px] text-slate-400 bg-slate-950/60 p-2 rounded-lg border border-slate-800/80 font-mono text-center">
-                Net Cash Due = (افتتاحي + كاش مبيعات + إيداعات) - (مصروفات + توريدات + مرتجعات)
+              <div className="text-[10px] text-slate-400 bg-slate-950/60 p-2 rounded-lg border border-slate-800/80 font-mono text-center">
+                صافي نقدية الدرج = (افتتاحي + كاش مبيعات + عربون كاش + تزويد فكة) - (مصروفات + توريدات + رد عربون + مرتجعات)
               </div>
 
               {/* Net Cash Due Box */}

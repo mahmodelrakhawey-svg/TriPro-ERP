@@ -1056,6 +1056,15 @@ export interface ShiftSummaryData {
   deposit_sales?: number;
   redeemed_deposits?: number;
   redeemed_count?: number;
+  cash_deposits_in?: number;
+  wallet_deposits_in?: number;
+  instapay_deposits_in?: number;
+  card_deposits_in?: number;
+  total_deposits_in?: number;
+  cash_deposits_refund?: number;
+  wallet_deposits_refund?: number;
+  instapay_deposits_refund?: number;
+  total_deposits_refund?: number;
   credit_sales?: number;
   returns_total?: number;
   cash_returns?: number;
