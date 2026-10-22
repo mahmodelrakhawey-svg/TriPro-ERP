@@ -34,6 +34,19 @@ import {
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 
+interface ShiftDrawerTransaction {
+  id: string;
+  transaction_type: string;
+  amount: number;
+  payment_method?: string;
+  reason?: string;
+  custodian_or_payer_name?: string;
+  customer_phone?: string;
+  delivery_date?: string;
+  booking_notes?: string;
+  created_at: string;
+}
+
 interface ShiftRecord {
   id: string;
   organization_id: string;
@@ -57,6 +70,15 @@ interface ShiftRecord {
   total_paid_outs?: number;
   total_safe_drops?: number;
   total_cash_returns?: number;
+  total_cash_deposits_in?: number;
+  total_wallet_deposits_in?: number;
+  total_instapay_deposits_in?: number;
+  total_card_deposits_in?: number;
+  total_deposits_in?: number;
+  total_cash_deposits_refund?: number;
+  total_wallet_deposits_refund?: number;
+  total_instapay_deposits_refund?: number;
+  total_deposits_refund?: number;
   notes?: string;
   closing_journal_entry_id?: string;
   created_at: string;
@@ -107,6 +129,8 @@ export default function CashierShiftsHistory() {
   // 3. Drill-down Order Details Modal
   const [selectedShiftForOrders, setSelectedShiftForOrders] = useState<ShiftRecord | null>(null);
   const [shiftOrders, setShiftOrders] = useState<OrderRecord[]>([]);
+  const [shiftDrawerTrans, setShiftDrawerTrans] = useState<ShiftDrawerTransaction[]>([]);
+  const [modalTab, setModalTab] = useState<'ORDERS' | 'DRAWER'>('ORDERS');
   const [loadingShiftOrders, setLoadingShiftOrders] = useState(false);
 
   // Load Branches & Cashiers lists
@@ -459,8 +483,21 @@ export default function CashierShiftsHistory() {
   // Open Shift Sales Orders Drill-down
   const handleOpenShiftOrders = async (shift: ShiftRecord) => {
     setSelectedShiftForOrders(shift);
+    setModalTab('ORDERS');
     setLoadingShiftOrders(true);
     try {
+      // جلب حركات الدرج والعربونات للوردية
+      try {
+        const { data: dTrans } = await supabase
+          .from('pos_drawer_transactions')
+          .select('id, transaction_type, amount, payment_method, reason, custodian_or_payer_name, customer_phone, delivery_date, booking_notes, created_at')
+          .eq('shift_id', shift.id)
+          .order('created_at', { ascending: true });
+        setShiftDrawerTrans(Array.isArray(dTrans) ? (dTrans as any) : []);
+      } catch (dErr) {
+        setShiftDrawerTrans([]);
+      }
+
       const { data, error } = await supabase
         .from('orders')
         .select(`
@@ -1099,75 +1136,188 @@ export default function CashierShiftsHistory() {
               </div>
             </div>
 
+            {/* Navigation Tabs */}
+            <div className="flex border-b border-slate-200 bg-slate-50 text-xs font-bold px-4">
+              <button
+                type="button"
+                onClick={() => setModalTab('ORDERS')}
+                className={`py-2.5 px-4 border-b-2 flex items-center gap-1.5 transition ${
+                  modalTab === 'ORDERS'
+                    ? 'border-blue-600 text-blue-600 bg-white'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <Receipt size={15} />
+                <span>فواتير المبيعات ({shiftOrders.length})</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalTab('DRAWER')}
+                className={`py-2.5 px-4 border-b-2 flex items-center gap-1.5 transition ${
+                  modalTab === 'DRAWER'
+                    ? 'border-blue-600 text-blue-600 bg-white'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                <DollarSign size={15} />
+                <span>حركات الدرج والعربونات والمصروفات ({shiftDrawerTrans.length})</span>
+              </button>
+            </div>
+
             {/* Modal Content */}
             <div className="p-4 overflow-y-auto flex-1 space-y-3">
               {loadingShiftOrders ? (
                 <div className="text-center py-12 text-slate-400">
                   <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-600" />
-                  <span>جاري تحميل فواتير الوردية...</span>
+                  <span>جاري تحميل بيانات الوردية...</span>
                 </div>
-              ) : shiftOrders.length === 0 ? (
-                <div className="text-center py-12 text-slate-400">
-                  لا توجد فواتير بيع مسجلة على هذه الوردية (وردية تجريبية أو بدون حركات بيع).
-                </div>
-              ) : (
-                <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                  <table className="w-full text-right text-xs">
-                    <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
-                      <tr>
-                        <th className="p-2.5">#</th>
-                        <th className="p-2.5">رقم الفاتورة</th>
-                        <th className="p-2.5">الوقت</th>
-                        <th className="p-2.5">العميل</th>
-                        <th className="p-2.5 text-center">طريقة الدفع</th>
-                        <th className="p-2.5 text-center">الخصم</th>
-                        <th className="p-2.5 text-center">الضريبة</th>
-                        <th className="p-2.5 text-left font-bold">الإجمالي</th>
-                        <th className="p-2.5 text-center">الحالة</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {shiftOrders.map((ord, idx) => (
-                        <tr key={ord.id} className="hover:bg-slate-50/50">
-                          <td className="p-2.5 text-slate-400">{idx + 1}</td>
-                          <td className="p-2.5 font-bold font-mono text-slate-800">{ord.order_number}</td>
-                          <td className="p-2.5 text-slate-500">
-                            {new Date(ord.created_at).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
-                          </td>
-                          <td className="p-2.5 text-slate-700">{ord.customer_name}</td>
-                          <td className="p-2.5 text-center">
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-                              {ord.payment_method}
-                            </span>
-                          </td>
-                          <td className="p-2.5 text-center font-mono text-slate-500">
-                            {ord.total_discount ? ord.total_discount.toFixed(2) : '0.00'}
-                          </td>
-                          <td className="p-2.5 text-center font-mono text-slate-500">
-                            {ord.total_tax ? ord.total_tax.toFixed(2) : '0.00'}
-                          </td>
-                          <td className="p-2.5 text-left font-mono font-bold text-slate-900">
-                            {ord.grand_total.toFixed(2)} {currencySymbol}
-                          </td>
-                          <td className="p-2.5 text-center">
-                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700">
-                              {ord.status === 'PAID' || ord.status === 'COMPLETED' ? 'مسددة' : ord.status}
-                            </span>
-                          </td>
+              ) : modalTab === 'ORDERS' ? (
+                shiftOrders.length === 0 ? (
+                  <div className="text-center py-12 text-slate-400">
+                    لا توجد فواتير بيع مسجلة على هذه الوردية (وردية تجريبية أو بدون حركات بيع).
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-right text-xs">
+                      <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                        <tr>
+                          <th className="p-2.5">#</th>
+                          <th className="p-2.5">رقم الفاتورة</th>
+                          <th className="p-2.5">الوقت</th>
+                          <th className="p-2.5">العميل</th>
+                          <th className="p-2.5 text-center">طريقة الدفع</th>
+                          <th className="p-2.5 text-center">الخصم</th>
+                          <th className="p-2.5 text-center">الضريبة</th>
+                          <th className="p-2.5 text-left font-bold">الإجمالي</th>
+                          <th className="p-2.5 text-center">الحالة</th>
                         </tr>
-                      ))}
-                    </tbody>
-                    <tfoot className="bg-slate-50 font-bold border-t border-slate-200">
-                      <tr>
-                        <td colSpan={7} className="p-2.5 text-slate-700">إجمالي مبيعات فواتير الوردية:</td>
-                        <td className="p-2.5 text-left font-mono text-blue-700 font-black">
-                          {shiftOrders.reduce((sum, o) => sum + o.grand_total, 0).toFixed(2)} {currencySymbol}
-                        </td>
-                        <td></td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {shiftOrders.map((ord, idx) => (
+                          <tr key={ord.id} className="hover:bg-slate-50/50">
+                            <td className="p-2.5 text-slate-400">{idx + 1}</td>
+                            <td className="p-2.5 font-bold font-mono text-slate-800">{ord.order_number}</td>
+                            <td className="p-2.5 text-slate-500">
+                              {new Date(ord.created_at).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                            </td>
+                            <td className="p-2.5 text-slate-700">{ord.customer_name}</td>
+                            <td className="p-2.5 text-center">
+                              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                                {ord.payment_method}
+                              </span>
+                            </td>
+                            <td className="p-2.5 text-center font-mono text-slate-500">
+                              {ord.total_discount ? ord.total_discount.toFixed(2) : '0.00'}
+                            </td>
+                            <td className="p-2.5 text-center font-mono text-slate-500">
+                              {ord.total_tax ? ord.total_tax.toFixed(2) : '0.00'}
+                            </td>
+                            <td className="p-2.5 text-left font-mono font-bold text-slate-900">
+                              {ord.grand_total.toFixed(2)} {currencySymbol}
+                            </td>
+                            <td className="p-2.5 text-center">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700">
+                                {ord.status === 'PAID' || ord.status === 'COMPLETED' ? 'مسددة' : ord.status}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-slate-50 font-bold border-t border-slate-200">
+                        <tr>
+                          <td colSpan={7} className="p-2.5 text-slate-700">إجمالي مبيعات فواتير الوردية:</td>
+                          <td className="p-2.5 text-left font-mono text-blue-700 font-black">
+                            {shiftOrders.reduce((sum, o) => sum + o.grand_total, 0).toFixed(2)} {currencySymbol}
+                          </td>
+                          <td></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )
+              ) : (
+                shiftDrawerTrans.length === 0 ? (
+                  <div className="text-center py-12 text-slate-400">
+                    لا توجد حركات درج أو عربونات أو مصروفات مسجلة على هذه الوردية.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-right text-xs">
+                      <thead className="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                        <tr>
+                          <th className="p-2.5">#</th>
+                          <th className="p-2.5">الوقت</th>
+                          <th className="p-2.5">نوع الحركة</th>
+                          <th className="p-2.5">طريقة الدفع</th>
+                          <th className="p-2.5">العميل / المستلم</th>
+                          <th className="p-2.5">هاتف العميل</th>
+                          <th className="p-2.5">تاريخ التسليم</th>
+                          <th className="p-2.5">البيان والملاحظات</th>
+                          <th className="p-2.5 text-left">المبلغ</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {shiftDrawerTrans.map((dt, idx) => {
+                          const isDepositIn = dt.transaction_type.includes('ADVANCE_DEPOSIT') || dt.transaction_type === 'PAID_IN';
+                          const isDepositRefund = dt.transaction_type.includes('REFUND_DEPOSIT');
+
+                          let badgeColor = 'bg-slate-100 text-slate-700';
+                          let typeLabel = dt.transaction_type;
+                          if (dt.transaction_type.includes('ADVANCE_DEPOSIT')) {
+                            badgeColor = 'bg-emerald-100 text-emerald-800';
+                            typeLabel = 'استلام عربون حجز';
+                          } else if (dt.transaction_type.includes('REFUND_DEPOSIT')) {
+                            badgeColor = 'bg-orange-100 text-orange-800';
+                            typeLabel = 'رد عربون ملغي';
+                          } else if (dt.transaction_type === 'PAID_IN') {
+                            badgeColor = 'bg-teal-100 text-teal-800';
+                            typeLabel = 'تزويد فكة';
+                          } else if (dt.transaction_type === 'PAID_OUT_EXPENSE') {
+                            badgeColor = 'bg-rose-100 text-rose-800';
+                            typeLabel = 'مصروف نثري';
+                          } else if (dt.transaction_type === 'SAFE_DROP') {
+                            badgeColor = 'bg-amber-100 text-amber-800';
+                            typeLabel = 'توريد للخزينة';
+                          }
+
+                          return (
+                            <tr key={dt.id} className="hover:bg-slate-50/80">
+                              <td className="p-2.5 text-slate-400">{idx + 1}</td>
+                              <td className="p-2.5 font-mono text-slate-500">
+                                {new Date(dt.created_at).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td className="p-2.5">
+                                <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${badgeColor}`}>
+                                  {typeLabel}
+                                </span>
+                              </td>
+                              <td className="p-2.5 font-bold text-slate-700">
+                                {dt.payment_method === 'WALLET' ? '📱 فودافون كاش' : dt.payment_method === 'INSTAPAY' ? '⚡ إنستاباي' : dt.payment_method === 'CARD' ? '💳 فيزا/شبكة' : '💵 نقداً'}
+                              </td>
+                              <td className="p-2.5 font-medium text-slate-900">
+                                {dt.custodian_or_payer_name || dt.reason || '—'}
+                              </td>
+                              <td className="p-2.5 font-mono text-slate-600" dir="ltr">
+                                {dt.customer_phone || '—'}
+                              </td>
+                              <td className="p-2.5 font-mono text-slate-600">
+                                {dt.delivery_date ? new Date(dt.delivery_date).toLocaleDateString('ar-EG') : '—'}
+                              </td>
+                              <td className="p-2.5 text-slate-500 max-w-xs truncate" title={dt.booking_notes || dt.reason || ''}>
+                                {dt.booking_notes || dt.reason || '—'}
+                              </td>
+                              <td className={`p-2.5 font-mono font-bold text-left ${
+                                isDepositIn ? 'text-emerald-700' : isDepositRefund ? 'text-orange-700' : 'text-rose-700'
+                              }`}>
+                                {isDepositIn ? '+' : '-'}{Number(dt.amount).toFixed(2)} {currencySymbol}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
               )}
             </div>
 
