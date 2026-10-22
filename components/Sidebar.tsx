@@ -95,6 +95,7 @@ import {
   PackageCheck,
   Repeat,
   FileSpreadsheet,
+  Receipt,
 } from 'lucide-react';
 import { secureStorage } from '../utils/securityMiddleware';
 
@@ -221,6 +222,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { to: '/customer-aging', label: 'أعمار ديون العملاء', icon: Clock, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/item-sales-analysis', label: 'تحليل مبيعات الأصناف', icon: BarChart3, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/reports/sales-by-user', label: 'تقرير مبيعات الكاشير والمستخدمين', icon: Users, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
+    { to: '/pos/shifts-history', label: 'سجل إغلاق الورديات والمطابقة (Z-Reports)', icon: Receipt, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
     { to: '/sales-reports', label: 'تقارير المبيعات', icon: BarChart3, color: 'text-emerald-400', module: 'sales', permission: 'sales.view' },
 
     // موديول المشتريات
@@ -382,6 +384,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     // نقاط بيع التجزئة (هايبرماركت وسوبرماركت)
     { type: 'section', label: 'نقاط بيع التجزئة (الهايبرماركت)' },
     { to: '/retail-pos', label: 'نقطة بيع التجزئة (هايبرماركت)', icon: ShoppingCart, color: 'text-rose-400', module: 'retail', permission: 'sales.view' },
+    { to: '/pos/shifts-history', label: 'سجل إغلاق الورديات والمطابقة (Z-Report)', icon: Receipt, color: 'text-emerald-400', module: 'retail', permission: 'sales.view' },
     { to: '/retail/price-checker', label: 'كاشف الأسعار الذاتي للمتسوقين', icon: Barcode, color: 'text-cyan-400', module: 'retail', permission: 'sales.view' },
     { to: '/retail/promotions', label: 'العروض الترويجية والخصومات (BOGO)', icon: Sparkles, color: 'text-amber-400', module: 'retail', permission: 'sales.view' },
     { to: '/retail/customer-display', label: 'شاشة العميل المزدوجة (Dual Screen)', icon: Monitor, color: 'text-purple-400', module: 'retail', permission: 'sales.view' },
@@ -408,6 +411,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { to: '/restaurant/butchering-yield', label: 'تشفية وتفكيك الذبائح والدواجن', icon: Scale, color: 'text-amber-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/restaurant-analytics', label: 'مركز ذكاء المطاعم (BI)', icon: Sparkles, color: 'text-blue-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/reports/restaurant-sales', label: 'تقارير مبيعات المطعم', icon: BarChart3, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
+    { to: '/pos/shifts-history', label: 'سجل إغلاقات الورديات (Z-Reports)', icon: Receipt, color: 'text-emerald-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/reports/sales-by-user', label: 'تقرير مبيعات الكاشير والمستخدمين', icon: Users, color: 'text-rose-400', module: 'restaurant', permission: 'sales.view' },
     { to: '/reports/wastage-analysis', label: 'تحليل هالك وتوالف المطعم', icon: Trash2, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },
     { to: '/reports/restaurant-profit', label: 'تقرير أرباح وقوائم دخل المطعم', icon: TrendingUp, color: 'text-rose-400', module: 'restaurant', permission: 'restaurant.manage' },

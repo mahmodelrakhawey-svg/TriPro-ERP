@@ -220,6 +220,7 @@ const SupplierBalancesReport = lazy(() => import('./modules/purchases/SupplierBa
 // 🛒 مديول التجزئة ونقاط البيع (Retail & POS - Lazy Loaded)
 const PosScreen = lazy(() => import('./modules/restaurant/components/POS/PosScreen'));
 const RetailPosScreen = lazy(() => import('./modules/retail/components/POS/RetailPosScreen'));
+const CashierShiftsHistory = lazy(() => import('./modules/retail/components/POS/CashierShiftsHistory'));
 const PriceCheckerKiosk = lazy(() => import('./modules/retail/components/PriceCheckerKiosk'));
 const CustomerFacingScreen = lazy(() => import('./modules/retail/components/CustomerDisplay/CustomerFacingScreen'));
 const PromotionsManager = lazy(() => import('./modules/retail/components/Promotions/PromotionsManager'));
@@ -847,6 +848,8 @@ const MainLayout = () => {
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/pos" element={<ModuleGuard module="restaurant"><PosScreen /></ModuleGuard>} /> 
                 <Route path="/retail-pos" element={<ModuleGuard module="retail"><RetailPosScreen /></ModuleGuard>} /> 
+                <Route path="/pos/shifts-history" element={<CashierShiftsHistory />} /> 
+                <Route path="/reports/shifts" element={<CashierShiftsHistory />} /> 
                 <Route path="/retail/price-checker" element={<ModuleGuard module="retail"><PriceCheckerKiosk /></ModuleGuard>} /> 
                 <Route path="/retail/customer-display" element={<CustomerFacingScreen />} />
                 <Route path="/retail/promotions" element={<ModuleGuard module="retail"><PromotionsManager /></ModuleGuard>} />

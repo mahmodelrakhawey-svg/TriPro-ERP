@@ -8,7 +8,7 @@ import {
   Settings, LogOut, Smartphone, RotateCcw, ShieldCheck, 
   Layers, HardHat, Utensils, Scissors, Calendar, Clock, 
   Wallet, Banknote, Scale, Database, CreditCard, ChevronRight,
-  Sparkles, ExternalLink, Activity
+  Sparkles, ExternalLink, Activity, Receipt
 } from 'lucide-react';
 
 interface MenuItem {
@@ -129,6 +129,7 @@ export const TopMenuBar: React.FC = () => {
         { label: 'سجل أوامر البيع', to: '/sales-orders', icon: FileText },
         { label: 'كاشير المحلات ونقاط البيع (Retail POS)', to: '/retail-pos', icon: ShoppingCart, badge: 'POS' },
         { label: 'كاشير المطاعم والكافيهات', to: '/pos', icon: Utensils },
+        { label: 'سجل إغلاق الورديات والمطابقة (Z-Reports)', to: '/pos/shifts-history', icon: Receipt },
         { label: 'الفاتورة والإيصال الإلكتروني (ETA)', to: '/eta-invoices', icon: Landmark },
         { label: 'مرتجع مبيعات (Sales Return)', to: '/sales-return', icon: RotateCcw },
         { divider: true, label: '' },
@@ -222,6 +223,7 @@ export const TopMenuBar: React.FC = () => {
         { label: 'دفتر الأستاذ العام (General Ledger)', to: '/ledger', icon: FileText },
         { divider: true, label: '' },
         { header: 'التقارير التحليلية والتشغيلية' },
+        { label: 'سجل إغلاق الورديات والمطابقة المحاسبية (Z-Reports)', to: '/pos/shifts-history', icon: Receipt },
         { label: 'تقرير حركة وتكلفة المبيعات', to: '/item-sales-analysis', icon: ShoppingCart },
         { label: 'تقرير حركة المشتريات والموردين', to: '/purchase-analysis', icon: Truck },
         { label: 'أعمار ديون العملاء (Aging of AR)', to: '/customer-aging', icon: Clock },
