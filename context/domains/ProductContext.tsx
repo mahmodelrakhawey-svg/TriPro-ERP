@@ -120,9 +120,7 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
     try {
       const res = await fetchAllTableRecords<Product>(
         'products',
-        q => q.eq('organization_id', targetOrgId).is('deleted_at', null).order('name'),
-        1000,
-        'id, name, barcode, sku, sale_price, price, purchase_price, cost_price, min_sale_price, tax_rate, unit, category_id, is_active, stock_quantity, track_stock, organization_id, image_url, modifiers, recipes'
+        q => q.eq('organization_id', targetOrgId).is('deleted_at', null).order('name')
       );
 
       if (res.error) {

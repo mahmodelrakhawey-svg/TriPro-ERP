@@ -78,22 +78,23 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     }
 
     try {
-      let invQuery = supabase
-        .from('invoices')
-        .select('id, invoice_number, invoice_date, due_date, customer_id, salesperson_id, total_amount, tax_amount, subtotal, paid_amount, discount_amount, status, warehouse_id, organization_id')
-        .eq('organization_id', targetOrgId);
-
-      if (fiscalYearRange?.startDate && fiscalYearRange?.endDate) {
-        invQuery = invQuery
-          .gte('invoice_date', fiscalYearRange.startDate)
-          .lte('invoice_date', fiscalYearRange.endDate);
-      }
-
       const [invRes, custRes, spRes] = await Promise.all([
-        invQuery.order('invoice_date', { ascending: false }).limit(100),
+        fetchCompleteDataset<SalesInvoice>(async (from, to) => {
+          let invQuery = supabase
+            .from('invoices')
+            .select('*')
+            .eq('organization_id', targetOrgId);
+
+          if (fiscalYearRange?.startDate && fiscalYearRange?.endDate) {
+            invQuery = invQuery
+              .gte('invoice_date', fiscalYearRange.startDate)
+              .lte('invoice_date', fiscalYearRange.endDate);
+          }
+          return invQuery.order('invoice_date', { ascending: false }).range(from, to);
+        }).then(data => ({ data, error: null })),
         supabase
           .from('customers')
-          .select('id, name, phone, email, customer_type, credit_limit, opening_balance, pricing_tier, organization_id')
+          .select('*')
           .eq('organization_id', targetOrgId)
           .is('deleted_at', null)
           .order('name'),
@@ -107,7 +108,7 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
       if (invRes.error) {
         logger.error('Error fetching invoices in SalesProvider:', invRes.error);
       } else {
-        setInvoices(((invRes.data as unknown) as SalesInvoice[]) || []);
+        setInvoices((invRes.data as SalesInvoice[]) || []);
       }
 
       if (custRes.error) {

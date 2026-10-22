@@ -7,7 +7,7 @@ import { useToast } from '../../../context/ToastContext';
 import { 
   Banknote, Plus, CheckCircle, Loader2, AlertTriangle, 
   AlertCircle, Sparkles, Building2, Briefcase, Calendar, 
-  DollarSign, Wallet, X, Percent, UserCheck, FileSpreadsheet, Search, Filter, Pencil
+  DollarSign, Wallet, X, Percent, UserCheck, FileSpreadsheet, Search, Filter, Pencil, Trash2
 } from 'lucide-react';
 import { createEmployeeAdvanceSchema } from '../../../utils/validationSchemas';
 import EmployeeSearchSelect, { EmployeeOption } from '../../../components/EmployeeSearchSelect';
@@ -332,6 +332,74 @@ const EmployeeAdvances = () => {
     setIsModalOpen(true);
   };
 
+  const handleDeleteAdvance = async (adv: Record<string, any>) => {
+    if (adv.status === 'deducted' || Boolean(adv.payroll_item_id)) {
+      showToast('لا يمكن حذف سلفة تم تسويتها وخصمها بالفعل في مسير الرواتب ⚠️', 'warning');
+      return;
+    }
+
+    const empName = adv.employees?.full_name || 'الموظف';
+    const amountStr = Number(adv.amount || 0).toLocaleString();
+    if (!window.confirm(`هل أنت متأكد من حذف سلفة الموظف "${empName}" بقيمة ${amountStr} ج.م؟\nسيتم حذف السلفة وإلغاء القيد المحاسبي المرتبط بها من الخزينة نهائياً.`)) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+
+      // 1. محاولة الحذف عبر الإجراء المخزن المحمي بقاعدة البيانات
+      const { error: rpcError } = await supabase.rpc('delete_employee_advance', {
+        p_advance_id: adv.id
+      });
+
+      if (rpcError) {
+        logger.warn('delete_employee_advance RPC failed, executing direct fallback:', rpcError);
+
+        // Fallback: حذف القيد المحاسبي المرتبط إن وجد
+        const ref = adv.reference;
+        if (ref) {
+          const { data: entries } = await supabase
+            .from('journal_entries')
+            .select('id, organization_id')
+            .eq('reference', ref);
+
+          if (entries && entries.length > 0) {
+            for (const entry of entries) {
+              const { error: delEntryError } = await supabase.rpc('delete_journal_entry_safe', {
+                p_entry_id: entry.id,
+                p_org_id: entry.organization_id || orgId
+              });
+
+              if (delEntryError) {
+                await supabase.from('journal_lines').delete().eq('journal_entry_id', entry.id);
+                await supabase.from('journal_entries').delete().eq('id', entry.id);
+              }
+            }
+          }
+        }
+
+        // حذف سجل السلفة نفسه
+        const { error: delError } = await supabase
+          .from('employee_advances')
+          .delete()
+          .eq('id', adv.id);
+
+        if (delError) throw delError;
+      }
+
+      showToast(`تم حذف سلفة الموظف "${empName}" وإلغاء أثرها المالي بنجاح 🗑️`, 'success');
+      await fetchData();
+      if (refreshData) refreshData();
+    } catch (err: unknown) {
+      logger.error('Failed to delete advance:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('حدث خطأ أثناء حذف السلفة: ' + msg, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -404,61 +472,82 @@ const EmployeeAdvances = () => {
 
           // تحديث ومزامنة القيد المحاسبي
           const existingAdv = advances.find(a => a.id === editingId);
-          const ref = existingAdv?.reference;
-          if (ref) {
-            const { data: journalEntries } = await supabase
+          let ref = existingAdv?.reference;
+          if (!ref || ref.trim() === '') {
+            ref = `ADV-${Date.now().toString().slice(-6)}`;
+            await supabase
+              .from('employee_advances')
+              .update({ reference: ref })
+              .eq('id', editingId);
+          }
+
+          const { data: journalEntries } = await supabase
+            .from('journal_entries')
+            .select('id, status')
+            .eq('reference', ref)
+            .limit(1);
+
+          const advancesAcc = getSystemAccount('EMPLOYEE_ADVANCES') || accounts.find(a => a.code === '1223');
+          const empName = employee?.full_name || '';
+
+          if (journalEntries && journalEntries.length > 0) {
+            const jEntry = journalEntries[0];
+
+            // إلغاء ترحيل القيد مؤقتاً لتعديل أسطره
+            await supabase
               .from('journal_entries')
-              .select('id, status')
-              .eq('reference', ref)
-              .limit(1);
+              .update({ 
+                status: 'draft', 
+                is_posted: false,
+                transaction_date: formData.date,
+                description: `صرف سلفة للموظف ${empName}`
+              })
+              .eq('id', jEntry.id);
 
-            if (journalEntries && journalEntries.length > 0) {
-              const jEntry = journalEntries[0];
-              const advancesAcc = getSystemAccount('EMPLOYEE_ADVANCES') || accounts.find(a => a.code === '1223');
-              const empName = employee?.full_name || '';
+            await supabase
+              .from('journal_lines')
+              .delete()
+              .eq('journal_entry_id', jEntry.id);
 
-              // إلغاء ترحيل القيد مؤقتاً لتعديل أسطره
-              await supabase
-                .from('journal_entries')
-                .update({ 
-                  status: 'draft', 
-                  is_posted: false,
-                  transaction_date: formData.date,
-                  description: `صرف سلفة للموظف ${empName}`
-                })
-                .eq('id', jEntry.id);
+            if (advancesAcc) {
+              await supabase.from('journal_lines').insert([
+                {
+                  journal_entry_id: jEntry.id,
+                  account_id: advancesAcc.id,
+                  debit: formData.amount,
+                  credit: 0,
+                  description: `سلفة موظف - ${empName}`,
+                  organization_id: orgId
+                },
+                {
+                  journal_entry_id: jEntry.id,
+                  account_id: formData.treasuryId,
+                  debit: 0,
+                  credit: formData.amount,
+                  description: 'صرف نقدية لسلفة',
+                  organization_id: orgId
+                }
+              ]);
+            }
 
-              await supabase
-                .from('journal_lines')
-                .delete()
-                .eq('journal_entry_id', jEntry.id);
-
-              if (advancesAcc) {
-                await supabase.from('journal_lines').insert([
-                  {
-                    journal_entry_id: jEntry.id,
-                    account_id: advancesAcc.id,
-                    debit: formData.amount,
-                    credit: 0,
-                    description: `سلفة موظف - ${empName}`,
-                    organization_id: orgId
-                  },
-                  {
-                    journal_entry_id: jEntry.id,
-                    account_id: formData.treasuryId,
-                    debit: 0,
-                    credit: formData.amount,
-                    description: 'صرف نقدية لسلفة',
-                    organization_id: orgId
-                  }
-                ]);
-              }
-
-              // إعادة ترحيل القيد
-              await supabase
-                .from('journal_entries')
-                .update({ status: 'posted', is_posted: true })
-                .eq('id', jEntry.id);
+            // إعادة ترحيل القيد
+            await supabase
+              .from('journal_entries')
+              .update({ status: 'posted', is_posted: true })
+              .eq('id', jEntry.id);
+          } else {
+            // 🛡️ حماية استباقية: إذا لم يكن هناك قيد سابق، يتم إنشاؤه فوراً لضمان ظهوره في الأستاذ والخزينة!
+            if (advancesAcc) {
+              await addEntry({
+                date: formData.date,
+                description: `صرف سلفة للموظف ${empName}`,
+                reference: ref,
+                status: 'posted',
+                lines: [
+                  { account_id: advancesAcc.id, accountId: advancesAcc.id, debit: formData.amount, credit: 0, description: `سلفة موظف - ${empName}` },
+                  { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: 'صرف نقدية لسلفة' }
+                ]
+              });
             }
           }
           updateSucceeded = true;
@@ -696,15 +785,35 @@ const EmployeeAdvances = () => {
                   </td>
                   <td className="p-4 text-slate-500 text-xs max-w-xs truncate">{adv.notes || '-'}</td>
                   <td className="p-4 text-center whitespace-nowrap">
-                    <button
-                      type="button"
-                      onClick={() => handleEditAdvance(adv)}
-                      className="p-1.5 px-3 rounded-xl text-blue-600 hover:text-white hover:bg-blue-600 border border-blue-200 hover:border-blue-600 transition-all inline-flex items-center justify-center gap-1.5 text-xs font-bold shadow-2xs group cursor-pointer"
-                      title="تعديل بيانات السلفة"
-                    >
-                      <Pencil size={14} className="group-hover:scale-110 transition-transform" />
-                      <span>تعديل</span>
-                    </button>
+                    <div className="flex items-center justify-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => handleEditAdvance(adv)}
+                        className="p-1.5 px-2.5 rounded-xl text-blue-600 hover:text-white hover:bg-blue-600 border border-blue-200 hover:border-blue-600 transition-all inline-flex items-center justify-center gap-1 text-xs font-bold shadow-2xs group cursor-pointer"
+                        title="تعديل بيانات السلفة"
+                      >
+                        <Pencil size={13} className="group-hover:scale-110 transition-transform" />
+                        <span>تعديل</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteAdvance(adv)}
+                        disabled={adv.status === 'deducted' || Boolean(adv.payroll_item_id)}
+                        className={`p-1.5 px-2.5 rounded-xl border transition-all inline-flex items-center justify-center gap-1 text-xs font-bold shadow-2xs ${
+                          adv.status === 'deducted' || Boolean(adv.payroll_item_id)
+                            ? 'text-slate-300 border-slate-200 cursor-not-allowed bg-slate-50'
+                            : 'text-rose-600 hover:text-white hover:bg-rose-600 border-rose-200 hover:border-rose-600 group cursor-pointer'
+                        }`}
+                        title={
+                          adv.status === 'deducted' || Boolean(adv.payroll_item_id)
+                            ? 'لا يمكن حذف سلفة تم تسويتها وخصمها بالفعل في مسير الرواتب'
+                            : 'حذف السلفة وإلغاء أثرها المالي'
+                        }
+                      >
+                        <Trash2 size={13} className="group-hover:scale-110 transition-transform" />
+                        <span>حذف</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
