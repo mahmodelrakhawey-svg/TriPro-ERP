@@ -79,7 +79,7 @@ interface OrderRecord {
 }
 
 export default function CashierShiftsHistory() {
-  const { currentUser, currentSelectedOrgId, currencySymbol = 'ج.م' } = useAccounting() as any;
+  const { organization, currentUser, currentSelectedOrgId, currencySymbol = 'ج.م' } = useAccounting() as any;
   const { showToast } = useToast();
   const navigate = useNavigate();
 
@@ -88,6 +88,7 @@ export default function CashierShiftsHistory() {
   const [loading, setLoading] = useState(true);
   const [organizationsList, setOrganizationsList] = useState<{ id: string; name: string }[]>([]);
   const [cashiersList, setCashiersList] = useState<{ id: string; full_name: string }[]>([]);
+  const [terminalsList, setTerminalsList] = useState<{ id: string; name: string }[]>([]);
 
   // 2. Filter States
   const [selectedOrgId, setSelectedOrgId] = useState<string>('ALL');
@@ -112,12 +113,14 @@ export default function CashierShiftsHistory() {
   useEffect(() => {
     const loadMetadata = async () => {
       try {
-        const [orgsRes, profilesRes] = await Promise.all([
+        const [orgsRes, profilesRes, terminalsRes] = await Promise.allSettled([
           supabase.from('organizations').select('id, name').order('name'),
-          supabase.from('profiles').select('id, full_name').order('full_name')
+          supabase.from('profiles').select('id, full_name').order('full_name'),
+          supabase.from('pos_terminals').select('id, name')
         ]);
-        if (orgsRes.data) setOrganizationsList(orgsRes.data);
-        if (profilesRes.data) setCashiersList(profilesRes.data);
+        if (orgsRes.status === 'fulfilled' && orgsRes.value.data) setOrganizationsList(orgsRes.value.data);
+        if (profilesRes.status === 'fulfilled' && profilesRes.value.data) setCashiersList(profilesRes.value.data);
+        if (terminalsRes.status === 'fulfilled' && terminalsRes.value.data) setTerminalsList(terminalsRes.value.data);
       } catch (err) {
         logger.warn('Error loading filter metadata:', err);
       }
@@ -138,12 +141,7 @@ export default function CashierShiftsHistory() {
     try {
       let query = supabase
         .from('shifts')
-        .select(`
-          *,
-          organizations:organization_id(id, name),
-          profiles:user_id(id, full_name),
-          pos_terminals:pos_terminal_id(id, name)
-        `)
+        .select('*')
         .order('start_time', { ascending: false });
 
       if (selectedOrgId && selectedOrgId !== 'ALL') {
@@ -166,6 +164,53 @@ export default function CashierShiftsHistory() {
 
       if (error) throw error;
 
+      // In-memory mapping to avoid PostgREST relationship/foreign-key cache errors
+      const orgMap = new Map<string, string>(organizationsList.map(o => [o.id, o.name]));
+      const cashierMap = new Map<string, string>(cashiersList.map(c => [c.id, c.full_name]));
+      const terminalMap = new Map<string, string>(terminalsList.map(t => [t.id, t.name]));
+
+      // Check missing cashiers
+      const missingUserIds = (data || [])
+        .map((s: any) => s.user_id)
+        .filter((uid: string) => uid && !cashierMap.has(uid));
+      if (missingUserIds.length > 0) {
+        try {
+          const { data: profs } = await supabase
+            .from('profiles')
+            .select('id, full_name')
+            .in('id', Array.from(new Set(missingUserIds)));
+          if (profs) profs.forEach((p: any) => cashierMap.set(p.id, p.full_name));
+        } catch (_) {}
+      }
+
+      // Check missing orgs
+      const missingOrgIds = (data || [])
+        .map((s: any) => s.organization_id)
+        .filter((oid: string) => oid && !orgMap.has(oid));
+      if (missingOrgIds.length > 0) {
+        try {
+          const { data: orgs } = await supabase
+            .from('organizations')
+            .select('id, name')
+            .in('id', Array.from(new Set(missingOrgIds)));
+          if (orgs) orgs.forEach((o: any) => orgMap.set(o.id, o.name));
+        } catch (_) {}
+      }
+
+      // Check missing terminals
+      const missingTerminalIds = (data || [])
+        .map((s: any) => s.pos_terminal_id)
+        .filter((tid: string) => tid && !terminalMap.has(tid));
+      if (missingTerminalIds.length > 0) {
+        try {
+          const { data: terms } = await supabase
+            .from('pos_terminals')
+            .select('id, name')
+            .in('id', Array.from(new Set(missingTerminalIds)));
+          if (terms) terms.forEach((t: any) => terminalMap.set(t.id, t.name));
+        } catch (_) {}
+      }
+
       const formatted: ShiftRecord[] = (data || []).map((s: any) => ({
         ...s,
         opening_balance: Number(s.opening_balance || 0),
@@ -183,9 +228,9 @@ export default function CashierShiftsHistory() {
         total_paid_outs: Number(s.total_paid_outs || 0),
         total_safe_drops: Number(s.total_safe_drops || 0),
         total_cash_returns: Number(s.total_cash_returns || 0),
-        cashier_name: s.profiles?.full_name || 'كاشير غير محدد',
-        org_name: s.organizations?.name || 'الفرع الرئيسي',
-        terminal_name: s.pos_terminals?.name || 'جهاز كاشير'
+        cashier_name: cashierMap.get(s.user_id) || s.cashier_name || 'كاشير غير محدد',
+        org_name: orgMap.get(s.organization_id) || organization?.name || 'الفرع الرئيسي',
+        terminal_name: terminalMap.get(s.pos_terminal_id) || s.terminal_name || 'جهاز كاشير'
       }));
 
       setShifts(formatted);
@@ -402,12 +447,25 @@ export default function CashierShiftsHistory() {
           status,
           total_tax,
           total_discount,
-          customers:customer_id(name)
+          customer_id
         `)
         .eq('shift_id', shift.id)
         .order('created_at', { ascending: true });
 
       if (error) throw error;
+
+      // Lookup customer names safely without foreign key join failures
+      const custIds = (data || []).map((o: any) => o.customer_id).filter(Boolean);
+      const custMap = new Map<string, string>();
+      if (custIds.length > 0) {
+        try {
+          const { data: custs } = await supabase
+            .from('customers')
+            .select('id, name')
+            .in('id', Array.from(new Set(custIds)));
+          if (custs) custs.forEach((c: any) => custMap.set(c.id, c.name));
+        } catch (_) {}
+      }
 
       const mapped: OrderRecord[] = (data || []).map((o: any) => ({
         id: o.id,
@@ -418,7 +476,7 @@ export default function CashierShiftsHistory() {
         status: o.status,
         total_tax: Number(o.total_tax || 0),
         total_discount: Number(o.total_discount || 0),
-        customer_name: o.customers?.name || 'عميل نقدي'
+        customer_name: (o.customer_id && custMap.get(o.customer_id)) || 'عميل نقدي'
       }));
 
       setShiftOrders(mapped);
