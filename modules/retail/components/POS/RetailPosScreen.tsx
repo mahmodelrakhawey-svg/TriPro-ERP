@@ -1353,32 +1353,55 @@ export default function RetailPosScreen() {
         isOpen={isCashDropOpen}
         onClose={() => setIsCashDropOpen(false)}
         organizationId={currentSelectedOrgId || currentUser?.organization_id}
-        onConfirm={async (amt, reason, receiver, payoutType, expenseAccountId, targetAccountId) => {
-          const newDrop = {
-            amount: amt,
-            reason,
-            receiverName: receiver,
-            time: new Date().toLocaleTimeString('ar-EG')
-          };
-          setCashDrops(prev => [newDrop, ...prev]);
+        onConfirm={async (amt, reason, receiver, payoutType, expenseAccountId, targetAccountId, depositDetails) => {
+          const isDeposit = payoutType === 'ADVANCE_DEPOSIT_IN';
+          const isRefund = payoutType === 'REFUND_DEPOSIT_OUT';
+          const paymentMethod = depositDetails?.paymentMethod || 'CASH';
+          const isCashFlow = (!isDeposit && !isRefund) || paymentMethod === 'CASH';
+
+          // أضف للحركات النقدية المحلية فقط إذا كانت الحركة تمس نقدية الدرج الورقية
+          if (isCashFlow) {
+            const newDrop = {
+              amount: amt,
+              reason: isRefund ? `رد عربون حجز: ${reason || ''}` : (isDeposit ? `عربون حجز: ${reason || ''}` : reason),
+              receiverName: receiver,
+              time: new Date().toLocaleTimeString('ar-EG')
+            };
+            setCashDrops(prev => [newDrop, ...prev]);
+          }
 
           // Map payoutType to unified pos_drawer_transactions type & persist via RPC
           let drawerType = 'SAFE_DROP';
           if (payoutType === 'EXPENSE') drawerType = 'PAID_OUT_EXPENSE';
           else if (payoutType === 'PAID_IN') drawerType = 'PAID_IN';
-          else if (payoutType === 'ADVANCE_DEPOSIT_IN') drawerType = 'ADVANCE_DEPOSIT_IN';
-          else if (payoutType === 'VAULT_TRANSFER' || payoutType === 'CUSTODIAN') drawerType = 'SAFE_DROP';
+          else if (payoutType === 'ADVANCE_DEPOSIT_IN') {
+            if (paymentMethod === 'WALLET') drawerType = 'ADVANCE_DEPOSIT_WALLET';
+            else if (paymentMethod === 'INSTAPAY') drawerType = 'ADVANCE_DEPOSIT_INSTAPAY';
+            else if (paymentMethod === 'CARD') drawerType = 'ADVANCE_DEPOSIT_CARD';
+            else drawerType = 'ADVANCE_DEPOSIT_IN';
+          } else if (payoutType === 'REFUND_DEPOSIT_OUT') {
+            if (paymentMethod === 'WALLET') drawerType = 'REFUND_DEPOSIT_WALLET';
+            else if (paymentMethod === 'INSTAPAY') drawerType = 'REFUND_DEPOSIT_INSTAPAY';
+            else drawerType = 'REFUND_DEPOSIT_CASH';
+          } else if (payoutType === 'VAULT_TRANSFER' || payoutType === 'CUSTODIAN') {
+            drawerType = 'SAFE_DROP';
+          }
 
           try {
             if (activeShift?.id && isValidUUID(activeShift.id)) {
               await supabase.rpc('record_pos_drawer_transaction', {
                 p_shift_id: activeShift.id,
                 p_transaction_type: drawerType,
+                p_type: drawerType,
                 p_amount: amt,
                 p_reason: reason || payoutType,
                 p_account_id: payoutType === 'EXPENSE' ? expenseAccountId : (targetAccountId || null),
-                p_custodian_name: payoutType === 'CUSTODIAN' ? receiver : null,
-                p_org_id: currentSelectedOrgId || currentUser?.organization_id
+                p_custodian_name: (payoutType === 'CUSTODIAN' || isDeposit || isRefund) ? receiver : null,
+                p_org_id: currentSelectedOrgId || currentUser?.organization_id,
+                p_payment_method: paymentMethod,
+                p_customer_phone: depositDetails?.customerPhone || null,
+                p_delivery_date: depositDetails?.deliveryDate || null,
+                p_booking_notes: depositDetails?.bookingNotes || null
               });
             }
           } catch (drawerErr) {
@@ -1387,14 +1410,14 @@ export default function RetailPosScreen() {
           try {
             const { error: dropErr } = await supabase.from('pos_petty_cash_payouts').insert({
               organization_id: currentSelectedOrgId || currentUser?.organization_id,
-              public_shift_id: (activeShift?.id && isValidUUID(activeShift.id)) ? activeShift.id : null,   // UUID من public.shifts
+              public_shift_id: (activeShift?.id && isValidUUID(activeShift.id)) ? activeShift.id : null,
               cashier_id: currentUser?.id,
               amount: amt,
-              payout_type: (payoutType === 'PAID_IN' || (payoutType as string) === 'ADVANCE_DEPOSIT_IN') ? 'PAID_IN' : (payoutType === 'EXPENSE' ? 'EXPENSE' : 'SAFE_DROP'),
+              payout_type: (payoutType === 'PAID_IN' || isDeposit) ? 'PAID_IN' : (payoutType === 'EXPENSE' ? 'EXPENSE' : 'SAFE_DROP'),
               reason: reason || payoutType,
               expense_account_id: expenseAccountId || null,
               target_account_id: targetAccountId || null,
-              custodian_name: payoutType === 'CUSTODIAN' ? receiver : null,
+              custodian_name: (payoutType === 'CUSTODIAN' || isDeposit || isRefund) ? receiver : null,
             });
             if (dropErr) {
               logger.warn('Could not persist cash drop to pos_petty_cash_payouts:', dropErr);
@@ -1409,6 +1432,7 @@ export default function RetailPosScreen() {
         }}
         currentDrawerTotal={shiftFinancials.drawerCash}
         cashierName={currentUser?.full_name || 'الكاشير'}
+        orgName={organization?.name || 'TriPro Confectionery & Hypermarket'}
       />
 
 
