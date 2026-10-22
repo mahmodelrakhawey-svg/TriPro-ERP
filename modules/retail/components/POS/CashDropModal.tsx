@@ -97,18 +97,18 @@ export default function CashDropModal({
         const { data: expData } = await supabase
           .from('accounts')
           .select('id, name, code')
-          .eq('organization_id', organizationId)
+          .or(`organization_id.eq.${organizationId},organization_id.is.null`)
           .eq('is_active', true)
           .like('code', '5%')
           .order('code');
 
-        // حسابات الصناديق/الخزائن (12xx / 11xx)
+        // حسابات الصناديق/الخزائن (12xx / 11xx / 101xx)
         const { data: vaultData } = await supabase
           .from('accounts')
           .select('id, name, code')
-          .eq('organization_id', organizationId)
+          .or(`organization_id.eq.${organizationId},organization_id.is.null`)
           .eq('is_active', true)
-          .or('code.like.12%,code.like.11%')
+          .or('code.like.12%,code.like.11%,code.like.101%')
           .order('code');
 
         setExpenseAccounts((expData || []) as AccountOption[]);
@@ -189,7 +189,7 @@ export default function CashDropModal({
 
   return (
     <div className="fixed inset-0 z-[100] bg-slate-900/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-150 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden animate-in fade-in zoom-in duration-150 max-h-[90vh] overflow-y-auto text-slate-900">
 
         {/* Header */}
         <div className="bg-gradient-to-r from-amber-600 to-orange-600 text-white p-4 flex items-center justify-between sticky top-0 z-10">
@@ -266,11 +266,11 @@ export default function CashDropModal({
                   required
                   value={selectedExpenseAccount}
                   onChange={e => setSelectedExpenseAccount(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-red-400 outline-none bg-white"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-red-400 outline-none bg-white text-slate-900 font-medium"
                 >
-                  <option value="">— اختر حساب المصروف —</option>
+                  <option value="" className="text-slate-900 bg-white">— اختر حساب المصروف —</option>
                   {expenseAccounts.map(a => (
-                    <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                    <option key={a.id} value={a.id} className="text-slate-900 bg-white">{a.code} — {a.name}</option>
                   ))}
                 </select>
               )}
@@ -288,11 +288,11 @@ export default function CashDropModal({
                   required
                   value={selectedTargetAccount}
                   onChange={e => setSelectedTargetAccount(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400 outline-none bg-white"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-blue-400 outline-none bg-white text-slate-900 font-medium"
                 >
-                  <option value="">— اختر الخزينة —</option>
+                  <option value="" className="text-slate-900 bg-white">— اختر الخزينة —</option>
                   {vaultAccounts.map(a => (
-                    <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                    <option key={a.id} value={a.id} className="text-slate-900 bg-white">{a.code} — {a.name}</option>
                   ))}
                 </select>
               )}
@@ -306,11 +306,11 @@ export default function CashDropModal({
               <select
                 value={selectedTargetAccount}
                 onChange={e => setSelectedTargetAccount(e.target.value)}
-                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-purple-400 outline-none bg-white"
+                className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm focus:ring-2 focus:ring-purple-400 outline-none bg-white text-slate-900 font-medium"
               >
-                <option value="">— الافتراضي (عهدة الموظفين 1224) —</option>
+                <option value="" className="text-slate-900 bg-white">— الافتراضي (عهدة الموظفين 1224) —</option>
                 {vaultAccounts.filter(a => a.code.startsWith('12') || a.code.startsWith('14')).map(a => (
-                  <option key={a.id} value={a.id}>{a.code} — {a.name}</option>
+                  <option key={a.id} value={a.id} className="text-slate-900 bg-white">{a.code} — {a.name}</option>
                 ))}
               </select>
             </div>

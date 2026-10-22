@@ -599,9 +599,10 @@ export const RestaurantProvider: React.FC<RestaurantProviderProps> = ({
       setCurrentShift(null);
       if (refreshData) await refreshData();
       if (logActivity) logActivity('CLOSE_SHIFT', `إغلاق الوردية رقم ${shiftId}`);
-    } catch {
+    } catch (err: unknown) {
       setCurrentShift(null);
-      notify('تم إغلاق الوردية محلياً 🔒', 'success');
+      const errMsg = err instanceof Error ? err.message : (err as any)?.message || 'تم إغلاق الوردية محلياً 🔒';
+      notify('تنبيه أثناء إغلاق الوردية: ' + errMsg, 'warning');
     }
   }, [currentShift, isDemo, notify, logActivity, targetOrgId, refreshData]);
 

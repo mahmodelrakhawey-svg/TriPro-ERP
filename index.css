@@ -44,3 +44,12 @@ body {
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
   background: rgba(56, 189, 248, 0.4);
 }
+
+/* 🎨 ضبط تباين قوائم الاختيار (Select & Options) ومنع الكتابة البيضاء على خلفية بيضاء */
+select {
+  color: #0f172a !important;
+}
+select option {
+  color: #0f172a !important;
+  background-color: #ffffff !important;
+}

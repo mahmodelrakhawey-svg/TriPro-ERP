@@ -998,7 +998,7 @@ export default function RetailPosScreen() {
         p_shift_id: activeShift.id,
         p_actual_cash: Number(actualCash),
         p_notes: closingNotes || 'إغلاق وردية التجزئة السريعة',
-        p_org_id: currentUser.organization_id,
+        p_org_id: effectiveOrgId || activeShift.organization_id || currentUser.organization_id,
         p_reconciliation: reconciliation || null
       });
       if (error) throw error;
@@ -1014,7 +1014,9 @@ export default function RetailPosScreen() {
       setActiveShift(null);
       setCart([]);
       setIsCloseModalOpen(false);
-      showToast('تم إغلاق الوردية محلياً 🏁', 'success');
+      logger.error('Error closing shift via RPC:', err);
+      const errMsg = err instanceof Error ? err.message : (err as any)?.message || 'تم الإغلاق محلياً لتعذر المزامنة';
+      showToast('تنبيه أثناء إغلاق الوردية: ' + errMsg, 'warning');
     } finally {
       setIsClosingShift(false);
     }

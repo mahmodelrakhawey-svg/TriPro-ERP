@@ -185,7 +185,7 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({ shift, onClose, 
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in" dir="rtl">
-      <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden space-y-4 p-6">
+      <div className="bg-white text-slate-900 rounded-3xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden space-y-4 p-6">
         {/* Header */}
         <div className="flex justify-between items-center border-b pb-3">
           <div className="flex items-center gap-3">
@@ -329,10 +329,10 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({ shift, onClose, 
               <select
                 value={targetVaultAccountId}
                 onChange={e => setTargetVaultAccountId(e.target.value)}
-                className="w-full border rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500 bg-white text-xs font-semibold"
+                className="w-full border rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-900 text-xs font-semibold"
               >
                 {vaultAccounts.map(acc => (
-                  <option key={acc.id} value={acc.id}>
+                  <option key={acc.id} value={acc.id} className="text-slate-900 bg-white">
                     {acc.code} - {acc.name}
                   </option>
                 ))}
@@ -347,10 +347,10 @@ export const PettyCashModal: React.FC<PettyCashModalProps> = ({ shift, onClose, 
               <select
                 value={expenseAccountId}
                 onChange={e => setExpenseAccountId(e.target.value)}
-                className="w-full border rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-amber-500 bg-white text-xs font-semibold"
+                className="w-full border rounded-xl p-2.5 outline-none focus:ring-2 focus:ring-amber-500 bg-white text-slate-900 text-xs font-semibold"
               >
                 {expenseAccounts.map(acc => (
-                  <option key={acc.id} value={acc.id}>
+                  <option key={acc.id} value={acc.id} className="text-slate-900 bg-white">
                     {acc.code} - {acc.name}
                   </option>
                 ))}
