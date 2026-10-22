@@ -6,13 +6,22 @@
 -- 2. دعم رد وإلغاء العربون للعميل (نقداً من الدرج، أو إلكترونياً بالمحفظة/إنستاباي)
 -- 3. عزل الحركات غير النقدية عن نقدية الدرج لمنع العجز الوهمي في الوردية
 -- 4. إثبات القيود المحاسبية التلقائية بدقة متوازنة 100% في قيد إغلاق الوردية
+-- 5. إزالة أي استعلام عن o.total_amount أو جداول مؤقتة لمنع أي خطأ 400 Bad Request
 -- ==============================================================================
 
--- 1. إضافة الأعمدة المطلوبة لجدول حركات الدرج pos_drawer_transactions
+-- 1. إضافة الأعمدة المطلوبة لجدول حركات الدرج pos_drawer_transactions وجدول الورديات shifts
 ALTER TABLE public.pos_drawer_transactions ADD COLUMN IF NOT EXISTS payment_method VARCHAR(50) DEFAULT 'CASH';
 ALTER TABLE public.pos_drawer_transactions ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(50);
 ALTER TABLE public.pos_drawer_transactions ADD COLUMN IF NOT EXISTS delivery_date DATE;
 ALTER TABLE public.pos_drawer_transactions ADD COLUMN IF NOT EXISTS booking_notes TEXT;
+
+ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS total_cash_deposits_in NUMERIC DEFAULT 0;
+ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS total_wallet_deposits_in NUMERIC DEFAULT 0;
+ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS total_instapay_deposits_in NUMERIC DEFAULT 0;
+ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS total_card_deposits_in NUMERIC DEFAULT 0;
+ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS total_cash_deposits_refund NUMERIC DEFAULT 0;
+ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS total_wallet_deposits_refund NUMERIC DEFAULT 0;
+ALTER TABLE public.shifts ADD COLUMN IF NOT EXISTS total_instapay_deposits_refund NUMERIC DEFAULT 0;
 
 -- 2. ترقية دالة تسجيل حركة الدرج record_pos_drawer_transaction
 DROP FUNCTION IF EXISTS public.record_pos_drawer_transaction(UUID, VARCHAR, NUMERIC, TEXT, UUID, VARCHAR, UUID);
@@ -116,7 +125,9 @@ $$;
 GRANT EXECUTE ON FUNCTION public.record_pos_drawer_transaction TO authenticated, service_role, anon;
 
 
--- 3. ترقية دالة ملخص الوردية get_shift_summary لفصل العربونات النقدية عن الإلكترونية بدقة
+-- 3. ترقية دالة ملخص الوردية get_shift_summary (آمنة تماماً، بدون أي استعلام عن o.total_amount وبدون جداول مؤقتة)
+DROP FUNCTION IF EXISTS public.get_shift_summary(uuid);
+
 CREATE OR REPLACE FUNCTION public.get_shift_summary(p_shift_id uuid)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -172,13 +183,12 @@ BEGIN
     v_end_time        := COALESCE(v_shift.end_time, NOW());
     v_opening_balance := COALESCE(v_shift.opening_balance, 0);
 
-    -- أ. مبيعات الوردية
-    CREATE TEMP TABLE temp_summary_orders ON COMMIT DROP AS
+    -- أ. مبيعات الوردية الإجمالية
     SELECT 
-        o.id,
-        COALESCE(o.grand_total, o.total_amount, 0)::numeric as grand_total,
-        COALESCE(o.total_discount, 0)::numeric as total_discount,
-        o.payment_method
+        COALESCE(SUM(COALESCE(o.grand_total, 0)), 0),
+        COALESCE(SUM(COALESCE(o.total_discount, 0)), 0),
+        COUNT(*)
+    INTO v_total_gross_sales, v_total_discounts, v_total_order_count
     FROM public.orders o
     WHERE (
         o.shift_id = p_shift_id
@@ -190,13 +200,6 @@ BEGIN
         )
     )
     AND o.status NOT IN ('CANCELLED', 'VOID', 'REFUNDED');
-
-    SELECT 
-        COALESCE(SUM(grand_total), 0),
-        COALESCE(SUM(total_discount), 0),
-        COUNT(*)
-    INTO v_total_gross_sales, v_total_discounts, v_total_order_count
-    FROM temp_summary_orders;
 
     -- مبيعات القنوات المختلفة من جدول payments
     IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'payments') THEN
@@ -217,17 +220,29 @@ BEGIN
             v_cash_sales, v_card_sales, v_instapay_sales, v_wallet_sales, v_redeemed_deposits, v_credit_sales,
             v_cash_count, v_card_count, v_instapay_count, v_wallet_count, v_redeemed_count, v_credit_count
         FROM public.payments
-        WHERE order_id IN (SELECT id FROM temp_summary_orders);
+        WHERE order_id IN (
+            SELECT o.id FROM public.orders o
+            WHERE (
+                o.shift_id = p_shift_id
+                OR (
+                    o.shift_id IS NULL
+                    AND (o.user_id = v_shift.user_id OR o.cashier_id = v_shift.user_id)
+                    AND o.created_at >= v_start_time
+                    AND o.created_at <= v_end_time
+                )
+            )
+            AND o.status NOT IN ('CANCELLED', 'VOID', 'REFUNDED')
+        );
     END IF;
 
     -- احتياطي إذا لم توجد مدفوعات مسجلة في payments
     IF (v_cash_sales + v_card_sales + v_instapay_sales + v_wallet_sales + v_redeemed_deposits + v_credit_sales) = 0 THEN
         SELECT 
-            COALESCE(SUM(CASE WHEN UPPER(payment_method) IN ('CASH', 'NAQD', 'نقد') THEN grand_total ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN UPPER(payment_method) IN ('CARD', 'VISA', 'MASTERCARD', 'فيزا', 'بطاقة') THEN grand_total ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN UPPER(payment_method) IN ('INSTAPAY', 'INSTA', 'إنستاباي', 'انستاباي') THEN grand_total ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN UPPER(payment_method) IN ('WALLET', 'VODAFONE', 'محفظة', 'فودافون كاش') THEN grand_total ELSE 0 END), 0),
-            COALESCE(SUM(CASE WHEN UPPER(payment_method) IN ('CREDIT', 'آجل') THEN grand_total ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN UPPER(payment_method) IN ('CASH', 'NAQD', 'نقد') THEN COALESCE(grand_total, 0) ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN UPPER(payment_method) IN ('CARD', 'VISA', 'MASTERCARD', 'فيزا', 'بطاقة') THEN COALESCE(grand_total, 0) ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN UPPER(payment_method) IN ('INSTAPAY', 'INSTA', 'إنستاباي', 'انستاباي') THEN COALESCE(grand_total, 0) ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN UPPER(payment_method) IN ('WALLET', 'VODAFONE', 'محفظة', 'فودافون كاش') THEN COALESCE(grand_total, 0) ELSE 0 END), 0),
+            COALESCE(SUM(CASE WHEN UPPER(payment_method) IN ('CREDIT', 'آجل') THEN COALESCE(grand_total, 0) ELSE 0 END), 0),
             COUNT(CASE WHEN UPPER(payment_method) IN ('CASH', 'NAQD', 'نقد') THEN 1 END),
             COUNT(CASE WHEN UPPER(payment_method) IN ('CARD', 'VISA', 'MASTERCARD', 'فيزا', 'بطاقة') THEN 1 END),
             COUNT(CASE WHEN UPPER(payment_method) IN ('INSTAPAY', 'INSTA', 'إنستاباي', 'انستاباي') THEN 1 END),
@@ -236,7 +251,17 @@ BEGIN
         INTO 
             v_cash_sales, v_card_sales, v_instapay_sales, v_wallet_sales, v_credit_sales,
             v_cash_count, v_card_count, v_instapay_count, v_wallet_count, v_credit_count
-        FROM temp_summary_orders;
+        FROM public.orders o
+        WHERE (
+            o.shift_id = p_shift_id
+            OR (
+                o.shift_id IS NULL
+                AND (o.user_id = v_shift.user_id OR o.cashier_id = v_shift.user_id)
+                AND o.created_at >= v_start_time
+                AND o.created_at <= v_end_time
+            )
+        )
+        AND o.status NOT IN ('CANCELLED', 'VOID', 'REFUNDED');
     END IF;
 
     -- ب. حركات النقدية وحركات العربونات المفصلة من pos_drawer_transactions
@@ -258,11 +283,11 @@ BEGIN
             -- عربونات مستلمة فيزا (لا تمس نقدية الدرج الورقية)
             COALESCE(SUM(CASE WHEN (transaction_type = 'ADVANCE_DEPOSIT_CARD' OR (transaction_type = 'ADVANCE_DEPOSIT_IN' AND payment_method = 'CARD')) THEN amount ELSE 0 END), 0),
 
-            -- عربونات مردودة نقداً من الدرج (تنقص نقدية الدرج الفعلي)
+            -- رد عربونات حجز ملغاة نقداً من الدرج (تنقص نقدية الدرج الفعلي)
             COALESCE(SUM(CASE WHEN (transaction_type = 'REFUND_DEPOSIT_CASH' OR (transaction_type = 'REFUND_DEPOSIT_OUT' AND COALESCE(payment_method, 'CASH') = 'CASH')) THEN amount ELSE 0 END), 0),
-            -- عربونات مردودة محفظة
+            -- رد عربونات حجز ملغاة فودافون كاش
             COALESCE(SUM(CASE WHEN (transaction_type = 'REFUND_DEPOSIT_WALLET' OR (transaction_type = 'REFUND_DEPOSIT_OUT' AND payment_method = 'WALLET')) THEN amount ELSE 0 END), 0),
-            -- عربونات مردودة إنستاباي
+            -- رد عربونات حجز ملغاة إنستاباي
             COALESCE(SUM(CASE WHEN (transaction_type = 'REFUND_DEPOSIT_INSTAPAY' OR (transaction_type = 'REFUND_DEPOSIT_OUT' AND payment_method = 'INSTAPAY')) THEN amount ELSE 0 END), 0)
 
         INTO 
@@ -283,14 +308,14 @@ BEGIN
             OR (sr.user_id = v_shift.user_id AND sr.created_at >= v_start_time AND sr.created_at <= v_end_time)
         )
         AND (
-            sr.refund_method = 'CASH' OR sr.refund_method IS NULL OR sr.notes LIKE '%نقدي%' OR sr.notes LIKE '%CASH%'
+            sr.notes ILIKE '%نقدي%'
+            OR sr.notes ILIKE '%CASH%'
+            OR sr.notes IS NULL
         );
-    EXCEPTION WHEN OTHERS THEN
-        v_cash_returns := 0;
+    EXCEPTION WHEN OTHERS THEN NULL;
     END;
 
-    -- د. المعادلة المحاسبية الذهبية لنقدية الدرج الفعلي:
-    -- النقدية المتوقعة = (افتتاحي + مبيعات كاش + تزويد فكة + عربونات نقدية) - (مصروفات درج + توريد خزينة + مرتجعات نقدية + عربونات مردودة نقداً)
+    -- د. المعادلة المحاسبية لنقدية الدرج الفعلي:
     v_expected_cash := GREATEST(0, 
         (v_opening_balance + v_cash_sales + v_paid_ins + v_cash_deposits_in) - 
         (v_paid_outs + v_safe_drops + v_cash_returns + v_cash_deposits_refund)
@@ -398,7 +423,6 @@ DECLARE
     v_instapay_deposits_refund numeric := 0;
 
     v_payout_row            record;
-    v_item_cost_record      record;
 BEGIN
     SELECT * INTO v_shift FROM public.shifts WHERE id = p_shift_id;
     IF NOT FOUND THEN
@@ -448,14 +472,12 @@ BEGIN
 
     v_safe_acc_id := public.resolve_leaf_account(COALESCE(
         public.safe_cast_uuid(v_mappings->>'MAIN_TREASURY'),
-        public.safe_cast_uuid(v_mappings->>'SAFE'),
-        (SELECT id FROM public.accounts WHERE (organization_id = v_org_id OR organization_id IS NULL) AND code IN ('1232','1102','10102') ORDER BY organization_id NULLS LAST LIMIT 1),
+        (SELECT id FROM public.accounts WHERE (organization_id = v_org_id OR organization_id IS NULL) AND code IN ('1235','1232','1102','10102') ORDER BY organization_id NULLS LAST LIMIT 1),
         v_cash_acc_id
     ));
 
     v_card_acc_id := public.resolve_leaf_account(COALESCE(
-        public.safe_cast_uuid(v_mappings->>'POS_CARD_CLEARING'),
-        public.safe_cast_uuid(v_mappings->>'BANK'),
+        public.safe_cast_uuid(v_mappings->>'CARD_CLEARING'),
         (SELECT id FROM public.accounts WHERE (organization_id = v_org_id OR organization_id IS NULL) AND (code LIKE '1214%' OR code LIKE '121%') ORDER BY organization_id NULLS LAST LIMIT 1),
         v_cash_acc_id
     ));
@@ -510,15 +532,14 @@ BEGIN
         (SELECT id FROM public.accounts WHERE (organization_id = v_org_id OR organization_id IS NULL) AND code IN ('5201','5101','501') ORDER BY organization_id NULLS LAST LIMIT 1)
     ));
 
-    -- جلب أوامر الوردية لحساب إجمالي المبيعات
-    CREATE TEMP TABLE temp_all_shift_orders ON COMMIT DROP AS
+    -- جلب أوامر الوردية لحساب إجمالي المبيعات دون أي جداول مؤقتة
     SELECT 
-        o.id,
-        COALESCE(o.subtotal, 0)::numeric as food_subtotal,
-        COALESCE(o.service_fee, 0)::numeric as service_charge,
-        COALESCE(o.tax, 0)::numeric as total_tax,
-        COALESCE(o.total_discount, 0)::numeric as total_discount,
-        COALESCE(o.grand_total, o.total_amount, 0)::numeric as grand_total
+        COALESCE(SUM(COALESCE(o.subtotal, 0)), 0),
+        COALESCE(SUM(COALESCE(o.service_fee, 0)), 0),
+        COALESCE(SUM(COALESCE(o.tax, 0)), 0),
+        COALESCE(SUM(COALESCE(o.total_discount, 0)), 0),
+        COALESCE(SUM(COALESCE(o.grand_total, 0)), 0)
+    INTO v_food_subtotal, v_service_total, v_vat_total, v_total_discount, v_grand_total_sum
     FROM public.orders o
     WHERE (
         o.shift_id = p_shift_id
@@ -531,21 +552,11 @@ BEGIN
     )
     AND o.status NOT IN ('CANCELLED', 'VOID', 'REFUNDED');
 
-    SELECT 
-        COALESCE(SUM(food_subtotal), 0),
-        COALESCE(SUM(service_charge), 0),
-        COALESCE(SUM(total_tax), 0),
-        COALESCE(SUM(total_discount), 0),
-        COALESCE(SUM(grand_total), 0)
-    INTO v_food_subtotal, v_service_total, v_vat_total, v_total_discount, v_grand_total_sum
-    FROM temp_all_shift_orders;
-
     -- فحص ما إذا كانت الوردية خالية تماماً
     IF v_food_subtotal = 0 AND v_safe_drops = 0 AND v_paid_outs = 0 AND v_paid_ins = 0 
        AND v_cash_returns = 0 AND v_diff = 0 AND v_net_cash_movement = 0
        AND v_cash_deposits_in = 0 AND v_wallet_deposits_in = 0 AND v_instapay_deposits_in = 0 AND v_card_deposits_in = 0
        AND v_cash_deposits_refund = 0 AND v_wallet_deposits_refund = 0 AND v_instapay_deposits_refund = 0 THEN
-        DROP TABLE IF EXISTS temp_all_shift_orders;
         PERFORM set_config('app.allow_financial_ledger_mutation', 'false', true);
         RETURN NULL;
     END IF;
@@ -696,7 +707,6 @@ BEGIN
     UPDATE public.journal_entries SET status = 'posted', is_posted = true WHERE id = v_je_id;
     UPDATE public.shifts SET closing_journal_entry_id = v_je_id WHERE id = p_shift_id;
 
-    DROP TABLE IF EXISTS temp_all_shift_orders;
     PERFORM set_config('app.allow_financial_ledger_mutation', 'false', true);
 
     RETURN v_je_id;
@@ -704,5 +714,114 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.generate_shift_closing_entry(uuid, uuid) TO authenticated, service_role, anon;
+
+
+-- 5. ترقية دالة إغلاق الوردية close_shift لحفظ كافة حركات العربونات النقدية والإلكترونية
+DROP FUNCTION IF EXISTS public.close_shift(uuid, numeric);
+DROP FUNCTION IF EXISTS public.close_shift(uuid, numeric, text, uuid, jsonb);
+DROP FUNCTION IF EXISTS public.close_shift(uuid, numeric, text, uuid);
+
+CREATE OR REPLACE FUNCTION public.close_shift(
+    p_shift_id       uuid,
+    p_actual_cash    numeric,
+    p_notes          text    DEFAULT NULL,
+    p_org_id         uuid    DEFAULT NULL,
+    p_reconciliation jsonb   DEFAULT NULL
+)
+RETURNS jsonb 
+LANGUAGE plpgsql 
+SECURITY DEFINER 
+SET search_path = public 
+AS $$
+DECLARE
+    v_summary       JSONB;
+    v_expected_cash numeric;
+    v_difference    numeric;
+    v_org_id        uuid;
+    v_je_id         uuid := NULL;
+BEGIN
+    PERFORM set_config('app.allow_financial_ledger_mutation', 'true', true);
+
+    v_summary       := public.get_shift_summary(p_shift_id);
+    v_expected_cash := COALESCE((v_summary->>'expected_cash')::numeric, 0);
+    v_difference    := p_actual_cash - v_expected_cash;
+    
+    -- نعتمد org_id المسجل على الوردية أولاً لمنع التداخل بين الشركات
+    v_org_id        := COALESCE((SELECT organization_id FROM public.shifts WHERE id = p_shift_id), p_org_id, public.get_my_org());
+
+    UPDATE public.shifts SET
+        end_time                 = now(),
+        actual_cash              = p_actual_cash,
+        closing_balance          = p_actual_cash,
+        expected_cash            = v_expected_cash,
+        difference               = v_difference,
+        status                   = 'CLOSED',
+        notes                    = p_notes,
+        total_gross_sales        = COALESCE((v_summary->>'total_sales')::numeric, 0),
+        total_cash_sales         = COALESCE((v_summary->>'cash_sales')::numeric, 0),
+        total_card_sales         = COALESCE((v_summary->>'card_sales')::numeric, 0),
+        total_instapay_sales     = COALESCE((v_summary->>'instapay_sales')::numeric, 0),
+        total_wallet_sales       = COALESCE((v_summary->>'wallet_sales')::numeric, 0),
+        total_redeemed_deposits  = COALESCE((v_summary->>'redeemed_deposits')::numeric, 0),
+        total_paid_ins           = COALESCE((v_summary->>'paid_ins')::numeric, 0),
+        total_paid_outs          = COALESCE((v_summary->>'paid_outs')::numeric, 0),
+        total_safe_drops         = COALESCE((v_summary->>'safe_drops')::numeric, 0),
+        total_cash_returns       = COALESCE((v_summary->>'cash_returns')::numeric, 0),
+        total_cash_deposits_in   = COALESCE((v_summary->>'cash_deposits_in')::numeric, 0),
+        total_wallet_deposits_in = COALESCE((v_summary->>'wallet_deposits_in')::numeric, 0),
+        total_instapay_deposits_in = COALESCE((v_summary->>'instapay_deposits_in')::numeric, 0),
+        total_card_deposits_in   = COALESCE((v_summary->>'card_deposits_in')::numeric, 0),
+        total_cash_deposits_refund = COALESCE((v_summary->>'cash_deposits_refund')::numeric, 0),
+        total_wallet_deposits_refund = COALESCE((v_summary->>'wallet_deposits_refund')::numeric, 0),
+        total_instapay_deposits_refund = COALESCE((v_summary->>'instapay_deposits_refund')::numeric, 0),
+        non_cash_reconciliation  = COALESCE(p_reconciliation, '{}'::jsonb)
+    WHERE id = p_shift_id;
+
+    -- توليد قيد اليومية المجمع الشامل للوردية
+    BEGIN
+        v_je_id := public.generate_shift_closing_entry(p_shift_id, v_org_id);
+    EXCEPTION WHEN OTHERS THEN
+        UPDATE public.shifts 
+        SET notes = COALESCE(notes, '') || ' [تنبيه القيد: ' || SQLERRM || ']'
+        WHERE id = p_shift_id;
+    END;
+
+    PERFORM set_config('app.allow_financial_ledger_mutation', 'false', true);
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'shift_id', p_shift_id,
+        'closing_journal_entry_id', v_je_id,
+        'difference', v_difference
+    );
+EXCEPTION WHEN OTHERS THEN
+    BEGIN
+        PERFORM set_config('app.allow_financial_ledger_mutation', 'false', true);
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    RAISE;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.close_shift(uuid, numeric, text, uuid, jsonb) TO authenticated, service_role, anon;
+
+-- دالة بديلة للتوافق مع أي استدعاء قديم بـ 4 معاملات فقط
+CREATE OR REPLACE FUNCTION public.close_shift(
+    p_shift_id       uuid,
+    p_actual_cash    numeric,
+    p_notes          text    DEFAULT NULL,
+    p_org_id         uuid    DEFAULT NULL
+)
+RETURNS jsonb 
+LANGUAGE plpgsql 
+SECURITY DEFINER 
+SET search_path = public 
+AS $$
+BEGIN
+    RETURN public.close_shift(p_shift_id, p_actual_cash, p_notes, p_org_id, NULL::jsonb);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.close_shift(uuid, numeric, text, uuid) TO authenticated, service_role, anon;
 
 NOTIFY pgrst, 'reload schema';
