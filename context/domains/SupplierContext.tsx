@@ -87,7 +87,9 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
     try {
       const res = await fetchAllTableRecords<Supplier>(
         'suppliers',
-        q => q.eq('organization_id', targetOrgId).is('deleted_at', null).order('name')
+        q => q.eq('organization_id', targetOrgId).is('deleted_at', null).order('name'),
+        1000,
+        'id, name, code, phone, email, address, tax_number, commercial_register, opening_balance, organization_id'
       );
 
       if (res.error) {
@@ -109,16 +111,15 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
   const fetchInvoices = useCallback(async () => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') return;
     try {
-      const data = await fetchCompleteDataset<PurchaseInvoice>(async (from, to) =>
-        supabase
-          .from('purchase_invoices')
-          .select('*')
-          .eq('organization_id', targetOrgId)
-          .order('invoice_date', { ascending: false })
-          .range(from, to)
-      );
+      const { data, error } = await supabase
+        .from('purchase_invoices')
+        .select('id, invoice_number, invoice_date, supplier_id, total_amount, tax_amount, subtotal, paid_amount, status, warehouse_id, organization_id')
+        .eq('organization_id', targetOrgId)
+        .order('invoice_date', { ascending: false })
+        .limit(100);
 
-      setPurchaseInvoices(data || []);
+      if (error) throw error;
+      setPurchaseInvoices((data as any) || []);
     } catch (err) {
       logger.error('Unexpected error fetching purchase invoices:', err);
     }

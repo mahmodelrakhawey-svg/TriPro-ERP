@@ -20,16 +20,17 @@ export type DynamicParam = any;
 export async function fetchAllTableRecords<T = any>(
   tableName: string,
   filterFn: (query: DynamicQuery) => DynamicQuery,
-  pageSize = 1000
+  pageSize = 1000,
+  selectFields = '*'
 ): Promise<{ data: T[]; error: DynamicParam }> {
   let allData: T[] = [];
   let from = 0;
   let hasMore = true;
 
   while (hasMore) {
-    let query = supabase.from(tableName).select('*');
+    let query = supabase.from(tableName).select(selectFields);
     query = filterFn(query);
-    let res: { data: T[] | null; error: unknown };
+    let res: any;
     if (typeof query.range === 'function') {
       res = await query.range(from, from + pageSize - 1);
     } else {

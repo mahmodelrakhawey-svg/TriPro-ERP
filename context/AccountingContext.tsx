@@ -652,16 +652,32 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       // جلب الحسابات والمستودعات مع ترشيد الاستعلامات المالية بالسنة المالية النشطة
       const [accs, ents, ccs, emps, prods, trns, pinvs, invs, cats, usrs, whs, rTables, custs, sups, chqs, shift, assetData, budgetData] = await Promise.all([
-        supabase.from('accounts').select('*').eq('organization_id', fetchOrgId).order('code'),
-        fetchCompleteDataset<JournalEntry>(async (from, to) =>
-          supabase.from('journal_entries')
-            .select('*, journal_lines(*)')
-            .eq('organization_id', fetchOrgId)
-            .gte('transaction_date', fiscalYearRange.startDate)
-            .lte('transaction_date', fiscalYearRange.endDate)
-            .order('transaction_date', { ascending: false })
-            .range(from, to)
-        ).then(data => ({ data, error: null })),
+        supabase.from('accounts').select('id, code, name, type, is_group, parent_id, balance, currency, organization_id, description, nature, status').eq('organization_id', fetchOrgId).order('code'),
+        supabase
+          .from('journal_entries')
+          .select(`
+            id,
+            entry_number,
+            transaction_date,
+            description,
+            reference,
+            status,
+            is_posted,
+            created_at,
+            organization_id,
+            journal_lines (
+              id,
+              account_id,
+              debit,
+              credit,
+              description
+            )
+          `)
+          .eq('organization_id', fetchOrgId)
+          .gte('transaction_date', fiscalYearRange.startDate)
+          .lte('transaction_date', fiscalYearRange.endDate)
+          .order('transaction_date', { ascending: false })
+          .limit(100),
         supabase.from('cost_centers').select('*').eq('organization_id', fetchOrgId).order('name'),
         supabase.from('employees').select('*').eq('organization_id', fetchOrgId).order('full_name'),
         Promise.resolve({ data: [] as Product[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
@@ -676,12 +692,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         Promise.resolve({ data: [] as Supplier[], error: null }), // مُعالج بالكامل في سياق النطاق SupplierProvider
         Promise.resolve({ data: [] as Cheque[], error: null }), // مُعالج بالكامل في سياق النطاق BankingProvider
         supabase.rpc('get_active_shift', { p_org_id: fetchOrgId }),
-        fetchCompleteDataset<Asset>(async (from, to) =>
-          supabase.from('assets').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null).range(from, to)
-        ).then(data => ({ data: data || [], error: null })),
-        fetchCompleteDataset<Budget>(async (from, to) =>
-          supabase.from('budgets').select('*').eq('organization_id', fetchOrgId).range(from, to)
-        ).then(data => ({ data: data || [], error: null }))
+        supabase.from('assets').select('id, code, name, purchase_date, purchase_cost, current_value, status, organization_id').eq('organization_id', fetchOrgId).is('deleted_at', null).limit(200),
+        supabase.from('budgets').select('id, name, fiscal_year, start_date, end_date, total_amount, status, organization_id').eq('organization_id', fetchOrgId).limit(100)
       ]);
 
       const loadedAccounts = (accs.data && accs.data.length > 0) ? accs.data.map((acc: Record<string, any>) => ({
@@ -837,18 +849,34 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!targetOrg || targetOrg === 'org-default-offline') return;
     try {
       const [accs, ents, ccs, budgetData] = await Promise.all([
-        supabase.from('accounts').select('*').eq('organization_id', targetOrg).order('code'),
-        fetchCompleteDataset<JournalEntry>(async (from, to) =>
-          supabase.from('journal_entries')
-            .select('*, journal_lines(*)')
-            .eq('organization_id', targetOrg)
-            .gte('transaction_date', fiscalYearRange.startDate)
-            .lte('transaction_date', fiscalYearRange.endDate)
-            .order('transaction_date', { ascending: false })
-            .range(from, to)
-        ).then(data => ({ data, error: null })),
-        supabase.from('cost_centers').select('*').eq('organization_id', targetOrg).order('name'),
-        supabase.from('budgets').select('*').eq('organization_id', targetOrg)
+        supabase.from('accounts').select('id, code, name, type, is_group, parent_id, balance, currency, organization_id, description, nature, status').eq('organization_id', targetOrg).order('code'),
+        supabase
+          .from('journal_entries')
+          .select(`
+            id,
+            entry_number,
+            transaction_date,
+            description,
+            reference,
+            status,
+            is_posted,
+            created_at,
+            organization_id,
+            journal_lines (
+              id,
+              account_id,
+              debit,
+              credit,
+              description
+            )
+          `)
+          .eq('organization_id', targetOrg)
+          .gte('transaction_date', fiscalYearRange.startDate)
+          .lte('transaction_date', fiscalYearRange.endDate)
+          .order('transaction_date', { ascending: false })
+          .limit(100),
+        supabase.from('cost_centers').select('id, code, name, organization_id').eq('organization_id', targetOrg).order('name'),
+        supabase.from('budgets').select('id, name, fiscal_year, start_date, end_date, total_amount, status, organization_id').eq('organization_id', targetOrg).limit(100)
       ]);
       if (accs.data) {
         setAccounts(accs.data.map((acc: Record<string, any>) => ({

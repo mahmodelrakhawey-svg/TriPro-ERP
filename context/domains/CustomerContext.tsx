@@ -74,7 +74,9 @@ export const CustomerProvider: React.FC<CustomerProviderProps> = ({
     try {
       const res = await fetchAllTableRecords<Customer>(
         'customers',
-        q => q.eq('organization_id', targetOrgId).is('deleted_at', null).order('name')
+        q => q.eq('organization_id', targetOrgId).is('deleted_at', null).order('name'),
+        1000,
+        'id, name, phone, email, address, tax_id, customer_type, credit_limit, opening_balance, pricing_tier, organization_id'
       );
 
       if (res.error) {
