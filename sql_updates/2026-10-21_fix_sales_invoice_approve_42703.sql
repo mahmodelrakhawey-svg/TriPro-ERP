@@ -73,10 +73,8 @@ BEGIN
     -- نُشغّل الاعتماد التلقائي فقط عند:
     --   1. الحالة الجديدة 'posted'
     --   2. لا يوجد قيد محاسبي مرتبط بعد (تحاشيًا لإعادة الحساب)
-    --   3. الفاتورة من نوع مبيعات
     IF NEW.status = 'posted'
        AND NEW.related_journal_entry_id IS NULL
-       AND COALESCE(NEW.type, '') = 'sale'
     THEN
         PERFORM public.approve_invoice(
             NEW.id,
@@ -113,7 +111,6 @@ BEGIN
         WHERE id = NEW.invoice_id
           AND status = 'posted'
           AND related_journal_entry_id IS NULL
-          AND COALESCE(type, '') = 'sale'
     ) THEN
         PERFORM public.approve_invoice(
             NEW.invoice_id,
