@@ -22,7 +22,8 @@ import {
   CreditCard,
   Zap,
   Smartphone,
-  CalendarCheck
+  CalendarCheck,
+  Printer
 } from 'lucide-react';
 
 interface BlindShiftCloseModalProps {
@@ -166,6 +167,112 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handlePrintZReport = () => {
+    const printWindow = window.open('', '_blank', 'width=450,height=650');
+    if (!printWindow) {
+      alert('يرجى السماح بالنوافذ المنبثقة للطباعة');
+      return;
+    }
+    const openFloat = Number(shiftSummary?.opening_balance ?? shift?.opening_float ?? 0);
+    const cSales = Number(shiftSummary?.cash_sales ?? 0);
+    const kSales = Number(shiftSummary?.card_sales ?? 0);
+    const iSales = Number(shiftSummary?.instapay_sales ?? 0);
+    const wSales = Number(shiftSummary?.wallet_sales ?? 0);
+    const rDeposits = Number(shiftSummary?.redeemed_deposits ?? 0);
+    const gSales = Number(shiftSummary?.total_sales ?? shiftSummary?.gross_sales ?? 0);
+    const pIns = Number(shiftSummary?.paid_ins ?? 0);
+    const pOuts = Number(shiftSummary?.paid_outs ?? shiftSummary?.petty_cash ?? 0);
+    const sDrops = Number(shiftSummary?.safe_drops ?? 0);
+    const cReturns = Number(shiftSummary?.cash_returns ?? 0);
+    const expCash = Number(shiftSummary?.expected_cash ?? (openFloat + cSales + pIns - pOuts - sDrops - cReturns));
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="ar" dir="rtl">
+      <head>
+        <meta charset="utf-8" />
+        <title>تقرير إغلاق الوردية (Z-Report)</title>
+        <style>
+          @page { size: 80mm auto; margin: 4mm; }
+          body {
+            font-family: 'Courier New', monospace, Tahoma, sans-serif;
+            font-size: 12px;
+            color: #000;
+            background: #fff;
+            padding: 5px;
+            margin: 0;
+            direction: rtl;
+          }
+          .text-center { text-align: center; }
+          .font-bold { font-weight: bold; }
+          .divider { border-top: 1px dashed #000; margin: 8px 0; }
+          .double-divider { border-top: 2px solid #000; margin: 8px 0; }
+          .flex { display: flex; justify-content: space-between; margin: 3px 0; }
+          .title { font-size: 16px; font-weight: 900; }
+          .signature-box { margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; }
+        </style>
+      </head>
+      <body>
+        <div class="text-center">
+          <div class="title">تقرير إغلاق الوردية (Z-Report)</div>
+          <div style="font-size: 11px; margin-top: 3px;">TriPro ERP — نقاط البيع</div>
+        </div>
+        <div class="divider"></div>
+        <div class="flex"><span>الكاشير:</span><span>${cashierName}</span></div>
+        <div class="flex"><span>تاريخ الطباعة:</span><span>${new Date().toLocaleDateString('ar-EG')} ${new Date().toLocaleTimeString('ar-EG')}</span></div>
+        <div class="flex"><span>حركات البيع:</span><span>${shiftSummary?.order_count || 0} حركة</span></div>
+        <div class="divider"></div>
+
+        <div class="font-bold" style="margin-bottom: 4px;">📊 مبيعات القنوات (Sales Channels):</div>
+        <div class="flex"><span>مبيعات نقدية (Cash):</span><span>${cSales.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>بطاقات وشبكة (Card):</span><span>${kSales.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>إنستاباي (InstaPay):</span><span>${iSales.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>محافظ إلكترونية (Wallet):</span><span>${wSales.toFixed(2)} ج.م</span></div>
+        ${rDeposits > 0 ? `<div class="flex"><span>عربونات مستهلكة:</span><span>${rDeposits.toFixed(2)} ج.م</span></div>` : ''}
+        ${Number(shiftSummary?.total_discounts || 0) > 0 ? `<div class="flex"><span>إجمالي الخصومات:</span><span>-${Number(shiftSummary?.total_discounts).toFixed(2)} ج.م</span></div>` : ''}
+        <div class="divider"></div>
+        <div class="flex font-bold" style="font-size: 13px;"><span>إجمالي المبيعات الكلية:</span><span>${gSales.toFixed(2)} ج.م</span></div>
+        <div class="double-divider"></div>
+
+        <div class="font-bold" style="margin-bottom: 4px;">💵 حركة نقدية الدرج (Drawer Cash Flow):</div>
+        <div class="flex"><span>(+) الرصيد الافتتاحي (العهدة):</span><span>${openFloat.toFixed(2)} ج.م</span></div>
+        <div class="flex"><span>(+) مبيعات نقدية مقبوضة:</span><span>${cSales.toFixed(2)} ج.م</span></div>
+        ${pIns > 0 ? `<div class="flex"><span>(+) تزويد نقدية فكة بالدرج:</span><span>${pIns.toFixed(2)} ج.م</span></div>` : ''}
+        ${pOuts > 0 ? `<div class="flex"><span>(-) مصروفات نثرية من الدرج:</span><span>${pOuts.toFixed(2)} ج.م</span></div>` : ''}
+        ${sDrops > 0 ? `<div class="flex"><span>(-) توريدات نقدية للخزينة:</span><span>${sDrops.toFixed(2)} ج.م</span></div>` : ''}
+        ${cReturns > 0 ? `<div class="flex"><span>(-) مرتجعات نقدية من الدرج:</span><span>${cReturns.toFixed(2)} ج.م</span></div>` : ''}
+        <div class="divider"></div>
+        <div class="flex font-bold"><span>النقدية المتوقعة بالدرج:</span><span>${expCash.toFixed(2)} ج.م</span></div>
+        <div class="flex font-bold" style="font-size: 13px;"><span>النقدية الفعلية المحصورة:</span><span>${calculatedTotal.toFixed(2)} ج.م</span></div>
+        <div class="flex font-bold" style="margin-top: 4px;">
+          <span>الفارق (عجز / زيادة):</span>
+          <span>${difference > 0 ? `+${difference.toFixed(2)} (فائض)` : difference < 0 ? `${difference.toFixed(2)} (عجز)` : '0.00 (متطابق ✔️)'} ج.م</span>
+        </div>
+        ${closingNotes ? `<div class="divider"></div><div style="font-size: 11px;"><strong>ملاحظات:</strong> ${closingNotes}</div>` : ''}
+        
+        <div class="signature-box">
+          <div class="text-center">
+            <div>توقيع الكاشير (المسلّم)</div>
+            <div style="margin-top: 25px;">...................</div>
+          </div>
+          <div class="text-center">
+            <div>توقيع المشرف (المستلم)</div>
+            <div style="margin-top: 25px;">...................</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="text-center" style="font-size: 10px; color: #555;">نظام TriPro ERP — معايير الرقابة المالية المزدوجة</div>
+      </body>
+      </html>
+    `;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 300);
   };
 
   const cashierName = shift?.cashier_name || currentUser?.full_name || 'الكاشير';
@@ -526,7 +633,15 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
             })()}
 
             {/* Done Action */}
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-between items-center pt-2">
+              <button
+                type="button"
+                onClick={handlePrintZReport}
+                className="px-4 py-2.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-300 rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-1.5"
+              >
+                <Printer size={15} />
+                <span>طباعة ورقة الإغلاق (Z-Report)</span>
+              </button>
               <button
                 onClick={onSuccess}
                 className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold shadow transition"

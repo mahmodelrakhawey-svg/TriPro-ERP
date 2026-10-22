@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Lock, Loader2, CreditCard, Banknote, Smartphone, Zap, CheckCircle2, AlertTriangle, FileSpreadsheet, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
+import { Lock, Loader2, CreditCard, Banknote, Smartphone, Zap, CheckCircle2, AlertTriangle, FileSpreadsheet, ArrowDownCircle, ArrowUpCircle, Printer } from 'lucide-react';
 import type { ShiftSummaryData } from '../../../../types';
 
 export interface ShiftReconciliationPayload {
@@ -90,6 +90,101 @@ export const RetailPosShiftCloseModal: React.FC<RetailPosShiftCloseModalProps> =
       wallet_diff: walletDiff
     };
     onConfirmCloseShift(reconciliation);
+  };
+
+  const handlePrintZReport = () => {
+    const printWindow = window.open('', '_blank', 'width=450,height=650');
+    if (!printWindow) {
+      alert('يرجى السماح بالنوافذ المنبثقة للطباعة');
+      return;
+    }
+    const html = `
+      <!DOCTYPE html>
+      <html lang="ar" dir="rtl">
+      <head>
+        <meta charset="utf-8" />
+        <title>تقرير إغلاق الوردية (Z-Report)</title>
+        <style>
+          @page { size: 80mm auto; margin: 4mm; }
+          body {
+            font-family: 'Courier New', monospace, Tahoma, sans-serif;
+            font-size: 12px;
+            color: #000;
+            background: #fff;
+            padding: 5px;
+            margin: 0;
+            direction: rtl;
+          }
+          .text-center { text-align: center; }
+          .text-right { text-align: right; }
+          .text-left { text-align: left; }
+          .font-bold { font-weight: bold; }
+          .divider { border-top: 1px dashed #000; margin: 8px 0; }
+          .double-divider { border-top: 2px solid #000; margin: 8px 0; }
+          .flex { display: flex; justify-content: space-between; margin: 3px 0; }
+          .title { font-size: 16px; font-weight: 900; }
+          .signature-box { margin-top: 30px; display: flex; justify-content: space-between; font-size: 11px; }
+        </style>
+      </head>
+      <body>
+        <div class="text-center">
+          <div class="title">تقرير إغلاق الوردية (Z-Report)</div>
+          <div style="font-size: 11px; margin-top: 3px;">TriPro ERP — نقاط البيع</div>
+        </div>
+        <div class="divider"></div>
+        <div class="flex"><span>تاريخ الطباعة:</span><span>${new Date().toLocaleDateString('ar-EG')} ${new Date().toLocaleTimeString('ar-EG')}</span></div>
+        <div class="flex"><span>حركات البيع:</span><span>${shiftSummary.order_count || 0} حركة</span></div>
+        <div class="divider"></div>
+
+        <div class="font-bold" style="margin-bottom: 4px;">📊 مبيعات القنوات (Sales Channels):</div>
+        <div class="flex"><span>مبيعات نقدية (Cash):</span><span>${cashSales.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>بطاقات وشبكة (Card):</span><span>${cardSales.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>إنستاباي (InstaPay):</span><span>${instapaySales.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>محافظ إلكترونية (Wallet):</span><span>${walletSales.toFixed(2)} ${currencySymbol}</span></div>
+        ${redeemedDeposits > 0 ? `<div class="flex"><span>عربونات مستهلكة:</span><span>${redeemedDeposits.toFixed(2)} ${currencySymbol}</span></div>` : ''}
+        ${creditSales > 0 ? `<div class="flex"><span>مبيعات آجلة (ذمم):</span><span>${creditSales.toFixed(2)} ${currencySymbol}</span></div>` : ''}
+        ${Number(shiftSummary?.total_discounts || 0) > 0 ? `<div class="flex"><span>إجمالي الخصومات:</span><span>-${Number(shiftSummary?.total_discounts || 0).toFixed(2)} ${currencySymbol}</span></div>` : ''}
+        <div class="divider"></div>
+        <div class="flex font-bold" style="font-size: 13px;"><span>إجمالي المبيعات الكلية:</span><span>${grossSales.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="double-divider"></div>
+
+        <div class="font-bold" style="margin-bottom: 4px;">💵 حركة نقدية الدرج (Drawer Cash Flow):</div>
+        <div class="flex"><span>(+) الرصيد الافتتاحي (العهدة):</span><span>${openingBalance.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex"><span>(+) مبيعات نقدية مقبوضة:</span><span>${cashSales.toFixed(2)} ${currencySymbol}</span></div>
+        ${paidIns > 0 ? `<div class="flex"><span>(+) تزويد نقدية فكة بالدرج:</span><span>${paidIns.toFixed(2)} ${currencySymbol}</span></div>` : ''}
+        ${paidOuts > 0 ? `<div class="flex"><span>(-) مصروفات نثرية من الدرج:</span><span>${paidOuts.toFixed(2)} ${currencySymbol}</span></div>` : ''}
+        ${safeDrops > 0 ? `<div class="flex"><span>(-) توريدات نقدية للخزينة:</span><span>${safeDrops.toFixed(2)} ${currencySymbol}</span></div>` : ''}
+        ${cashReturns > 0 ? `<div class="flex"><span>(-) مرتجعات نقدية من الدرج:</span><span>${cashReturns.toFixed(2)} ${currencySymbol}</span></div>` : ''}
+        <div class="divider"></div>
+        <div class="flex font-bold"><span>النقدية المتوقعة بالدرج:</span><span>${expectedCash.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex font-bold" style="font-size: 13px;"><span>النقدية الفعلية المحصورة:</span><span>${actualCash.toFixed(2)} ${currencySymbol}</span></div>
+        <div class="flex font-bold" style="margin-top: 4px;">
+          <span>الفارق (عجز / زيادة):</span>
+          <span>${cashDiff > 0 ? `+${cashDiff.toFixed(2)} (فائض)` : cashDiff < 0 ? `${cashDiff.toFixed(2)} (عجز)` : '0.00 (متطابق ✔️)'} ${currencySymbol}</span>
+        </div>
+        ${closingNotes ? `<div class="divider"></div><div style="font-size: 11px;"><strong>ملاحظات:</strong> ${closingNotes}</div>` : ''}
+        
+        <div class="signature-box">
+          <div class="text-center">
+            <div>توقيع الكاشير (المسلّم)</div>
+            <div style="margin-top: 25px;">...................</div>
+          </div>
+          <div class="text-center">
+            <div>توقيع المشرف (المستلم)</div>
+            <div style="margin-top: 25px;">...................</div>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="text-center" style="font-size: 10px; color: #555;">نظام TriPro ERP — معايير الرقابة المالية المزدوجة</div>
+      </body>
+      </html>
+    `;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 300);
   };
 
   return (
@@ -387,22 +482,31 @@ export const RetailPosShiftCloseModal: React.FC<RetailPosShiftCloseModalProps> =
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex gap-3">
+        <div className="p-4 border-t border-slate-800 bg-slate-950/60 flex items-center gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="w-1/3 bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 rounded-xl font-bold text-xs transition-all"
+            className="w-1/4 bg-slate-800 hover:bg-slate-700 text-slate-300 py-3 rounded-xl font-bold text-xs transition-all"
           >
             إلغاء
           </button>
           <button
             type="button"
+            onClick={handlePrintZReport}
+            className="w-1/3 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-sky-400 py-3 rounded-xl font-bold text-xs transition-all flex justify-center items-center gap-1.5"
+            title="معاينة وطباعة تقرير الوردية Z-Report إيصال حراري"
+          >
+            <Printer size={15} />
+            <span>طباعة ورقة الإغلاق</span>
+          </button>
+          <button
+            type="button"
             disabled={isClosingShift}
             onClick={handleConfirm}
-            className="w-2/3 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white py-3 rounded-xl font-black text-xs transition-all flex justify-center items-center gap-1.5 shadow-lg shadow-red-950"
+            className="w-5/12 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white py-3 rounded-xl font-black text-xs transition-all flex justify-center items-center gap-1.5 shadow-lg shadow-red-950"
           >
             {isClosingShift && <Loader2 className="animate-spin" size={16} />}
-            إغلاق الوردية وترحيل القيد المجمع
+            إغلاق الوردية وترحيل القيد
           </button>
         </div>
       </div>
