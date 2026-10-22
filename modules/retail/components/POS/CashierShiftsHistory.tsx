@@ -443,11 +443,11 @@ export default function CashierShiftsHistory() {
           order_number,
           created_at,
           grand_total,
-          payment_method,
           status,
           total_tax,
           total_discount,
-          customer_id
+          customer_id,
+          notes
         `)
         .eq('shift_id', shift.id)
         .order('created_at', { ascending: true });
@@ -467,17 +467,58 @@ export default function CashierShiftsHistory() {
         } catch (_) {}
       }
 
-      const mapped: OrderRecord[] = (data || []).map((o: any) => ({
-        id: o.id,
-        order_number: o.order_number || `#${o.id.substring(0, 6)}`,
-        created_at: o.created_at,
-        grand_total: Number(o.grand_total || 0),
-        payment_method: o.payment_method || 'CASH',
-        status: o.status,
-        total_tax: Number(o.total_tax || 0),
-        total_discount: Number(o.total_discount || 0),
-        customer_name: (o.customer_id && custMap.get(o.customer_id)) || 'عميل نقدي'
-      }));
+      // Lookup payment methods safely from payments ledger
+      const orderIds = (data || []).map((o: any) => o.id).filter(Boolean);
+      const paymentMethodMap = new Map<string, string>();
+      if (orderIds.length > 0) {
+        try {
+          const { data: paymentsData } = await supabase
+            .from('payments')
+            .select('order_id, payment_method')
+            .in('order_id', orderIds);
+          if (paymentsData && paymentsData.length > 0) {
+            const orderPayments = new Map<string, string[]>();
+            paymentsData.forEach((p: any) => {
+              const list = orderPayments.get(p.order_id) || [];
+              list.push(p.payment_method);
+              orderPayments.set(p.order_id, list);
+            });
+            orderPayments.forEach((methods, oid) => {
+              const uniqueMethods = Array.from(new Set(methods));
+              paymentMethodMap.set(oid, uniqueMethods.join(' + '));
+            });
+          }
+        } catch (_) {}
+      }
+
+      const mapped: OrderRecord[] = (data || []).map((o: any) => {
+        let pMethod = paymentMethodMap.get(o.id);
+        if (!pMethod) {
+          if (o.notes?.includes('فيزا') || o.notes?.includes('CARD')) pMethod = 'بطاقة / فيزا';
+          else if (o.notes?.includes('دفع متعدد') || o.notes?.includes('SPLIT')) pMethod = 'دفع متعدد';
+          else if (o.notes?.includes('محفظة') || o.notes?.includes('WALLET')) pMethod = 'محفظة إلكترونية';
+          else if (o.notes?.includes('إنستاباي') || o.notes?.includes('INSTAPAY')) pMethod = 'إنستاباي';
+          else pMethod = 'نقدية (كاش)';
+        } else {
+          if (pMethod === 'CASH') pMethod = 'نقدية (كاش)';
+          else if (pMethod === 'CARD') pMethod = 'بطاقة / فيزا';
+          else if (pMethod === 'INSTAPAY') pMethod = 'إنستاباي';
+          else if (pMethod === 'WALLET') pMethod = 'محفظة إلكترونية';
+          else if (pMethod === 'CREDIT') pMethod = 'آجل';
+        }
+
+        return {
+          id: o.id,
+          order_number: o.order_number || `#${o.id.substring(0, 6)}`,
+          created_at: o.created_at,
+          grand_total: Number(o.grand_total || 0),
+          payment_method: pMethod,
+          status: o.status || 'COMPLETED',
+          total_tax: Number(o.total_tax || 0),
+          total_discount: Number(o.total_discount || 0),
+          customer_name: (o.customer_id && custMap.get(o.customer_id)) || 'عميل نقدي'
+        };
+      });
 
       setShiftOrders(mapped);
     } catch (err: any) {
