@@ -172,7 +172,7 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
   const handlePrintZReport = () => {
     const printWindow = window.open('', '_blank', 'width=450,height=650');
     if (!printWindow) {
-      alert('يرجى السماح بالنوافذ المنبثقة للطباعة');
+      showToast('يرجى السماح بالنوافذ المنبثقة للطباعة', 'info');
       return;
     }
     const openFloat = Number(shiftSummary?.opening_balance ?? shift?.opening_float ?? 0);

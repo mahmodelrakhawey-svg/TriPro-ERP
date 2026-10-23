@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Lock, Loader2, CreditCard, Banknote, Smartphone, Zap, CheckCircle2, AlertTriangle, FileSpreadsheet, ArrowDownCircle, ArrowUpCircle, Printer } from 'lucide-react';
 import type { ShiftSummaryData } from '../../../../types';
+import { toastNotify } from '../../../../context/ToastContext';
 
 export interface ShiftReconciliationPayload {
   card_slip_total: number;
@@ -107,7 +108,7 @@ export const RetailPosShiftCloseModal: React.FC<RetailPosShiftCloseModalProps> =
   const handlePrintZReport = () => {
     const printWindow = window.open('', '_blank', 'width=450,height=650');
     if (!printWindow) {
-      alert('يرجى السماح بالنوافذ المنبثقة للطباعة');
+      toastNotify.show('يرجى السماح بالنوافذ المنبثقة للطباعة', 'info');
       return;
     }
     const html = `

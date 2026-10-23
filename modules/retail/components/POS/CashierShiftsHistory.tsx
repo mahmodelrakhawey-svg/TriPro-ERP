@@ -195,7 +195,7 @@ export default function CashierShiftsHistory() {
 
       // Check missing cashiers
       const missingUserIds = (data || [])
-        .map((s: any) => s.user_id)
+        .map((s: Record<string, unknown>) => s.user_id as string)
         .filter((uid: string) => uid && !cashierMap.has(uid));
       if (missingUserIds.length > 0) {
         try {
@@ -203,13 +203,13 @@ export default function CashierShiftsHistory() {
             .from('profiles')
             .select('id, full_name')
             .in('id', Array.from(new Set(missingUserIds)));
-          if (profs) profs.forEach((p: any) => cashierMap.set(p.id, p.full_name));
+          if (profs) profs.forEach((p: { id: string; full_name: string }) => cashierMap.set(p.id, p.full_name));
         } catch (_) {}
       }
 
       // Check missing orgs
       const missingOrgIds = (data || [])
-        .map((s: any) => s.organization_id)
+        .map((s: Record<string, unknown>) => s.organization_id as string)
         .filter((oid: string) => oid && !orgMap.has(oid));
       if (missingOrgIds.length > 0) {
         try {
@@ -217,13 +217,13 @@ export default function CashierShiftsHistory() {
             .from('organizations')
             .select('id, name')
             .in('id', Array.from(new Set(missingOrgIds)));
-          if (orgs) orgs.forEach((o: any) => orgMap.set(o.id, o.name));
+          if (orgs) orgs.forEach((o: { id: string; name: string }) => orgMap.set(o.id, o.name));
         } catch (_) {}
       }
 
       // Check missing terminals
       const missingTerminalIds = (data || [])
-        .map((s: any) => s.pos_terminal_id)
+        .map((s: Record<string, unknown>) => s.pos_terminal_id as string)
         .filter((tid: string) => tid && !terminalMap.has(tid));
       if (missingTerminalIds.length > 0) {
         try {
@@ -231,16 +231,16 @@ export default function CashierShiftsHistory() {
             .from('pos_terminals')
             .select('id, name')
             .in('id', Array.from(new Set(missingTerminalIds)));
-          if (terms) terms.forEach((t: any) => terminalMap.set(t.id, t.name));
+          if (terms) terms.forEach((t: { id: string; name: string }) => terminalMap.set(t.id, t.name));
         } catch (_) {}
       }
 
-      const formatted: ShiftRecord[] = (data || []).map((s: any) => ({
+      const formatted: ShiftRecord[] = (data || []).map((s: Record<string, unknown>) => ({
         ...s,
         opening_balance: Number(s.opening_balance || 0),
-        actual_cash: s.actual_cash !== null ? Number(s.actual_cash) : undefined,
-        expected_cash: s.expected_cash !== null ? Number(s.expected_cash) : undefined,
-        difference: s.difference !== null ? Number(s.difference) : undefined,
+        actual_cash: s.actual_cash !== null && s.actual_cash !== undefined ? Number(s.actual_cash) : undefined,
+        expected_cash: s.expected_cash !== null && s.expected_cash !== undefined ? Number(s.expected_cash) : undefined,
+        difference: s.difference !== null && s.difference !== undefined ? Number(s.difference) : undefined,
         total_gross_sales: Number(s.total_gross_sales || 0),
         total_cash_sales: Number(s.total_cash_sales || 0),
         total_card_sales: Number(s.total_card_sales || 0),
@@ -261,15 +261,16 @@ export default function CashierShiftsHistory() {
         total_wallet_deposits_refund: Number(s.total_wallet_deposits_refund || 0),
         total_instapay_deposits_refund: Number(s.total_instapay_deposits_refund || 0),
         total_deposits_refund: (Number(s.total_cash_deposits_refund || 0) + Number(s.total_wallet_deposits_refund || 0) + Number(s.total_instapay_deposits_refund || 0)),
-        cashier_name: cashierMap.get(s.user_id) || s.cashier_name || 'كاشير غير محدد',
-        org_name: orgMap.get(s.organization_id) || organization?.name || 'الفرع الرئيسي',
-        terminal_name: terminalMap.get(s.pos_terminal_id) || s.terminal_name || 'جهاز كاشير'
-      }));
+        cashier_name: cashierMap.get(s.user_id as string) || (s.cashier_name as string) || 'كاشير غير محدد',
+        org_name: orgMap.get(s.organization_id as string) || organization?.name || 'الفرع الرئيسي',
+        terminal_name: terminalMap.get(s.pos_terminal_id as string) || (s.terminal_name as string) || 'جهاز كاشير'
+      } as ShiftRecord));
 
       setShifts(formatted);
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('Error fetching shifts history:', err);
-      showToast('تعذر تحميل سجل الورديات: ' + (err.message || ''), 'error');
+      const msg = err instanceof Error ? err.message : '';
+      showToast('تعذر تحميل سجل الورديات: ' + msg, 'error');
     } finally {
       setLoading(false);
     }
@@ -349,7 +350,7 @@ export default function CashierShiftsHistory() {
   const printZReport = (shift: ShiftRecord) => {
     const printWindow = window.open('', '_blank', 'width=450,height=700');
     if (!printWindow) {
-      alert('يرجى السماح بالنوافذ المنبثقة للطباعة');
+      showToast('يرجى السماح بالنوافذ المنبثقة للطباعة', 'info');
       return;
     }
 
@@ -526,7 +527,7 @@ export default function CashierShiftsHistory() {
       if (error) throw error;
 
       // Lookup customer names safely without foreign key join failures
-      const custIds = (data || []).map((o: any) => o.customer_id).filter(Boolean);
+      const custIds = (data || []).map((o: Record<string, unknown>) => o.customer_id as string).filter(Boolean);
       const custMap = new Map<string, string>();
       if (custIds.length > 0) {
         try {
@@ -534,12 +535,12 @@ export default function CashierShiftsHistory() {
             .from('customers')
             .select('id, name')
             .in('id', Array.from(new Set(custIds)));
-          if (custs) custs.forEach((c: any) => custMap.set(c.id, c.name));
+          if (custs) custs.forEach((c: { id: string; name: string }) => custMap.set(c.id, c.name));
         } catch (_) {}
       }
 
       // Lookup payment methods safely from payments ledger
-      const orderIds = (data || []).map((o: any) => o.id).filter(Boolean);
+      const orderIds = (data || []).map((o: Record<string, unknown>) => o.id as string).filter(Boolean);
       const paymentMethodMap = new Map<string, string>();
       if (orderIds.length > 0) {
         try {
@@ -549,7 +550,7 @@ export default function CashierShiftsHistory() {
             .in('order_id', orderIds);
           if (paymentsData && paymentsData.length > 0) {
             const orderPayments = new Map<string, string[]>();
-            paymentsData.forEach((p: any) => {
+            paymentsData.forEach((p: { order_id: string; payment_method: string }) => {
               const list = orderPayments.get(p.order_id) || [];
               list.push(p.payment_method);
               orderPayments.set(p.order_id, list);
@@ -562,13 +563,14 @@ export default function CashierShiftsHistory() {
         } catch (_) {}
       }
 
-      const mapped: OrderRecord[] = (data || []).map((o: any) => {
-        let pMethod = paymentMethodMap.get(o.id);
+      const mapped: OrderRecord[] = (data || []).map((o: Record<string, unknown>) => {
+        let pMethod = paymentMethodMap.get(o.id as string);
+        const notes = (o.notes as string) || '';
         if (!pMethod) {
-          if (o.notes?.includes('فيزا') || o.notes?.includes('CARD')) pMethod = 'بطاقة / فيزا';
-          else if (o.notes?.includes('دفع متعدد') || o.notes?.includes('SPLIT')) pMethod = 'دفع متعدد';
-          else if (o.notes?.includes('محفظة') || o.notes?.includes('WALLET')) pMethod = 'محفظة إلكترونية';
-          else if (o.notes?.includes('إنستاباي') || o.notes?.includes('INSTAPAY')) pMethod = 'إنستاباي';
+          if (notes.includes('فيزا') || notes.includes('CARD')) pMethod = 'بطاقة / فيزا';
+          else if (notes.includes('دفع متعدد') || notes.includes('SPLIT')) pMethod = 'دفع متعدد';
+          else if (notes.includes('محفظة') || notes.includes('WALLET')) pMethod = 'محفظة إلكترونية';
+          else if (notes.includes('إنستاباي') || notes.includes('INSTAPAY')) pMethod = 'إنستاباي';
           else pMethod = 'نقدية (كاش)';
         } else {
           if (pMethod === 'CASH') pMethod = 'نقدية (كاش)';
@@ -578,23 +580,26 @@ export default function CashierShiftsHistory() {
           else if (pMethod === 'CREDIT') pMethod = 'آجل';
         }
 
+        const customerId = o.customer_id as string | undefined;
+
         return {
-          id: o.id,
-          order_number: o.order_number || `#${o.id.substring(0, 6)}`,
-          created_at: o.created_at,
+          id: o.id as string,
+          order_number: (o.order_number as string) || `#${(o.id as string).substring(0, 6)}`,
+          created_at: o.created_at as string,
           grand_total: Number(o.grand_total || 0),
           payment_method: pMethod,
-          status: o.status || 'COMPLETED',
+          status: (o.status as string) || 'COMPLETED',
           total_tax: Number(o.total_tax || 0),
           total_discount: Number(o.total_discount || 0),
-          customer_name: (o.customer_id && custMap.get(o.customer_id)) || 'عميل نقدي'
+          customer_name: (customerId && custMap.get(customerId)) || 'عميل نقدي'
         };
       });
 
       setShiftOrders(mapped);
-    } catch (err: any) {
+    } catch (err: unknown) {
       logger.error('Error fetching shift orders:', err);
-      showToast('تعذر جلب فواتير الوردية: ' + (err.message || ''), 'error');
+      const msg = err instanceof Error ? err.message : '';
+      showToast('تعذر جلب فواتير الوردية: ' + msg, 'error');
     } finally {
       setLoadingShiftOrders(false);
     }
@@ -604,7 +609,7 @@ export default function CashierShiftsHistory() {
   const printShiftOrdersStatement = (shift: ShiftRecord, orders: OrderRecord[]) => {
     const printWindow = window.open('', '_blank', 'width=800,height=900');
     if (!printWindow) {
-      alert('يرجى السماح بالنوافذ المنبثقة للطباعة');
+      showToast('يرجى السماح بالنوافذ المنبثقة للطباعة', 'info');
       return;
     }
 
