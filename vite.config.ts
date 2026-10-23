@@ -80,8 +80,12 @@ export default defineConfig(({ mode }) => {
 
               // 7. Large Specialized Industry Application Modules (Heavy Specialized Domains)
               if (id.includes('/modules/hims/') || id.includes('\\modules\\hims\\')) return 'module-hims';
-              if (id.includes('/modules/construction/') || id.includes('\\modules\\construction\\')) return 'module-construction';
-              if (id.includes('/modules/manufacturing/') || id.includes('\\modules\\manufacturing\\')) return 'module-manufacturing';
+              if (
+                id.includes('/modules/construction/') || id.includes('\\modules\\construction\\') ||
+                id.includes('/modules/manufacturing/') || id.includes('\\modules\\manufacturing\\')
+              ) {
+                return 'module-industrial';
+              }
               if (id.includes('/modules/stadium/') || id.includes('\\modules\\stadium\\')) return 'module-stadium';
             },
           },
