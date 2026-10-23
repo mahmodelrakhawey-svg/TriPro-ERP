@@ -2,6 +2,48 @@
 📅 تاريخ التحديث: ٢٢‏/٩‏/٢٠٢٦، ٠٨:٥٠:٠٠ م
 ℹ️ تعليمات للذكاء الاصطناعي: تم تفعيل وضع TypeScript الصارم (Strict Mode) بالكامل بنسبة 100%، وتم القضاء على الأخطاء النوعية وتوحيد دوال الورديات start_pos_shift وتعقيم حقول الـ UUID في فواتير الشراء والإعدادات. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
+## 0. الدليل المرجعي المعماري والضمانات الذرية (Core Invariants & Architecture)
+> **تنبيه أساسي لأي نموذج ذكاء اصطناعي (AI Prompt & Context):**
+> اقرأ هذا القسم قبل محاولة تعديل أو اقتراح أي كود متعلق بالسياق المركزي، المعاملات المالية، أو الاختبارات.
+> المرجع التفصيلي الشامل متاح دائماً في `MASTER_DOCUMENTATION.md`.
+
+### أ. تفكيك السياق المركزي إلى 9 سياقات (`context/domains/`):
+1. `CustomerContext.tsx` (`useCustomerDomain`): العملاء، الأرصدة، حدود الائتمان، فئات التسعير (قطاعي/جملة/نصف جملة).
+2. `SupplierContext.tsx` (`useSupplierDomain`): الموردين، فواتير المشتريات، تحويل الـ PO، تقييم الموردين.
+3. `ProductContext.tsx` (`useProductDomain`): الأصناف، المستودعات، وحدات القياس (UOM)، تكلفة WAC، الهوالك والإنتاج.
+4. `AccountingSettingsContext.tsx` (`useAccountingSettingsDomain`): الضرائب (14%)، العملات، ربط مصلحة الضرائب (ETA)، الصلاحيات (`can`).
+5. `SalesContext.tsx` (`useSalesDomain`): فواتير المبيعات، عروض الأسعار، مسودات البيع، إلغاء الترحيل.
+6. `BankingContext.tsx` (`useBankingDomain`): الخزائن، البنوك، الشيكات (أوراق قبض/دفع)، سندات الصرف والقبض.
+7. `GeneralLedgerContext.tsx` (`useGeneralLedgerDomain`): شجرة الحسابات، قيود اليومية، مراكز التكلفة، الإقفال السنوي.
+8. `HrContext.tsx` (`useHrDomain`): الموظفين، البصمة، مسيرات الرواتب الشهرية، مكافأة نهاية الخدمة، السلف.
+9. `RestaurantContext.tsx` (`useRestaurantDomain`): الطاولات، أوامر المطبخ (KDS)، التقفيل الأعمى، ورديات الكاشير.
+- `domainUtils.ts`: دالة `fetchAllTableRecords` لتجاوز حد الـ 1,000 سجل في Supabase.
+
+### ب. الجرد الدقيق لما تبقى في `context/AccountingContext.tsx` (3,689 سطراً):
+- **الواجهة الموحدة (`AccountingFacadeBridge`):** تجمع السياقات التسعة مع `coreValue` وتصدرها عبر `useAccounting()` للحفاظ على التوافق الرجعي 100% مع أكثر من 100 شاشة.
+- **إدارة المستأجرين والشركات المتعددة:** `organization`, `organizations`, `currentSelectedOrgId`, `effectiveOrgId`, `deleteOrganization`.
+- **المستخدم الفعال والصلاحيات:** `currentUser` (الدور، الفرع، الخزائن المسموحة، نطاق الـ HR).
+- **التحديث المتبادل والذاكرة المؤقتة:** `isLoading`, `lastUpdated`, `clearCache`, `isDemo`, `handleRefreshData`, `handleRefreshSalesAndPurchases`, `handleRefreshBankingAndShift`.
+- **الأصول الثابتة والإهلاك:** `assets`, `addAsset`, `updateAsset`, `deleteAsset`, `runDepreciation`, `revaluateAsset` (قيد التطوير لفصلها في سياق مستقل مستقبلاً).
+- **صيانة النظام ومسؤولي SaaS:** `purgeDeletedRecords`, `refreshSaasSchema`, `createMissingSystemAccounts`, `recalculateAllBalances`, `exportData`, `users`.
+- **دوال التراجع التكرارية القديمة (Legacy Fallbacks):** السطور (400-3200) متجاوزة ومستبدلة بدوال النطاقات التسعة، ومرشحة للحذف في مرحلة التنظيف النهائي.
+
+### ج. المعادلات الذرية والعمليات غير القابلة للتجزئة (ACID & PL/pgSQL RPCs):
+1. **حارس التوازن المحاسبي:** `database_balance_guard` يمنع أي قيد غير متوازن (\sum Debit = \sum Credit) مع كود خطأ P0001.
+2. **المتوسط المرجح (WAC):** احتساب تكلفة الوحدة تلقائياً: $(\text{Old Cost} \times \text{Old Qty} + \text{New Cost} \times \text{New Qty}) / \text{Total Qty}$.
+3. **تحويل الوحدات (Multi-UOM):** تخزين المخزون بالوحدة الأساسية `is_base = true` وضربه في معامل التحويل عند البيع والشراء.
+4. **حفظ واعتماد المبيعات ذرياً:** `save_and_post_sales_invoice_atomic` (فاتورة + مخزون + قيد متوازن + رصيد عميل في معاملة واحدة).
+5. **حفظ واعتماد المشتريات ذرياً:** `save_and_post_purchase_invoice_atomic` (فاتورة + WAC + مخزون + قيد + رصيد مورد).
+6. **التقفيل الأعمى للورديات:** `close_cashier_shift_blind` (حساب العجز بحساب 515 أو الزيادة بحساب 415 بقيد آلي وإغلاق الوردية).
+7. **إلغاء الترحيل الآمن:** `unpost_sales_invoice` / `unpost_purchase_invoice` مع تتبع سجل التدقيق `audit_logs`.
+8. **مكافأة نهاية الخدمة المصرية:** نصف شهر عن أول 5 سنوات + شهر عما زاد، مع نسبة الاستقالة (0% / 33% / 67% / 100%).
+
+### د. منظومة الاختبارات الآلية (Automated Tests Inventory):
+- **اختبارات Vitest:** 73 ملف اختبار، 421 اختباراً ناجحاً بنسبة 100% (0 فشل).
+- **اختبارات Playwright E2E:** 7 أجنحة متكاملة (`sales-cycle.spec.ts`, `purchase-invoice.spec.ts`, `financial-reconciliation.spec.ts`, `assets-integrity.spec.ts`, `smoke-white-screen.spec.ts`, `new-company-flow.spec.ts`, `auth-screen.spec.ts`).
+
+---
+
 ## 1. هيكل الملفات والمجلدات (File Structure)
 (هذه الملفات موجودة بالفعل، لا تقم بإنشائها مرة أخرى)
 
@@ -831,8 +873,11 @@
     📄 AccountingSettingsContext.tsx
     📄 BankingContext.tsx
     📄 CustomerContext.tsx
+    📄 domainUtils.ts
     📄 GeneralLedgerContext.tsx
+    📄 HrContext.tsx
     📄 ProductContext.tsx
+    📄 RestaurantContext.tsx
     📄 SalesContext.tsx
     📄 SupplierContext.tsx
   📄 AccountingContext.tsx
@@ -2063,6 +2108,8 @@ export { useSettingsDomain } from './domains/AccountingSettingsContext';
 export { useSalesDomain } from './domains/SalesContext';
 export { useBankingDomain } from './domains/BankingContext';
 export { useGeneralLedgerDomain } from './domains/GeneralLedgerContext';
+export { useHrDomain } from './domains/HrContext';
+export { useRestaurantDomain } from './domains/RestaurantContext';
 
 /**
  * دالة مساعدة عامة لجلب كافة سجلات الجداول الكبيرة التي تتجاوز حد 1000 سجل في Supabase/PostgREST
