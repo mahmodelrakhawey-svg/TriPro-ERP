@@ -492,13 +492,29 @@ const GeneralJournal: React.FC = () => {
               !a.code?.startsWith('1') && 
               (a.name.includes('مبيعات') || a.name.includes('نشاط') || a.name.includes('إيراد'))
             );
+          } else if (line.description.includes('عجز') || line.description.includes('تسوية تقريب') || line.description.includes('فروق نقدية')) {
+            account = accounts.find((a: Record<string, any>) => 
+              a.code === '541' || a.code === '54' || a.code === '551' || a.code === '5219' || a.code === '5109'
+            ) || accounts.find((a: Record<string, any>) => 
+              (a.name?.includes('عجز') || a.name?.includes('فروق')) && !a.code?.startsWith('1') && !a.code?.startsWith('4')
+            ) || accounts.find((a: Record<string, any>) => 
+              (a.type === 'EXPENSE' || (a.type as any) === 'expense' || a.code?.startsWith('5'))
+            );
+          } else if (line.description.includes('فائض') || line.description.includes('زيادة الصندوق') || line.description.includes('زيادة')) {
+            account = accounts.find((a: Record<string, any>) => 
+              a.code === '441' || a.code === '44' || a.code === '451'
+            ) || accounts.find((a: Record<string, any>) => 
+              (a.name?.includes('زيادة') || a.name?.includes('فائض')) && a.code?.startsWith('4')
+            );
           }
         }
 
+        const safeAccId = typeof line.account_id === 'string' && line.account_id !== 'undefined' ? line.account_id : null;
+
         return {
           id: line.id,
-          accountId: line.account_id,
-          accountName: account?.name || `⚠️ حساب غير موجود (المعرف: ${line.account_id?.slice(0,8)}...)`,
+          accountId: safeAccId,
+          accountName: account?.name || (safeAccId ? `⚠️ حساب غير موجود (المعرف: ${safeAccId.slice(0,8)}...)` : '⚠️ حساب التسوية غير محدد'),
           accountCode: account?.code || line.account_code || '????',
           debit: line.debit,
           credit: line.credit,

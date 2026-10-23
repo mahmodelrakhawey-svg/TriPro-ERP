@@ -147,7 +147,7 @@ export default function RetailPosScreen() {
 
   // 💵 Cash Drop State (سحب النقدية أثناء الوردية)
   const [isCashDropOpen, setIsCashDropOpen] = useState(false);
-  const [cashDrops, setCashDrops] = useState<Array<{ amount: number; reason: string; receiverName: string; time: string }>>([]);
+  const [cashDrops, setCashDrops] = useState<Array<{ amount: number; reason: string; receiverName: string; time: string; type?: string }>>([]);
 
   // 🔄 POS Returns State (مرتجعات الكاشير بالباركود)
   const [isReturnModalOpen, setIsReturnModalOpen] = useState(false);
@@ -566,6 +566,15 @@ export default function RetailPosScreen() {
         paidInput?.focus();
         paidInput?.select();
       }
+      // F10: Split Payment & Deposit Redemption (تنفيذ حجز / استهلاك عربون)
+      if (e.key === 'F10') {
+        e.preventDefault();
+        if (cart.length > 0) {
+          setIsSplitPaymentOpen(true);
+        } else {
+          showToast('أضف أصنافاً للسلة أولاً لتنفيذ الحجز وسداد الفاتورة', 'warning');
+        }
+      }
       // F2: Clear Cart
       if (e.key === 'F2') {
         e.preventDefault();
@@ -943,8 +952,10 @@ export default function RetailPosScreen() {
       return;
     }
 
-    const totalDrops = cashDrops.reduce((sum, d) => sum + Number(d.amount || 0), 0);
-    const financials = await getLiveShiftFinancials(supabase, shift, currentUser?.id, totalDrops);
+    const totalSafeDrops = cashDrops
+      .filter(d => !d.type || d.type === 'SAFE_DROP')
+      .reduce((sum, d) => sum + Number(d.amount || 0), 0);
+    const financials = await getLiveShiftFinancials(supabase, shift, currentUser?.id, totalSafeDrops);
     setShiftFinancials(financials);
   }, [activeShift, currentUser?.id, cashDrops]);
 
@@ -958,12 +969,14 @@ export default function RetailPosScreen() {
   const handleOpenCloseShiftModal = async () => {
     if (!activeShift) return;
     try {
-      const totalCashDrops = cashDrops.reduce((sum, d) => sum + Number(d.amount || 0), 0);
+      const totalSafeDrops = cashDrops
+        .filter(d => !d.type || d.type === 'SAFE_DROP')
+        .reduce((sum, d) => sum + Number(d.amount || 0), 0);
       const { summary, calculatedExpectedCash } = await calculateClosingShiftSummary(
         supabase,
         activeShift,
         currentUser?.id,
-        totalCashDrops
+        totalSafeDrops
       );
       setShiftSummary(summary);
       setActualCash(calculatedExpectedCash);
@@ -989,6 +1002,7 @@ export default function RetailPosScreen() {
         showToast('تم إغلاق الوردية وترحيل المبيعات بنجاح 🏁', 'success');
         secureStorage.removeItem(`tripro_shift_${currentUser.id}`);
         setActiveShift(null);
+        setCashDrops([]);
         setCart([]);
         setIsCloseModalOpen(false);
         return;
@@ -1006,12 +1020,14 @@ export default function RetailPosScreen() {
       showToast('تم إغلاق الوردية وترحيل المبيعات بنجاح 🏁', 'success');
       secureStorage.removeItem(`tripro_shift_${currentUser.id}`);
       setActiveShift(null);
+      setCashDrops([]);
       setCart([]);
       setIsCloseModalOpen(false);
       await refreshData();
     } catch (err) {
       secureStorage.removeItem(`tripro_shift_${currentUser.id}`);
       setActiveShift(null);
+      setCashDrops([]);
       setCart([]);
       setIsCloseModalOpen(false);
       logger.error('Error closing shift via RPC:', err);
@@ -1359,17 +1375,6 @@ export default function RetailPosScreen() {
           const paymentMethod = depositDetails?.paymentMethod || 'CASH';
           const isCashFlow = (!isDeposit && !isRefund) || paymentMethod === 'CASH';
 
-          // أضف للحركات النقدية المحلية فقط إذا كانت الحركة تمس نقدية الدرج الورقية
-          if (isCashFlow) {
-            const newDrop = {
-              amount: amt,
-              reason: isRefund ? `رد عربون حجز: ${reason || ''}` : (isDeposit ? `عربون حجز: ${reason || ''}` : reason),
-              receiverName: receiver,
-              time: new Date().toLocaleTimeString('ar-EG')
-            };
-            setCashDrops(prev => [newDrop, ...prev]);
-          }
-
           // Map payoutType to unified pos_drawer_transactions type & persist via RPC
           let drawerType = 'SAFE_DROP';
           if (payoutType === 'EXPENSE') drawerType = 'PAID_OUT_EXPENSE';
@@ -1387,27 +1392,51 @@ export default function RetailPosScreen() {
             drawerType = 'SAFE_DROP';
           }
 
+          // أضف للحركات النقدية المحلية فقط إذا كانت الحركة تمس نقدية الدرج الورقية
+          if (isCashFlow) {
+            const newDrop = {
+              type: drawerType,
+              amount: amt,
+              reason: isRefund ? `رد عربون حجز: ${reason || ''}` : (isDeposit ? `عربون حجز: ${reason || ''}` : reason),
+              receiverName: receiver,
+              time: new Date().toLocaleTimeString('ar-EG')
+            };
+            setCashDrops(prev => [newDrop, ...prev]);
+          }
+
           try {
             if (activeShift?.id && isValidUUID(activeShift.id)) {
-              await supabase.rpc('record_pos_drawer_transaction', {
+              const resolvedAccountId = payoutType === 'EXPENSE' ? expenseAccountId : targetAccountId;
+              const cleanAccountId = (resolvedAccountId && typeof resolvedAccountId === 'string' && resolvedAccountId.trim() !== '') ? resolvedAccountId.trim() : null;
+              const cleanCustomerPhone = (depositDetails?.customerPhone && depositDetails.customerPhone.trim() !== '') ? depositDetails.customerPhone.trim() : null;
+              const cleanDeliveryDate = (depositDetails?.deliveryDate && depositDetails.deliveryDate.trim() !== '') ? depositDetails.deliveryDate.trim() : null;
+              const cleanBookingNotes = (depositDetails?.bookingNotes && depositDetails.bookingNotes.trim() !== '') ? depositDetails.bookingNotes.trim() : null;
+
+              const { error: drawerErr } = await supabase.rpc('record_pos_drawer_transaction', {
                 p_shift_id: activeShift.id,
                 p_transaction_type: drawerType,
                 p_type: drawerType,
                 p_amount: amt,
                 p_reason: reason || payoutType,
-                p_account_id: payoutType === 'EXPENSE' ? expenseAccountId : (targetAccountId || null),
-                p_custodian_name: (payoutType === 'CUSTODIAN' || isDeposit || isRefund) ? receiver : null,
+                p_account_id: cleanAccountId,
+                p_custodian_name: (payoutType === 'CUSTODIAN' || isDeposit || isRefund) ? (receiver || null) : null,
                 p_org_id: currentSelectedOrgId || currentUser?.organization_id,
                 p_payment_method: paymentMethod,
-                p_customer_phone: depositDetails?.customerPhone || null,
-                p_delivery_date: depositDetails?.deliveryDate || null,
-                p_booking_notes: depositDetails?.bookingNotes || null
+                p_customer_phone: cleanCustomerPhone,
+                p_delivery_date: cleanDeliveryDate,
+                p_booking_notes: cleanBookingNotes
               });
+              if (drawerErr) {
+                logger.warn('Error recording drawer transaction via RPC:', drawerErr);
+              }
             }
           } catch (drawerErr) {
             logger.warn('Error recording drawer transaction via RPC:', drawerErr);
           }
           try {
+            const resolvedAccountId = payoutType === 'EXPENSE' ? expenseAccountId : targetAccountId;
+            const cleanAccountId = (resolvedAccountId && typeof resolvedAccountId === 'string' && resolvedAccountId.trim() !== '') ? resolvedAccountId.trim() : null;
+
             const { error: dropErr } = await supabase.from('pos_petty_cash_payouts').insert({
               organization_id: currentSelectedOrgId || currentUser?.organization_id,
               public_shift_id: (activeShift?.id && isValidUUID(activeShift.id)) ? activeShift.id : null,
@@ -1415,9 +1444,9 @@ export default function RetailPosScreen() {
               amount: amt,
               payout_type: (payoutType === 'PAID_IN' || isDeposit) ? 'PAID_IN' : (payoutType === 'EXPENSE' ? 'EXPENSE' : 'SAFE_DROP'),
               reason: reason || payoutType,
-              expense_account_id: expenseAccountId || null,
-              target_account_id: targetAccountId || null,
-              custodian_name: (payoutType === 'CUSTODIAN' || isDeposit || isRefund) ? receiver : null,
+              expense_account_id: payoutType === 'EXPENSE' ? cleanAccountId : null,
+              target_account_id: payoutType !== 'EXPENSE' ? cleanAccountId : null,
+              custodian_name: (payoutType === 'CUSTODIAN' || isDeposit || isRefund) ? (receiver || null) : null,
             });
             if (dropErr) {
               logger.warn('Could not persist cash drop to pos_petty_cash_payouts:', dropErr);

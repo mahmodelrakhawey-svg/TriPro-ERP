@@ -252,6 +252,15 @@ export default function CashierShiftsHistory() {
         total_paid_outs: Number(s.total_paid_outs || 0),
         total_safe_drops: Number(s.total_safe_drops || 0),
         total_cash_returns: Number(s.total_cash_returns || 0),
+        total_cash_deposits_in: Number(s.total_cash_deposits_in || 0),
+        total_wallet_deposits_in: Number(s.total_wallet_deposits_in || 0),
+        total_instapay_deposits_in: Number(s.total_instapay_deposits_in || 0),
+        total_card_deposits_in: Number(s.total_card_deposits_in || 0),
+        total_deposits_in: (Number(s.total_cash_deposits_in || 0) + Number(s.total_wallet_deposits_in || 0) + Number(s.total_instapay_deposits_in || 0) + Number(s.total_card_deposits_in || 0)),
+        total_cash_deposits_refund: Number(s.total_cash_deposits_refund || 0),
+        total_wallet_deposits_refund: Number(s.total_wallet_deposits_refund || 0),
+        total_instapay_deposits_refund: Number(s.total_instapay_deposits_refund || 0),
+        total_deposits_refund: (Number(s.total_cash_deposits_refund || 0) + Number(s.total_wallet_deposits_refund || 0) + Number(s.total_instapay_deposits_refund || 0)),
         cashier_name: cashierMap.get(s.user_id) || s.cashier_name || 'كاشير غير محدد',
         org_name: orgMap.get(s.organization_id) || organization?.name || 'الفرع الرئيسي',
         terminal_name: terminalMap.get(s.pos_terminal_id) || s.terminal_name || 'جهاز كاشير'
@@ -701,6 +710,121 @@ export default function CashierShiftsHistory() {
     }, 300);
   };
 
+  // Print Shift Drawer Transactions Statement (كشف حركات الدرج والعربونات والمصروفات)
+  const printShiftDrawerStatement = (shift: ShiftRecord, trans: ShiftDrawerTransaction[]) => {
+    const printWindow = window.open('', '_blank', 'width=850,height=900');
+    if (!printWindow) {
+      showToast('يرجى السماح بالنوافذ المنبثقة للطباعة', 'info');
+      return;
+    }
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="ar" dir="rtl">
+      <head>
+        <meta charset="utf-8" />
+        <title>كشف حركات الدرج والعربونات - ${shift.cashier_name}</title>
+        <style>
+          @page { size: A4 portrait; margin: 10mm; }
+          body {
+            font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+            font-size: 13px;
+            color: #1e293b;
+            background: #fff;
+            padding: 10px;
+            direction: rtl;
+          }
+          .text-center { text-align: center; }
+          .font-bold { font-weight: bold; }
+          table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+          th { background: #f1f5f9; color: #0f172a; padding: 8px; border: 1px solid #cbd5e1; font-size: 12px; }
+          td { padding: 7px 8px; border: 1px solid #cbd5e1; font-size: 12px; text-align: center; }
+          .text-right { text-align: right; }
+          .text-left { text-align: left; }
+          .header-box { border-bottom: 2px solid #059669; padding-bottom: 12px; margin-bottom: 15px; }
+          .meta-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 12px; background: #f8fafc; padding: 10px; border-radius: 8px; margin-bottom: 15px; }
+          .badge { padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: bold; }
+        </style>
+      </head>
+      <body>
+        <div class="header-box text-center">
+          <h2 style="margin: 0; font-size: 20px; color: #0f172a;">كشف حركات النقدية والعربونات والمصروفات بالدرج</h2>
+          <div style="font-size: 13px; color: #64748b; margin-top: 4px;">${shift.org_name || 'TriPro ERP'} | ${shift.terminal_name || 'الكاشير'}</div>
+        </div>
+
+        <div class="meta-grid">
+          <div><strong>الكاشير:</strong> ${shift.cashier_name}</div>
+          <div><strong>رقم الوردية:</strong> #${shift.id.substring(0, 8)}</div>
+          <div><strong>الفترة:</strong> ${getShiftPeriodType(shift.start_time) === 'MORNING' ? 'صباحية ☀️' : 'مسائية 🌙'}</div>
+          <div><strong>وقت البدء:</strong> ${new Date(shift.start_time).toLocaleString('ar-EG')}</div>
+          <div><strong>وقت الإغلاق:</strong> ${shift.end_time ? new Date(shift.end_time).toLocaleString('ar-EG') : 'قيد العمل'}</div>
+          <div><strong>إجمالي الحركات:</strong> ${trans.length} حركة</div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>الوقت</th>
+              <th>نوع الحركة</th>
+              <th>طريقة الدفع</th>
+              <th>العميل / المستلم</th>
+              <th>هاتف العميل</th>
+              <th>تاريخ التسليم</th>
+              <th>البيان والملاحظات</th>
+              <th>المبلغ</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${trans.map((t, idx) => {
+              const isDepIn = t.transaction_type.includes('ADVANCE_DEPOSIT') || t.transaction_type === 'PAID_IN';
+              const isRefund = t.transaction_type.includes('REFUND_DEPOSIT');
+              const typeName = t.transaction_type.includes('ADVANCE_DEPOSIT') ? 'استلام عربون حجز' :
+                               t.transaction_type.includes('REFUND_DEPOSIT') ? 'رد عربون ملغي' :
+                               t.transaction_type === 'PAID_IN' ? 'تزويد فكة' :
+                               t.transaction_type === 'PAID_OUT_EXPENSE' ? 'مصروف نثري' : 'توريد للخزينة';
+              const bg = isDepIn ? '#dcfce7; color:#166534;' : isRefund ? '#ffedd5; color:#9a3412;' : '#ffe4e6; color:#9f1239;';
+              const method = t.payment_method === 'WALLET' ? 'فودافون كاش' : t.payment_method === 'INSTAPAY' ? 'إنستاباي' : t.payment_method === 'CARD' ? 'فيزا/شبكة' : 'نقداً';
+              return `
+                <tr>
+                  <td>${idx + 1}</td>
+                  <td>${new Date(t.created_at).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</td>
+                  <td><span class="badge" style="background:${bg}">${typeName}</span></td>
+                  <td>${method}</td>
+                  <td class="text-right font-bold">${t.custodian_or_payer_name || t.reason || '—'}</td>
+                  <td dir="ltr">${t.customer_phone || '—'}</td>
+                  <td>${t.delivery_date ? new Date(t.delivery_date).toLocaleDateString('ar-EG') : '—'}</td>
+                  <td class="text-right">${t.booking_notes || t.reason || '—'}</td>
+                  <td class="font-bold text-left" style="color:${isDepIn ? '#16a34a' : isRefund ? '#ea580c' : '#dc2626'}">
+                    ${isDepIn ? '+' : '-'}${Number(t.amount).toFixed(2)} ${currencySymbol}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+
+        <div style="margin-top: 30px; display:flex; justify-content:space-between; font-size: 12px; padding: 0 40px;">
+          <div class="text-center">
+            <div>توقيع الكاشير المسلّم</div>
+            <div style="margin-top: 35px;">___________________</div>
+          </div>
+          <div class="text-center">
+            <div>اعتماد المشرف والمحاسب</div>
+            <div style="margin-top: 35px;">___________________</div>
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 300);
+  };
+
   // Export Shifts to Excel
   const exportToExcel = () => {
     if (filteredShifts.length === 0) {
@@ -723,6 +847,9 @@ export default function CashierShiftsHistory() {
       'مبيعات فيزا': s.total_card_sales,
       'مبيعات إنستاباي': s.total_instapay_sales,
       'مبيعات محافظ': s.total_wallet_sales,
+      'عربونات مستلمة': s.total_deposits_in || 0,
+      'رد عربونات ملغاة': s.total_deposits_refund || 0,
+      'عربونات مستهلكة بالحجز': s.total_redeemed_deposits || 0,
       'مصروفات وسحوبات': (s.total_paid_outs || 0) + (s.total_safe_drops || 0),
       'المتوقع بالدرج': s.expected_cash ?? 0,
       'الفعلي المحصور': s.actual_cash ?? 0,
@@ -1082,10 +1209,10 @@ export default function CashierShiftsHistory() {
                             type="button"
                             onClick={() => handleOpenShiftOrders(s)}
                             className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition shadow-xs flex items-center gap-1"
-                            title="عرض فواتير ومبيعات الكاشير لهذه الوردية للمطابقة"
+                            title="عرض فواتير ومبيعات الكاشير وحركات الدرج والعربونات والمصروفات"
                           >
                             <Receipt size={15} />
-                            <span className="text-[10px] font-bold hidden sm:inline">فواتير الوردية</span>
+                            <span className="text-[10px] font-bold hidden sm:inline">الفواتير والحركات</span>
                           </button>
                         </div>
                       </td>
@@ -1110,7 +1237,7 @@ export default function CashierShiftsHistory() {
                 </div>
                 <div>
                   <h3 className="font-bold text-base text-slate-900">
-                    مبيعات وفواتير وردية الكاشير: {selectedShiftForOrders.cashier_name}
+                    تفاصيل فواتير وحركات وردية الكاشير: {selectedShiftForOrders.cashier_name}
                   </h3>
                   <p className="text-xs text-slate-500">
                     الفرع: {selectedShiftForOrders.org_name} • التاريخ: {new Date(selectedShiftForOrders.start_time).toLocaleDateString('ar-EG')}
@@ -1121,11 +1248,17 @@ export default function CashierShiftsHistory() {
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => printShiftOrdersStatement(selectedShiftForOrders, shiftOrders)}
+                  onClick={() => {
+                    if (modalTab === 'DRAWER') {
+                      printShiftDrawerStatement(selectedShiftForOrders, shiftDrawerTrans);
+                    } else {
+                      printShiftOrdersStatement(selectedShiftForOrders, shiftOrders);
+                    }
+                  }}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold shadow-sm transition"
                 >
                   <Printer size={14} />
-                  <span>طباعة كشف مبيعات الوردية</span>
+                  <span>{modalTab === 'DRAWER' ? 'طباعة كشف حركات الدرج والعربونات' : 'طباعة كشف مبيعات الوردية'}</span>
                 </button>
                 <button
                   onClick={() => setSelectedShiftForOrders(null)}

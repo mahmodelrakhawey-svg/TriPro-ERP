@@ -72,6 +72,23 @@ export async function getLiveShiftFinancials(
     if (!summaryErr && summary) {
       cashSales = Number(summary.cash_sales) || 0;
       cashReturns = Number(summary.cash_returns) || 0;
+      const dbSafeDrops = Number(summary.safe_drops ?? summary.cash_drops ?? 0);
+      const dbPaidOuts = Number(summary.paid_outs ?? summary.petty_cash ?? 0);
+      const dbPaidIns = Number(summary.paid_ins ?? 0);
+      const dbDepositsIn = Number(summary.cash_deposits_in ?? 0);
+      const dbDepositsRefund = Number(summary.cash_deposits_refund ?? 0);
+
+      const liveExpectedCash = Number(summary.expected_cash !== undefined 
+        ? summary.expected_cash 
+        : Math.max(0, (openingBal + cashSales + dbPaidIns + dbDepositsIn) - (dbPaidOuts + dbSafeDrops + cashReturns + dbDepositsRefund))
+      );
+
+      return {
+        cashSales,
+        cashReturns,
+        cashDrops: dbSafeDrops > 0 ? dbSafeDrops : cashDropsTotal,
+        drawerCash: liveExpectedCash
+      };
     } else {
       // Fallback: جلب المبيعات النقدية مباشرة من الطلبات فقط إذا كان shift.id صالحاً
       let ordQuery: Record<string, any> = supabase
@@ -237,9 +254,12 @@ export async function calculateClosingShiftSummary(
     const cardSales = Number(data?.card_sales) || 0;
     const pettyCash = Number(data?.petty_cash) || 0;
 
+    const dbSafeDrops = Number(data?.safe_drops ?? data?.cash_drops ?? 0);
+    const resolvedSafeDrops = dbSafeDrops > 0 ? dbSafeDrops : cashDropsTotal;
+
     calculatedExpectedCash = (data?.expected_cash !== undefined && data?.cash_returns !== undefined)
       ? Math.max(0, Number(data.expected_cash))
-      : Math.max(0, openingBal + cashSales - detectedCashReturns - cashDropsTotal - pettyCash);
+      : Math.max(0, openingBal + cashSales - detectedCashReturns - resolvedSafeDrops - pettyCash);
 
     resultSummary = {
       ...data,
@@ -248,7 +268,8 @@ export async function calculateClosingShiftSummary(
       cash_sales: cashSales,
       card_sales: cardSales,
       cash_returns: detectedCashReturns,
-      cash_drops: cashDropsTotal,
+      safe_drops: resolvedSafeDrops,
+      cash_drops: resolvedSafeDrops,
       expected_cash: calculatedExpectedCash
     };
   }

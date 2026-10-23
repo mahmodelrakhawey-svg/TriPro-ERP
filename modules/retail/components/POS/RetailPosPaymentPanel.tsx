@@ -1,5 +1,5 @@
 import React from 'react';
-import { User, Gift, Ticket, Coins, Printer, Pause, Loader2 } from 'lucide-react';
+import { User, Gift, Ticket, Coins, Printer, Pause, Loader2, CalendarCheck } from 'lucide-react';
 import { PosCartItem } from '../../hooks/usePosCart';
 import { RetailCoupon } from '../../services/couponService';
 
@@ -194,6 +194,16 @@ export const RetailPosPaymentPanel: React.FC<RetailPosPaymentPanelProps> = ({
             💳 بطاقة بنكية (فيزا)
           </button>
         </div>
+
+        {/* زر تنفيذ الحجز واستهلاك العربون / تعدد القنوات */}
+        <button 
+          type="button"
+          onClick={onOpenSplitPayment}
+          className="w-full py-2.5 px-3 rounded-xl font-bold flex items-center justify-center gap-2 border border-teal-500/50 bg-teal-950/40 hover:bg-teal-900/60 text-teal-300 hover:text-white transition-all text-xs shadow-sm hover:shadow-teal-500/10"
+        >
+          <CalendarCheck size={16} className="text-teal-400" />
+          <span>🎯 تنفيذ حجز / استهلاك عربون مسبق (Split Payment)</span>
+        </button>
       </div>
 
       {/* Cash Input Drawer / Card Info */}

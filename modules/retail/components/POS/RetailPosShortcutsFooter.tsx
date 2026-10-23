@@ -24,6 +24,9 @@ export const RetailPosShortcutsFooter: React.FC<RetailPosShortcutsFooterProps> =
           <kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F9</kbd> تحديد المستلم
         </span>
         <span className="flex items-center gap-1">
+          <kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-teal-400">F10</kbd> تنفيذ حجز / دفع متعدد
+        </span>
+        <span className="flex items-center gap-1">
           <kbd className="bg-slate-900 px-1.5 py-0.5 rounded border border-slate-700 text-slate-300">F4</kbd> بحث
         </span>
       </div>
