@@ -442,34 +442,14 @@ const PermissionsManager = () => {
         );
 
         if (missingReports.length > 0) {
-          try {
-            const { data: inserted, error: insErr } = await supabase
-              .from('permissions')
-              .upsert(missingReports, { onConflict: 'module,action' })
-              .select();
-
-            if (!insErr && inserted && inserted.length > 0) {
-              permsList = [...permsList, ...inserted];
-            } else {
-              const fallbackItems: Permission[] = missingReports.map((mr, idx) => ({
-                id: `rep-perm-${mr.action}-${idx}`,
-                module: mr.module,
-                action: mr.action,
-                description: mr.description,
-                is_sensitive: mr.is_sensitive
-              }));
-              permsList = [...permsList, ...fallbackItems];
-            }
-          } catch {
-            const fallbackItems: Permission[] = missingReports.map((mr, idx) => ({
-              id: `rep-perm-${mr.action}-${idx}`,
-              module: mr.module,
-              action: mr.action,
-              description: mr.description,
-              is_sensitive: mr.is_sensitive
-            }));
-            permsList = [...permsList, ...fallbackItems];
-          }
+          const fallbackItems: Permission[] = missingReports.map((mr, idx) => ({
+            id: `rep-perm-${mr.action}-${idx}`,
+            module: mr.module,
+            action: mr.action,
+            description: mr.description,
+            is_sensitive: mr.is_sensitive
+          }));
+          permsList = [...permsList, ...fallbackItems];
         }
         permsData = permsList;
         
