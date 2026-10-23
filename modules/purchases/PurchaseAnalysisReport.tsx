@@ -237,16 +237,16 @@ export default function PurchaseAnalysisReport() {
       // 1. جلب جدول الوحدات (UOMs) لحساب النسب التناسبية وتوحيد المقارنة بدقة رياضية
       let uomsQuery = supabase
         .from('uoms')
-        .select('id, name, ratio, uom_type, category_id, is_base, organization_id');
+        .select('id, name, ratio, uom_type, category_id, organization_id');
 
       if (userOrgId) {
         uomsQuery = uomsQuery.or(`organization_id.eq.${userOrgId},organization_id.is.null`);
       }
 
-      let { data: uomsData } = await uomsQuery;
-      // إذا لم يُرجع نتائج نكرر بدون شرط المنظمة لضمان جلب كافة الوحدات العامة والمشتركة
-      if (!uomsData || uomsData.length === 0) {
-        const { data: fallbackUoms } = await supabase.from('uoms').select('*');
+      let { data: uomsData, error: uomsErr } = await uomsQuery;
+      // إذا لم يُرجع نتائج نكرر كـ fallback لضمان جلب كافة الوحدات العامة والمشتركة
+      if (uomsErr || !uomsData || uomsData.length === 0) {
+        const { data: fallbackUoms } = await supabase.from('uoms').select('id, name, ratio, uom_type, category_id, organization_id');
         uomsData = fallbackUoms || [];
       }
 
