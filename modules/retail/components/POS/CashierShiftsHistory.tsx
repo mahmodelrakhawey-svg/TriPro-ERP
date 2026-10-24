@@ -29,7 +29,8 @@ import {
   ChevronRight,
   ExternalLink,
   Lock,
-  Unlock
+  Unlock,
+  Loader2
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
@@ -132,6 +133,8 @@ export default function CashierShiftsHistory() {
   const [shiftDrawerTrans, setShiftDrawerTrans] = useState<ShiftDrawerTransaction[]>([]);
   const [modalTab, setModalTab] = useState<'ORDERS' | 'DRAWER'>('ORDERS');
   const [loadingShiftOrders, setLoadingShiftOrders] = useState(false);
+  const [repostingShiftId, setRepostingShiftId] = useState<string | null>(null);
+  const [isBatchReposting, setIsBatchReposting] = useState(false);
 
   // Load Branches & Cashiers lists
   useEffect(() => {
@@ -223,7 +226,7 @@ export default function CashierShiftsHistory() {
 
       // Check missing terminals
       const missingTerminalIds = (data || [])
-        .map((s: Record<string, unknown>) => s.pos_terminal_id as string)
+        .map((s: Record<string, unknown>) => (s.terminal_id || s.pos_terminal_id) as string)
         .filter((tid: string) => tid && !terminalMap.has(tid));
       if (missingTerminalIds.length > 0) {
         try {
@@ -263,7 +266,7 @@ export default function CashierShiftsHistory() {
         total_deposits_refund: (Number(s.total_cash_deposits_refund || 0) + Number(s.total_wallet_deposits_refund || 0) + Number(s.total_instapay_deposits_refund || 0)),
         cashier_name: cashierMap.get(s.user_id as string) || (s.cashier_name as string) || 'كاشير غير محدد',
         org_name: orgMap.get(s.organization_id as string) || organization?.name || 'الفرع الرئيسي',
-        terminal_name: terminalMap.get(s.pos_terminal_id as string) || (s.terminal_name as string) || 'جهاز كاشير'
+        terminal_name: terminalMap.get((s.terminal_id || s.pos_terminal_id) as string) || (s.terminal_name as string) || 'جهاز كاشير'
       } as ShiftRecord));
 
       setShifts(formatted);
@@ -275,6 +278,52 @@ export default function CashierShiftsHistory() {
       setLoading(false);
     }
   };
+
+  // 🔄 إعادة توليد وترحيل القيد لوردية محددة
+  const handleRepostShift = async (shift: ShiftRecord) => {
+    setRepostingShiftId(shift.id);
+    try {
+      const { data: res, error } = await supabase.rpc('repost_unposted_shift', {
+        p_shift_id: shift.id
+      });
+      if (error) throw error;
+      if (res && res.success === false) {
+        showToast('تنبيه: ' + (res.error || 'تعذر ترحيل الوردية'), 'warning');
+      } else {
+        showToast('تم ترحيل وتوليد القيد المحاسبي للوردية بنجاح ✔️', 'success');
+        await fetchShifts();
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('فشل ترحيل القيد: ' + msg, 'error');
+    } finally {
+      setRepostingShiftId(null);
+    }
+  };
+
+  // 🚀 ترحيل كافة الورديات المعلقة دفعة واحدة
+  const handleBatchRepost = async () => {
+    if (!window.confirm('هل تريد محاولة توليد وترحيل القيود المحاسبية لكافة الورديات المعلقة دفعة واحدة؟')) return;
+    setIsBatchReposting(true);
+    try {
+      const { data: res, error } = await supabase.rpc('repost_all_unposted_shifts', {
+        p_org_id: selectedOrgId && selectedOrgId !== 'ALL' ? selectedOrgId : null
+      });
+      if (error) throw error;
+      showToast(`اكتملت العملية: تم ترحيل ${res?.posted_count || 0} وردية بنجاح 🏁`, 'success');
+      await fetchShifts();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('تعذر الترحيل الجماعي: ' + msg, 'error');
+    } finally {
+      setIsBatchReposting(false);
+    }
+  };
+
+  // حصر عدد الورديات المغلقة التي لم يتولد عنها قيد ولها مبيعات
+  const unpostedCount = useMemo(() => {
+    return shifts.filter(s => s.status === 'CLOSED' && !s.closing_journal_entry_id && ((s.total_gross_sales || 0) > 0 || (s.actual_cash || 0) > 0)).length;
+  }, [shifts]);
 
   useEffect(() => {
     fetchShifts();
@@ -889,6 +938,17 @@ export default function CashierShiftsHistory() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {unpostedCount > 0 && (
+            <button
+              onClick={handleBatchRepost}
+              disabled={isBatchReposting}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-xl text-xs font-bold shadow-sm transition animate-pulse"
+              title="توليد وترحيل القيود المحاسبية لكافة الورديات المعلقة ذات المبيعات"
+            >
+              {isBatchReposting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+              <span>ترحيل الورديات المعلقة ({unpostedCount})</span>
+            </button>
+          )}
           <button
             onClick={fetchShifts}
             disabled={loading}
@@ -1191,8 +1251,26 @@ export default function CashierShiftsHistory() {
                             <FileText size={12} />
                             <span>مُرحّل ✔️</span>
                           </button>
+                        ) : (s.total_gross_sales === 0 && (s.actual_cash || 0) === 0 && (s.total_paid_ins || 0) === 0 && (s.total_paid_outs || 0) === 0) ? (
+                          <span
+                            className="inline-block px-2 py-0.5 rounded text-[10px] bg-slate-100 text-slate-500 font-bold"
+                            title="وردية فارغة بدون مبيعات أو حركات نقدية (لا تتطلب قيداً محاسبياً)"
+                          >
+                            بدون حركة
+                          </span>
+                        ) : s.status === 'CLOSED' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleRepostShift(s)}
+                            disabled={repostingShiftId === s.id}
+                            className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded-md border border-amber-200 transition shadow-xs"
+                            title={s.notes?.includes('تنبيه') ? s.notes : 'اضغط لإعادة توليد وترحيل القيد المحاسبي للوردية الآن'}
+                          >
+                            {repostingShiftId === s.id ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+                            <span>ترحيل القيد ⚡</span>
+                          </button>
                         ) : (
-                          <span className="text-slate-400 text-[10px]">بدون قيد</span>
+                          <span className="text-slate-400 text-[10px]">قيد العمل</span>
                         )}
                       </td>
 
@@ -1219,6 +1297,22 @@ export default function CashierShiftsHistory() {
                             <Receipt size={15} />
                             <span className="text-[10px] font-bold hidden sm:inline">الفواتير والحركات</span>
                           </button>
+
+                          {/* Show Notes / Warnings if any */}
+                          {Boolean(s.notes) && (
+                            <button
+                              type="button"
+                              onClick={() => showToast(`ملاحظات الوردية (${s.id.slice(0, 8)}): ${s.notes}`, (s.notes || '').includes('تنبيه') ? 'warning' : 'info')}
+                              className={`p-1.5 rounded-lg transition shadow-xs ${
+                                (s.notes || '').includes('تنبيه')
+                                  ? 'bg-amber-100 text-amber-800 hover:bg-amber-200'
+                                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                              }`}
+                              title={`ملاحظات الوردية: ${s.notes}`}
+                            >
+                              <AlertTriangle size={15} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
