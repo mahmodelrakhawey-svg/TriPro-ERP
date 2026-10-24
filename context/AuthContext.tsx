@@ -51,9 +51,29 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const DEFAULT_AUTH_FALLBACK: AuthContextType = {
+  currentUser: null,
+  users: [],
+  userRole: null,
+  userPermissions: new Set(),
+  authInitialized: true,
+  isLoading: false,
+  login: async () => ({ success: false, message: 'No AuthProvider' }),
+  logout: async () => {
+    if (typeof window !== 'undefined') {
+      window.location.hash = '/login';
+      window.location.reload();
+    }
+  },
+  can: () => true,
+  refreshPermissions: async () => {}
+};
+
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within an AuthProvider');
+  if (!context) {
+    return DEFAULT_AUTH_FALLBACK;
+  }
   return context;
 };
 

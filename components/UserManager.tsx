@@ -732,7 +732,9 @@ const UserManager = () => {
                       <option value="van_sales">🚚 مندوب مبيعات وتوزيع سيارة (Van Sales - الموبايل فقط)</option>
                       <option value="sales">💼 مسؤول ومندوب مبيعات (Sales Rep)</option>
                       <option value="storekeeper">📦 أمين مستودع (Storekeeper)</option>
-                      <option value="cashier">💵 كاشير مبيعات (Cashier)</option>
+                      <option value="cashier">💵 كاشير مبيعات عام (Cashier)</option>
+                      <option value="retail_cashier">🛒 كاشير هايبرماركت وتجزئة (Retail POS)</option>
+                      <option value="restaurant_cashier">🍽️ كاشير مطاعم وكافيهات (Restaurant POS)</option>
                     </optgroup>
                     <optgroup label="── 👥 الموارد البشرية وشؤون الموظفين (HR) ──">
                       <option value="hr_officer">👥 مسؤول الموارد البشرية والرواتب (HR Specialist)</option>
@@ -1004,7 +1006,9 @@ const UserManager = () => {
                                 <option value="van_sales">🚚 مندوب مبيعات وتوزيع سيارة (Van Sales - الموبايل فقط)</option>
                                 <option value="sales">💼 مسؤول ومندوب مبيعات (Sales Rep)</option>
                                 <option value="pos_supervisor">🪪 رئيس الكاشيرية / مشرف نقطة البيع (Head Cashier & Supervisor)</option>
-                                <option value="cashier">💵 كاشير نقطة البيع (POS Cashier)</option>
+                                <option value="cashier">💵 كاشير نقطة البيع عام (POS Cashier)</option>
+                                <option value="retail_cashier">🛒 كاشير هايبرماركت وتجزئة (Retail Cashier)</option>
+                                <option value="restaurant_cashier">🍽️ كاشير مطاعم وكافيهات (Restaurant Cashier)</option>
                                 <option value="storekeeper">📦 أمين مخزن ومستودعات (Storekeeper)</option>
                             </optgroup>
 
@@ -1033,7 +1037,7 @@ const UserManager = () => {
                             {/* الأدوار المخصصة المُنشأة من صفحة الأدوار والصلاحيات */}
                             {dynamicRoles.length > 0 && (() => {
                               // فلترة الأدوار المخصصة (غير الأساسية المعروضة سلفاً)
-                              const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo', 'pos_supervisor', 'cashier', 'storekeeper', 'sales', 'restaurant_waiter', 'chef', 'restaurant_chef', 'restaurant_cook', 'restaurant_driver'];
+                              const builtinNames = ['admin', 'manager', 'accountant', 'viewer', 'owner', 'super_admin', 'demo', 'pos_supervisor', 'retail_supervisor', 'cashier', 'retail_cashier', 'restaurant_cashier', 'storekeeper', 'sales', 'restaurant_waiter', 'chef', 'restaurant_chef', 'restaurant_cook', 'restaurant_driver'];
                               const customRoles = dynamicRoles.filter(r => !builtinNames.includes(r.name));
                               if (customRoles.length === 0) return null;
                               return (

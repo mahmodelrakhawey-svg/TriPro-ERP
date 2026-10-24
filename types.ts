@@ -236,6 +236,7 @@ export type UserRole =
   | 'chef'
   | 'owner'
   | 'cashier'
+  | 'retail_cashier'
   | 'pos_supervisor'
   | 'retail_supervisor'
   | 'restaurant_cashier'

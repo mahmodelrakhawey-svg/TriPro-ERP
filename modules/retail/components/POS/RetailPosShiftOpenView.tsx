@@ -1,5 +1,6 @@
+import { useAuth } from '../../../../context/AuthContext';
 import React from 'react';
-import { Coins, Loader2 } from 'lucide-react';
+import { Coins, Loader2, LogOut } from 'lucide-react';
 
 export interface RetailPosShiftOpenViewProps {
   terminals: Record<string, any>[];
@@ -24,6 +25,18 @@ export const RetailPosShiftOpenView: React.FC<RetailPosShiftOpenViewProps> = ({
   isOpeningShift,
   onOpenShift
 }) => {
+  const { logout } = useAuth();
+
+  const handleLogout = async () => {
+    if (window.confirm('هل تريد بالتأكيد تسجيل الخروج لتسجيل الدخول بمستخدم آخر؟')) {
+      try {
+        await logout();
+      } catch {
+        window.location.hash = '/login';
+        window.location.reload();
+      }
+    }
+  };
   return (
     <div className="flex-1 flex items-center justify-center p-6 bg-slate-900/50">
       <div className="bg-slate-950 border border-slate-800 w-full max-w-md rounded-2xl p-8 shadow-2xl space-y-6">
@@ -78,6 +91,16 @@ export const RetailPosShiftOpenView: React.FC<RetailPosShiftOpenViewProps> = ({
               {isOpeningShift && <Loader2 className="animate-spin" size={20} />}
               فتح الدرج وبدء البيع
             </button>
+
+            <div className="pt-2 border-t border-slate-800/80 text-center">
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full text-xs text-slate-400 hover:text-rose-400 font-bold py-2 transition-colors flex items-center justify-center gap-1.5"
+              >
+                <LogOut size={14} /> تسجيل الخروج والدخول بيوزر آخر
+              </button>
+            </div>
           </div>
         )}
       </div>

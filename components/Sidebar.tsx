@@ -507,7 +507,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     if (item.to === '/multi-currency-statement' && can('reports', 'multi_currency_statement')) return true;
 
     // 🍽️ إحكام عزل شاشات كاشير المطعم ونقاط البيع (Restaurant POS Cashier Lockdown)
-    if (userRole === 'restaurant_cashier' || userRole === 'cashier') {
+    if (userRole === 'restaurant_cashier' || userRole === 'retail_cashier' || userRole === 'cashier') {
       const allowedCashierPaths = ['/pos', '/retail-pos'];
       return Boolean(item.to && allowedCashierPaths.includes(item.to));
     }

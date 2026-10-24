@@ -315,12 +315,14 @@ export function evaluatePermission(
   }
 
   // 7. موديول المطاعم ونقاط البيع
-  if (module === 'restaurant') {
+  if (module === 'restaurant' || module === 'retail') {
     if (
       userPermissions.has('restaurant.pos') ||
       userPermissions.has('restaurant.kitchen') ||
       userPermissions.has('restaurant.manage') ||
-      userPermissions.has('sales.view')
+      userPermissions.has('sales.view') ||
+      userPermissions.has('retail.*') ||
+      userPermissions.has('retail.pos')
     ) {
       return true;
     }

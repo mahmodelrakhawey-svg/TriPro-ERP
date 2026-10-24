@@ -401,7 +401,7 @@ const COMPATIBILITY_REDIRECTS: [string, string][] = [
 ];
 
 const MainLayout = () => {
-    const { currentUser: accUser } = useAccounting();
+    const { currentUser: accUser, organization, settings } = useAccounting();
     const { can, currentUser: authUser } = useAuth();
     const currentUser = authUser || accUser;
     const location = useLocation();
@@ -557,8 +557,32 @@ const MainLayout = () => {
                       ? <Dashboard />
                       : (currentUser?.role as string) === 'chef' || (currentUser?.role as string) === 'restaurant_cook'
                       ? <Navigate to="/kds" replace />
-                      : (currentUser?.role as string) === 'restaurant_cashier' || (currentUser?.role as string) === 'cashier'
+                      : (currentUser?.role as string) === 'restaurant_cashier'
                       ? <Navigate to="/pos" replace />
+                      : (currentUser?.role as string) === 'retail_cashier'
+                      ? <Navigate to="/retail-pos" replace />
+                      : (currentUser?.role as string) === 'cashier'
+                      ? (
+                          (() => {
+                            try {
+                              const localPref = secureStorage.getItem('tripro_default_pos_mode');
+                              if (localPref === 'restaurant') return <Navigate to="/pos" replace />;
+                              if (localPref === 'retail') return <Navigate to="/retail-pos" replace />;
+                            } catch {}
+
+                            const defaultPosMode = (settings as any)?.defaultPosMode || (settings as any)?.accountMappings?.default_pos_mode;
+                            if (defaultPosMode === 'restaurant') return <Navigate to="/pos" replace />;
+                            if (defaultPosMode === 'retail') return <Navigate to="/retail-pos" replace />;
+
+                            const actType = (organization as any)?.activity_type || (settings as any)?.activity_type;
+                            const modules = (organization as any)?.allowed_modules || [];
+
+                            if (actType === 'restaurant' || (modules.includes('restaurant') && !modules.includes('retail'))) {
+                              return <Navigate to="/pos" replace />;
+                            }
+                            return <Navigate to="/retail-pos" replace />;
+                          })()
+                        )
                       : (currentUser?.role as string) === 'restaurant_waiter'
                       ? <Navigate to="/restaurant/waiter" replace />
                       : (currentUser?.role as string) === 'restaurant_driver'
@@ -847,6 +871,7 @@ const MainLayout = () => {
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/pos" element={<ModuleGuard module="restaurant"><PosScreen /></ModuleGuard>} /> 
+                <Route path="/retail/pos" element={<Navigate to="/retail-pos" replace />} />
                 <Route path="/retail-pos" element={<ModuleGuard module="retail"><RetailPosScreen /></ModuleGuard>} /> 
                 <Route path="/pos/shifts-history" element={<CashierShiftsHistory />} /> 
                 <Route path="/reports/shifts" element={<CashierShiftsHistory />} /> 
@@ -893,9 +918,39 @@ const MainLayout = () => {
 
 // 🛡️ مكون شاشة تسجيل الدخول المباشر
 const LoginRoute = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, logout } = useAuth();
   if (currentUser) {
-    return <Navigate to="/" replace />;
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-sans" dir="rtl">
+        <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl max-w-md w-full text-center space-y-5 shadow-2xl">
+          <div className="w-16 h-16 bg-blue-600/20 text-blue-400 rounded-2xl flex items-center justify-center mx-auto border border-blue-500/20">
+            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-white">أنت مسجل دخول بالفعل</h2>
+            <p className="text-sm text-slate-400 mt-1">
+              الحساب الحالي: <span className="font-bold text-blue-400">{(currentUser as any)?.full_name || (currentUser as any)?.name || currentUser?.username || 'المستخدم'}</span>
+            </p>
+          </div>
+          <div className="flex flex-col gap-2.5 pt-2">
+            <button
+              onClick={() => logout()}
+              className="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-rose-600/20 flex items-center justify-center gap-2 text-sm"
+            >
+              تسجيل الخروج والدخول بحساب آخر
+            </button>
+            <button
+              onClick={() => { window.location.hash = '#/'; }}
+              className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition-colors text-sm"
+            >
+              الاستمرار بالحساب الحالي
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
   return <Login />;
 };

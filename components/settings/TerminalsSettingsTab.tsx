@@ -1,5 +1,6 @@
+import { secureStorage } from '../../utils/securityMiddleware';
 import React from 'react';
-import { MonitorSmartphone, RefreshCw, Trash2 } from 'lucide-react';
+import { MonitorSmartphone, RefreshCw, Trash2, ShoppingCart, Utensils, Check } from 'lucide-react';
 
 interface TerminalsSettingsTabProps {
   handleAddTerminal: (e: React.FormEvent) => void;
@@ -32,8 +33,98 @@ export const TerminalsSettingsTab: React.FC<TerminalsSettingsTabProps> = ({
   terminalsList,
   handleDeleteTerminal,
 }) => {
+  const [currentPosMode, setCurrentPosMode] = React.useState<string>(() => {
+    try {
+      return secureStorage.getItem('tripro_default_pos_mode') || 'retail';
+    } catch {
+      return 'retail';
+    }
+  });
+
+  const handlePosModeChange = (mode: string) => {
+    setCurrentPosMode(mode);
+    try {
+      secureStorage.setItem('tripro_default_pos_mode', mode);
+    } catch {}
+  };
+
   return (
     <div className="space-y-8 animate-in fade-in" dir="rtl">
+
+      {/* ⚙️ اختيار نمط الكاشير الافتراضي للمنشأة */}
+      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
+        <div className="mb-4">
+          <h3 className="text-base font-black text-slate-800 flex items-center gap-2">
+            <ShoppingCart size={18} className="text-indigo-600" /> نمط شاشة الكاشير الافتراضي (Default POS Screen)
+          </h3>
+          <p className="text-xs text-slate-500 mt-1">
+            اختر شاشة نقطة البيع التي يدخل إليها الكاشير مباشرة عند الدخول للنظام أو تشغيل تطبيق الكاشير
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div 
+            onClick={() => handlePosModeChange('retail')}
+            className={`border-2 rounded-xl p-4 cursor-pointer transition-all flex items-start gap-3 ${
+              currentPosMode === 'retail' 
+                ? 'border-indigo-600 bg-indigo-50/60 shadow-xs ring-2 ring-indigo-500/10' 
+                : 'border-slate-200 hover:border-slate-300 bg-white'
+            }`}
+          >
+            <input 
+              type="radio" 
+              name="pos_mode" 
+              checked={currentPosMode === 'retail'} 
+              onChange={() => handlePosModeChange('retail')}
+              className="mt-1" 
+            />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-black text-sm text-slate-900">🛒 كاشير الهايبر ماركت والتجزئة (Retail POS)</span>
+                {currentPosMode === 'retail' && (
+                  <span className="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                    <Check size={10} /> الافتراضي
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                مخصص للهايبرماركت، السوبرماركت، والمحلات. مسح باركود سريع، ميزان إلكتروني، خصومات فورية، وطباعة إيصالات.
+              </p>
+            </div>
+          </div>
+
+          <div 
+            onClick={() => handlePosModeChange('restaurant')}
+            className={`border-2 rounded-xl p-4 cursor-pointer transition-all flex items-start gap-3 ${
+              currentPosMode === 'restaurant' 
+                ? 'border-amber-600 bg-amber-50/60 shadow-xs ring-2 ring-amber-500/10' 
+                : 'border-slate-200 hover:border-slate-300 bg-white'
+            }`}
+          >
+            <input 
+              type="radio" 
+              name="pos_mode" 
+              checked={currentPosMode === 'restaurant'} 
+              onChange={() => handlePosModeChange('restaurant')}
+              className="mt-1" 
+            />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-black text-sm text-slate-900">🍽️ كاشير المطاعم والكافيهات (Restaurant POS)</span>
+                {currentPosMode === 'restaurant' && (
+                  <span className="bg-amber-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                    <Check size={10} /> مفعل
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                مخصص للمطاعم والكافيهات والوجبات السريعة. إدارة الصالة والطاولات، طلبات التوصيل والسفري، وشاشات المطبخ.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Form to add terminal */}
       <form onSubmit={handleAddTerminal} className="bg-slate-50 border border-slate-200 rounded-xl p-6 space-y-4">
         <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">

@@ -155,7 +155,9 @@ async function createWindow() {
   
   // هل يعمل التطبيق في وضع الكاشير المستقل؟
   // يُفعل تلقائياً إذا كان اسم الملف التنفيذي يحتوي على pos (مثل TriPro-POS.exe)
-  // أو تم تمرير المعامل --pos أو --retail-pos
+  // أو تم تمرير المعامل --pos أو --retail-pos أو --restaurant-pos
+  const isRestaurantPos = args.some(arg => arg.toLowerCase().includes('restaurant'));
+  const isRetailPos = args.some(arg => arg.toLowerCase().includes('retail'));
   const isPos = args.some(arg => arg.toLowerCase().includes('pos')) || 
                 exeName.includes('pos');
 
@@ -190,7 +192,9 @@ async function createWindow() {
   });
 
   const port = await startLocalDistServer();
-  const initialUrl = isPos 
+  const initialUrl = isRestaurantPos 
+    ? `http://127.0.0.1:${port}/index.html#/pos`
+    : (isPos || isRetailPos)
     ? `http://127.0.0.1:${port}/index.html#/retail-pos` 
     : `http://127.0.0.1:${port}/index.html`;
 

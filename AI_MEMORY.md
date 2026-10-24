@@ -1,48 +1,6 @@
 # 🧠 ذاكرة المشروع (AI Project Context)
-📅 تاريخ التحديث: ٢٢‏/٩‏/٢٠٢٦، ٠٨:٥٠:٠٠ م
-ℹ️ تعليمات للذكاء الاصطناعي: تم تفعيل وضع TypeScript الصارم (Strict Mode) بالكامل بنسبة 100%، وتم القضاء على الأخطاء النوعية وتوحيد دوال الورديات start_pos_shift وتعقيم حقول الـ UUID في فواتير الشراء والإعدادات. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
-
-## 0. الدليل المرجعي المعماري والضمانات الذرية (Core Invariants & Architecture)
-> **تنبيه أساسي لأي نموذج ذكاء اصطناعي (AI Prompt & Context):**
-> اقرأ هذا القسم قبل محاولة تعديل أو اقتراح أي كود متعلق بالسياق المركزي، المعاملات المالية، أو الاختبارات.
-> المرجع التفصيلي الشامل متاح دائماً في `MASTER_DOCUMENTATION.md`.
-
-### أ. تفكيك السياق المركزي إلى 9 سياقات (`context/domains/`):
-1. `CustomerContext.tsx` (`useCustomerDomain`): العملاء، الأرصدة، حدود الائتمان، فئات التسعير (قطاعي/جملة/نصف جملة).
-2. `SupplierContext.tsx` (`useSupplierDomain`): الموردين، فواتير المشتريات، تحويل الـ PO، تقييم الموردين.
-3. `ProductContext.tsx` (`useProductDomain`): الأصناف، المستودعات، وحدات القياس (UOM)، تكلفة WAC، الهوالك والإنتاج.
-4. `AccountingSettingsContext.tsx` (`useAccountingSettingsDomain`): الضرائب (14%)، العملات، ربط مصلحة الضرائب (ETA)، الصلاحيات (`can`).
-5. `SalesContext.tsx` (`useSalesDomain`): فواتير المبيعات، عروض الأسعار، مسودات البيع، إلغاء الترحيل.
-6. `BankingContext.tsx` (`useBankingDomain`): الخزائن، البنوك، الشيكات (أوراق قبض/دفع)، سندات الصرف والقبض.
-7. `GeneralLedgerContext.tsx` (`useGeneralLedgerDomain`): شجرة الحسابات، قيود اليومية، مراكز التكلفة، الإقفال السنوي.
-8. `HrContext.tsx` (`useHrDomain`): الموظفين، البصمة، مسيرات الرواتب الشهرية، مكافأة نهاية الخدمة، السلف.
-9. `RestaurantContext.tsx` (`useRestaurantDomain`): الطاولات، أوامر المطبخ (KDS)، التقفيل الأعمى، ورديات الكاشير.
-- `domainUtils.ts`: دالة `fetchAllTableRecords` لتجاوز حد الـ 1,000 سجل في Supabase.
-
-### ب. الجرد الدقيق لما تبقى في `context/AccountingContext.tsx` (3,689 سطراً):
-- **الواجهة الموحدة (`AccountingFacadeBridge`):** تجمع السياقات التسعة مع `coreValue` وتصدرها عبر `useAccounting()` للحفاظ على التوافق الرجعي 100% مع أكثر من 100 شاشة.
-- **إدارة المستأجرين والشركات المتعددة:** `organization`, `organizations`, `currentSelectedOrgId`, `effectiveOrgId`, `deleteOrganization`.
-- **المستخدم الفعال والصلاحيات:** `currentUser` (الدور، الفرع، الخزائن المسموحة، نطاق الـ HR).
-- **التحديث المتبادل والذاكرة المؤقتة:** `isLoading`, `lastUpdated`, `clearCache`, `isDemo`, `handleRefreshData`, `handleRefreshSalesAndPurchases`, `handleRefreshBankingAndShift`.
-- **الأصول الثابتة والإهلاك:** `assets`, `addAsset`, `updateAsset`, `deleteAsset`, `runDepreciation`, `revaluateAsset` (قيد التطوير لفصلها في سياق مستقل مستقبلاً).
-- **صيانة النظام ومسؤولي SaaS:** `purgeDeletedRecords`, `refreshSaasSchema`, `createMissingSystemAccounts`, `recalculateAllBalances`, `exportData`, `users`.
-- **دوال التراجع التكرارية القديمة (Legacy Fallbacks):** السطور (400-3200) متجاوزة ومستبدلة بدوال النطاقات التسعة، ومرشحة للحذف في مرحلة التنظيف النهائي.
-
-### ج. المعادلات الذرية والعمليات غير القابلة للتجزئة (ACID & PL/pgSQL RPCs):
-1. **حارس التوازن المحاسبي:** `database_balance_guard` يمنع أي قيد غير متوازن (\sum Debit = \sum Credit) مع كود خطأ P0001.
-2. **المتوسط المرجح (WAC):** احتساب تكلفة الوحدة تلقائياً: $(\text{Old Cost} \times \text{Old Qty} + \text{New Cost} \times \text{New Qty}) / \text{Total Qty}$.
-3. **تحويل الوحدات (Multi-UOM):** تخزين المخزون بالوحدة الأساسية `is_base = true` وضربه في معامل التحويل عند البيع والشراء.
-4. **حفظ واعتماد المبيعات ذرياً:** `save_and_post_sales_invoice_atomic` (فاتورة + مخزون + قيد متوازن + رصيد عميل في معاملة واحدة).
-5. **حفظ واعتماد المشتريات ذرياً:** `save_and_post_purchase_invoice_atomic` (فاتورة + WAC + مخزون + قيد + رصيد مورد).
-6. **التقفيل الأعمى للورديات:** `close_cashier_shift_blind` (حساب العجز بحساب 515 أو الزيادة بحساب 415 بقيد آلي وإغلاق الوردية).
-7. **إلغاء الترحيل الآمن:** `unpost_sales_invoice` / `unpost_purchase_invoice` مع تتبع سجل التدقيق `audit_logs`.
-8. **مكافأة نهاية الخدمة المصرية:** نصف شهر عن أول 5 سنوات + شهر عما زاد، مع نسبة الاستقالة (0% / 33% / 67% / 100%).
-
-### د. منظومة الاختبارات الآلية (Automated Tests Inventory):
-- **اختبارات Vitest:** 73 ملف اختبار، 421 اختباراً ناجحاً بنسبة 100% (0 فشل).
-- **اختبارات Playwright E2E:** 7 أجنحة متكاملة (`sales-cycle.spec.ts`, `purchase-invoice.spec.ts`, `financial-reconciliation.spec.ts`, `assets-integrity.spec.ts`, `smoke-white-screen.spec.ts`, `new-company-flow.spec.ts`, `auth-screen.spec.ts`).
-
----
+📅 تاريخ التحديث: ٢٤‏/١٠‏/٢٠٢٦، ٨:٣٨:٤٧ م
+ℹ️ تعليمات للذكاء الاصطناعي: هذا الملف يحتوي على هيكل المشروع الحالي وأهم الأكواد. استخدمه كمرجع قبل اقتراح أي كود جديد لتجنب التكرار.
 
 ## 1. هيكل الملفات والمجلدات (File Structure)
 (هذه الملفات موجودة بالفعل، لا تقم بإنشائها مرة أخرى)
@@ -50,6 +8,20 @@
 ```text
 📁 modules/
   📁 accounting/
+    📁 components/
+      📁 GeneralJournal/
+        📄 JournalActionBar.tsx
+        📄 JournalAdvancedFilters.tsx
+        📄 JournalEntryCard.tsx
+        📄 journalExportUtils.ts
+        📄 JournalFiscalYearBar.tsx
+        📄 JournalOrphanAlert.tsx
+        📄 JournalPagination.tsx
+        📄 journalSourceClassifier.ts
+      📄 CurrencyRevaluationModal.test.tsx
+      📄 CurrencyRevaluationModal.tsx
+      📄 MidnightAuditShieldCard.test.tsx
+      📄 MidnightAuditShieldCard.tsx
     📄 AccountingDashboard.tsx
     📄 AccountList.tsx
     📄 AddAccountModal.tsx
@@ -74,6 +46,14 @@
     📄 TrialBalanceAdvanced.tsx
     📄 verify_closing.sql
   📁 admin/
+    📁 components/
+      📄 AddClientModal.tsx
+      📄 CloneCompanyModal.tsx
+      📄 EditClientModal.tsx
+      📄 SaaSAdminActionModals.tsx
+    📁 types/
+      📄 saasTypes.ts
+    📄 AuditTrailViewer.tsx
     📄 auto_setup_new_org.sql
     📄 DataMigrationCenter.tsx
     📄 PermissionsManager.test.tsx
@@ -87,10 +67,12 @@
       📄 AssetFieldScanner.tsx
       📄 AssetLabelStudio.tsx
       📄 AssetTransferManager.tsx
+    📄 AssetManager.test.tsx
     📄 AssetManager.tsx
   📁 banking/
     📄 ChequeMovementReport.tsx
     📄 ChequePrint.tsx
+    📄 ChequesPage.test.tsx
     📄 ChequesPage.tsx
     📄 LettersOfCreditPage.tsx
     📄 LettersOfGuaranteePage.tsx
@@ -102,6 +84,7 @@
       📄 ChangeOrderManager.tsx
       📄 ConstructionDashboard.tsx
       📄 CustodyManager.tsx
+      📄 DailyReportForm.tsx
       📄 EquipmentManager.tsx
       📄 MaterialIssueForm.tsx
       📄 MaterialWasteAnalytics.tsx
@@ -112,18 +95,22 @@
       📄 ProjectForm.tsx
       📄 ProjectGanttChart.tsx
       📄 ProjectHealthGauges.tsx
+      📄 ProjectInsights.tsx
       📄 ProjectManager.tsx
       📄 ProjectMilestonesManager.tsx
       📄 RetentionReleaseManager.tsx
       📄 RfiSubmittalManager.tsx
       📄 SiteAssetsCustody.tsx
       📄 SiteAttachmentManager.tsx
+      📄 SiteAttendanceManager.tsx
       📄 SiteDailyLogsManager.tsx
+      📄 SiteImageGallery.tsx
       📄 SiteRequisitionManager.tsx
       📄 SubcontractorBillingManager.tsx
       📄 SubcontractorContractsManager.tsx
       📄 SubcontractorForm.tsx
       📄 SubcontractorManager.tsx
+      📄 SubcontractorPaymentButton.tsx
       📄 SubcontractorStatement.tsx
       📄 WorkInspectionManager.tsx
     📁 reports/
@@ -133,6 +120,7 @@
       📄 SubcontractorAnalytics.tsx
   📁 finance/
     📁 components/
+      📄 BankReconciliationForm.test.tsx
       📄 BankReconciliationForm.tsx
       📄 CashClosingForm.tsx
       📄 CustomerDepositForm.tsx
@@ -153,6 +141,7 @@
   📁 hims/
     📁 components/
       📄 ClinicalNotesForm.tsx
+      📄 ClinicalPharmacy.tsx
       📄 DischargeManager.test.tsx
       📄 DischargeManager.tsx
       📄 HospitalBillingEngine.test.tsx
@@ -213,12 +202,24 @@
       📄 EmployeeStatement.tsx
       📄 PayrollReport.tsx
   📁 inventory/
+    📁 components/
+      📄 AutoCreatedProductsModal.tsx
+      📄 BulkOfferModal.tsx
+      📄 BulkPriceUpdateModal.tsx
+      📄 CategoryModal.tsx
+      📄 ExcelPriceUpdateModal.tsx
+      📄 ExpectedConsumptionModal.tsx
+      📄 ProductFormModal.tsx
+    📁 utils/
+      📄 productBarcodeUtils.ts
+      📄 productExcelUtils.ts
     📄 BinLocationManager.tsx
     📄 DetailedStockMovementReport.tsx
     📄 ExpiryClearanceRadar.tsx
     📄 GoodsReceiptManager.tsx
     📄 HypermarketReplenishment.tsx
     📄 InTransitTransfersManager.tsx
+    📄 InventoryCountDraft.test.ts
     📄 InventoryCountForm.tsx
     📄 InventoryCountList.tsx
     📄 InventoryDashboard.tsx
@@ -244,10 +245,12 @@
   📁 manufacturing/
     📁 components/
       📄 BatchOrderManager.tsx
+      📄 BOMImportModal.tsx
       📄 ByProductModal.tsx
       📄 CapacityPlanningDashboard.tsx
       📄 CostClosingDashboard.tsx
       📄 MachineOeeTracker.tsx
+      📄 MachineryMaintenanceManager.test.tsx
       📄 MachineryMaintenanceManager.tsx
       📄 ManufacturingDashboard.tsx
       📄 ManufacturingManager.tsx
@@ -271,10 +274,25 @@
       📄 UnitCostDrillDown.tsx
       📄 WIPMonthlySummaryReport.tsx
       📄 WorkCenterEfficiencyTable.tsx
+    📁 utils/
+      📄 bomExportUtils.test.ts
+      📄 bomExportUtils.ts
     📄 MFG_TEST_SCENARIO.md
   📁 mobile/
+    📁 components/
+      📄 MobileHeader.tsx
+      📄 MobileNavigation.tsx
+      📄 MobileReceiptModal.tsx
+      📄 QuickAddCustomerModal.tsx
+    📁 tabs/
+      📄 MobileDashboardTab.tsx
+      📄 MobileSalesTab.tsx
+      📄 MobileScannerTab.tsx
+      📄 MobileSyncTab.tsx
     📄 MobileApp.tsx
   📁 purchases/
+    📁 components/
+      📄 PurchaseInvoiceAttachments.tsx
     📄 AutoReorderPurchases.tsx
     📄 DebitNoteForm.tsx
     📄 DebitNoteList.tsx
@@ -284,6 +302,7 @@
     📄 PurchaseInvoiceForm.tsx
     📄 PurchaseInvoiceList.tsx
     📄 PurchaseInvoicePrint.tsx
+    📄 purchaseInvoiceUtils.ts
     📄 PurchaseOrderForm.tsx
     📄 PurchaseOrderList.tsx
     📄 PurchaseOrderPrint.tsx
@@ -352,8 +371,13 @@
         📄 PendingOrdersSidebar.tsx
         📄 PettyCashModal.tsx
         📄 PosScreen.tsx
+        📄 RestaurantPosCards.tsx
+        📄 RestaurantShiftModals.tsx
+        📄 RestaurantTableModals.tsx
       📄 GuestMenuLayout.tsx
     📁 reports/
+      📄 ReportBuilder.tsx
+      📄 RestaurantAnalytics.tsx
       📄 RestaurantProfitReport.tsx
       📄 RestaurantSalesReport.tsx
       📄 SalesByUserReport.tsx
@@ -369,10 +393,18 @@
         📄 CustomerFacingScreen.tsx
       📁 POS/
         📄 CashDropModal.tsx
+        📄 CashierShiftsHistory.tsx
         📄 HeldOrdersModal.tsx
         📄 PosReturnModal.tsx
+        📄 RetailPosCartTable.tsx
+        📄 RetailPosHeader.tsx
+        📄 RetailPosPaymentPanel.tsx
+        📄 RetailPosPrintReceipt.tsx
         📄 RetailPosScreen.test.tsx
         📄 RetailPosScreen.tsx
+        📄 RetailPosShiftCloseModal.tsx
+        📄 RetailPosShiftOpenView.tsx
+        📄 RetailPosShortcutsFooter.tsx
         📄 ScaleConnectModal.tsx
         📄 SplitPaymentModal.tsx
         📄 SupervisorBadgePrintModal.tsx
@@ -395,7 +427,12 @@
       📄 barcodeSvg.ts
   📁 sales/
     📁 components/
+      📄 InvoiceHeader.tsx
+      📄 InvoiceItemsTable.tsx
+      📄 InvoiceSummary.tsx
       📄 QuickCustomerModals.tsx
+      📄 SalesInvoiceActionBar.tsx
+      📄 SalesInvoiceExcelImporter.tsx
       📄 ThermalInvoicePrintTemplate.tsx
     📄 CreditNoteForm.tsx
     📄 CreditNoteList.tsx
@@ -429,6 +466,7 @@
       📄 BookingManager.tsx
       📄 CoachManager.tsx
       📄 DisbursementManager.tsx
+      📄 FacilityMaintenanceManager.test.tsx
       📄 FacilityMaintenanceManager.tsx
       📄 FacilityManager.tsx
       📄 GateScanner.tsx
@@ -452,6 +490,18 @@
     📄 stadium.types.ts
     📄 stadiumHelpers.ts
 📁 components/
+  📁 settings/
+    📄 AccountMappingTab.tsx
+    📄 ArchiveManager.tsx
+    📄 BackupRestoreManager.tsx
+    📄 DemoModeTab.tsx
+    📄 EtaIntegrationTab.tsx
+    📄 FinancialSettingsTab.tsx
+    📄 GeneralSettingsTab.tsx
+    📄 index.ts
+    📄 SystemMaintenanceTab.tsx
+    📄 TerminalsSettingsTab.tsx
+    📄 types.ts
   📄 _redirects
   📄 About.tsx
   📄 AdminTestDashboard.tsx
@@ -464,6 +514,8 @@
   📄 DevEnvironmentBanner.tsx
   📄 DocumentAuditTimeline.tsx
   📄 DraftJournalsList.tsx
+  📄 EmployeeSearchSelect.tsx
+  📄 ErrorBoundary.tsx
   📄 FINAL_FEATURES_SUMMARY.md
   📄 full-flow-test.ts
   📄 Header.tsx
@@ -476,6 +528,8 @@
   📄 LuxuryReportEngine.ts
   📄 Maintenance.tsx
   📄 manufacturing_module.sql
+  📄 MobileBottomNav.tsx
+  📄 NotFound.tsx
   📄 NotificationCenter.tsx
   📄 OfflineSyncProvider.tsx
   📄 PaymentLinkModal.tsx
@@ -483,6 +537,7 @@
   📄 ProductSearchSelect.tsx
   📄 ProductStockViewer.tsx
   📄 ProjectSCurveChart.tsx
+  📄 QuickBooksWorkflowHub.tsx
   📄 Quotations.tsx
   📄 ReportHeader.tsx
   📄 run-flow-test.ts
@@ -493,6 +548,9 @@
   📄 setup_notifications.sql
   📄 Sidebar.tsx
   📄 SmartRiskAlerts.tsx
+  📄 SupplierSearchSelect.tsx
+  📄 TableSkeleton.tsx
+  📄 TopMenuBar.tsx
   📄 UnitsOfMeasureManager.tsx
   📄 usePagination.ts
   📄 UserGuide.tsx
@@ -503,11 +561,15 @@
   📁 migrations/
     📁 archive/
       📄 admin_platform_stats.sql
+      📄 approve_purchase_return_rpc.sql
+      📄 approve_sales_return_rpc.sql
       📄 check_missing_rls.sql
       📄 check_user_status.sql
       📄 client_backup.sql
+      📄 complete_manufacturing_module.sql
       📄 comprehensive_fix_403.sql
       📄 comprehensive_fix.sql
+      📄 construction_module.sql
       📄 create_fix_schema_function.sql
       📄 debug_rls_permissions.sql
       📄 deploy_all_functionss.sql
@@ -538,6 +600,11 @@
       📄 fix_rls_permissions.sql
       📄 fix_schema_inconsistencies.sql
       📄 fix_user_creation.sql
+      📄 full_unified_system.sql
+      📄 hims_master_setup.sql
+      📄 hims_module.sql
+      📄 hims_updates.sql
+      📄 initialize_egyptian_coa.sql
       📄 invoice_items_queries.sql
       📄 link_returns_to_invoices.sql
       📄 manufacturing_alerts.sql
@@ -546,24 +613,34 @@
       📄 manufacturing_rls.sql
       📄 manufacturing_setup.sql
       📄 manufacturing_stabilization.sql
+      📄 master_setup.sql
+      📄 mfg_advanced_costing.sql
+      📄 mfg_cost_analytics.sql
       📄 mfg_rls_test.sql
       📄 populate_demo_activity.sql
       📄 quick_diagnostic.sql
       📄 reset_database_clean.sql
+      📄 restaurant_analytics_views.sql
       📄 restore_from_backup.sql
       📄 secure_tables.sql
+      📄 seed_icd10_codes.sql
       📄 setup_client_admin.sql
       📄 setup_complete_demo.sql
       📄 setup_demo_environment.sql
       📄 setup_demo_protection.sql
       📄 setup_new_client_db.sql
+      📄 setup_rls.sql
       📄 simple_debug.sql
+      📄 stadium_module.sql
+      📄 surgery_functions.sql
       📄 test_approve_invoice.sql
       📄 test_clear_demo_data.sql
       📄 test_payment_voucher.sql
       📄 test_receipt_voucher_logic.sql
       📄 test_receipt_voucher_v2.sql
       📄 ultimate_data_repair.sql
+      📄 unit_test_restaurant_lifecycle.sql
+      📄 updated_system_stabilization.sql
       📄 verify_and_fix_returns_schema.sql
       📄 verify_closing.sql
       📄 verify_demo_security.sql
@@ -750,6 +827,8 @@
     📄 2026-09-11_fix_mobile_sales_invoice_subtotal_and_treasury.sql
     📄 2026-09-12_enterprise_pessimistic_stock_locking.sql
     📄 2026-09-17_fix_offline_pos_sync_uuid_safety.sql
+    📄 2026-09-24_purchase_invoice_discounts_and_attachments.sql
+    📄 2026-09-28_advanced_enterprise_indexing_and_fast_analytics.sql
     📄 30-8-2026-shelf
     📄 add_account_mappings.sql
     📄 add_category_image.sql
@@ -794,78 +873,62 @@
     📄 voucher_attachments_setup.sql
   📄 accountingEngine.ts
   📄 accountService.ts
-  📄 approve_purchase_return_rpc.sql
-  📄 approve_sales_return_rpc.sql
   📄 ArchiveManager.tsx
   📄 assetEnterpriseService.ts
+  📄 auditDaemonService.ts
   📄 auditService.ts
   📄 autoReorderService.ts
-  📄 backup_script.sh
   📄 BackupRestoreManager.tsx
   📄 balanceService.ts
   📄 butcheringYieldService.ts
   📄 cashShiftService.ts
   📄 channelPricingService.ts
   📄 ClinicalPharmacy.tsx
-  📄 complete_manufacturing_module.sql
-  📄 construction_module.sql
   📄 cookPacingService.ts
   📄 create-client.ts
+  📄 currencyRevaluationService.ts
   📄 customerWinBackService.ts
   📄 DailyReportForm.tsx
   📄 deliveryAggregatorService.ts
   📄 driverDispatchService.ts
   📄 etaService.ts
-  📄 full_unified_system.sql
+  📄 financialYearService.ts
   📄 geminiService.ts
   📄 happyHourService.ts
-  📄 hims_master_setup.sql
-  📄 hims_module.sql
-  📄 hims_updates.sql
   📄 himsService.ts
   📄 hrEnterpriseService.ts
   📄 index.ts
-  📄 initialize_egyptian_coa.sql
   📄 invoiceItems.ts
   📄 itemAvailabilityGuard.ts
+  📄 journalAuditService.ts
   📄 kitchenStationService.ts
   📄 loyaltyService.ts
-  📄 master_setup.sql
-  📄 mfg_advanced_costing.sql
-  📄 mfg_cost_analytics.sql
   📄 NEXT_PHASE_ROADMAP.md
   📄 NotificationScheduler.ts
   📄 notificationService.ts
   📄 notificationTestUtils.ts
   📄 offlineService.ts
   📄 offsiteBackupService.ts
+  📄 organizationService.ts
   📄 paymentGatewayService.ts
   📄 ProjectInsights.tsx
   📄 recurringInvoiceService.ts
   📄 ReportBuilder.tsx
-  📄 restaurant_analytics_views.sql
   📄 RestaurantAnalytics.tsx
   📄 rfqService.ts
-  📄 seed_icd10_codes.sql
   📄 sequenceService.ts
-  📄 setup_rls.sql
   📄 SiteAttendanceManager.tsx
   📄 SiteImageGallery.tsx
-  📄 stadium_module.sql
   📄 stockMovementService.ts
   📄 stockTransferService.ts
   📄 stressTestEngine.ts
   📄 SubcontractorPaymentButton.tsx
   📄 subledgerRegistry.ts
   📄 supabaseClient.ts
-  📄 surgery_functions.sql
+  📄 tenantContext.ts
   📄 thermalPrinterService.ts
   📄 tipsPoolService.ts
-  📄 unit_test_restaurant_lifecycle.sql
-  📄 updated_system_stabilization.sql
-  📄 UserManagement.tsx
   📄 waiterPagingService.ts
-  📄 WhatsAppButton.tsx
   📄 whatsappService.ts
   📄 wmsLocationService.ts
 📁 context/
@@ -880,6 +943,7 @@
     📄 RestaurantContext.tsx
     📄 SalesContext.tsx
     📄 SupplierContext.tsx
+  📄 accountingConstants.ts
   📄 AccountingContext.tsx
   📄 AuthContext.tsx
   📄 DemoModeBanner.tsx
@@ -895,17 +959,28 @@
 {
   "name": "tripro-erp",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "main": "desktop/main.cjs",
   "scripts": {
     "dev": "vite",
     "build": "npm run security-audit && tsc && vite build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
+    "test:integration": "dotenv -e .env.integration -- vitest run --config vitest.integration.config.ts",
+    "test:integration:verbose": "dotenv -e .env.integration -- vitest run --config vitest.integration.config.ts --reporter=verbose",
+    "test:all": "npm run test && npm run test:integration",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "verify:release": "npm run test && npm run build && playwright test",
     "demo": "vite --mode demo",
     "preview": "vite preview",
     "desktop:start": "electron desktop/main.cjs",
+    "pos:start": "electron desktop/main.cjs --pos",
+    "desktop:portable": "node scripts/build-portable-desktop.mjs",
+    "desktop:dist": "npm run build && electron-builder --win",
+    "desktop:pack": "npm run build && electron-builder --win --dir",
     "update-memory": "node update_memory.js",
     "security-audit": "node scripts/security-audit.js",
     "security-check": "npm audit && npm run security-audit",
@@ -917,9 +992,9 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@google/genai": "^1.34.0",
     "@hookform/resolvers": "^5.4.0",
+    "@remix-run/router": "^1.13.0",
     "@supabase/supabase-js": "^2.39.0",
     "@tanstack/react-query": "^5.90.16",
-    "@types/nodemailer": "^7.0.11",
     "antd": "^6.4.3",
     "date-fns": "^4.2.1",
     "dayjs": "^1.11.21",
@@ -928,7 +1003,7 @@
     "html2canvas": "^1.4.1",
     "jspdf": "^4.0.0",
     "lucide-react": "^0.294.0",
-    "nodemailer": "^8.0.1",
+    "nodemailer": "^10.0.16",
     "qrcode.react": "^4.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -942,21 +1017,49 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@testing-library/react": "^16.0.0",
     "@types/react": "^18.2.37",
     "@types/react-dom": "^18.2.15",
+    "@types/nodemailer": "^8.0.2",
     "@types/uuid": "^10.0.0",
     "@vercel/node": "^5.6.11",
     "@vitejs/plugin-react": "^4.2.0",
     "@vitest/ui": "^2.0.4",
     "autoprefixer": "^10.4.16",
+    "dotenv-cli": "^11.0.0",
     "electron": "^44.4.1",
+    "electron-builder": "^26.15.3",
     "jsdom": "^24.1.1",
     "postcss": "^8.4.31",
     "tailwindcss": "^3.3.5",
     "typescript": "^5.2.2",
     "vite": "^5.0.0",
     "vitest": "^2.0.4"
+  },
+  "build": {
+    "appId": "com.tripro.erp",
+    "productName": "TriPro ERP",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "desktop/**/*"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "TriPro ERP"
+    }
   }
 }
 
@@ -974,18 +1077,26 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { Landmark, X, Info } from 'lucide-react';
 import { ToastProvider } from './context/ToastContext';
+import { Toaster as HotToaster } from 'react-hot-toast';
+import { notifyUserError } from './utils/errorHandler';
+import { logger } from './utils/logger';
 import NotificationScheduler from './services/NotificationScheduler';
 import Sidebar from './components/Sidebar';
 import Header from './components/Header';
+import TopMenuBar from './components/TopMenuBar';
 import WorkspaceTabsBar from './components/WorkspaceTabsBar';
+import MobileBottomNav from './components/MobileBottomNav';
+import { secureStorage } from './utils/securityMiddleware';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
+import NotFound from './components/NotFound';
 
 // 📱 تطبيق الموبايل الميداني التقدمي (Mobile PWA Companion)
 const MobileApp = lazy(() => import('./modules/mobile/MobileApp'));
 
 // 📊 لوحات التحكم والأدوات الإدارية (Lazy Loaded)
 const AdminTestDashboard = lazy(() => import('./components/AdminTestDashboard'));
+const AuditTrailViewer = lazy(() => import('./modules/admin/AuditTrailViewer'));
 const Quotations = lazy(() => import('./components/Quotations'));
 const DraftJournalsList = lazy(() => import('./components/DraftJournalsList'));
 
@@ -1178,6 +1289,7 @@ const SupplierBalancesReport = lazy(() => import('./modules/purchases/SupplierBa
 // 🛒 مديول التجزئة ونقاط البيع (Retail & POS - Lazy Loaded)
 const PosScreen = lazy(() => import('./modules/restaurant/components/POS/PosScreen'));
 const RetailPosScreen = lazy(() => import('./modules/retail/components/POS/RetailPosScreen'));
+const CashierShiftsHistory = lazy(() => import('./modules/retail/components/POS/CashierShiftsHistory'));
 const PriceCheckerKiosk = lazy(() => import('./modules/retail/components/PriceCheckerKiosk'));
 const CustomerFacingScreen = lazy(() => import('./modules/retail/components/CustomerDisplay/CustomerFacingScreen'));
 const PromotionsManager = lazy(() => import('./modules/retail/components/Promotions/PromotionsManager'));
@@ -1209,7 +1321,7 @@ const RestaurantSalesReport = lazy(() => import('./modules/restaurant/reports/Re
 const SalesByUserReport = lazy(() => import('./modules/restaurant/reports/SalesByUserReport'));
 const WastageAnalysisReport = lazy(() => import('./modules/restaurant/reports/WastageAnalysisReport'));
 const RestaurantProfitReport = lazy(() => import('./modules/restaurant/reports/RestaurantProfitReport'));
-const RestaurantAnalytics = lazy(() => import('./services/RestaurantAnalytics'));
+const RestaurantAnalytics = lazy(() => import('./modules/restaurant/reports/RestaurantAnalytics'));
 import { OfflineSyncProvider } from './components/OfflineSyncProvider';
 const CustomerDisplay = lazy(() => import('./modules/restaurant/components/POS/CustomerDisplay'));
 const MobileWaiterScreen = lazy(() => import('./modules/restaurant/components/POS/MobileWaiterScreen'));
@@ -1266,8 +1378,21 @@ const ProgramProfitReport = lazy(() => import('./modules/stadium/reports/Program
 
 
 
-// إنشاء عميل React Query
-const queryClient = new QueryClient(); // Keep this line
+// إنشاء عميل React Query بإعدادات متقدمة للحفظ المؤقت وإعادة المحاولة
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 5 * 60 * 1000,        // 5 دقائق: الحفاظ على البيانات لتجنب جلبها مع كل انتقال
+      gcTime: 10 * 60 * 1000,          // 10 دقائق في الكاش
+      retry: 2,                         // إعادة المحاولة مرتين عند الفشل الشبكي
+      refetchOnWindowFocus: false,      // منع إعادة الجلب غير الضروري عند التبديل بين النوافذ
+      refetchOnReconnect: true,         // إعادة الجلب التلقائي عند استعادة الاتصال
+    },
+    mutations: {
+      retry: 0,                         // منع تكرار العمليات المالية التلقائية
+    },
+  },
+});
 
 import {
   PrintHeader,
@@ -1277,9 +1402,9 @@ import {
   DemoWatermark,
   SuspendedScreen,
   ModuleGuard,
-  LazyLoadingFallback
+  LazyLoadingFallback,
+  ErrorBoundary
 } from './components/AppGuardsAndLayout';
-import { DevEnvironmentBanner } from './components/DevEnvironmentBanner';
 
 
 /** 🏗️ مكون وسيط لإدارة تدفق شاشات المقاولين عند الدخول من القائمة الجانبية **/
@@ -1345,8 +1470,54 @@ const COMPATIBILITY_REDIRECTS: [string, string][] = [
 ];
 
 const MainLayout = () => {
-    const { currentUser } = useAccounting();
+    const { currentUser: accUser, organization, settings } = useAccounting();
+    const { can, currentUser: authUser } = useAuth();
+    const currentUser = authUser || accUser;
     const location = useLocation();
+    const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+    const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(() => {
+        try {
+            const userPref = authUser?.dashboard_view_mode || accUser?.dashboard_view_mode || 'both';
+            const isWorkflowDashboard = (location.pathname === '/' || location.pathname === '/dashboard') &&
+                (userPref === 'workflow_only' || (userPref !== 'analytics_only' && secureStorage.getItem('tripro_dashboard_view_mode') !== 'analytics'));
+            if (isWorkflowDashboard) return true;
+            return secureStorage.getItem('tripro_desktop_sidebar_collapsed') === 'true';
+        } catch {
+            return false;
+        }
+    });
+
+    const toggleDesktopSidebar = () => {
+        setIsDesktopCollapsed(prev => {
+            const next = !prev;
+            try { secureStorage.setItem('tripro_desktop_sidebar_collapsed', String(next)); } catch {}
+            return next;
+        });
+    };
+
+    // ⚡ عند فتح لوحة القيادة بمود خريطة العمليات فقط، يتم طي القائمة الجانبية تلقائياً لتكون الشاشة كاملة
+    useEffect(() => {
+        const pref = authUser?.dashboard_view_mode || accUser?.dashboard_view_mode || 'both';
+        const isDashboardRoute = location.pathname === '/' || location.pathname === '/dashboard';
+        if (isDashboardRoute && pref === 'workflow_only') {
+            setIsDesktopCollapsed(true);
+            try { secureStorage.setItem('tripro_desktop_sidebar_collapsed', 'true'); } catch {}
+        }
+    }, [authUser?.dashboard_view_mode, accUser?.dashboard_view_mode, location.pathname]);
+
+    // ⚡ استقبال أوامر إخفاء/إظهار القائمة الجانبية تلقائياً (مثل التبديل بين خريطة تري برو ولوحة التحليلات)
+    useEffect(() => {
+        const handleCollapseEvent = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            const collapse = Boolean(customEvent?.detail);
+            setIsDesktopCollapsed(collapse);
+            try { secureStorage.setItem('tripro_desktop_sidebar_collapsed', String(collapse)); } catch {}
+        };
+        window.addEventListener('set-desktop-sidebar-collapsed', handleCollapseEvent);
+        return () => {
+            window.removeEventListener('set-desktop-sidebar-collapsed', handleCollapseEvent);
+        };
+    }, []);
 
     useEffect(() => {
         // بدء جدول الإخطارات الذكية
@@ -1370,6 +1541,9 @@ const MainLayout = () => {
 
     // إذا كان المستخدم في وضع الموبايل الميداني (Mobile Companion)، يتم عرضه بملء الشاشة مخصصاً للهواتف
     if (location.pathname === '/mobile') {
+        if (!isVanSales && !can('mobile', 'view')) {
+            return <Navigate to="/" replace />;
+        }
         return (
             <Suspense fallback={<LazyLoadingFallback />}>
                 <MobileApp />
@@ -1377,11 +1551,39 @@ const MainLayout = () => {
         );
     }
 
+    // 🛒 وضع الكاشير المستقل بملء الشاشة (Dedicated Fullscreen POS Kiosk Mode)
+    // عزل واجهة الكاشير تماماً عن القوائم الإدارية والسايدبار لتكون شاشة كاشير احترافية خالصة
+    if (location.pathname === '/retail-pos') {
+        return (
+            <Suspense fallback={<LazyLoadingFallback />}>
+                <div className="min-h-screen bg-slate-950 text-slate-100 font-sans" dir="rtl">
+                    <OfflineSyncProvider />
+                    <RetailPosScreen />
+                </div>
+            </Suspense>
+        );
+    }
+
+    if (location.pathname === '/pos') {
+        return (
+            <Suspense fallback={<LazyLoadingFallback />}>
+                <div className="min-h-screen bg-slate-100 font-sans" dir="rtl">
+                    <OfflineSyncProvider />
+                    <PosScreen />
+                </div>
+            </Suspense>
+        );
+    }
+
     return (
         <div className="flex min-h-screen bg-slate-50 font-sans text-right print:block print:h-auto" dir="rtl">
-            <Sidebar />
-            <div className="flex-1 flex flex-col h-screen print:h-auto print:block print:overflow-visible">
-                <DevEnvironmentBanner />
+            <Sidebar 
+                isMobileOpen={isMobileSidebarOpen}
+                onCloseMobile={() => setIsMobileSidebarOpen(false)}
+                isDesktopCollapsed={isDesktopCollapsed}
+                onToggleDesktopCollapse={toggleDesktopSidebar}
+            />
+            <div className="flex-1 flex flex-col min-w-0 h-screen print:h-auto print:block print:overflow-visible">
                 <DemoBanner />
                 <DemoWelcomeModal />
                 <DemoTour />
@@ -1389,30 +1591,76 @@ const MainLayout = () => {
                 <OfflineSyncProvider />
                 <PrintHeader />
                 <div className="print:hidden">
-                    <Header />
-                    <WorkspaceTabsBar />
+                    <div className="hidden md:block">
+                        <TopMenuBar />
+                    </div>
+                    <Header 
+                        onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)} 
+                        isDesktopCollapsed={isDesktopCollapsed}
+                        onToggleDesktopSidebar={toggleDesktopSidebar}
+                    />
+                    <div className="hidden sm:block">
+                        <WorkspaceTabsBar />
+                    </div>
                 </div>
-                {/* إضافة هوامش للطباعة لتجنب تداخل المحتوى مع الترويسة والتذييل */}
-                <main className="flex-1 p-8 overflow-y-scroll bg-slate-50 print:bg-white print:p-0 print:overflow-visible print:h-auto print:mt-24 print:mb-12">
+                {/* إضافة هوامش للطباعة وللشريط السفلي في الموبايل لتجنب تغطية المحتوى */}
+                <main className="flex-1 p-3 sm:p-5 lg:p-8 pb-24 sm:pb-6 lg:pb-8 overflow-y-scroll bg-slate-50 print:bg-white print:p-0 print:overflow-visible print:h-auto print:mt-24 print:mb-12">
                     <div className="max-w-7xl mx-auto print:max-w-none print:w-full print:px-4">
+                        <ErrorBoundary fallbackTitle="حدث خطأ غير متوقع أثناء تحميل الصفحة">
                         <Suspense fallback={<LazyLoadingFallback />}>
                         <Routes>
                 {/* المسارات الأساسية */}
-                <Route path="/mobile" element={<MobileApp />} />
+                <Route path="/mobile" element={(!isVanSales && !can('mobile', 'view')) ? <Navigate to="/" replace /> : <MobileApp />} />
+                <Route 
+                  path="/dashboard" 
+                  element={
+                    ((authUser?.dashboard_view_mode === 'workflow_only' || accUser?.dashboard_view_mode === 'workflow_only' || authUser?.dashboard_view_mode === 'analytics_only' || accUser?.dashboard_view_mode === 'analytics_only') || can('dashboard', 'view')) 
+                      ? <Dashboard /> 
+                      : <Navigate to="/" replace />
+                  } 
+                />
                 <Route
                   path="/"
                   element={
-                    (currentUser?.role as string) === 'chef' || (currentUser?.role as string) === 'restaurant_cook'
+                    (authUser?.dashboard_view_mode === 'workflow_only' || accUser?.dashboard_view_mode === 'workflow_only' || authUser?.dashboard_view_mode === 'analytics_only' || accUser?.dashboard_view_mode === 'analytics_only')
+                      ? <Dashboard />
+                      : (currentUser?.role as string) === 'chef' || (currentUser?.role as string) === 'restaurant_cook'
                       ? <Navigate to="/kds" replace />
-                      : (currentUser?.role as string) === 'restaurant_cashier' || (currentUser?.role as string) === 'cashier'
+                      : (currentUser?.role as string) === 'restaurant_cashier'
                       ? <Navigate to="/pos" replace />
+                      : (currentUser?.role as string) === 'retail_cashier'
+                      ? <Navigate to="/retail-pos" replace />
+                      : (currentUser?.role as string) === 'cashier'
+                      ? (
+                          (() => {
+                            try {
+                              const localPref = secureStorage.getItem('tripro_default_pos_mode');
+                              if (localPref === 'restaurant') return <Navigate to="/pos" replace />;
+                              if (localPref === 'retail') return <Navigate to="/retail-pos" replace />;
+                            } catch {}
+
+                            const defaultPosMode = (settings as any)?.defaultPosMode || (settings as any)?.accountMappings?.default_pos_mode;
+                            if (defaultPosMode === 'restaurant') return <Navigate to="/pos" replace />;
+                            if (defaultPosMode === 'retail') return <Navigate to="/retail-pos" replace />;
+
+                            const actType = (organization as any)?.activity_type || (settings as any)?.activity_type;
+                            const modules = (organization as any)?.allowed_modules || [];
+
+                            if (actType === 'restaurant' || (modules.includes('restaurant') && !modules.includes('retail'))) {
+                              return <Navigate to="/pos" replace />;
+                            }
+                            return <Navigate to="/retail-pos" replace />;
+                          })()
+                        )
                       : (currentUser?.role as string) === 'restaurant_waiter'
                       ? <Navigate to="/restaurant/waiter" replace />
                       : (currentUser?.role as string) === 'restaurant_driver'
                       ? <Navigate to="/restaurant/driver-dispatch" replace />
                       : (currentUser?.role as string) === 'van_sales'
                       ? <Navigate to="/mobile" replace />
-                      : <Dashboard />
+                      : can('dashboard', 'view')
+                      ? <Dashboard />
+                      : <Navigate to={can('sales', 'view') ? "/invoices-list" : can('inventory', 'view') ? "/products" : can('accounting', 'view') ? "/general-journal" : "/profile"} replace />
                   }
                 />
 
@@ -1501,6 +1749,8 @@ const MainLayout = () => {
                       <Route path="closing" element={<CostClosingDashboard />} />
                       <Route path="raw-materials-turnover" element={<RawMaterialsTurnover />} />
                       <Route path="wip-monthly-summary" element={<WIPMonthlySummaryReport />} />
+                      <Route path="boms" element={<Navigate to="/mfg/routing-bom" replace />} />
+                      <Route path="work-orders" element={<Navigate to="/mfg/orders" replace />} />
                     </Routes>
                   </ModuleGuard>
                 } />
@@ -1514,22 +1764,22 @@ const MainLayout = () => {
                 <Route path="/fiscal-year-closing" element={<ModuleGuard module="accounting"><FiscalYearClosing /></ModuleGuard>} />
                 <Route path="/fiscal-periods" element={<ModuleGuard module="accounting"><FiscalPeriodManager /></ModuleGuard>} />
                 {/* 💰 مديول الخزينة والبنوك */}
-                <Route path="/receipt-voucher" element={<ModuleGuard module="accounting"><ReceiptVoucherForm /></ModuleGuard>} />
-                <Route path="/receipt-vouchers-list" element={<ModuleGuard module="accounting"><ReceiptVoucherList /></ModuleGuard>} />
-                <Route path="/payment-voucher" element={<ModuleGuard module="accounting"><PaymentVoucherForm /></ModuleGuard>} />
-                <Route path="/payment-vouchers-list" element={<ModuleGuard module="accounting"><PaymentVoucherList /></ModuleGuard>} />
-                <Route path="/expense-voucher" element={<ModuleGuard module="accounting"><ExpenseVoucherForm /></ModuleGuard>} />
-                <Route path="/transfer" element={<ModuleGuard module="accounting"><TransferForm /></ModuleGuard>} />
-                <Route path="/customer-deposit" element={<ModuleGuard module="accounting"><CustomerDepositForm /></ModuleGuard>} />
-                <Route path="/cheques" element={<ModuleGuard module="accounting"><ChequesPage /></ModuleGuard>} />
-                <Route path="/letters-of-guarantee" element={<ModuleGuard module="accounting"><LettersOfGuaranteePage /></ModuleGuard>} />
-                <Route path="/letters-of-credit" element={<ModuleGuard module="accounting"><LettersOfCreditPage /></ModuleGuard>} />
-                <Route path="/cheque-movement-report" element={<ModuleGuard module="accounting"><ChequeMovementReport /></ModuleGuard>} />
-                <Route path="/returned-cheques-report" element={<ModuleGuard module="accounting"><ReturnedChequesReport /></ModuleGuard>} />
-                <Route path="/bank-reconciliation" element={<ModuleGuard module="accounting"><BankReconciliationForm /></ModuleGuard>} />
-                <Route path="/cash-closing" element={<ModuleGuard module="accounting"><CashClosingForm /></ModuleGuard>} />
-                <Route path="/payment-gateways" element={<ModuleGuard module="accounting"><PaymentGatewaySettings /></ModuleGuard>} />
-                <Route path="/deficit-report" element={<ModuleGuard module="accounting"><DeficitReport /></ModuleGuard>} />
+                <Route path="/receipt-voucher" element={<ModuleGuard module="treasury"><ReceiptVoucherForm /></ModuleGuard>} />
+                <Route path="/receipt-vouchers-list" element={<ModuleGuard module="treasury"><ReceiptVoucherList /></ModuleGuard>} />
+                <Route path="/payment-voucher" element={<ModuleGuard module="treasury"><PaymentVoucherForm /></ModuleGuard>} />
+                <Route path="/payment-vouchers-list" element={<ModuleGuard module="treasury"><PaymentVoucherList /></ModuleGuard>} />
+                <Route path="/expense-voucher" element={<ModuleGuard module="treasury"><ExpenseVoucherForm /></ModuleGuard>} />
+                <Route path="/transfer" element={<ModuleGuard module="treasury"><TransferForm /></ModuleGuard>} />
+                <Route path="/customer-deposit" element={<ModuleGuard module="treasury"><CustomerDepositForm /></ModuleGuard>} />
+                <Route path="/cheques" element={<ModuleGuard module="treasury"><ChequesPage /></ModuleGuard>} />
+                <Route path="/letters-of-guarantee" element={<ModuleGuard module="treasury"><LettersOfGuaranteePage /></ModuleGuard>} />
+                <Route path="/letters-of-credit" element={<ModuleGuard module="treasury"><LettersOfCreditPage /></ModuleGuard>} />
+                <Route path="/cheque-movement-report" element={<ModuleGuard module="treasury"><ChequeMovementReport /></ModuleGuard>} />
+                <Route path="/returned-cheques-report" element={<ModuleGuard module="treasury"><ReturnedChequesReport /></ModuleGuard>} />
+                <Route path="/bank-reconciliation" element={<ModuleGuard module="treasury"><BankReconciliationForm /></ModuleGuard>} />
+                <Route path="/cash-closing" element={<ModuleGuard module="treasury"><CashClosingForm /></ModuleGuard>} />
+                <Route path="/payment-gateways" element={<ModuleGuard module="treasury"><PaymentGatewaySettings /></ModuleGuard>} />
+                <Route path="/deficit-report" element={<ModuleGuard module="treasury"><DeficitReport /></ModuleGuard>} />
                 
                 {/* 🛒 مديول المبيعات والعملاء */}
                 <Route path="/sales-invoice" element={<ModuleGuard module="sales"><SalesInvoiceForm /></ModuleGuard>} />
@@ -1637,10 +1887,10 @@ const MainLayout = () => {
                 <Route path="/cash-flow" element={<ModuleGuard module="accounting"><CashFlowStatement /></ModuleGuard>} />
                 <Route path="/annual-report" element={<ModuleGuard module="accounting"><AnnualFinancialReport /></ModuleGuard>} />
                 <Route path="/cfo-dashboard" element={<ModuleGuard module="accounting"><CFODashboard /></ModuleGuard>} />
-                <Route path="/cash-flow-report" element={<ModuleGuard module="accounting"><CashFlowReport /></ModuleGuard>} />
+                <Route path="/cash-flow-report" element={<ModuleGuard module="accounting" requiredPermission="reports.cash_bank_movement"><CashFlowReport /></ModuleGuard>} />
                 <Route path="/tax-return" element={<ModuleGuard module="accounting"><TaxReturnReport /></ModuleGuard>} />
                 <Route path="/performance-comparison" element={<ModuleGuard module="accounting"><PerformanceComparisonReport /></ModuleGuard>} /> 
-                <Route path="/multi-currency-statement" element={<ModuleGuard module="accounting"><MultiCurrencyStatement /></ModuleGuard>} /> 
+                <Route path="/multi-currency-statement" element={<ModuleGuard module="accounting" requiredPermission="reports.multi_currency_statement"><MultiCurrencyStatement /></ModuleGuard>} /> 
                 <Route path="/payment-method-report" element={<ModuleGuard module="accounting"><PaymentMethodReport /></ModuleGuard>} />
                 <Route path="/attachments-report" element={<ModuleGuard module="accounting"><AttachmentsReport /></ModuleGuard>} />
                 <Route path="/user-guide" element={<UserGuide />} />
@@ -1661,11 +1911,39 @@ const MainLayout = () => {
                 <Route path="/data-migration" element={<DataMigrationCenter />} />
                 <Route path="/stress-test" element={<SystemStressTest />} />
                 <Route path="/admin/test-dashboard" element={<ModuleGuard module="admin"><AdminTestDashboard /></ModuleGuard>} />
+                <Route path="/admin/audit-logs" element={<ModuleGuard module="admin"><AuditTrailViewer /></ModuleGuard>} />
                 <Route path="/saas-admin" element={currentUser?.role === 'super_admin' ? <SaasAdmin /> : <Navigate to="/" replace />} />
+                
+                {/* 🧭 توجيهات توافقية سريعة ومسارات بديلة (Compatibility Route Redirects) */}
+                <Route path="/sales-orders-list" element={<Navigate to="/sales-orders" replace />} />
+                <Route path="/purchase-orders-list" element={<Navigate to="/purchase-order-list" replace />} />
+                <Route path="/goods-receipt" element={<Navigate to="/inventory/goods-receipt" replace />} />
+                <Route path="/stock-transfers-list" element={<Navigate to="/stock-transfer-list" replace />} />
+                <Route path="/uom" element={<Navigate to="/units-of-measure" replace />} />
+                <Route path="/hr/employees" element={<Navigate to="/employees" replace />} />
+                <Route path="/hr/advances" element={<Navigate to="/employee-advances" replace />} />
+                <Route path="/hr/disbursement" element={<Navigate to="/payroll-run" replace />} />
+                <Route path="/hr/employee-statement" element={<Navigate to="/employee-statement" replace />} />
+                <Route path="/treasury" element={<Navigate to="/cash-closing" replace />} />
+                <Route path="/banking" element={<Navigate to="/bank-reconciliation" replace />} />
+                <Route path="/internal-transfer" element={<Navigate to="/transfer" replace />} />
+                <Route path="/fiscal-closing" element={<Navigate to="/fiscal-year-closing" replace />} />
+                <Route path="/general-ledger" element={<Navigate to="/ledger" replace />} />
+                <Route path="/sales-analysis" element={<Navigate to="/item-sales-analysis" replace />} />
+                <Route path="/aging-report" element={<Navigate to="/customer-aging" replace />} />
+                <Route path="/stock-movement-report" element={<Navigate to="/detailed-stock-movement" replace />} />
+                <Route path="/cost-centers" element={<Navigate to="/accounts" replace />} />
+                <Route path="/currency-revaluation" element={<Navigate to="/multi-currency-statement" replace />} />
+                <Route path="/budgeting" element={<Navigate to="/budget-setup" replace />} />
+                <Route path="/health-check" element={<Navigate to="/stress-test" replace />} />
+                <Route path="/about" element={<Navigate to="/user-guide" replace />} />
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/pos" element={<ModuleGuard module="restaurant"><PosScreen /></ModuleGuard>} /> 
+                <Route path="/retail/pos" element={<Navigate to="/retail-pos" replace />} />
                 <Route path="/retail-pos" element={<ModuleGuard module="retail"><RetailPosScreen /></ModuleGuard>} /> 
+                <Route path="/pos/shifts-history" element={<CashierShiftsHistory />} /> 
+                <Route path="/reports/shifts" element={<CashierShiftsHistory />} /> 
                 <Route path="/retail/price-checker" element={<ModuleGuard module="retail"><PriceCheckerKiosk /></ModuleGuard>} /> 
                 <Route path="/retail/customer-display" element={<CustomerFacingScreen />} />
                 <Route path="/retail/promotions" element={<ModuleGuard module="retail"><PromotionsManager /></ModuleGuard>} />
@@ -1694,12 +1972,14 @@ const MainLayout = () => {
                   <Route key={from} path={from} element={<Navigate to={to} replace />} />
                 ))}
                 
-                <Route path="*" element={<Navigate to="/" replace />} />
+                <Route path="*" element={<NotFound />} />
               </Routes>
             </Suspense>
+            </ErrorBoundary>
           </div>
         </main>
-                <PrintFooter />
+        <MobileBottomNav onToggleMobileSidebar={() => setIsMobileSidebarOpen(prev => !prev)} />
+        <PrintFooter />
             </div>
         </div>
     );
@@ -1707,9 +1987,39 @@ const MainLayout = () => {
 
 // 🛡️ مكون شاشة تسجيل الدخول المباشر
 const LoginRoute = () => {
-  const { currentUser } = useAuth();
+  const { currentUser, logout } = useAuth();
   if (currentUser) {
-    return <Navigate to="/" replace />;
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 font-sans" dir="rtl">
+        <div className="bg-slate-900 border border-slate-800 p-8 rounded-3xl max-w-md w-full text-center space-y-5 shadow-2xl">
+          <div className="w-16 h-16 bg-blue-600/20 text-blue-400 rounded-2xl flex items-center justify-center mx-auto border border-blue-500/20">
+            <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+            </svg>
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-white">أنت مسجل دخول بالفعل</h2>
+            <p className="text-sm text-slate-400 mt-1">
+              الحساب الحالي: <span className="font-bold text-blue-400">{(currentUser as any)?.full_name || (currentUser as any)?.name || currentUser?.username || 'المستخدم'}</span>
+            </p>
+          </div>
+          <div className="flex flex-col gap-2.5 pt-2">
+            <button
+              onClick={() => logout()}
+              className="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-rose-600/20 flex items-center justify-center gap-2 text-sm"
+            >
+              تسجيل الخروج والدخول بحساب آخر
+            </button>
+            <button
+              onClick={() => { window.location.hash = '#/'; }}
+              className="w-full py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold rounded-xl transition-colors text-sm"
+            >
+              الاستمرار بالحساب الحالي
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
   return <Login />;
 };
@@ -1728,6 +2038,37 @@ const AppContent = () => {
   const [session, setSession] = useState<any>(null);
   const { isLoading: authLoading, currentUser, authInitialized } = useAuth();
 
+  // 🛡️ صمام أمان عام: التقاط أي أخطاء غير معالجة أو وعود متوقفة في الواجهة وعرضها كإشعار فوري للمستخدم
+  useEffect(() => {
+    const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
+      const reason = event?.reason;
+      const message = String(reason?.message || reason || '');
+      if (
+        message.includes('ResizeObserver') ||
+        message.includes('AbortError') ||
+        message.includes('canceled')
+      ) {
+        return;
+      }
+      logger.error('Unhandled Promise Rejection:', reason);
+      notifyUserError(reason, 'حدث خطأ غير متوقع أثناء معالجة العملية');
+    };
+
+    const handleWindowError = (event: ErrorEvent) => {
+      if (event?.message?.includes('ResizeObserver')) return;
+      logger.error('Uncaught Window Error:', event.error || event.message);
+      notifyUserError(event.error || event.message, 'حدث خطأ غير متوقع في واجهة النظام');
+    };
+
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+    window.addEventListener('error', handleWindowError);
+
+    return () => {
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
+      window.removeEventListener('error', handleWindowError);
+    };
+  }, []);
+
   // Check for maintenance mode
   const isMaintenanceMode = import.meta.env.VITE_MAINTENANCE_MODE === 'true';
 
@@ -1735,8 +2076,8 @@ const AppContent = () => {
     return <Maintenance />;
   }
 
-  // Show loading screen until authentication is initialized or data is loading for a logged-in user
-  if (!authInitialized || authLoading) {
+  // Show loading screen only during initial boot until authentication is initialized
+  if (!authInitialized) {
     return (
       <div className="flex flex-col items-center justify-center h-screen bg-slate-50" dir="rtl">
         <div className="text-center space-y-4">
@@ -1795,6 +2136,20 @@ const App = () => {
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
           <ToastProvider>
+            <HotToaster 
+              position="top-center" 
+              reverseOrder={false} 
+              toastOptions={{ 
+                duration: 4000, 
+                style: { 
+                  fontFamily: "'Tajawal', sans-serif", 
+                  borderRadius: '12px', 
+                  fontSize: '13px', 
+                  fontWeight: 'bold',
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1)'
+                } 
+              }} 
+            />
             <AccountingProvider>
               <AppContent />
             </AccountingProvider>
@@ -1811,12 +2166,19 @@ export default App;
 
 ### 📄 context/AccountingContext.tsx
 ```typescript
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../context/AuthContext';
-import { Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization, HrScope } from '../types';
 import { useToast } from '../context/ToastContext';
+import { 
+  Account, JournalEntry, JournalEntryLine, SystemSettings, UserRole, Organization, 
+  HrScope, DashboardViewMode, Customer, Supplier, Warehouse, Category, Product, 
+  Salesperson, Invoice, Employee, Cheque, Asset, Budget, CostCenter, PaymentVoucher, 
+  PurchaseInvoice, RestaurantTable, MenuCategory, StockTransfer, User, ShiftReconciliationData 
+} from '../types';
 import { secureStorage } from '../utils/securityMiddleware';
+import { logger } from '../utils/logger';
+import { validateEntryBalance, deriveAccountMappings } from '../utils/financialSafety';
 
 export interface UserProfile {
   id: string;
@@ -1826,132 +2188,43 @@ export interface UserProfile {
   is_active: boolean;
   avatar_url?: string;
   hr_scope?: HrScope;
+  can_view_dashboard?: boolean;
+  can_access_mobile?: boolean;
+  dashboard_view_mode?: DashboardViewMode;
+  allowed_treasury_ids?: string[];
 }
 
 
-export const SYSTEM_ACCOUNTS = {
-  CASH: '1231',
-  CUSTOMERS: '1221',
-  SUPPLIERS: '201',
-  INVENTORY: '103',
-  VAT: '2231',
-  VAT_INPUT: '1241',
-  SALES_REVENUE: '411',
-  COGS: '511',
-  SALARIES_EXPENSE: '531',
-  RETAINED_EARNINGS: '32',
-  NOTES_RECEIVABLE: '1222',
-  NOTES_PAYABLE: '222',
-  EMPLOYEE_ADVANCES: '1223',
-  EMPLOYEE_BONUSES: '5312',
-  EMPLOYEE_DEDUCTIONS: '422',
-  PAYROLL_TAX: '2233',
-  CASH_SHORTAGE: '541', // تسوية عجز الصندوق
-  BANK_ACCOUNTS: '123201', // حساب البنك الرئيسي (الأهلي المصري افتراضياً)
-  INVENTORY_RAW_MATERIALS: '10301',
-  INVENTORY_WIP: '10303',
-  INVENTORY_FINISHED_GOODS: '10302',
-  LABOR_COST_ALLOCATED: '513',
-  WASTAGE_EXPENSE: '5121',
-  INVENTORY_ADJUSTMENTS: '512', // تسويات الجرد (عجز المخزون)
-  INVENTORY_REVALUATION: '512', // إعادة تقييم المخزون
-  SECURITY_DEPOSIT_ACCOUNT: '226',
-  WHT_PAYABLE: '2232', // ضريبة الخصم والتحصيل - علينا
-  WHT_RECEIVABLE: '1242', // ضريبة الخصم والتحصيل - لنا
-  SALES_RETURNS: '412', // مردودات المبيعات
-  SALES_DISCOUNT: '413', // الخصم المسموح به
-  ASSETS_FIXED: '111', // الأصول الثابتة
-  ACCUMULATED_DEPRECIATION: '1119', // مجمع الإهلاك
-  DEPRECIATION_EXPENSE: '533', // مصروف الإهلاك
-  OPENING_BALANCES: '3999', // الأرصدة الافتتاحية
-  REVENUE_OTHER: '421', // إيرادات أخرى
-  EXPENSE_GENERAL: '53', // مصروفات إدارية وعمومية
-  SOCIAL_INSURANCE: '224', // هيئة التأمينات الاجتماعية
-  CONSTRUCTION_REVENUE: '41103', // إيراد عقود ومشاريع (مستخلصات)
-  SERVICE_CHARGE_REVENUE: '41104', // إيرادات رسوم الخدمة (المطاعم)
-  HIMS_BILLING_REVENUE: '41101', // إيرادات الخدمات الطبية
-  HIMS_INSURANCE_RECEIVABLE: '122101', // ذمم التأمين
-  LETTER_OF_GUARANTEE_MARGIN: '1248', // غطاء خطابات ضمان لدى البنوك
-  LETTER_OF_CREDIT_GOODS: '1246', // اعتمادات مستندية لشراء بضائع
-};
+import { offlineService, isValidUUID } from '../services/offlineService';
+import { setActiveOrgId, getActiveOrgIdSync } from '../services/tenantContext';
+import { closeFinancialYearEngine, reopenFinancialYearEngine } from '../services/financialYearService';
+import { deleteOrganizationSafe } from '../services/organizationService';
+import { fetchCompleteDataset } from '../services/balanceService';
+import {
+  SYSTEM_ACCOUNTS,
+  DEFAULT_OFFLINE_ORG,
+  DEFAULT_OFFLINE_TABLES,
+  DEFAULT_OFFLINE_CATEGORIES,
+  DEFAULT_OFFLINE_PRODUCTS,
+  DEFAULT_OFFLINE_ACCOUNTS,
+  DEFAULT_OFFLINE_WAREHOUSES,
+  getOfflineTableOrders,
+  setOfflineTableOrder
+} from './accountingConstants';
 
-import { offlineService } from '../services/offlineService';
+type DynamicQuery = any;
+type DynamicParam = any;
 
-// 📴 بيانات افتراضية لوضع الأوفلاين والديمو (Default Offline / Demo Datasets)
-export const DEFAULT_OFFLINE_ORG = {
-  id: 'org-default-offline',
-  name: 'مؤسسة تري برو (وضع بدون إنترنت / تجريبي)',
-  is_active: true,
-  allowed_modules: ['restaurant', 'pos', 'retail', 'sales', 'purchases', 'inventory', 'accounting', 'hr', 'manufacturing', 'hims', 'stadium'],
-  subscription_expiry: '2099-12-31'
-};
-
-export const DEFAULT_OFFLINE_TABLES: any[] = [
-  { id: 'tbl-1', name: 'طاولة 1 (صالة)', capacity: 4, status: 'AVAILABLE', section: 'الصالة الداخلية', organization_id: 'org-default-offline' },
-  { id: 'tbl-2', name: 'طاولة 2 (صالة)', capacity: 4, status: 'AVAILABLE', section: 'الصالة الداخلية', organization_id: 'org-default-offline' },
-  { id: 'tbl-3', name: 'طاولة 3 (صالة)', capacity: 4, status: 'AVAILABLE', section: 'الصالة الداخلية', organization_id: 'org-default-offline' },
-  { id: 'tbl-4', name: 'طاولة 4 (عائلات)', capacity: 6, status: 'AVAILABLE', section: 'قسم العائلات', organization_id: 'org-default-offline' },
-  { id: 'tbl-5', name: 'طاولة 5 (عائلات)', capacity: 6, status: 'AVAILABLE', section: 'قسم العائلات', organization_id: 'org-default-offline' },
-  { id: 'tbl-6', name: 'طاولة 6 (VIP)', capacity: 8, status: 'AVAILABLE', section: 'VIP', organization_id: 'org-default-offline' },
-  { id: 'tbl-7', name: 'طاولة 7 (تراس)', capacity: 4, status: 'AVAILABLE', section: 'تراس خارجي', organization_id: 'org-default-offline' },
-];
-
-export const DEFAULT_OFFLINE_CATEGORIES: any[] = [
-  { id: 'cat-grills', name: 'مشويات ووجبات' },
-  { id: 'cat-drinks', name: 'مشروبات وعصائر' },
-  { id: 'cat-dessert', name: 'حلويات شرقية وغربية' },
-  { id: 'cat-salads', name: 'مقبلات وسلطات' },
-];
-
-export const DEFAULT_OFFLINE_PRODUCTS: any[] = [
-  { id: 'prod-1', name: 'وجبة كباب مشوي عائلي', sales_price: 150, cost: 80, category_id: 'cat-grills', category: 'مشويات ووجبات', barcode: '6221001', stock: 100, product_type: 'FINISHED_GOODS', is_active: true },
-  { id: 'prod-2', name: 'نصف دجاجة شواية مع أرز بسمتي', sales_price: 85, cost: 45, category_id: 'cat-grills', category: 'مشويات ووجبات', barcode: '6221002', stock: 100, product_type: 'FINISHED_GOODS', is_active: true },
-  { id: 'prod-3', name: 'ساندوتش شاورما لحم عربي', sales_price: 45, cost: 22, category_id: 'cat-grills', category: 'مشويات ووجبات', barcode: '6221003', stock: 100, product_type: 'FINISHED_GOODS', is_active: true },
-  { id: 'prod-4', name: 'برجر لحم بالجبنة والصوص', sales_price: 60, cost: 30, category_id: 'cat-grills', category: 'مشويات ووجبات', barcode: '6221004', stock: 80, product_type: 'FINISHED_GOODS', is_active: true },
-  { id: 'prod-5', name: 'عصير برتقال فريش', sales_price: 25, cost: 10, category_id: 'cat-drinks', category: 'مشروبات وعصائر', barcode: '6221005', stock: 100, product_type: 'FINISHED_GOODS', is_active: true },
-  { id: 'prod-6', name: 'كولا بارد علبة 330 مل', sales_price: 15, cost: 7, category_id: 'cat-drinks', category: 'مشروبات وعصائر', barcode: '6221006', stock: 200, product_type: 'FINISHED_GOODS', is_active: true },
-  { id: 'prod-7', name: 'أم علي بالمكسرات والقشطة', sales_price: 35, cost: 15, category_id: 'cat-dessert', category: 'حلويات شرقية وغربية', barcode: '6221007', stock: 50, product_type: 'FINISHED_GOODS', is_active: true },
-  { id: 'prod-8', name: 'كنافة نابلسية بالجبنة', sales_price: 40, cost: 18, category_id: 'cat-dessert', category: 'حلويات شرقية وغربية', barcode: '6221008', stock: 50, product_type: 'FINISHED_GOODS', is_active: true },
-  { id: 'prod-9', name: 'سلطة خضراء طازجة', sales_price: 20, cost: 8, category_id: 'cat-salads', category: 'مقبلات وسلطات', barcode: '6221009', stock: 100, product_type: 'FINISHED_GOODS', is_active: true },
-  { id: 'prod-10', name: 'حمص بيروتي بالزيت والكمون', sales_price: 25, cost: 10, category_id: 'cat-salads', category: 'مقبلات وسلطات', barcode: '6221010', stock: 100, product_type: 'FINISHED_GOODS', is_active: true },
-];
-
-export const DEFAULT_OFFLINE_ACCOUNTS: any[] = [
-  { id: 'acc-cash', code: SYSTEM_ACCOUNTS.CASH, name: 'الصندوق الرئيسي (خزينة النقدية)', type: 'ASSET', sub_type: 'CASH', is_group: false },
-  { id: 'acc-bank', code: SYSTEM_ACCOUNTS.BANK_ACCOUNTS, name: 'البنك الأهلي / بطاقات الدفع', type: 'ASSET', sub_type: 'BANK', is_group: false },
-  { id: 'acc-sales', code: SYSTEM_ACCOUNTS.SALES_REVENUE, name: 'إيرادات المبيعات العامة', type: 'REVENUE', sub_type: 'SALES', is_group: false },
-  { id: 'acc-vat', code: SYSTEM_ACCOUNTS.VAT, name: 'مصلحة الضرائب - ضريبة القيمة المضافة', type: 'LIABILITY', sub_type: 'VAT', is_group: false },
-  { id: 'acc-cogs', code: SYSTEM_ACCOUNTS.COGS, name: 'تكلفة البضاعة المباعة', type: 'EXPENSE', sub_type: 'COGS', is_group: false },
-  { id: 'acc-cust', code: SYSTEM_ACCOUNTS.CUSTOMERS, name: 'العملاء وحسابات القبض', type: 'ASSET', sub_type: 'RECEIVABLE', is_group: false },
-  { id: 'acc-supp', code: SYSTEM_ACCOUNTS.SUPPLIERS, name: 'الموردين وحسابات الدفع', type: 'LIABILITY', sub_type: 'PAYABLE', is_group: false },
-  { id: 'acc-inv', code: SYSTEM_ACCOUNTS.INVENTORY, name: 'مخزون البضاعة الجاهزة', type: 'ASSET', sub_type: 'INVENTORY', is_group: false },
-];
-
-export const DEFAULT_OFFLINE_WAREHOUSES: any[] = [
-  { id: 'wh-main', name: 'المستودع الرئيسي (الصالة)', is_active: true }
-];
-
-export const getOfflineTableOrders = (): Record<string, any> => {
-  try {
-    const raw = localStorage.getItem('tripro_offline_table_orders');
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-};
-
-export const setOfflineTableOrder = (tableId: string, orderData: any) => {
-  try {
-    const all = getOfflineTableOrders();
-    if (orderData === null) {
-      delete all[tableId];
-    } else {
-      all[tableId] = orderData;
-    }
-    localStorage.setItem('tripro_offline_table_orders', JSON.stringify(all));
-  } catch (e) {
-    console.warn('LocalStorage error:', e);
-  }
+export {
+  SYSTEM_ACCOUNTS,
+  DEFAULT_OFFLINE_ORG,
+  DEFAULT_OFFLINE_TABLES,
+  DEFAULT_OFFLINE_CATEGORIES,
+  DEFAULT_OFFLINE_PRODUCTS,
+  DEFAULT_OFFLINE_ACCOUNTS,
+  DEFAULT_OFFLINE_WAREHOUSES,
+  getOfflineTableOrders,
+  setOfflineTableOrder
 };
 
 interface AccountingContextType {
@@ -1960,32 +2233,45 @@ interface AccountingContextType {
   organizations: any[];
   currentSelectedOrgId: string | null;
   setCurrentSelectedOrgId: (id: string | null) => void;
+  effectiveOrgId: string;
+  getEffectiveOrgId: () => string;
   isLoading: boolean;
   settings: any;
-  accounts: any[];
-  entries: any[];
+  accounts: Account[];
+  entries: JournalEntry[];
   assets: any[];
   budgets: any[];
   vouchers: any[];
   costCenters: any[];
   employees: any[];
-  products: any[];
+  products: Product[];
   transfers: any[];
   purchaseInvoices: any[];
   lastUpdated: Date | null;
   invoices: any[];
-  salespeople: any[];
-  categories: any[];
+  salespeople: Salesperson[];
+  categories: Category[];
   users: any[];
-  warehouses: any[];
+  warehouses: Warehouse[];
   restaurantTables: any[];
   menuCategories: any[];
-  customers: any[];
-  suppliers: any[];
+  customers: Customer[];
+  suppliers: Supplier[];
   cheques: any[];
   currentShift: any;
   activityLog: any[];
+  logActivity?: (action: string, details: string) => void;
   refreshData: () => Promise<void>;
+  refreshCustomers?: () => Promise<void>;
+  refreshSuppliers?: () => Promise<void>;
+  refreshSalesAndPurchases?: () => Promise<void>;
+  refreshBanking?: () => Promise<void>;
+  refreshBankingAndShift?: () => Promise<void>;
+  refreshAccountsAndLedger?: () => Promise<void>;
+  refreshLedger?: () => Promise<void>;
+  refreshSettings?: () => Promise<void>;
+  refreshEmployees?: () => Promise<void>;
+  updateSettings?: (newSettings: Record<string, unknown>) => Promise<void>;
   fetchEntriesPaged: (page: number, pageSize: number) => Promise<{ data: any[], count: number }>;
 
   isDemo: boolean;
@@ -1994,35 +2280,35 @@ interface AccountingContextType {
   // --- دالة الصلاحيات ---
   can: (module: string, action: string) => boolean;
   // --- الدوال المحاسبية ---
-  addEntry: (entry: any) => Promise<void>;
+  addEntry: (entry: DynamicParam) => Promise<void>;
   getSystemAccount: (key: string) => any;
-  updateVoucher: (id: string, updates: any) => Promise<boolean>;
+  updateVoucher: (id: string, updates: DynamicParam) => Promise<boolean>;
   getAccountBalanceInPeriod: (id: string, start: string, end: string) => Promise<number>;
-  addAccount: (acc: any) => Promise<any>;
-  updateAccount: (id: string, updates: any) => Promise<void>;
+  addAccount: (acc: Partial<Account>) => Promise<any>;
+  updateAccount: (id: string, updates: Partial<Account>) => Promise<void>;
   deleteAccount: (id: string, reason?: string) => Promise<{ success: boolean; message?: string }>;
   clearTransactions: () => Promise<void>;
   emptyRecycleBin: (table: string) => Promise<void>;
-  saveBudget: (budget: any) => Promise<void>;
+  saveBudget: (budget: DynamicParam) => Promise<void>;
   // --- دوال المخزون ---
   recalculateStock: (productId?: string) => Promise<void>;
-  addProduct: (product: any) => Promise<any>;
-  updateProduct: (id: string, updates: any) => Promise<void>;
+  addProduct: (product: Partial<Product>) => Promise<any>;
+  updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string, reason?: string) => Promise<void>;
-  addStockTransfer: (transfer: any) => Promise<void>;
+  addStockTransfer: (transfer: DynamicParam) => Promise<void>;
   approveStockTransfer: (id: string) => Promise<void>;
   cancelStockTransfer: (id: string) => Promise<void>;
-  addWarehouse: (warehouse: any) => Promise<void>;
-  updateWarehouse: (id: string, updates: any) => Promise<void>;
+  addWarehouse: (warehouse: Partial<Warehouse>) => Promise<void>;
+  updateWarehouse: (id: string, updates: Partial<Warehouse>) => Promise<void>;
   deleteWarehouse: (id: string) => Promise<void>;
-  addWastage: (wastage: any) => Promise<boolean>;
+  addWastage: (wastage: DynamicParam) => Promise<boolean>;
   produceItem: (id: string, qty: number, whId: string, date: string, cost: number, ref: string) => Promise<any>;
   // --- دوال المبيعات والمشتريات ---
-  addCustomer: (customer: any) => Promise<any>;
-  updateCustomer: (id: string, updates: any) => Promise<void>;
+  addCustomer: (customer: Partial<Customer>) => Promise<any>;
+  updateCustomer: (id: string, updates: Partial<Customer>) => Promise<void>;
   deleteCustomer: (id: string, reason?: string) => Promise<void>;
-  addSupplier: (supplier: any) => Promise<any>;
-  updateSupplier: (id: string, updates: any) => Promise<void>;
+  addSupplier: (supplier: Partial<Supplier>) => Promise<any>;
+  updateSupplier: (id: string, updates: Partial<Supplier>) => Promise<void>;
   deleteSupplier: (id: string, reason?: string) => Promise<void>;
   approveInvoice: (id: string, orgId?: string, warehouseId?: string) => Promise<boolean>;
   unpostSalesInvoice: (id: string, orgId?: string) => Promise<boolean>;
@@ -2032,28 +2318,31 @@ interface AccountingContextType {
   deletePurchaseInvoice: (id: string, orgId?: string) => Promise<boolean>;
   convertPoToInvoice: (poId: string, warehouseId?: string, orgId?: string) => Promise<void>;
   addOpeningBalanceTransaction: (id: string, type: string, amount: number, date: string, name: string) => Promise<void>;
-  addPaymentVoucher: (voucher: any) => Promise<void>;
+  addPaymentVoucher: (voucher: DynamicParam) => Promise<void>;
   // --- دوال الأصول والشيكات ---
-  addAsset: (asset: any) => Promise<void>;
-  updateAsset: (id: string, updates: any) => Promise<void>;
+  addAsset: (asset: Partial<Asset>) => Promise<void>;
+  updateAsset: (id: string, updates: Partial<Asset>) => Promise<void>;
   deleteAsset: (id: string) => Promise<void>;
   runDepreciation: (id?: string, amount?: number, date?: string) => Promise<void>;
   revaluateAsset: (id: string, val: number, date: string, accId: string) => Promise<void>;
-  addCheque: (cheque: any) => Promise<void>;
-  updateCheque: (id: string, cheque: any) => Promise<void>;
+  addCheque: (cheque: Partial<Cheque>) => Promise<void>;
+  updateCheque: (id: string, cheque: Partial<Cheque>) => Promise<void>;
   deleteCheque: (id: string) => Promise<void>;
   updateChequeStatus: (id: string, status: string, date: string, bankId?: string) => Promise<void>;
-  addTransfer: (transfer: any) => Promise<void>;
-  updateTransfer: (id: string, transfer: any) => Promise<void>;
+  addTransfer: (transfer: DynamicParam) => Promise<void>;
+  updateTransfer: (id: string, transfer: DynamicParam) => Promise<void>;
   deleteTransfer: (id: string) => Promise<void>;
   restoreItem: (table: string, id: string) => Promise<{ success: boolean; message?: string }>;
   permanentDeleteItem: (table: string, id: string) => Promise<{ success: boolean; message?: string }>;
   exportJournalToCSV: () => void;
   // --- دوال الموارد البشرية ---
-  addEmployee: (employee: any) => Promise<void>;
-  updateEmployee: (id: string, updates: any) => Promise<void>;
+  addEmployee: (employee: Partial<Employee>) => Promise<void>;
+  updateEmployee: (id: string, updates: Partial<Employee>) => Promise<void>;
   deleteEmployee: (id: string, reason?: string) => Promise<void>;
   runPayroll: (month: number, year: number, date: string, treasuryId: string, data: any[], orgId?: string) => Promise<void>;
+  runPayrollAccrual: (month: number, year: number, date: string, data: any[], orgId?: string) => Promise<any>;
+  payAccruedPayroll: (params: { payrollId?: string; month?: number; year?: number; paymentDate: string; treasuryId: string; orgId?: string }) => Promise<any>;
+  cancelPayrollAccrual: (payrollId: string, orgId?: string) => Promise<void>;
   // --- دوال المطاعم ---
   finalizeProductionOrder: (id: string, status: string, notes: string) => Promise<any>;
   openTableSession: (tableId: string) => Promise<string | null>;
@@ -2061,16 +2350,16 @@ interface AccountingContextType {
   cancelReservation: (tableId: string) => Promise<void>;
   transferTableSession: (sessionId: string, targetTableId: string) => Promise<boolean>;
   mergeTableSessions: (sourceId: string, targetId: string) => Promise<boolean>;
-  createRestaurantOrder: (payload: any) => Promise<string>;
+  createRestaurantOrder: (payload: DynamicParam) => Promise<string>;
   getOpenTableOrder: (tableId: string) => Promise<any>;
   completeRestaurantOrder: (orderId: string, method: string, total: number, accountId: string | null, warehouseId?: string) => Promise<void>;
   processSplitPayment: (orderId: string, items: any[], method: string, total: number, accountId: string) => Promise<boolean>;
-  addRestaurantTable: (data: any) => Promise<void>;
-  updateRestaurantTable: (id: string, data: any) => Promise<void>;
+  addRestaurantTable: (data: DynamicParam) => Promise<void>;
+  updateRestaurantTable: (id: string, data: DynamicParam) => Promise<void>;
   deleteRestaurantTable: (id: string) => Promise<void>;
   updateKitchenOrderStatus: (id: string, status: string) => Promise<void>;
   startShift: (amount: number) => Promise<void>;
-  closeCurrentShift: (actualCash: number, notes: string) => Promise<void>;
+  closeCurrentShift: (actualCash: number, notes: string, reconciliation?: ShiftReconciliationData | null) => Promise<void>;
   getCurrentShiftSummary: () => Promise<any>;
   createMissingSystemAccounts: () => Promise<any>;
   recalculateAllBalances: () => Promise<void>;
@@ -2080,12 +2369,12 @@ interface AccountingContextType {
   reopenFinancialYear: (year: number) => Promise<boolean>;
   exportData: () => Promise<void>;
   // --- دوال الديمو ---
-  addDemoEntry: (entry: any) => void;
-  addDemoPaymentVoucher: (voucher: any) => void;
-  addDemoReceiptVoucher: (voucher: any) => void;
-  addDemoInvoice: (invoice: any) => void;
-  postDemoSalesInvoice: (invoice: any) => void;
-  addDemoPurchaseInvoice: (invoice: any) => void;
+  addDemoEntry: (entry: Partial<JournalEntry>) => void;
+  addDemoPaymentVoucher: (voucher: DynamicParam) => void;
+  addDemoReceiptVoucher: (voucher: DynamicParam) => void;
+  addDemoInvoice: (invoice: Partial<Invoice>) => void;
+  postDemoSalesInvoice: (invoice: Partial<Invoice>) => void;
+  addDemoPurchaseInvoice: (invoice: Partial<Invoice>) => void;
   deleteOrganization: (orgId: string) => Promise<{ success: boolean; message?: string }>;
   selectedFiscalYear: number;
   setSelectedFiscalYear: (year: number) => void;
@@ -2101,71 +2390,56 @@ export const useAccounting = () => {
 };
 
 // --- Modular Domain Hooks (Facade Pattern) ---
-export { useProductDomain } from './domains/ProductContext';
-export { useCustomerDomain } from './domains/CustomerContext';
-export { useSupplierDomain } from './domains/SupplierContext';
-export { useSettingsDomain } from './domains/AccountingSettingsContext';
-export { useSalesDomain } from './domains/SalesContext';
-export { useBankingDomain } from './domains/BankingContext';
-export { useGeneralLedgerDomain } from './domains/GeneralLedgerContext';
-export { useHrDomain } from './domains/HrContext';
-export { useRestaurantDomain } from './domains/RestaurantContext';
+export { useProductDomain, ProductProvider } from './domains/ProductContext';
+export { useCustomerDomain, CustomerProvider } from './domains/CustomerContext';
+export { useSupplierDomain, SupplierProvider } from './domains/SupplierContext';
+export { useSettingsDomain, SettingsProvider } from './domains/AccountingSettingsContext';
+export { useSalesDomain, SalesProvider } from './domains/SalesContext';
+export { useBankingDomain, BankingProvider } from './domains/BankingContext';
+export { useGeneralLedgerDomain, GeneralLedgerProvider } from './domains/GeneralLedgerContext';
+export { useHrDomain, HrProvider } from './domains/HrContext';
+export { useRestaurantDomain, RestaurantProvider } from './domains/RestaurantContext';
+export { fetchAllTableRecords } from './domains/domainUtils';
 
-/**
- * دالة مساعدة عامة لجلب كافة سجلات الجداول الكبيرة التي تتجاوز حد 1000 سجل في Supabase/PostgREST
- */
-async function fetchAllTableRecords<T = any>(
-  tableName: string,
-  filterFn: (query: any) => any,
-  pageSize = 1000
-): Promise<{ data: T[]; error: any }> {
-  let allData: T[] = [];
-  let from = 0;
-  let hasMore = true;
-
-  while (hasMore) {
-    let query = supabase.from(tableName).select('*');
-    query = filterFn(query);
-    const { data, error } = await query.range(from, from + pageSize - 1);
-
-    if (error) {
-      console.error(`Error fetching ${tableName} chunk:`, error);
-      return { data: allData, error };
-    }
-
-    if (data && data.length > 0) {
-      allData = allData.concat(data as T[]);
-      if (data.length < pageSize) {
-        hasMore = false;
-      } else {
-        from += pageSize;
-      }
-    } else {
-      hasMore = false;
-    }
-  }
-
-  return { data: allData, error: null };
-}
+import { useSettingsDomain, SettingsProvider } from './domains/AccountingSettingsContext';
+import { useCustomerDomain, CustomerProvider } from './domains/CustomerContext';
+import { useSupplierDomain, SupplierProvider } from './domains/SupplierContext';
+import { useProductDomain, ProductProvider } from './domains/ProductContext';
+import { useSalesDomain, SalesProvider } from './domains/SalesContext';
+import { useBankingDomain, BankingProvider } from './domains/BankingContext';
+import { useGeneralLedgerDomain, GeneralLedgerProvider } from './domains/GeneralLedgerContext';
+import { useHrDomain, HrProvider } from './domains/HrContext';
+import { useRestaurantDomain, RestaurantProvider } from './domains/RestaurantContext';
+import { fetchAllTableRecords } from './domains/domainUtils';
 
 export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { currentUser: authUser, can } = useAuth();
   const { showToast } = useToast();
   const [organization, setOrganization] = useState<any>(null);
   const [currentSelectedOrgId, setCurrentSelectedOrgIdState] = useState<string | null>(() => {
-    return secureStorage.getItem<string>('tripro_active_org_id') || null;
+    return getActiveOrgIdSync() || secureStorage.getItem<string>('tripro_active_org_id') || null;
   });
 
   const setCurrentSelectedOrgId = useCallback((id: string | null) => {
     setCurrentSelectedOrgIdState(id);
     if (id) {
       secureStorage.setItem('tripro_active_org_id', id);
-      if (id !== 'org-default-offline' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) {
-        secureStorage.setItem('tripro_last_valid_org_id', id);
-        try { window.localStorage?.setItem('tripro_last_valid_org_id', JSON.stringify(id)); } catch (e) {}
+      if (id !== 'org-default-offline' && isValidUUID(id)) {
+        setActiveOrgId(id);
       }
     } else {
-      secureStorage.removeItem('tripro_active_org_id');
+      setActiveOrgId(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handleOrgChange = (e: DynamicParam) => {
+      const newOrgId = e.detail?.orgId || null;
+      setCurrentSelectedOrgIdState(prev => (prev !== newOrgId ? newOrgId : prev));
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('tripro:organization_changed', handleOrgChange);
+      return () => window.removeEventListener('tripro:organization_changed', handleOrgChange);
     }
   }, []);
 
@@ -2178,7 +2452,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         full_name: authUser.name || 'مستخدم النظام',
         role: authUser.role as UserRole,
         organization_id: (authUser as any).organization_id || cachedLastOrg || 'org-default-offline',
-        is_active: true
+        is_active: true,
+        hr_scope: authUser.hr_scope,
+        can_view_dashboard: authUser.can_view_dashboard,
+        can_access_mobile: authUser.can_access_mobile,
+        dashboard_view_mode: authUser.dashboard_view_mode,
+        allowed_treasury_ids: authUser.allowed_treasury_ids,
       };
     }
     return null;
@@ -2186,25 +2465,35 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   useEffect(() => {
     const cachedLastOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || null;
-    if (authUser && (!currentUser || currentUser.id !== authUser.id)) {
-      setCurrentUser({
+    if (authUser) {
+      setCurrentUser(prev => ({
         id: authUser.id,
-        full_name: authUser.name || 'مستخدم النظام',
-        role: authUser.role as UserRole,
-        organization_id: (authUser as any).organization_id || cachedLastOrg || 'org-default-offline',
-        is_active: true
-      });
+        full_name: authUser.name || prev?.full_name || 'مستخدم النظام',
+        role: (authUser.role || prev?.role || 'viewer') as UserRole,
+        organization_id: (authUser as any).organization_id || prev?.organization_id || cachedLastOrg || 'org-default-offline',
+        is_active: prev?.is_active ?? true,
+        hr_scope: authUser.hr_scope || prev?.hr_scope,
+        can_view_dashboard: authUser.can_view_dashboard ?? prev?.can_view_dashboard,
+        can_access_mobile: authUser.can_access_mobile ?? prev?.can_access_mobile,
+        dashboard_view_mode: authUser.dashboard_view_mode || prev?.dashboard_view_mode || 'both',
+        allowed_treasury_ids: authUser.allowed_treasury_ids || prev?.allowed_treasury_ids,
+        avatar_url: prev?.avatar_url
+      }));
     }
   }, [authUser]);
 
   const getEffectiveOrgId = useCallback(() => {
-    const cachedValidOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
-      (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
+    const tenantActive = getActiveOrgIdSync(currentSelectedOrgId);
+    if (tenantActive) return tenantActive;
     if (currentSelectedOrgId && currentSelectedOrgId !== 'org-default-offline') return currentSelectedOrgId;
     if (currentUser?.organization_id && currentUser.organization_id !== 'org-default-offline') return currentUser.organization_id;
+    const cachedValidOrg = secureStorage.getItem<string>('tripro_last_valid_org_id') || 
+      (typeof window !== 'undefined' ? window.localStorage?.getItem('tripro_last_valid_org_id') : null);
     if (cachedValidOrg && cachedValidOrg !== 'org-default-offline') return cachedValidOrg;
     return 'org-default-offline';
   }, [currentSelectedOrgId, currentUser?.organization_id]);
+
+  const effectiveOrgId = useMemo(() => getEffectiveOrgId(), [getEffectiveOrgId]);
 
   const [isLoading, setIsLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -2255,6 +2544,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [cheques, setCheques] = useState<any[]>([]);
   const [currentShift, setCurrentShift] = useState<any>(null);
   const [activityLog, setActivityLog] = useState<any[]>([]);
+  const refreshDataPromiseRef = useRef<Promise<void> | null>(null);
+
+  const logActivity = useCallback((action: string, details: string) => {
+    const newLog = {
+      id: `act-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      user: currentUser?.full_name || (currentUser as any)?.username || 'مستخدم النظام',
+      action,
+      details,
+      date: new Date().toISOString()
+    };
+    setActivityLog(prev => [newLog, ...prev.slice(0, 49)]);
+  }, [currentUser]);
 
   const isDemo = authUser?.username === 'demo@demo.com' || authUser?.role === 'demo';
 
@@ -2272,13 +2573,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       full_name: authUser?.name || 'مستخدم تجريبي (TriPro Offline)',
       role: (authUser?.role as UserRole) || 'demo',
       organization_id: effectiveOfflineOrgId,
-      is_active: true
+      is_active: true,
+      hr_scope: authUser?.hr_scope,
+      can_view_dashboard: authUser?.can_view_dashboard,
+      can_access_mobile: authUser?.can_access_mobile,
+      dashboard_view_mode: authUser?.dashboard_view_mode || 'both',
+      allowed_treasury_ids: authUser?.allowed_treasury_ids
     };
     setCurrentUser(fallbackProfile);
     setOrganization(effectiveOrgObj);
     setOrganizations([effectiveOrgObj]);
     setCurrentSelectedOrgId(effectiveOfflineOrgId);
-    setAccounts(DEFAULT_OFFLINE_ACCOUNTS);
+    setAccounts(DEFAULT_OFFLINE_ACCOUNTS.map((a: Record<string, any>) => ({ ...a, isGroup: Boolean(a.is_group ?? a.isGroup) })));
     setProducts(DEFAULT_OFFLINE_PRODUCTS);
     setRestaurantTables(DEFAULT_OFFLINE_TABLES);
     setMenuCategories(DEFAULT_OFFLINE_CATEGORIES);
@@ -2288,10 +2594,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setSuppliers([{ id: 'sup-main', name: 'مورد عام معتمد', phone: '01000000000' }]);
 
     // استرجاع الوردية المفتوحة محلياً أو إنشاء وردية جاهزة للعمل
-    let localShift = null;
+    let localShift: Record<string, any> | null = null;
     try {
-      const savedShift = localStorage.getItem('tripro_offline_current_shift');
-      if (savedShift) localShift = JSON.parse(savedShift);
+      localShift = secureStorage.getItem<any>('tripro_offline_current_shift');
     } catch (e) {}
 
     if (!localShift) {
@@ -2305,7 +2610,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         start_time: new Date().toISOString()
       };
       try {
-        localStorage.setItem('tripro_offline_current_shift', JSON.stringify(localShift));
+        secureStorage.setItem('tripro_offline_current_shift', localShift);
       } catch (e) {}
     }
     setCurrentShift(localShift);
@@ -2317,8 +2622,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   }, [authUser]);
 
   const refreshData = useCallback(async () => {
-    if (!authUser) return;
-    setIsLoading(true);
+    if (refreshDataPromiseRef.current) {
+      return refreshDataPromiseRef.current;
+    }
+    const currentPromise = (async () => {
+      if (!authUser) return;
+      setIsLoading(true);
 
     // 📴 إذا كان التطبيق مفصولاً عن الإنترنت أو في وضع الديمو، ننتقل فوراً للبيانات المحلية بدون أي تأخير أو أخطاء
     if (!navigator.onLine || isDemo) {
@@ -2328,15 +2637,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     try {
       // جلب بيانات المنظمة والبروفايل
-      let profile: any = null;
+      let profile: DynamicParam = null;
       try {
         const { data: pData, error: profileError } = await supabase.from('profiles').select('*, organizations(*)').eq('id', authUser.id).single();
         if (!profileError && pData) {
           profile = pData;
-          setCurrentUser(profile);
+          setCurrentUser({
+            ...pData,
+            dashboard_view_mode: pData.dashboard_view_mode || authUser?.dashboard_view_mode || 'both',
+            can_view_dashboard: pData.can_view_dashboard ?? authUser?.can_view_dashboard ?? true
+          } as UserProfile);
         }
       } catch (pErr) {
-        console.warn('Could not fetch online profile, using fallback:', pErr);
+        logger.warn('Could not fetch online profile, using fallback:', pErr);
       }
 
       if (!profile) {
@@ -2345,14 +2658,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       // 🛡️ صمام أمان: جلب كافة الشركات لملء القائمة وضمان وجود منظمة نشطة حتمياً
-      let allOrgs: any[] = [];
+      let allOrgs: Organization[] = [];
       try {
         const { data: orgsData } = await supabase.from('organizations').select('*').order('name');
         if (orgsData && orgsData.length > 0) {
           allOrgs = orgsData;
         }
       } catch (orgErr) {
-        console.warn('Could not fetch organizations from Supabase, using fallback:', orgErr);
+        logger.warn('Could not fetch organizations from Supabase, using fallback:', orgErr);
       }
 
       const validOrgs = allOrgs.length > 0 ? allOrgs : [DEFAULT_OFFLINE_ORG];
@@ -2370,18 +2683,28 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setOrganization(activeOrgObj);
 
       // تأكيد تعيين المنظمة في بيانات المستخدم لمنع أخطاء التريجرز والـ RLS
-      setCurrentUser(prev => prev ? { ...prev, organization_id: fetchOrgId } : {
+      setCurrentUser(prev => prev ? { 
+        ...prev, 
+        organization_id: fetchOrgId,
+        dashboard_view_mode: prev.dashboard_view_mode || authUser?.dashboard_view_mode || 'both',
+        can_view_dashboard: prev.can_view_dashboard ?? authUser?.can_view_dashboard ?? true
+      } : {
         id: authUser.id,
         full_name: authUser.name || 'مستخدم النظام',
         role: authUser.role as UserRole,
         organization_id: fetchOrgId,
-        is_active: true
+        is_active: true,
+        hr_scope: authUser.hr_scope,
+        can_view_dashboard: authUser.can_view_dashboard ?? true,
+        can_access_mobile: authUser.can_access_mobile,
+        dashboard_view_mode: authUser.dashboard_view_mode || 'both',
+        allowed_treasury_ids: authUser.allowed_treasury_ids
       });
 
       // جلب الإعدادات وتوحيد الحقول
       const { data: sett } = await supabase.rpc('get_current_company_settings', { p_org_id: fetchOrgId }).maybeSingle();
       
-      const normalizeSettings = (raw: any) => {
+      const normalizeSettings = (raw: Record<string, any>) => {
         if (!raw || typeof raw !== 'object') return {};
         
         let vatRateNum = 14;
@@ -2417,9 +2740,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         const serviceChargeRatePercentage = serviceRateNum <= 1 && serviceRateNum > 0 ? serviceRateNum * 100 : serviceRateNum;
         const serviceChargeRateDecimal = serviceChargeRatePercentage / 100;
 
+        // الحفاظ على خيار البيع بالسالب للمنظمات المصرح لها (بما فيها شركة لينزا كحالة افتراضية موثقة)
+        const isLenzaOrg = Boolean(
+          (activeOrgObj?.name && /لينزا|lenza/i.test(activeOrgObj.name)) ||
+          (activeOrgObj?.commercial_name && /لينزا|lenza/i.test(activeOrgObj.commercial_name)) ||
+          (raw?.companyName && /لينزا|lenza/i.test(raw.companyName)) ||
+          (raw?.company_name && /لينزا|lenza/i.test(raw.company_name))
+        );
+
         const allowNegativeStock = raw.allowNegativeStock !== undefined 
           ? Boolean(raw.allowNegativeStock) 
-          : (raw.allow_negative_stock !== undefined ? Boolean(raw.allow_negative_stock) : false);
+          : (raw.allow_negative_stock !== undefined ? Boolean(raw.allow_negative_stock) : isLenzaOrg);
 
         const lockManualPrices = raw.lockManualPrices !== undefined
           ? Boolean(raw.lockManualPrices)
@@ -2472,95 +2803,164 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       setSettings(normalizeSettings(sett || {}));
 
+      // 🛡️ مزامنة قاعدة البيانات لشركة لينزا: ضمان تفعيل allow_negative_stock لمرة واحدة فقط إذا لم تكن مفعلة مسبقاً
+      const isLenzaActive = Boolean(
+        (activeOrgObj?.name && /لينزا|lenza/i.test(activeOrgObj.name)) ||
+        (activeOrgObj?.commercial_name && /لينزا|lenza/i.test(activeOrgObj.commercial_name))
+      );
+      if (isLenzaActive && fetchOrgId && fetchOrgId !== 'org-default-offline' && !(sett as any)?.allow_negative_stock) {
+        supabase
+          .from('company_settings')
+          .update({ allow_negative_stock: true })
+          .eq('organization_id', fetchOrgId)
+          .then(({ error }) => {
+            if (error) logger.warn('[AccountingContext] Auto-sync allow_negative_stock for Lenza error:', error);
+          });
+      }
+
       // جلب الحسابات والمستودعات مع ترشيد الاستعلامات المالية بالسنة المالية النشطة
       const [accs, ents, ccs, emps, prods, trns, pinvs, invs, cats, usrs, whs, rTables, custs, sups, chqs, shift, assetData, budgetData] = await Promise.all([
         supabase.from('accounts').select('*').eq('organization_id', fetchOrgId).order('code'),
-        supabase.from('journal_entries')
-          .select('*, journal_lines(*)')
-          .eq('organization_id', fetchOrgId)
-          .gte('transaction_date', fiscalYearRange.startDate)
-          .lte('transaction_date', fiscalYearRange.endDate)
-          .order('transaction_date', { ascending: false })
-          .limit(1000),
+        fetchCompleteDataset<JournalEntry>(async (from, to) =>
+          supabase.from('journal_entries')
+            .select('*, journal_lines(*)')
+            .eq('organization_id', fetchOrgId)
+            .gte('transaction_date', fiscalYearRange.startDate)
+            .lte('transaction_date', fiscalYearRange.endDate)
+            .order('transaction_date', { ascending: false })
+            .range(from, to)
+        ).then(data => ({ data, error: null })),
         supabase.from('cost_centers').select('*').eq('organization_id', fetchOrgId).order('name'),
         supabase.from('employees').select('*').eq('organization_id', fetchOrgId).order('full_name'),
-        fetchAllTableRecords('products', q => q.eq('organization_id', fetchOrgId).is('deleted_at', null).order('name')),
-        supabase.from('stock_transfers').select('*').eq('organization_id', fetchOrgId).order('transfer_date', { ascending: false }).limit(500),
-        supabase.from('purchase_invoices')
-          .select('*')
-          .eq('organization_id', fetchOrgId)
-          .gte('invoice_date', fiscalYearRange.startDate)
-          .lte('invoice_date', fiscalYearRange.endDate)
-          .order('invoice_date', { ascending: false })
-          .limit(1000),
-        supabase.from('invoices')
-          .select('*')
-          .eq('organization_id', fetchOrgId)
-          .gte('invoice_date', fiscalYearRange.startDate)
-          .lte('invoice_date', fiscalYearRange.endDate)
-          .order('invoice_date', { ascending: false })
-          .limit(1000),
-        supabase.from('item_categories').select('*').eq('organization_id', fetchOrgId).order('name'),
+        Promise.resolve({ data: [] as Product[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
+        Promise.resolve({ data: [] as StockTransfer[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
+        Promise.resolve({ data: [] as PurchaseInvoice[], error: null }), // مُعالج بالكامل في سياق النطاق SupplierProvider
+        Promise.resolve({ data: [] as Invoice[], error: null }), // مُعالج بالكامل في سياق النطاق SalesProvider
+        Promise.resolve({ data: [] as Category[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
         supabase.from('profiles').select('*').eq('organization_id', fetchOrgId).order('full_name'),
-        supabase.from('warehouses').select('*').eq('organization_id', fetchOrgId).eq('is_active', true),
+        Promise.resolve({ data: [] as Warehouse[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
         supabase.from('restaurant_tables').select('*').eq('organization_id', fetchOrgId).order('name'),
-        fetchAllTableRecords('customers', q => q.eq('organization_id', fetchOrgId).is('deleted_at', null).order('name')),
-        fetchAllTableRecords('suppliers', q => q.eq('organization_id', fetchOrgId).is('deleted_at', null).order('name')),
-        supabase.from('cheques').select('*').eq('organization_id', fetchOrgId).order('due_date'),
+        Promise.resolve({ data: [] as Customer[], error: null }), // مُعالج بالكامل في سياق النطاق CustomerProvider
+        Promise.resolve({ data: [] as Supplier[], error: null }), // مُعالج بالكامل في سياق النطاق SupplierProvider
+        Promise.resolve({ data: [] as Cheque[], error: null }), // مُعالج بالكامل في سياق النطاق BankingProvider
         supabase.rpc('get_active_shift', { p_org_id: fetchOrgId }),
-        supabase.from('assets').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null),
-        supabase.from('budgets').select('*').eq('organization_id', fetchOrgId)
+        fetchCompleteDataset<Asset>(async (from, to) =>
+          supabase.from('assets').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null).range(from, to)
+        ).then(data => ({ data: data || [], error: null })),
+        fetchCompleteDataset<Budget>(async (from, to) =>
+          supabase.from('budgets').select('*').eq('organization_id', fetchOrgId).range(from, to)
+        ).then(data => ({ data: data || [], error: null }))
       ]);
 
-      const loadedAccounts = (accs.data && accs.data.length > 0) ? accs.data.map((acc: any) => ({
+      const loadedAccounts = (accs.data && accs.data.length > 0) ? accs.data.map((acc: Record<string, any>) => ({
         ...acc,
+        isGroup: Boolean(acc.is_group ?? acc.isGroup),
         type: acc.type ? acc.type.toUpperCase() : acc.type
-      })) : DEFAULT_OFFLINE_ACCOUNTS;
+      })) : DEFAULT_OFFLINE_ACCOUNTS.map((acc: Record<string, any>) => ({
+        ...acc,
+        isGroup: Boolean(acc.is_group ?? acc.isGroup)
+      }));
 
       setAccounts(loadedAccounts);
+
+      // 🛡️ فحص وتهيئة ربط الحسابات الافتراضية تلقائياً (Default Account Mappings Auto-Derivation & Verification)
+      const currentRawMappings = { ...((sett as any)?.account_mappings || (sett as any)?.accountMappings || {}) };
+      const { mappings: autoDerivedMappings, hasNewMappings } = deriveAccountMappings(loadedAccounts as any, currentRawMappings);
+      if (hasNewMappings) {
+        setSettings(prev => ({
+          ...prev,
+          account_mappings: autoDerivedMappings,
+          accountMappings: autoDerivedMappings
+        }));
+
+        if (fetchOrgId && fetchOrgId !== 'org-default-offline') {
+          supabase
+            .from('company_settings')
+            .update({ account_mappings: autoDerivedMappings })
+            .eq('organization_id', fetchOrgId)
+            .then(({ error: mapErr }) => {
+              if (mapErr) logger.warn('[AccountingContext] Auto-persist account_mappings notice:', mapErr);
+            });
+        }
+      }
+
       setEntries(ents.data || []);
       setAssets(assetData?.data || []);
       setBudgets(budgetData?.data || []);
-      setVouchers([]);
+
+      const { data: vchrs } = await supabase
+        .from('payment_vouchers')
+        .select('*')
+        .eq('organization_id', fetchOrgId)
+        .is('deleted_at', null)
+        .order('payment_date', { ascending: false })
+        .limit(200);
+      interface RawVoucherRow {
+        payment_date?: string | null;
+        date?: string | null;
+        created_at?: string | null;
+        notes?: string | null;
+        description?: string | null;
+        supplier_id?: string | null;
+        party_id?: string | null;
+        [key: string]: unknown;
+      }
+      const mappedVchrs = (vchrs || []).map((row: RawVoucherRow) => ({
+        ...row,
+        date: (row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : '')) as string,
+        payment_date: (row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : '')) as string,
+        description: (row.notes || row.description || '') as string,
+        notes: (row.notes || row.description || '') as string,
+        type: 'payment',
+        subType: row.supplier_id ? 'supplier' : 'account',
+        party_id: (row.supplier_id || row.party_id) as string,
+      }));
+      setVouchers(mappedVchrs);
       setCostCenters(ccs.data || []);
 
       // 🛡️ عزل نطاق الإشراف للموارد البشرية والرواتب (HR Supervisory Scope)
       const rawEmployees = emps.data || [];
       const userHrScope = (profile as any)?.hr_scope || (authUser as any)?.hr_scope || (authUser as any)?.user_metadata?.hr_scope || 'all';
 
-      const isFactoryDept = (dept: any) => {
+      const isFactoryDept = (dept: unknown) => {
         const d = String(dept || '').trim().toLowerCase();
         return d === 'المصنع' || d === 'مصنع' || d === 'factory';
       };
 
       let scopedEmployees = rawEmployees;
       if (userHrScope === 'factory') {
-        scopedEmployees = rawEmployees.filter((e: any) => isFactoryDept(e.department));
+        scopedEmployees = rawEmployees.filter((e: Record<string, any>) => isFactoryDept(e.department));
       } else if (userHrScope === 'branches') {
-        scopedEmployees = rawEmployees.filter((e: any) => !isFactoryDept(e.department));
+        scopedEmployees = rawEmployees.filter((e: Record<string, any>) => !isFactoryDept(e.department));
       }
 
       setEmployees(scopedEmployees);
-      setSalespeople(scopedEmployees);
+      const mappedSalespeople: Salesperson[] = scopedEmployees.map((e: { id: string; name?: string; full_name?: string }) => ({
+        id: e.id,
+        name: e.name || e.full_name || 'مندوب'
+      }));
+      setSalespeople(mappedSalespeople);
 
-      const loadedProducts = (prods.data && prods.data.length > 0) ? prods.data : DEFAULT_OFFLINE_PRODUCTS;
+      const loadedProducts = (prods.data && prods.data.length > 0) ? prods.data : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_PRODUCTS : []);
       setProducts(loadedProducts);
       setTransfers(trns.data || []);
       setPurchaseInvoices(pinvs.data || []);
       setInvoices(invs.data || []);
 
-      const loadedCategories = (cats.data && cats.data.length > 0) ? cats.data : DEFAULT_OFFLINE_CATEGORIES;
+      const loadedCategories = (cats.data && cats.data.length > 0) ? cats.data : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_CATEGORIES : []);
       setCategories(loadedCategories);
       setMenuCategories(loadedCategories);
 
       setUsers(usrs.data || []);
-      setWarehouses((whs.data && whs.data.length > 0) ? whs.data : DEFAULT_OFFLINE_WAREHOUSES);
+
+      const loadedWhs = whs.data || [];
+      setWarehouses(loadedWhs.length > 0 ? loadedWhs : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_WAREHOUSES : []));
 
       const loadedTables = (rTables.data && rTables.data.length > 0) ? rTables.data : DEFAULT_OFFLINE_TABLES;
       setRestaurantTables(loadedTables);
 
-      setCustomers((custs.data && custs.data.length > 0) ? custs.data : [{ id: 'cust-walkin', name: 'عميل نقدي صالة', phone: '0000000000' }]);
-      setSuppliers((sups.data && sups.data.length > 0) ? sups.data : [{ id: 'sup-main', name: 'مورد عام معتمد', phone: '01000000000' }]);
+      setCustomers((custs.data && custs.data.length > 0) ? custs.data : (currentUser?.role === 'demo' ? [{ id: 'cust-walkin', name: 'عميل نقدي صالة', phone: '0000000000' }] : []));
+      setSuppliers((sups.data && sups.data.length > 0) ? sups.data : (currentUser?.role === 'demo' ? [{ id: 'sup-main', name: 'مورد عام معتمد', phone: '01000000000' }] : []));
       setCheques(chqs.data || []);
       
       const activeShiftData = Array.isArray(shift.data) ? shift.data[0] : shift.data;
@@ -2570,8 +2970,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         // إذا لم تكن هناك وردية نشطة أونلاين، نحتفظ بالوردية المحلية إن وجدت
         let localShift = null;
         try {
-          const s = localStorage.getItem('tripro_offline_current_shift');
-          if (s) localShift = JSON.parse(s);
+          localShift = secureStorage.getItem<any>('tripro_offline_current_shift');
         } catch (e) {}
         setCurrentShift(localShift || null);
       }
@@ -2581,16 +2980,218 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       offlineService.seedFallbackProducts(loadedProducts).catch(() => {});
 
     } catch (error) {
-      if (import.meta.env.DEV) console.error('Error refreshing accounting data, loading offline fallback:', error);
+      logger.error('Error refreshing accounting data, loading offline fallback:', error);
       await loadOfflineFallbackData();
     } finally {
       setIsLoading(false);
     }
-  }, [authUser, currentSelectedOrgId, fiscalYearRange, isDemo, loadOfflineFallbackData]);
+  })();
+
+  refreshDataPromiseRef.current = currentPromise;
+  try {
+    await currentPromise;
+  } finally {
+    refreshDataPromiseRef.current = null;
+  }
+}, [authUser, currentSelectedOrgId, fiscalYearRange.startDate, fiscalYearRange.endDate, isDemo, loadOfflineFallbackData]);
 
   useEffect(() => {
     refreshData();
   }, [refreshData]);
+
+  // --- دوال التحديث المجزأة لكل نطاق لترشيد الأداء ومنع شلال الـ 18 استعلاماً ---
+  const refreshAccountsAndLedger = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      const [accs, ents, ccs, budgetData] = await Promise.all([
+        supabase.from('accounts').select('*').eq('organization_id', targetOrg).order('code'),
+        fetchCompleteDataset<JournalEntry>(async (from, to) =>
+          supabase.from('journal_entries')
+            .select('*, journal_lines(*)')
+            .eq('organization_id', targetOrg)
+            .gte('transaction_date', fiscalYearRange.startDate)
+            .lte('transaction_date', fiscalYearRange.endDate)
+            .order('transaction_date', { ascending: false })
+            .range(from, to)
+        ).then(data => ({ data, error: null })),
+        supabase.from('cost_centers').select('*').eq('organization_id', targetOrg).order('name'),
+        supabase.from('budgets').select('*').eq('organization_id', targetOrg)
+      ]);
+      if (accs.data) {
+        setAccounts(accs.data.map((acc: Record<string, any>) => ({
+          ...acc,
+          isGroup: Boolean(acc.is_group ?? acc.isGroup),
+          type: acc.type ? acc.type.toUpperCase() : acc.type
+        })));
+      }
+      if (ents.data) setEntries(ents.data);
+      if (ccs.data) setCostCenters(ccs.data);
+      if (budgetData.data) setBudgets(budgetData.data);
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshAccountsAndLedger:', e);
+    }
+  }, [getEffectiveOrgId, fiscalYearRange.startDate, fiscalYearRange.endDate]);
+
+  const refreshCustomers = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      const res = await fetchAllTableRecords('customers', q => q.eq('organization_id', targetOrg).is('deleted_at', null).order('name'));
+      if (res.data) setCustomers(res.data);
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshCustomers:', e);
+    }
+  }, [getEffectiveOrgId]);
+
+  const refreshSuppliers = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      const res = await fetchAllTableRecords('suppliers', q => q.eq('organization_id', targetOrg).is('deleted_at', null).order('name'));
+      if (res.data) setSuppliers(res.data);
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshSuppliers:', e);
+    }
+  }, [getEffectiveOrgId]);
+
+  const refreshProductsAndInventory = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      const [prods, trns, cats, whs] = await Promise.all([
+        fetchAllTableRecords('products', q => q.eq('organization_id', targetOrg).is('deleted_at', null).order('name')),
+        fetchCompleteDataset<StockTransfer>(async (from, to) =>
+          supabase.from('stock_transfers')
+            .select('*')
+            .eq('organization_id', targetOrg)
+            .order('transfer_date', { ascending: false })
+            .range(from, to)
+        ).then(data => ({ data, error: null })),
+        supabase.from('item_categories').select('*').eq('organization_id', targetOrg).order('name'),
+        supabase.from('warehouses').select('*').eq('organization_id', targetOrg).eq('is_active', true)
+      ]);
+      if (prods.data) {
+        setProducts(prods.data);
+        offlineService.seedFallbackProducts(prods.data).catch(() => {});
+      }
+      if (trns.data) setTransfers(trns.data);
+      if (cats.data) {
+        setCategories(cats.data);
+        setMenuCategories(cats.data);
+      }
+      if (whs.data) setWarehouses(whs.data);
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshProductsAndInventory:', e);
+    }
+  }, [getEffectiveOrgId]);
+
+  const refreshSalesAndPurchases = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      const [pinvs, invs] = await Promise.all([
+        fetchCompleteDataset<PurchaseInvoice>(async (from, to) =>
+          supabase.from('purchase_invoices')
+            .select('*')
+            .eq('organization_id', targetOrg)
+            .gte('invoice_date', fiscalYearRange.startDate)
+            .lte('invoice_date', fiscalYearRange.endDate)
+            .order('invoice_date', { ascending: false })
+            .range(from, to)
+        ).then(data => ({ data, error: null })),
+        fetchCompleteDataset<Invoice>(async (from, to) =>
+          supabase.from('invoices')
+            .select('*')
+            .eq('organization_id', targetOrg)
+            .gte('invoice_date', fiscalYearRange.startDate)
+            .lte('invoice_date', fiscalYearRange.endDate)
+            .order('invoice_date', { ascending: false })
+            .range(from, to)
+        ).then(data => ({ data, error: null }))
+      ]);
+      if (pinvs.data) setPurchaseInvoices(pinvs.data);
+      if (invs.data) setInvoices(invs.data);
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshSalesAndPurchases:', e);
+    }
+  }, [getEffectiveOrgId, fiscalYearRange.startDate, fiscalYearRange.endDate]);
+
+  const refreshBankingAndShift = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      interface RawVoucherFetchRow {
+        payment_date?: string | null;
+        date?: string | null;
+        created_at?: string | null;
+        notes?: string | null;
+        description?: string | null;
+        supplier_id?: string | null;
+        party_id?: string | null;
+        [key: string]: unknown;
+      }
+
+      const [chqs, shift, vchrs] = await Promise.all([
+        fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
+          supabase.from('cheques')
+            .select('*')
+            .eq('organization_id', targetOrg)
+            .order('due_date')
+            .range(from, to)
+        ).then(data => ({ data, error: null })),
+        supabase.rpc('get_active_shift', { p_org_id: targetOrg }),
+        fetchCompleteDataset<RawVoucherFetchRow>(async (from, to) =>
+          supabase.from('payment_vouchers')
+            .select('*')
+            .eq('organization_id', targetOrg)
+            .is('deleted_at', null)
+            .order('payment_date', { ascending: false })
+            .range(from, to)
+        ).then(data => ({ data, error: null }))
+      ]);
+      if (chqs.data) setCheques(chqs.data);
+      if (vchrs.data) {
+        const mappedVchrs = (vchrs.data || []).map((row: RawVoucherFetchRow) => ({
+          ...row,
+          date: (row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : '')) as string,
+          payment_date: (row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : '')) as string,
+          description: (row.notes || row.description || '') as string,
+          notes: (row.notes || row.description || '') as string,
+          type: 'payment',
+          subType: row.supplier_id ? 'supplier' : 'account',
+          party_id: (row.supplier_id || row.party_id) as string,
+        }));
+        setVouchers(mappedVchrs);
+      }
+      const activeShiftData = Array.isArray(shift.data) ? shift.data[0] : shift.data;
+      if (activeShiftData && activeShiftData.id) {
+        setCurrentShift(activeShiftData);
+      }
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshBankingAndShift:', e);
+    }
+  }, [getEffectiveOrgId]);
+
+  const refreshAssets = useCallback(async () => {
+    const targetOrg = getEffectiveOrgId();
+    if (!targetOrg || targetOrg === 'org-default-offline') return;
+    try {
+      const data = await fetchCompleteDataset<Asset>(async (from, to) =>
+        supabase.from('assets').select('*').eq('organization_id', targetOrg).is('deleted_at', null).range(from, to)
+      );
+      if (data) setAssets(data);
+      setLastUpdated(new Date());
+    } catch (e) {
+      logger.error('Error in refreshAssets:', e);
+    }
+  }, [getEffectiveOrgId]);
 
   // --- تنفيذ الدوال المطلوبة (RPC Wrappers) ---
   const clearCache = () => { window.location.reload(); };
@@ -2612,21 +3213,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     if (error) {
       if (process.env.NODE_ENV === 'development') {
-        console.error('Error fetching paged entries:', error);
+        logger.error('Error fetching paged entries:', error);
       }
       return { data: [], count: 0 };
     }
 
     return { data: data || [], count: count || 0 };
   }, [currentSelectedOrgId, currentUser?.organization_id]); 
-  const addEntry = async (entry: any) => {
+  const addEntry = async (entry: DynamicParam) => {
     const targetOrgId = entry.p_org_id || entry.organization_id || currentSelectedOrgId || currentUser?.organization_id;
     const sanitizedLines = (entry.lines || [])
-      .filter((l: any) => {
+      .filter((l: Record<string, any>) => {
         const accId = l.accountId || l.account_id;
         return accId && typeof accId === 'string' && accId.trim() !== '' && (Number(l.debit) > 0 || Number(l.credit) > 0);
       })
-      .map((l: any) => ({
+      .map((l: Record<string, any>) => ({
         accountId: l.accountId || l.account_id,
         account_id: l.accountId || l.account_id,
         debit: Number(l.debit || 0),
@@ -2635,11 +3236,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }));
 
     if (sanitizedLines.length === 0) {
-      console.warn('addEntry: No valid lines to post journal entry');
+      logger.warn('addEntry: No valid lines to post journal entry');
       return;
     }
 
-    const payload: any = {
+    const payload: Record<string, any> = {
       date: entry.date || new Date().toISOString().split('T')[0],
       description: entry.description || null,
       reference: entry.reference || null,
@@ -2648,9 +3249,23 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_org_id: targetOrgId
     };
 
+    const balanceCheck = validateEntryBalance({
+      reference: entry.reference || 'JE-DRAFT',
+      date: payload.date,
+      lines: sanitizedLines
+    });
+
+    if (!balanceCheck.isBalanced) {
+      const errMsg = `القيد المحاسبي غير متوازن: إجمالي المدين (${balanceCheck.totalDebit}) لا يساوي إجمالي الدائن (${balanceCheck.totalCredit}) بفارق ${balanceCheck.difference}`;
+      logger.error('addEntry balance error:', errMsg);
+      showToast(errMsg, 'error');
+      throw new Error(errMsg);
+    }
+
     const { error } = await supabase.rpc('add_journal_entry', payload);
     if (error) throw error;
-    refreshData();
+    logActivity('إنشاء قيد يومية', `قيد مرجعي: ${payload.reference || 'عام'}`);
+    await refreshAccountsAndLedger();
   };
   const getSystemAccount = (key: string) => {
     const mappingId = settings.account_mappings?.[key];
@@ -2731,28 +3346,72 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     return undefined;
   };
-  const updateVoucher = async () => true;
+  const updateVoucher = async (id: string, updates: DynamicParam) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const sanitizedUpdates: Record<string, any> = {};
+    if (updates.amount !== undefined) sanitizedUpdates.amount = updates.amount;
+    if (updates.notes !== undefined) sanitizedUpdates.notes = updates.notes;
+    else if (updates.description !== undefined) sanitizedUpdates.notes = updates.description;
+    if (updates.payment_date !== undefined) sanitizedUpdates.payment_date = updates.payment_date;
+    else if (updates.date !== undefined) sanitizedUpdates.payment_date = updates.date;
+    if (sanitizedUpdates.payment_date) sanitizedUpdates.date = sanitizedUpdates.payment_date;
+    if (updates.treasury_account_id !== undefined) sanitizedUpdates.treasury_account_id = updates.treasury_account_id;
+    if (updates.cost_center_id !== undefined) sanitizedUpdates.cost_center_id = updates.cost_center_id;
+    if (updates.payment_method !== undefined) sanitizedUpdates.payment_method = updates.payment_method;
+    if (updates.supplier_id !== undefined) sanitizedUpdates.supplier_id = updates.supplier_id;
+    else if (updates.party_id !== undefined) sanitizedUpdates.supplier_id = updates.party_id;
+    if (updates.voucher_number !== undefined) sanitizedUpdates.voucher_number = updates.voucher_number;
+    if (updates.recipient_name !== undefined) sanitizedUpdates.recipient_name = updates.recipient_name;
+    if (updates.currency !== undefined) sanitizedUpdates.currency = updates.currency;
+    if (updates.exchange_rate !== undefined) sanitizedUpdates.exchange_rate = updates.exchange_rate;
+
+    let query = supabase.from('payment_vouchers').update(sanitizedUpdates).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
+    if (error) {
+      logger.error('updateVoucher error:', error);
+      showToast('فشل تعديل السند: ' + error.message, 'error');
+      return false;
+    }
+    showToast('تم تعديل السند بنجاح ✅', 'success');
+    await refreshData();
+    return true;
+  };
   const getAccountBalanceInPeriod = async (id: string, start: string, end: string) => { 
     const { data } = await supabase.rpc('get_account_balance_in_period', { p_account_id: id, p_start_date: start, p_end_date: end, p_org_id: currentSelectedOrgId });
     return data || 0;
   };
-  const addAccount = async (acc: any) => { 
+  const addAccount = async (acc: Partial<Account>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { data, error } = await supabase.from('accounts').insert({ ...acc, organization_id: targetOrgId }).select().single(); 
     if (error) throw error;
-    await refreshData(); return data; 
+    await refreshAccountsAndLedger(); return data; 
   };
-  const updateAccount = async (id: string, updates: any) => { await supabase.from('accounts').update(updates).eq('id', id); refreshData(); };
-  const deleteAccount = async (id: string, reason?: string) => { const { error } = await supabase.from('accounts').delete().eq('id', id); refreshData(); return { success: !error, message: error?.message }; };
-  const clearTransactions = async () => { await supabase.rpc('clear_all_transactions'); refreshData(); };
-  const emptyRecycleBin = async (table: string) => { await supabase.rpc('empty_recycle_bin', { p_table_name: table }); refreshData(); };
-  const saveBudget = async (budget: any) => { 
+  const updateAccount = async (id: string, updates: Partial<Account>) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('accounts').update(updates).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
+    if (error) throw error;
+    await refreshAccountsAndLedger();
+  };
+  const deleteAccount = async (id: string, _reason?: string) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('accounts').delete().eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
+    await refreshAccountsAndLedger();
+    return { success: !error, message: error?.message };
+  };
+  const clearTransactions = async () => { await supabase.rpc('clear_all_transactions'); await refreshAccountsAndLedger(); };
+  const emptyRecycleBin = async (table: string) => { await supabase.rpc('empty_recycle_bin', { p_table_name: table }); await refreshData(); };
+  const saveBudget = async (budget: Record<string, any>) => { 
     const { error } = await supabase.from('budgets').upsert(budget); 
     if (error) {
       showToast('فشل حفظ الموازنة: ' + error.message, 'error');
     } else {
       showToast('تم حفظ الموازنة بنجاح ✅', 'success');
-      refreshData(); 
+      await refreshAccountsAndLedger(); 
     }
   };
   // Inventory
@@ -2761,30 +3420,48 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_product_id: productId || null, 
       p_org_id: currentSelectedOrgId || currentUser?.organization_id || null 
     }); 
-        if (error) {
+    if (error) {
       showToast('فشل إعادة حساب المخزون: ' + error.message, 'error');
     } else {
       showToast('تم تحديث المخزون بنجاح ✅', 'success');
-      await refreshData(); // 🚀 الانتظار ضروري لتحديث الحالة قبل إغلاق اللودر في الواجهة
+      await refreshProductsAndInventory();
     }
-  };  const addProduct = async (data: any) => { 
+  };
+
+  const addProduct = async (data: Partial<Product>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const payload = { ...data, organization_id: targetOrgId };
+    const toNullableUUID = (v: unknown) => {
+      if (!v || typeof v !== 'string' || v.trim() === '') return null;
+      const trimmed = v.trim();
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ? trimmed : null;
+    };
+
+    const payload: Record<string, any> = { 
+      ...data, 
+      organization_id: targetOrgId,
+      created_by: currentUser?.id || null,
+      updated_by: currentUser?.id || null
+    };
     
-    // إزالة الحقول غير الموجودة في جدول الأصناف بقاعدة البيانات
-    const firstProd = products.length > 0 ? products[0] : null;
-    if (firstProd) {
-      if (!('supplier_id' in firstProd)) delete payload.supplier_id;
-      if (!('egs_code' in firstProd)) delete payload.egs_code;
-      if (!('item_code_type' in firstProd)) delete payload.item_code_type;
-      if (!('eta_unit_code' in firstProd)) delete payload.eta_unit_code;
+    if ('category_id' in payload) payload.category_id = toNullableUUID(payload.category_id);
+    if ('base_uom_id' in payload) payload.base_uom_id = toNullableUUID(payload.base_uom_id);
+    if ('purchase_uom_id' in payload) payload.purchase_uom_id = toNullableUUID(payload.purchase_uom_id);
+    if ('sale_uom_id' in payload) payload.sale_uom_id = toNullableUUID(payload.sale_uom_id);
+    if ('inventory_account_id' in payload) payload.inventory_account_id = toNullableUUID(payload.inventory_account_id);
+    if ('cogs_account_id' in payload) payload.cogs_account_id = toNullableUUID(payload.cogs_account_id);
+    if ('sales_account_id' in payload) payload.sales_account_id = toNullableUUID(payload.sales_account_id);
+    if ('supplier_id' in payload) {
+      if (!payload.supplier_id || payload.supplier_id === '') {
+        delete payload.supplier_id;
+      } else {
+        payload.supplier_id = toNullableUUID(payload.supplier_id);
+      }
     }
 
-    let p: any = null;
-    let error: any = null;
+    let p: DynamicParam = null;
+    let error: DynamicParam = null;
 
-    // محاولة الإدخال مع معالجة ديناميكية لأي عمود مفقود من قاعدة البيانات
-    for (let attempt = 0; attempt < 5; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       const res = await supabase.from('products').insert(payload).select().single();
       p = res.data;
       error = res.error;
@@ -2796,34 +3473,48 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           delete payload[match[1]];
           continue;
         }
-        if (error.message?.includes('supplier_id') && 'supplier_id' in payload) {
-          delete payload.supplier_id;
-          continue;
-        }
       }
       break;
     }
 
-    if (error) throw error;
-    await refreshData(); return p; 
-  };
-  const updateProduct = async (id: string, data: any) => { 
-    const payload = { ...data };
-    
-    // إزالة الحقول غير الموجودة في جدول الأصناف بقاعدة البيانات
-    const firstProd = products.length > 0 ? products[0] : null;
-    if (firstProd) {
-      if (!('supplier_id' in firstProd)) delete payload.supplier_id;
-      if (!('egs_code' in firstProd)) delete payload.egs_code;
-      if (!('item_code_type' in firstProd)) delete payload.item_code_type;
-      if (!('eta_unit_code' in firstProd)) delete payload.eta_unit_code;
+    if (error) {
+      logger.error('addProduct error:', error);
+      showToast('فشل إضافة الصنف: ' + error.message, 'error');
+      throw error;
     }
+    showToast('تمت إضافة الصنف بنجاح ✅', 'success');
+    logActivity('إضافة صنف', `تمت إضافة الصنف: ${data.name || ''}`);
+    await refreshProductsAndInventory(); 
+    return p; 
+  };
+  const updateProduct = async (id: string, data: Partial<Product>) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const toNullableUUID = (v: unknown) => {
+      if (!v || typeof v !== 'string' || v.trim() === '') return null;
+      const trimmed = v.trim();
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ? trimmed : null;
+    };
 
-    let error: any = null;
+    const payload: Record<string, any> = { ...data };
+    delete payload.id;
+    delete payload.organization_id;
+    if (currentUser?.id) payload.updated_by = currentUser.id;
 
-    // محاولة التحديث مع معالجة ديناميكية لأي عمود مفقود من قاعدة البيانات
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const res = await supabase.from('products').update(payload).eq('id', id);
+    if ('category_id' in payload) payload.category_id = toNullableUUID(payload.category_id);
+    if ('base_uom_id' in payload) payload.base_uom_id = toNullableUUID(payload.base_uom_id);
+    if ('purchase_uom_id' in payload) payload.purchase_uom_id = toNullableUUID(payload.purchase_uom_id);
+    if ('sale_uom_id' in payload) payload.sale_uom_id = toNullableUUID(payload.sale_uom_id);
+    if ('inventory_account_id' in payload) payload.inventory_account_id = toNullableUUID(payload.inventory_account_id);
+    if ('cogs_account_id' in payload) payload.cogs_account_id = toNullableUUID(payload.cogs_account_id);
+    if ('sales_account_id' in payload) payload.sales_account_id = toNullableUUID(payload.sales_account_id);
+    if ('supplier_id' in payload) payload.supplier_id = toNullableUUID(payload.supplier_id);
+    
+    let error: DynamicParam = null;
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+      let query = supabase.from('products').update(payload).eq('id', id);
+      if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+      const res = await query;
       error = res.error;
       if (!error) break;
 
@@ -2833,8 +3524,104 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           delete payload[match[1]];
           continue;
         }
-        if (error.message?.includes('supplier_id') && 'supplier_id' in payload) {
-          delete payload.supplier_id;
+      }
+      break;
+    }
+
+    if (error) {
+      logger.error('updateProduct error:', error);
+      showToast('فشل تحديث الصنف: ' + error.message, 'error');
+      throw error;
+    }
+    showToast('تم تحديث بيانات الصنف بنجاح ✅', 'success');
+    logActivity('تعديل صنف', `تم تعديل بيانات الصنف رقم: ${id}`);
+    await refreshProductsAndInventory(); 
+  };
+  const deleteProduct = async (id: string, _reason?: string) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('products').update({ 
+      deleted_at: new Date().toISOString(),
+      updated_by: currentUser?.id
+    }).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
+    if (error) throw error;
+    showToast('تم نقل الصنف إلى سلة المحذوفات', 'success');
+    logActivity('حذف صنف', `تم حذف الصنف رقم: ${id}`);
+    await refreshProductsAndInventory(); 
+  };
+  const addStockTransfer = async (data: DynamicParam) => { 
+    const { error } = await supabase.from('stock_transfers').insert(data);
+    if (error) throw error;
+    await refreshProductsAndInventory(); 
+  };
+  const approveStockTransfer = async (id: string) => { 
+    const { error } = await supabase.rpc('approve_stock_transfer', { p_transfer_id: id });
+    if (error) throw error;
+    await refreshProductsAndInventory(); 
+  };
+  const cancelStockTransfer = async (id: string) => { 
+    await supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id); 
+    showToast('تم إلغاء طلب التحويل', 'info'); 
+    await refreshProductsAndInventory(); 
+  };
+  const addWarehouse = async (data: Partial<Warehouse>) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { error } = await supabase.from('warehouses').insert({ ...data, organization_id: targetOrgId }); 
+    if (error) throw error;
+    await refreshProductsAndInventory(); 
+  };
+  const updateWarehouse = async (id: string, data: Partial<Warehouse>) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('warehouses').update(data).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
+    if (error) throw error;
+    await refreshProductsAndInventory(); 
+  };
+  const deleteWarehouse = async (id: string) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('warehouses').update({ is_active: false }).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
+    if (error) throw error;
+    await refreshProductsAndInventory(); 
+  };
+  const addWastage = async (data: Record<string, any>) => { 
+    const { error } = await supabase.rpc('record_wastage', data); 
+    if (error) {
+      showToast('فشل تسجيل الهالك: ' + error.message, 'error');
+    } else {
+      showToast('تم تسجيل الهالك وتحديث المخزن ✅', 'success');
+      await refreshProductsAndInventory();
+    }
+    return !error; 
+  };
+  const produceItem = async (id: string, qty: number, whId: string, date: string, cost: number, ref: string) => { return await supabase.rpc('mfg_create_order_direct', { p_product_id: id, p_qty: qty, p_warehouse_id: whId, p_date: date, p_additional_cost: cost, p_reference: ref }); };
+
+  // Sales & Purchases
+  const addCustomer = async (data: Partial<Customer>) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const payload: Record<string, any> = {
+      ...data,
+      organization_id: targetOrgId,
+      created_by: currentUser?.id || null,
+      updated_by: currentUser?.id || null
+    };
+
+    let c: DynamicParam = null;
+    let error: DynamicParam = null;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const res = await supabase.from('customers').insert(payload).select().single();
+      c = res.data;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
           continue;
         }
       }
@@ -2842,92 +3629,167 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
 
     if (error) throw error;
-    refreshData(); 
+    logActivity('إضافة عميل', `تم إضافة العميل: ${data.name || ''}`);
+    await refreshCustomers(); 
+    return c; 
   };
-  const deleteProduct = async (id: string, reason?: string) => { 
-    // تم إزالة تحديث حقل 'notes' لأن الجدول لا يحتوي عليه في قاعدة البيانات حالياً
-    const { error } = await supabase.from('products').update({ deleted_at: new Date().toISOString() }).eq('id', id);
-          
-    if (error) throw error;
-    showToast('تم نقل الصنف إلى سلة المحذوفات', 'success');
-    refreshData(); 
-  };
-  const addStockTransfer = async (data: any) => { 
-    const { error } = await supabase.from('stock_transfers').insert(data);
-    if (error) throw error;
-    refreshData(); 
-  };
-  const approveStockTransfer = async (id: string) => { 
-    const { error } = await supabase.rpc('approve_stock_transfer', { p_transfer_id: id });
-    if (error) throw error;
-    refreshData(); 
-  };
-  const cancelStockTransfer = async (id: string) => { await supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id); showToast('تم إلغاء طلب التحويل', 'info'); refreshData(); };
-  const addWarehouse = async (data: any) => { 
+  const updateCustomer = async (id: string, data: Partial<Customer>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { error } = await supabase.from('warehouses').insert({ ...data, organization_id: targetOrgId }); 
-    if (error) throw error;
-    await refreshData(); 
-  };
-   const updateWarehouse = async (id: string, data: any) => { 
-    const { error } = await supabase.from('warehouses').update(data).eq('id', id);
-    if (error) throw error;
-    refreshData(); 
-  };
-  const deleteWarehouse = async (id: string) => { 
-    const { error } = await supabase.from('warehouses').update({ is_active: false }).eq('id', id);
-    if (error) throw error;
-    refreshData(); 
-  };
-  const addWastage = async (data: any) => { 
-    const { error } = await supabase.rpc('record_wastage', data); 
-    if (error) {
-      showToast('فشل تسجيل الهالك: ' + error.message, 'error');
-    } else {
-      showToast('تم تسجيل الهالك وتحديث المخزن ✅', 'success');
-      refreshData();
-    }
-    return !error; 
-  };
-  const produceItem = async (id: string, qty: number, whId: string, date: string, cost: number, ref: string) => { return await supabase.rpc('mfg_create_order_direct', { p_product_id: id, p_qty: qty, p_warehouse_id: whId, p_date: date, p_additional_cost: cost, p_reference: ref }); };
+    const payload: Record<string, any> = { ...data };
+    delete payload.id;
+    delete payload.organization_id;
+    if (currentUser?.id) payload.updated_by = currentUser.id;
 
-  // Sales & Purchases
-  const addCustomer = async (data: any) => { 
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { data: c, error } = await supabase.from('customers').insert({ ...data, organization_id: targetOrgId }).select().single(); 
+    let error: DynamicParam = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      let query = supabase.from('customers').update(payload).eq('id', id);
+      if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+      const res = await query;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
+    }
+
     if (error) throw error;
-    await refreshData(); return c; 
-  };
-  const updateCustomer = async (id: string, data: any) => { 
-    const { error } = await supabase.from('customers').update(data).eq('id', id);
-    if (error) throw error;
-    refreshData(); 
+    logActivity('تعديل عميل', `تم تعديل بيانات العميل رقم: ${id}`);
+    await refreshCustomers(); 
   };
   const deleteCustomer = async (id: string, reason?: string) => { 
-    const { error } = await supabase.from('customers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
-    if (error) throw error;
-    refreshData(); 
-  };
-  const addSupplier = async (data: any) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { data: s, error } = await supabase.from('suppliers').insert({ ...data, organization_id: targetOrgId }).select().single(); 
+    const payload: Record<string, any> = {
+      deleted_at: new Date().toISOString(),
+      deletion_reason: reason || null
+    };
+    if (currentUser?.id) payload.updated_by = currentUser.id;
+
+    let error: DynamicParam = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      let query = supabase.from('customers').update(payload).eq('id', id);
+      if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+      const res = await query;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
+    }
+
+    if (error) throw error;
+    logActivity('حذف عميل', `تم حذف العميل رقم: ${id}`);
+    await refreshCustomers(); 
+  };
+  const addSupplier = async (data: Partial<Supplier>) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const payload: Record<string, any> = {
+      name: data.name?.trim() || '',
+      code: data.code?.trim() || null,
+      phone: data.phone?.trim() || null,
+      email: data.email?.trim() || null,
+      tax_number: (data.tax_number || (data as any).tax_id || (data as any).taxId)?.trim() || null,
+      tax_id: ((data as any).tax_id || (data as any).taxId || data.tax_number)?.trim() || null,
+      address: data.address?.trim() || null,
+      contact_person: (data.contact_person || (data as any).contactPerson)?.trim() || null,
+      opening_balance: Number(data.opening_balance || 0),
+      credit_limit: Number(data.credit_limit || 0),
+      organization_id: targetOrgId,
+      created_by: currentUser?.id || null,
+      updated_by: currentUser?.id || null
+    };
+
+    let s: DynamicParam = null;
+    let error: DynamicParam = null;
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const res = await supabase.from('suppliers').insert(payload).select().single();
+      s = res.data;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
+    }
+
     if (error) {
       showToast('فشل إضافة المورد: ' + error.message, 'error');
       throw error;
     }
     showToast('تم إضافة المورد بنجاح ✅', 'success');
-    await refreshData();
+    logActivity('إضافة مورد', `تم إضافة المورد: ${data.name || ''}`);
+    await refreshSuppliers();
     return s; 
   };
-    const updateSupplier = async (id: string, data: any) => { 
-    const { error } = await supabase.from('suppliers').update(data).eq('id', id);
+  const updateSupplier = async (id: string, data: Partial<Supplier>) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const payload: Record<string, any> = { ...data };
+    delete payload.id;
+    delete payload.organization_id;
+    if (currentUser?.id) payload.updated_by = currentUser.id;
+
+    let error: DynamicParam = null;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      let query = supabase.from('suppliers').update(payload).eq('id', id);
+      if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+      const res = await query;
+      error = res.error;
+      if (!error) break;
+
+      if (error.code === 'PGRST204' || error.message?.includes('schema cache')) {
+        const match = error.message?.match(/Could not find the '([^']+)' column/i);
+        if (match && match[1] && match[1] in payload) {
+          delete payload[match[1]];
+          continue;
+        }
+      }
+      break;
+    }
+
     if (error) throw error;
-    refreshData(); 
+    logActivity('تعديل مورد', `تم تعديل بيانات المورد رقم: ${id}`);
+    await refreshSuppliers(); 
   };
   const deleteSupplier = async (id: string, reason?: string) => { 
-    const { error } = await supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
+    // حذف قيد الرصيد الافتتاحي المرتبط بالمورد إن وجد لتفادي بقائه معلقاً في الأستاذ العام
+    try {
+      const { data: opEntries } = await supabase
+        .from('journal_entries')
+        .select('id')
+        .or(`reference.eq.OP-SUPP-${id},reference.ilike.%${id}%`);
+
+      if (opEntries && opEntries.length > 0) {
+        for (const opEntry of opEntries) {
+          await supabase.rpc('delete_journal_entry_safe', { p_entry_id: opEntry.id, p_org_id: null });
+        }
+      }
+    } catch (e) {
+      logger.warn('Could not auto-clean opening balance entry for supplier:', e);
+    }
+
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('suppliers').update({ deleted_at: new Date().toISOString(), deletion_reason: reason }).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (error) throw error;
-    refreshData(); 
+    await refreshSuppliers(); 
   };
   const approveInvoice = async (id: string, orgId?: string, warehouseId?: string) => { 
     const { error } = await supabase.rpc('post_sales_invoice', { 
@@ -2936,10 +3798,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_warehouse_id: warehouseId
     }); 
     if (error) {
-      console.error('approveInvoice RPC error:', error);
+      logger.error('approveInvoice RPC error:', error);
       throw error;
     }
-    refreshData(); 
+    await refreshSalesAndPurchases(); 
     return true; 
   };
 
@@ -2950,11 +3812,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_org_id: targetOrgId
     });
     if (error) {
-      console.warn('RPC unpost_sales_invoice error:', error);
+      logger.warn('RPC unpost_sales_invoice error:', error);
       throw error;
     }
-    refreshData();
-    return true;
+    await refreshSalesAndPurchases();
+    return true; 
   };
 
   const deleteSalesInvoice = async (id: string, orgId?: string): Promise<boolean> => {
@@ -2964,11 +3826,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_org_id: targetOrgId
     });
     if (error) {
-      console.warn('RPC delete_sales_invoice error:', error);
+      logger.warn('RPC delete_sales_invoice error:', error);
       throw error;
     }
-    refreshData();
-    return true;
+    await refreshSalesAndPurchases();
+    return true; 
   };
 
   const approvePurchaseInvoice = async (id: string, orgId?: string, warehouseId?: string) => { 
@@ -2982,7 +3844,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       throw error;
     } else {
       showToast('تم اعتماد فاتورة المشتريات وتحديث المخزون بنجاح ✅', 'success');
-      refreshData();
+      await refreshSalesAndPurchases();
     }
   };
 
@@ -2993,11 +3855,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_org_id: targetOrgId
     });
     if (error) {
-      console.warn('RPC unpost_purchase_invoice error:', error);
+      logger.warn('RPC unpost_purchase_invoice error:', error);
       throw error;
     }
-    refreshData();
-    return true;
+    await refreshSalesAndPurchases();
+    return true; 
   };
 
   const deletePurchaseInvoice = async (id: string, orgId?: string): Promise<boolean> => {
@@ -3007,11 +3869,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       p_org_id: targetOrgId
     });
     if (error) {
-      console.warn('RPC delete_purchase_invoice error:', error);
+      logger.warn('RPC delete_purchase_invoice error:', error);
       throw error;
     }
-    refreshData();
-    return true;
+    await refreshSalesAndPurchases();
+    return true; 
   };
   const convertPoToInvoice = async (id: string, warehouseId?: string, orgId?: string) => { 
     const { error } = await supabase.rpc('convert_po_to_invoice', { 
@@ -3023,7 +3885,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       showToast('فشل تحويل أمر الشراء: ' + error.message, 'error');
     } else {
       showToast('تم تحويل أمر الشراء إلى فاتورة بنجاح ✅', 'success');
-      refreshData();
+      await refreshSalesAndPurchases();
     }
   };
   const addOpeningBalanceTransaction = async (id: string, type: string, amount: number, date: string, name: string) => {
@@ -3041,7 +3903,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       refreshData();
     }
   };
-  const addPaymentVoucher = async (data: any) => { 
+  const addPaymentVoucher = async (data: DynamicParam) => { 
     const { data: { session } } = await supabase.auth.getSession();
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id || (currentUser as any)?.user_metadata?.org_id;
     const supplierId = data.partyId || data.supplierId || data.supplier_id;
@@ -3073,6 +3935,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (dbAcc) supplierAccId = dbAcc.id;
     }
 
+    // 🛡️ التحقق القبلي الصارم لمنع إنشاء سندات صرف معلقة بدون أطراف محاسبية
+    if (amount > 0 && !supplierAccId) {
+      showToast('لا يمكن إنشاء سند الصرف: لم يتم تحديد حساب المورد أو حساب الموردين الافتراضي', 'error');
+      throw new Error('لم يتم تحديد حساب المورد أو حساب الموردين الافتراضي');
+    }
+    if (amount > 0 && !treasuryId) {
+      showToast('لا يمكن إنشاء سند الصرف: يجب اختيار حساب الخزينة أو البنك', 'error');
+      throw new Error('يجب اختيار حساب الخزينة أو البنك');
+    }
+
     // 1. إدراج السند في جدول payment_vouchers
     const { data: pvData, error: pvError } = await supabase.from('payment_vouchers').insert({
       voucher_number: voucherNumber,
@@ -3086,7 +3958,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }).select('id').maybeSingle();
 
     if (pvError) {
-      console.warn('payment_vouchers insert warning:', pvError);
+      logger.error('payment_vouchers insert error:', pvError);
+      showToast('فشل إنشاء سند الصرف: ' + pvError.message, 'error');
+      throw pvError;
     }
 
     const voucherId = pvData?.id;
@@ -3104,7 +3978,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           });
           if (!rpcErr) entryCreated = true;
         } catch (rpcEx) {
-          console.warn('approve_payment_voucher RPC failed, falling back to manual entry:', rpcEx);
+          logger.warn('approve_payment_voucher RPC failed, falling back to manual entry:', rpcEx);
         }
       }
 
@@ -3124,7 +3998,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           });
           entryCreated = true;
         } catch (addErr) {
-          console.warn('addEntry RPC failed, falling back to direct table insert:', addErr);
+          logger.warn('addEntry RPC failed, falling back to direct table insert:', addErr);
         }
       }
 
@@ -3147,7 +4021,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             .single();
 
           if (!jeErr && newJe) {
-            await supabase.from('journal_lines').insert([
+            const { error: linesErr } = await supabase.from('journal_lines').insert([
               {
                 journal_entry_id: newJe.id,
                 account_id: supplierAccId,
@@ -3166,6 +4040,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
               }
             ]);
 
+            if (linesErr) {
+              await supabase.from('journal_entries').delete().eq('id', newJe.id);
+              throw linesErr;
+            }
+
             if (voucherId) {
               await supabase
                 .from('payment_vouchers')
@@ -3175,8 +4054,23 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             entryCreated = true;
           }
         } catch (directErr) {
-          console.error('Direct journal entry insert error:', directErr);
+          logger.error('Direct journal entry insert error:', directErr);
+          showToast('تعذر إنشاء القيد المحاسبي المباشر للسند: ' + (directErr?.message || ''), 'warning');
         }
+      }
+
+      // 🛡️ تراجع تعويضي فوري (Compensating Rollback): في حال فشل إنشاء القيود، يُحذف السند لمنع أي أثر يتيم
+      if (!entryCreated) {
+        if (voucherId) {
+          try {
+            await supabase.from('payment_vouchers').delete().eq('id', voucherId);
+            logger.warn(`Compensating rollback executed: deleted orphan payment voucher ${voucherId}`);
+          } catch (rbErr) {
+            logger.error('Failed to compensate voucher delete:', rbErr);
+          }
+        }
+        showToast('فشل إنشاء القيد المحاسبي لسند الصرف، تم التراجع عن إنشاء السند تلقائياً لضمان توازن الدفاتر ❌', 'error');
+        throw new Error('فشل إنشاء القيد المحاسبي لسند الصرف، تم التراجع عن العملية.');
       }
     }
 
@@ -3198,7 +4092,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             .eq('id', data.invoiceId);
         }
       } catch (invErr) {
-        console.error('Failed to update purchase invoice paid_amount:', invErr);
+        logger.error('Failed to update purchase invoice paid_amount:', invErr);
+        showToast('تعذر تحديث المبلغ المسدد في فاتورة المشتريات: ' + (invErr?.message || ''), 'warning');
       }
     }
 
@@ -3207,7 +4102,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
         await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
       } catch (recErr) {
-        console.warn('recalculate balances error:', recErr);
+        logger.warn('recalculate balances error:', recErr);
       }
     }
 
@@ -3215,7 +4110,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   // Assets & Cheques
-  const addAsset = async (assetData: any) => { 
+  const addAsset = async (assetData: DynamicParam) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     
     // 1. فصل تعليمات القيد المحاسبي عن بيانات الجدول الفعلية لتجنب خطأ 400
@@ -3269,21 +4164,26 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           .eq('reference', refCode)
           .eq('organization_id', targetOrgId);
       } catch (jeError) {
-        console.error("Failed to create asset journal entry:", jeError);
+        logger.error("Failed to create asset journal entry:", jeError);
         showToast('تمت إضافة الأصل ولكن فشل إنشاء القيد آلياً، يرجى إنشاؤه يدوياً.', 'warning');
       }
     }
 
-    await refreshData(); 
+    await refreshAssets(); 
   };
-  const updateAsset = async (id: string, updates: any) => {
-    const { error } = await supabase.from('assets').update(updates).eq('id', id);
+  const updateAsset = async (id: string, updates: Partial<Asset>) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    let query = supabase.from('assets').update(updates).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (error) throw error;
-    await refreshData();
+    await refreshAssets();
   };
   const deleteAsset = async (id: string) => {
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { error } = await supabase.from('assets').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+    let query = supabase.from('assets').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (error) throw error;
 
     // إلغاء ترحيل قيود الأصل المرتبطة (الشراء والإهلاك) حتى لا تظهر في ميزان المراجعة أثناء وجود الأصل بالسلة
@@ -3300,21 +4200,74 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
       }
     } catch (e) {
-      console.warn('deleteAsset unpost fallback:', e);
+      logger.warn('deleteAsset unpost fallback:', e);
     }
 
-    await refreshData();
+    await refreshAssets();
   };
-  const runDepreciation = async (id?: string, amount?: number, date?: string) => { await supabase.rpc('run_monthly_depreciation', { p_asset_id: id, p_amount: amount, p_date: date }); refreshData(); };
-  const revaluateAsset = async (id: string, val: number, date: string, accId: string) => { await supabase.from('assets').update({ current_value: val }).eq('id', id); refreshData(); };
-  const addCheque = async (cheque: any) => { 
+  const runDepreciation = async (id?: string, amount?: number, date?: string) => { 
+    const { error } = await supabase.rpc('run_monthly_depreciation', { p_asset_id: id, p_amount: amount, p_date: date }); 
+    if (error) {
+      logger.error('runDepreciation error:', error);
+      showToast('فشل تنفيذ الإهلاك: ' + error.message, 'error');
+      throw error;
+    }
+    showToast('تم تنفيذ الإهلاك وتحديث الأرصدة بنجاح ✅', 'success');
+    await refreshAssets(); 
+  };
+  const revaluateAsset = async (id: string, val: number, date: string, accId: string) => { 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const { data: asset, error: fetchErr } = await supabase.from('assets').select('*').eq('id', id).maybeSingle();
+    if (fetchErr || !asset) {
+      showToast('تعذر العثور على بيانات الأصل لإعادة التقييم', 'error');
+      return;
+    }
+    const oldVal = Number(asset.current_value ?? asset.purchase_cost) || 0;
+    const newVal = Number(val) || 0;
+    const diff = newVal - oldVal;
+
+    let updateQuery = supabase.from('assets').update({ current_value: newVal }).eq('id', id);
+    if (targetOrgId) updateQuery = updateQuery.eq('organization_id', targetOrgId);
+    const { error: updateErr } = await updateQuery;
+    if (updateErr) {
+      showToast('فشل إعادة تقييم الأصل: ' + updateErr.message, 'error');
+      return;
+    }
+
+    if (diff !== 0 && accId && asset.asset_account_id) {
+      try {
+        const isSurplus = diff > 0;
+        const absDiff = Math.abs(diff);
+        await addEntry({
+          date: date || new Date().toISOString().split('T')[0],
+          description: `إعادة تقييم الأصل: ${asset.name} (${isSurplus ? 'فائض' : 'عجز'} تقييم)`,
+          reference: `REVAL-${asset.id.slice(0, 8).toUpperCase()}`,
+          status: 'posted',
+          p_org_id: targetOrgId,
+          lines: isSurplus ? [
+            { accountId: asset.asset_account_id, debit: absDiff, credit: 0, description: `زيادة قيمة الأصل ${asset.name}` },
+            { accountId: accId, debit: 0, credit: absDiff, description: `احتياطي فائض إعادة التقييم` }
+          ] : [
+            { accountId: accId, debit: absDiff, credit: 0, description: `خسائر وعجز إعادة تقييم الأصل` },
+            { accountId: asset.asset_account_id, debit: 0, credit: absDiff, description: `تخفيض قيمة الأصل ${asset.name}` }
+          ]
+        });
+      } catch (jeErr) {
+        logger.warn('Revaluation journal entry notice:', jeErr);
+      }
+    }
+
+    showToast('تمت إعادة تقييم الأصل بنجاح ✅', 'success');
+    await refreshAssets(); 
+  };
+  const addCheque = async (cheque: Partial<Cheque>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { error } = await supabase.from('cheques').insert({ ...cheque, organization_id: targetOrgId }); 
     if (error) throw error;
-    await refreshData(); 
+    await refreshBankingAndShift(); 
   };
 
-  const updateCheque = async (id: string, cheque: any) => {
+  const updateCheque = async (id: string, cheque: Partial<Cheque>) => {
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const { error } = await supabase
       .from('cheques')
@@ -3335,7 +4288,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     try {
       await supabase.rpc('post_cheque_journal_entry', { p_cheque_id: id });
     } catch (e) {
-      console.warn('post_cheque_journal_entry fallback:', e);
+      logger.warn('post_cheque_journal_entry fallback:', e);
     }
 
     try {
@@ -3344,17 +4297,46 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // ignore
     }
 
-    await refreshData();
+    await refreshBankingAndShift();
   };
 
   const deleteCheque = async (id: string) => {
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     
-    // 1. جلب معرف القيد المحاسبي المربوط بالشيك
-    const { data: chq } = await supabase.from('cheques').select('related_journal_entry_id').eq('id', id).single();
+    // 1. جلب بيانات الشيك والقيود المحاسبية المرتبطة به
+    const { data: chq, error: fetchErr } = await supabase
+      .from('cheques')
+      .select('id, related_journal_entry_id, status')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (fetchErr || !chq) {
+      throw new Error(fetchErr?.message || 'تعذر العثور على سجل الشيك المطلوب حذفه');
+    }
     
-    // 2. حذف قيود اليومية المرتبطة بالشيك
-    if (chq?.related_journal_entry_id) {
+    // 2. فك ارتباط القيد المحاسبي بالشيك أولاً لتجنب انتهاك قيود المفاتيح الأجنبية
+    if (chq.related_journal_entry_id) {
+      await supabase.from('cheques').update({ related_journal_entry_id: null }).eq('id', id);
+    }
+
+    // 3. حذف مرفقات الشيك
+    await supabase.from('cheque_attachments').delete().eq('cheque_id', id);
+
+    // 4. حذف سجل الشيك الرئيسي أولاً
+    let delQuery = supabase.from('cheques').delete().eq('id', id);
+    if (targetOrgId) delQuery = delQuery.eq('organization_id', targetOrgId);
+    const { error: delError } = await delQuery;
+
+    if (delError) {
+      // 🛡️ تراجع فوري: إعادة ربط القيد المحاسبي بالشيك في حال فشل حذف الشيك
+      if (chq.related_journal_entry_id) {
+        await supabase.from('cheques').update({ related_journal_entry_id: chq.related_journal_entry_id }).eq('id', id);
+      }
+      throw delError;
+    }
+
+    // 5. بعد نجاح حذف الشيك بشكل مؤكد، يتم حذف قيود اليومية المرتبطة بأمان
+    if (chq.related_journal_entry_id) {
       await supabase.from('journal_lines').delete().eq('journal_entry_id', chq.related_journal_entry_id);
       await supabase.from('journal_entries').delete().eq('id', chq.related_journal_entry_id);
     }
@@ -3372,21 +4354,16 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       await supabase.from('journal_entries').delete().in('id', entryIds);
     }
 
-    // 3. حذف مرفقات الشيك
-    await supabase.from('cheque_attachments').delete().eq('cheque_id', id);
-
-    // 4. حذف سجل الشيك
-    const { error: delError } = await supabase.from('cheques').delete().eq('id', id);
-    if (delError) throw delError;
-
-    // 5. تحديث الأرصدة
+    // 6. تحديث الأرصدة
     try {
-      await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
+      if (targetOrgId) {
+        await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
+      }
     } catch (e) {
       // ignore
     }
 
-    await refreshData();
+    await refreshBankingAndShift();
   };
   const updateChequeStatus = async (id: string, status: string, date: string, bankId?: string) => {
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
@@ -3403,18 +4380,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           p_user_id: currentUser?.id || null
         });
         if (!rpcError && (rpcRes?.success || rpcRes === true)) {
-          await refreshData();
+          await refreshBankingAndShift();
           return;
         }
         if (rpcError) {
-          console.warn('RPC cash_or_collect_cheque fallback to manual:', rpcError);
+          logger.warn('RPC cash_or_collect_cheque fallback to manual:', rpcError);
         }
       } catch (rpcErr) {
-        console.warn('RPC cash_or_collect_cheque fallback:', rpcErr);
+        logger.warn('RPC cash_or_collect_cheque fallback:', rpcErr);
       }
     }
 
     // 2. إنشاء القيد المحاسبي المباشر عبر addEntry الآمنة
+    let createdEntryRef: string | null = null;
     try {
       const { data: cheque } = await supabase
         .from('cheques')
@@ -3470,12 +4448,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 p_org_id: targetOrgId,
                 lines: lines
               });
+              createdEntryRef = ref;
             }
           }
         }
       }
     } catch (entryErr) {
-      console.warn('Cheque journal entry creation error:', entryErr);
+      logger.warn('Cheque journal entry creation error:', entryErr);
     }
 
     // 3. التحديث عبر REST مع التراجع الذكي
@@ -3489,6 +4468,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     
     let { error } = await supabase.from('cheques').update(updatePayload).eq('id', id); 
     if (error) {
+      // 🛡️ تراجع تعويضي عن القيد المحاسبي إذا فشل تحديث حالة الشيك
+      if (createdEntryRef) {
+        try {
+          const { data: rbJe } = await supabase.from('journal_entries').select('id').eq('reference', createdEntryRef).maybeSingle();
+          if (rbJe) {
+            await supabase.from('journal_lines').delete().eq('journal_entry_id', rbJe.id);
+            await supabase.from('journal_entries').delete().eq('id', rbJe.id);
+          }
+        } catch (rbErr) {
+          logger.error('Failed to rollback cheque journal entry:', rbErr);
+        }
+      }
+
       if (error.message?.includes('current_account_id') || error.code === 'PGRST204' || error.code === '42703') {
         const { error: fallbackError } = await supabase.from('cheques').update({ status }).eq('id', id);
         if (fallbackError) throw fallbackError;
@@ -3496,9 +4488,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         throw error;
       }
     }
-    await refreshData(); 
+    await refreshBankingAndShift(); 
   };     
-  const addTransfer = async (transfer: any) => { 
+  const addTransfer = async (transfer: Record<string, any>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const targetUserId = currentUser?.id;
     const { error } = await supabase.rpc('add_treasury_transfer', {
@@ -3514,7 +4506,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await refreshData(); 
   };
 
-  const updateTransfer = async (id: string, transfer: any) => {
+  const updateTransfer = async (id: string, transfer: Record<string, any>) => {
     try {
       const { error } = await supabase.rpc('update_treasury_transfer', {
         p_journal_entry_id: id,
@@ -3531,7 +4523,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                               error.message?.includes('function') || 
                               error.message?.includes('does not exist');
         if (isFuncMissing) {
-          console.warn("RPC update_treasury_transfer not found, falling back to direct REST updates");
+          logger.warn("RPC update_treasury_transfer not found, falling back to direct REST updates");
           const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
 
           // Update journal entry
@@ -3573,8 +4565,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
       await refreshData();
-    } catch (error: any) {
-      console.error('Error updating transfer:', error);
+    } catch (error) {
+      logger.error('Error updating transfer:', error);
+      showToast('فشل تعديل التحويل المالي: ' + (error?.message || ''), 'error');
       throw error;
     }
   };
@@ -3591,7 +4584,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                               error.message?.includes('function') || 
                               error.message?.includes('does not exist');
         if (isFuncMissing) {
-          console.warn("RPC delete_treasury_transfer not found, falling back to direct REST deletion");
+          logger.warn("RPC delete_treasury_transfer not found, falling back to direct REST deletion");
           const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
 
           // Delete journal lines first
@@ -3609,15 +4602,23 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         }
       }
       await refreshData();
-    } catch (error: any) {
-      console.error('Error deleting transfer:', error);
+    } catch (error) {
+      logger.error('Error deleting transfer:', error);
+      showToast('فشل حذف التحويل المالي: ' + (error?.message || ''), 'error');
       throw error;
     }
   };
 
+  const ALLOWED_RECYCLE_TABLES = ['products', 'customers', 'suppliers', 'assets', 'warehouses', 'employees', 'restaurant_tables'];
+
   const restoreItem = async (table: string, id: string) => { 
+    if (!ALLOWED_RECYCLE_TABLES.includes(table)) {
+      return { success: false, message: 'الجدول غير مصرح به لعمليات الاسترجاع' };
+    }
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { error } = await supabase.from(table).update({ deleted_at: null }).eq('id', id); 
+    let query = supabase.from(table).update({ deleted_at: null }).eq('id', id);
+    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
+    const { error } = await query;
     if (!error && table === 'assets') {
       try {
         const prefix = id.split('-')[0].toUpperCase();
@@ -3632,14 +4633,17 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
         }
       } catch (e) {
-        console.warn('restoreItem asset repost fallback:', e);
+        logger.warn('restoreItem asset repost fallback:', e);
       }
     }
-    refreshData(); 
+    await refreshData(); 
     return { success: !error, message: error?.message }; 
   };
 
   const permanentDeleteItem = async (table: string, id: string) => { 
+    if (!ALLOWED_RECYCLE_TABLES.includes(table)) {
+      return { success: false, message: 'الجدول غير مصرح به لعمليات الحذف النهائي' };
+    }
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     if (table === 'assets') {
       try {
@@ -3671,12 +4675,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
         }
       } catch (e) {
-        console.warn('Error purging asset journal entries during permanent delete:', e);
+        logger.warn('Error purging asset journal entries during permanent delete:', e);
       }
     }
 
-    const { error } = await supabase.from(table).delete().eq('id', id); 
-    refreshData(); 
+    let delQuery = supabase.from(table).delete().eq('id', id);
+    if (targetOrgId) delQuery = delQuery.eq('organization_id', targetOrgId);
+    const { error } = await delQuery;
+    await refreshData(); 
     return { success: !error, message: error?.message }; 
   };
   const exportJournalToCSV = async () => {
@@ -3712,11 +4718,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       const XLSX = await import('xlsx');
-      const accountMap = new Map((accounts || []).map((a: any) => [a.id, a]));
+      const accountMap = new Map((accounts || []).map((a: Account | Record<string, any>) => [a.id, a]));
 
       const flatData: any[] = [];
-      data.forEach((entry: any) => {
-        (entry.journal_lines || []).forEach((line: any) => {
+      data.forEach((entry: Record<string, any>) => {
+        (entry.journal_lines || []).forEach((line: Record<string, any>) => {
           const acc = accountMap.get(line.account_id);
           flatData.push({
             'التاريخ': entry.transaction_date,
@@ -3737,21 +4743,97 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       XLSX.utils.book_append_sheet(wb, ws, "Journal Entries");
       XLSX.writeFile(wb, `General_Journal_${new Date().toISOString().split('T')[0]}.xlsx`);
       showToast('تم تصدير القيود المحاسبية بنجاح ✅', 'success');
-    } catch (err: any) {
-      console.error('Export CSV error:', err);
+    } catch (err) {
+      logger.error('Export CSV error:', err);
       showToast('فشل تصدير القيود: ' + err.message, 'error');
     }
   };
 
   // HR
-  const addEmployee = async (data: any) => { 
+  const sanitizeEmployeePayload = (data: Partial<Employee>) => {
+    const raw: Record<string, any> = { ...data };
+    const payload: Record<string, any> = {};
+
+    // 1. تحويل shift_id الفارغ إلى null لمنع خطأ تحويل UUID في PostgreSQL (invalid input syntax for type uuid: "")
+    if (raw.shift_id !== undefined) {
+      payload.shift_id = (raw.shift_id && String(raw.shift_id).trim() !== '') ? raw.shift_id : null;
+    }
+
+    // 2. التوافق المزدوج للاسم بين full_name و name
+    const empName = raw.full_name || raw.name;
+    if (empName !== undefined) {
+      payload.name = empName;
+      payload.full_name = empName;
+    }
+
+    // 3. التوافق المزدوج للراتب بين basic_salary و salary
+    const salaryVal = raw.basic_salary !== undefined ? raw.basic_salary : raw.salary;
+    if (salaryVal !== undefined && salaryVal !== null && salaryVal !== '') {
+      const numSal = Number(salaryVal) || 0;
+      payload.basic_salary = numSal;
+      payload.salary = numSal;
+    }
+
+    // 4. الحقول المعتمدة في جدول employees فقط
+    if (raw.position !== undefined) payload.position = raw.position || null;
+    if (raw.department !== undefined) payload.department = raw.department || null;
+    if (raw.phone !== undefined) payload.phone = raw.phone || null;
+    if (raw.email !== undefined) payload.email = raw.email || null;
+    if (raw.hire_date !== undefined) payload.hire_date = raw.hire_date || null;
+    if (raw.notes !== undefined) payload.notes = raw.notes || null;
+    if (raw.status !== undefined) payload.status = raw.status || 'active';
+    if (raw.hourly_rate !== undefined) payload.hourly_rate = Number(raw.hourly_rate) || 0;
+    if (raw.biometric_id !== undefined) payload.biometric_id = raw.biometric_id || null;
+    if (raw.shift_id !== undefined) payload.shift_id = (raw.shift_id && typeof raw.shift_id === 'string' && raw.shift_id.trim() !== '') ? raw.shift_id.trim() : null;
+    if (raw.organization_id !== undefined) payload.organization_id = raw.organization_id;
+
+    // 5. إدارة الحذف المؤرخ وحالة الموظف (نشط / غير نشط / منتهي)
+    if (raw.status !== undefined) {
+      if (raw.status === 'active' || raw.status === 'inactive') {
+        payload.deleted_at = null;
+      } else if (raw.status === 'terminated') {
+        payload.deleted_at = raw.deleted_at || new Date().toISOString();
+      }
+    } else if (raw.deleted_at !== undefined) {
+      payload.deleted_at = raw.deleted_at;
+    }
+
+    return payload;
+  };
+
+  const addEmployee = async (data: Partial<Employee>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { error } = await supabase.from('employees').insert({ ...data, organization_id: targetOrgId }); 
-    if (error) throw error;
+    const payload = sanitizeEmployeePayload({ ...data, organization_id: targetOrgId } as any);
+    const { error } = await supabase.from('employees').insert(payload); 
+    if (error) {
+      logger.error('Failed to add employee:', error);
+      throw error;
+    }
     await refreshData(); 
   };
-  const updateEmployee = async (id: string, data: any) => { await supabase.from('employees').update(data).eq('id', id); refreshData(); };
-  const deleteEmployee = async (id: string, reason?: string) => { await supabase.from('employees').update({ status: 'terminated', notes: reason }).eq('id', id); refreshData(); };
+
+  const updateEmployee = async (id: string, data: Partial<Employee>) => { 
+    const payload = sanitizeEmployeePayload(data);
+    const { error } = await supabase.from('employees').update(payload).eq('id', id); 
+    if (error) {
+      logger.error('Failed to update employee:', error);
+      throw error;
+    }
+    await refreshData(); 
+  };
+
+  const deleteEmployee = async (id: string, reason?: string) => { 
+    const { error } = await supabase.from('employees').update({ 
+      status: 'terminated', 
+      notes: reason || null,
+      deleted_at: new Date().toISOString()
+    }).eq('id', id); 
+    if (error) {
+      logger.error('Failed to delete employee:', error);
+      throw error;
+    }
+    await refreshData(); 
+  };
   const runPayroll = async (month: number, year: number, date: string, treasuryId: string, data: any[], orgId?: string) => {
     const { error } = await supabase.rpc('run_payroll_rpc', {
       p_month: month,
@@ -3763,20 +4845,114 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     });
     
     if (error) {
-      if (process.env.NODE_ENV === 'development') console.error("Payroll RPC Error:", error);
+      logger.error("Payroll RPC Error:", error);
       throw new Error(error.message || 'حدث خطأ أثناء تنفيذ مسير الرواتب');
     }
     
     await refreshData();
   };
 
+  const runPayrollAccrual = async (month: number, year: number, date: string, data: any[], orgId?: string) => {
+    const { data: resData, error } = await supabase.rpc('run_payroll_accrual_rpc', {
+      p_month: month,
+      p_year: year,
+      p_date: date,
+      p_items: data,
+      p_org_id: orgId || currentSelectedOrgId || null
+    });
+    
+    if (error) {
+      logger.error("Payroll Accrual RPC Error:", error);
+      throw new Error(error.message || 'حدث خطأ أثناء تنفيذ قيد استحقاق الرواتب');
+    }
+    
+    await refreshData();
+    return resData;
+  };
+
+  const payAccruedPayroll = async (params: { payrollId?: string; month?: number; year?: number; paymentDate: string; treasuryId: string; orgId?: string }) => {
+    const { data: resData, error } = await supabase.rpc('pay_accrued_payroll_rpc', {
+      p_payroll_id: params.payrollId || null,
+      p_month: params.month || null,
+      p_year: params.year || null,
+      p_payment_date: params.paymentDate,
+      p_treasury_acc: params.treasuryId,
+      p_org_id: params.orgId || currentSelectedOrgId || null
+    });
+
+    if (error) {
+      logger.error("Pay Accrued Payroll RPC Error:", error);
+      throw new Error(error.message || 'حدث خطأ أثناء صرف الرواتب وترحيل قيد النقدية');
+    }
+
+    await refreshData();
+    return resData;
+  };
+
+  const cancelPayrollAccrual = async (payrollId: string, orgId?: string) => {
+    const targetOrg = orgId || currentSelectedOrgId || null;
+    try {
+      const { error: rpcError } = await supabase.rpc('cancel_payroll_accrual_rpc', {
+        p_payroll_id: payrollId,
+        p_org_id: targetOrg
+      });
+
+      if (rpcError) {
+        logger.warn('cancel_payroll_accrual_rpc notice, applying direct rollback:', rpcError);
+
+        const { data: items } = await supabase.from('payroll_items').select('id').eq('payroll_id', payrollId);
+        const itemIds = (items || []).map((i: { id: string }) => i.id);
+
+        if (itemIds.length > 0) {
+          await supabase
+            .from('employee_advances')
+            .update({ status: 'paid', payroll_item_id: null })
+            .in('payroll_item_id', itemIds);
+        }
+
+        const { data: pData } = await supabase.from('payrolls').select('*').eq('id', payrollId).maybeSingle();
+        if (pData) {
+          if (pData.accrual_je_id) {
+            await supabase.from('journal_lines').delete().eq('journal_entry_id', pData.accrual_je_id);
+            await supabase.from('journal_entries').delete().eq('id', pData.accrual_je_id);
+          }
+          const { data: relJes } = await supabase
+            .from('journal_entries')
+            .select('id')
+            .eq('related_document_id', payrollId)
+            .eq('related_document_type', 'payroll');
+          if (relJes && relJes.length > 0) {
+            const jeIds = relJes.map((j: { id: string }) => j.id);
+            await supabase.from('journal_lines').delete().in('journal_entry_id', jeIds);
+            await supabase.from('journal_entries').delete().in('id', jeIds);
+          }
+          await supabase.from('payrolls').delete().eq('id', payrollId);
+        }
+
+        if (targetOrg) {
+          try {
+            await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrg });
+          } catch (e) {
+            // ignore
+          }
+        }
+      }
+    } catch (err: unknown) {
+      logger.error('Error cancelling payroll accrual:', err);
+      const errMsg = err instanceof Error ? err.message : 'فشل إلغاء قيد الاستحقاق';
+      throw new Error(errMsg);
+    }
+
+    await refreshData();
+  };
+
   // --- Demo Stubs ---
-  const addDemoEntry = (e: any) => console.log('Demo Entry:', e);
-  const addDemoPaymentVoucher = (v: any) => console.log('Demo Payment:', v);
-  const addDemoReceiptVoucher = (v: any) => console.log('Demo Receipt:', v);
-  const addDemoInvoice = (i: any) => console.log('Demo Invoice:', i);
-  const postDemoSalesInvoice = (inv: any) => console.log('Demo Post Invoice:', inv);
-  const addDemoPurchaseInvoice = (i: any) => console.log('Demo Purchase:', i);
+  const addDemoEntry = (e: Partial<JournalEntry> | Record<string, any>) => logger.log('Demo Entry:', e);
+  const addDemoPaymentVoucher = (v: Record<string, any>) => logger.log('Demo Payment:', v);
+  const addDemoReceiptVoucher = (v: Record<string, any>) => logger.log('Demo Receipt:', v);
+  const addDemoInvoice = (i: Partial<Invoice> | Record<string, any>) => logger.log('Demo Invoice:', i);
+  const postDemoSalesInvoice = (inv: Partial<Invoice> | Record<string, any>) => logger.log('Demo Post Invoice:', inv);
+  const addDemoPurchaseInvoice = (i: Partial<Invoice> | Record<string, any>) => logger.log('Demo Purchase:', i);
 
   // --- Restaurant Functions ---
   const finalizeProductionOrder = async (id: string, status: string, notes: string) => {
@@ -3795,7 +4971,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (error) throw error;
       refreshData();
       return data;
-    } catch (err: any) {
+    } catch (err) {
       const sessionId = 'session-' + Date.now();
       setRestaurantTables(prev => prev.map(t => t.id === tableId ? { ...t, status: 'OCCUPIED', session_id: sessionId } : t));
       setOfflineTableOrder(tableId, { sessionId, orderId: null, items: [] });
@@ -3868,7 +5044,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const createRestaurantOrder = async (payload: any) => {
+  const createRestaurantOrder = async (payload: Record<string, any>) => {
     const targetOrgId = getEffectiveOrgId();
     
     if (!navigator.onLine || isDemo) {
@@ -3879,7 +5055,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
       if (effectiveTableId) {
         const existing = getOfflineTableOrders()[effectiveTableId] || {};
-        const formattedItems = (payload.p_items || []).map((item: any, idx: number) => ({
+        const formattedItems = (payload.p_items || []).map((item: Record<string, any>, idx: number) => ({
           id: item.id || ('item-' + Date.now() + '-' + idx),
           productId: item.product_id,
           name: item.name || products.find(p => p.id === item.product_id)?.name || 'صنف',
@@ -3902,7 +5078,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
         await offlineService.queueOrder({ ...payload, orderId, organization_id: targetOrgId });
       } catch (e) {
-        console.warn('Offline order queue notice:', e);
+        logger.warn('Offline order queue notice:', e);
       }
       return orderId;
     }
@@ -3915,7 +5091,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
       if (error) throw error;
       return data;
-    } catch (err: any) {
+    } catch (err) {
       const orderId = 'ord-offline-' + Date.now();
       try {
         await offlineService.queueOrder({ ...payload, orderId, organization_id: targetOrgId });
@@ -3939,7 +5115,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return data;
       }
     } catch (rpcErr) {
-      console.warn('RPC get_open_table_order notice:', rpcErr);
+      logger.warn('RPC get_open_table_order notice:', rpcErr);
     }
 
     try {
@@ -3968,7 +5144,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           .maybeSingle();
 
         if (order?.id && order.order_items && order.order_items.length > 0) {
-          const formattedItems = order.order_items.map((oi: any) => ({
+          const formattedItems = order.order_items.map((oi: Record<string, any>) => ({
             id: oi.id,
             productId: oi.product_id,
             name: oi.products?.name || 'صنف',
@@ -3991,7 +5167,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return { sessionId: session.id, orderId: null, items: [] };
       }
     } catch (fbErr) {
-      console.warn('Fallback getOpenTableOrder notice:', fbErr);
+      logger.warn('Fallback getOpenTableOrder notice:', fbErr);
     }
 
     const offlineOrders = getOfflineTableOrders();
@@ -4023,7 +5199,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       });
       if (error) throw error;
       refreshData();
-    } catch (err: any) {
+    } catch (err) {
       const offlineOrders = getOfflineTableOrders();
       for (const [tableId, ord] of Object.entries(offlineOrders)) {
         if (ord.orderId === orderId) {
@@ -4043,15 +5219,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     try {
       const { error } = await supabase.rpc('process_split_payment', { p_order_id: orderId, p_items: items, p_payment_method: method, p_amount: total, p_cash_account_id: accountId, p_org_id: currentSelectedOrgId });
-      if (error) { showToast(error.message, 'error'); return false; }
-      refreshData();
+      if (error) { 
+        logger.error('process_split_payment RPC error:', error);
+        showToast(error.message, 'error'); 
+        return false; 
+      }
+      await refreshData();
       return true;
-    } catch {
-      return true;
+    } catch (err: unknown) {
+      logger.error('processSplitPayment exception:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showToast('فشل معالجة الدفع الجزئي: ' + errMsg, 'error');
+      return false;
     }
   };
 
-  const addRestaurantTable = async (data: any) => { 
+  const addRestaurantTable = async (data: Record<string, any>) => { 
     const targetOrgId = getEffectiveOrgId();
     if (!navigator.onLine || isDemo) {
       const newT = { ...data, id: 'tbl-' + Date.now(), organization_id: targetOrgId, status: data.status || 'AVAILABLE' };
@@ -4063,13 +5246,13 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const { error } = await supabase.from('restaurant_tables').insert({ ...data, organization_id: targetOrgId }); 
       if (error) throw error;
       await refreshData(); 
-    } catch (err: any) {
+    } catch (err) {
       const newT = { ...data, id: 'tbl-' + Date.now(), organization_id: targetOrgId, status: data.status || 'AVAILABLE' };
       setRestaurantTables(prev => [...prev, newT]);
       showToast('تمت إضافة الطاولة بنجاح (محلياً)', 'success');
     }
   };
-  const updateRestaurantTable = async (id: string, data: any) => { 
+  const updateRestaurantTable = async (id: string, data: Record<string, any>) => { 
     if (!navigator.onLine || isDemo) {
       setRestaurantTables(prev => prev.map(t => t.id === id ? { ...t, ...data } : t));
       showToast('تم تحديث بيانات الطاولة بنجاح', 'success');
@@ -4120,7 +5303,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       };
       setCurrentShift(newShift);
       try {
-        localStorage.setItem('tripro_offline_current_shift', JSON.stringify(newShift));
+        secureStorage.setItem('tripro_offline_current_shift', newShift);
       } catch (e) {}
       showToast('تم بدء وردية الكاشير بنجاح (محلياً) ✅', 'success');
       return;
@@ -4130,14 +5313,14 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const { error } = await supabase.rpc('start_pos_shift', { 
         p_opening_balance: Number(amount) || 0,
         p_resume_existing: false,
-        p_treasury_account_id: treasuryAcc?.id || null,
-        p_user_id: currentUser?.id,
-        p_org_id: targetOrgId,
+        p_treasury_account_id: (treasuryAcc?.id && isValidUUID(treasuryAcc.id)) ? treasuryAcc.id : null,
+        p_user_id: (currentUser?.id && isValidUUID(currentUser.id)) ? currentUser.id : null,
+        p_org_id: (targetOrgId && isValidUUID(targetOrgId)) ? targetOrgId : null,
         p_terminal_id: null
       }); 
       if (error) throw error;
       await refreshData(); 
-    } catch (err: any) {
+    } catch (err) {
       const newShift = {
         id: 'shift-offline-' + Date.now(),
         shift_number: 'SHIFT-' + Math.floor(1000 + Math.random() * 9000),
@@ -4153,25 +5336,30 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const closeCurrentShift = async (actualCash: number, notes: string) => { 
-    if (!navigator.onLine || isDemo) {
+  const closeCurrentShift = async (actualCash: number, notes: string, reconciliation?: ShiftReconciliationData | null) => { 
+    const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
+    if (!navigator.onLine || isDemo || !isValidUUID(shiftId)) {
       setCurrentShift(null);
       try {
+        secureStorage.removeItem('tripro_offline_current_shift');
         localStorage.removeItem('tripro_offline_current_shift');
       } catch (e) {}
       showToast('تم إغلاق الوردية محلياً بنجاح 🔒', 'success');
       return;
     }
-    const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
     if (!shiftId) {
       throw new Error('لا توجد وردية مفتوحة حالياً ليتم إغلاقها');
     }
     try {
+      const effectiveOrgId = (currentSelectedOrgId && isValidUUID(currentSelectedOrgId))
+        ? currentSelectedOrgId
+        : ((currentUser?.organization_id && isValidUUID(currentUser.organization_id)) ? currentUser.organization_id : null);
       const { error } = await supabase.rpc('close_shift', { 
         p_shift_id: shiftId, 
         p_actual_cash: actualCash, 
         p_notes: notes,
-        p_org_id: currentSelectedOrgId || currentUser?.organization_id
+        p_org_id: effectiveOrgId,
+        p_reconciliation: reconciliation || null
       }); 
       if (error) throw error;
       setCurrentShift(null);
@@ -4184,7 +5372,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const getCurrentShiftSummary = async () => { 
     const shiftId = Array.isArray(currentShift) ? currentShift[0]?.id : currentShift?.id;
     if (!shiftId) return null; 
-    if (!navigator.onLine || isDemo || String(shiftId).startsWith('shift-offline-')) {
+    if (!navigator.onLine || isDemo || !isValidUUID(shiftId) || String(shiftId).startsWith('shift-offline-')) {
       return {
         opening_balance: Number(currentShift?.opening_balance || 0),
         total_sales: 0,
@@ -4218,225 +5406,82 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
   const refreshSaasSchema = async () => { await supabase.rpc('refresh_saas_schema'); showToast('جاري تحديث هيكل النظام...', 'info'); setTimeout(() => window.location.reload(), 1500); };
   const closeFinancialYear = async (year: number, date: string) => {
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    if (!targetOrgId) {
-      showToast('تعذر تحديد معرف المؤسسة.', 'error');
-      return false;
-    }
-
-    try {
-      // 1. فحص وتصحيح حساب الأرباح المبقاة (32) ليكون حساباً فرعياً قابلاً للترحيل
-      const { data: retAccounts } = await supabase
-        .from('accounts')
-        .select('id, code, is_group')
-        .eq('organization_id', targetOrgId)
-        .eq('code', '32');
-
-      if (retAccounts && retAccounts.length > 0) {
-        if (retAccounts[0].is_group) {
-          await supabase
-            .from('accounts')
-            .update({ is_group: false })
-            .eq('id', retAccounts[0].id);
-        }
-      } else {
-        const { data: parent3 } = await supabase
-          .from('accounts')
-          .select('id')
-          .eq('organization_id', targetOrgId)
-          .eq('code', '3')
-          .maybeSingle();
-
-        await supabase.from('accounts').insert({
-          organization_id: targetOrgId,
-          code: '32',
-          name: 'الأرباح المبقاة / المرحلة',
-          type: 'EQUITY',
-          is_group: false,
-          is_active: true,
-          parent_id: parent3?.id || null
-        });
-      }
-
-      // 2. تصحيح أي حسابات إيرادات أو مصروفات (4/5) معلّمة بالخطأ كـ is_group ولها قيود مرحلة
-      const { data: groupIncomeAccounts } = await supabase
-        .from('accounts')
-        .select('id, code, is_group')
-        .eq('organization_id', targetOrgId)
-        .eq('is_group', true)
-        .or('code.like.4%,code.like.5%');
-
-      if (groupIncomeAccounts && groupIncomeAccounts.length > 0) {
-        for (const gAcc of groupIncomeAccounts) {
-          const { data: hasLines } = await supabase
-            .from('journal_lines')
-            .select('id')
-            .eq('account_id', gAcc.id)
-            .limit(1);
-
-          if (hasLines && hasLines.length > 0) {
-            await supabase
-              .from('accounts')
-              .update({ is_group: false })
-              .eq('id', gAcc.id);
-          }
-        }
-      }
-
-      // 3. استدعاء محرك الإقفال السنوي
-      const { data, error } = await supabase.rpc('close_financial_year', { 
-        p_year: year, 
-        p_closing_date: date,
-        p_org_id: targetOrgId
-      });
-
-      if (error) { 
-        showToast('فشل إقفال السنة: ' + error.message, 'error'); 
-        return false; 
-      }
-
-      showToast(typeof data === 'string' ? data : `تم إقفال السنة المالية ${year} بنجاح ✅`, 'success');
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || '';
+    const res = await closeFinancialYearEngine({ supabase, year, closingDate: date, targetOrgId });
+    if (res.success) {
+      showToast(res.message, 'success');
       await refreshData();
       return true;
-    } catch (err: any) {
-      console.error('Error during closeFinancialYear:', err);
-      showToast('فشل إقفال السنة: ' + err.message, 'error');
+    } else {
+      showToast(res.message, 'error');
       return false;
     }
   };
 
   const reopenFinancialYear = async (year: number) => {
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    const { data, error } = await supabase.rpc('reopen_financial_year', { 
-      p_year: year,
-      p_org_id: targetOrgId || null
-    });
-    if (error) { 
-      showToast('فشل إعادة فتح السنة: ' + error.message, 'error'); 
-      return false; 
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || '';
+    const res = await reopenFinancialYearEngine({ supabase, year, targetOrgId });
+    if (res.success) {
+      showToast(res.message, 'success');
+      await refreshData();
+      return true;
+    } else {
+      showToast(res.message, 'error');
+      return false;
     }
-    showToast(typeof data === 'string' ? data : `تم فتح السنة المالية ${year} بنجاح 🔓`, 'success');
-    await refreshData();
-    return true;
   };
-  const exportData = async () => { /* Logic to export JSON */ };
+  const exportData = async () => {
+    try {
+      const exportPayload = {
+        exported_at: new Date().toISOString(),
+        organization_id: effectiveOrgId,
+        organization_name: organization?.name || 'TriPro Organization',
+        settings,
+        accounts: accounts.map(a => ({ code: a.code, name: a.name, type: a.type, balance: a.balance })),
+        customers: customers.map((c: { id: string; name: string; phone?: string; balance?: number }) => ({ id: c.id, name: c.name, phone: c.phone, balance: c.balance })),
+        suppliers: suppliers.map((s: { id: string; name: string; phone?: string; balance?: number }) => ({ id: s.id, name: s.name, phone: s.phone, balance: s.balance })),
+        products: products.map((p: { id: string; name: string; sku?: string; price?: number; stock?: number }) => ({ id: p.id, name: p.name, sku: p.sku, price: p.price, stock: p.stock })),
+      };
+      if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+        const jsonStr = JSON.stringify(exportPayload, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `tripro_backup_${effectiveOrgId || 'org'}_${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+      }
+      logActivity('تصدير بيانات', 'تم تصدير نسخة احتياطية من بيانات المنظمة بصيغة JSON');
+      showToast('تم تصدير نسخة احتياطية من البيانات بنجاح ✅', 'success');
+    } catch (err: unknown) {
+      logger.error('Failed to export data:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      showToast('فشل تصدير البيانات: ' + errMsg, 'error');
+    }
+  };
 
   const deleteOrganization = useCallback(async (orgId: string) => {
-    if (currentUser?.role !== 'super_admin' && currentUser?.role !== 'admin') {
-      showToast('ليس لديك صلاحية لحذف الشركات.', 'error');
-      return { success: false, message: 'ليس لديك صلاحية لحذف الشركات.' };
-    }
-
-    if (!window.confirm('⚠️ تحذير: سيتم حذف هذه الشركة وجميع بياناتها (الحسابات، الفواتير، المخزون...) بشكل نهائي.\n\nلا يمكن التراجع عن هذا الإجراء.\n\nهل أنت متأكد تماماً؟')) {
-      return { success: false, message: 'تم إلغاء عملية الحذف.' };
-    }
-
-    try {
-      // 1. استدعاء دالة الحذف الآمنة التي تتجاوز الحماية السيادية في قاعدة البيانات
-      let deleteResult = await supabase.rpc('fn_delete_organization_safe', { p_org_id: orgId });
-
-      // 2. إذا حدث خطأ قيود مرجعية نقوم بتفكيك القيود برمجياً وإعادة المحاولة
-      if (deleteResult.error) {
-        console.warn('RPC delete failed in context, initiating cascade cleanup...', deleteResult.error);
-        try {
-          await supabase.from('profiles').update({ organization_id: null }).eq('organization_id', orgId);
-          await supabase.from('role_permissions').delete().eq('organization_id', orgId);
-          await supabase.from('roles').delete().eq('organization_id', orgId);
-
-          // استخراج معرفات الأصناف التابعة للمنظمة لفك أي قيود معلقة عليها
-          const { data: orgProducts } = await supabase.from('products').select('id').eq('organization_id', orgId);
-          const prodIds = (orgProducts || []).map((p: any) => p.id).filter(Boolean);
-
-          // 1. تفكيك موديول التشفية والذبائح (Butchering Module)
-          try {
-            if (prodIds.length > 0) {
-              await supabase.from('butchering_order_items').delete().in('output_product_id', prodIds);
-              await supabase.from('butchering_template_items').delete().in('output_product_id', prodIds);
-              await supabase.from('butchering_orders').delete().in('source_product_id', prodIds);
-              await supabase.from('butchering_templates').delete().in('source_product_id', prodIds);
-            }
-            await supabase.from('butchering_orders').delete().eq('organization_id', orgId);
-            await supabase.from('butchering_templates').delete().eq('organization_id', orgId);
-          } catch (_) {}
-
-          // 2. تفكيك موديول التصنيع (Manufacturing Module)
-          try {
-            if (prodIds.length > 0) {
-              await supabase.from('mfg_actual_material_usage').delete().in('raw_material_id', prodIds);
-              await supabase.from('mfg_scrap_logs').delete().in('product_id', prodIds);
-              await supabase.from('mfg_batch_serials').delete().in('product_id', prodIds);
-              await supabase.from('mfg_step_materials').delete().in('raw_material_id', prodIds);
-              await supabase.from('bill_of_materials').delete().in('product_id', prodIds);
-              await supabase.from('bill_of_materials').delete().in('raw_material_id', prodIds);
-              await supabase.from('mfg_production_orders').delete().in('product_id', prodIds);
-              await supabase.from('mfg_routings').delete().in('product_id', prodIds);
-            }
-          } catch (_) {}
-
-          // 3. تفكيك قيود المطاعم ونقاط البيع (Restaurant & Channel Pricing)
-          try {
-            if (prodIds.length > 0) {
-              await supabase.from('kitchen_ticket_items').delete().in('product_id', prodIds);
-              await supabase.from('product_channel_prices').delete().in('product_id', prodIds);
-              await supabase.from('recipe_items').delete().in('product_id', prodIds);
-              await supabase.from('recipe_items').delete().in('ingredient_id', prodIds);
-              await supabase.from('combo_items').delete().in('product_id', prodIds);
-              await supabase.from('combo_items').delete().in('included_product_id', prodIds);
-            }
-          } catch (_) {}
-
-          const tablesToClean = [
-            'butchering_order_items', 'butchering_orders', 'butchering_template_items', 'butchering_templates',
-            'mfg_actual_material_usage', 'mfg_scrap_logs', 'mfg_batch_serials', 'mfg_production_variances',
-            'mfg_order_progress', 'mfg_step_materials', 'mfg_step_attachments', 'mfg_routing_steps',
-            'mfg_production_order_materials', 'mfg_production_order_steps',
-            'mfg_scrap_records', 'mfg_qc_inspections', 'mfg_production_orders', 'mfg_routings', 'mfg_work_centers',
-            'order_item_modifiers', 'order_items', 'kitchen_ticket_items', 'kitchen_orders', 'orders',
-            'product_channel_prices', 'recipe_items', 'restaurant_recipes', 'combo_items',
-            'invoice_items', 'purchase_invoice_items', 'sales_return_items', 'purchase_return_items',
-            'stock_adjustment_items', 'journal_lines', 'payroll_variables', 'payroll_items',
-            'delivery_order_items', 'inventory_count_items', 'waste_records', 'transfer_items',
-            'invoices', 'purchase_invoices', 'sales_returns', 'purchase_returns', 'journal_entries',
-            'payments', 'receipt_vouchers', 'payment_vouchers', 'cheques', 'payrolls', 'stock_adjustments',
-            'stock_transfers', 'inventory_counts', 'delivery_orders',
-            'work_orders', 'bill_of_materials', 'credit_notes', 'debit_notes', 'shifts', 'table_sessions',
-            'cashier_shifts', 'pos_petty_cash_payouts', 'waiter_call_requests', 'tips_distribution_records',
-            'restaurant_tables', 'modifiers', 'modifier_groups',
-            'promotions', 'retail_promotions', 'stadium_bookings', 'stadium_subscriptions', 'construction_projects',
-            'products', 'customers', 'suppliers', 'accounts', 'warehouses', 'cost_centers', 'assets',
-            'employees', 'company_settings', 'invitations', 'budgets', 'notification_preferences', 'security_logs', 'audit_logs'
-          ];
-          for (const tbl of tablesToClean) {
-            try { await (supabase.from(tbl as any) as any).delete().eq('organization_id', orgId); } catch (_) {}
-          }
-
-          deleteResult = await supabase.rpc('fn_delete_organization_safe', { p_org_id: orgId });
-
-          if (deleteResult.error) {
-            const directDelete = await supabase.from('organizations').delete().eq('id', orgId);
-            if (directDelete.error) {
-              throw new Error(deleteResult.error.message || directDelete.error.message);
-            }
-          }
-        } catch (cleanupErr: any) {
-          throw new Error(deleteResult.error?.message || cleanupErr.message);
-        }
-      }
-
+    const res = await deleteOrganizationSafe({ supabase, orgId, currentUser });
+    if (res.success) {
       showToast('تم حذف الشركة وجميع بياناتها بنجاح ✅', 'success');
-      await refreshData(); // تحديث القائمة بعد الحذف
+      await refreshData();
       return { success: true };
-    } catch (e: any) {
-      showToast(`حدث خطأ غير متوقع: ${e.message}`, 'error');
-      return { success: false, message: e.message };
+    } else {
+      if (res.message && res.message !== 'تم إلغاء عملية الحذف.') {
+        showToast(res.message, 'error');
+      }
+      return { success: false, message: res.message };
     }
   }, [currentUser, showToast, refreshData]);
 
-  const value: AccountingContextType = {
-    organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
+  const value: AccountingContextType = useMemo(() => ({
+    organization, currentUser, organizations, currentSelectedOrgId, setCurrentSelectedOrgId, effectiveOrgId, getEffectiveOrgId, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
     fetchEntriesPaged, employees, products, transfers, purchaseInvoices, invoices, salespeople, categories,
     users, warehouses, restaurantTables, menuCategories, customers, suppliers, cheques,
-    currentShift, activityLog, refreshData, isDemo, can, clearCache,
+    currentShift, activityLog, logActivity, refreshData, refreshBankingAndShift, refreshCustomers, refreshSuppliers, isDemo, can, clearCache,
     // Accounting Functions
     addEntry, getSystemAccount, updateVoucher, getAccountBalanceInPeriod, addAccount, updateAccount, deleteAccount, clearTransactions, emptyRecycleBin, saveBudget,
     // Inventory Functions
@@ -4451,7 +5496,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, addCheque, updateCheque, deleteCheque, updateChequeStatus, addTransfer, updateTransfer, deleteTransfer,
     restoreItem, permanentDeleteItem, exportJournalToCSV,
     // HR
-    addEmployee, updateEmployee, deleteEmployee, runPayroll,
+    addEmployee, updateEmployee, deleteEmployee, runPayroll, runPayrollAccrual, payAccruedPayroll, cancelPayrollAccrual,
     // Restaurant
     finalizeProductionOrder, openTableSession, reserveTable, cancelReservation,
     transferTableSession, mergeTableSessions, createRestaurantOrder, getOpenTableOrder,
@@ -4464,10 +5509,348 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     addDemoEntry, addDemoPaymentVoucher, addDemoReceiptVoucher, addDemoInvoice,
     deleteOrganization,
     postDemoSalesInvoice, addDemoPurchaseInvoice
-  };
+  }), [
+    organization, currentUser, organizations, currentSelectedOrgId, effectiveOrgId, getEffectiveOrgId, isLoading, lastUpdated, settings, accounts, entries, assets, budgets, vouchers, costCenters, getFinancialSummary,
+    fetchEntriesPaged, employees, products, transfers, purchaseInvoices, invoices, salespeople, categories,
+    users, warehouses, restaurantTables, menuCategories, customers, suppliers, cheques,
+    currentShift, activityLog, logActivity, refreshData, refreshBankingAndShift, refreshCustomers, refreshSuppliers, isDemo, can, clearCache,
+    addEntry, getSystemAccount, updateVoucher, getAccountBalanceInPeriod, addAccount, updateAccount, deleteAccount, clearTransactions, emptyRecycleBin, saveBudget,
+    recalculateStock, addProduct, updateProduct, deleteProduct, addStockTransfer,
+    approveStockTransfer, cancelStockTransfer, addWarehouse, updateWarehouse,
+    deleteWarehouse, addWastage, produceItem,
+    addCustomer, updateCustomer, deleteCustomer, addSupplier, updateSupplier,
+    deleteSupplier, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, approvePurchaseInvoice, unpostPurchaseInvoice, deletePurchaseInvoice, convertPoToInvoice,
+    addOpeningBalanceTransaction, addPaymentVoucher,
+    addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, addCheque, updateCheque, deleteCheque, updateChequeStatus, addTransfer, updateTransfer, deleteTransfer,
+    restoreItem, permanentDeleteItem, exportJournalToCSV,
+    addEmployee, updateEmployee, deleteEmployee, runPayroll, runPayrollAccrual, payAccruedPayroll, cancelPayrollAccrual,
+    finalizeProductionOrder, openTableSession, reserveTable, cancelReservation,
+    transferTableSession, mergeTableSessions, createRestaurantOrder, getOpenTableOrder,
+    completeRestaurantOrder, processSplitPayment, addRestaurantTable, updateRestaurantTable,
+    deleteRestaurantTable, updateKitchenOrderStatus, startShift, closeCurrentShift,
+    getCurrentShiftSummary, createMissingSystemAccounts, recalculateAllBalances,
+    purgeDeletedRecords, refreshSaasSchema, closeFinancialYear, reopenFinancialYear, exportData,
+    selectedFiscalYear, fiscalYearRange,
+    addDemoEntry, addDemoPaymentVoucher, addDemoReceiptVoucher, addDemoInvoice,
+    deleteOrganization,
+    postDemoSalesInvoice, addDemoPurchaseInvoice
+  ]);
 
   return (
-    <AccountingContext.Provider value={value}>
+    <SettingsProvider
+      orgId={effectiveOrgId}
+      currentUser={currentUser}
+      can={can}
+      logActivity={logActivity}
+      showToast={showToast}
+      isDemo={isDemo}
+      initialOrganization={organization}
+      initialSettings={settings}
+    >
+      <CustomerProvider
+        orgId={effectiveOrgId}
+        currentUser={currentUser}
+        logActivity={logActivity}
+        isDemo={isDemo}
+        initialCustomers={customers}
+      >
+        <SupplierProvider
+          orgId={effectiveOrgId}
+          currentUser={currentUser}
+          logActivity={logActivity}
+          showToast={showToast}
+          isDemo={isDemo}
+          initialSuppliers={suppliers}
+          initialPurchaseInvoices={purchaseInvoices}
+        >
+          <ProductProvider
+            orgId={effectiveOrgId}
+            currentUser={currentUser}
+            logActivity={logActivity}
+            showToast={showToast}
+            isDemo={isDemo}
+            initialProducts={products}
+            initialWarehouses={warehouses}
+            initialCategories={categories}
+            initialTransfers={transfers}
+          >
+            <SalesProvider
+              orgId={effectiveOrgId}
+              currentUser={currentUser}
+              logActivity={logActivity}
+              showToast={showToast}
+              isDemo={isDemo}
+              initialInvoices={invoices}
+              initialCustomers={customers}
+              initialSalespeople={salespeople}
+              fiscalYearRange={fiscalYearRange}
+            >
+              <BankingProvider
+                orgId={effectiveOrgId}
+                currentUser={currentUser}
+                logActivity={logActivity}
+                showToast={showToast}
+                isDemo={isDemo}
+                initialCheques={cheques}
+                initialVouchers={vouchers}
+              >
+                <GeneralLedgerProvider
+                  orgId={effectiveOrgId}
+                  currentUser={currentUser}
+                  settings={settings}
+                  logActivity={logActivity}
+                  showToast={showToast}
+                  isDemo={isDemo}
+                  initialEntries={entries}
+                  initialAccounts={accounts}
+                  initialCostCenters={costCenters}
+                  initialBudgets={budgets}
+                  initialYear={selectedFiscalYear}
+                  fiscalYearRange={fiscalYearRange}
+                >
+                  <HrProvider
+                    orgId={effectiveOrgId}
+                    currentUser={currentUser}
+                    logActivity={logActivity}
+                    showToast={showToast}
+                    isDemo={isDemo}
+                    initialEmployees={employees}
+                  >
+                    <RestaurantProvider
+                      orgId={effectiveOrgId}
+                      currentUser={currentUser}
+                      logActivity={logActivity}
+                      showToast={showToast}
+                      isDemo={isDemo}
+                      initialTables={restaurantTables}
+                      initialShift={currentShift}
+                      products={products}
+                      defaultWarehouseId={settings?.default_warehouse_id}
+                      getSystemAccount={getSystemAccount}
+                      refreshData={refreshData}
+                    >
+                      <AccountingFacadeBridge coreValue={value}>
+                        {children}
+                      </AccountingFacadeBridge>
+                    </RestaurantProvider>
+                  </HrProvider>
+                </GeneralLedgerProvider>
+              </BankingProvider>
+            </SalesProvider>
+          </ProductProvider>
+        </SupplierProvider>
+      </CustomerProvider>
+    </SettingsProvider>
+  );
+};
+
+const AccountingFacadeBridge: React.FC<{
+  coreValue: AccountingContextType;
+  children: React.ReactNode;
+}> = ({ coreValue, children }) => {
+  const customerDomain = useCustomerDomain();
+  const supplierDomain = useSupplierDomain();
+  const productDomain = useProductDomain();
+  const salesDomain = useSalesDomain();
+  const bankingDomain = useBankingDomain();
+  const glDomain = useGeneralLedgerDomain();
+  const settingsDomain = useSettingsDomain();
+  const hrDomain = useHrDomain();
+  const restaurantDomain = useRestaurantDomain();
+
+  const domainsRef = useRef({
+    coreValue,
+    customerDomain,
+    supplierDomain,
+    productDomain,
+    salesDomain,
+    bankingDomain,
+    glDomain,
+    settingsDomain,
+    hrDomain,
+    restaurantDomain
+  });
+  domainsRef.current = {
+    coreValue,
+    customerDomain,
+    supplierDomain,
+    productDomain,
+    salesDomain,
+    bankingDomain,
+    glDomain,
+    settingsDomain,
+    hrDomain,
+    restaurantDomain
+  };
+
+  const handleRefreshData = useCallback(async () => {
+    const d = domainsRef.current;
+    await Promise.all([
+      d.coreValue.refreshData(),
+      d.customerDomain.refreshCustomers ? d.customerDomain.refreshCustomers() : Promise.resolve(),
+      d.supplierDomain.refreshSuppliers ? d.supplierDomain.refreshSuppliers() : Promise.resolve(),
+      d.supplierDomain.refreshPurchaseInvoices ? d.supplierDomain.refreshPurchaseInvoices() : Promise.resolve(),
+      d.productDomain.refreshProducts ? d.productDomain.refreshProducts() : Promise.resolve(),
+      d.productDomain.refreshWarehouses ? d.productDomain.refreshWarehouses() : Promise.resolve(),
+      d.productDomain.refreshCategories ? d.productDomain.refreshCategories() : Promise.resolve(),
+      d.productDomain.refreshTransfers ? d.productDomain.refreshTransfers() : Promise.resolve(),
+      d.salesDomain.refreshSales ? d.salesDomain.refreshSales() : Promise.resolve(),
+      d.bankingDomain.refreshBanking ? d.bankingDomain.refreshBanking() : Promise.resolve(),
+      d.glDomain.refreshLedger ? d.glDomain.refreshLedger() : Promise.resolve(),
+      d.settingsDomain.refreshSettings ? d.settingsDomain.refreshSettings() : Promise.resolve(),
+      d.hrDomain.refreshEmployees ? d.hrDomain.refreshEmployees() : Promise.resolve(),
+      d.restaurantDomain.refreshRestaurant ? d.restaurantDomain.refreshRestaurant() : Promise.resolve(),
+      d.restaurantDomain.refreshShift ? d.restaurantDomain.refreshShift() : Promise.resolve(),
+    ]);
+  }, []);
+
+  const handleRefreshSalesAndPurchases = useCallback(async () => {
+    const d = domainsRef.current;
+    await Promise.all([
+      d.salesDomain.refreshSales ? d.salesDomain.refreshSales() : Promise.resolve(),
+      d.supplierDomain.refreshPurchaseInvoices ? d.supplierDomain.refreshPurchaseInvoices() : Promise.resolve(),
+    ]);
+  }, []);
+
+  const handleRefreshBankingAndShift = useCallback(async () => {
+    const d = domainsRef.current;
+    await Promise.all([
+      d.bankingDomain.refreshBanking ? d.bankingDomain.refreshBanking() : Promise.resolve(),
+      d.restaurantDomain.refreshShift ? d.restaurantDomain.refreshShift() : Promise.resolve(),
+      d.coreValue.refreshBankingAndShift ? d.coreValue.refreshBankingAndShift() : Promise.resolve(),
+    ]);
+  }, []);
+
+  const facadeValue: AccountingContextType = useMemo(() => ({
+    ...coreValue,
+    // Settings Domain Delegation
+    settings: settingsDomain.settings,
+    organization: settingsDomain.organization || coreValue.organization,
+    can: settingsDomain.can,
+    updateSettings: settingsDomain.updateSettings,
+    refreshSettings: settingsDomain.refreshSettings,
+    // Customer Domain Delegation
+    customers: customerDomain.customers,
+    addCustomer: customerDomain.addCustomer as (data: Partial<Customer>) => Promise<any>,
+    updateCustomer: customerDomain.updateCustomer,
+    deleteCustomer: customerDomain.deleteCustomer,
+    refreshCustomers: customerDomain.refreshCustomers,
+    // Supplier Domain Delegation
+    suppliers: supplierDomain.suppliers,
+    purchaseInvoices: supplierDomain.purchaseInvoices,
+    addSupplier: supplierDomain.addSupplier as (data: Partial<Supplier>) => Promise<any>,
+    updateSupplier: supplierDomain.updateSupplier,
+    deleteSupplier: supplierDomain.deleteSupplier,
+    approvePurchaseInvoice: supplierDomain.approvePurchaseInvoice,
+    unpostPurchaseInvoice: supplierDomain.unpostPurchaseInvoice,
+    deletePurchaseInvoice: supplierDomain.deletePurchaseInvoice,
+    convertPoToInvoice: supplierDomain.convertPoToInvoice,
+    refreshSuppliers: supplierDomain.refreshSuppliers,
+    // Product & Inventory Domain Delegation
+    products: productDomain.products,
+    warehouses: productDomain.warehouses,
+    categories: productDomain.categories,
+    menuCategories: productDomain.categories,
+    transfers: productDomain.transfers,
+    recalculateStock: productDomain.recalculateStock,
+    addProduct: productDomain.addProduct as (data: Partial<Product>) => Promise<any>,
+    updateProduct: productDomain.updateProduct,
+    deleteProduct: productDomain.deleteProduct,
+    addStockTransfer: productDomain.addStockTransfer,
+    approveStockTransfer: productDomain.approveStockTransfer,
+    cancelStockTransfer: productDomain.cancelStockTransfer,
+    addWarehouse: productDomain.addWarehouse,
+    updateWarehouse: productDomain.updateWarehouse,
+    deleteWarehouse: productDomain.deleteWarehouse,
+    addWastage: productDomain.addWastage,
+    produceItem: productDomain.produceItem,
+    // Sales Domain Delegation
+    invoices: salesDomain.invoices,
+    salespeople: salesDomain.salespeople,
+    approveInvoice: salesDomain.approveInvoice,
+    unpostSalesInvoice: salesDomain.unpostSalesInvoice,
+    deleteSalesInvoice: salesDomain.deleteSalesInvoice,
+    refreshSalesAndPurchases: handleRefreshSalesAndPurchases,
+    // Banking & Treasury Domain Delegation
+    cheques: bankingDomain.cheques,
+    vouchers: bankingDomain.vouchers,
+    addCheque: bankingDomain.addCheque,
+    updateCheque: bankingDomain.updateCheque,
+    deleteCheque: bankingDomain.deleteCheque,
+    updateChequeStatus: bankingDomain.updateChequeStatus,
+    refreshBanking: bankingDomain.refreshBanking,
+    refreshBankingAndShift: handleRefreshBankingAndShift,
+    // General Ledger Domain Delegation
+    entries: glDomain.entries,
+    accounts: glDomain.accounts,
+    costCenters: glDomain.costCenters,
+    budgets: glDomain.budgets,
+    fiscalYearRange: glDomain.fiscalYearRange,
+    selectedFiscalYear: glDomain.selectedFiscalYear,
+    setSelectedFiscalYear: glDomain.setSelectedFiscalYear,
+    addEntry: glDomain.addEntry,
+    fetchEntriesPaged: glDomain.fetchEntriesPaged,
+    getAccountBalanceInPeriod: glDomain.getAccountBalanceInPeriod,
+    addAccount: glDomain.addAccount,
+    updateAccount: glDomain.updateAccount,
+    deleteAccount: glDomain.deleteAccount,
+    getSystemAccount: glDomain.getSystemAccount,
+    saveBudget: glDomain.saveBudget,
+    exportJournalToCSV: glDomain.exportJournalToCSV,
+    closeFinancialYear: glDomain.closeFinancialYear,
+    reopenFinancialYear: glDomain.reopenFinancialYear,
+    recalculateAllBalances: glDomain.recalculateAllBalances,
+    refreshAccountsAndLedger: glDomain.refreshLedger,
+    refreshLedger: glDomain.refreshLedger,
+    // HR Domain Delegation
+    employees: hrDomain.employees,
+    addEmployee: hrDomain.addEmployee,
+    updateEmployee: hrDomain.updateEmployee,
+    deleteEmployee: hrDomain.deleteEmployee,
+    runPayroll: hrDomain.runPayroll,
+    runPayrollAccrual: hrDomain.runPayrollAccrual,
+    payAccruedPayroll: hrDomain.payAccruedPayroll,
+    cancelPayrollAccrual: hrDomain.cancelPayrollAccrual,
+    refreshEmployees: hrDomain.refreshEmployees,
+    // Restaurant & POS Shift Domain Delegation
+    restaurantTables: restaurantDomain.restaurantTables,
+    currentShift: restaurantDomain.currentShift,
+    openTableSession: restaurantDomain.openTableSession,
+    reserveTable: restaurantDomain.reserveTable,
+    cancelReservation: restaurantDomain.cancelReservation,
+    transferTableSession: restaurantDomain.transferTableSession,
+    mergeTableSessions: restaurantDomain.mergeTableSessions,
+    createRestaurantOrder: restaurantDomain.createRestaurantOrder,
+    getOpenTableOrder: restaurantDomain.getOpenTableOrder,
+    completeRestaurantOrder: restaurantDomain.completeRestaurantOrder,
+    processSplitPayment: restaurantDomain.processSplitPayment,
+    addRestaurantTable: restaurantDomain.addRestaurantTable,
+    updateRestaurantTable: restaurantDomain.updateRestaurantTable,
+    deleteRestaurantTable: restaurantDomain.deleteRestaurantTable,
+    updateKitchenOrderStatus: restaurantDomain.updateKitchenOrderStatus,
+    startShift: restaurantDomain.startShift,
+    closeCurrentShift: restaurantDomain.closeCurrentShift,
+    getCurrentShiftSummary: restaurantDomain.getCurrentShiftSummary,
+    finalizeProductionOrder: restaurantDomain.finalizeProductionOrder,
+    refreshData: handleRefreshData
+  }), [
+    coreValue,
+    customerDomain,
+    supplierDomain,
+    productDomain,
+    salesDomain,
+    bankingDomain,
+    glDomain,
+    settingsDomain,
+    hrDomain,
+    restaurantDomain,
+    handleRefreshData,
+    handleRefreshSalesAndPurchases,
+    handleRefreshBankingAndShift
+  ]);
+
+  return (
+    <AccountingContext.Provider value={facadeValue}>
       {children}
     </AccountingContext.Provider>
   );

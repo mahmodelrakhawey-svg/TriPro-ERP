@@ -1,3 +1,5 @@
+import { useAuth } from '../../../../context/AuthContext';
+import { secureStorage } from '../../../../utils/securityMiddleware';
 import React from 'react';
 import { 
   ShoppingCart, 
@@ -11,7 +13,9 @@ import {
   Monitor, 
   Pause, 
   RefreshCw, 
-  Lock 
+  Lock,
+  Utensils,
+  LogOut
 } from 'lucide-react';
 
 export interface RetailPosHeaderProps {
@@ -51,6 +55,20 @@ export const RetailPosHeader: React.FC<RetailPosHeaderProps> = ({
   isSyncingProducts,
   onOpenCloseShiftModal
 }) => {
+  const { logout } = useAuth();
+
+  const handleLogout = async () => {
+    const msg = activeShift
+      ? '⚠️ توجد وردية كاشير مفتوحة حالياً.\nيمكنك إغلاق الوردية أولاً عبر زر "إغلاق"، أو تسجيل الخروج الآن لتسليم الجهاز لمستخدم آخر مع بقاء الوردية.\n\nهل تريد بالتأكيد تسجيل الخروج وتغيير المستخدم؟'
+      : 'هل تريد بالتأكيد تسجيل الخروج وتغيير المستخدم؟';
+    if (!window.confirm(msg)) return;
+    try {
+      await logout();
+    } catch {
+      window.location.hash = '/login';
+      window.location.reload();
+    }
+  };
   return (
     <header className="bg-slate-950/80 backdrop-blur border-b border-slate-800 px-6 py-4 flex justify-between items-center shadow-lg sticky top-0 z-40">
       <div className="flex items-center gap-3">
@@ -184,6 +202,19 @@ export const RetailPosHeader: React.FC<RetailPosHeaderProps> = ({
               <Lock size={12} /> إغلاق
             </button>
 
+            {/* 🍽️ التبديل السريع لكاشير المطعم والكافيهات */}
+            <button 
+              onClick={() => {
+                try { secureStorage.setItem('tripro_default_pos_mode', 'restaurant'); } catch {}
+                window.location.hash = '#/pos';
+              }}
+              className="text-xs bg-amber-950/80 border border-amber-900/50 hover:bg-amber-900 text-amber-300 px-2.5 py-1 rounded-lg flex items-center gap-1 font-bold transition-all"
+              title="التبديل إلى كاشير المطاعم ونقاط بيع الصالة والسفري"
+            >
+              <Utensils size={12} />
+              <span>كاشير المطعم</span>
+            </button>
+
             {/* 🏢 العودة للنظام العام للمشرفين والمدراء */}
             {['admin', 'manager', 'owner', 'super_admin', 'accountant', 'cfo'].includes(currentUser?.role || '') && (
               <button 
@@ -196,6 +227,22 @@ export const RetailPosHeader: React.FC<RetailPosHeaderProps> = ({
             )}
           </div>
         )}
+        {!activeShift && (
+          <span className="text-xs text-slate-300 font-bold flex items-center gap-1 bg-slate-900 border border-slate-800 px-2.5 py-1.5 rounded-xl">
+            <User size={13} className="text-slate-400" />
+            {currentUser?.full_name || 'الكاشير'}
+          </span>
+        )}
+
+        {/* 🚪 زر تسجيل الخروج وتبديل المستخدم */}
+        <button
+          onClick={handleLogout}
+          className="text-xs bg-rose-950/80 border border-rose-900/60 hover:bg-rose-900 text-rose-300 px-3 py-1.5 rounded-xl flex items-center gap-1.5 font-bold transition-all shadow-xs"
+          title="تسجيل الخروج والعودة لشاشة الدخول بيوزر آخر"
+        >
+          <LogOut size={13} />
+          <span>خروج</span>
+        </button>
       </div>
     </header>
   );

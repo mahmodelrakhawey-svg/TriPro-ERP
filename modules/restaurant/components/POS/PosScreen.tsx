@@ -1,3 +1,4 @@
+import { useAuth } from '../../../../context/AuthContext';
 import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { logger } from '../../../../utils/logger';
 import type { Key } from 'react';
@@ -5,7 +6,7 @@ import { useToast } from '../../../../context/ToastContext';
 import { supabase } from '../../../../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../../../../context/AccountingContext';
 import type { RestaurantTable, Product, OrderItem, SelectedModifier } from '../../../../types';
-import { Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X, Printer, ArrowRightLeft, GitMerge, CalendarCheck, Lock, Wallet, User, CreditCard, Percent, Star, QrCode, Clock, Users, DollarSign, Loader2 } from 'lucide-react';
+import { ShoppingCart, LogOut, Coffee, HardHat, LayoutGrid, Utensils, Plus, Trash2, Minus, Edit, Search, X, Printer, ArrowRightLeft, GitMerge, CalendarCheck, Lock, Wallet, User, CreditCard, Percent, Star, QrCode, Clock, Users, DollarSign, Loader2 } from 'lucide-react';
 import { useReactToPrint } from 'react-to-print';
 import { PrintableInvoice } from '../../../../components/PrintableInvoice';
 import { KitchenTicket } from '../KDS/KitchenTicket';
@@ -59,6 +60,18 @@ import {
 
 
 const PosScreen = () => {
+  const { logout } = useAuth();
+
+  const handleLogout = async () => {
+    if (window.confirm('هل تريد بالتأكيد تسجيل الخروج لتسجيل الدخول بحساب آخر؟')) {
+      try {
+        await logout();
+      } catch {
+        window.location.hash = '/login';
+        window.location.reload();
+      }
+    }
+  };
   const { accounts, restaurantTables, openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, products: allProducts, menuCategories, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, createRestaurantOrder, getOpenTableOrder, completeRestaurantOrder, processSplitPayment, settings, currentShift, startShift, closeCurrentShift, getCurrentShiftSummary, isDemo, currentUser, organization, refreshData, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('dine-in');
@@ -1211,6 +1224,28 @@ const PosScreen = () => {
             title="إجراء الجرد وإقفال الوردية الحالية"
           >
             <Lock size={14} /> إقفال الوردية
+          </button>
+
+          {/* Quick Switcher to Hypermarket POS */}
+          <Link
+            to="/retail-pos"
+            onClick={() => {
+              try { secureStorage.setItem('tripro_default_pos_mode', 'retail'); } catch {}
+            }}
+            className="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 mr-1 border border-emerald-200 transition-colors shadow-2xs"
+            title="التحويل المباشر إلى كاشير التجزئة والهايبرماركت"
+          >
+            <ShoppingCart size={14} className="text-emerald-600" />
+            <span className="hidden sm:inline">كاشير الهايبرماركت</span>
+          </Link>
+
+          {/* Logout Button */}
+          <button
+            onClick={handleLogout}
+            className="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 text-rose-700 bg-rose-50 hover:bg-rose-100 mr-1 border border-rose-200 transition-colors shadow-2xs"
+            title="تسجيل الخروج وتغيير المستخدم"
+          >
+            <LogOut size={14} /> <span className="hidden sm:inline">تسجيل خروج</span>
           </button>
 
           {/* Supervisor Badge Shortcut */}
