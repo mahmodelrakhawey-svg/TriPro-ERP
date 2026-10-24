@@ -744,7 +744,7 @@ BEGIN
             UPDATE public.shifts 
             SET notes = COALESCE(notes, '') || ' [تنبيه الترحيل الجماعي: ' || SQLERRM || ']'
             WHERE id = r.id;
-        END LOOP;
+        END;
     END LOOP;
 
     RETURN jsonb_build_object(
