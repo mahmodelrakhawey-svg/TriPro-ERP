@@ -5,11 +5,20 @@ import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { 
   BarChart2, Download, Printer, Loader2, Filter, Truck, Package, 
-  TrendingUp, TrendingDown, Minus, ArrowUpDown, RefreshCw, X, AlertTriangle, Layers, ShieldAlert, CheckCircle2
+  TrendingUp, TrendingDown, Minus, ArrowUpDown, RefreshCw, X, AlertTriangle, Layers, ShieldAlert, CheckCircle2,
+  Calendar, Zap
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 import { fetchCompleteDataset } from '../../services/balanceService';
+
+// دالة الحصول على تاريخ اليوم بالصيغة المحلية YYYY-MM-DD دون أي انزياح زمني
+export function getLocalDateStr(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 type SupplierAnalysis = {
   supplierId: string;
@@ -148,6 +157,163 @@ function computeNormalizedPrice(
   };
 }
 
+// دالة بناء صفوف مقارنة آخر سعرين شراء مع إمكانية التحديد الزمني المرن
+function generatePriceComparisonRows(
+  sortedItems: any[],
+  uomMap: Map<string, { id: string; name: string; ratio: number; uom_type: string }>,
+  startDateFilter?: string,
+  endDateFilter?: string
+): PriceComparisonRow[] {
+  const productPurchasesMap: Record<string, Array<{
+    price: number;
+    uomId: string | null;
+    uomDirect: { id: string; name: string; ratio: number; uom_type: string } | null;
+    date: string;
+    supplierId: string;
+    supplier: string;
+    qty: number;
+    invoice: string;
+    rawItem: any;
+  }>> = {};
+
+  sortedItems.forEach((item: Record<string, any>) => {
+    if (!item.products || !item.purchase_invoices) return;
+    const pid = item.product_id;
+    if (!productPurchasesMap[pid]) productPurchasesMap[pid] = [];
+
+    const uomRel = Array.isArray(item.uoms) ? item.uoms[0] : item.uoms;
+    const invObj: Record<string, any> = Array.isArray(item.purchase_invoices) ? item.purchase_invoices[0] : item.purchase_invoices;
+    const supObj: Record<string, any> = Array.isArray(invObj?.suppliers) ? invObj.suppliers[0] : invObj?.suppliers;
+    const invDate = (invObj?.invoice_date || '').split('T')[0];
+
+    productPurchasesMap[pid].push({
+      price: Number(item.unit_price || 0),
+      uomId: item.uom_id || null,
+      uomDirect: uomRel ? {
+        id: uomRel.id,
+        name: (uomRel.name || '').trim(),
+        ratio: Number(uomRel.ratio) || 1,
+        uom_type: uomRel.uom_type || 'bigger',
+      } : null,
+      date: invDate,
+      supplierId: invObj?.supplier_id || '',
+      supplier: supObj?.name || 'غير محدد',
+      qty: Number(item.quantity || 0),
+      invoice: invObj?.invoice_number || '-',
+      rawItem: item,
+    });
+  });
+
+  const rows: PriceComparisonRow[] = [];
+
+  Object.entries(productPurchasesMap).forEach(([pid, purchases]) => {
+    if (purchases.length < 2) return;
+
+    let lastIdx = 0;
+    if (startDateFilter || endDateFilter) {
+      lastIdx = purchases.findIndex(p => {
+        if (startDateFilter && p.date < startDateFilter) return false;
+        if (endDateFilter && p.date > endDateFilter) return false;
+        return true;
+      });
+      if (lastIdx === -1) return;
+    }
+
+    const last = purchases[lastIdx];
+    const prev = purchases[lastIdx + 1];
+    if (!prev) return;
+
+    const anyItem = last.rawItem;
+    if (!anyItem?.products) return;
+    const prod = Array.isArray(anyItem.products) ? anyItem.products[0] : anyItem.products;
+    if (!prod) return;
+
+    const baseUnitName = (prod.unit || 'وحدة').trim();
+    const baseUomId = prod.base_uom_id;
+
+    const resolveUom = (p: { uomId: string | null; uomDirect: { id: string; name: string; ratio: number; uom_type: string } | null }) => {
+      if (p.uomDirect && p.uomDirect.name) return p.uomDirect;
+      if (p.uomId && uomMap.has(p.uomId)) return uomMap.get(p.uomId)!;
+      if (baseUomId && uomMap.has(baseUomId)) {
+        const baseObj = uomMap.get(baseUomId)!;
+        return { id: baseObj.id, name: baseObj.name || baseUnitName, ratio: 1, uom_type: 'reference' };
+      }
+      return { id: '', name: baseUnitName, ratio: 1, uom_type: 'reference' };
+    };
+
+    const lastUomInfo = resolveUom(last);
+    const prevUomInfo = resolveUom(prev);
+
+    const lastNorm = computeNormalizedPrice(last.price, lastUomInfo, baseUnitName);
+    const prevNorm = computeNormalizedPrice(prev.price, prevUomInfo, baseUnitName);
+
+    const lastNormPrice = lastNorm.normalizedPrice;
+    const prevNormPrice = prevNorm.normalizedPrice;
+
+    const diff = Number((lastNormPrice - prevNormPrice).toFixed(4));
+    const diffPct = prevNormPrice > 0 ? Number(((diff / prevNormPrice) * 100).toFixed(2)) : 0;
+    const isDifferentUom = (lastNorm.uomName.trim().toLowerCase() !== prevNorm.uomName.trim().toLowerCase());
+
+    let isAnomaly = false;
+    let anomalyReason = '';
+
+    if (diffPct >= 100 && !isDifferentUom) {
+      isAnomaly = true;
+      const multiple = Math.round(lastNormPrice / prevNormPrice);
+      anomalyReason = `تنبيه: فرق شاذ (+${diffPct.toFixed(0)}%). الأرجح أن سعر الفاتورة (${last.price.toLocaleString()} ج.م) يمثل سعر كرتونة/شيكارة كاملة (حوالي ${multiple} أضعاف الوحدة) تم إدخالها بالخطأ كوحدة فردية.`;
+    } else if (diffPct <= -60 && !isDifferentUom) {
+      isAnomaly = true;
+      const multiple = Math.round(prevNormPrice / lastNormPrice);
+      anomalyReason = `تنبيه: فرق شاذ (${diffPct.toFixed(0)}%). الأرجح أن الفاتورة السابقة كانت مسجلة بسعر كرتونة/طرد كامل (حوالي ${multiple} أضعاف الوحدة) بينما الحالية مسجلة بسعر التجزئة.`;
+    }
+
+    const catData = Array.isArray(prod.item_categories) ? prod.item_categories[0] : prod.item_categories;
+
+    rows.push({
+      productId: pid,
+      productName: prod.name || 'صنف',
+      productSku: prod.sku || '-',
+      categoryId: prod.category_id || '',
+      categoryName: catData?.name || 'عام',
+      baseUnit: baseUnitName,
+
+      // الأحدث
+      lastPrice: last.price,
+      lastUomName: lastNorm.uomName,
+      lastNormalizedPrice: lastNormPrice,
+      lastDate: last.date,
+      lastSupplierId: last.supplierId,
+      lastSupplier: last.supplier,
+      lastQty: last.qty,
+      lastInvoice: last.invoice,
+
+      // السابق
+      prevPrice: prev.price,
+      prevUomName: prevNorm.uomName,
+      prevNormalizedPrice: prevNormPrice,
+      prevDate: prev.date,
+      prevSupplierId: prev.supplierId,
+      prevSupplier: prev.supplier,
+      prevQty: prev.qty,
+      prevInvoice: prev.invoice,
+
+      // المقارنة العادلة
+      diff,
+      diffPct,
+      isDifferentUom,
+      isAnomaly,
+      anomalyReason,
+    });
+  });
+
+  rows.sort((a, b) => {
+    if (a.isAnomaly !== b.isAnomaly) return a.isAnomaly ? 1 : -1;
+    return Math.abs(b.diffPct) - Math.abs(a.diffPct);
+  });
+
+  return rows;
+}
+
 export default function PurchaseAnalysisReport() {
   const { currentUser, currentSelectedOrgId, effectiveOrgId, selectedFiscalYear, fiscalYearRange, suppliers, categories } = useAccounting();
   const { showToast } = useToast();
@@ -160,15 +326,21 @@ export default function PurchaseAnalysisReport() {
   const [searchTerm, setSearchTerm] = useState('');
   const [supplierFilter, setSupplierFilter] = useState('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
-  const [changeFilter, setChangeFilter] = useState<'all' | 'increased' | 'decreased' | 'unchanged'>('all');
+  const [changeFilter, setChangeFilter] = useState<'all' | 'diff_only' | 'increased' | 'decreased' | 'unchanged'>('all');
   const [uomFilter, setUomFilter] = useState<'all' | 'same_uom' | 'different_uom'>('all');
   const [anomalyFilter, setAnomalyFilter] = useState<'all' | 'normal_only' | 'anomalies_only'>('normal_only'); // افتراضياً عرض الفروق الطبيعية فقط لحمايتك من الحرج
   const [sortBy, setSortBy] = useState<'name' | 'diff' | 'diffPct' | 'date'>('diffPct');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
 
+  // فلاتر التاريخ الخاصة بقسم مقارنة الأسعار
+  const [compareStartDate, setCompareStartDate] = useState('');
+  const [compareEndDate, setCompareEndDate] = useState('');
+
   const [bySupplier, setBySupplier] = useState<SupplierAnalysis[]>([]);
   const [byItem, setByItem] = useState<ItemAnalysis[]>([]);
-  const [priceComparison, setPriceComparison] = useState<PriceComparisonRow[]>([]);
+  const [rawSortedItems, setRawSortedItems] = useState<any[]>([]);
+  const [uomMapState, setUomMapState] = useState<Map<string, { id: string; name: string; ratio: number; uom_type: string }>>(new Map());
+  const [demoRows, setDemoRows] = useState<PriceComparisonRow[]>([]);
 
   // مزامنة التواريخ تلقائياً عند تغيير السنة المالية المختارة من شريط النظام
   useEffect(() => {
@@ -185,6 +357,10 @@ export default function PurchaseAnalysisReport() {
   const fetchReport = async () => {
     setLoading(true);
     if (currentUser?.role === 'demo') {
+      const todayStr = getLocalDateStr();
+      const lastWeekStr = getLocalDateStr(new Date(Date.now() - 7 * 86400000));
+      const twoWeeksAgoStr = getLocalDateStr(new Date(Date.now() - 14 * 86400000));
+
       setBySupplier([
         { supplierId: 'd1', supplierName: 'شركة التوريدات العالمية', totalAmount: 150000, orderCount: 12 },
         { supplierId: 'd2', supplierName: 'مصنع الجودة', totalAmount: 85000, orderCount: 5 }
@@ -193,30 +369,39 @@ export default function PurchaseAnalysisReport() {
         { productId: 'p1', productName: 'لابتوب HP', productSku: 'HP-001', totalQuantity: 10, totalAmount: 250000 },
         { productId: 'p2', productName: 'طابعة Canon', productSku: 'CN-002', totalQuantity: 5, totalAmount: 42500 }
       ]);
-      setPriceComparison([
+      setDemoRows([
         {
           productId: 'p1', productName: 'بيض مائدة طازج', productSku: 'EGG-001', categoryId: 'c1', categoryName: 'خامات أولية',
           baseUnit: 'بيضة',
-          lastPrice: 120, lastUomName: 'طبق (30 بيضة)', lastNormalizedPrice: 4.00,
-          lastDate: '2026-10-02', lastSupplierId: 's1', lastSupplier: 'مزارع الدلتا', lastQty: 50, lastInvoice: 'PINV-102',
-          prevPrice: 112, prevUomName: 'طبق (30 بيضة)', prevNormalizedPrice: 3.7333,
-          prevDate: '2026-09-18', prevSupplierId: 's1', prevSupplier: 'مزارع الدلتا', prevQty: 40, prevInvoice: 'PINV-091',
-          diff: 0.2667, diffPct: 7.14, isDifferentUom: false, isAnomaly: false, anomalyReason: ''
+          lastPrice: 130, lastUomName: 'طبق (30 بيضة)', lastNormalizedPrice: 4.3333,
+          lastDate: todayStr, lastSupplierId: 's1', lastSupplier: 'مزارع الدلتا', lastQty: 50, lastInvoice: 'PINV-105',
+          prevPrice: 120, prevUomName: 'طبق (30 بيضة)', prevNormalizedPrice: 4.00,
+          prevDate: lastWeekStr, prevSupplierId: 's1', prevSupplier: 'مزارع الدلتا', prevQty: 40, prevInvoice: 'PINV-102',
+          diff: 0.3333, diffPct: 8.33, isDifferentUom: false, isAnomaly: false, anomalyReason: ''
         },
         {
-          productId: 'p2', productName: 'كريم شانتيه هايبر المتحده', productSku: '10101-0077', categoryId: 'c1', categoryName: 'خامات الحلويات الأولية',
+          productId: 'p2', productName: 'سكر ناعم 50 كجم', productSku: '10101-0085', categoryId: 'c1', categoryName: 'خامات أولية',
           baseUnit: 'kg',
-          lastPrice: 8100, lastUomName: 'شيكاره 25 كيلو', lastNormalizedPrice: 324.00,
-          lastDate: '2026-09-30', lastSupplierId: 's2', lastSupplier: 'أشرف سعفان', lastQty: 1, lastInvoice: 'PUR-286017',
-          prevPrice: 324, prevUomName: 'كجم', prevNormalizedPrice: 324.00,
-          prevDate: '2026-09-29', prevSupplierId: 's2', prevSupplier: 'أشرف سعفان', prevQty: 25, prevInvoice: 'PUR-286004',
+          lastPrice: 1750, lastUomName: 'شيكارة 50 كجم', lastNormalizedPrice: 35.00,
+          lastDate: todayStr, lastSupplierId: 's4', lastSupplier: 'شركة السكر الوطنية', lastQty: 10, lastInvoice: 'PINV-106',
+          prevPrice: 35, prevUomName: 'كجم', prevNormalizedPrice: 35.00,
+          prevDate: lastWeekStr, prevSupplierId: 's4', prevSupplier: 'شركة السكر الوطنية', prevQty: 100, prevInvoice: 'PINV-098',
           diff: 0.00, diffPct: 0.0, isDifferentUom: true, isAnomaly: false, anomalyReason: ''
         },
         {
-          productId: 'p3', productName: 'لوز امريكي', productSku: '10101-0081', categoryId: 'c1', categoryName: 'خامات الحلويات الأولية',
+          productId: 'p3', productName: 'كريم شانتيه هايبر المتحده', productSku: '10101-0077', categoryId: 'c1', categoryName: 'خامات الحلويات الأولية',
+          baseUnit: 'kg',
+          lastPrice: 7750, lastUomName: 'شيكاره 25 كيلو', lastNormalizedPrice: 310.00,
+          lastDate: todayStr, lastSupplierId: 's2', lastSupplier: 'أشرف سعفان', lastQty: 2, lastInvoice: 'PUR-286090',
+          prevPrice: 324, prevUomName: 'كجم', prevNormalizedPrice: 324.00,
+          prevDate: lastWeekStr, prevSupplierId: 's2', prevSupplier: 'أشرف سعفان', prevQty: 25, prevInvoice: 'PUR-286004',
+          diff: -14.00, diffPct: -4.32, isDifferentUom: true, isAnomaly: false, anomalyReason: ''
+        },
+        {
+          productId: 'p4', productName: 'لوز امريكي', productSku: '10101-0081', categoryId: 'c1', categoryName: 'خامات الحلويات الأولية',
           baseUnit: 'kg',
           lastPrice: 12250, lastUomName: 'شيكارة 25 كجم', lastNormalizedPrice: 490.00,
-          lastDate: '2026-10-04', lastSupplierId: 's3', lastSupplier: 'شركة مكة', lastQty: 5, lastInvoice: 'PUR-286053',
+          lastDate: twoWeeksAgoStr, lastSupplierId: 's3', lastSupplier: 'شركة مكة', lastQty: 5, lastInvoice: 'PUR-286053',
           prevPrice: 520, prevUomName: 'كجم', prevNormalizedPrice: 520.00,
           prevDate: '2026-09-28', prevSupplierId: 's3', prevSupplier: 'شركة مكة', prevQty: 50, prevInvoice: 'PUR-285990',
           diff: -30.00, diffPct: -5.77, isDifferentUom: true, isAnomaly: false, anomalyReason: ''
@@ -256,6 +441,7 @@ export default function PurchaseAnalysisReport() {
         if (r <= 0) r = 1;
         uomMap.set(u.id, { id: u.id, name: (u.name || '').trim(), ratio: r, uom_type: u.uom_type || 'bigger' });
       });
+      setUomMapState(uomMap);
 
       // 2. تحليل المشتريات (التبويب الأول)
       let analysisQuery = supabase
@@ -377,153 +563,7 @@ export default function PurchaseAnalysisReport() {
         return numB.localeCompare(numA);
       });
 
-      // تجميع آخر عمليتي شراء لكل صنف
-      const productPurchasesMap: Record<string, Array<{
-        price: number;
-        uomId: string | null;
-        uomDirect: { id: string; name: string; ratio: number; uom_type: string } | null;
-        date: string;
-        supplierId: string;
-        supplier: string;
-        qty: number;
-        invoice: string;
-      }>> = {};
-
-      sortedItems.forEach((item: Record<string, any>) => {
-        if (!item.products || !item.purchase_invoices) return;
-        const pid = item.product_id;
-        if (!productPurchasesMap[pid]) productPurchasesMap[pid] = [];
-        if (productPurchasesMap[pid].length < 2) {
-          const uomRel = Array.isArray(item.uoms) ? item.uoms[0] : item.uoms;
-          const invObj: Record<string, any> = Array.isArray(item.purchase_invoices) ? item.purchase_invoices[0] : item.purchase_invoices;
-          const supObj: Record<string, any> = Array.isArray(invObj?.suppliers) ? invObj.suppliers[0] : invObj?.suppliers;
-
-          productPurchasesMap[pid].push({
-            price: Number(item.unit_price || 0),
-            uomId: item.uom_id || null,
-            uomDirect: uomRel ? {
-              id: uomRel.id,
-              name: (uomRel.name || '').trim(),
-              ratio: Number(uomRel.ratio) || 1,
-              uom_type: uomRel.uom_type || 'bigger',
-            } : null,
-            date: invObj?.invoice_date || '',
-            supplierId: invObj?.supplier_id || '',
-            supplier: supObj?.name || 'غير محدد',
-            qty: Number(item.quantity || 0),
-            invoice: invObj?.invoice_number || '-',
-          });
-        }
-      });
-
-      // بناء صفوف المقارنة الموحدة تناسبياً
-      const rows: PriceComparisonRow[] = [];
-      Object.entries(productPurchasesMap).forEach(([pid, purchases]) => {
-        if (purchases.length < 2) return;
-
-        const anyItem = sortedItems.find((i: Record<string, unknown>) => i.product_id === pid) as Record<string, any> | undefined;
-        if (!anyItem?.products) return;
-
-        const prod = Array.isArray(anyItem.products) ? anyItem.products[0] : anyItem.products;
-        if (!prod) return;
-
-        const baseUnitName = (prod.unit || 'وحدة').trim();
-        const baseUomId = prod.base_uom_id;
-
-        const [last, prev] = purchases;
-
-        // دالة تحديد الوحدة الدقيقة للبند مع معامل التحويل
-        const resolveUom = (p: { uomId: string | null; uomDirect: { id: string; name: string; ratio: number; uom_type: string } | null }) => {
-          // 1. الكائن المباشر المجلوب من الفاتورة عبر uoms:uom_id
-          if (p.uomDirect && p.uomDirect.name) {
-            return p.uomDirect;
-          }
-          // 2. البحث في خريطة الوحدات الشاملة بمعرف uom_id
-          if (p.uomId && uomMap.has(p.uomId)) {
-            return uomMap.get(p.uomId)!;
-          }
-          // 3. الوحدة الأساسية للصنف
-          if (baseUomId && uomMap.has(baseUomId)) {
-            const baseObj = uomMap.get(baseUomId)!;
-            return { id: baseObj.id, name: baseObj.name || baseUnitName, ratio: 1, uom_type: 'reference' };
-          }
-          // 4. الوحدة النصية المحفوظة مع الصنف
-          return { id: '', name: baseUnitName, ratio: 1, uom_type: 'reference' };
-        };
-
-        const lastUomInfo = resolveUom(last);
-        const prevUomInfo = resolveUom(prev);
-
-        const lastNorm = computeNormalizedPrice(last.price, lastUomInfo, baseUnitName);
-        const prevNorm = computeNormalizedPrice(prev.price, prevUomInfo, baseUnitName);
-
-        const lastNormPrice = lastNorm.normalizedPrice;
-        const prevNormPrice = prevNorm.normalizedPrice;
-
-        const diff = Number((lastNormPrice - prevNormPrice).toFixed(4));
-        const diffPct = prevNormPrice > 0 ? Number(((diff / prevNormPrice) * 100).toFixed(2)) : 0;
-        const isDifferentUom = (lastNorm.uomName.trim().toLowerCase() !== prevNorm.uomName.trim().toLowerCase());
-
-        // 🛡️ كاشف الفروق الشاذة الذكي (Anomaly Detection):
-        // إذا كان التغير السعري كبيراً جداً بدون توحيد وحدات، أو إذا كان الفرق كبيراً بشكل غير طبيعي
-        let isAnomaly = false;
-        let anomalyReason = '';
-
-        if (diffPct >= 100 && !isDifferentUom) {
-          isAnomaly = true;
-          const multiple = Math.round(lastNormPrice / prevNormPrice);
-          anomalyReason = `تنبيه: فرق شاذ (+${diffPct.toFixed(0)}%). الأرجح أن سعر الفاتورة (${last.price.toLocaleString()} ج.م) يمثل سعر كرتونة/شيكارة كاملة (حوالي ${multiple} أضعاف الوحدة) تم إدخالها بالخطأ كوحدة فردية.`;
-        } else if (diffPct <= -60 && !isDifferentUom) {
-          isAnomaly = true;
-          const multiple = Math.round(prevNormPrice / lastNormPrice);
-          anomalyReason = `تنبيه: فرق شاذ (${diffPct.toFixed(0)}%). الأرجح أن الفاتورة السابقة كانت مسجلة بسعر كرتونة/طرد كامل (حوالي ${multiple} أضعاف الوحدة) بينما الحالية مسجلة بسعر التجزئة.`;
-        }
-
-        const catData = Array.isArray(prod.item_categories) ? prod.item_categories[0] : prod.item_categories;
-
-        rows.push({
-          productId: pid,
-          productName: prod.name || 'صنف',
-          productSku: prod.sku || '-',
-          categoryId: prod.category_id || '',
-          categoryName: catData?.name || 'عام',
-          baseUnit: baseUnitName,
-
-          // الأحدث
-          lastPrice: last.price,
-          lastUomName: lastNorm.uomName,
-          lastNormalizedPrice: lastNormPrice,
-          lastDate: last.date,
-          lastSupplierId: last.supplierId,
-          lastSupplier: last.supplier,
-          lastQty: last.qty,
-          lastInvoice: last.invoice,
-
-          // السابق
-          prevPrice: prev.price,
-          prevUomName: prevNorm.uomName,
-          prevNormalizedPrice: prevNormPrice,
-          prevDate: prev.date,
-          prevSupplierId: prev.supplierId,
-          prevSupplier: prev.supplier,
-          prevQty: prev.qty,
-          prevInvoice: prev.invoice,
-
-          // المقارنة العادلة
-          diff,
-          diffPct,
-          isDifferentUom,
-          isAnomaly,
-          anomalyReason,
-        });
-      });
-
-      // ترتيب افتراضي: الفروق الأكثر تأثيراً أولاً مع وضع الشواذ في النهاية إذا فُعّل عرضها
-      rows.sort((a, b) => {
-        if (a.isAnomaly !== b.isAnomaly) return a.isAnomaly ? 1 : -1;
-        return Math.abs(b.diffPct) - Math.abs(a.diffPct);
-      });
-      setPriceComparison(rows);
+      setRawSortedItems(sortedItems);
 
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -531,6 +571,77 @@ export default function PurchaseAnalysisReport() {
       showToast("حدث خطأ: " + msg, 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const todayStr = useMemo(() => getLocalDateStr(), []);
+
+  // المقارنات لجميع الأصناف دون قيد زمني (لحساب العدادات والإحصائيات الشاملة)
+  const allTimeComparison = useMemo(() => {
+    if (currentUser?.role === 'demo') {
+      return demoRows;
+    }
+    return generatePriceComparisonRows(rawSortedItems, uomMapState);
+  }, [currentUser?.role, demoRows, rawSortedItems, uomMapState]);
+
+  // إحصائيات مشتريات اليوم على مستوى كل الأصناف
+  const todayPurchasesCount = useMemo(() => {
+    return allTimeComparison.filter(r => r.lastDate === todayStr).length;
+  }, [allTimeComparison, todayStr]);
+
+  const todayDiffCount = useMemo(() => {
+    return allTimeComparison.filter(r => r.lastDate === todayStr && Math.abs(r.diff) > 0.0001 && !r.isAnomaly).length;
+  }, [allTimeComparison, todayStr]);
+
+  // المقارنات المحسوبة بناءً على فلتر التاريخ المحدد للقسم
+  const priceComparison = useMemo(() => {
+    if (currentUser?.role === 'demo') {
+      return demoRows.filter(r => {
+        if (compareStartDate && r.lastDate < compareStartDate) return false;
+        if (compareEndDate && r.lastDate > compareEndDate) return false;
+        return true;
+      });
+    }
+    return generatePriceComparisonRows(rawSortedItems, uomMapState, compareStartDate, compareEndDate);
+  }, [currentUser?.role, demoRows, rawSortedItems, uomMapState, compareStartDate, compareEndDate]);
+
+  // هل زر "مشتريات اليوم (الفرق فقط)" مفعل حالياً؟
+  const isTodayDiffActive = Boolean(
+    compareStartDate === todayStr && 
+    compareEndDate === todayStr && 
+    changeFilter === 'diff_only'
+  );
+
+  const toggleTodayDiffOnly = () => {
+    if (isTodayDiffActive) {
+      setCompareStartDate('');
+      setCompareEndDate('');
+      setChangeFilter('all');
+    } else {
+      setCompareStartDate(todayStr);
+      setCompareEndDate(todayStr);
+      setChangeFilter('diff_only');
+    }
+  };
+
+  const setQuickDate = (type: 'today' | 'this_week' | 'this_month' | 'all') => {
+    if (type === 'today') {
+      setCompareStartDate(todayStr);
+      setCompareEndDate(todayStr);
+    } else if (type === 'this_week') {
+      const weekAgo = new Date(Date.now() - 6 * 86400000);
+      setCompareStartDate(getLocalDateStr(weekAgo));
+      setCompareEndDate(todayStr);
+    } else if (type === 'this_month') {
+      const d = new Date();
+      const mYear = d.getFullYear();
+      const mMonth = String(d.getMonth() + 1).padStart(2, '0');
+      setCompareStartDate(`${mYear}-${mMonth}-01`);
+      setCompareEndDate(todayStr);
+    } else if (type === 'all') {
+      setCompareStartDate('');
+      setCompareEndDate('');
+      if (changeFilter === 'diff_only') setChangeFilter('all');
     }
   };
 
@@ -559,9 +670,10 @@ export default function PurchaseAnalysisReport() {
         // فلتر نوع التغير السعري
         const matchChange = 
           changeFilter === 'all' ? true :
+          changeFilter === 'diff_only' ? Math.abs(r.diff) > 0.0001 :
           changeFilter === 'increased' ? r.diff > 0 :
           changeFilter === 'decreased' ? r.diff < 0 :
-          r.diff === 0;
+          Math.abs(r.diff) <= 0.0001;
 
         // فلتر تطابق وحدات الشراء
         const matchUom = 
@@ -601,10 +713,14 @@ export default function PurchaseAnalysisReport() {
     setAnomalyFilter('normal_only');
     setSortBy('diffPct');
     setSortDir('desc');
+    setCompareStartDate('');
+    setCompareEndDate('');
   };
 
   const hasActiveFilters = Boolean(
-    searchTerm || supplierFilter !== 'all' || categoryFilter !== 'all' || changeFilter !== 'all' || uomFilter !== 'all' || anomalyFilter !== 'normal_only'
+    searchTerm || supplierFilter !== 'all' || categoryFilter !== 'all' || 
+    changeFilter !== 'all' || uomFilter !== 'all' || anomalyFilter !== 'normal_only' ||
+    compareStartDate || compareEndDate
   );
 
   // إحصائيات المقارنة الفورية
@@ -615,7 +731,7 @@ export default function PurchaseAnalysisReport() {
       normalTotal: list.filter(r => !r.isAnomaly).length,
       increased: list.filter(r => !r.isAnomaly && r.diff > 0).length,
       decreased: list.filter(r => !r.isAnomaly && r.diff < 0).length,
-      unchanged: list.filter(r => !r.isAnomaly && r.diff === 0).length,
+      unchanged: list.filter(r => !r.isAnomaly && Math.abs(r.diff) <= 0.0001).length,
       anomalies: list.filter(r => r.isAnomaly).length,
       diffUoms: list.filter(r => r.isDifferentUom).length,
     };
@@ -672,7 +788,10 @@ export default function PurchaseAnalysisReport() {
         'حالة وحدات الشراء': r.isDifferentUom ? 'تم توحيد وحدات مختلفة تناسبياً' : 'نفس وحدة الشراء',
       }));
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), "مقارنة الأسعار الموحدة");
-      XLSX.writeFile(wb, `Normalized_Price_Comparison_${new Date().toISOString().split('T')[0]}.xlsx`);
+      const dateSuffix = compareStartDate && compareEndDate
+        ? `${compareStartDate}_to_${compareEndDate}`
+        : (compareStartDate || compareEndDate || todayStr);
+      XLSX.writeFile(wb, `Normalized_Price_Comparison_${dateSuffix}.xlsx`);
     }
   };
 
@@ -706,6 +825,11 @@ export default function PurchaseAnalysisReport() {
           {activeTab === 'analysis' ? 'تقرير تحليل المشتريات' : 'تقرير مقارنة آخر سعرين شراء (المعتمد المنضبط)'}
         </h1>
         <p className="text-sm text-slate-500">تاريخ التقرير: {new Date().toLocaleDateString('ar-EG')}</p>
+        {activeTab === 'price_compare' && (compareStartDate || compareEndDate) && (
+          <p className="text-xs text-slate-600 mt-1 font-bold">
+            الفترة المحددة: {compareStartDate ? `من ${compareStartDate}` : ''} {compareEndDate ? `إلى ${compareEndDate}` : ''}
+          </p>
+        )}
       </div>
 
       {/* Tabs */}
@@ -734,6 +858,11 @@ export default function PurchaseAnalysisReport() {
           {priceComparison.length > 0 && (
             <span className="mr-1.5 bg-orange-100 text-orange-700 text-[10px] font-bold px-2 py-0.5 rounded-full">
               {priceComparison.length}
+            </span>
+          )}
+          {todayDiffCount > 0 && (
+            <span className="mr-1.5 bg-rose-100 text-rose-700 border border-rose-200 text-[10px] font-black px-2 py-0.5 rounded-full animate-pulse" title={`${todayDiffCount} أصناف تغيرت أسعارها في مشتريات اليوم`}>
+              ⚡ {todayDiffCount} تغير اليوم
             </span>
           )}
         </button>
@@ -842,12 +971,36 @@ export default function PurchaseAnalysisReport() {
           </div>
 
           {/* بطاقات الملخص والإحصاء */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 no-print">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 no-print">
             <div className="bg-white rounded-xl p-3.5 border border-slate-200 shadow-xs text-center">
               <p className="text-xs text-slate-500 font-bold mb-1">المقارنات الطبيعية المعتمدة</p>
               <p className="text-2xl font-black text-slate-800">{priceStats.normalTotal}</p>
               <span className="text-[10px] text-slate-400 font-bold">من أصل {priceStats.total} صنف</span>
             </div>
+
+            {/* بطاقة مشتريات اليوم السريعة */}
+            <div 
+              onClick={toggleTodayDiffOnly}
+              className={`p-3.5 rounded-xl border shadow-xs text-center cursor-pointer transition-all ${
+                isTodayDiffActive
+                  ? 'bg-gradient-to-br from-orange-500 to-amber-600 text-white border-orange-600 shadow-md ring-2 ring-orange-300'
+                  : 'bg-white hover:bg-orange-50/50 border-slate-200 text-slate-800'
+              }`}
+              title="انقر لتصفية التقرير فورياً لعرض مشتريات اليوم التي بها فروق في الأسعار فقط"
+            >
+              <div className={`flex items-center justify-center gap-1 font-bold text-xs mb-1 ${
+                isTodayDiffActive ? 'text-white' : 'text-orange-600'
+              }`}>
+                <Zap size={14} className={isTodayDiffActive ? 'animate-pulse' : ''} /> مشتريات اليوم (الفروق)
+              </div>
+              <p className="text-2xl font-black">{todayDiffCount}</p>
+              <span className={`text-[10px] font-bold block ${
+                isTodayDiffActive ? 'text-orange-100' : 'text-slate-400'
+              }`}>
+                من إجمالي {todayPurchasesCount} صنف اليوم
+              </span>
+            </div>
+
             <div className="bg-rose-50 rounded-xl p-3.5 border border-rose-200 shadow-xs text-center">
               <div className="flex items-center justify-center gap-1 text-rose-600 mb-1 font-bold text-xs">
                 <TrendingUp size={15} /> ارتفاع طبيعي حقيقي
@@ -900,26 +1053,135 @@ export default function PurchaseAnalysisReport() {
               )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-              {/* 1. البحث النصي */}
+            {/* الشريط السريع: زر مشتريات اليوم (الفرق فقط) وأزرار الفترات */}
+            <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-gradient-to-r from-orange-50 via-amber-50 to-orange-50 border border-orange-200/80 rounded-xl">
+              <div className="flex flex-wrap items-center gap-2">
+                {/* الزر المميز: مشتريات اليوم (الفرق فقط) */}
+                <button
+                  type="button"
+                  onClick={toggleTodayDiffOnly}
+                  className={`px-3.5 py-1.5 rounded-lg text-xs font-black flex items-center gap-1.5 transition shadow-xs ${
+                    isTodayDiffActive
+                      ? 'bg-orange-600 text-white ring-2 ring-orange-400 shadow-md'
+                      : 'bg-white hover:bg-orange-100 text-orange-800 border border-orange-300'
+                  }`}
+                  title="عرض الأصناف التي تم شراؤها اليوم وتغير سعرها فقط (ارتفاع أو انخفاض)"
+                >
+                  <Zap size={14} className={isTodayDiffActive ? 'fill-current animate-pulse text-amber-200' : 'text-orange-500'} />
+                  <span>⚡ مشتريات اليوم (الفرق فقط)</span>
+                  {todayDiffCount > 0 && (
+                    <span className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
+                      isTodayDiffActive ? 'bg-white text-orange-700' : 'bg-orange-200 text-orange-900'
+                    }`}>
+                      {todayDiffCount}
+                    </span>
+                  )}
+                </button>
+
+                <div className="h-4 w-[1px] bg-orange-200 hidden sm:block"></div>
+
+                {/* أزرار الفترات السريعة */}
+                <div className="flex items-center gap-1 text-[11px] font-bold text-slate-600">
+                  <span className="text-slate-400 ml-1">فترة الشراء:</span>
+                  <button
+                    type="button"
+                    onClick={() => setQuickDate('today')}
+                    className={`px-2.5 py-1 rounded-md transition ${
+                      compareStartDate === todayStr && compareEndDate === todayStr && changeFilter !== 'diff_only'
+                        ? 'bg-orange-500 text-white shadow-2xs'
+                        : 'bg-white/80 hover:bg-white text-slate-700 border border-slate-200'
+                    }`}
+                  >
+                    اليوم ({todayPurchasesCount})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickDate('this_week')}
+                    className="px-2.5 py-1 rounded-md bg-white/80 hover:bg-white text-slate-700 border border-slate-200 transition"
+                  >
+                    آخر 7 أيام
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickDate('this_month')}
+                    className="px-2.5 py-1 rounded-md bg-white/80 hover:bg-white text-slate-700 border border-slate-200 transition"
+                  >
+                    هذا الشهر
+                  </button>
+                  {(compareStartDate || compareEndDate) && (
+                    <button
+                      type="button"
+                      onClick={() => setQuickDate('all')}
+                      className="px-2.5 py-1 rounded-md bg-slate-100 hover:bg-slate-200 text-slate-600 transition"
+                    >
+                      عرض كامل الفترة
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {(compareStartDate || compareEndDate) && (
+                <div className="text-[11px] font-bold text-orange-800 bg-orange-100/70 px-2.5 py-1 rounded-md flex items-center gap-1">
+                  <Calendar size={13} />
+                  <span>الفترة: {compareStartDate || 'البداية'} إلى {compareEndDate || 'الآن'}</span>
+                  <button 
+                    type="button" 
+                    onClick={() => { setCompareStartDate(''); setCompareEndDate(''); }}
+                    className="text-rose-600 hover:text-rose-800 mr-1"
+                    title="مسح فلتر التاريخ"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-7 gap-3">
+              {/* 1. من تاريخ */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1">
+                  <Calendar size={12} className="text-orange-500" /> من تاريخ
+                </label>
+                <input
+                  type="date"
+                  value={compareStartDate}
+                  onChange={e => setCompareStartDate(e.target.value)}
+                  className="w-full border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-orange-500 bg-slate-50 focus:bg-white font-bold"
+                />
+              </div>
+
+              {/* 2. إلى تاريخ */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1">
+                  <Calendar size={12} className="text-orange-500" /> إلى تاريخ
+                </label>
+                <input
+                  type="date"
+                  value={compareEndDate}
+                  onChange={e => setCompareEndDate(e.target.value)}
+                  className="w-full border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-orange-500 bg-slate-50 focus:bg-white font-bold"
+                />
+              </div>
+
+              {/* 3. البحث النصي */}
               <div className="lg:col-span-2">
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">بحث سريع (صنف / كود / مورد / رقم فاتورة)</label>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">بحث (صنف / كود / مورد / فاتورة)</label>
                 <input
                   type="text"
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                   placeholder="اكتب اسم الصنف أو كوده أو اسم المورد..."
-                  className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-orange-500 bg-slate-50 focus:bg-white"
+                  className="w-full border border-slate-300 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:border-orange-500 bg-slate-50 focus:bg-white"
                 />
               </div>
 
-              {/* 2. فلتر المورد */}
+              {/* 4. فلتر المورد */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">فلترة حسب المورد</label>
                 <select
                   value={supplierFilter}
                   onChange={e => setSupplierFilter(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-2.5 py-2 text-xs focus:outline-none focus:border-orange-500 bg-slate-50 focus:bg-white font-bold"
+                  className="w-full border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-orange-500 bg-slate-50 focus:bg-white font-bold"
                 >
                   <option value="all">كل الموردين ({suppliers?.length || 0})</option>
                   {(suppliers || []).map(s => (
@@ -928,13 +1190,13 @@ export default function PurchaseAnalysisReport() {
                 </select>
               </div>
 
-              {/* 3. فلتر التصنيف */}
+              {/* 5. فلتر التصنيف */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">فلترة حسب التصنيف</label>
                 <select
                   value={categoryFilter}
                   onChange={e => setCategoryFilter(e.target.value)}
-                  className="w-full border border-slate-300 rounded-xl px-2.5 py-2 text-xs focus:outline-none focus:border-orange-500 bg-slate-50 focus:bg-white font-bold"
+                  className="w-full border border-slate-300 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-orange-500 bg-slate-50 focus:bg-white font-bold"
                 >
                   <option value="all">كل التصنيفات ({categories?.length || 0})</option>
                   {(categories || []).map(c => (
@@ -943,15 +1205,20 @@ export default function PurchaseAnalysisReport() {
                 </select>
               </div>
 
-              {/* 4. فلتر حالة السعر */}
+              {/* 6. فلتر حالة السعر */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">حالة تغير السعر</label>
                 <select
                   value={changeFilter}
                   onChange={e => setChangeFilter(e.target.value as any)}
-                  className="w-full border border-slate-300 rounded-xl px-2.5 py-2 text-xs focus:outline-none focus:border-orange-500 bg-slate-50 focus:bg-white font-bold"
+                  className={`w-full border rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-orange-500 font-bold ${
+                    changeFilter === 'diff_only' 
+                      ? 'border-orange-400 bg-orange-50 text-orange-800' 
+                      : 'border-slate-300 bg-slate-50 focus:bg-white'
+                  }`}
                 >
                   <option value="all">جميع الحالات</option>
+                  <option value="diff_only">⚡ وجود فرق فقط (ارتفاع أو انخفاض)</option>
                   <option value="increased">🔺 السعر ارتفع فقط</option>
                   <option value="decreased">🔻 السعر انخفض فقط</option>
                   <option value="unchanged">➖ السعر ثابت بدون تغيير</option>
@@ -1201,9 +1468,44 @@ export default function PurchaseAnalysisReport() {
                   {filteredComparison.length === 0 && (
                     <tr>
                       <td colSpan={13} className="p-12 text-center text-slate-400 font-bold">
-                        {priceComparison.length === 0
-                          ? 'لا توجد أصناف مسجل لها عمليتا شراء مرحّلتان على الأقل بعد.'
-                          : 'لا توجد نتائج تطابق معايير الفلاتر المحددة حالياً. يمكنك تغيير خيارات الفلترة أو الضغط على "استعادة الوضع الافتراضي".'}
+                        {isTodayDiffActive ? (
+                          <div className="space-y-2">
+                            <p className="text-slate-700 text-sm font-black">
+                              🎉 لا توجد فروق في أسعار مشتريات اليوم ({todayStr}).
+                            </p>
+                            <p className="text-xs text-slate-500 font-normal">
+                              {todayPurchasesCount > 0 
+                                ? `تم تسجيل (${todayPurchasesCount}) أصناف مشتريات اليوم، وجميعها مطابقة تماماً لأسعار الشراء السابقة.`
+                                : 'لم يتم تسجيل أي فواتير مشتريات مرحّلة بتاريخ اليوم حتى الآن.'}
+                            </p>
+                            {todayPurchasesCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setChangeFilter('all')}
+                                className="bg-orange-50 hover:bg-orange-100 text-orange-700 px-3 py-1.5 rounded-lg text-xs font-bold border border-orange-200 transition"
+                              >
+                                عرض كافة مشتريات اليوم ({todayPurchasesCount}) بدون اشتراط وجود فرق
+                              </button>
+                            )}
+                          </div>
+                        ) : compareStartDate || compareEndDate ? (
+                          <div className="space-y-2">
+                            <p className="text-slate-700 text-sm font-black">
+                              لا توجد أصناف تطابق الفترة المحددة ({compareStartDate || 'البداية'} إلى {compareEndDate || 'الآن'}).
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => { setCompareStartDate(''); setCompareEndDate(''); }}
+                              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                            >
+                              عرض جميع التواريخ
+                            </button>
+                          </div>
+                        ) : priceComparison.length === 0 ? (
+                          'لا توجد أصناف مسجل لها عمليتا شراء مرحّلتان على الأقل بعد.'
+                        ) : (
+                          'لا توجد نتائج تطابق معايير الفلاتر المحددة حالياً. يمكنك تغيير خيارات الفلترة أو الضغط على "استعادة الوضع الافتراضي".'
+                        )}
                       </td>
                     </tr>
                   )}
