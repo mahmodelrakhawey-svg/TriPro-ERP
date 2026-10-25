@@ -159,7 +159,7 @@ function computeNormalizedPrice(
 
 // دالة بناء صفوف مقارنة آخر سعرين شراء مع إمكانية التحديد الزمني المرن
 function generatePriceComparisonRows(
-  sortedItems: any[],
+  sortedItems: Record<string, any>[],
   uomMap: Map<string, { id: string; name: string; ratio: number; uom_type: string }>,
   startDateFilter?: string,
   endDateFilter?: string
@@ -173,7 +173,7 @@ function generatePriceComparisonRows(
     supplier: string;
     qty: number;
     invoice: string;
-    rawItem: any;
+    rawItem: Record<string, any>;
   }>> = {};
 
   sortedItems.forEach((item: Record<string, any>) => {
@@ -338,7 +338,7 @@ export default function PurchaseAnalysisReport() {
 
   const [bySupplier, setBySupplier] = useState<SupplierAnalysis[]>([]);
   const [byItem, setByItem] = useState<ItemAnalysis[]>([]);
-  const [rawSortedItems, setRawSortedItems] = useState<any[]>([]);
+  const [rawSortedItems, setRawSortedItems] = useState<Record<string, any>[]>([]);
   const [uomMapState, setUomMapState] = useState<Map<string, { id: string; name: string; ratio: number; uom_type: string }>>(new Map());
   const [demoRows, setDemoRows] = useState<PriceComparisonRow[]>([]);
 
@@ -416,7 +416,7 @@ export default function PurchaseAnalysisReport() {
       const userOrgId = 
         effectiveOrgId || 
         currentSelectedOrgId || 
-        (currentUser as any)?.organization_id || 
+        (currentUser as { organization_id?: string })?.organization_id || 
         user?.user_metadata?.org_id;
 
       // 1. جلب جدول الوحدات (UOMs) لحساب النسب التناسبية وتوحيد المقارنة بدقة رياضية
@@ -1210,7 +1210,7 @@ export default function PurchaseAnalysisReport() {
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">حالة تغير السعر</label>
                 <select
                   value={changeFilter}
-                  onChange={e => setChangeFilter(e.target.value as any)}
+                  onChange={e => setChangeFilter(e.target.value as 'all' | 'diff_only' | 'increased' | 'decreased' | 'unchanged')}
                   className={`w-full border rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-orange-500 font-bold ${
                     changeFilter === 'diff_only' 
                       ? 'border-orange-400 bg-orange-50 text-orange-800' 
