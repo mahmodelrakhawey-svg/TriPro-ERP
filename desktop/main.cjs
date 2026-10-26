@@ -66,6 +66,7 @@ function getDistPath() {
 
 function createHttpHandler() {
   const distPath = getDistPath();
+  const normalizedDist = path.resolve(distPath);
   const mimeTypes = {
     '.html': 'text/html; charset=utf-8',
     '.js': 'text/javascript; charset=utf-8',
@@ -80,28 +81,51 @@ function createHttpHandler() {
   };
 
   return (req, res) => {
-    let reqPath = req.url.split('?')[0];
-    if (reqPath === '/') reqPath = '/index.html';
-    let filePath = path.join(distPath, reqPath);
+    let rawPath = req.url.split('?')[0];
+    let decodedPath = '';
+    try {
+      decodedPath = decodeURIComponent(rawPath);
+    } catch (_) {
+      res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Bad Request');
+      return;
+    }
+
+    if (decodedPath === '/' || !decodedPath) decodedPath = '/index.html';
+
+    // حماية ضد Path Traversal: التأكد الصارم من أن المسار داخل مجلد dist حصراً
+    const safePath = path.normalize(decodedPath).replace(/^(\.\.[\/\\])+/, '');
+    let filePath = path.resolve(normalizedDist, '.' + (safePath.startsWith('/') || safePath.startsWith('\\') ? safePath : '/' + safePath));
+
+    if (!filePath.startsWith(normalizedDist)) {
+      res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Forbidden: Access Denied');
+      return;
+    }
+
+    // تقييد CORS للبيئة المحلية فقط ومنع استغلاله عبر صفحات ويب خارجية
+    const origin = req.headers.origin || '';
+    const isLocalOrigin = !origin || origin.includes('127.0.0.1') || origin.includes('localhost');
+    const corsHeaders = isLocalOrigin && origin ? { 'Access-Control-Allow-Origin': origin } : {};
 
     // إذا لم يكن الملف موجوداً:
     if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
       // إذا كان الطلب لملف استاتيكي مفقود (ملف JS أو CSS أو صورة)، نرجع 404 لمنع إعادة توجيهه لـ index.html وانهيار الجافاسكربت
-      const ext = path.extname(reqPath);
-      if (reqPath.startsWith('/assets/') || ext) {
-        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+      const ext = path.extname(decodedPath);
+      if (decodedPath.startsWith('/assets/') || ext) {
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', ...corsHeaders });
         res.end('Asset not found');
         return;
       }
       // للمسارات التوجيهية لـ SPA فقط، يتم توجيهها لـ index.html
-      filePath = path.join(distPath, 'index.html');
+      filePath = path.join(normalizedDist, 'index.html');
     }
 
     const ext = path.extname(filePath).toLowerCase();
     const contentType = mimeTypes[ext] || 'application/octet-stream';
     fs.readFile(filePath, (err, content) => {
-      if (err) { res.writeHead(404); res.end('Not found'); return; }
-      res.writeHead(200, { 'Content-Type': contentType, 'Access-Control-Allow-Origin': '*' });
+      if (err) { res.writeHead(404, corsHeaders); res.end('Not found'); return; }
+      res.writeHead(200, { 'Content-Type': contentType, ...corsHeaders });
       res.end(content);
     });
   };
