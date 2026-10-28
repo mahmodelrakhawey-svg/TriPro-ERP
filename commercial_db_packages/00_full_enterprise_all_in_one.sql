@@ -26674,7 +26674,7 @@ BEGIN
               AND (v_final_org IS NULL OR lcri.organization_id = v_final_org)
             
             UNION ALL
-            -- مبيعات (-) - خصم المنتج التام نفسه (إذا لم يكن له BOM)
+            -- مبيعات (-) - خصم المنتج المباع نفسه (لجميع الأصناف المصنعة والمخزنية)
             SELECT ii.product_id, i.warehouse_id, -public.uom_convert(ii.quantity, ii.uom_id, p.base_uom_id)
             FROM public.invoice_items ii
             JOIN public.invoices i ON ii.invoice_id = i.id
@@ -26683,31 +26683,36 @@ BEGIN
               AND i.warehouse_id IS NOT NULL
               AND ii.product_id IS NOT NULL
               AND (v_final_org IS NULL OR i.organization_id = v_final_org)
-              AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = ii.product_id)
             
             UNION ALL
-            -- مبيعات (-) - خصم مكونات BOM للمنتجات التامة المباعة
-            SELECT bom.raw_material_id, i.warehouse_id, -(public.uom_convert(ii.quantity, ii.uom_id, p.base_uom_id) * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id))
-            FROM public.invoice_items ii
-            JOIN public.invoices i ON ii.invoice_id = i.id
-            JOIN public.bill_of_materials bom ON bom.product_id = ii.product_id
-            JOIN public.products p ON ii.product_id = p.id
-            JOIN public.products rm ON bom.raw_material_id = rm.id
-            WHERE UPPER(i.status) NOT IN ('DRAFT', 'CANCELLED')
-              AND i.warehouse_id IS NOT NULL
-              AND ii.product_id IS NOT NULL
-              AND (v_final_org IS NULL OR i.organization_id = v_final_org)
-              AND bom.raw_material_id IS NOT NULL
-            
-            UNION ALL
-            -- مبيعات المطعم (Order Items) (-)
+            -- مبيعات المطعم (Order Items) (-) - خصم المنتج نفسه إذا كان مصنعاً أو ليس له BOM
             SELECT oi.product_id, o.warehouse_id, -public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id)
             FROM public.order_items oi
             JOIN public.orders o ON oi.order_id = o.id
             JOIN public.products p ON oi.product_id = p.id
             WHERE UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL 
               AND (v_final_org IS NULL OR o.organization_id = v_final_org)
-              AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = oi.product_id)
+              AND (
+                  p.product_type = 'MANUFACTURED' 
+                  OR COALESCE(p.item_type, '') = 'MANUFACTURED' 
+                  OR COALESCE(p.mfg_type, '') = 'standard'
+                  OR NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = oi.product_id)
+              )
+
+            UNION ALL
+            -- مبيعات المطعم (Order Items) (-) - خصم مكونات BOM للوجبات الفورية فقط
+            SELECT bom.raw_material_id, o.warehouse_id, -(public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id) * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id))
+            FROM public.order_items oi
+            JOIN public.orders o ON oi.order_id = o.id
+            JOIN public.bill_of_materials bom ON bom.product_id = oi.product_id
+            JOIN public.products p ON oi.product_id = p.id
+            JOIN public.products rm ON bom.raw_material_id = rm.id
+            WHERE UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL 
+              AND (v_final_org IS NULL OR o.organization_id = v_final_org)
+              AND bom.raw_material_id IS NOT NULL
+              AND p.product_type NOT IN ('MANUFACTURED')
+              AND COALESCE(p.item_type, '') NOT IN ('MANUFACTURED')
+              AND COALESCE(p.mfg_type, '') NOT IN ('standard')
             
             UNION ALL
             -- تصنيع تام (+) 
@@ -26789,7 +26794,7 @@ BEGIN
             WHERE st.status = 'posted' AND (v_final_org IS NULL OR st.organization_id = v_final_org)
 
             UNION ALL
-            -- مرتجعات مبيعات (+) - بضاعة عادت للمخزن من العميل
+            -- مرتجعات مبيعات (+) - بضاعة عادت للمخزن من العميل (للأصناف المصنعة والمخزنية)
             SELECT sri.product_id, sr.warehouse_id, public.uom_convert(sri.quantity, sri.uom_id, p.base_uom_id) as qty
             FROM public.sales_return_items sri
             JOIN public.sales_returns sr ON sri.sales_return_id = sr.id
@@ -26798,21 +26803,6 @@ BEGIN
               AND sr.warehouse_id IS NOT NULL
               AND sri.product_id IS NOT NULL
               AND (v_final_org IS NULL OR sr.organization_id = v_final_org)
-              AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = sri.product_id)
-
-            UNION ALL
-            -- مرتجعات مبيعات مكونات BOM (+)
-            SELECT bom.raw_material_id, sr.warehouse_id, (public.uom_convert(sri.quantity, sri.uom_id, p.base_uom_id) * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id)) as qty
-            FROM public.sales_return_items sri
-            JOIN public.sales_returns sr ON sri.sales_return_id = sr.id
-            JOIN public.bill_of_materials bom ON bom.product_id = sri.product_id
-            JOIN public.products p ON sri.product_id = p.id
-            JOIN public.products rm ON bom.raw_material_id = rm.id
-            WHERE UPPER(COALESCE(sr.status, '')) NOT IN ('DRAFT', 'CANCELLED')
-              AND sr.warehouse_id IS NOT NULL
-              AND sri.product_id IS NOT NULL
-              AND (v_final_org IS NULL OR sr.organization_id = v_final_org)
-              AND bom.raw_material_id IS NOT NULL
 
             UNION ALL
             -- مرتجعات مشتريات (-) - بضاعة ردت للمورد

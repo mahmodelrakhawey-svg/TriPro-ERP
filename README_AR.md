@@ -97,16 +97,25 @@ URL: http://localhost:5173
 ### أدلة للمطورين | Developer Guides
 | الدليل | الوصف | المحتوى |
 |------|--------|--------|
+| [MASTER_DOCUMENTATION.md](./MASTER_DOCUMENTATION.md) | المرجع المعماري والتقني الشامل | المعمارية، النطاقات التسعة، والمعادلات الذرية |
 | [IMPLEMENTATION_GUIDE.md](./IMPLEMENTATION_GUIDE.md) | دليل التطبيق العملي | أمثلة وخطوات |
 | [MIGRATION_SUMMARY.md](./MIGRATION_SUMMARY.md) | ملخص التحسينات | الإحصائيات والمعايير |
 | [CHANGELOG.md](./CHANGELOG.md) | سجل التغييرات | جميع التحديثات |
 
-### أدلة للمستخدمين | User Guides
-| الموضوع | الرابط | الملفات |
-|--------|--------|--------|
-| المحاسبة | docs/accounting/ | تقارير، دفاتر |
-| المبيعات | docs/sales/ | فواتير، عروض |
-| المشتريات | docs/purchases/ | أوامر، مدفوعات |
+### أدلة المستخدمين والتشغيل الميداني لكل مديول | Domain User Guides
+| المديول | الدليل الشامل | أبرز الميزات |
+|--------|--------------|--------------|
+| **الدليل الشامل** | [COMPREHENSIVE_USER_GUIDE.md](./COMPREHENSIVE_USER_GUIDE.md) | دليل المستخدم والبدء السريع والإخطارات |
+| **المعايير المحاسبية** | [accounting_standards_and_compliance.md](./accounting_standards_and_compliance.md) | IFRS 18, IAS 2, IAS 21, درع التدقيق الليلي |
+| **التجارة وسلاسل الإمداد** | [commercial_sales_purchases_inventory_guide.md](./commercial_sales_purchases_inventory_guide.md) | المبيعات، المشتريات، مقارنة الأسعار، المستودعات WMS |
+| **نقاط بيع التجزئة** | [retail_guide.md](./retail_guide.md) | كاشير السوبرماركت، كشك فحص الأسعار، إيداعات الورديات Z-Report |
+| **المطاعم والكافيهات** | [restaurant_guide.md](./restaurant_guide.md) | الطاولات، شاشة المطبخ KDS، الطلب بالـ QR، وتشفية الذبائح |
+| **الأصول والعمليات البنكية** | [assets_and_banking_guide.md](./assets_and_banking_guide.md) | باركود الأصول، الشيكات، خطابات الضمان L/G، والاعتمادات L/C |
+| **الموارد البشرية والرواتب** | [hr_and_payroll_guide.md](./hr_and_payroll_guide.md) | أجهزة البصمة، مسير الرواتب الآلي، مكافأة نهاية الخدمة |
+| **المقاولات والمشاريع** | [construction_guide.md](./construction_guide.md) | المقايسات BOQ، المستخلصات، ونسب الإنجاز IFRS 15 |
+| **التصنيع والإنتاج** | [manufacturing_guide.md](./manufacturing_guide.md) | شجرة المواد BOM، صالة الإنتاج، والتكاليف المعيارية |
+| **المستشفيات والرعاية الصحية** | [hims_guide.md](./hims_guide.md) | الملف الطبي EMR، التأمين الطبي XML، وسيرفرات PACS |
+| **الأندية والملاعب الرياضية** | [stadium_and_clubs_guide.md](./stadium_and_clubs_guide.md) | البوابات الإلكترونية QR، الاشتراكات، وحجز الملاعب |
 
 ---
 

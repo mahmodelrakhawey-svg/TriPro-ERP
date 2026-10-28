@@ -35,7 +35,7 @@ BEGIN
             WHERE UPPER(pi.status) NOT IN ('DRAFT', 'CANCELLED') AND pi.warehouse_id IS NOT NULL AND pii.product_id IS NOT NULL AND (v_final_org IS NULL OR pi.organization_id = v_final_org)
             
             UNION ALL
-            -- مبيعات (-) - خصم المنتج التام نفسه (إذا لم يكن له BOM)
+            -- مبيعات (-) - خصم المنتج المباع نفسه (لجميع الأصناف المصنعة والمخزنية)
             SELECT ii.product_id, i.warehouse_id, -public.uom_convert(ii.quantity, ii.uom_id, p.base_uom_id)
             FROM public.invoice_items ii
             JOIN public.invoices i ON ii.invoice_id = i.id
@@ -44,40 +44,36 @@ BEGIN
               AND i.warehouse_id IS NOT NULL
               AND ii.product_id IS NOT NULL
               AND (v_final_org IS NULL OR i.organization_id = v_final_org)
-              AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = ii.product_id)
             
             UNION ALL
-            -- مبيعات (-) - خصم مكونات BOM للمنتجات التامة المباعة (مع مراعاة وحدات المكونات)
-            SELECT bom.raw_material_id, i.warehouse_id, -(public.uom_convert(ii.quantity, ii.uom_id, p.base_uom_id) * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id))
-            FROM public.invoice_items ii
-            JOIN public.invoices i ON ii.invoice_id = i.id
-            JOIN public.bill_of_materials bom ON bom.product_id = ii.product_id
-            JOIN public.products p ON ii.product_id = p.id
-            JOIN public.products rm ON bom.raw_material_id = rm.id
-            WHERE UPPER(i.status) NOT IN ('DRAFT', 'CANCELLED')
-              AND i.warehouse_id IS NOT NULL
-              AND ii.product_id IS NOT NULL
-              AND (v_final_org IS NULL OR i.organization_id = v_final_org)
-              AND bom.raw_material_id IS NOT NULL
-            
-            UNION ALL
-            -- مبيعات المطعم (Order Items) (-) - خصم المنتج التام نفسه (إذا لم يكن له BOM)
+            -- مبيعات المطعم (Order Items) (-) - خصم المنتج نفسه إذا كان مصنعاً أو ليس له BOM
             SELECT oi.product_id, o.warehouse_id, -public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id)
             FROM public.order_items oi
             JOIN public.orders o ON oi.order_id = o.id
             JOIN public.products p ON oi.product_id = p.id
             WHERE UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL 
               AND (v_final_org IS NULL OR o.organization_id = v_final_org)
-              AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = oi.product_id)
+              AND (
+                  p.product_type = 'MANUFACTURED' 
+                  OR COALESCE(p.item_type, '') = 'MANUFACTURED' 
+                  OR COALESCE(p.mfg_type, '') = 'standard'
+                  OR NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = oi.product_id)
+              )
+
             UNION ALL
-            -- مبيعات المطعم (Order Items) (-) - خصم مكونات BOM للمنتجات التامة المباعة
+            -- مبيعات المطعم (Order Items) (-) - خصم مكونات BOM للوجبات الفورية فقط
             SELECT bom.raw_material_id, o.warehouse_id, -(public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id) * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id))
             FROM public.order_items oi
             JOIN public.orders o ON oi.order_id = o.id
             JOIN public.bill_of_materials bom ON bom.product_id = oi.product_id
             JOIN public.products p ON oi.product_id = p.id
             JOIN public.products rm ON bom.raw_material_id = rm.id
-            WHERE UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL AND bom.raw_material_id IS NOT NULL AND (v_final_org IS NULL OR o.organization_id = v_final_org)
+            WHERE UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL 
+              AND (v_final_org IS NULL OR o.organization_id = v_final_org)
+              AND bom.raw_material_id IS NOT NULL
+              AND p.product_type NOT IN ('MANUFACTURED')
+              AND COALESCE(p.item_type, '') NOT IN ('MANUFACTURED')
+              AND COALESCE(p.mfg_type, '') NOT IN ('standard')
             UNION ALL
             -- تصنيع تام (+) 
             SELECT product_id, warehouse_id, quantity_to_produce FROM public.mfg_production_orders 
