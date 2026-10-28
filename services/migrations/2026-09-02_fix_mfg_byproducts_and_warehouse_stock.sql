@@ -134,7 +134,7 @@ BEGIN
               AND i.warehouse_id IS NOT NULL
               AND ii.product_id IS NOT NULL
               AND (v_final_org IS NULL OR i.organization_id = v_final_org)
-              AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = ii.product_id)
+              AND (p.product_type = 'MANUFACTURED' OR NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = ii.product_id))
             
             UNION ALL
             -- مبيعات (-) - خصم مكونات BOM للمنتجات التامة المباعة

@@ -1240,27 +1240,8 @@ $$;
 -- ================================================================
 -- 14. دالة تنظيف البيانات التجريبية (Clear Demo Data)
 -- ================================================================
-CREATE OR REPLACE FUNCTION public.clear_demo_data()
-RETURNS void
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    -- 1. حذف العمليات (Transactions)
-    DELETE FROM public.journal_lines;
-    DELETE FROM public.journal_entries;
-    DELETE FROM public.invoice_items;
-    DELETE FROM public.invoices;
-    DELETE FROM public.receipt_vouchers;
-    DELETE FROM public.payment_vouchers;
-    
-    -- 2. حذف المخزون والمنتجات
-    DELETE FROM public.products;
-    
-    -- 3. حذف العملاء والموردين
-    DELETE FROM public.customers;
-    DELETE FROM public.suppliers;
-END;
-$$;
+-- تم تعطيل وحذف دالة clear_demo_data() غير المحددة بمنشأة لمنع مسح البيانات العرضي
+DROP FUNCTION IF EXISTS public.clear_demo_data();
 
 -- ========= 2. البيانات الأولية (Seeding) =========
 
@@ -3715,7 +3696,7 @@ BEGIN
               AND (v_final_org IS NULL OR lcri.organization_id = v_final_org)
             
             UNION ALL
-            -- مبيعات (-) - خصم المنتج التام نفسه (إذا لم يكن له BOM)
+            -- مبيعات (-) - خصم المنتج المباع نفسه (لجميع الأصناف المصنعة والمخزنية)
             SELECT ii.product_id, i.warehouse_id, -public.uom_convert(ii.quantity, ii.uom_id, p.base_uom_id)
             FROM public.invoice_items ii
             JOIN public.invoices i ON ii.invoice_id = i.id
@@ -3724,40 +3705,36 @@ BEGIN
               AND i.warehouse_id IS NOT NULL
               AND ii.product_id IS NOT NULL
               AND (v_final_org IS NULL OR i.organization_id = v_final_org)
-              AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = ii.product_id)
             
             UNION ALL
-            -- مبيعات (-) - خصم مكونات BOM للمنتجات التامة المباعة (مع مراعاة وحدات المكونات)
-            SELECT bom.raw_material_id, i.warehouse_id, -(public.uom_convert(ii.quantity, ii.uom_id, p.base_uom_id) * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id))
-            FROM public.invoice_items ii
-            JOIN public.invoices i ON ii.invoice_id = i.id
-            JOIN public.bill_of_materials bom ON bom.product_id = ii.product_id
-            JOIN public.products p ON ii.product_id = p.id
-            JOIN public.products rm ON bom.raw_material_id = rm.id
-            WHERE UPPER(i.status) NOT IN ('DRAFT', 'CANCELLED')
-              AND i.warehouse_id IS NOT NULL
-              AND ii.product_id IS NOT NULL
-              AND (v_final_org IS NULL OR i.organization_id = v_final_org)
-              AND bom.raw_material_id IS NOT NULL
-            
-            UNION ALL
-            -- مبيعات المطعم (Order Items) (-) - خصم المنتج التام نفسه (إذا لم يكن له BOM)
+            -- مبيعات المطعم (Order Items) (-) - خصم المنتج نفسه إذا كان مصنعاً أو ليس له BOM
             SELECT oi.product_id, o.warehouse_id, -public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id)
             FROM public.order_items oi
             JOIN public.orders o ON oi.order_id = o.id
             JOIN public.products p ON oi.product_id = p.id
             WHERE UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL 
               AND (v_final_org IS NULL OR o.organization_id = v_final_org)
-              AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = oi.product_id)
+              AND (
+                  p.product_type = 'MANUFACTURED' 
+                  OR COALESCE(p.item_type, '') = 'MANUFACTURED' 
+                  OR COALESCE(p.mfg_type, '') = 'standard'
+                  OR NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = oi.product_id)
+              )
+
             UNION ALL
-            -- مبيعات المطعم (Order Items) (-) - خصم مكونات BOM للمنتجات التامة المباعة
+            -- مبيعات المطعم (Order Items) (-) - خصم مكونات BOM للوجبات الفورية فقط
             SELECT bom.raw_material_id, o.warehouse_id, -(public.uom_convert(oi.quantity, oi.uom_id, p.base_uom_id) * public.uom_convert(bom.quantity_required, bom.uom_id, rm.base_uom_id))
             FROM public.order_items oi
             JOIN public.orders o ON oi.order_id = o.id
             JOIN public.bill_of_materials bom ON bom.product_id = oi.product_id
             JOIN public.products p ON oi.product_id = p.id
             JOIN public.products rm ON bom.raw_material_id = rm.id
-            WHERE UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL AND bom.raw_material_id IS NOT NULL AND (v_final_org IS NULL OR o.organization_id = v_final_org)
+            WHERE UPPER(o.status) IN ('PAID', 'COMPLETED', 'POSTED') AND o.warehouse_id IS NOT NULL AND oi.product_id IS NOT NULL 
+              AND (v_final_org IS NULL OR o.organization_id = v_final_org)
+              AND bom.raw_material_id IS NOT NULL
+              AND p.product_type NOT IN ('MANUFACTURED')
+              AND COALESCE(p.item_type, '') NOT IN ('MANUFACTURED')
+              AND COALESCE(p.mfg_type, '') NOT IN ('standard')
             UNION ALL
             -- تصنيع تام (+) 
             SELECT product_id, warehouse_id, quantity_to_produce FROM public.mfg_production_orders 
@@ -6951,104 +6928,8 @@ FOR EACH ROW EXECUTE FUNCTION public.fn_audit_sensitive_invoice_changes();
 
 GRANT EXECUTE ON FUNCTION public.check_company_launch_readiness(uuid) TO authenticated;
 
--- 8. دالة تنظيف البيانات الكاملة للمنظمة للتخلص من البيانات التجريبية
-CREATE OR REPLACE FUNCTION public.clear_organization_data_completely(p_org_id uuid)
-RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
-BEGIN
-    -- 1. حذف بيانات التصنيع بذكاء
-    EXECUTE 'DO $clear_mfg$ BEGIN
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = ''mfg_batch_serials'') THEN
-            DELETE FROM public.mfg_batch_serials WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.mfg_actual_material_usage WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.mfg_scrap_logs WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.mfg_production_variances WHERE organization_id = ' || quote_literal(p_org_id) || ';
-        END IF;
-        
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = ''mfg_qc_inspections'') THEN
-            DELETE FROM public.mfg_qc_inspections WHERE organization_id = ' || quote_literal(p_org_id) || ';
-        END IF;
-
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = ''mfg_material_requests'') THEN
-            DELETE FROM public.mfg_material_request_items WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.mfg_material_requests WHERE organization_id = ' || quote_literal(p_org_id) || ';
-        END IF;
-
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = ''mfg_production_orders'') THEN
-            DELETE FROM public.mfg_order_progress WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.mfg_production_orders WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.mfg_step_materials WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.mfg_routing_steps WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.mfg_routings WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.mfg_work_centers WHERE organization_id = ' || quote_literal(p_org_id) || ';
-        END IF;
-    END $clear_mfg$;';
-
-    DELETE FROM public.bill_of_materials WHERE organization_id = p_org_id;
-
-    -- 2. حذف بيانات المقاولات والمشاريع
-    EXECUTE 'DO $clear_const$ BEGIN
-        IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = ''project_material_issue_items'') THEN
-            DELETE FROM public.project_material_issue_items WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.project_material_issues WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.project_daily_reports WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.project_custody_expenses WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.project_custodies WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.subcontractor_billings WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.subcontractor_contracts WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.subcontractors WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.project_progress_billings WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.project_boq WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.project_milestones WHERE organization_id = ' || quote_literal(p_org_id) || ';
-            DELETE FROM public.projects WHERE organization_id = ' || quote_literal(p_org_id) || ';
-        END IF;
-    END $clear_const$;';
-
-    -- 3. حذف الفواتير والمستندات والقيود
-    DELETE FROM public.invoice_items WHERE organization_id = p_org_id;
-    DELETE FROM public.invoices WHERE organization_id = p_org_id;
-    
-    DELETE FROM public.purchase_invoice_items WHERE organization_id = p_org_id;
-    DELETE FROM public.purchase_invoices WHERE organization_id = p_org_id;
-    
-    DELETE FROM public.sales_returns WHERE organization_id = p_org_id;
-    DELETE FROM public.purchase_returns WHERE organization_id = p_org_id;
-    
-    DELETE FROM public.receipt_vouchers WHERE organization_id = p_org_id;
-    DELETE FROM public.payment_vouchers WHERE organization_id = p_org_id;
-    
-    DELETE FROM public.order_items WHERE organization_id = p_org_id;
-    DELETE FROM public.orders WHERE organization_id = p_org_id;
-    
-    DELETE FROM public.stock_adjustments WHERE organization_id = p_org_id;
-    DELETE FROM public.opening_inventories WHERE organization_id = p_org_id;
-    DELETE FROM public.cheques WHERE organization_id = p_org_id;
-    DELETE FROM public.credit_notes WHERE organization_id = p_org_id;
-    DELETE FROM public.debit_notes WHERE organization_id = p_org_id;
-    DELETE FROM public.payrolls WHERE organization_id = p_org_id;
-    DELETE FROM public.employee_advances WHERE organization_id = p_org_id;
-    DELETE FROM public.assets WHERE organization_id = p_org_id;
-    
-    -- 4. حذف القيود الدفترية (Journal Entries)
-    DELETE FROM public.journal_lines WHERE organization_id = p_org_id;
-    DELETE FROM public.journal_entries WHERE organization_id = p_org_id;
-
-    -- 5. حذف المنتجات والشركاء والموظفين
-    DELETE FROM public.products WHERE organization_id = p_org_id;
-    DELETE FROM public.customers WHERE organization_id = p_org_id;
-    DELETE FROM public.suppliers WHERE organization_id = p_org_id;
-    DELETE FROM public.employees WHERE organization_id = p_org_id;
-    
-    -- 6. حذف تهيئة المطاعم والورديات
-    DELETE FROM public.restaurant_tables WHERE organization_id = p_org_id;
-    DELETE FROM public.shifts WHERE organization_id = p_org_id;
-
-    -- 7. إعادة احتساب الأرصدة للحسابات العامة إلى 0
-    UPDATE public.accounts SET balance = 0 WHERE organization_id = p_org_id;
-
-    RETURN 'تم تنظيف كافة بيانات المنظمة بالكامل والتخلص من البيانات التجريبية ✅';
-END;
-$$;
-GRANT EXECUTE ON FUNCTION public.clear_organization_data_completely(uuid) TO authenticated;
+-- 8. دالة تنظيف البيانات الكاملة تم تعطيلها وحذفها نهائياً لأمان بيانات العملاء والشركات
+DROP FUNCTION IF EXISTS public.clear_organization_data_completely(uuid);
 
 -- 9. دالة حذف بيانات العمليات والمنتجات التجريبية للاختبارات فقط (دون مسح البيانات الحقيقية)
 CREATE OR REPLACE FUNCTION public.delete_unit_test_data(p_org_id uuid)

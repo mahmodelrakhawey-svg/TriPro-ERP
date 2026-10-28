@@ -1686,7 +1686,7 @@ BEGIN
     FROM public.invoice_items ii
     JOIN public.invoices i ON ii.invoice_id = i.id
     WHERE ii.product_id = p_product_id AND i.status IN ('posted', 'paid') AND i.organization_id = v_org_id
-      AND NOT EXISTS (SELECT 1 FROM public.bill_of_materials bom WHERE bom.product_id = ii.product_id);
+;
 
     -- 2.3b مكونات فواتير المبيعات (خامات التصنيع المباشر)
     INSERT INTO temp_moves (move_id, tx_table, tx_item_id, tx_date, type, qty, unit_price)

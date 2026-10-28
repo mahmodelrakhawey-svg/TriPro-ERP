@@ -10,6 +10,12 @@
 
 BEGIN;
 
+-- 🛡️ 0. إبطال وحذف الدوال الخطيرة للتأكد من حماية بيانات الشركة بنسبة 100%
+REVOKE EXECUTE ON FUNCTION public.clear_organization_data_completely(uuid) FROM authenticated, anon, public;
+DROP FUNCTION IF EXISTS public.clear_organization_data_completely(uuid);
+DROP FUNCTION IF EXISTS public.delete_unit_test_data();
+DROP FUNCTION IF EXISTS public.clear_demo_data();
+
 -- 🛡️ 1. تحديث دالة إعادة احتساب المخزون المركزية (recalculate_stock_rpc)
 CREATE OR REPLACE FUNCTION public.recalculate_stock_rpc(
     p_org_id uuid DEFAULT NULL, 
