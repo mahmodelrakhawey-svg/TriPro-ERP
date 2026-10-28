@@ -121,6 +121,7 @@ const LettersOfCreditPage = lazy(() => import('./modules/banking/LettersOfCredit
 const AssetManager = lazy(() => import('./modules/assets/AssetManager'));
 const UserManager = lazy(() => import('./components/UserManager'));
 const Settings = lazy(() => import('./components/Settings'));
+const ApprovalWorkflowsManager = lazy(() => import('./components/ApprovalWorkflowsManager'));
 
 // 👥 الموارد البشرية الأساسية (HR Core - Lazy Loaded)
 const EmployeeManager = lazy(() => import('./modules/hr/components/EmployeeManager'));
@@ -870,6 +871,7 @@ const MainLayout = () => {
                 <Route path="/about" element={<Navigate to="/user-guide" replace />} />
                 <Route path="/profile" element={<UserProfile />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/approval-workflows" element={<ApprovalWorkflowsManager />} />
                 <Route path="/pos" element={<ModuleGuard module="restaurant"><PosScreen /></ModuleGuard>} /> 
                 <Route path="/retail/pos" element={<Navigate to="/retail-pos" replace />} />
                 <Route path="/retail-pos" element={<ModuleGuard module="retail"><RetailPosScreen /></ModuleGuard>} /> 

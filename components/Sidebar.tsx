@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
 import { getRouteTitle } from '../utils/routeTitles';
 import { 
+  GitCommit,
   Activity, 
   Settings, 
   LayoutDashboard, 
@@ -472,6 +473,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { type: 'section', label: 'الإدارة والنظام' },
     { to: '/users', label: 'إدارة المستخدمين', icon: Users, color: 'text-slate-400', adminOnly: true, permission: 'admin.manage' },
     { to: '/permissions', label: 'الأدوار والصلاحيات', icon: ShieldCheck, color: 'text-slate-400', adminOnly: true, permission: 'admin.manage' },
+    { to: '/approval-workflows', label: 'مسارات وسلسلة الاعتمادات', icon: GitCommit, color: 'text-indigo-400', adminOnly: true, permission: 'admin.manage' },
     { to: '/saas-admin', label: 'إدارة المنصة (SaaS)', icon: ShieldAlert, color: 'text-indigo-500', superAdminOnly: true },
     { to: '/admin/test-dashboard', label: 'مراقبة صحة النظام', icon: Activity, color: 'text-amber-400', superAdminOnly: true, permission: 'admin.logs' },
     { to: '/stress-test', label: 'اختبار كفاءة وتحمل النظام (Stress Test)', icon: Zap, color: 'text-amber-400', superAdminOnly: true, permission: 'admin.manage' },
