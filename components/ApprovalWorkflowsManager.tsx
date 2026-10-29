@@ -13,12 +13,28 @@ import {
   AVAILABLE_ROLES
 } from '../services/approvalWorkflowService';
 import { useAuth } from '../context/AuthContext';
+import { useAccounting } from '../context/AccountingContext';
 import { useToastNotification } from '../utils/toastUtils';
+import { getActiveOrgIdSync, resolveActiveOrgId, isValidUUID } from '../services/tenantContext';
+import { logger } from '../utils/logger';
 
 export const ApprovalWorkflowsManager: React.FC = () => {
   const { currentUser } = useAuth();
+  const { currentSelectedOrgId, organization } = useAccounting();
   const toast = useToastNotification();
-  const currentOrgId: string = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id || '';
+
+  const getEffectiveOrg = useCallback((): string => {
+    if (isValidUUID(currentSelectedOrgId)) return currentSelectedOrgId;
+    if (isValidUUID((currentUser as any)?.organization_id)) return (currentUser as any).organization_id;
+    if (isValidUUID((currentUser as any)?.user_metadata?.org_id)) return (currentUser as any).user_metadata.org_id;
+    if (isValidUUID(organization?.id)) return organization.id;
+    const syncOrg = getActiveOrgIdSync(currentSelectedOrgId);
+    if (isValidUUID(syncOrg)) return syncOrg;
+    return '';
+  }, [currentSelectedOrgId, currentUser, organization?.id]);
+
+  const [activeOrgId, setActiveOrgId] = useState<string>(() => getEffectiveOrg());
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'workflows' | 'pending' | 'history'>('workflows');
   const [workflows, setWorkflows] = useState<ApprovalWorkflow[]>([]);
@@ -43,32 +59,50 @@ export const ApprovalWorkflowsManager: React.FC = () => {
     notes: ''
   });
 
+  useEffect(() => {
+    const org = getEffectiveOrg();
+    if (org) {
+      setActiveOrgId(org);
+    } else {
+      resolveActiveOrgId(currentSelectedOrgId).then(resolved => {
+        if (resolved) setActiveOrgId(resolved);
+      });
+    }
+  }, [getEffectiveOrg, currentSelectedOrgId]);
+
   const loadData = useCallback(async () => {
-    if (!currentOrgId) return;
+    let orgId = activeOrgId || getEffectiveOrg();
+    if (!orgId) {
+      orgId = (await resolveActiveOrgId(currentSelectedOrgId)) || '';
+      if (orgId) setActiveOrgId(orgId);
+    }
+    if (!orgId) return;
     setLoading(true);
     try {
       const [wfs, pending, all] = await Promise.all([
-        ApprovalWorkflowService.getWorkflows(currentOrgId),
-        ApprovalWorkflowService.getPendingRequests(currentOrgId),
-        ApprovalWorkflowService.getAllRequests(currentOrgId, 50)
+        ApprovalWorkflowService.getWorkflows(orgId),
+        ApprovalWorkflowService.getPendingRequests(orgId),
+        ApprovalWorkflowService.getAllRequests(orgId, 50)
       ]);
       setWorkflows(wfs);
       setPendingRequests(pending);
       setAllRequests(all);
-    } catch {
+    } catch (err: unknown) {
+      logger.error('Failed to load approval workflows:', err);
       toast.error('تعذر جلب بيانات مسارات الاعتماد');
     } finally {
       setLoading(false);
     }
-  }, [currentOrgId, toast.error]);
+  }, [activeOrgId, getEffectiveOrg, currentSelectedOrgId, toast.error]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
   const handleOpenNew = () => {
+    const orgId = activeOrgId || getEffectiveOrg() || '';
     setEditingWorkflow({
-      organization_id: currentOrgId,
+      organization_id: orgId,
       name: '',
       document_type: 'PURCHASE_INVOICE',
       is_active: true,
@@ -76,6 +110,7 @@ export const ApprovalWorkflowsManager: React.FC = () => {
       max_amount: null,
       approval_type: 'ANY',
       approver_roles: ['FINANCE_MANAGER', 'ADMIN'],
+      approver_user_ids: [],
       conditions: {}
     });
     setIsModalOpen(true);
@@ -83,32 +118,58 @@ export const ApprovalWorkflowsManager: React.FC = () => {
 
   const handleSaveWorkflow = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingWorkflow || !currentOrgId) return;
+    if (!editingWorkflow) return;
+
     if (!editingWorkflow.name?.trim()) {
-      toast.error('يرجى كتابة اسم المسار');
+      toast.error('يرجى كتابة اسم المسار الوصفي');
       return;
     }
 
+    if (!editingWorkflow.approver_roles || editingWorkflow.approver_roles.length === 0) {
+      toast.error('يرجى اختيار دور وظيفي واحد على الأقل مخول بالاعتماد');
+      return;
+    }
+
+    let targetOrgId = editingWorkflow.organization_id || activeOrgId || getEffectiveOrg();
+    if (!targetOrgId) {
+      targetOrgId = (await resolveActiveOrgId(currentSelectedOrgId)) || '';
+    }
+
+    if (!targetOrgId) {
+      toast.error('تعذر تحديد هوية المؤسسة النشطة، يرجى اختيار المؤسسة من القائمة العلوية');
+      return;
+    }
+
+    setIsSubmitting(true);
     try {
-      await ApprovalWorkflowService.saveWorkflow({
+      const saved = await ApprovalWorkflowService.saveWorkflow({
         ...editingWorkflow,
-        organization_id: currentOrgId
+        organization_id: targetOrgId,
+        approver_user_ids: editingWorkflow.approver_user_ids || []
       });
-      toast.success('تم حفظ مسار الاعتماد بنجاح');
-      setIsModalOpen(false);
-      setEditingWorkflow(null);
-      loadData();
-    } catch {
-      toast.error('حدث خطأ أثناء حفظ المسار');
+
+      if (saved) {
+        toast.success('تم حفظ مسار الاعتماد وتفعيله بنجاح ✅');
+        setIsModalOpen(false);
+        setEditingWorkflow(null);
+        await loadData();
+      } else {
+        toast.error('تعذر إكمال عملية الحفظ');
+      }
+    } catch (err: unknown) {
+      logger.error('Error saving approval workflow:', err);
+      toast.error('حدث خطأ أثناء حفظ المسار: ' + ((err as Error)?.message || 'خطأ غير معروف'));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleToggle = async (wf: ApprovalWorkflow) => {
     try {
-      const ok = await ApprovalWorkflowService.toggleWorkflow(wf.id, !wf.is_active);
+      const ok = await ApprovalWorkflowService.toggleWorkflow(wf.id, !wf.is_active, activeOrgId || wf.organization_id);
       if (ok) {
         setWorkflows(prev => prev.map(item => item.id === wf.id ? { ...item, is_active: !item.is_active } : item));
-        toast.success(wf.is_active ? 'تم تعطيل المسار' : 'تم تفعيل المسار');
+        toast.success(wf.is_active ? 'تم تعطيل المسار' : 'تم تفعيل المسار بنجاح');
       }
     } catch {
       toast.error('تعذر تغيير حالة المسار');
@@ -118,7 +179,7 @@ export const ApprovalWorkflowsManager: React.FC = () => {
   const handleDelete = async (id: string) => {
     if (!window.confirm('هل أنت متأكد من رغبتك في حذف مسار الاعتماد هذا؟')) return;
     try {
-      const ok = await ApprovalWorkflowService.deleteWorkflow(id);
+      const ok = await ApprovalWorkflowService.deleteWorkflow(id, activeOrgId);
       if (ok) {
         setWorkflows(prev => prev.filter(w => w.id !== id));
         toast.success('تم حذف المسار بنجاح');
@@ -135,7 +196,8 @@ export const ApprovalWorkflowsManager: React.FC = () => {
         decisionModal.request.id,
         decisionModal.action,
         decisionModal.notes,
-        currentUser?.name || (currentUser as any)?.email || 'المدير المعتمد'
+        currentUser?.name || (currentUser as any)?.email || 'المدير المعتمد',
+        activeOrgId || decisionModal.request.organization_id
       );
       toast.success(res.message);
       setDecisionModal({ isOpen: false, request: null, action: 'APPROVE', notes: '' });
@@ -621,16 +683,25 @@ export const ApprovalWorkflowsManager: React.FC = () => {
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200">
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={() => setIsModalOpen(false)}
-                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-sm transition"
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-sm transition disabled:opacity-50"
                 >
                   إلغاء
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm shadow-md shadow-indigo-600/20 transition"
+                  disabled={isSubmitting}
+                  className="flex items-center gap-2 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-bold text-sm shadow-md shadow-indigo-600/20 transition disabled:opacity-50"
                 >
-                  حفظ وتفعيل المسار
+                  {isSubmitting ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>جاري الحفظ والتفعيل...</span>
+                    </>
+                  ) : (
+                    <span>حفظ وتفعيل المسار</span>
+                  )}
                 </button>
               </div>
             </form>

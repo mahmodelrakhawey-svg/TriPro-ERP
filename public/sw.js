@@ -3,7 +3,7 @@
 // High-performance Multi-Tier Asset & Offline Caching
 // ==============================================================================
 
-const CACHE_VERSION = 'tripro-pwa-v2.2.0';
+const CACHE_VERSION = 'tripro-pwa-v2.2.1';
 const STATIC_CACHE = `tripro-static-${CACHE_VERSION}`;
 const ASSETS_CACHE = `tripro-assets-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `tripro-runtime-${CACHE_VERSION}`;
@@ -162,8 +162,10 @@ self.addEventListener('fetch', (event) => {
           .then((response) => {
             clearTimeout(timeoutId);
             if (response && response.status === 200) {
-              const clone = response.clone();
-              caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, clone));
+              try {
+                const clone = response.clone();
+                caches.open(RUNTIME_CACHE).then((cache) => cache.put(request, clone)).catch(() => {});
+              } catch (e) {}
             }
             resolve(response);
           })

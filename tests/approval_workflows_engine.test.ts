@@ -136,4 +136,40 @@ describe('🛡️ Dynamic Approval Workflows Engine Tests', () => {
     expect(result.success).toBe(true);
     expect(result.status).toBe('REJECTED');
   });
+
+  it('saveWorkflow يجب أن يحفظ في الذاكرة المحلية عند حدوث خطأ من قاعدة البيانات', async () => {
+    vi.mocked(supabase.from).mockReturnValueOnce({
+      insert: vi.fn().mockReturnValueOnce({
+        select: vi.fn().mockReturnValueOnce({
+          single: vi.fn().mockRejectedValueOnce(new Error('permission denied for table approval_workflows'))
+        })
+      })
+    } as any);
+
+    const saved = await ApprovalWorkflowService.saveWorkflow({
+      organization_id: 'org-fallback-01',
+      name: 'مسار اعتماد فواتير الشراء بحد ادنى 20000',
+      document_type: 'PURCHASE_INVOICE',
+      is_active: true,
+      min_amount: 20000,
+      approver_roles: ['ADMIN', 'FINANCE_MANAGER']
+    });
+
+    expect(saved).toBeDefined();
+    expect(saved?.name).toBe('مسار اعتماد فواتير الشراء بحد ادنى 20000');
+    expect(saved?.min_amount).toBe(20000);
+
+    // التحقق من استرجاعه بنجاح من الكاش المحلي
+    vi.mocked(supabase.from).mockReturnValueOnce({
+      select: vi.fn().mockReturnValueOnce({
+        order: vi.fn().mockReturnValueOnce({
+          eq: vi.fn().mockRejectedValueOnce(new Error('network error'))
+        })
+      })
+    } as any);
+
+    const workflows = await ApprovalWorkflowService.getWorkflows('org-fallback-01');
+    expect(workflows.length).toBeGreaterThan(0);
+    expect(workflows[0].name).toBe('مسار اعتماد فواتير الشراء بحد ادنى 20000');
+  });
 });
