@@ -204,7 +204,75 @@ BEGIN
 END;
 $$;
 
--- 5. منح صلاحيات تنفيذ الدوال الخاصة بالاعتمادات
+-- 5. دالة معالجة قرار الاعتماد أو الرفض (Process Approval Action)
+CREATE OR REPLACE FUNCTION public.fn_process_approval_action(
+    p_request_id UUID,
+    p_action TEXT, -- 'APPROVE' أو 'REJECT'
+    p_notes TEXT DEFAULT NULL,
+    p_approver_name TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_req RECORD;
+    v_user_id UUID;
+    v_new_status TEXT;
+    v_audit_entry JSONB;
+BEGIN
+    v_user_id := auth.uid();
+
+    SELECT * INTO v_req
+    FROM public.approval_requests
+    WHERE id = p_request_id;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'طلب الاعتماد غير موجود.';
+    END IF;
+
+    IF v_req.status != 'PENDING' THEN
+        RAISE EXCEPTION 'تم اتخاذ القرار في هذا الطلب مسبقاً (الحالة الحالية: %).', v_req.status;
+    END IF;
+
+    IF UPPER(p_action) = 'APPROVE' THEN
+        v_new_status := 'APPROVED';
+    ELSIF UPPER(p_action) = 'REJECT' THEN
+        v_new_status := 'REJECTED';
+    ELSE
+        RAISE EXCEPTION 'إجراء غير معروف. يجب أن يكون APPROVE أو REJECT.';
+    END IF;
+
+    v_audit_entry := jsonb_build_object(
+        'action', v_new_status,
+        'user_id', v_user_id,
+        'user_name', p_approver_name,
+        'timestamp', now(),
+        'notes', p_notes
+    );
+
+    UPDATE public.approval_requests
+    SET status = v_new_status,
+        decision_notes = p_notes,
+        decision_at = now(),
+        decision_by = v_user_id,
+        decision_by_name = p_approver_name,
+        audit_trail = audit_trail || v_audit_entry,
+        updated_at = now()
+    WHERE id = p_request_id;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'status', v_new_status,
+        'document_type', v_req.document_type,
+        'document_id', v_req.document_id,
+        'message', CASE WHEN v_new_status = 'APPROVED' THEN 'تم اعتماد المستند بنجاح ✅' ELSE 'تم رفض المستند ❌' END
+    );
+END;
+$$;
+
+-- 6. منح صلاحيات تنفيذ الدوال الخاصة بالاعتمادات
 GRANT EXECUTE ON FUNCTION public.fn_check_approval_requirement(UUID, TEXT, NUMERIC, UUID, TEXT, TEXT) TO authenticated, anon, service_role;
 GRANT EXECUTE ON FUNCTION public.fn_process_approval_action(UUID, TEXT, TEXT, TEXT) TO authenticated, anon, service_role;
 
