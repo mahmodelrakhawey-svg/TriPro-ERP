@@ -473,7 +473,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { type: 'section', label: 'الإدارة والنظام' },
     { to: '/users', label: 'إدارة المستخدمين', icon: Users, color: 'text-slate-400', adminOnly: true, permission: 'admin.manage' },
     { to: '/permissions', label: 'الأدوار والصلاحيات', icon: ShieldCheck, color: 'text-slate-400', adminOnly: true, permission: 'admin.manage' },
-    { to: '/approval-workflows', label: 'مسارات وسلسلة الاعتمادات', icon: GitCommit, color: 'text-indigo-400', adminOnly: true, permission: 'admin.manage' },
+    { to: '/approval-workflows', label: 'مسارات وسلسلة الاعتمادات', icon: GitCommit, color: 'text-indigo-400' },
     { to: '/saas-admin', label: 'إدارة المنصة (SaaS)', icon: ShieldAlert, color: 'text-indigo-500', superAdminOnly: true },
     { to: '/admin/test-dashboard', label: 'مراقبة صحة النظام', icon: Activity, color: 'text-amber-400', superAdminOnly: true, permission: 'admin.logs' },
     { to: '/stress-test', label: 'اختبار كفاءة وتحمل النظام (Stress Test)', icon: Zap, color: 'text-amber-400', superAdminOnly: true, permission: 'admin.manage' },
@@ -502,6 +502,26 @@ const Sidebar: React.FC<SidebarProps> = ({
       if (can(mod, act)) {
         return true;
       }
+    }
+
+    // 🛡️ إتاحة مسارات وسلسلة الاعتمادات للمديرين والمدير المالي ورؤساء الحسابات ومسؤولي الاعتماد
+    if (item.to === '/approval-workflows') {
+      const roleStr = String(userRole || '').toLowerCase();
+      const approverRoles = [
+        'admin', 'super_admin', 'manager', 'owner', 
+        'finance_manager', 'financial_manager', 'accountant', 
+        'bakery_cfo', 'bakery_cost_controller', 
+        'purchase_manager', 'factory_manager', 'warehouse_manager', 'sales_manager'
+      ];
+      return Boolean(
+        isSuperAdmin || 
+        approverRoles.includes(roleStr) || 
+        can('admin', 'manage') || 
+        can('accounting', 'view') || 
+        can('accounting', 'manage') ||
+        can('workflow', 'view') ||
+        can('workflow', 'manage')
+      );
     }
 
     // إتاحة الوصول المباشر لتقرير حركة الصندوق وكشف الحساب لمن يملك صلاحيتهما المباشرة

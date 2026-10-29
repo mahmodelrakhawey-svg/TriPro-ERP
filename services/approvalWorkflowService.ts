@@ -310,6 +310,33 @@ export class ApprovalWorkflowService {
     } catch (err) {
       logger.warn('Remote check approval failed, checking local workflows:', err);
       // فحص المسارات المحلية كخطة طوارئ
+      const curRequests = getLocalRequests(params.orgId);
+      const isLocallyApproved = curRequests.some(r => 
+        (r.document_id === params.docId || (params.docRef && r.document_reference === params.docRef)) &&
+        r.status === 'APPROVED'
+      );
+      if (isLocallyApproved) {
+        return {
+          requires_approval: false,
+          status: 'AUTO_APPROVED',
+          message: 'المستند معتمد مسبقاً وجاهز للتنفيذ.'
+        };
+      }
+
+      const isLocallyPending = curRequests.find(r => 
+        (r.document_id === params.docId || (params.docRef && r.document_reference === params.docRef)) &&
+        r.status === 'PENDING'
+      );
+      if (isLocallyPending) {
+        return {
+          requires_approval: true,
+          request_id: isLocallyPending.id,
+          status: 'PENDING',
+          workflow_name: isLocallyPending.workflow?.name || 'مسار الاعتماد',
+          message: 'المستند قيد المراجعة والاعتماد حالياً.'
+        };
+      }
+
       const localWorkflows = getLocalWorkflows(params.orgId);
       const matchingWf = localWorkflows.find(wf => 
         wf.is_active && 
@@ -340,7 +367,6 @@ export class ApprovalWorkflowService {
           updated_at: new Date().toISOString(),
           workflow: matchingWf
         };
-        const curRequests = getLocalRequests(params.orgId);
         saveLocalRequests(params.orgId, [newReq, ...curRequests]);
 
         return {

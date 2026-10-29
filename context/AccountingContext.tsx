@@ -29,6 +29,7 @@ export interface UserProfile {
 
 import { offlineService, isValidUUID } from '../services/offlineService';
 import { setActiveOrgId, getActiveOrgIdSync } from '../services/tenantContext';
+import { ApprovalWorkflowService } from '../services/approvalWorkflowService';
 import { closeFinancialYearEngine, reopenFinancialYearEngine } from '../services/financialYearService';
 import { deleteOrganizationSafe } from '../services/organizationService';
 import { fetchCompleteDataset } from '../services/balanceService';
@@ -1666,9 +1667,38 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const approvePurchaseInvoice = async (id: string, orgId?: string, warehouseId?: string) => { 
+    const targetOrg = orgId || currentSelectedOrgId || currentUser?.organization_id;
+
+    // 🛡️ فحص مسار وسلسلة الاعتمادات لفواتير الشراء قبل الترحيل
+    try {
+      const { data: inv } = await supabase
+        .from('purchase_invoices')
+        .select('id, invoice_number, total_amount')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (inv) {
+        const approvalCheck = await ApprovalWorkflowService.checkAndSubmit({
+          orgId: targetOrg || '',
+          docType: 'PURCHASE_INVOICE',
+          amount: Number(inv.total_amount || 0),
+          docId: id,
+          docRef: inv.invoice_number || id.slice(0, 8),
+          requesterName: currentUser?.full_name || (currentUser as any)?.name || 'مستخدم المشتريات'
+        });
+
+        if (approvalCheck.requires_approval) {
+          showToast(`فاتورة المشتريات تتطلب الاعتماد أولاً بموجب مسار "${approvalCheck.workflow_name}". تم إرسال الطلب للمسارات المعلقة ⏳`, 'warning');
+          return;
+        }
+      }
+    } catch (appErr) {
+      logger.warn('Approval workflow check bypassed for purchase invoice:', appErr);
+    }
+
     const { error } = await supabase.rpc('post_purchase_invoice', { 
       p_invoice_id: id,
-      p_org_id: orgId || currentSelectedOrgId || currentUser?.organization_id,
+      p_org_id: targetOrg,
       p_warehouse_id: warehouseId
     }); 
     if (error) {

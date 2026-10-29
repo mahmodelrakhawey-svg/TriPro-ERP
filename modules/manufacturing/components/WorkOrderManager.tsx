@@ -4,6 +4,8 @@ import { supabase } from '../../../supabaseClient';
 import { fetchCompleteDataset } from '../../../services/balanceService';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
+import { useAuth } from '../../../context/AuthContext';
+import { ApprovalWorkflowService } from '../../../services/approvalWorkflowService';
 import { Factory, Plus, Play, CheckCircle, XCircle, Save, DollarSign, Eye, BarChart3, Settings2, Printer, Trash2 } from 'lucide-react';
 import { z } from 'zod';
 import { useReactToPrint } from 'react-to-print';
@@ -14,6 +16,7 @@ import ProductSearchSelect from '../../../components/ProductSearchSelect';
 
 const WorkOrderManager = () => {
   const { products, warehouses, produceItem, settings, organization, currentSelectedOrgId } = useAccounting();
+  const { currentUser } = useAuth();
   const { showToast } = useToast();
   const activeOrgId = currentSelectedOrgId || organization?.id;
   const [orders, setOrders] = useState<any[]>([]);
@@ -143,7 +146,9 @@ const WorkOrderManager = () => {
 
     try {
         const orderNumber = `WO-${Date.now().toString().slice(-6)}`;
+        const newOrderId = crypto.randomUUID();
         const { error } = await supabase.from('mfg_production_orders').insert({
+            id: newOrderId,
             order_number: orderNumber,
             product_id: formData.productId,
             warehouse_id: formData.warehouseId,
@@ -156,12 +161,37 @@ const WorkOrderManager = () => {
         });
 
         if (error) throw error;
-        showToast('تم إنشاء أمر التشغيل بنجاح ✅', 'success');
+
+        // 🛡️ فحص مسار الاعتماد وتوليد طلب معلق فوراً إذا انطبق الشرط المالي
+        const product = products.find(p => p.id === formData.productId);
+        const unitCost = Number(product?.cost || product?.price || 0);
+        const totalOrderAmount = Number(formData.quantity || 0) * unitCost;
+
+        try {
+            const approval = await ApprovalWorkflowService.checkAndSubmit({
+                orgId: activeOrgId || '',
+                docType: 'PRODUCTION_ORDER',
+                amount: totalOrderAmount,
+                docId: newOrderId,
+                docRef: orderNumber,
+                requesterName: currentUser?.name || 'مسؤول الإنتاج'
+            });
+
+            if (approval.requires_approval) {
+                showToast(`تم إنشاء أمر التشغيل وتوجيهه للاعتماد المعلق بموجب مسار "${approval.workflow_name}" ⏳`, 'warning');
+            } else {
+                showToast('تم إنشاء أمر التشغيل بنجاح ✅', 'success');
+            }
+        } catch (appErr) {
+            logger.warn('Approval workflow check notice:', appErr);
+            showToast('تم إنشاء أمر التشغيل بنجاح ✅', 'success');
+        }
+
         setIsModalOpen(false);
         fetchOrders();
-    } catch (error) {
+    } catch (error: unknown) {
         logger.error(error);
-        showToast('خطأ: ' + error.message, 'error');
+        showToast('خطأ: ' + ((error as Error)?.message || 'فشل حفظ أمر التشغيل'), 'error');
     }
   };
 
@@ -195,6 +225,33 @@ const WorkOrderManager = () => {
               return;
           }
       } else if (status === 'in_progress') {
+          // 🛡️ فحص مسار وسلسلة الاعتمادات لأوامر التشغيل والإنتاج قبل البدء
+          const order = orders.find(o => o.id === id) || (selectedOrder?.id === id ? selectedOrder : null);
+          if (order) {
+              const product = products.find(p => p.id === order.product_id);
+              const unitCost = Number(product?.cost || product?.price || 0);
+              const orderAmount = Number(order.quantity_to_produce || 0) * unitCost;
+
+              try {
+                  const approval = await ApprovalWorkflowService.checkAndSubmit({
+                      orgId: activeOrgId || '',
+                      docType: 'PRODUCTION_ORDER',
+                      amount: orderAmount,
+                      docId: id,
+                      docRef: order.order_number || id.slice(0, 8),
+                      requesterName: currentUser?.name || 'مسؤول الإنتاج'
+                  });
+
+                  if (approval.requires_approval) {
+                      showToast(`أمر التشغيل يتطلب الاعتماد أولاً بموجب مسار "${approval.workflow_name}". تم إرسال الطلب لقائمة الاعتمادات المعلقة ⏳`, 'warning');
+                      fetchOrders();
+                      return;
+                  }
+              } catch (appErr) {
+                  logger.warn('Approval workflow check bypassed:', appErr);
+              }
+          }
+
           // 🚀 استخدام RPC لضمان توليد مراحل الإنتاج آلياً في جدول التقدم عند بدء التشغيل
           const { error } = await supabase.rpc('mfg_start_production_order', { p_order_id: id });
           if (error) {
