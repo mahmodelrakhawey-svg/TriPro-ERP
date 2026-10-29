@@ -1,6 +1,7 @@
 import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../supabaseClient';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import * as XLSX from 'xlsx';
@@ -149,7 +150,9 @@ export default function EndOfServiceCalculator() {
           hire_date: e.hire_date || '2022-01-01'
         }));
       } else {
-        const { data: eData } = await supabase.from('employees').select('id, name, basic_salary, hire_date').eq('organization_id', orgId);
+        const eData = await fetchCompleteDataset<any>(async (from, to) => {
+        return supabase.from('employees').select('id, name, basic_salary, hire_date').eq('organization_id', orgId).order('name').range(from, to);
+      });
         empList = (eData || []).map((e: Record<string, any>) => ({
           id: e.id,
           name: e.name || 'موظف',

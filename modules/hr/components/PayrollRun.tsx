@@ -165,11 +165,15 @@ const PayrollRun = () => {
         if (payroll.payment_date) setPaymentDate(payroll.payment_date);
         if (payroll.treasury_account_id) setTreasuryId(payroll.treasury_account_id);
 
-        // جلب بنود المسير المسجلة إذا كانت الشاشة فارغة
-        const { data: items } = await supabase
-          .from('payroll_items')
-          .select('*, employees(full_name, position, department)')
-          .eq('payroll_id', payroll.id);
+        // جلب بنود المسير المسجلة إذا كانت الشاشة فارغة بالتجزئة الكاملة
+        const items = await fetchCompleteDataset<any>(async (from, to) => {
+          return supabase
+            .from('payroll_items')
+            .select('*, employees(full_name, position, department)')
+            .eq('payroll_id', payroll.id)
+            .order('id', { ascending: true })
+            .range(from, to);
+        });
 
         if (items && items.length > 0) {
           const mappedItems: PayrollItem[] = items.map((it: Record<string, any>) => ({
@@ -235,19 +239,12 @@ const PayrollRun = () => {
       const monthEndStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(lastDayNumber).padStart(2, '0')}`;
 
       // 🛡️ عزل نطاق الإشراف للموارد البشرية والرواتب (HR Supervisory Scope)
-      let empQuery = supabase.from('employees').select('*').eq('status', 'active').eq('organization_id', targetOrg);
       const hrScope = currentUser?.hr_scope || (currentUser as any)?.user_metadata?.hr_scope || 'all';
 
       const isFactoryDept = (dept: unknown) => {
         const d = String(dept || '').trim().toLowerCase();
         return d === 'المصنع' || d === 'مصنع' || d === 'factory';
       };
-
-      if (hrScope === 'factory') {
-        empQuery = empQuery.in('department', ['المصنع', 'مصنع']);
-      } else if (hrScope === 'branches') {
-        empQuery = empQuery.not('department', 'in', '("المصنع","مصنع")');
-      }
 
       // 🚀 جلب البيانات بالتوازي مع ضمان التجزئة الكاملة (fetchCompleteDataset) لمنع سقف 1000 سجل
       const [rawEmployees, advances, approvedLeaves, attendanceLogs, penaltiesRewards] = await Promise.all([

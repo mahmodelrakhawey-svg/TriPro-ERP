@@ -104,7 +104,9 @@ export default function LeaveManager() {
       if (contextEmployees && contextEmployees.length > 0) {
         empList = contextEmployees.map((e: Record<string, any>) => ({ id: e.id, name: e.name || e.full_name || 'موظف' }));
       } else {
-        const { data: eData } = await supabase.from('employees').select('id, name').eq('organization_id', orgId);
+        const eData = await fetchCompleteDataset<{ id: string; name: string }>(async (from, to) => {
+        return supabase.from('employees').select('id, name').eq('organization_id', orgId).order('name').range(from, to);
+      });
         empList = (eData || []).map((e: Record<string, any>) => ({ id: e.id, name: e.name || 'موظف' }));
       }
       setEmployeesList(empList);

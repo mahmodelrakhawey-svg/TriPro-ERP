@@ -663,8 +663,12 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
             .order('transaction_date', { ascending: false })
             .range(from, to)
         ).then(data => ({ data, error: null })),
-        supabase.from('cost_centers').select('*').eq('organization_id', fetchOrgId).order('name'),
-        supabase.from('employees').select('*').eq('organization_id', fetchOrgId).order('full_name'),
+        fetchCompleteDataset<CostCenter>(async (from, to) =>
+          supabase.from('cost_centers').select('*').eq('organization_id', fetchOrgId).order('name').range(from, to)
+        ).then(data => ({ data: data || [], error: null })),
+        fetchCompleteDataset<Employee>(async (from, to) =>
+          supabase.from('employees').select('*').eq('organization_id', fetchOrgId).order('full_name').range(from, to)
+        ).then(data => ({ data: data || [], error: null })),
         Promise.resolve({ data: [] as Product[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
         Promise.resolve({ data: [] as StockTransfer[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
         Promise.resolve({ data: [] as PurchaseInvoice[], error: null }), // مُعالج بالكامل في سياق النطاق SupplierProvider

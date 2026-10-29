@@ -1,3 +1,4 @@
+import { fetchCompleteDataset } from './balanceService';
 /**
  * ==============================================================================
  * HR Enterprise Suite Service (10/10)
@@ -396,10 +397,15 @@ class HrEnterpriseService {
   public async getPenaltiesRewards(organizationId?: string): Promise<HrPenaltyReward[]> {
     const local = secureStorage.getItem<HrPenaltyReward[]>(LOCAL_PENALTIES_KEY) || [];
     try {
-      let query = supabase.from('hr_penalties_rewards').select('*, employee:employees(name, full_name, basic_salary, department)').order('action_date', { ascending: false });
-      if (organizationId && isValidUUID(organizationId)) query = query.eq('organization_id', organizationId);
-      const { data, error } = await query;
-      if (error || !data) return local;
+      const data = await fetchCompleteDataset<any>(async (from, to) => {
+        let query = supabase
+          .from('hr_penalties_rewards')
+          .select('*, employee:employees(name, full_name, basic_salary, department)')
+          .order('action_date', { ascending: false });
+        if (organizationId && isValidUUID(organizationId)) query = query.eq('organization_id', organizationId);
+        return query.range(from, to);
+      });
+      if (!data || data.length === 0) return local;
 
       const formatted = data.map((d: Record<string, any>) => ({
         ...d,
