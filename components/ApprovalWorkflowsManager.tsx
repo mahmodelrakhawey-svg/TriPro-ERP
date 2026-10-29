@@ -16,6 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
 import { useToastNotification } from '../utils/toastUtils';
 import { getActiveOrgIdSync, resolveActiveOrgId, isValidUUID } from '../services/tenantContext';
+import { supabase } from '../supabaseClient';
 import { logger } from '../utils/logger';
 
 export const ApprovalWorkflowsManager: React.FC = () => {
@@ -35,6 +36,7 @@ export const ApprovalWorkflowsManager: React.FC = () => {
 
   const [activeOrgId, setActiveOrgId] = useState<string>(() => getEffectiveOrg());
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isProcessingDecision, setIsProcessingDecision] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'workflows' | 'pending' | 'history'>('workflows');
   const [workflows, setWorkflows] = useState<ApprovalWorkflow[]>([]);
@@ -61,21 +63,17 @@ export const ApprovalWorkflowsManager: React.FC = () => {
 
   useEffect(() => {
     const org = getEffectiveOrg();
-    if (org) {
+    if (org && org !== activeOrgId) {
       setActiveOrgId(org);
-    } else {
+    } else if (!activeOrgId) {
       resolveActiveOrgId(currentSelectedOrgId).then(resolved => {
         if (resolved) setActiveOrgId(resolved);
       });
     }
-  }, [getEffectiveOrg, currentSelectedOrgId]);
+  }, [getEffectiveOrg, currentSelectedOrgId, activeOrgId]);
 
   const loadData = useCallback(async () => {
-    let orgId = activeOrgId || getEffectiveOrg();
-    if (!orgId) {
-      orgId = (await resolveActiveOrgId(currentSelectedOrgId)) || '';
-      if (orgId) setActiveOrgId(orgId);
-    }
+    const orgId = activeOrgId || getEffectiveOrg();
     if (!orgId) return;
     setLoading(true);
     try {
@@ -89,11 +87,10 @@ export const ApprovalWorkflowsManager: React.FC = () => {
       setAllRequests(all);
     } catch (err: unknown) {
       logger.error('Failed to load approval workflows:', err);
-      toast.error('تعذر جلب بيانات مسارات الاعتماد');
     } finally {
       setLoading(false);
     }
-  }, [activeOrgId, getEffectiveOrg, currentSelectedOrgId, toast.error]);
+  }, [activeOrgId, getEffectiveOrg]);
 
   useEffect(() => {
     loadData();
@@ -190,7 +187,8 @@ export const ApprovalWorkflowsManager: React.FC = () => {
   };
 
   const handleConfirmDecision = async () => {
-    if (!decisionModal.request) return;
+    if (!decisionModal.request || isProcessingDecision) return;
+    setIsProcessingDecision(true);
     try {
       const res = await ApprovalWorkflowService.processDecision(
         decisionModal.request.id,
@@ -199,11 +197,30 @@ export const ApprovalWorkflowsManager: React.FC = () => {
         currentUser?.name || (currentUser as any)?.email || 'المدير المعتمد',
         activeOrgId || decisionModal.request.organization_id
       );
+
+      // إذا كان الإجراء رفضاً لأمر تشغيل، نقوم بتحديث حالة أمر التشغيل إلى ملغي
+      if (decisionModal.action === 'REJECT' && decisionModal.request.document_type === 'PRODUCTION_ORDER') {
+        try {
+          await supabase
+            .from('mfg_production_orders')
+            .update({ 
+              status: 'cancelled', 
+              notes: `تم رفض أمر التشغيل: ${decisionModal.notes || 'مرفوض من الاعتمادات'}` 
+            })
+            .eq('id', decisionModal.request.document_id);
+        } catch (mfgErr) {
+          logger.warn('Failed updating mfg_production_orders to cancelled:', mfgErr);
+        }
+      }
+
       toast.success(res.message);
       setDecisionModal({ isOpen: false, request: null, action: 'APPROVE', notes: '' });
-      loadData();
-    } catch {
-      toast.error('تعذر معالجة القرار');
+      await loadData();
+    } catch (err: unknown) {
+      logger.error('Failed to process approval decision:', err);
+      toast.error('تعذر معالجة القرار: ' + ((err as Error)?.message || 'خطأ في الاتصال'));
+    } finally {
+      setIsProcessingDecision(false);
     }
   };
 
@@ -756,21 +773,30 @@ export const ApprovalWorkflowsManager: React.FC = () => {
               <div className="flex items-center justify-end gap-3 pt-3">
                 <button
                   type="button"
+                  disabled={isProcessingDecision}
                   onClick={() => setDecisionModal({ isOpen: false, request: null, action: 'APPROVE', notes: '' })}
-                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-sm transition"
+                  className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-sm transition disabled:opacity-50"
                 >
                   تراجع
                 </button>
                 <button
                   type="button"
+                  disabled={isProcessingDecision}
                   onClick={handleConfirmDecision}
-                  className={`px-6 py-2.5 text-white rounded-xl font-bold text-sm shadow-md transition ${
+                  className={`flex items-center gap-2 px-6 py-2.5 text-white rounded-xl font-bold text-sm shadow-md transition disabled:opacity-50 ${
                     decisionModal.action === 'APPROVE'
                       ? 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-600/20'
                       : 'bg-rose-600 hover:bg-rose-700 shadow-rose-600/20'
                   }`}
                 >
-                  {decisionModal.action === 'APPROVE' ? 'تأكيد الاعتماد النهائي ✅' : 'تأكيد الرفض ❌'}
+                  {isProcessingDecision ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>جاري التنفيذ...</span>
+                    </>
+                  ) : (
+                    <span>{decisionModal.action === 'APPROVE' ? 'تأكيد الاعتماد النهائي ✅' : 'تأكيد الرفض ❌'}</span>
+                  )}
                 </button>
               </div>
             </div>

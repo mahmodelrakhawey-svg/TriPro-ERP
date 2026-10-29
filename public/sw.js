@@ -3,7 +3,7 @@
 // High-performance Multi-Tier Asset & Offline Caching
 // ==============================================================================
 
-const CACHE_VERSION = 'tripro-pwa-v2.2.1';
+const CACHE_VERSION = 'tripro-pwa-v2.2.2';
 const STATIC_CACHE = `tripro-static-${CACHE_VERSION}`;
 const ASSETS_CACHE = `tripro-assets-${CACHE_VERSION}`;
 const RUNTIME_CACHE = `tripro-runtime-${CACHE_VERSION}`;
@@ -146,8 +146,8 @@ self.addEventListener('fetch', (event) => {
   // D. Dynamic API calls & Supabase queries
   // Strategy: Network-First with quick timeout (3s) and runtime cache fallback
   if (url.origin.includes('supabase.co') || url.pathname.startsWith('/api/')) {
-    // 🛡️ صمام أمان أمني: استثناء طلبات المصادقة والجلسات من الكاش تماماً
-    if (url.pathname.includes('/auth/v1/') || url.pathname.includes('/auth/')) {
+    // 🛡️ صمام أمان أمني: استثناء طلبات المصادقة والدوال التنفيذية من الكاش تماماً
+    if (url.pathname.includes('/auth/v1/') || url.pathname.includes('/auth/') || url.pathname.includes('/rpc/') || request.method !== 'GET') {
       return; // تمرير مباشر للشبكة دون تخزين أو تدخل
     }
 
