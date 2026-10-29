@@ -213,6 +213,36 @@ export const ApprovalWorkflowsManager: React.FC = () => {
         }
       }
 
+      // إذا كان الإجراء اعتماداً لأمر تشغيل، نقوم بتحديث ملاحظات أمر التشغيل
+      if (decisionModal.action === 'APPROVE' && decisionModal.request.document_type === 'PRODUCTION_ORDER') {
+        try {
+          await supabase
+            .from('mfg_production_orders')
+            .update({ 
+              notes: `[معتمد من الإدارة: ${currentUser?.name || (currentUser as any)?.email || 'المدير المالي'}] ${decisionModal.notes || ''}`.trim()
+            })
+            .eq('id', decisionModal.request.document_id);
+        } catch (mfgErr) {
+          logger.warn('Failed updating mfg_production_orders notes on approve:', mfgErr);
+        }
+      }
+
+      // مزامنة وإغلاق أي طلبات معلقة مكررة لنفس المستند
+      try {
+        await supabase
+          .from('approval_requests')
+          .update({
+            status: decisionModal.action === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+            decision_notes: decisionModal.notes || null,
+            decision_at: new Date().toISOString(),
+            decision_by_name: currentUser?.name || (currentUser as any)?.email || 'المدير المعتمد'
+          })
+          .eq('document_id', decisionModal.request.document_id)
+          .eq('status', 'PENDING');
+      } catch (syncErr) {
+        logger.warn('Failed syncing duplicate pending approval requests:', syncErr);
+      }
+
       toast.success(res.message);
       setDecisionModal({ isOpen: false, request: null, action: 'APPROVE', notes: '' });
       await loadData();

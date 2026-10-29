@@ -172,4 +172,31 @@ describe('🛡️ Dynamic Approval Workflows Engine Tests', () => {
     expect(workflows.length).toBeGreaterThan(0);
     expect(workflows[0].name).toBe('مسار اعتماد فواتير الشراء بحد ادنى 20000');
   });
+
+  it('checkAndSubmit يجب أن يرجع AUTO_APPROVED مباشرة إذا كان المستند معتمداً مسبقاً', async () => {
+    vi.mocked(supabase.from).mockReturnValueOnce({
+      select: vi.fn().mockReturnValueOnce({
+        eq: vi.fn().mockReturnValueOnce({
+          eq: vi.fn().mockReturnValueOnce({
+            maybeSingle: vi.fn().mockResolvedValueOnce({
+              data: { id: 'req-approved-1', status: 'APPROVED', decision_by_name: 'المدير المالي' },
+              error: null
+            })
+          })
+        })
+      })
+    } as any);
+
+    const result = await ApprovalWorkflowService.checkAndSubmit({
+      orgId: 'org-test-123',
+      docType: 'PRODUCTION_ORDER',
+      amount: 50000,
+      docId: 'po-approved-123',
+      docRef: 'WO-123456'
+    });
+
+    expect(result.requires_approval).toBe(false);
+    expect(result.status).toBe('AUTO_APPROVED');
+    expect(result.message).toContain('معتمد مسبقاً');
+  });
 });

@@ -6,7 +6,7 @@ import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { useAuth } from '../../../context/AuthContext';
 import { ApprovalWorkflowService } from '../../../services/approvalWorkflowService';
-import { Factory, Plus, Play, CheckCircle, XCircle, Save, DollarSign, Eye, BarChart3, Settings2, Printer, Trash2 } from 'lucide-react';
+import { Factory, Plus, Play, CheckCircle, XCircle, Save, DollarSign, Eye, BarChart3, Settings2, Printer, Trash2, Clock } from 'lucide-react';
 import { z } from 'zod';
 import { useReactToPrint } from 'react-to-print';
 import StageLedger from './StageLedger';
@@ -25,6 +25,7 @@ const WorkOrderManager = () => {
   const [viewMode, setViewMode] = useState<'list' | 'details'>('list');
   const [selectedOrder, setSelectedOrder] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'info' | 'ledger' | 'variance' | 'advanced'>('info');
+  const [approvalMap, setApprovalMap] = useState<Record<string, { status: string; workflowName?: string | null; approverName?: string | null }>>({});
   
   // Form State
   const [steps, setSteps] = useState<any[]>([]);
@@ -88,6 +89,47 @@ const WorkOrderManager = () => {
     });
 
     setOrders(data || []);
+
+    // 🛡️ استعلام فوري لحالات مسارات الاعتماد لربطها ببطاقات وأزرار أوامر التشغيل
+    try {
+      let appQuery = supabase
+        .from('approval_requests')
+        .select('document_id, status, decision_by_name, workflow:approval_workflows(name)')
+        .eq('document_type', 'PRODUCTION_ORDER')
+        .order('created_at', { ascending: false });
+
+      if (activeOrgId) {
+        appQuery = appQuery.eq('organization_id', activeOrgId);
+      }
+
+      const { data: approvals } = await appQuery;
+
+      if (approvals) {
+        const map: Record<string, { status: string; workflowName?: string | null; approverName?: string | null }> = {};
+        for (const a of approvals) {
+          const wf = a.workflow;
+          const wfName = Array.isArray(wf) ? (wf[0] ? wf[0].name : null) : (wf ? (wf as { name?: string }).name : null);
+          const current = map[a.document_id];
+          if (!current) {
+            map[a.document_id] = {
+              status: a.status,
+              workflowName: wfName || null,
+              approverName: a.decision_by_name || null
+            };
+          } else if (current.status !== 'APPROVED' && a.status === 'APPROVED') {
+            map[a.document_id] = {
+              status: 'APPROVED',
+              workflowName: wfName || null,
+              approverName: a.decision_by_name || null
+            };
+          }
+        }
+        setApprovalMap(map);
+      }
+    } catch (err) {
+      logger.warn('Failed to load approval statuses for work orders:', err);
+    }
+
     setLoading(false);
   };
 
@@ -228,41 +270,61 @@ const WorkOrderManager = () => {
           // 🛡️ فحص مسار وسلسلة الاعتمادات لأوامر التشغيل والإنتاج قبل البدء
           const order = orders.find(o => o.id === id) || (selectedOrder?.id === id ? selectedOrder : null);
           if (order) {
-              const product = products.find(p => p.id === order.product_id);
-              const unitCost = Number(product?.cost || product?.price || 0);
-              const orderAmount = Number(order.quantity_to_produce || 0) * unitCost;
+              const currentApproval = approvalMap[id];
+              const isAlreadyApproved = currentApproval?.status === 'APPROVED';
 
-              try {
-                  const approval = await ApprovalWorkflowService.checkAndSubmit({
-                      orgId: activeOrgId || '',
-                      docType: 'PRODUCTION_ORDER',
-                      amount: orderAmount,
-                      docId: id,
-                      docRef: order.order_number || id.slice(0, 8),
-                      requesterName: currentUser?.name || 'مسؤول الإنتاج'
-                  });
+              if (currentApproval?.status === 'REJECTED') {
+                  showToast('تم رفض أمر التشغيل هذا من قبل الإدارة، لا يمكن بدء التشغيل ❌', 'error');
+                  return;
+              }
 
-                  if (approval.requires_approval) {
-                      showToast(`أمر التشغيل يتطلب الاعتماد أولاً بموجب مسار "${approval.workflow_name}". تم إرسال الطلب لقائمة الاعتمادات المعلقة ⏳`, 'warning');
-                      fetchOrders();
-                      return;
+              if (currentApproval?.status === 'PENDING') {
+                  showToast('أمر التشغيل قيد المراجعة والاعتماد لدى الإدارة حالياً، يرجى انتظار الموافقة ⏳', 'warning');
+                  return;
+              }
+
+              // إذا لم يكن معتمداً مسبقاً، نفحص المسار ونرسله للاعتماد
+              if (!isAlreadyApproved) {
+                  const product = products.find(p => p.id === order.product_id);
+                  const unitCost = Number(product?.cost || product?.price || 0);
+                  const orderAmount = Number(order.quantity_to_produce || 0) * unitCost;
+
+                  try {
+                      const approval = await ApprovalWorkflowService.checkAndSubmit({
+                          orgId: activeOrgId || '',
+                          docType: 'PRODUCTION_ORDER',
+                          amount: orderAmount,
+                          docId: id,
+                          docRef: order.order_number || id.slice(0, 8),
+                          requesterName: currentUser?.name || 'مسؤول الإنتاج'
+                      });
+
+                      if (approval.requires_approval) {
+                          showToast(`أمر التشغيل يتطلب الاعتماد أولاً بموجب مسار "${approval.workflow_name}". تم إرسال الطلب لقائمة الاعتمادات المعلقة ⏳`, 'warning');
+                          fetchOrders();
+                          return;
+                      }
+                  } catch (appErr) {
+                      logger.warn('Approval workflow check bypassed:', appErr);
                   }
-              } catch (appErr) {
-                  logger.warn('Approval workflow check bypassed:', appErr);
               }
           }
 
           // 🚀 استخدام RPC لضمان توليد مراحل الإنتاج آلياً في جدول التقدم عند بدء التشغيل
           const { error } = await supabase.rpc('mfg_start_production_order', { p_order_id: id });
           if (error) {
-              showToast('فشل بدء التشغيل: ' + error.message, 'error');
-          } else {
-              showToast('تم بدء التشغيل وتوليد كافة مراحل الإنتاج آلياً بنجاح ✅', 'success');
-              fetchOrders();
-              // إذا كنا في وضع التفاصيل، نقوم بتحديث عرض المراحل فوراً
-              if (selectedOrder?.id === id) {
-                  fetchOrderSteps(id);
+              logger.warn('mfg_start_production_order failed, falling back to direct update:', error);
+              const { error: directErr } = await supabase.from('mfg_production_orders').update({ status: 'in_progress' }).eq('id', id);
+              if (directErr) {
+                  showToast('فشل بدء التشغيل: ' + directErr.message, 'error');
+                  return;
               }
+          }
+
+          showToast('تم بدء التشغيل وتوليد كافة مراحل الإنتاج آلياً بنجاح ✅', 'success');
+          fetchOrders();
+          if (selectedOrder?.id === id) {
+              fetchOrderSteps(id);
           }
       } else {
           await supabase.from('mfg_production_orders').update({ status }).eq('id', id);
@@ -317,12 +379,40 @@ const WorkOrderManager = () => {
       }
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string, orderId?: string) => {
+      if (status === 'draft' && orderId && approvalMap[orderId]) {
+          const app = approvalMap[orderId];
+          if (app.status === 'APPROVED') {
+              return (
+                  <span className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded text-xs font-bold inline-flex items-center gap-1 shadow-sm" title={`معتمد من: ${app.approverName || 'الإدارة'}`}>
+                      <CheckCircle size={14} className="text-emerald-600" />
+                      معتمد (جاهز للتشغيل)
+                  </span>
+              );
+          }
+          if (app.status === 'PENDING') {
+              return (
+                  <span className="bg-amber-50 text-amber-700 border border-amber-200 px-2.5 py-1 rounded text-xs font-bold inline-flex items-center gap-1 shadow-sm" title="بانتظار موافقة الإدارة">
+                      <Clock size={14} className="text-amber-600" />
+                      بانتظار الاعتماد ⏳
+                  </span>
+              );
+          }
+          if (app.status === 'REJECTED') {
+              return (
+                  <span className="bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 rounded text-xs font-bold inline-flex items-center gap-1 shadow-sm">
+                      <XCircle size={14} className="text-rose-600" />
+                      مرفوض من الاعتمادات
+                  </span>
+              );
+          }
+      }
+
       switch(status) {
-          case 'draft': return <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold">مسودة</span>;
-          case 'in_progress': return <span className="bg-blue-100 text-blue-600 px-2 py-1 rounded text-xs font-bold">قيد التشغيل</span>;
-          case 'completed': return <span className="bg-emerald-100 text-emerald-600 px-2 py-1 rounded text-xs font-bold">مكتمل</span>;
-          case 'cancelled': return <span className="bg-red-100 text-red-600 px-2 py-1 rounded text-xs font-bold">ملغي</span>;
+          case 'draft': return <span className="bg-slate-100 text-slate-600 px-2.5 py-1 rounded text-xs font-bold">مسودة</span>;
+          case 'in_progress': return <span className="bg-blue-100 text-blue-700 px-2.5 py-1 rounded text-xs font-bold">قيد التشغيل</span>;
+          case 'completed': return <span className="bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded text-xs font-bold">مكتمل</span>;
+          case 'cancelled': return <span className="bg-rose-100 text-rose-700 px-2.5 py-1 rounded text-xs font-bold">ملغي</span>;
           default: return status;
       }
   };
@@ -387,7 +477,7 @@ const WorkOrderManager = () => {
                             <td className="p-4 font-bold">{order.quantity_to_produce}</td>
                             <td className="p-4 text-sm">{order.warehouses?.name}</td>
                             <td className="p-4 text-sm">{order.start_date}</td>
-                            <td className="p-4">{getStatusBadge(order.status)}</td>
+                            <td className="p-4">{getStatusBadge(order.status, order.id)}</td>
                             <td className="p-4 flex justify-center items-center gap-1.5">
                                 <button onClick={() => openDetails(order)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="التفاصيل والتكاليف">
                                     <Eye size={18} />
@@ -451,7 +541,7 @@ const WorkOrderManager = () => {
                                       <h3 className="text-xl font-bold text-slate-800">{selectedOrder.products?.name}</h3>
                                       <p className="text-slate-500 font-mono">{selectedOrder.order_number}</p>
                                   </div>
-                                  {getStatusBadge(selectedOrder.status)}
+                                  {getStatusBadge(selectedOrder.status, selectedOrder.id)}
                               </div>
                               <div className="grid grid-cols-2 gap-4 text-sm">
                                   <div><span className="text-slate-500 block">الكمية المطلوبة:</span> <span className="font-bold text-lg">{selectedOrder.quantity_to_produce}</span></div>

@@ -295,6 +295,43 @@ export class ApprovalWorkflowService {
     docRef: string;
     requesterName?: string;
   }): Promise<CheckApprovalResult> {
+    // 1. فحص استباقي مؤكد: هل المستند معتمد مسبقاً في قاعدة البيانات؟
+    try {
+      if (typeof supabase?.from === 'function') {
+        const { data: approvedDoc } = await supabase
+          .from('approval_requests')
+          .select('id, status, decision_by_name')
+          .eq('document_id', params.docId)
+          .eq('status', 'APPROVED')
+          .maybeSingle();
+
+        if (approvedDoc) {
+          return {
+            requires_approval: false,
+            request_id: approvedDoc.id,
+            status: 'AUTO_APPROVED',
+            message: 'المستند معتمد مسبقاً ومصرح بتشغيله ✅'
+          };
+        }
+      }
+    } catch (checkErr) {
+      logger.warn('Pre-check for approved document failed, continuing:', checkErr);
+    }
+
+    // 2. فحص الكاش المحلي إذا كان المستند معتمداً
+    const curRequests = getLocalRequests(params.orgId);
+    const isLocallyApproved = curRequests.some(r => 
+      (r.document_id === params.docId || (params.docRef && r.document_reference === params.docRef)) &&
+      r.status === 'APPROVED'
+    );
+    if (isLocallyApproved) {
+      return {
+        requires_approval: false,
+        status: 'AUTO_APPROVED',
+        message: 'المستند معتمد مسبقاً وجاهز للتنفيذ.'
+      };
+    }
+
     try {
       const { data, error } = await supabase.rpc('fn_check_approval_requirement', {
         p_org_id: params.orgId,
@@ -305,8 +342,10 @@ export class ApprovalWorkflowService {
         p_requester_name: params.requesterName || 'مستخدم النظام'
       });
 
+      if (!error && data) {
+        return data as CheckApprovalResult;
+      }
       if (error) throw error;
-      return data as CheckApprovalResult;
     } catch (err) {
       logger.warn('Remote check approval failed, checking local workflows:', err);
       // فحص المسارات المحلية كخطة طوارئ
@@ -385,6 +424,12 @@ export class ApprovalWorkflowService {
         message: 'تم الاعتماد المباشر لعدم وجود قيود اعتماد نشطة.'
       };
     }
+
+    return {
+      requires_approval: false,
+      status: 'AUTO_APPROVED',
+      message: 'تم الاعتماد المباشر.'
+    };
   }
 
   /**
