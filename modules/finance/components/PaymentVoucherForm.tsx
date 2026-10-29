@@ -11,6 +11,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import DocumentAuditTimeline from '../../../components/DocumentAuditTimeline';
 import { logDocumentAction } from '../../../services/auditService';
 import SupplierSearchSelect from '../../../components/SupplierSearchSelect';
+import { ApprovalWorkflowService } from '../../../services/approvalWorkflowService';
 
 const PaymentVoucherForm = () => {
   const navigate = useNavigate();
@@ -612,6 +613,30 @@ const PaymentVoucherForm = () => {
                 logger.error('Failed to update purchase invoice status:', invErr);
                 showToast('تم حفظ السند ولكن تعذر تحديث حالة سداد فاتورة المشتريات: ' + (invErr?.message || ''), 'warning');
             }
+        }
+
+        // 🛡️ فحص مسار وسلسلة الاعتمادات لسند الصرف قبل ترحيل القيد
+        try {
+          const approval = await ApprovalWorkflowService.checkAndSubmit({
+            orgId: orgId || '',
+            docType: 'PAYMENT_VOUCHER',
+            amount: Number(formData.amount || 0),
+            docId: voucherData.id,
+            docRef: voucherNumber,
+            requesterName: currentUser?.name || (currentUser as any)?.full_name || 'مسؤول الصرف والخزينة'
+          });
+
+          if (approval.requires_approval) {
+            showToast(`تم حفظ سند الصرف وتوجيهه للاعتماد بموجب مسار "${approval.workflow_name}" قبل ترحيل القيد المحاسبي ⏳`, 'warning');
+            handleNew();
+            setAttachments([]);
+            setErrors({});
+            setLoading(false);
+            isSubmittingRef.current = false;
+            return;
+          }
+        } catch (appErr) {
+          logger.warn('Approval workflow check notice for payment voucher:', appErr);
         }
 
         // 2. إنشاء القيد المحاسبي (محاولة استخدام الدالة الآمنة، ثم البديل اليدوي)

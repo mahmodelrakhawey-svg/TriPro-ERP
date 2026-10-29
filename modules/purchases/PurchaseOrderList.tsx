@@ -28,6 +28,7 @@ export const PurchaseOrderList = () => {
   const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'sent' | 'converted' | 'posted' | 'cancelled'>('all');
+  const [approvalMap, setApprovalMap] = useState<Record<string, { status: string; workflow_name?: string }>>({});
   
   // Printing & Action States
   const [orderToPrint, setOrderToPrint] = useState<any | null>(null);
@@ -130,6 +131,25 @@ export const PurchaseOrderList = () => {
       }
 
       setOrders(data || []);
+
+      // 🛡️ جلب حالات طلبات الاعتماد لأوامر الشراء لعرضها بدقة
+      try {
+        const { data: approvals } = await supabase
+          .from('approval_requests')
+          .select('document_id, status, workflow:approval_workflows(name)')
+          .eq('document_type', 'PURCHASE_ORDER')
+          .eq('organization_id', userOrgId);
+
+        const map: Record<string, { status: string; workflow_name?: string }> = {};
+        approvals?.forEach((a: { document_id: string; status: string; workflow?: { name?: string } | { name?: string }[] | null }) => {
+          const wf = a.workflow;
+          const wfName = Array.isArray(wf) ? wf[0]?.name : wf?.name;
+          map[a.document_id] = { status: a.status, workflow_name: wfName };
+        });
+        setApprovalMap(map);
+      } catch (appErr) {
+        logger.warn('Failed to load PO approval requests:', appErr);
+      }
     } catch (err) {
       logger.error('Error fetching purchase orders:', err);
       showToast('فشل تحميل سجل أوامر الشراء: ' + err.message, 'error');
@@ -197,6 +217,15 @@ export const PurchaseOrderList = () => {
   };
 
   const openConvertModal = (order: Record<string, any>) => {
+    const approval = approvalMap[order.id];
+    if (approval?.status === 'PENDING') {
+      showToast('أمر الشراء قيد المراجعة والاعتماد لدى الإدارة حالياً، لا يمكن تحويله لفاتورة قبل الموافقة ⏳', 'warning');
+      return;
+    }
+    if (approval?.status === 'REJECTED') {
+      showToast('تم رفض أمر الشراء هذا من قبل الإدارة، لا يمكن تحويله لفاتورة مشتريات ❌', 'error');
+      return;
+    }
     setSelectedOrderForConvert(order);
     const initialWh = settings.defaultWarehouseId || (warehouses.length > 0 ? warehouses[0].id : '');
     setTargetWarehouseId(initialWh);
@@ -284,7 +313,26 @@ export const PurchaseOrderList = () => {
     showToast('تم تصدير سجل أوامر الشراء إلى إكسيل بنجاح ✅', 'success');
   };
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (order: Record<string, any>) => {
+    const status = order.status;
+    const approval = approvalMap[order.id];
+
+    if (approval?.status === 'PENDING') {
+      return (
+        <span className="bg-amber-100 text-amber-800 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1 border border-amber-300">
+          <Clock size={12} className="animate-spin text-amber-600" /> قيد اعتماد الإدارة ⏳
+        </span>
+      );
+    }
+
+    if (approval?.status === 'REJECTED') {
+      return (
+        <span className="bg-rose-100 text-rose-800 text-xs px-2.5 py-1 rounded-full font-bold inline-flex items-center gap-1 border border-rose-300">
+          <AlertCircle size={12} /> مرفوض من الاعتماد ❌
+        </span>
+      );
+    }
+
     switch (status) {
       case 'posted':
       case 'completed':
@@ -498,7 +546,7 @@ export const PurchaseOrderList = () => {
                         {Number(order.tax_amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                       <td className="p-3.5 text-center">
-                        {getStatusBadge(order.status)}
+                        {getStatusBadge(order)}
                       </td>
                       <td className="p-3.5">
                         <div className="flex items-center justify-center gap-1">

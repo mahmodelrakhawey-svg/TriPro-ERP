@@ -8,6 +8,7 @@ import { Save, Plus, Trash2, AlertTriangle, Search, Loader2, Package, Upload, Do
 import * as XLSX from 'xlsx';
 import { createStockAdjustmentSchema } from '../../utils/validationSchemas';
 import ProductSearchSelect from '../../components/ProductSearchSelect';
+import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
 
 interface AdjustmentItem {
   productId: string;
@@ -263,10 +264,7 @@ const StockAdjustmentForm = () => {
         const { error: itemsError } = await supabase.from('stock_adjustment_items').insert(dbItems);
         if (itemsError) throw itemsError;
 
-        // 3. Recalculate Stock
-        await recalculateStock();
-
-        // 4. Create Journal Entry (إنشاء القيد المحاسبي)
+        // حساب القيمة الإجمالية للتسوية المخزنية
         let totalValue = 0;
         items.forEach(item => {
             const product = products.find(p => p.id === item.productId);
@@ -275,6 +273,42 @@ const StockAdjustmentForm = () => {
             // إذا كانت زيادة (in) تضاف للقيمة، وإذا عجز (out) تطرح
             totalValue += (item.type === 'in' ? 1 : -1) * qty * cost;
         });
+
+        // 🛡️ فحص مسار وسلسلة الاعتمادات للتسويات المخزنية
+        try {
+          const approval = await ApprovalWorkflowService.checkAndSubmit({
+            orgId: userOrgId || '',
+            docType: 'STOCK_ADJUSTMENT',
+            amount: Math.abs(totalValue),
+            docId: header.id,
+            docRef: adjustmentNumber,
+            requesterName: (currentUser as any)?.full_name || (currentUser as any)?.name || 'مسؤول المستودع'
+          });
+
+          if (approval.requires_approval) {
+            await supabase
+              .from('stock_adjustments')
+              .update({ 
+                status: 'draft', 
+                reason: `[قيد اعتماد الإدارة: ${approval.workflow_name}] ${reason || ''}`.trim() 
+              })
+              .eq('id', header.id);
+
+            showToast(`تم حفظ التسوية وتوجيهها للاعتماد بموجب مسار "${approval.workflow_name}" قبل تعديل المخزون والقيود ⏳`, 'warning');
+            setItems([]);
+            setReason('');
+            setWarehouseId('');
+            setLoading(false);
+            return;
+          }
+        } catch (appErr) {
+          logger.warn('Approval workflow check notice for stock adjustment:', appErr);
+        }
+
+        // 3. Recalculate Stock
+        await recalculateStock();
+
+        // 4. Create Journal Entry (إنشاء القيد المحاسبي)
 
         if (totalValue !== 0) {
             // نظام البحث الاحتياطي عن الحسابات لضمان عدم تعطل القيد

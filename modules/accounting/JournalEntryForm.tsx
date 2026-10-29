@@ -1,4 +1,4 @@
-﻿﻿import { logger } from '../../utils/logger';
+import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X, Copy, Search } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
@@ -10,8 +10,9 @@ import { supabase } from '../../supabaseClient';
 import { useToastNotification } from '../../utils/toastUtils';
 import { JournalEntryLine, Account } from '../../types';
 import { createJournalEntrySchema } from '../../utils/validationSchemas';
+import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
 const JournalEntryForm = () => {
-  const { accounts, costCenters, addEntry, can } = useAccounting();
+  const { accounts, costCenters, addEntry, can, currentUser } = useAccounting();
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState('');
   const [reference, setReference] = useState('');
@@ -252,6 +253,43 @@ const JournalEntryForm = () => {
       if (editingId) {
         const { error: deleteError } = await supabase.from('journal_entries').delete().eq('id', editingId);
         if (deleteError) throw deleteError;
+      }
+
+      // 🛡️ فحص مسار وسلسلة الاعتمادات لقيود اليومية اليدوية
+      const totalAmount = lines.reduce((sum, l) => sum + Number(l.debit || 0), 0);
+      const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+
+      try {
+        const approval = await ApprovalWorkflowService.checkAndSubmit({
+          orgId: userOrgId || '',
+          docType: 'JOURNAL_ENTRY',
+          amount: totalAmount,
+          docId: editingId || crypto.randomUUID(),
+          docRef: result.data.reference,
+          requesterName: (currentUser as any)?.name || (currentUser as any)?.full_name || 'محاسب النظام'
+        });
+
+        if (approval.requires_approval) {
+          await addEntry({
+            date: result.data.date,
+            reference: result.data.reference,
+            description: `[قيد معلق للاعتماد: ${approval.workflow_name}] ${result.data.description || ''}`.trim(),
+            lines: lines.map(l => ({
+              accountId: l.account_id,
+              debit: Number(l.debit || 0),
+              credit: Number(l.credit || 0),
+              costCenterId: l.cost_center_id
+            })),
+            status: 'draft',
+            attachments
+          });
+
+          toast.warning(`تم حفظ القيد كمسودة وتوجيهه للاعتماد بموجب مسار "${approval.workflow_name}" ⏳`);
+          setIsSubmitting(false);
+          return navigate('/general-journal');
+        }
+      } catch (appErr) {
+        logger.warn('Approval workflow check notice for journal entry:', appErr);
       }
 
       // استخدام البيانات التي تم التحقق منها

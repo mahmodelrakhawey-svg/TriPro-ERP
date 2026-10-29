@@ -227,6 +227,163 @@ export const ApprovalWorkflowsManager: React.FC = () => {
         }
       }
 
+      // 🛒 تحديث فاتورة المشتريات عند الاعتماد أو الرفض
+      if (decisionModal.request.document_type === 'PURCHASE_INVOICE') {
+        try {
+          if (decisionModal.action === 'APPROVE') {
+            await supabase.rpc('post_purchase_invoice', {
+              p_invoice_id: decisionModal.request.document_id,
+              p_org_id: activeOrgId || decisionModal.request.organization_id
+            });
+          } else {
+            await supabase
+              .from('purchase_invoices')
+              .update({ notes: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]` })
+              .eq('id', decisionModal.request.document_id);
+          }
+        } catch (piErr) {
+          logger.warn('Approval decision sync notice for purchase invoice:', piErr);
+        }
+      }
+
+      // 🏷️ تحديث فاتورة المبيعات عند الاعتماد أو الرفض
+      if (decisionModal.request.document_type === 'SALES_INVOICE') {
+        try {
+          if (decisionModal.action === 'APPROVE') {
+            await supabase.rpc('post_sales_invoice', {
+              p_invoice_id: decisionModal.request.document_id,
+              p_org_id: activeOrgId || decisionModal.request.organization_id
+            });
+          } else {
+            await supabase
+              .from('invoices')
+              .update({ notes: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]` })
+              .eq('id', decisionModal.request.document_id);
+          }
+        } catch (siErr) {
+          logger.warn('Approval decision sync notice for sales invoice:', siErr);
+        }
+      }
+
+      // 📋 تحديث أمر الشراء عند الاعتماد أو الرفض
+      if (decisionModal.request.document_type === 'PURCHASE_ORDER') {
+        try {
+          if (decisionModal.action === 'APPROVE') {
+            await supabase
+              .from('purchase_orders')
+              .update({ 
+                status: 'sent',
+                notes: `[معتمد من الإدارة: ${currentUser?.name || (currentUser as any)?.email || 'المدير المعتمد'}] ${decisionModal.notes || ''}`.trim()
+              })
+              .eq('id', decisionModal.request.document_id);
+          } else {
+            await supabase
+              .from('purchase_orders')
+              .update({ 
+                status: 'cancelled',
+                notes: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]` 
+              })
+              .eq('id', decisionModal.request.document_id);
+          }
+        } catch (poErr) {
+          logger.warn('Approval decision sync notice for purchase order:', poErr);
+        }
+      }
+
+      // 💸 اعتماد أو رفض سند الصرف
+      if (decisionModal.request.document_type === 'PAYMENT_VOUCHER') {
+        try {
+          if (decisionModal.action === 'APPROVE') {
+            const { data: pv } = await supabase
+              .from('payment_vouchers')
+              .select('id, supplier_id, suppliers(account_id)')
+              .eq('id', decisionModal.request.document_id)
+              .maybeSingle();
+
+            const debitAcc = (pv as any)?.suppliers?.account_id || null;
+            if (debitAcc) {
+              await supabase.rpc('approve_payment_voucher', {
+                p_voucher_id: decisionModal.request.document_id,
+                p_debit_account_id: debitAcc
+              });
+            }
+          } else {
+            await supabase
+              .from('payment_vouchers')
+              .update({ notes: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]` })
+              .eq('id', decisionModal.request.document_id);
+          }
+        } catch (pvErr) {
+          logger.warn('Approval decision sync notice for payment voucher:', pvErr);
+        }
+      }
+
+      // 💰 اعتماد أو رفض سند القبض
+      if (decisionModal.request.document_type === 'RECEIPT_VOUCHER') {
+        try {
+          if (decisionModal.action === 'APPROVE') {
+            const { data: rv } = await supabase
+              .from('receipt_vouchers')
+              .select('id, customer_id, customers(account_id)')
+              .eq('id', decisionModal.request.document_id)
+              .maybeSingle();
+
+            const creditAcc = (rv as any)?.customers?.account_id || null;
+            if (creditAcc) {
+              await supabase.rpc('approve_receipt_voucher', {
+                p_voucher_id: decisionModal.request.document_id,
+                p_credit_account_id: creditAcc
+              });
+            }
+          } else {
+            await supabase
+              .from('receipt_vouchers')
+              .update({ notes: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]` })
+              .eq('id', decisionModal.request.document_id);
+          }
+        } catch (rvErr) {
+          logger.warn('Approval decision sync notice for receipt voucher:', rvErr);
+        }
+      }
+
+      // 📝 اعتماد أو رفض قيد اليومية
+      if (decisionModal.request.document_type === 'JOURNAL_ENTRY') {
+        try {
+          if (decisionModal.action === 'APPROVE') {
+            await supabase
+              .from('journal_entries')
+              .update({ status: 'posted', is_posted: true })
+              .or(`id.eq.${decisionModal.request.document_id},reference.eq.${decisionModal.request.document_reference}`);
+          } else {
+            await supabase
+              .from('journal_entries')
+              .update({ status: 'rejected', is_posted: false })
+              .or(`id.eq.${decisionModal.request.document_id},reference.eq.${decisionModal.request.document_reference}`);
+          }
+        } catch (jeErr) {
+          logger.warn('Approval decision sync notice for journal entry:', jeErr);
+        }
+      }
+
+      // 📦 اعتماد أو رفض التسوية المخزنية
+      if (decisionModal.request.document_type === 'STOCK_ADJUSTMENT') {
+        try {
+          if (decisionModal.action === 'APPROVE') {
+            await supabase
+              .from('stock_adjustments')
+              .update({ status: 'posted' })
+              .eq('id', decisionModal.request.document_id);
+          } else {
+            await supabase
+              .from('stock_adjustments')
+              .update({ status: 'cancelled', reason: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]` })
+              .eq('id', decisionModal.request.document_id);
+          }
+        } catch (adjErr) {
+          logger.warn('Approval decision sync notice for stock adjustment:', adjErr);
+        }
+      }
+
       // مزامنة وإغلاق أي طلبات معلقة مكررة لنفس المستند
       try {
         await supabase

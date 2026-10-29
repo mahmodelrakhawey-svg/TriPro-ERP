@@ -17,6 +17,7 @@ import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
 
 export type SalesInvoice = Invoice & { total?: number; [key: string]: unknown };
 
@@ -153,6 +154,34 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
 
   const approveInvoice = useCallback(async (id: string, customOrgId?: string, warehouseId?: string): Promise<boolean> => {
     const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id || null;
+
+    // 🛡️ فحص مسار وسلسلة الاعتمادات لفواتير المبيعات قبل الترحيل
+    try {
+      const { data: inv } = await supabase
+        .from('invoices')
+        .select('id, invoice_number, total_amount')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (inv) {
+        const approvalCheck = await ApprovalWorkflowService.checkAndSubmit({
+          orgId: effectiveOrg || '',
+          docType: 'SALES_INVOICE',
+          amount: Number(inv.total_amount || 0),
+          docId: id,
+          docRef: inv.invoice_number || id.slice(0, 8),
+          requesterName: (currentUser as any)?.full_name || (currentUser as any)?.name || 'مسؤول المبيعات'
+        });
+
+        if (approvalCheck.requires_approval) {
+          showToast?.(`فاتورة المبيعات تتطلب الاعتماد أولاً بموجب مسار "${approvalCheck.workflow_name}". تم إرسال الطلب للمسارات المعلقة ⏳`, 'warning');
+          return false;
+        }
+      }
+    } catch (appErr) {
+      logger.warn('Approval workflow check bypassed for sales invoice:', appErr);
+    }
+
     const { error } = await supabase.rpc('post_sales_invoice', {
       p_invoice_id: id,
       p_org_id: effectiveOrg,

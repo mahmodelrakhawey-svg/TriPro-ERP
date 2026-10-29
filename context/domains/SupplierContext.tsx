@@ -18,6 +18,7 @@ import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { fetchAllTableRecords } from './domainUtils';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
 
 export interface SupplierDomainState {
   suppliers: Supplier[];
@@ -277,6 +278,34 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
 
   const approvePurchaseInvoice = useCallback(async (id: string, customOrgId?: string, warehouseId?: string): Promise<void> => {
     const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
+
+    // 🛡️ فحص مسار وسلسلة الاعتمادات لفواتير الشراء قبل الترحيل
+    try {
+      const { data: inv } = await supabase
+        .from('purchase_invoices')
+        .select('id, invoice_number, total_amount')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (inv) {
+        const approvalCheck = await ApprovalWorkflowService.checkAndSubmit({
+          orgId: effectiveOrg || '',
+          docType: 'PURCHASE_INVOICE',
+          amount: Number(inv.total_amount || 0),
+          docId: id,
+          docRef: inv.invoice_number || id.slice(0, 8),
+          requesterName: (currentUser as any)?.full_name || (currentUser as any)?.name || 'مسؤول المشتريات'
+        });
+
+        if (approvalCheck.requires_approval) {
+          showToast?.(`فاتورة المشتريات تتطلب الاعتماد أولاً بموجب مسار "${approvalCheck.workflow_name}". تم إرسال الطلب للمسارات المعلقة ⏳`, 'warning');
+          return;
+        }
+      }
+    } catch (appErr) {
+      logger.warn('Approval workflow check bypassed for purchase invoice:', appErr);
+    }
+
     const { error } = await supabase.rpc('post_purchase_invoice', {
       p_invoice_id: id,
       p_org_id: effectiveOrg,
@@ -327,6 +356,34 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
 
   const convertPoToInvoice = useCallback(async (id: string, warehouseId?: string, customOrgId?: string): Promise<void> => {
     const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
+
+    // 🛡️ فحص مسار الاعتماد لأمر الشراء قبل التحويل لفاتورة
+    try {
+      const { data: po } = await supabase
+        .from('purchase_orders')
+        .select('id, po_number, order_number, total_amount')
+        .eq('id', id)
+        .maybeSingle();
+
+      if (po) {
+        const approvalCheck = await ApprovalWorkflowService.checkAndSubmit({
+          orgId: effectiveOrg || '',
+          docType: 'PURCHASE_ORDER',
+          amount: Number(po.total_amount || 0),
+          docId: id,
+          docRef: po.po_number || po.order_number || id.slice(0, 8),
+          requesterName: (currentUser as any)?.full_name || (currentUser as any)?.name || 'مسؤول المشتريات'
+        });
+
+        if (approvalCheck.requires_approval) {
+          showToast?.(`أمر الشراء يتطلب اعتماد الإدارة أولاً بموجب مسار "${approvalCheck.workflow_name}". تم إرسال الطلب للاعتمادات المعلقة ⏳`, 'warning');
+          return;
+        }
+      }
+    } catch (appErr) {
+      logger.warn('Approval workflow check bypassed for purchase order conversion:', appErr);
+    }
+
     const { error } = await supabase.rpc('convert_po_to_invoice', {
       p_po_id: id,
       p_warehouse_id: warehouseId,

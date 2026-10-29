@@ -12,6 +12,7 @@ import { createPurchaseOrderSchema } from '../../utils/validationSchemas';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { PurchaseOrderPrint } from './PurchaseOrderPrint';
 import SupplierSearchSelect from '../../components/SupplierSearchSelect';
+import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
 
 const PurchaseOrderForm = () => {
   const { suppliers, products, warehouses, currentUser, settings, convertPoToInvoice, currentSelectedOrgId } = useAccounting();
@@ -463,7 +464,26 @@ const PurchaseOrderForm = () => {
         const itemsError = await insertPoItems(itemsToInsert);
         if (itemsError) throw itemsError;
 
-        showToast('تم حفظ أمر الشراء بنجاح ✅', 'success');
+        // 🛡️ فحص مسار الاعتماد لأمر الشراء وتوجيهه للمسار المعلق إن انطبق
+        try {
+          const approval = await ApprovalWorkflowService.checkAndSubmit({
+            orgId: userOrgId,
+            docType: 'PURCHASE_ORDER',
+            amount: Number(totalAmount || 0),
+            docId: po.id,
+            docRef: poNumber,
+            requesterName: (currentUser as any)?.full_name || (currentUser as any)?.name || 'مسؤول المشتريات'
+          });
+
+          if (approval.requires_approval) {
+            showToast(`تم حفظ أمر الشراء وتوجيهه للمسارات المعلقة للاعتماد بموجب مسار "${approval.workflow_name}" ⏳`, 'warning');
+          } else {
+            showToast('تم حفظ أمر الشراء بنجاح ✅', 'success');
+          }
+        } catch (appErr) {
+          logger.warn('Approval workflow check bypassed for new PO:', appErr);
+          showToast('تم حفظ أمر الشراء بنجاح ✅', 'success');
+        }
       }
 
       await fetchOrderIds();
@@ -545,15 +565,37 @@ const PurchaseOrderForm = () => {
       return;
     }
 
+    // 🛡️ التحقق من حالة الاعتماد المسبقة لأمر الشراء قبل التحويل
+    try {
+      const { data: appReq } = await supabase
+        .from('approval_requests')
+        .select('status, workflow:approval_workflows(name)')
+        .eq('document_id', editingId)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (appReq?.status === 'PENDING') {
+        showToast('أمر الشراء قيد المراجعة والاعتماد لدى الإدارة حالياً، لا يمكن تحويله لفاتورة قبل الموافقة ⏳', 'warning');
+        return;
+      }
+      if (appReq?.status === 'REJECTED') {
+        showToast('تم رفض أمر الشراء هذا من قبل الإدارة، لا يمكن تحويله لفاتورة مشتريات ❌', 'error');
+        return;
+      }
+    } catch (appErr) {
+      logger.warn('Failed checking approval request for PO convert:', appErr);
+    }
+
     setConverting(true);
     try {
       await convertPoToInvoice(editingId, targetWarehouseId);
       showToast('تم تحويل أمر الشراء إلى فاتورة مشتريات بنجاح ✅', 'success');
       setIsConvertModalOpen(false);
       navigate('/purchase-invoices-list');
-    } catch (err) {
+    } catch (err: unknown) {
       logger.error(err);
-      showToast('فشل التحويل: ' + err.message, 'error');
+      showToast('فشل التحويل: ' + ((err as Error)?.message || 'حدث خطأ أثناء التحويل'), 'error');
     } finally {
       setConverting(false);
     }

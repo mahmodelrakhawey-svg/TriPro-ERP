@@ -8,6 +8,7 @@ import { ReceiptVoucherPrint } from '../reports/ReceiptVoucherPrint';
 import { useToast } from '../../../context/ToastContext';
 import { VoucherSchema } from '../../../utils/schemas';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { ApprovalWorkflowService } from '../../../services/approvalWorkflowService';
 
 const ReceiptVoucherForm = () => {
   const navigate = useNavigate();
@@ -494,6 +495,30 @@ const ReceiptVoucherForm = () => {
                     });
                 }
             }
+        }
+
+        // 🛡️ فحص مسار وسلسلة الاعتمادات لسند القبض قبل ترحيل القيد
+        try {
+          const approval = await ApprovalWorkflowService.checkAndSubmit({
+            orgId: orgId || '',
+            docType: 'RECEIPT_VOUCHER',
+            amount: Number(formData.amount || 0),
+            docId: voucherData.id,
+            docRef: voucherNumber,
+            requesterName: currentUser?.name || (currentUser as any)?.full_name || 'مسؤول القبض والخزينة'
+          });
+
+          if (approval.requires_approval) {
+            showToast(`تم حفظ سند القبض وتوجيهه للاعتماد بموجب مسار "${approval.workflow_name}" قبل ترحيل القيد المحاسبي ⏳`, 'warning');
+            handleNew();
+            setAttachments([]);
+            setErrors({});
+            setLoading(false);
+            isSubmittingRef.current = false;
+            return;
+          }
+        } catch (appErr) {
+          logger.warn('Approval workflow check notice for receipt voucher:', appErr);
         }
 
         // 2. إنشاء القيد المحاسبي (محاولة استخدام الدالة الآمنة، ثم البديل اليدوي)
