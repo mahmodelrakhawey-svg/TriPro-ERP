@@ -5,6 +5,7 @@ import { supabase } from '../../../supabaseClient';
 import { useAccounting, SYSTEM_ACCOUNTS } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { hrEnterpriseService } from '../../../services/hrEnterpriseService';
+import { fetchCompleteDataset } from '../../../services/balanceService';
 import { PayslipModal, PayslipData } from './PayslipModal';
 import {
   Banknote,
@@ -248,26 +249,41 @@ const PayrollRun = () => {
         empQuery = empQuery.not('department', 'in', '("المصنع","مصنع")');
       }
 
-      // جلب البيانات بالتوازي: الموظفين، السلف، الإجازات، الحضور، الجزاءات والمكافآت
-      const [empRes, advRes, leavesRes, attRes, penRes] = await Promise.all([
-        empQuery,
-        supabase.from('employee_advances').select('*').eq('status', 'paid').is('payroll_item_id', null).eq('organization_id', targetOrg),
-        supabase.from('hr_leave_requests').select('*').eq('organization_id', targetOrg).eq('status', 'APPROVED'),
-        supabase.from('hr_attendance_logs').select('*').eq('organization_id', targetOrg).gte('log_date', monthStartStr).lte('log_date', monthEndStr),
+      // 🚀 جلب البيانات بالتوازي مع ضمان التجزئة الكاملة (fetchCompleteDataset) لمنع سقف 1000 سجل
+      const [rawEmployees, advances, approvedLeaves, attendanceLogs, penaltiesRewards] = await Promise.all([
+        fetchCompleteDataset<any>(async (from, to) => {
+          let q = supabase.from('employees').select('*').eq('status', 'active').order('id', { ascending: true });
+          if (targetOrg) q = q.eq('organization_id', targetOrg);
+          if (hrScope === 'factory') {
+            q = q.in('department', ['المصنع', 'مصنع']);
+          } else if (hrScope === 'branches') {
+            q = q.not('department', 'in', '("المصنع","مصنع")');
+          }
+          return q.range(from, to);
+        }),
+        fetchCompleteDataset<any>(async (from, to) => {
+          let q = supabase.from('employee_advances').select('*').eq('status', 'paid').is('payroll_item_id', null).order('id', { ascending: true });
+          if (targetOrg) q = q.eq('organization_id', targetOrg);
+          return q.range(from, to);
+        }),
+        fetchCompleteDataset<any>(async (from, to) => {
+          let q = supabase.from('hr_leave_requests').select('*').eq('status', 'APPROVED').order('id', { ascending: true });
+          if (targetOrg) q = q.eq('organization_id', targetOrg);
+          return q.range(from, to);
+        }),
+        fetchCompleteDataset<any>(async (from, to) => {
+          let q = supabase.from('hr_attendance_logs').select('*').gte('log_date', monthStartStr).lte('log_date', monthEndStr).order('log_date', { ascending: true });
+          if (targetOrg) q = q.eq('organization_id', targetOrg);
+          return q.range(from, to);
+        }),
         hrEnterpriseService.getPenaltiesRewards(targetOrg)
       ]);
 
-      if (empRes.error) throw empRes.error;
-      const rawEmployees = empRes.data || [];
       const employees = hrScope === 'factory'
-        ? rawEmployees.filter(e => isFactoryDept(e.department))
+        ? rawEmployees.filter((e: Record<string, unknown>) => isFactoryDept(e.department))
         : hrScope === 'branches'
-          ? rawEmployees.filter(e => !isFactoryDept(e.department))
+          ? rawEmployees.filter((e: Record<string, unknown>) => !isFactoryDept(e.department))
           : rawEmployees;
-      const advances = advRes.data || [];
-      const approvedLeaves = leavesRes.data || [];
-      const attendanceLogs = attRes.data || [];
-      const penaltiesRewards = penRes || [];
 
       const preparedData: PayrollItem[] = employees.map(emp => {
         const basicSalary = Number(emp.basic_salary || 0);
@@ -305,8 +321,35 @@ const PayrollRun = () => {
         const unpaidLeaveDeduction = Math.round(totalUnpaidLeaveDays * dailyRate * 100) / 100;
 
         // ج) سجلات الغياب غير المبرر والمصرح به وساعات الإضافي
-        const empAttendance = attendanceLogs.filter(att => att.employee_id === emp.id);
-        const absenceDays = empAttendance.filter(a => a.status === 'ABSENT' || a.status === 'UNEXCUSED_ABSENCE' || a.status === 'EXCUSED_ABSENCE').length;
+        const empAttendance = attendanceLogs.filter((att: Record<string, unknown>) => att.employee_id === emp.id);
+        const isAbsentRecord = (a: Record<string, unknown>) => {
+          const s = String(a.status || '').trim().toUpperCase();
+          if (
+            s === 'ABSENT' ||
+            s === 'UNEXCUSED_ABSENCE' ||
+            s === 'EXCUSED_ABSENCE' ||
+            s === 'غائب' ||
+            s === 'غياب' ||
+            s === 'غياب بإذن' ||
+            s === 'غياب باذن' ||
+            s === 'غياب بدون إذن' ||
+            s === 'غياب بدون اذن' ||
+            s.includes('غياب')
+          ) {
+            return true;
+          }
+          // إذا كانت الحالة مسجلة كإجازة بدون راتب في سجل الحضور
+          if (s === 'ON_LEAVE' && (
+            String(a.notes || '').includes('بدون راتب') || 
+            String(a.notes || '').includes('بدون مرتب') || 
+            String(a.notes || '').includes('غير مدفوع')
+          )) {
+            return true;
+          }
+          return false;
+        };
+
+        const absenceDays = empAttendance.filter(isAbsentRecord).length;
         const absenceDeduction = Math.round(absenceDays * dailyRate * 100) / 100;
 
         const totalLateMinutes = empAttendance.reduce((sum, a) => sum + Number(a.late_minutes || 0), 0);
@@ -427,13 +470,41 @@ const PayrollRun = () => {
     }));
   };
 
+  const handleAbsenceDaysChange = (employeeId: string, days: number) => {
+    setPayrollData(prev => prev.map(emp => {
+      if (emp.employee_id === employeeId) {
+        const d = Math.max(0, Number(days) || 0);
+        const dailyRate = emp.gross_salary > 0 ? emp.gross_salary / 30 : 0;
+        const newDeduction = Math.round(d * dailyRate * 100) / 100;
+        const newOtherDeductions = Math.round((newDeduction + (emp.late_deduction || 0) + (emp.penalty_amount || 0) + (emp.unpaid_leave_deduction || 0)) * 100) / 100;
+        const newNet = Math.max(0, emp.gross_salary + emp.additions - emp.advances_deducted - newOtherDeductions - emp.payroll_tax);
+        return {
+          ...emp,
+          absence_days: d,
+          absence_deduction: newDeduction,
+          other_deductions: newOtherDeductions,
+          net_salary: Math.round(newNet * 100) / 100
+        };
+      }
+      return emp;
+    }));
+  };
+
   const handleAbsenceDeductionChange = (employeeId: string, value: number) => {
     setPayrollData(prev => prev.map(emp => {
       if (emp.employee_id === employeeId) {
         const val = Number(value) || 0;
+        const dailyRate = emp.gross_salary > 0 ? emp.gross_salary / 30 : 0;
+        const updatedDays = dailyRate > 0 ? Math.round((val / dailyRate) * 10) / 10 : emp.absence_days;
         const newOtherDeductions = Math.round((val + (emp.late_deduction || 0) + (emp.penalty_amount || 0) + (emp.unpaid_leave_deduction || 0)) * 100) / 100;
         const newNet = Math.max(0, emp.gross_salary + emp.additions - emp.advances_deducted - newOtherDeductions - emp.payroll_tax);
-        return { ...emp, absence_deduction: val, other_deductions: newOtherDeductions, net_salary: Math.round(newNet * 100) / 100 };
+        return { 
+          ...emp, 
+          absence_days: updatedDays,
+          absence_deduction: val, 
+          other_deductions: newOtherDeductions, 
+          net_salary: Math.round(newNet * 100) / 100 
+        };
       }
       return emp;
     }));
@@ -1377,18 +1448,30 @@ const PayrollRun = () => {
 
                     {/* خصم غياب */}
                     <td className="p-2.5 text-center bg-rose-50/20">
-                      <input
-                        type="number"
-                        value={emp.absence_deduction}
-                        onChange={e => handleAbsenceDeductionChange(emp.employee_id, Number(e.target.value))}
-                        className="w-18 text-center border rounded-lg p-1 font-mono font-bold text-rose-600 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                      />
-                      {emp.absence_days > 0 && (
-                        <span className="block text-[10px] text-rose-600 font-semibold mt-0.5">
-                          ({emp.absence_days} يوم)
-                        </span>
-                      )}
+                      <div className="flex flex-col items-center gap-1">
+                        <input
+                          type="number"
+                          value={emp.absence_deduction}
+                          onChange={e => handleAbsenceDeductionChange(emp.employee_id, Number(e.target.value))}
+                          className="w-20 text-center border rounded-lg p-1 font-mono font-bold text-rose-600 bg-white"
+                          disabled={existingPayroll?.status === 'paid'}
+                          title="قيمة خصم الغياب بالجنيه (تعديل المبلغ)"
+                        />
+                        <div className="flex items-center gap-0.5 text-[11px] text-rose-600 font-semibold">
+                          <span>(</span>
+                          <input
+                            type="number"
+                            step="0.5"
+                            min="0"
+                            value={emp.absence_days}
+                            onChange={e => handleAbsenceDaysChange(emp.employee_id, Number(e.target.value))}
+                            className="w-11 text-center border border-rose-300 rounded px-1 py-0.5 font-mono text-[11px] bg-rose-50 hover:bg-white focus:bg-white text-rose-700 font-bold"
+                            title="تعديل عدد أيام الغياب يدوياً (يُعاد احتساب المبلغ تلقائياً)"
+                            disabled={existingPayroll?.status === 'paid'}
+                          />
+                          <span>يوم)</span>
+                        </div>
+                      </div>
                     </td>
 
                     {/* خصم تأخير */}
