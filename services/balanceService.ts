@@ -184,9 +184,9 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
     openingJournalLines
   ] = await Promise.all([
     fetchCompleteDataset(async (from, to) => supabase.from('suppliers').select('id, name, opening_balance').match(filter).is('deleted_at', null).range(from, to)),
-    fetchCompleteDataset(async (from, to) => supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount, invoice_number').match(filter).neq('status', 'draft').range(from, to)),
-    fetchCompleteDataset(async (from, to) => supabase.from('payment_vouchers').select('supplier_id, amount, notes, voucher_number').match(filter).not('supplier_id', 'is', null).range(from, to)),
-    fetchCompleteDataset(async (from, to) => supabase.from('purchase_returns').select('supplier_id, total_amount, return_number').match(filter).neq('status', 'draft').range(from, to)),
+    fetchCompleteDataset(async (from, to) => supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount, invoice_number, status').match(filter).in('status', ['posted', 'paid']).range(from, to)),
+    fetchCompleteDataset(async (from, to) => supabase.from('payment_vouchers').select('supplier_id, amount, notes, voucher_number, status, deleted_at').match(filter).not('supplier_id', 'is', null).is('deleted_at', null).range(from, to)),
+    fetchCompleteDataset(async (from, to) => supabase.from('purchase_returns').select('supplier_id, total_amount, return_number').match(filter).eq('status', 'posted').range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('debit_notes').select('supplier_id, total_amount, debit_note_number').match(filter).eq('status', 'posted').range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('cheques').select('party_id, amount, cheque_number').match(filter).eq('type', 'outgoing').neq('status', 'rejected').range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('vendor_rebate_settlements').select('vendor_id, total_claim_amount').match(filter).in('status', ['APPROVED', 'SETTLED']).range(from, to)),
@@ -216,6 +216,15 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
 
   if (!suppliers) return balances;
 
+  const validPayments = (payments || []).filter((p: Record<string, any>) => {
+    if (p.deleted_at) return false;
+    const st = (p.status || '').toLowerCase();
+    if (st === 'rejected' || st === 'cancelled' || st === 'draft' || st === 'pending_approval') return false;
+    const notes = (p.notes || '').trim();
+    if (notes.startsWith('[مرفوض') || notes.startsWith('[معلق للاعتماد')) return false;
+    return true;
+  });
+
   const subContractMap = new Map<string, string>();
   contracts?.forEach(c => subContractMap.set(c.id, c.subcontractor_id));
 
@@ -238,7 +247,7 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
     // 1. الفواتير
     const suppInvoices = invoices?.filter(i => i.supplier_id === supplier.id) || [];
     const totalInvoiced = suppInvoices.reduce((sum, inv) => {
-      const pvPaidForThisInvoice = payments?.filter(p => p.supplier_id === supplier.id && p.notes && inv.invoice_number && p.notes.includes(inv.invoice_number)).reduce((s, p) => s + Number(p.amount || 0), 0) || 0;
+      const pvPaidForThisInvoice = validPayments?.filter(p => p.supplier_id === supplier.id && p.notes && inv.invoice_number && p.notes.includes(inv.invoice_number)).reduce((s, p) => s + Number(p.amount || 0), 0) || 0;
       const immediatePaidAtCheckout = Math.max(0, Number(inv.paid_amount || 0) - pvPaidForThisInvoice);
       return sum + (Number(inv.total_amount || 0) - immediatePaidAtCheckout);
     }, 0);
@@ -252,9 +261,9 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
       }
     });
 
-    // 3. السدادات والمردودات والخصومات
+    // 3. السدادات والمردودات والخصومات (المعتمدة والنشطة فقط)
     const totalRebates = rebates?.filter(reb => reb.vendor_id === supplier.id).reduce((sum, reb) => sum + Number(reb.total_claim_amount || 0), 0) || 0;
-    const totalPaid = (payments?.filter(p => p.supplier_id === supplier.id).reduce((sum, p) => sum + Number(p.amount || 0), 0) || 0) +
+    const totalPaid = (validPayments?.filter(p => p.supplier_id === supplier.id).reduce((sum, p) => sum + Number(p.amount || 0), 0) || 0) +
                       (returns?.filter(r => r.supplier_id === supplier.id).reduce((sum, r) => sum + Number(r.total_amount || 0), 0) || 0) +
                       (debitNotes?.filter(d => d.supplier_id === supplier.id).reduce((sum, d) => sum + Number(d.total_amount || 0), 0) || 0) +
                       (cheques?.filter(c => c.party_id === supplier.id).reduce((sum, c) => sum + Number(c.amount || 0), 0) || 0) +
@@ -579,14 +588,23 @@ export async function fetchAllCustomerBalances(orgId: string): Promise<Map<strin
     projectBillings
   ] = await Promise.all([
     fetchCompleteDataset(async (from, to) => supabase.from('customers').select('id, opening_balance').match(filter).is('deleted_at', null).range(from, to)),
-    fetchCompleteDataset(async (from, to) => supabase.from('invoices').select('customer_id, total_amount, paid_amount').match(filter).neq('status', 'draft').neq('status', 'cancelled').range(from, to)),
-    fetchCompleteDataset(async (from, to) => supabase.from('receipt_vouchers').select('customer_id, amount').match(filter).not('customer_id', 'is', null).range(from, to)),
+    fetchCompleteDataset(async (from, to) => supabase.from('invoices').select('customer_id, total_amount, paid_amount').match(filter).neq('status', 'draft').neq('status', 'cancelled').neq('status', 'rejected').range(from, to)),
+    fetchCompleteDataset(async (from, to) => supabase.from('receipt_vouchers').select('customer_id, amount, notes, status, deleted_at').match(filter).not('customer_id', 'is', null).is('deleted_at', null).range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('credit_notes').select('customer_id, total_amount').match(filter).eq('status', 'posted').range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'incoming').neq('status', 'rejected').range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('project_progress_billings').select('customer_id, net_amount').match(filter).neq('status', 'draft').range(from, to))
   ]);
 
   if (!customers) return balances;
+
+  const validReceipts = (receipts || []).filter((r: Record<string, any>) => {
+    if (r.deleted_at) return false;
+    const st = (r.status || '').toLowerCase();
+    if (st === 'rejected' || st === 'cancelled' || st === 'draft' || st === 'pending_approval') return false;
+    const notes = (r.notes || '').trim();
+    if (notes.startsWith('[مرفوض') || notes.startsWith('[معلق للاعتماد')) return false;
+    return true;
+  });
 
   customers.forEach(customer => {
     const opening = Number(customer.opening_balance || 0);
@@ -597,7 +615,7 @@ export async function fetchAllCustomerBalances(orgId: string): Promise<Map<strin
 
     const totalProjectBillings = projectBillings?.filter(p => p.customer_id === customer.id).reduce((sum, p) => sum + Number(p.net_amount || 0), 0) || 0;
 
-    const totalReceipts = receipts?.filter(r => r.customer_id === customer.id).reduce((sum, r) => sum + Number(r.amount || 0), 0) || 0;
+    const totalReceipts = validReceipts?.filter(r => r.customer_id === customer.id).reduce((sum, r) => sum + Number(r.amount || 0), 0) || 0;
     const totalCreditNotes = creditNotes?.filter(c => c.customer_id === customer.id).reduce((sum, c) => sum + Number(c.total_amount || 0), 0) || 0;
     const totalCheques = cheques?.filter(c => c.party_id === customer.id).reduce((sum, c) => sum + Number(c.amount || 0), 0) || 0;
 

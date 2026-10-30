@@ -29,6 +29,7 @@ type LedgerEntry = {
     reference: string;
     description: string;
     is_posted: boolean;
+    status?: string;
   };
 };
 
@@ -271,12 +272,31 @@ const GeneralLedger = () => {
 
       if (periodError) throw periodError;
 
-      // حساب الرصيد التراكمي
+      // حساب الرصيد التراكمي وتصفية أي قيود مرفوضة أو معلقة للاعتماد
       let running = baseBalance;
       
-      const processedData = (periodData as any[]).map((item: any) => {
-          running += (item.debit - item.credit);
-          return { ...item, balance: running };
+      const processedData: LedgerEntry[] = (periodData as unknown as LedgerEntry[])
+        .filter(item => {
+          const je = item.journal_entries;
+          if (!je || je.status !== 'posted') return false;
+          const desc = (je.description || '').trim();
+          if (desc.startsWith('[مرفوض')) return false;
+          return true;
+        })
+        .map(item => {
+          let updatedDesc = item.journal_entries?.description || '';
+          if (updatedDesc.includes('[قيد معلق للاعتماد:')) {
+            updatedDesc = updatedDesc.replace(/^\[قيد معلق للاعتماد:[^\]]*\]\s*/, '').trim();
+          }
+          running += (Number(item.debit || 0) - Number(item.credit || 0));
+          return {
+            ...item,
+            balance: running,
+            journal_entries: {
+              ...item.journal_entries,
+              description: updatedDesc
+            }
+          };
       });
 
       if (isReset) {
@@ -452,10 +472,21 @@ const GeneralLedger = () => {
           });
 
           let running = exportOpeningBal;
-          exportEntries = (periodLines as Record<string, any>[]).map(item => {
-            running += (Number(item.debit || 0) - Number(item.credit || 0));
-            return { ...item, balance: running } as LedgerEntry;
-          });
+          exportEntries = (periodLines as Record<string, any>[])
+            .filter(item => {
+              const je = item.journal_entries;
+              if (!je || je.status !== 'posted') return false;
+              const desc = (je.description || '').trim();
+              if (desc.startsWith('[مرفوض')) return false;
+              return true;
+            })
+            .map(item => {
+              if (item.journal_entries?.description) {
+                item.journal_entries.description = item.journal_entries.description.replace(/^\[قيد معلق للاعتماد:[^\]]*\]\s*/, '').trim();
+              }
+              running += (Number(item.debit || 0) - Number(item.credit || 0));
+              return { ...item, balance: running } as LedgerEntry;
+            });
         }
       }
 

@@ -509,7 +509,15 @@ const ReceiptVoucherForm = () => {
           });
 
           if (approval.requires_approval) {
-            showToast(`تم حفظ سند القبض وتوجيهه للاعتماد بموجب مسار "${approval.workflow_name}" قبل ترحيل القيد المحاسبي ⏳`, 'warning');
+            await supabase
+              .from('receipt_vouchers')
+              .update({
+                status: 'pending_approval',
+                notes: `[معلق للاعتماد: ${approval.workflow_name}] ${formData.notes || ''}`.trim()
+              })
+              .eq('id', voucherData.id);
+
+            showToast(`تم حفظ سند القبض وتوجيهه للاعتماد بموجب مسار "${approval.workflow_name}". لن يؤثر على الخزينة أو كشف العميل إلا بعد الاعتماد ⏳`, 'warning');
             handleNew();
             setAttachments([]);
             setErrors({});

@@ -104,12 +104,12 @@ const SupplierStatement = () => {
 
         const filter = { supplier_id: selectedSupplierId, organization_id: userOrgId };
 
-        // 1. جلب الفواتير (دائن - تزيد الرصيد) مع تجاوز سقف الـ 1000 بأمان
+        // 1. جلب الفواتير (دائن - تزيد الرصيد) المعتمدة والمرحلة فقط
         const invoices = await fetchCompleteDataset(async (from, to) => 
             supabase.from('purchase_invoices')
-                .select('id, invoice_number, invoice_date, total_amount, notes, paid_amount')
+                .select('id, invoice_number, invoice_date, total_amount, notes, paid_amount, status')
                 .match(filter)
-                .neq('status', 'draft')
+                .in('status', ['posted', 'paid'])
                 .range(from, to)
         );
 
@@ -122,13 +122,23 @@ const SupplierStatement = () => {
                 .range(from, to)
         );
 
-        // 3. جلب سندات الصرف (مدين - تنقص الرصيد)
-        const payments = await fetchCompleteDataset(async (from, to) =>
+        // 3. جلب سندات الصرف المعتمدة فقط (استبعاد المرفوضة والملغاة والمعلقة للاعتماد)
+        const rawPayments = await fetchCompleteDataset(async (from, to) =>
             supabase.from('payment_vouchers')
-                .select('id, voucher_number, payment_date, amount, notes')
+                .select('id, voucher_number, payment_date, amount, notes, status, deleted_at')
                 .match(filter)
+                .is('deleted_at', null)
                 .range(from, to)
         );
+
+        const payments = (rawPayments || []).filter((p: Record<string, any>) => {
+            if (p.deleted_at) return false;
+            const st = (p.status || '').toLowerCase();
+            if (st === 'rejected' || st === 'cancelled' || st === 'draft' || st === 'pending_approval') return false;
+            const notes = (p.notes || '').trim();
+            if (notes.startsWith('[مرفوض') || notes.startsWith('[معلق للاعتماد')) return false;
+            return true;
+        });
 
         // 4. جلب الإشعارات المدينة (مدين - تنقص الرصيد)
         const debitNotes = await fetchCompleteDataset(async (from, to) =>

@@ -416,8 +416,8 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                : Promise.resolve({ data: [] }),
              SubledgerRegistry.fetchStatementCustomerEntryIds(userOrgId, selectedCustomerId, custName, allowedModules),
              // جلب مستندات وسندات العميل المباشرة لضمان عدم سقوط أي حركة في كشف الحساب
-             supabase.from('receipt_vouchers').select('id, voucher_number, receipt_date, amount, notes, payment_method, treasury_account_id, related_journal_entry_id').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId),
-             supabase.from('invoices').select('id, invoice_number, invoice_date, total_amount, paid_amount, notes, related_journal_entry_id, status').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).neq('status', 'cancelled'),
+             supabase.from('receipt_vouchers').select('id, voucher_number, receipt_date, amount, notes, payment_method, treasury_account_id, related_journal_entry_id, status, deleted_at').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).is('deleted_at', null),
+             supabase.from('invoices').select('id, invoice_number, invoice_date, total_amount, paid_amount, notes, related_journal_entry_id, status').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).neq('status', 'cancelled').neq('status', 'draft'),
              supabase.from('sales_returns').select('id, return_number, return_date, total_amount, notes, related_journal_entry_id, status').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).neq('status', 'cancelled'),
              supabase.from('credit_notes').select('id, credit_note_number, note_date, total_amount, notes, related_journal_entry_id, status').eq('customer_id', selectedCustomerId).eq('organization_id', userOrgId).neq('status', 'cancelled'),
              supabase.from('cheques').select('id, cheque_number, due_date, created_at, amount, notes, related_journal_entry_id, status').eq('party_id', selectedCustomerId).eq('organization_id', userOrgId).eq('type', 'incoming').neq('status', 'rejected')
@@ -471,8 +471,15 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         manualEntriesRes.data?.forEach(je => { customerEntryIds.add(je.id); });
         modularEntryIds.forEach(id => { if (id) customerEntryIds.add(id); });
 
-        // فحص تلقائي لأي سندات قبض غير مربوطة لمعرفة إذا كان لها قيد مسجل مسبقاً برقم السند
-        const unlinkedVouchers = rawReceiptsRes.data?.filter(r => !r.related_journal_entry_id && r.voucher_number) || [];
+        // فحص تلقائي لأي سندات قبض غير مربوطة لمعرفة إذا كان لها قيد مسجل مسبقاً برقم السند (مع استبعاد المرفوض والمعلق)
+        const unlinkedVouchers = (rawReceiptsRes.data || []).filter((r: Record<string, any>) => {
+          if (r.deleted_at || r.related_journal_entry_id || !r.voucher_number) return false;
+          const st = (r.status || '').toLowerCase();
+          if (st === 'rejected' || st === 'cancelled' || st === 'draft' || st === 'pending_approval') return false;
+          const notes = (r.notes || '').trim();
+          if (notes.startsWith('[مرفوض') || notes.startsWith('[معلق للاعتماد')) return false;
+          return true;
+        });
         if (unlinkedVouchers.length > 0) {
           const voucherNums = unlinkedVouchers.map(v => v.voucher_number?.trim()).filter(Boolean);
           if (voucherNums.length > 0) {

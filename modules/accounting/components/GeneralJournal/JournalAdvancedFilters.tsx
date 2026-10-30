@@ -105,6 +105,8 @@ export const JournalAdvancedFilters: React.FC<JournalAdvancedFiltersProps> = ({
           <option value="">كل الحالات</option>
           <option value="posted">مرحّل فقط</option>
           <option value="draft">مسودة فقط</option>
+          <option value="pending_approval">⏳ بانتظار الاعتماد</option>
+          <option value="rejected">❌ مرفوض من الاعتماد</option>
           <option value="unbalanced">⚠️ غير متوازن (المدين ≠ الدائن)</option>
           <option value="posted_unbalanced">🚨 مرحّل وغير متوازن (المسبب لفارق الميزان)</option>
         </select>

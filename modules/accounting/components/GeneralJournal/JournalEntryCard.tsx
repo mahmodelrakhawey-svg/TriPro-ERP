@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, CheckSquare, AlertTriangle, Eye, Printer, Copy, Edit, Trash2, Paperclip, Download, ShieldCheck } from 'lucide-react';
+import { Calendar, CheckSquare, AlertTriangle, Eye, Printer, Copy, Edit, Trash2, Paperclip, Download, ShieldCheck, XCircle, Clock } from 'lucide-react';
 import { getEntrySource } from './journalSourceClassifier';
 import { JournalEntry } from '../../../../types';
 
@@ -65,12 +65,20 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {entry.status === 'posted' ? (
+          {(entry.status as string) === 'rejected' || entry.description?.includes('[مرفوض') ? (
+            <span className="flex items-center gap-1.5 font-bold text-rose-700 bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-full text-xs">
+              <XCircle size={14} className="text-rose-600" /> مرفوض من الاعتماد
+            </span>
+          ) : (entry.status as string) === 'pending_approval' || entry.description?.includes('[قيد معلق للاعتماد') ? (
+            <span className="flex items-center gap-1.5 font-bold text-amber-700 bg-amber-100 border border-amber-200 px-3 py-1.5 rounded-full text-xs">
+              <Clock size={14} className="text-amber-600" /> بانتظار الاعتماد
+            </span>
+          ) : entry.status === 'posted' ? (
             <span className="flex items-center gap-1.5 font-bold text-emerald-600 bg-emerald-100 px-3 py-1.5 rounded-full text-xs">
               <CheckSquare size={14} /> مرحّل
             </span>
           ) : (
-            <span className="flex items-center gap-1.5 font-bold text-amber-600 bg-amber-100 px-3 py-1.5 rounded-full text-xs">
+            <span className="flex items-center gap-1.5 font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-full text-xs">
               مسودة
             </span>
           )}
@@ -95,14 +103,35 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
             </button>
           )}
           
-          {/* زر الترحيل يظهر فقط للمدراء وللقيود غير المرحلة */}
-          {canPost && entry.status !== 'posted' && (
+          {/* زر الترحيل يظهر فقط للمدراء وللقيود المسودة غير المرفوضة وغير المعلقة */}
+          {canPost && entry.status === 'draft' && !entry.description?.includes('[قيد معلق للاعتماد') && !entry.description?.includes('[مرفوض') && (entry.status as string) !== 'pending_approval' && (entry.status as string) !== 'rejected' && (
             <button 
               onClick={() => onPost(entry.id)} 
-              className="bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-emerald-600 transition-colors shadow-sm"
+              className="bg-emerald-500 text-white px-4 py-1.5 rounded-lg text-xs font-bold hover:bg-emerald-600 transition-colors shadow-sm cursor-pointer"
+              title="اعتماد وترحيل القيد لدفتر الأستاذ العام"
             >
               ترحيل
             </button>
+          )}
+
+          {/* تنبيه وشارة واضحة إذا كان القيد معلقاً بانتظار الاعتماد */}
+          {entry.status === 'draft' && (entry.description?.includes('[قيد معلق للاعتماد') || (entry.status as string) === 'pending_approval') && (
+            <span 
+              className="bg-amber-50 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-not-allowed select-none shadow-xs"
+              title="هذا القيد معلق بانتظار موافقة مسار الاعتماد الإداري والمالي ولا يمكن ترحيله مباشرة من شاشة المسودات."
+            >
+              🔒 معلق للاعتماد
+            </span>
+          )}
+
+          {/* تنبيه وشارة واضحة إذا كان القيد مرفوضاً */}
+          {entry.status === 'draft' && (entry.description?.includes('[مرفوض') || (entry.status as string) === 'rejected') && (
+            <span 
+              className="bg-rose-50 text-rose-800 border border-rose-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-not-allowed select-none shadow-xs"
+              title="تم رفض هذا القيد رسمياً من مسار الاعتماد ولا يمكن ترحيله نهائياً."
+            >
+              ⛔ مرفوض من الاعتماد
+            </span>
           )}
           <button 
             onClick={() => onView(entry.id)} 

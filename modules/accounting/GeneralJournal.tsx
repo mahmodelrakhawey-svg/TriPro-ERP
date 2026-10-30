@@ -8,6 +8,7 @@ import { JournalEntry } from '../../types';
 import { useToastNotification } from '../../utils/toastUtils';
 import { usePagination } from '../../components/usePagination';
 import { journalAuditService } from '../../services/journalAuditService';
+import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
 
 // المكونات الفرعية المفككة
 import { getEntrySource } from './components/GeneralJournal/journalSourceClassifier';
@@ -320,6 +321,10 @@ const GeneralJournal: React.FC = () => {
     if (filterStatus) {
       if (filterStatus === 'posted_unbalanced') {
         query = query.eq('status', 'posted');
+      } else if (filterStatus === 'pending_approval') {
+        query = query.or('status.eq.pending_approval,description.ilike.%[قيد معلق للاعتماد%');
+      } else if (filterStatus === 'rejected') {
+        query = query.or('status.eq.rejected,description.ilike.%[مرفوض%');
       } else if (filterStatus !== 'unbalanced') {
         query = query.eq('status', filterStatus);
       }
@@ -536,7 +541,59 @@ const GeneralJournal: React.FC = () => {
 
   const handlePostEntry = async (entryId: string) => {
     const targetEntry = journalEntries.find(e => e.id === entryId);
+    if (!targetEntry) return;
+
+    // 🛡️ درع الحماية الرقابية 1: منع ترحيل القيود المعلقة بمسار اعتماد أو المرفوضة
+    if (
+      targetEntry.description?.includes('[قيد معلق للاعتماد') ||
+      (targetEntry.status as string) === 'pending_approval'
+    ) {
+      toast.error('❌ محظور: هذا القيد معلق بانتظار موافقة مسار الاعتماد الإداري والمالي. لا يمكن ترحيله للأستاذ العام إلا بعد صدور قرار الاعتماد بالموافقة.');
+      return;
+    }
+
+    if (
+      targetEntry.description?.includes('[مرفوض') ||
+      (targetEntry.status as string) === 'rejected'
+    ) {
+      toast.error('❌ محظور: تم رفض هذا القيد رسمياً من مسار الاعتماد. لا يمكن ترحيله نهائياً للأستاذ العام.');
+      return;
+    }
+
     const totalAmount = (targetEntry?.lines || []).reduce((sum: number, l: Record<string, any>) => sum + (Number(l.debit) || 0), 0);
+    const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+
+    // 🛡️ درع الحماية الرقابية 2: فحص مسار الاعتماد ديناميكياً قبل ترحيل أي مسودة
+    try {
+      const approval = await ApprovalWorkflowService.checkAndSubmit({
+        orgId: userOrgId || '',
+        docType: 'JOURNAL_ENTRY',
+        amount: totalAmount,
+        docId: targetEntry.id,
+        docRef: targetEntry.reference,
+        requesterName: (currentUser as any)?.name || (currentUser as any)?.full_name || 'محاسب النظام'
+      });
+
+      if (approval.requires_approval) {
+        const taggedDesc = `[قيد معلق للاعتماد: ${approval.workflow_name}] ${targetEntry.description || ''}`.trim();
+        await supabase
+          .from('journal_entries')
+          .update({
+            description: taggedDesc,
+            status: 'draft',
+            is_posted: false
+          })
+          .eq('id', entryId);
+
+        toast.warning(`⚠️ هذا القيد يتطلب اعتماداً إدارياً ومالياً بموجب مسار "${approval.workflow_name}" بمبلغ ${totalAmount.toLocaleString('ar-EG')} ج.م. تم توجيهه لسلسلة الاعتمادات ولا يمكن ترحيله مباشرة إلا بعد الموافقة عليه.`);
+        refreshData();
+        refresh();
+        return;
+      }
+    } catch (appErr) {
+      logger.warn('Approval workflow check notice during post:', appErr);
+    }
+
     const isHighValue = totalAmount >= 50000;
 
     let confirmMsg = 'هل أنت متأكد من ترحيل هذا القيد؟ لا يمكن التراجع عن هذه العملية بعد الترحيل.';
@@ -552,9 +609,11 @@ const GeneralJournal: React.FC = () => {
     }
 
     try {
+      const cleanDesc = (targetEntry.description || '').replace(/^\[قيد معلق للاعتماد:[^\]]*\]\s*/, '').trim();
       const { error } = await supabase
         .from('journal_entries')
         .update({ 
+          description: cleanDesc || targetEntry.description,
           status: 'posted',
           is_posted: true
         })
@@ -566,7 +625,7 @@ const GeneralJournal: React.FC = () => {
       refreshData();
       refresh();
     } catch (err) {
-      toast.error('فشل ترحيل القيد: ' + err.message);
+      toast.error('فشل ترحيل القيد: ' + (err as Error).message);
     }
   };
 

@@ -592,8 +592,43 @@ const PaymentVoucherForm = () => {
             }
         }
 
-        // 1.8. تحديث فاتورة المشتريات المرتبطة بالسداد إن وجدت
-        if (selectedInvoiceId && voucherData) {
+        // 🛡️ فحص مسار وسلسلة الاعتمادات لسند الصرف قبل ترحيل القيد والتأثير على الحسابات والفواتير
+        let requiresApproval = false;
+        try {
+          const approval = await ApprovalWorkflowService.checkAndSubmit({
+            orgId: orgId || '',
+            docType: 'PAYMENT_VOUCHER',
+            amount: Number(formData.amount || 0),
+            docId: voucherData.id,
+            docRef: voucherNumber,
+            requesterName: currentUser?.name || (currentUser as any)?.full_name || 'مسؤول الصرف والخزينة'
+          });
+
+          if (approval.requires_approval) {
+            requiresApproval = true;
+            // وسم السند كمعلق للاعتماد لضمان عدم ظهوره في كشف الحساب أو اليومية حتى يتم اعتماده
+            await supabase
+              .from('payment_vouchers')
+              .update({
+                status: 'pending_approval',
+                notes: `[معلق للاعتماد: ${approval.workflow_name}] ${formData.notes || ''}`.trim()
+              })
+              .eq('id', voucherData.id);
+
+            showToast(`تم حفظ سند الصرف وتوجيهه للاعتماد بموجب مسار "${approval.workflow_name}". لن يؤثر على الخزينة أو كشف المورد إلا بعد الاعتماد ⏳`, 'warning');
+            handleNew();
+            setAttachments([]);
+            setErrors({});
+            setLoading(false);
+            isSubmittingRef.current = false;
+            return;
+          }
+        } catch (appErr) {
+          logger.warn('Approval workflow check notice for payment voucher:', appErr);
+        }
+
+        // 1.8. تحديث فاتورة المشتريات المرتبطة بالسداد فقط إذا تم الاعتماد المباشر
+        if (!requiresApproval && selectedInvoiceId && voucherData) {
             try {
                 const { data: currentInv } = await supabase
                     .from('purchase_invoices')
@@ -613,30 +648,6 @@ const PaymentVoucherForm = () => {
                 logger.error('Failed to update purchase invoice status:', invErr);
                 showToast('تم حفظ السند ولكن تعذر تحديث حالة سداد فاتورة المشتريات: ' + (invErr?.message || ''), 'warning');
             }
-        }
-
-        // 🛡️ فحص مسار وسلسلة الاعتمادات لسند الصرف قبل ترحيل القيد
-        try {
-          const approval = await ApprovalWorkflowService.checkAndSubmit({
-            orgId: orgId || '',
-            docType: 'PAYMENT_VOUCHER',
-            amount: Number(formData.amount || 0),
-            docId: voucherData.id,
-            docRef: voucherNumber,
-            requesterName: currentUser?.name || (currentUser as any)?.full_name || 'مسؤول الصرف والخزينة'
-          });
-
-          if (approval.requires_approval) {
-            showToast(`تم حفظ سند الصرف وتوجيهه للاعتماد بموجب مسار "${approval.workflow_name}" قبل ترحيل القيد المحاسبي ⏳`, 'warning');
-            handleNew();
-            setAttachments([]);
-            setErrors({});
-            setLoading(false);
-            isSubmittingRef.current = false;
-            return;
-          }
-        } catch (appErr) {
-          logger.warn('Approval workflow check notice for payment voucher:', appErr);
         }
 
         // 2. إنشاء القيد المحاسبي (محاولة استخدام الدالة الآمنة، ثم البديل اليدوي)

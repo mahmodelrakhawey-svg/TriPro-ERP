@@ -230,16 +230,33 @@ export const ApprovalWorkflowsManager: React.FC = () => {
       // 🛒 تحديث فاتورة المشتريات عند الاعتماد أو الرفض
       if (decisionModal.request.document_type === 'PURCHASE_INVOICE') {
         try {
+          const invId = decisionModal.request.document_id;
+          const targetOrg = activeOrgId || decisionModal.request.organization_id;
           if (decisionModal.action === 'APPROVE') {
             await supabase.rpc('post_purchase_invoice', {
-              p_invoice_id: decisionModal.request.document_id,
-              p_org_id: activeOrgId || decisionModal.request.organization_id
+              p_invoice_id: invId,
+              p_org_id: targetOrg
             });
+            const { data: pi } = await supabase.from('purchase_invoices').select('notes').eq('id', invId).maybeSingle();
+            if (pi?.notes && pi.notes.includes('[معلق للاعتماد:')) {
+              await supabase.from('purchase_invoices').update({
+                notes: pi.notes.replace(/^\[معلق للاعتماد:[^\]]*\]\s*/, '').trim()
+              }).eq('id', invId);
+            }
           } else {
+            try {
+              await supabase.rpc('unpost_purchase_invoice', {
+                p_invoice_id: invId,
+                p_org_id: targetOrg
+              });
+            } catch (_) {}
             await supabase
               .from('purchase_invoices')
-              .update({ notes: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]` })
-              .eq('id', decisionModal.request.document_id);
+              .update({ 
+                status: 'cancelled',
+                notes: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]` 
+              })
+              .eq('id', invId);
           }
         } catch (piErr) {
           logger.warn('Approval decision sync notice for purchase invoice:', piErr);
@@ -249,16 +266,33 @@ export const ApprovalWorkflowsManager: React.FC = () => {
       // 🏷️ تحديث فاتورة المبيعات عند الاعتماد أو الرفض
       if (decisionModal.request.document_type === 'SALES_INVOICE') {
         try {
+          const invId = decisionModal.request.document_id;
+          const targetOrg = activeOrgId || decisionModal.request.organization_id;
           if (decisionModal.action === 'APPROVE') {
             await supabase.rpc('post_sales_invoice', {
-              p_invoice_id: decisionModal.request.document_id,
-              p_org_id: activeOrgId || decisionModal.request.organization_id
+              p_invoice_id: invId,
+              p_org_id: targetOrg
             });
+            const { data: si } = await supabase.from('invoices').select('notes').eq('id', invId).maybeSingle();
+            if (si?.notes && si.notes.includes('[معلق للاعتماد:')) {
+              await supabase.from('invoices').update({
+                notes: si.notes.replace(/^\[معلق للاعتماد:[^\]]*\]\s*/, '').trim()
+              }).eq('id', invId);
+            }
           } else {
+            try {
+              await supabase.rpc('unpost_sales_invoice', {
+                p_invoice_id: invId,
+                p_org_id: targetOrg
+              });
+            } catch (_) {}
             await supabase
               .from('invoices')
-              .update({ notes: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]` })
-              .eq('id', decisionModal.request.document_id);
+              .update({ 
+                status: 'cancelled',
+                notes: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]` 
+              })
+              .eq('id', invId);
           }
         } catch (siErr) {
           logger.warn('Approval decision sync notice for sales invoice:', siErr);
@@ -290,75 +324,188 @@ export const ApprovalWorkflowsManager: React.FC = () => {
         }
       }
 
-      // 💸 اعتماد أو رفض سند الصرف
+      // 💸 اعتماد أو رفض سند الصرف مع ضمان التزامن المحاسبي وعدم التأثير على الأرصدة عند الرفض
       if (decisionModal.request.document_type === 'PAYMENT_VOUCHER') {
         try {
-          if (decisionModal.action === 'APPROVE') {
-            const { data: pv } = await supabase
-              .from('payment_vouchers')
-              .select('id, supplier_id, suppliers(account_id)')
-              .eq('id', decisionModal.request.document_id)
-              .maybeSingle();
+          const pvId = decisionModal.request.document_id;
+          const { data: pv } = await supabase
+            .from('payment_vouchers')
+            .select('id, voucher_number, notes, amount, supplier_id, related_journal_entry_id, suppliers(account_id)')
+            .eq('id', pvId)
+            .maybeSingle();
 
+          if (decisionModal.action === 'APPROVE') {
             const debitAcc = (pv as any)?.suppliers?.account_id || null;
             if (debitAcc) {
               await supabase.rpc('approve_payment_voucher', {
-                p_voucher_id: decisionModal.request.document_id,
+                p_voucher_id: pvId,
                 p_debit_account_id: debitAcc
               });
             }
-          } else {
+            let cleanNotes = (pv?.notes || '').replace(/^\[معلق للاعتماد:[^\]]*\]\s*/, '').trim();
             await supabase
               .from('payment_vouchers')
-              .update({ notes: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]` })
-              .eq('id', decisionModal.request.document_id);
+              .update({ 
+                status: 'posted', 
+                notes: cleanNotes || pv?.notes || null,
+                deleted_at: null 
+              })
+              .eq('id', pvId);
+          } else {
+            // 🛡️ إجراء الرفض الصارم: إلغاء القيد المحاسبي وحذف السند من كشوف الحسابات
+            const jeId = pv?.related_journal_entry_id;
+            if (jeId) {
+              await supabase.from('journal_entries').update({ status: 'rejected', is_posted: false }).eq('id', jeId);
+              await supabase.from('journal_lines').delete().eq('journal_entry_id', jeId);
+              await supabase.from('journal_entries').delete().eq('id', jeId);
+            }
+            if (pv?.voucher_number) {
+              const { data: orphanJes } = await supabase
+                .from('journal_entries')
+                .select('id')
+                .eq('reference', pv.voucher_number);
+              if (orphanJes && orphanJes.length > 0) {
+                for (const oje of orphanJes) {
+                  await supabase.from('journal_entries').update({ status: 'rejected', is_posted: false }).eq('id', oje.id);
+                  await supabase.from('journal_lines').delete().eq('journal_entry_id', oje.id);
+                  await supabase.from('journal_entries').delete().eq('id', oje.id);
+                }
+              }
+            }
+
+            await supabase
+              .from('payment_vouchers')
+              .update({ 
+                status: 'rejected', 
+                deleted_at: new Date().toISOString(),
+                notes: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]`,
+                related_journal_entry_id: null 
+              })
+              .eq('id', pvId);
           }
         } catch (pvErr) {
           logger.warn('Approval decision sync notice for payment voucher:', pvErr);
         }
       }
 
-      // 💰 اعتماد أو رفض سند القبض
+      // 💰 اعتماد أو رفض سند القبض مع الحفاظ على النزاهة المالية
       if (decisionModal.request.document_type === 'RECEIPT_VOUCHER') {
         try {
-          if (decisionModal.action === 'APPROVE') {
-            const { data: rv } = await supabase
-              .from('receipt_vouchers')
-              .select('id, customer_id, customers(account_id)')
-              .eq('id', decisionModal.request.document_id)
-              .maybeSingle();
+          const rvId = decisionModal.request.document_id;
+          const { data: rv } = await supabase
+            .from('receipt_vouchers')
+            .select('id, voucher_number, notes, amount, customer_id, related_journal_entry_id, customers(account_id)')
+            .eq('id', rvId)
+            .maybeSingle();
 
+          if (decisionModal.action === 'APPROVE') {
             const creditAcc = (rv as any)?.customers?.account_id || null;
             if (creditAcc) {
               await supabase.rpc('approve_receipt_voucher', {
-                p_voucher_id: decisionModal.request.document_id,
+                p_voucher_id: rvId,
                 p_credit_account_id: creditAcc
               });
             }
-          } else {
+            let cleanNotes = (rv?.notes || '').replace(/^\[معلق للاعتماد:[^\]]*\]\s*/, '').trim();
             await supabase
               .from('receipt_vouchers')
-              .update({ notes: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]` })
-              .eq('id', decisionModal.request.document_id);
+              .update({ 
+                status: 'posted', 
+                notes: cleanNotes || rv?.notes || null,
+                deleted_at: null 
+              })
+              .eq('id', rvId);
+          } else {
+            const jeId = rv?.related_journal_entry_id;
+            if (jeId) {
+              await supabase.from('journal_entries').update({ status: 'rejected', is_posted: false }).eq('id', jeId);
+              await supabase.from('journal_lines').delete().eq('journal_entry_id', jeId);
+              await supabase.from('journal_entries').delete().eq('id', jeId);
+            }
+            if (rv?.voucher_number) {
+              const { data: orphanJes } = await supabase
+                .from('journal_entries')
+                .select('id')
+                .eq('reference', rv.voucher_number);
+              if (orphanJes && orphanJes.length > 0) {
+                for (const oje of orphanJes) {
+                  await supabase.from('journal_entries').update({ status: 'rejected', is_posted: false }).eq('id', oje.id);
+                  await supabase.from('journal_lines').delete().eq('journal_entry_id', oje.id);
+                  await supabase.from('journal_entries').delete().eq('id', oje.id);
+                }
+              }
+            }
+
+            await supabase
+              .from('receipt_vouchers')
+              .update({ 
+                status: 'rejected', 
+                deleted_at: new Date().toISOString(),
+                notes: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}]`,
+                related_journal_entry_id: null 
+              })
+              .eq('id', rvId);
           }
         } catch (rvErr) {
           logger.warn('Approval decision sync notice for receipt voucher:', rvErr);
         }
       }
 
-      // 📝 اعتماد أو رفض قيد اليومية
+      // 📝 اعتماد أو رفض قيد اليومية وتصحيح البيان لإزالة وسم التعليق
       if (decisionModal.request.document_type === 'JOURNAL_ENTRY') {
         try {
+          const jeDocId = decisionModal.request.document_id;
+          const jeDocRef = decisionModal.request.document_reference;
+
+          const { data: jeData } = await supabase
+            .from('journal_entries')
+            .select('id, description')
+            .or(`id.eq.${jeDocId},reference.eq.${jeDocRef}`)
+            .limit(1)
+            .maybeSingle();
+
           if (decisionModal.action === 'APPROVE') {
+            // إزالة بادئة [قيد معلق للاعتماد: ...] وتحديث الوصف للأصل النظيف
+            const currentDesc = jeData?.description || '';
+            const cleanedDesc = currentDesc.replace(/^\[قيد معلق للاعتماد:[^\]]*\]\s*/, '').trim();
+
             await supabase
               .from('journal_entries')
-              .update({ status: 'posted', is_posted: true })
-              .or(`id.eq.${decisionModal.request.document_id},reference.eq.${decisionModal.request.document_reference}`);
+              .update({ 
+                status: 'posted', 
+                is_posted: true,
+                description: cleanedDesc || currentDesc 
+              })
+              .or(`id.eq.${jeDocId},reference.eq.${jeDocRef}`);
+
+            // تنظيف أوصاف أسطر القيد إن كانت تحمل نفس الوسم
+            if (jeData?.id) {
+              const { data: lines } = await supabase
+                .from('journal_lines')
+                .select('id, description')
+                .eq('journal_entry_id', jeData.id);
+
+              if (lines && lines.length > 0) {
+                for (const l of lines) {
+                  if (l.description && l.description.includes('[قيد معلق للاعتماد:')) {
+                    const cleanLineDesc = l.description.replace(/^\[قيد معلق للاعتماد:[^\]]*\]\s*/, '').trim();
+                    await supabase
+                      .from('journal_lines')
+                      .update({ description: cleanLineDesc || null })
+                      .eq('id', l.id);
+                  }
+                }
+              }
+            }
           } else {
             await supabase
               .from('journal_entries')
-              .update({ status: 'rejected', is_posted: false })
-              .or(`id.eq.${decisionModal.request.document_id},reference.eq.${decisionModal.request.document_reference}`);
+              .update({ 
+                status: 'rejected', 
+                is_posted: false,
+                description: `[مرفوض من الاعتماد: ${decisionModal.notes || 'مرفوض'}] ${jeData?.description || ''}`.trim()
+              })
+              .or(`id.eq.${jeDocId},reference.eq.${jeDocRef}`);
           }
         } catch (jeErr) {
           logger.warn('Approval decision sync notice for journal entry:', jeErr);
@@ -382,6 +529,16 @@ export const ApprovalWorkflowsManager: React.FC = () => {
         } catch (adjErr) {
           logger.warn('Approval decision sync notice for stock adjustment:', adjErr);
         }
+      }
+
+      // إعادة احتساب الأرصدة الشاملة بالمنظومة لضمان التزامن اللحظي فور اتخاذ القرار
+      try {
+        const effectiveOrg = activeOrgId || decisionModal.request.organization_id;
+        if (effectiveOrg) {
+          await supabase.rpc('recalculate_all_system_balances', { p_org_id: effectiveOrg });
+        }
+      } catch (balErr) {
+        logger.warn('Non-blocking balance recalculate on approval decision:', balErr);
       }
 
       // مزامنة وإغلاق أي طلبات معلقة مكررة لنفس المستند
