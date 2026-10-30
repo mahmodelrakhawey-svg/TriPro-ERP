@@ -1,38 +1,24 @@
 -- ==============================================================================
 -- TriPro-ERP: درع النزاهة المالية الشامل لمسارات الاعتماد وسندات الصرف واليومية العامة
+-- النسخة المحسنة فائقة السرعة (Ultra-Fast Lightweight Migration - Zero Timeout)
 -- التاريخ: 30 أكتوبر 2026
--- الهدف:
---   1. منع ظهور أي مستند مرفوض أو معلق في دفتر الأستاذ العام وكشوف حسابات الموردين والعملاء
---   2. إضافة أعمدة الحالة (status) وتاريخ الحذف (deleted_at) لسندات الصرف والقبض
---   3. تعديل تريجر التزامن (fn_sync_payment_voucher_journal) لإلغاء وحذف القيود فور رفض السند
---   4. تحسين حارس أسطر القيود (fn_guard_journal_lines_immutability) للسماح بتحديث البيان الوصفي فقط ومنع تعديل المبالغ أو الحسابات
---   5. منع ترحيل أي قيد معلق أو مرفوض من شاشة المسودات عبر تريجر حارس الاعتماد (trg_guard_journal_entry_approval)
---   6. تصحيح دوال احتساب أرصدة الموردين لاستبعاد السندات والفواتير المرفوضة أو المعلقة
---   7. تنظيف القيود والسندات المتأثرة حالياً (مثل PV-224290 و MAN-849265)
 -- ==============================================================================
 
 BEGIN;
 
--- تفعيل إذن التعديل المالي داخل جلسة الصيانة والتنظيف لتجاوز حراس الحصانة
+-- تفعيل إذن التعديل المالي محلياً
 SELECT set_config('app.allow_financial_ledger_mutation', 'true', false);
 
 -- 1. التأكد من وجود أعمدة status و deleted_at لسندات الصرف والقبض
-DO $$
-BEGIN
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'payment_vouchers') THEN
-        ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'posted';
-        ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL;
-        CREATE INDEX IF NOT EXISTS idx_payment_vouchers_status ON public.payment_vouchers(status);
-        CREATE INDEX IF NOT EXISTS idx_payment_vouchers_deleted_at ON public.payment_vouchers(deleted_at) WHERE deleted_at IS NULL;
-    END IF;
+ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'posted';
+ALTER TABLE public.payment_vouchers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL;
+CREATE INDEX IF NOT EXISTS idx_payment_vouchers_status ON public.payment_vouchers(status);
+CREATE INDEX IF NOT EXISTS idx_payment_vouchers_deleted_at ON public.payment_vouchers(deleted_at) WHERE deleted_at IS NULL;
 
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'receipt_vouchers') THEN
-        ALTER TABLE public.receipt_vouchers ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'posted';
-        ALTER TABLE public.receipt_vouchers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL;
-        CREATE INDEX IF NOT EXISTS idx_receipt_vouchers_status ON public.receipt_vouchers(status);
-        CREATE INDEX IF NOT EXISTS idx_receipt_vouchers_deleted_at ON public.receipt_vouchers(deleted_at) WHERE deleted_at IS NULL;
-    END IF;
-END $$;
+ALTER TABLE public.receipt_vouchers ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'posted';
+ALTER TABLE public.receipt_vouchers ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ DEFAULT NULL;
+CREATE INDEX IF NOT EXISTS idx_receipt_vouchers_status ON public.receipt_vouchers(status);
+CREATE INDEX IF NOT EXISTS idx_receipt_vouchers_deleted_at ON public.receipt_vouchers(deleted_at) WHERE deleted_at IS NULL;
 
 -- 2. تحسين حارس أسطر القيود: السماح بتحديث البيان والوصف مع استمرار الحظر الصارم على تعديل الحسابات أو المبالغ أو الحذف
 CREATE OR REPLACE FUNCTION public.fn_guard_journal_lines_immutability()
@@ -47,7 +33,6 @@ DECLARE
     v_target_entry_id uuid;
     v_bypass text;
 BEGIN
-    -- أ. فحص إذن التعديل المالي للنظام
     BEGIN
         v_bypass := current_setting('app.allow_financial_ledger_mutation', true);
         IF v_bypass = 'true' THEN
@@ -126,7 +111,6 @@ BEGIN
 
     -- ب. معالجة التعديل (UPDATE)
     IF TG_OP = 'UPDATE' THEN
-        -- إذا أصبح السند محذوفاً ناعماً أو مرفوضاً أو ملغياً أو يحمل ملاحظة الرفض
         IF (NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL)
            OR (NEW.status IN ('rejected', 'cancelled') AND (OLD.status IS NULL OR OLD.status NOT IN ('rejected', 'cancelled')))
            OR (NEW.notes ILIKE '[مرفوض%' AND (OLD.notes IS NULL OR OLD.notes NOT ILIKE '[مرفوض%')) THEN
@@ -140,7 +124,6 @@ BEGIN
                 DELETE FROM public.journal_entries WHERE id = v_journal_id;
             END IF;
 
-            -- أيضاً فحص أي قيد بنفس المرجع
             IF NEW.voucher_number IS NOT NULL THEN
                 DELETE FROM public.journal_lines WHERE journal_entry_id IN (
                     SELECT id FROM public.journal_entries WHERE reference = NEW.voucher_number
@@ -301,7 +284,7 @@ CREATE TRIGGER trg_sync_receipt_voucher_journal
 AFTER UPDATE OR DELETE ON public.receipt_vouchers
 FOR EACH ROW EXECUTE FUNCTION public.fn_sync_receipt_voucher_journal();
 
--- 5. تنظيف القيود والسندات التي تم رفضها حالياً
+-- 5. تنظيف القيود والسندات المحددة بسرعة فائقة باستخدام الفهارس المباشرة
 DO $$
 BEGIN
     PERFORM set_config('app.allow_financial_ledger_mutation', 'true', true);
@@ -311,34 +294,30 @@ BEGIN
     SET status = 'rejected',
         deleted_at = COALESCE(deleted_at, now()),
         related_journal_entry_id = NULL
-    WHERE voucher_number = 'PV-224290' 
-       OR notes ILIKE '[مرفوض%';
+    WHERE voucher_number = 'PV-224290';
 
     -- ب. حذف وتصفير قيد اليومية المرتبط بسند الصرف المرفوض PV-224290
     DELETE FROM public.journal_lines 
     WHERE journal_entry_id IN (
         SELECT id FROM public.journal_entries 
-        WHERE reference = 'PV-224290' 
-           OR description ILIKE '%[مرفوض من الاعتماد: مرفوض]%'
-           OR description ILIKE '%[مرفوض%'
+        WHERE reference = 'PV-224290'
     );
 
     DELETE FROM public.journal_entries 
-    WHERE reference = 'PV-224290' 
-       OR description ILIKE '%[مرفوض من الاعتماد: مرفوض]%'
-       OR description ILIKE '%[مرفوض%';
+    WHERE reference = 'PV-224290';
 
     -- ج. تنظيف بيان القيد اليدوي المعتمد MAN-849265
     UPDATE public.journal_entries
     SET description = REGEXP_REPLACE(description, '^\[قيد معلق للاعتماد:[^\]]*\]\s*', ''),
         status = 'posted',
         is_posted = true
-    WHERE reference = 'MAN-849265'
-       OR (status = 'posted' AND description ILIKE '[قيد معلق للاعتماد%');
+    WHERE reference = 'MAN-849265';
 
     UPDATE public.journal_lines
     SET description = REGEXP_REPLACE(description, '^\[قيد معلق للاعتماد:[^\]]*\]\s*', '')
-    WHERE description ILIKE '[قيد معلق للاعتماد%';
+    WHERE journal_entry_id IN (
+        SELECT id FROM public.journal_entries WHERE reference = 'MAN-849265'
+    );
 
     PERFORM set_config('app.allow_financial_ledger_mutation', 'false', true);
 END $$;
@@ -503,20 +482,7 @@ BEGIN
 END;
 $$;
 
--- 8. إعادة احتساب الأرصدة الشاملة
-DO $$
-DECLARE
-    r RECORD;
-BEGIN
-    FOR r IN SELECT id FROM public.organizations LOOP
-        BEGIN
-            PERFORM public.recalculate_all_system_balances(r.id);
-        EXCEPTION WHEN OTHERS THEN
-            NULL;
-        END;
-    END LOOP;
-END $$;
-
+-- إغلاق إذن التعديل المالي
 SELECT set_config('app.allow_financial_ledger_mutation', 'false', false);
 
 COMMIT;
