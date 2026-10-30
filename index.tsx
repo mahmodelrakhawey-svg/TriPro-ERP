@@ -2,6 +2,10 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
+import { telemetryService } from './services/telemetryService';
+
+// 🚀 تهيئة خدمة رصد واستقبال الأعطال اللحظية
+telemetryService.init();
 
 // 🛡️ حماية بيئة الإنتاج: كتم سجلات التطوير المزعجة في الإنتاج لحماية الخصوصية وزيادة السرعة
 if (process.env.NODE_ENV === 'production') {
@@ -24,6 +28,10 @@ class ErrorBoundary extends React.Component<{children: React.ReactNode}, {hasErr
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     if (process.env.NODE_ENV === 'development') console.error("Uncaught error:", error, errorInfo);
+    telemetryService.captureException(error, {
+      moduleName: 'RootApp',
+      componentStack: errorInfo.componentStack || undefined
+    });
   }
 
   render() {

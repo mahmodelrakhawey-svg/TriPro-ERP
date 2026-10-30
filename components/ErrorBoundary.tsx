@@ -1,6 +1,7 @@
 import { logger } from '../utils/logger';
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { AlertTriangle, RotateCcw, Home, ChevronDown, ChevronUp, Copy, Check } from 'lucide-react';
+import { telemetryService } from '../services/telemetryService';
 
 interface Props {
   children: ReactNode;
@@ -33,6 +34,11 @@ export class ErrorBoundary extends Component<Props, State> {
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     logger.error('🛡️ [ErrorBoundary Caught Error]:', error, errorInfo);
     this.setState({ errorInfo });
+    telemetryService.captureException(error, {
+      moduleName: this.props.moduleName || 'UI_Component',
+      fallbackTitle: this.props.fallbackTitle,
+      componentStack: errorInfo.componentStack || undefined
+    });
   }
 
   private handleReset = () => {

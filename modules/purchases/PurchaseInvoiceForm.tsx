@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { logger } from '../../utils/logger';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -68,6 +68,7 @@ const PurchaseInvoiceForm = () => {
   const [attachments, setAttachments] = useState<PurchaseAttachmentItem[]>([]);
   const [uoms, setUoms] = useState<any[]>([]);
   const [saving, setSaving] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [deleting, setDeleting] = useState(false);
   const [productSearchTerm, setProductSearchTerm] = useState('');
   const [showProductResults, setShowProductResults] = useState(false);
@@ -1155,6 +1156,8 @@ const PurchaseInvoiceForm = () => {
   };
 
   const handleSave = async (e?: React.FormEvent, post: boolean = false) => {
+    // 🛡️ صمام أمان التزامن السريع لمنع تكرار حفظ فاتورة المشتريات بالنقر المزدوج (Double-Submit Guard)
+    if (isSubmittingRef.current || saving) return;
     if (e) e.preventDefault();
     
     if (!formData.supplierId) {
@@ -1213,10 +1216,12 @@ const PurchaseInvoiceForm = () => {
       return;
     }
 
+    isSubmittingRef.current = true;
     setSaving(true);
 
     if (currentUser?.role === 'demo') {
       showToast('تم حفظ فاتورة المشتريات بنجاح (محاكاة ديمو) ✅', 'success');
+      isSubmittingRef.current = false;
       setSaving(false);
       return;
     }
@@ -1530,6 +1535,7 @@ const PurchaseInvoiceForm = () => {
       logger.error(error);
       showToast('فشل حفظ الفاتورة: ' + error.message, 'error');
     } finally {
+      isSubmittingRef.current = false;
       setSaving(false);
     }
   };

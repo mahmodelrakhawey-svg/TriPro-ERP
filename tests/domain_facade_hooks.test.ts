@@ -3,6 +3,7 @@ import * as AccountingCtx from '../context/AccountingContext';
 import { useSalesDomain } from '../context/domains/SalesContext';
 import { useBankingDomain } from '../context/domains/BankingContext';
 import { useGeneralLedgerDomain } from '../context/domains/GeneralLedgerContext';
+import { useAssetDomain } from '../context/domains/AssetContext';
 
 describe('Modular Domain Hooks Facade Pattern (اختبار تكامل خطافات النطاقات)', () => {
   it('يجب تصدير كافة الـ Domain Hooks بنجاح عبر AccountingContext دون أي كسر للمسارات', () => {
@@ -13,6 +14,7 @@ describe('Modular Domain Hooks Facade Pattern (اختبار تكامل خطاف�
     expect(AccountingCtx.useSalesDomain).toBeDefined();
     expect(AccountingCtx.useBankingDomain).toBeDefined();
     expect(AccountingCtx.useGeneralLedgerDomain).toBeDefined();
+    expect(AccountingCtx.useAssetDomain).toBeDefined();
   });
 
   it('يجب أن يسترجع useSalesDomain فواتير المبيعات والعملاء والمناديب بدقة عند ربطه', () => {

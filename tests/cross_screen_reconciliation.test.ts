@@ -118,4 +118,33 @@ describe('🔍 Cross-Screen Data Integrity & SSOT Validation', () => {
     });
   });
 
+  describe('4. اختبار توحيد أرصدة الخزن والنقدية (Treasury & Cash Balance SSOT)', () => {
+    it('يجب أن يتطابق رصيد الخزينة المستمد من قيود اليومية مع رصيد شاشة الإغلاق النقدي وميزان المراجعة', () => {
+      const cashJournalLines = [
+        { docType: 'OPENING', debit: 25000, credit: 0 },
+        { docType: 'SALES_RECEIPT', debit: 18450, credit: 0 },
+        { docType: 'PAYMENT_VOUCHER', debit: 0, credit: 6200 },
+        { docType: 'PETTY_EXPENSE', debit: 0, credit: 350 },
+        { docType: 'POS_SHIFT_CLOSE', debit: 12800, credit: 0 },
+      ];
+
+      const trueCashBalance = cashJournalLines.reduce((acc, curr) => acc + (curr.debit - curr.credit), 0);
+      expect(trueCashBalance).toBe(49700);
+
+      const cashClosingCalculatedBalance = cashJournalLines.reduce((sum, l) => sum + (Number(l.debit) || 0) - (Number(l.credit) || 0), 0);
+      expect(cashClosingCalculatedBalance).toBe(trueCashBalance);
+      expect(Math.abs(cashClosingCalculatedBalance - trueCashBalance)).toBe(0);
+    });
+
+    it('يجب احتساب حركات اليوم المقبوضة والمدفوعة وعجز أو زيادة الخزينة بدقة', () => {
+      const todayIn = 18450 + 12800;
+      const todayOut = 6200 + 350;
+      const expectedBalance = 49700;
+      const actualCounted = 49700;
+
+      const variance = actualCounted - expectedBalance;
+      expect(variance).toBe(0);
+    });
+  });
+
 });

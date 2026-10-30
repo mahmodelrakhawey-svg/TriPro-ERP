@@ -345,6 +345,7 @@ export default function RetailPosScreen() {
   // Focus references
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const printAreaRef = useRef<HTMLDivElement>(null);
+  const isSubmittingRef = useRef(false);
 
   // 🏷️ دالة تحديد السعر الفعلي للصنف من خلال hook السلة الموحد
   const getItemEffectivePrice = (product: CachedProduct, customPrice?: number): number => {
@@ -1098,6 +1099,9 @@ export default function RetailPosScreen() {
 
   // Process Checkout
   const handlePayment = async (splitData?: SplitPaymentDetails) => {
+    // 🛡️ صمام أمان التزامن السريع لمنع تكرار عمليات الدفع بالنقر المزدوج (Double-Submit Guard)
+    if (isSubmittingRef.current || isPrinting) return;
+
     if (cart.length === 0) {
       showToast('سلة التسوق فارغة!', 'error');
       return;
@@ -1120,6 +1124,7 @@ export default function RetailPosScreen() {
       ? ((splitData.card > 0 && splitData.cash > 0) ? 'SPLIT' : (splitData.card > 0 ? 'CARD' : 'CASH'))
       : paymentMethod;
 
+    isSubmittingRef.current = true;
     setIsPrinting(true);
 
     try {
@@ -1175,6 +1180,7 @@ export default function RetailPosScreen() {
       showToast(err.message || 'فشل إتمام عملية الدفع', 'error');
     } finally {
       setIsPrinting(false);
+      isSubmittingRef.current = false;
     }
   };
 

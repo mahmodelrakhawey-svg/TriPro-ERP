@@ -176,6 +176,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   });
 
   const isSalesMountedRef = useRef(false);
+  const isSubmittingRef = useRef(false);
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const [activeStockViewer, setActiveStockViewer] = useState<string | null>(null);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
@@ -1484,6 +1485,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   }, [organizations, currentSelectedOrgId, currentUser?.organization_id, organization, settings]);
 
   const handleSubmit = async (e: React.FormEvent) => {
+    if (isSubmittingRef.current || saving) return;
     e.preventDefault();
 
     const isPosted = formData.status === 'posted' || formData.status === 'paid';
@@ -1558,6 +1560,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         }
     }
 
+    isSubmittingRef.current = true;
     setSaving(true);
     // ... (تم حذف الفحص المكرر والتنبيهات المزعجة لتبسيط الواجهة)
 
@@ -1820,11 +1823,15 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         logger.error("فشل حفظ الفاتورة", err);
         handleError(err, { showNotification: showToast, context: { operation: 'حفظ الفاتورة' } });
     } finally {
+        isSubmittingRef.current = false;
         setSaving(false);
     }
   };
 
   const handleSaveAndPost = async () => {
+    // 🛡️ صمام أمان التزامن السريع لمنع تكرار عمليات الحفظ والترحيل (Double-Submit Guard)
+    if (isSubmittingRef.current || saving) return;
+
     // Same validations as handleSubmit
     if (editingId) {
         showToast('لا يمكن ترحيل فاتورة معدلة. يرجى الحفظ كمسودة أولاً', 'warning');
@@ -1886,6 +1893,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         }
     }
 
+    isSubmittingRef.current = true;
     setSaving(true);
 
     const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).single();
@@ -2002,6 +2010,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         logger.error("فشل الحفظ والترحيل", err);
         handleError(err, { showNotification: showToast, context: { operation: 'حفظ وترحيل الفاتورة' } });
     } finally {
+        isSubmittingRef.current = false;
         setSaving(false);
     }
   };

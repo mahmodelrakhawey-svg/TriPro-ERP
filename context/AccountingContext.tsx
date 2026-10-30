@@ -158,6 +158,7 @@ interface AccountingContextType {
   deleteAsset: (id: string) => Promise<void>;
   runDepreciation: (id?: string, amount?: number, date?: string) => Promise<void>;
   revaluateAsset: (id: string, val: number, date: string, accId: string) => Promise<void>;
+  refreshAssets?: () => Promise<void>;
   addCheque: (cheque: Partial<Cheque>) => Promise<void>;
   updateCheque: (id: string, cheque: Partial<Cheque>) => Promise<void>;
   deleteCheque: (id: string) => Promise<void>;
@@ -232,6 +233,7 @@ export { useBankingDomain, BankingProvider } from './domains/BankingContext';
 export { useGeneralLedgerDomain, GeneralLedgerProvider } from './domains/GeneralLedgerContext';
 export { useHrDomain, HrProvider } from './domains/HrContext';
 export { useRestaurantDomain, RestaurantProvider } from './domains/RestaurantContext';
+export { useAssetDomain, AssetProvider } from './domains/AssetContext';
 export { fetchAllTableRecords } from './domains/domainUtils';
 
 import { useSettingsDomain, SettingsProvider } from './domains/AccountingSettingsContext';
@@ -243,6 +245,7 @@ import { useBankingDomain, BankingProvider } from './domains/BankingContext';
 import { useGeneralLedgerDomain, GeneralLedgerProvider } from './domains/GeneralLedgerContext';
 import { useHrDomain, HrProvider } from './domains/HrContext';
 import { useRestaurantDomain, RestaurantProvider } from './domains/RestaurantContext';
+import { useAssetDomain, AssetProvider } from './domains/AssetContext';
 import { fetchAllTableRecords } from './domains/domainUtils';
 
 export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -654,21 +657,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       // جلب الحسابات والمستودعات مع ترشيد الاستعلامات المالية بالسنة المالية النشطة
       const [accs, ents, ccs, emps, prods, trns, pinvs, invs, cats, usrs, whs, rTables, custs, sups, chqs, shift, assetData, budgetData] = await Promise.all([
         supabase.from('accounts').select('*').eq('organization_id', fetchOrgId).order('code'),
-        fetchCompleteDataset<JournalEntry>(async (from, to) =>
-          supabase.from('journal_entries')
-            .select('*, journal_lines(*)')
-            .eq('organization_id', fetchOrgId)
-            .gte('transaction_date', fiscalYearRange.startDate)
-            .lte('transaction_date', fiscalYearRange.endDate)
-            .order('transaction_date', { ascending: false })
-            .range(from, to)
-        ).then(data => ({ data, error: null })),
-        fetchCompleteDataset<CostCenter>(async (from, to) =>
-          supabase.from('cost_centers').select('*').eq('organization_id', fetchOrgId).order('name').range(from, to)
-        ).then(data => ({ data: data || [], error: null })),
-        fetchCompleteDataset<Employee>(async (from, to) =>
-          supabase.from('employees').select('*').eq('organization_id', fetchOrgId).order('full_name').range(from, to)
-        ).then(data => ({ data: data || [], error: null })),
+        Promise.resolve({ data: [] as JournalEntry[], error: null }), // مُعالج بالكامل في سياق النطاق GeneralLedgerProvider
+        Promise.resolve({ data: [] as CostCenter[], error: null }), // مُعالج بالكامل في سياق النطاق GeneralLedgerProvider
+        Promise.resolve({ data: [] as Employee[], error: null }), // مُعالج بالكامل في سياق النطاق HrProvider
         Promise.resolve({ data: [] as Product[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
         Promise.resolve({ data: [] as StockTransfer[], error: null }), // مُعالج بالكامل في سياق النطاق ProductProvider
         Promise.resolve({ data: [] as PurchaseInvoice[], error: null }), // مُعالج بالكامل في سياق النطاق SupplierProvider
@@ -681,12 +672,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         Promise.resolve({ data: [] as Supplier[], error: null }), // مُعالج بالكامل في سياق النطاق SupplierProvider
         Promise.resolve({ data: [] as Cheque[], error: null }), // مُعالج بالكامل في سياق النطاق BankingProvider
         supabase.rpc('get_active_shift', { p_org_id: fetchOrgId }),
-        fetchCompleteDataset<Asset>(async (from, to) =>
-          supabase.from('assets').select('*').eq('organization_id', fetchOrgId).is('deleted_at', null).range(from, to)
-        ).then(data => ({ data: data || [], error: null })),
-        fetchCompleteDataset<Budget>(async (from, to) =>
-          supabase.from('budgets').select('*').eq('organization_id', fetchOrgId).range(from, to)
-        ).then(data => ({ data: data || [], error: null }))
+        Promise.resolve({ data: [] as Asset[], error: null }), // مُعالج بالكامل في سياق النطاق AssetProvider
+        Promise.resolve({ data: [] as Budget[], error: null }) // مُعالج بالكامل في سياق النطاق GeneralLedgerProvider
       ]);
 
       const loadedAccounts = (accs.data && accs.data.length > 0) ? accs.data.map((acc: Record<string, any>) => ({
@@ -3553,9 +3540,20 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                       getSystemAccount={getSystemAccount}
                       refreshData={refreshData}
                     >
-                      <AccountingFacadeBridge coreValue={value}>
-                        {children}
-                      </AccountingFacadeBridge>
+                      <AssetProvider
+                        orgId={effectiveOrgId}
+                        currentUser={currentUser}
+                        logActivity={logActivity}
+                        showToast={showToast}
+                        isDemo={isDemo}
+                        initialAssets={assets}
+                        addEntry={addEntry}
+                        getSystemAccount={getSystemAccount}
+                      >
+                        <AccountingFacadeBridge coreValue={value}>
+                          {children}
+                        </AccountingFacadeBridge>
+                      </AssetProvider>
                     </RestaurantProvider>
                   </HrProvider>
                 </GeneralLedgerProvider>
@@ -3581,6 +3579,7 @@ const AccountingFacadeBridge: React.FC<{
   const settingsDomain = useSettingsDomain();
   const hrDomain = useHrDomain();
   const restaurantDomain = useRestaurantDomain();
+  const assetDomain = useAssetDomain();
 
   const domainsRef = useRef({
     coreValue,
@@ -3592,7 +3591,8 @@ const AccountingFacadeBridge: React.FC<{
     glDomain,
     settingsDomain,
     hrDomain,
-    restaurantDomain
+    restaurantDomain,
+    assetDomain
   });
   domainsRef.current = {
     coreValue,
@@ -3604,7 +3604,8 @@ const AccountingFacadeBridge: React.FC<{
     glDomain,
     settingsDomain,
     hrDomain,
-    restaurantDomain
+    restaurantDomain,
+    assetDomain
   };
 
   const handleRefreshData = useCallback(async () => {
@@ -3625,6 +3626,7 @@ const AccountingFacadeBridge: React.FC<{
       d.hrDomain.refreshEmployees ? d.hrDomain.refreshEmployees() : Promise.resolve(),
       d.restaurantDomain.refreshRestaurant ? d.restaurantDomain.refreshRestaurant() : Promise.resolve(),
       d.restaurantDomain.refreshShift ? d.restaurantDomain.refreshShift() : Promise.resolve(),
+      d.assetDomain.refreshAssets ? d.assetDomain.refreshAssets() : Promise.resolve(),
     ]);
   }, []);
 
@@ -3756,6 +3758,14 @@ const AccountingFacadeBridge: React.FC<{
     closeCurrentShift: restaurantDomain.closeCurrentShift,
     getCurrentShiftSummary: restaurantDomain.getCurrentShiftSummary,
     finalizeProductionOrder: restaurantDomain.finalizeProductionOrder,
+    // Asset Domain Delegation
+    assets: assetDomain.assets,
+    addAsset: assetDomain.addAsset,
+    updateAsset: assetDomain.updateAsset,
+    deleteAsset: assetDomain.deleteAsset,
+    runDepreciation: assetDomain.runDepreciation,
+    revaluateAsset: assetDomain.revaluateAsset,
+    refreshAssets: assetDomain.refreshAssets,
     refreshData: handleRefreshData
   }), [
     coreValue,
@@ -3768,6 +3778,7 @@ const AccountingFacadeBridge: React.FC<{
     settingsDomain,
     hrDomain,
     restaurantDomain,
+    assetDomain,
     handleRefreshData,
     handleRefreshSalesAndPurchases,
     handleRefreshBankingAndShift
