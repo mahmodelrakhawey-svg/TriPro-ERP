@@ -1,8 +1,8 @@
 # 📖 التوثيق الشامل والمرجع المعماري لمشروع TriPro-ERP
 > **تاريخ آخر تحديث:** أكتوبر 2026  
-> **الإصدار الحالي:** V52.0 Enterprise Production Ready  
+> **الإصدار الحالي:** V52.0 Enterprise Hardened (v2.5-enterprise-hardened)  
 > **حالة النظام:** مجرب ومثبت تشغيلياً في بيئة الإنتاج المباشرة (شركة حلواني لينزا + بيئة الإنتاج العامة).  
-> **حالة الاختبارات:** 73 ملف اختبار، 421 اختبار آلي ناجح بنسبة 100% (Vitest) + 7 أجنحة متكاملة E2E (Playwright).
+> **حالة الاختبارات:** 81 ملف اختبار، 452 اختبار آلي ناجح بنسبة 100% (Vitest) + 7 أجنحة متكاملة E2E (Playwright).
 
 ---
 
@@ -17,8 +17,8 @@
 ## 2. المعمارية الموزعة للسياق المركزي (Domain Facade Architecture)
 تم بنجاح تفكيك وإعادة هيكلة الملف المركزي الضخم `context/AccountingContext.tsx` (الذي كان يتجاوز 5,000 سطر) باستخدام **نمط الواجهة الموحدة (Facade Pattern)** لحل مشكلة إعادة التصيير غير الضروري (Re-renders) وعزل المسؤوليات البرمجية، مع الحفاظ التام على التوافق الرجعي 100% لأكثر من 100 شاشة ومكون.
 
-### أ. ملفات النطاقات التسعة (`context/domains/`):
-تم عزل الـ State والدوال التشغيلية في 9 سياقات وهوكات متخصصة:
+### أ. ملفات النطاقات العشرة (`context/domains/`):
+تم عزل الـ State والدوال التشغيلية في 10 سياقات وهوكات متخصصة:
 
 | # | اسم الملف (Context) | الهوك المخصص (Hook) | المسؤوليات والمهام التشغيلية |
 | :---: | :--- | :--- | :--- |
@@ -31,6 +31,7 @@
 | **7** | `GeneralLedgerContext.tsx` | `useGeneralLedgerDomain()` | دليل الحسابات الشجري (COA)، قيود اليومية الآلية، مراكز التكلفة، الموازنات التقديرية، الإقفال السنوي، وميزان المراجعة. |
 | **8** | `HrContext.tsx` | `useHrDomain()` | سجلات الموظفين، الحضور والانصراف والبصمة، السلف والعهد، مسيرات الرواتب الشهرية واستحقاقاتها، ومكافأة نهاية الخدمة. |
 | **9** | `RestaurantContext.tsx` | `useRestaurantDomain()` | الطاولات وحجوزاتها، جلسات الصالة، أوامر المطبخ (KDS)، مدفوعات التقسيم (Split Bill)، وورديات الكاشير والتقفيل الأعمى. |
+| **10** | `AssetContext.tsx` | `useAssetDomain()` | إدارة الأصول الثابتة، فئات الأصول، قيود الشراء الآلية، إهلاك الأصول الشهري عبر RPC `run_monthly_depreciation`، وإعادة تقييم واستبعاد الأصول. |
 
 > **الملف المساعد المشترك (`context/domains/domainUtils.ts`):**  
 > يحتوي على دالة التحميل المجمّع بالدفعات `fetchAllTableRecords` التي تتجاوز سقف الـ 1,000 سجل الافتراضي في Supabase عبر التكرار الآلي (Pagination chunks) لضمان جلب كامل البيانات دون بتر.
@@ -184,25 +185,25 @@
 
 ## 4. منظومة الاختبارات الآلية الشاملة (Automated Test Suites)
 يحتوي المشروع على بنية تحتية فائقة القوة للاختبارات التلقائية الموزعة على مستويين:
-1. **اختبارات الوحدات والتكامل (Vitest):** **73 ملف اختبار أوتوماتيكي** تضم **421 اختباراً ناجحاً بنسبة 100%** دون أي فشل.
+1. **اختبارات الوحدات والتكامل (Vitest):** **81 ملف اختبار أوتوماتيكي** تضم **452 اختباراً ناجحاً بنسبة 100%** دون أي فشل.
 2. **اختبارات المتصفح الشاملة (Playwright E2E):** **7 أجنحة اختبارات دورة كاملة** تحاكي المستخدم الحقيقي في بيئة المتصفح المعزولة.
 
-### أ. تصنيف وفهرس ملفات اختبارات Vitest (421 اختباراً):
+### أ. تصنيف وفهرس ملفات اختبارات Vitest (452 اختباراً):
 
 | الفئة / المجال | ملفات الاختبار الأساسية | عدد الاختبارات | أهداف التحقق والضمان المالي |
 | :--- | :--- | :---: | :--- |
 | **السلامة المالية وحارس التوازن** | `tests/accounting/databaseBalanceGuard.test.ts`<br>`tests/accounting/journalEntryBalance.test.ts`<br>`tests/accounting/financialSafetyNet.test.ts`<br>`tests/accounting_engine.test.ts`<br>`tests/financialSafety.test.ts` | 42 | ضمان توازن القيد المزدوج، منع القيود العشوائية، وحظر الحركات غير المتزنة. |
-| **حسابات وتكاليف الفواتير** | `tests/accounting/salesInvoiceCalculation.test.ts`<br>`tests/accounting/purchaseInvoiceCalculation.test.ts`<br>`tests/accounting/customerPricingTier.test.ts`<br>`tests/purchases/purchaseInvoiceDuplication.test.ts` | 38 | حساب ضريبة القيمة المضافة، الخصومات المتعددة، فئات التسعير (جملة/قطاعي)، ومنع ازدواج الفواتير. |
-| **المخزون ووحدات القياس** | `tests/accounting/uomConversion.test.ts`<br>`tests/gs1_barcode_parser.test.ts`<br>`tests/inventory/InventoryCountDraft.test.ts` | 26 | معاملات تحويل الوحدات، قراءة باركودات GS1 والموازين، وحفظ مسودات الجرد المخزني. |
-| **تقسيم وسياقات الـ Facade** | `tests/domain_facade_hooks.test.ts`<br>`tests/domain_providers_integration.test.tsx`<br>`tests/*_domain_hardening.test.tsx` (9 ملفات) | 65 | اختبار استقلالية السياقات التسعة، عزل الـ State، ومنع الـ Re-renders، وضمان عمل هوك `useAccounting()`. |
+| **حسابات وتكاليف الفواتير ومكافحة الازدواج** | `tests/accounting/salesInvoiceCalculation.test.ts`<br>`tests/accounting/purchaseInvoiceCalculation.test.ts`<br>`tests/accounting/customerPricingTier.test.ts`<br>`tests/purchases/purchaseInvoiceDuplication.test.ts`<br>`tests/double_submit_protection.test.ts` | 40 | حساب ضريبة القيمة المضافة، الخصومات المتعددة، فئات التسعير (جملة/قطاعي)، صمامات أمان النقر المزدوج المتزامن `isSubmittingRef`. |
+| **المخزون ووحدات القياس وانحفاظ الكميات** | `tests/accounting/uomConversion.test.ts`<br>`tests/gs1_barcode_parser.test.ts`<br>`tests/inventory/InventoryCountDraft.test.ts`<br>`tests/inventory/multi_warehouse_transfer_integrity.test.ts` | 29 | معاملات تحويل الوحدات، قراءة باركودات GS1 والموازين، وحفظ مسودات الجرد المخزني، وانحفاظ كميات التحويل بين المستودعات. |
+| **تقسيم وسياقات الـ Facade** | `tests/domain_facade_hooks.test.ts`<br>`tests/domain_providers_integration.test.tsx`<br>`tests/*_domain_hardening.test.tsx` (10 ملفات) | 69 | اختبار استقلالية السياقات العشرة، عزل الـ State، ومنع الـ Re-renders، وإلغاء الاستدعاءات الشبكية المكررة، وضمان عمل هوك `useAccounting()`. |
 | **تكامل الـ RLS وعزل الشركات** | `tests/integration/01_rls_isolation.integration.test.ts`<br>`tests/integration/02_sales_invoice_cycle.integration.test.ts`<br>`tests/integration/03_accounting_integrity.integration.test.ts`<br>`tests/integration/04_purchase_invoice_cycle.integration.test.ts`<br>`tests/organization_isolation_rls.test.ts` | 45 | عزل بيانات كل مستأجر (Tenant) بنسبة 100% ومنع تسرب البيانات بين الشركات. |
-| **الربط الضريبي وحصانة المستندات** | `tests/accounting/etaCanonicalization.test.ts`<br>`tests/accounting/documentImmutability.test.ts`<br>`tests/zatcaQrHelper.test.ts` | 24 | معايير الفاتورة المصرية ETA، وتشفير QR زاتكا، وضمان عدم تعديل المستندات بعد الترحيل. |
+| **الربط الضريبي والإقرار والتسوية** | `tests/accounting/etaCanonicalization.test.ts`<br>`tests/accounting/documentImmutability.test.ts`<br>`tests/zatcaQrHelper.test.ts`<br>`tests/accounting/vat_return_and_tax_netting.test.ts` | 27 | معايير الفاتورة المصرية ETA، وتشفير QR زاتكا، إقرار وتسوية ضريبة القيمة المضافة 14% وقيد الإقفال المتوازن `VAT-CLOSE-YYYYMMDD`. |
 | **إقفال السنة والعملات الأجنبية** | `tests/financialYearService.test.ts`<br>`tests/accounting/currencyRevaluationService.test.ts`<br>`modules/accounting/components/CurrencyRevaluationModal.test.tsx` | 21 | إقفال الإيرادات والمصروفات بحساب الأرباح المحتجزة (302)، وفروق العملة المحققة وغير المحققة. |
-| **الأصول الثابتة والشيكات** | `modules/assets/AssetManager.test.tsx`<br>`modules/banking/ChequesPage.test.tsx`<br>`modules/finance/components/BankReconciliationForm.test.tsx` | 28 | احتساب الإهلاك الدوري للأصول، دورة حياة الشيك (تحصيل/ارتداد/تظهير)، والتسوية البنكية. |
+| **الأصول الثابتة والشيكات** | `modules/assets/AssetManager.test.tsx`<br>`tests/asset_domain_hardening.test.tsx`<br>`modules/banking/ChequesPage.test.tsx`<br>`modules/finance/components/BankReconciliationForm.test.tsx` | 32 | احتساب الإهلاك الدوري للأصول، فك ارتباط نطاق الأصول، دورة حياة الشيك (تحصيل/ارتداد/تظهير)، والتسوية البنكية. |
 | **الموارد البشرية ونهاية الخدمة** | `tests/hr/end_of_service.test.ts`<br>`tests/hr/employee_advance_smart.test.ts`<br>`tests/hr/payroll_name_search.test.ts`<br>`tests/hr/hr_custom_permissions.test.ts` | 32 | مكافأة نهاية الخدمة وفق القانون المصري، خصم السلف آلياً من الرواتب، وصلاحيات الـ HR. |
-| **المطاعم والورديات والكاشير** | `tests/restaurant/restaurant_pos_flow.test.ts`<br>`modules/retail/components/POS/RetailPosScreen.test.tsx`<br>`modules/retail/services/promotionEngine.test.ts`<br>`tests/thermalPrinterService.test.ts` | 44 | تدفق الكاشير، فتح وقفل الورديات الأعمى، عروض الترويج، والطباعة الحرارية للطلبات. |
+| **المطاعم والورديات والكاشير** | `tests/restaurant/restaurant_pos_flow.test.ts`<br>`modules/retail/components/POS/RetailPosScreen.test.tsx`<br>`tests/retail/pos_shift_financials_lifecycle.test.ts`<br>`modules/retail/services/promotionEngine.test.ts`<br>`tests/thermalPrinterService.test.ts` | 47 | تدفق الكاشير، فتح وقفل الورديات الأعمى، حسابات نقدية الدرج الحية والمسحوبات، عروض الترويج، والطباعة الحرارية للطلبات. |
 | **المقاولات والقطاعات المتخصصة** | `tests/construction/progress_billing.test.ts`<br>`tests/stadium/stadium_engine.test.ts`<br>`tests/butcheringYield.test.ts`<br>`modules/hims/components/HospitalBillingEngine.test.tsx`<br>`tests/lenza_confectionery_e2e_workflows.test.ts` | 46 | المستخلصات ونسب الإنجاز، عضويات الملاعب، تشفية اللحوم والهوالك، وفاتورة المستشفيات. |
-| **الأمان وسجل التدقيق** | `tests/accounting/journalAuditService.test.ts`<br>`tests/accounting/auditDaemonService.test.ts`<br>`tests/reversal_and_security.test.ts`<br>`tests/phase3_security_and_audit.test.ts`<br>`utils/securityUtils.test.ts` | 30 | سجل العمليات، كشف التلاعب بالأرقام، وتشفير التخزين الآمن. |
+| **الأمان وسجل التدقيق والتيليميتري** | `tests/accounting/journalAuditService.test.ts`<br>`tests/accounting/auditDaemonService.test.ts`<br>`tests/reversal_and_security.test.ts`<br>`tests/phase3_security_and_audit.test.ts`<br>`tests/telemetryService.test.ts`<br>`utils/securityUtils.test.ts` | 33 | سجل العمليات، كشف التلاعب بالأرقام، تشفير التخزين الآمن، ومحرك التيليميتري ورصد انهيارات الواجهة الصامتة. |
 
 ---
 

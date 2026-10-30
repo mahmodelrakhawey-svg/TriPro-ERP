@@ -925,6 +925,7 @@
   📄 SubcontractorPaymentButton.tsx
   📄 subledgerRegistry.ts
   📄 supabaseClient.ts
+  📄 telemetryService.ts
   📄 tenantContext.ts
   📄 thermalPrinterService.ts
   📄 tipsPoolService.ts
@@ -934,6 +935,7 @@
 📁 context/
   📁 domains/
     📄 AccountingSettingsContext.tsx
+    📄 AssetContext.tsx
     📄 BankingContext.tsx
     📄 CustomerContext.tsx
     📄 domainUtils.ts
