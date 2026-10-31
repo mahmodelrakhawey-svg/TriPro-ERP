@@ -847,6 +847,10 @@ const PayrollRun = () => {
 
   // 3️⃣ الصرف المباشر الفوري (استحقاق + نقدية بخطوة واحدة)
   const handleRunPayrollDirect = async () => {
+    if (existingPayroll && existingPayroll.status === 'accrued') {
+      showToast('تم إثبات استحقاق هذا الشهر مسبقاً. يرجى استخدام زر [صرف الرواتب وترحيل قيد النقدية] لإقفال حساب 2251 ومنع ازدواجية القيود.', 'warning');
+      return;
+    }
     const generalValidationResult = payrollRunSchema.safeParse({
       treasuryId,
       hasData: payrollData.length > 0,
@@ -1947,7 +1951,7 @@ const PayrollRun = () => {
                   className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-lg shadow-indigo-600/25 transition"
                 >
                   {savingAccrual ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  {savingAccrual ? 'جاري ترحيل الاستحقاق...' : '1. إثبات قيد الاستحقاق (حـ/ 2251 رواتب مستحقة)'}
+                  {savingAccrual ? 'جاري ترحيل الاستحقاق...' : 'إثبات قيد الاستحقاق (حـ/ 2251 رواتب مستحقة)'}
                 </button>
 
                 {/* زر الصرف المباشر الفوري */}
@@ -1957,7 +1961,7 @@ const PayrollRun = () => {
                   className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/25 transition"
                 >
                   {savingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Banknote className="w-4 h-4" />}
-                  {savingPayment ? 'جاري الصرف المباشر...' : '2. صرف مباشر فوري (استحقاق + نقدية)'}
+                  {savingPayment ? 'جاري الصرف المباشر...' : 'صرف نقدي مباشر (بديل بدون قيد استحقاق)'}
                 </button>
               </>
             )}
