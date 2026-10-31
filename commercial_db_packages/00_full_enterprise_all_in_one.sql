@@ -5050,6 +5050,7 @@ DECLARE
     v_salaries_acc_id uuid; v_bonuses_acc_id uuid; v_deductions_acc_id uuid; 
     v_advances_acc_id uuid; v_payroll_tax_id uuid; v_total_payroll_tax numeric := 0;
     v_fixed_allowances numeric := 0; v_monthly_additions numeric := 0; v_monthly_deductions numeric := 0; v_emp_net numeric := 0;
+    v_month_end_date date; v_cutoff_date date;
 BEGIN
     v_org_id := COALESCE(p_org_id, public.get_my_org());
     IF v_org_id IS NULL THEN RAISE EXCEPTION 'فشل تحديد المنظمة للمسير.'; END IF;
@@ -5058,6 +5059,9 @@ BEGIN
     IF EXISTS (SELECT 1 FROM public.payrolls WHERE payroll_month = p_month AND payroll_year = p_year AND organization_id = v_org_id AND status = 'paid') THEN
         RAISE EXCEPTION 'تم اعتماد وصرف مسير الرواتب لهذا الشهر مسبقاً.';
     END IF;
+
+    v_month_end_date := ((p_year || '-' || LPAD(p_month::text, 2, '0') || '-01')::date + INTERVAL '1 month - 1 day')::date;
+    v_cutoff_date := LEAST(v_month_end_date, COALESCE(p_date, v_month_end_date));
 
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
@@ -5117,7 +5121,20 @@ BEGIN
 
         UPDATE public.payroll_variables SET is_processed = true WHERE employee_id = (v_item->>'employee_id')::uuid AND month = p_month AND year = p_year AND organization_id = v_org_id;
         IF (v_item->>'advances_deducted')::numeric > 0 THEN
-            UPDATE public.employee_advances SET status = 'deducted', payroll_item_id = v_payroll_item_id WHERE employee_id = (v_item->>'employee_id')::uuid AND status = 'paid' AND organization_id = v_org_id;
+            IF v_item->'advances_ids' IS NOT NULL AND jsonb_array_length(v_item->'advances_ids') > 0 THEN
+                UPDATE public.employee_advances 
+                SET status = 'deducted', payroll_item_id = v_payroll_item_id
+                WHERE id IN (SELECT (jsonb_array_elements_text(v_item->'advances_ids'))::uuid)
+                  AND COALESCE(request_date, advance_date, created_at::date) <= v_cutoff_date
+                  AND organization_id = v_org_id;
+            ELSE
+                UPDATE public.employee_advances 
+                SET status = 'deducted', payroll_item_id = v_payroll_item_id
+                WHERE employee_id = (v_item->>'employee_id')::uuid 
+                  AND status = 'paid'
+                  AND COALESCE(request_date, advance_date, created_at::date) <= v_cutoff_date
+                  AND organization_id = v_org_id;
+            END IF;
         END IF;
     END LOOP;
 
@@ -8875,6 +8892,7 @@ DECLARE -- 🛠️ تحديث: إضافة p_org_id كمعامل
     v_salaries_acc_id uuid; v_bonuses_acc_id uuid; v_deductions_acc_id uuid; 
     v_advances_acc_id uuid; v_payroll_tax_id uuid; v_total_payroll_tax numeric := 0;
     v_fixed_allowances numeric := 0; v_monthly_additions numeric := 0; v_monthly_deductions numeric := 0; v_emp_net numeric := 0;
+    v_month_end_date date; v_cutoff_date date;
 BEGIN
     -- 🛡️ جلب المنظمة (الأولوية للممرر ثم السياق)
     v_org_id := COALESCE(p_org_id, public.get_my_org());
@@ -8884,6 +8902,9 @@ BEGIN
     IF EXISTS (SELECT 1 FROM public.payrolls WHERE payroll_month = p_month AND payroll_year = p_year AND organization_id = v_org_id AND status = 'paid') THEN
         RAISE EXCEPTION 'تم اعتماد وصرف مسير الرواتب لشهر (%) سنة (%) مسبقاً لهذه المنظمة.', p_month, p_year;
     END IF;
+
+    v_month_end_date := ((p_year || '-' || LPAD(p_month::text, 2, '0') || '-01')::date + INTERVAL '1 month - 1 day')::date;
+    v_cutoff_date := LEAST(v_month_end_date, COALESCE(p_date, v_month_end_date));
 
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
 
@@ -8971,11 +8992,20 @@ BEGIN
 
         -- 🔗 تحديث حالة السلف المستردة وربطها ببنود المسير لضمان عدم تكرار الخصم
         IF (v_item->>'advances_deducted')::numeric > 0 THEN
-            UPDATE public.employee_advances 
-            SET status = 'deducted', payroll_item_id = v_payroll_item_id
-            WHERE employee_id = (v_item->>'employee_id')::uuid 
-            AND status = 'paid'
-            AND organization_id = v_org_id;
+            IF v_item->'advances_ids' IS NOT NULL AND jsonb_array_length(v_item->'advances_ids') > 0 THEN
+                UPDATE public.employee_advances 
+                SET status = 'deducted', payroll_item_id = v_payroll_item_id
+                WHERE id IN (SELECT (jsonb_array_elements_text(v_item->'advances_ids'))::uuid)
+                  AND COALESCE(request_date, advance_date, created_at::date) <= v_cutoff_date
+                  AND organization_id = v_org_id;
+            ELSE
+                UPDATE public.employee_advances 
+                SET status = 'deducted', payroll_item_id = v_payroll_item_id
+                WHERE employee_id = (v_item->>'employee_id')::uuid 
+                  AND status = 'paid'
+                  AND COALESCE(request_date, advance_date, created_at::date) <= v_cutoff_date
+                  AND organization_id = v_org_id;
+            END IF;
         END IF;
     END LOOP;
 

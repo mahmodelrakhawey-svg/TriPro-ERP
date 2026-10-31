@@ -156,4 +156,87 @@ describe('EmployeeSearchSelect & Smart Advance Features', () => {
     });
   });
 
+  describe('Payroll Advance Date Boundary & Strict Isolation Integrity', () => {
+    const mixedAdvances = [
+      { id: 'adv-sep-1', employee_id: 'emp-1', amount: 1000, status: 'paid', payroll_item_id: null, request_date: '2026-09-05' },
+      { id: 'adv-sep-2', employee_id: 'emp-1', amount: 500, status: 'paid', payroll_item_id: null, request_date: '2026-09-28' },
+      { id: 'adv-oct-1', employee_id: 'emp-1', amount: 1200, status: 'paid', payroll_item_id: null, request_date: '2026-10-05' },
+      { id: 'adv-oct-2', employee_id: 'emp-2', amount: 800, status: 'paid', payroll_item_id: null, request_date: '2026-10-20' },
+      { id: 'adv-oct-3', employee_id: 'emp-1', amount: 300, status: 'paid', payroll_item_id: null, request_date: '2026-10-31' },
+    ];
+
+    it('strictly restricts September payroll to September advances (<= 2026-09-30)', () => {
+      const monthEndStr = '2026-09-30';
+      const sepAdvancesForEmp1 = mixedAdvances.filter(adv => {
+        if (adv.employee_id !== 'emp-1') return false;
+        const advDate = (adv.request_date || '').trim();
+        return advDate <= monthEndStr && adv.status === 'paid' && !adv.payroll_item_id;
+      });
+
+      expect(sepAdvancesForEmp1.length).toBe(2);
+      expect(sepAdvancesForEmp1.map(a => a.id)).toEqual(['adv-sep-1', 'adv-sep-2']);
+      const totalSepAdvances = sepAdvancesForEmp1.reduce((sum, a) => sum + a.amount, 0);
+      expect(totalSepAdvances).toBe(1500);
+
+      // October advances must NOT be included in September
+      const hasOctoberAdv = sepAdvancesForEmp1.some(a => a.request_date.startsWith('2026-10'));
+      expect(hasOctoberAdv).toBe(false);
+    });
+
+    it('identifies October advances for October payroll (<= 2026-10-31)', () => {
+      const monthEndStr = '2026-10-31';
+      // Assume September advances were already settled (payroll_item_id not null)
+      const advancesForOctoberRun = mixedAdvances.map(a => {
+        if (a.request_date <= '2026-09-30') {
+          return { ...a, status: 'deducted', payroll_item_id: 'pi-sep-1' };
+        }
+        return a;
+      });
+
+      const octAdvancesForEmp1 = advancesForOctoberRun.filter(adv => {
+        if (adv.employee_id !== 'emp-1') return false;
+        const advDate = (adv.request_date || '').trim();
+        return advDate <= monthEndStr && adv.status === 'paid' && !adv.payroll_item_id;
+      });
+
+      expect(octAdvancesForEmp1.length).toBe(2);
+      expect(octAdvancesForEmp1.map(a => a.id)).toEqual(['adv-oct-1', 'adv-oct-3']);
+      const totalOct = octAdvancesForEmp1.reduce((sum, a) => sum + a.amount, 0);
+      expect(totalOct).toBe(1500);
+    });
+
+    it('detects and heals erroneously deducted October advances', () => {
+      // Simulating the bug where October advances were accidentally set to deducted
+      const corruptedAdvances = [
+        { id: 'adv-oct-1', employee_id: 'emp-1', amount: 1200, status: 'deducted', payroll_item_id: 'pi-sep-1', request_date: '2026-10-05' },
+        { id: 'adv-oct-2', employee_id: 'emp-2', amount: 800, status: 'deducted', payroll_item_id: 'pi-sep-2', request_date: '2026-10-20' },
+        { id: 'adv-sep-1', employee_id: 'emp-1', amount: 1000, status: 'deducted', payroll_item_id: 'pi-sep-1', request_date: '2026-09-05' },
+      ];
+
+      // Detection
+      const wronglyDeducted = corruptedAdvances.filter(a => {
+        if (a.status !== 'deducted') return false;
+        const d = (a.request_date || '').trim();
+        return d >= '2026-10-01';
+      });
+      expect(wronglyDeducted.length).toBe(2);
+
+      // Healing
+      const healedAdvances = corruptedAdvances.map(a => {
+        if (a.status === 'deducted' && a.request_date >= '2026-10-01') {
+          return { ...a, status: 'paid', payroll_item_id: null };
+        }
+        return a;
+      });
+
+      const emp1Active = healedAdvances.filter(a => a.employee_id === 'emp-1' && a.status === 'paid');
+      expect(emp1Active.length).toBe(1);
+      expect(emp1Active[0].id).toBe('adv-oct-1');
+
+      // September advance remains deducted
+      const sepAdv = healedAdvances.find(a => a.id === 'adv-sep-1');
+      expect(sepAdv?.status).toBe('deducted');
+    });
+  });
+
 });

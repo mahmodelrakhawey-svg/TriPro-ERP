@@ -104,6 +104,8 @@ const PayrollRun = () => {
   // Existing Payroll in DB for selected month & year
   const [existingPayroll, setExistingPayroll] = useState<any | null>(null);
   const [checkingExisting, setCheckingExisting] = useState(false);
+  const [healingLoading, setHealingLoading] = useState(false);
+  const [wronglyDeductedCount, setWronglyDeductedCount] = useState<number>(0);
 
   // Payslip Modal State
   const [selectedPayslip, setSelectedPayslip] = useState<PayslipData | null>(null);
@@ -176,6 +178,24 @@ const PayrollRun = () => {
         });
 
         if (items && items.length > 0) {
+          // جلب السلف المرتبطة بهذه البنود فعلياً لحفظ معرفاتها الدقيقة
+          let linkedAdvancesByEmp: Record<string, string[]> = {};
+          try {
+            const itemIds = items.map((i: { id: string }) => i.id);
+            const { data: advData } = await supabase
+              .from('employee_advances')
+              .select('id, employee_id, payroll_item_id')
+              .in('payroll_item_id', itemIds);
+            if (advData) {
+              advData.forEach((a: { id: string; employee_id: string }) => {
+                if (!linkedAdvancesByEmp[a.employee_id]) linkedAdvancesByEmp[a.employee_id] = [];
+                linkedAdvancesByEmp[a.employee_id].push(a.id);
+              });
+            }
+          } catch (e) {
+            logger.warn('Could not load linked advances:', e);
+          }
+
           const mappedItems: PayrollItem[] = items.map((it: Record<string, any>) => ({
             employee_id: it.employee_id,
             full_name: it.employees?.full_name || 'موظف',
@@ -189,7 +209,7 @@ const PayrollRun = () => {
             payroll_tax: Number(it.payroll_tax || 0),
             other_deductions: Number(it.other_deductions || 0),
             net_salary: Number(it.net_salary || 0),
-            advances_ids: [],
+            advances_ids: linkedAdvancesByEmp[it.employee_id] || [],
             unpaid_leave_days: Number(it.unpaid_leave_days || 0),
             unpaid_leave_deduction: Number(it.unpaid_leave_deduction || 0),
             absence_days: Number(it.absence_days || 0),
@@ -210,9 +230,81 @@ const PayrollRun = () => {
     }
   };
 
+  // فحص السلف التي وسمت بـ "تم الخصم" خطأ وتاريخها في شهر أكتوبر وما بعده
+  const checkWronglyDeductedAdvances = async () => {
+    try {
+      const targetOrg = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      let q = supabase
+        .from('employee_advances')
+        .select('id, request_date, advance_date, created_at, status')
+        .eq('status', 'deducted');
+      if (targetOrg) q = q.eq('organization_id', targetOrg);
+      const { data } = await q;
+      if (data && data.length > 0) {
+        const octOrLater = data.filter(a => {
+          const d = (a.request_date || a.advance_date || (a.created_at ? a.created_at.split('T')[0] : '')).trim();
+          return d >= '2026-10-01';
+        });
+        setWronglyDeductedCount(octOrLater.length);
+      } else {
+        setWronglyDeductedCount(0);
+      }
+    } catch (e) {
+      logger.error('Error checking advances:', e);
+    }
+  };
+
+  // استعادة سلف أكتوبر المسحوبة خطأ بضغطة زر واحدة
+  const handleHealAdvances = async () => {
+    setHealingLoading(true);
+    try {
+      const targetOrg = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      let rpcSuccess = false;
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc('heal_erroneous_advances_rpc', {
+          p_org_id: targetOrg || null,
+          p_target_date: '2026-10-01'
+        });
+        if (!rpcErr && rpcRes?.success) {
+          rpcSuccess = true;
+          showToast(`تم استعادة ${rpcRes.restored_count || ''} سلفة لشهر أكتوبر بنجاح وإعادتها كـ [قائمة] 🔄✅`, 'success');
+        }
+      } catch (e) {
+        // Fallback below
+      }
+
+      if (!rpcSuccess) {
+        let q = supabase
+          .from('employee_advances')
+          .update({ status: 'paid', payroll_item_id: null })
+          .eq('status', 'deducted')
+          .gte('request_date', '2026-10-01');
+        if (targetOrg) q = q.eq('organization_id', targetOrg);
+        const { error: updErr } = await q;
+        if (updErr) throw updErr;
+        showToast('تم تصحيح واستعادة سلف شهر أكتوبر بنجاح إلى [قائمة] 🔄✅', 'success');
+      }
+
+      await checkWronglyDeductedAdvances();
+      if (selectedMonth === 10) {
+        await preparePayroll();
+      } else {
+        await fetchExistingPayroll(selectedMonth, selectedYear);
+      }
+    } catch (err: unknown) {
+      logger.error('Failed healing advances:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('حدث خطأ أثناء استعادة السلف: ' + msg, 'error');
+    } finally {
+      setHealingLoading(false);
+    }
+  };
+
   useEffect(() => {
-    setAccrualDate(getLastDayOfMonth(selectedYear, selectedMonth));
+    const endOfMonth = getLastDayOfMonth(selectedYear, selectedMonth);
+    setAccrualDate(endOfMonth);
     fetchExistingPayroll(selectedMonth, selectedYear);
+    checkWronglyDeductedAdvances();
   }, [selectedMonth, selectedYear, currentSelectedOrgId, currentUser]);
 
   const preparePayroll = async () => {
@@ -246,6 +338,13 @@ const PayrollRun = () => {
         return d === 'المصنع' || d === 'مصنع' || d === 'factory';
       };
 
+      // جلب معرفات بنود المسير الحالي إن وُجد
+      let currentPayrollItemIds: string[] = [];
+      if (existingPayroll?.id) {
+        const { data: exItems } = await supabase.from('payroll_items').select('id').eq('payroll_id', existingPayroll.id);
+        if (exItems) currentPayrollItemIds = exItems.map((i: { id: string }) => i.id);
+      }
+
       // 🚀 جلب البيانات بالتوازي مع ضمان التجزئة الكاملة (fetchCompleteDataset) لمنع سقف 1000 سجل
       const [rawEmployees, advances, approvedLeaves, attendanceLogs, penaltiesRewards] = await Promise.all([
         fetchCompleteDataset<any>(async (from, to) => {
@@ -259,7 +358,7 @@ const PayrollRun = () => {
           return q.range(from, to);
         }),
         fetchCompleteDataset<any>(async (from, to) => {
-          let q = supabase.from('employee_advances').select('*').eq('status', 'paid').is('payroll_item_id', null).order('id', { ascending: true });
+          let q = supabase.from('employee_advances').select('*').order('id', { ascending: true });
           if (targetOrg) q = q.eq('organization_id', targetOrg);
           return q.range(from, to);
         }),
@@ -291,7 +390,12 @@ const PayrollRun = () => {
         const empAdvances = advances.filter(adv => {
           if (adv.employee_id !== emp.id) return false;
           const advDate = (adv.request_date || adv.advance_date || adv.date || (adv.created_at ? adv.created_at.split('T')[0] : '')).trim();
-          return advDate <= monthEndStr;
+          // 🛡️ شرط صارم: منع خصم أي سلفة تاريخها يتجاوز نهاية شهر المسير المحدد
+          if (advDate > monthEndStr) return false;
+          // مؤهلة إذا كانت غير مخصومة أو مخصومة في نفس هذا المسير الحالي المعاد احتسابه
+          const isEligible = (adv.status === 'paid' && !adv.payroll_item_id) ||
+            (existingPayroll && currentPayrollItemIds.includes(adv.payroll_item_id));
+          return isEligible;
         });
         const totalAdvances = empAdvances.reduce((sum, adv) => sum + Number(adv.amount || 0), 0);
 
@@ -1010,7 +1114,13 @@ const PayrollRun = () => {
             </label>
             <select
               value={selectedMonth}
-              onChange={e => setSelectedMonth(Number(e.target.value))}
+              onChange={e => {
+                const newMonth = Number(e.target.value);
+                setSelectedMonth(newMonth);
+                const endOfMonth = getLastDayOfMonth(selectedYear, newMonth);
+                setAccrualDate(endOfMonth);
+                setPaymentDate(endOfMonth);
+              }}
               className="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-bold text-slate-800 bg-white outline-none focus:ring-2 focus:ring-blue-500"
             >
               {[
@@ -1054,6 +1164,11 @@ const PayrollRun = () => {
               onChange={e => setPaymentDate(e.target.value)}
               className="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-bold font-mono text-slate-800 bg-white outline-none focus:ring-2 focus:ring-blue-500"
             />
+            {paymentDate && !paymentDate.startsWith(`${selectedYear}-${String(selectedMonth).padStart(2, '0')}`) && (
+              <span className="text-[10px] text-amber-600 font-bold block mt-1">
+                ⚠️ تاريخ الصرف يختلف عن شهر المسير ({selectedMonth}/{selectedYear})
+              </span>
+            )}
           </div>
 
           <div>
@@ -1117,6 +1232,37 @@ const PayrollRun = () => {
           </div>
         </div>
       </div>
+
+      {/* Recovery Banner for Wrongly Deducted Advances */}
+      {wronglyDeductedCount > 0 && (
+        <div className="bg-rose-50 border border-rose-300 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700 shrink-0">
+              <ShieldAlert className="w-5 h-5 text-rose-600" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-rose-950 text-sm">تنبيه حرج: رصد سلف تخص شهر أكتوبر وما بعده وُسمت بـ (تم الخصم)</span>
+                <span className="bg-rose-200 text-rose-900 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-rose-300">
+                  {wronglyDeductedCount} سلفة متأثرة
+                </span>
+              </div>
+              <p className="text-xs text-rose-700 mt-0.5">
+                قام النظام بخصم سلف شهر أكتوبر بالخطأ عند تنفيذ قيد الصرف لسبتمبر. اضغط على الزر لاستعادتها فوراً لتصبح قائمة بمسير أكتوبر.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleHealAdvances}
+            disabled={healingLoading}
+            className="bg-rose-600 hover:bg-rose-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-md shadow-rose-600/20 transition active:scale-95 shrink-0"
+          >
+            {healingLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+            <span>استعادة سلف أكتوبر كـ (قائمة) الآن 🔄</span>
+          </button>
+        </div>
+      )}
 
       {/* Status Alert Banner */}
       {existingPayroll?.status === 'accrued' && (
