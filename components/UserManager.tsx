@@ -530,24 +530,48 @@ const UserManager = () => {
     }
     setResetting(true);
     try {
-        let error;
+        let error: { message?: string } | null = null;
 
-        // إذا كان المستخدم يقوم بتغيير كلمة المرور الخاصة به، نستخدم دالة التحديث المباشرة (لا تتطلب Edge Function)
+        // إذا كان المستخدم يقوم بتغيير كلمة المرور الخاصة به، نستخدم دالة التحديث المباشرة
         if (currentUser?.id === resetPasswordData.userId) {
             const { error: updateError } = await supabase.auth.updateUser({ password: resetPasswordData.newPassword });
             error = updateError;
         } else {
-            // للمستخدمين الآخرين، نستخدم Edge Function
-            const { error: funcError } = await supabase.functions.invoke('reset-password', {
-                body: { userId: resetPasswordData.userId, newPassword: resetPasswordData.newPassword }
-            });
-            error = funcError;
+            // 🚀 الخطوة 1: المحاولة عبر دالة قاعدة البيانات المباشرة (RPC) لتجاوز أخطاء CORS وEdge Function
+            let rpcHandled = false;
+            try {
+                const { data: rpcRes, error: rpcErr } = await supabase.rpc('admin_reset_user_password', {
+                    p_user_id: resetPasswordData.userId,
+                    p_new_password: resetPasswordData.newPassword
+                });
+
+                if (!rpcErr && rpcRes) {
+                    rpcHandled = true;
+                    if (rpcRes.success === false) {
+                        throw new Error(rpcRes.message || 'فشل تحديث كلمة المرور');
+                    }
+                }
+            } catch (rpcEx: unknown) {
+                const rpcExErr = rpcEx as { message?: string };
+                // إذا كان الخطأ أن الدالة غير موجودة بعد على السيرفر ننتقل للبديل، أما لو خطأ تحقق فنرميه
+                if (!rpcExErr?.message?.includes('function') && !rpcExErr?.message?.includes('does not exist')) {
+                    throw rpcExErr;
+                }
+            }
+
+            // 🚀 الخطوة 2: إذا لم تكن دالة الـ RPC منشأة بعد، نلجأ إلى Edge Function كخيار بديل
+            if (!rpcHandled) {
+                const { error: funcError } = await supabase.functions.invoke('reset-password', {
+                    body: { userId: resetPasswordData.userId, newPassword: resetPasswordData.newPassword }
+                });
+                error = funcError;
+            }
         }
 
         if (error) {
-            // إذا كان الخطأ متعلق بالسياسة الأمنية CORS
-            if (error.message?.includes('fetch')) {
-                throw new Error('فشل الاتصال بالخادم (CORS Error). يرجى التأكد من إعدادات الـ Edge Function.');
+            // إذا كان الخطأ متعلق بالسياسة الأمنية CORS أو عدم توفر Edge Function
+            if (error.message?.includes('fetch') || error.message?.includes('CORS') || error.message?.includes('Preflight')) {
+                throw new Error('خدمة Edge Function غير منشورة على السيرفر. يرجى تنفيذ ملف SQL (admin_reset_user_password) في Supabase، أو تغيير كلمة المرور مباشرة من لوحة تحكم Supabase > Authentication.');
             }
             throw error;
         }
