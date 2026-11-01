@@ -5,8 +5,16 @@
 --   1. تمكين المدير العام ومدير النظام من تغيير كلمة مرور أي مستخدم فوراً
 --   2. تفادي مشاكل CORS وأخطاء خوادم Edge Functions غير المرفوعة
 --   3. حماية أمنية مشددة: التحقق من المنظمة ومنع التعديل على السوبر أدمن
+--   4. منع التعليق (Timeout Protection) بضبط مهلة 15 ثانية كحد أقصى
 -- ==============================================================================
 
+-- 1. فك أي قفل معلق أو جلسة مفتوحة تمنع التعديل
+SELECT pg_terminate_backend(pid) 
+FROM pg_stat_activity 
+WHERE state = 'idle in transaction' 
+  AND pid <> pg_backend_pid();
+
+-- 2. إنشاء / تحديث الدالة
 CREATE OR REPLACE FUNCTION public.admin_reset_user_password(
     p_user_id uuid,
     p_new_password text
@@ -14,6 +22,7 @@ CREATE OR REPLACE FUNCTION public.admin_reset_user_password(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET statement_timeout = '15s'
 SET search_path = public, auth, extensions
 AS $$
 DECLARE
@@ -78,5 +87,4 @@ BEGIN
 END;
 $$;
 
--- منح صلاحية التشغيل للمستخدمين المسجلين
 GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authenticated;

@@ -537,34 +537,26 @@ const UserManager = () => {
             const { error: updateError } = await supabase.auth.updateUser({ password: resetPasswordData.newPassword });
             error = updateError;
         } else {
-            // 🚀 الخطوة 1: المحاولة عبر دالة قاعدة البيانات المباشرة (RPC) لتجاوز أخطاء CORS وEdge Function
-            let rpcHandled = false;
-            try {
-                const { data: rpcRes, error: rpcErr } = await supabase.rpc('admin_reset_user_password', {
-                    p_user_id: resetPasswordData.userId,
-                    p_new_password: resetPasswordData.newPassword
-                });
+            // 🚀 تنفيذ دالة إعادة التعيين المباشرة والآمنة بقاعدة البيانات (RPC)
+            const { data: rpcRes, error: rpcErr } = await supabase.rpc('admin_reset_user_password', {
+                p_user_id: resetPasswordData.userId,
+                p_new_password: resetPasswordData.newPassword
+            });
 
-                if (!rpcErr && rpcRes) {
-                    rpcHandled = true;
-                    if (rpcRes.success === false) {
-                        throw new Error(rpcRes.message || 'فشل تحديث كلمة المرور');
-                    }
+            if (rpcErr) {
+                // إذا كانت الدالة غير موجودة إطلاقاً على السيرفر، نحاول كحل بديل أخير عبر Edge Function
+                if (rpcErr.code === 'PGRST202' || rpcErr.message?.includes('not found') || rpcErr.message?.includes('does not exist')) {
+                    const { error: funcError } = await supabase.functions.invoke('reset-password', {
+                        body: { userId: resetPasswordData.userId, newPassword: resetPasswordData.newPassword }
+                    });
+                    error = funcError;
+                } else {
+                    error = rpcErr;
                 }
-            } catch (rpcEx: unknown) {
-                const rpcExErr = rpcEx as { message?: string };
-                // إذا كان الخطأ أن الدالة غير موجودة بعد على السيرفر ننتقل للبديل، أما لو خطأ تحقق فنرميه
-                if (!rpcExErr?.message?.includes('function') && !rpcExErr?.message?.includes('does not exist')) {
-                    throw rpcExErr;
+            } else if (rpcRes) {
+                if (rpcRes.success === false) {
+                    throw new Error(rpcRes.message || 'فشل تحديث كلمة المرور');
                 }
-            }
-
-            // 🚀 الخطوة 2: إذا لم تكن دالة الـ RPC منشأة بعد، نلجأ إلى Edge Function كخيار بديل
-            if (!rpcHandled) {
-                const { error: funcError } = await supabase.functions.invoke('reset-password', {
-                    body: { userId: resetPasswordData.userId, newPassword: resetPasswordData.newPassword }
-                });
-                error = funcError;
             }
         }
 
