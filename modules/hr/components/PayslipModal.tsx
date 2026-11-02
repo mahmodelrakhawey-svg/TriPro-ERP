@@ -1,17 +1,22 @@
-import React from 'react';
-import { Printer, X, Download, Banknote, Building2, User, Calendar, ShieldCheck } from 'lucide-react';
+import React, { useState } from 'react';
+import { useToast } from '../../../context/ToastContext';
+import { Printer, X, Banknote, Building2, User, Calendar, ShieldCheck, MessageCircle, Share2, Copy } from 'lucide-react';
 
 export interface PayslipData {
   employee_name: string;
   employee_code?: string;
   department?: string;
   job_title?: string;
+  phone?: string;
   month: number;
   year: number;
   gross_salary: number;
+  effective_days?: number;
+  effective_salary?: number;
   additions: number;
   advances_deducted: number;
   payroll_tax: number;
+  social_insurance?: number;
   other_deductions: number;
   net_salary: number;
   unpaid_leave_days?: number;
@@ -31,6 +36,8 @@ interface PayslipModalProps {
 }
 
 export const PayslipModal: React.FC<PayslipModalProps> = ({ data, onClose }) => {
+  const { showToast } = useToast();
+  const [copied, setCopied] = useState(false);
   const handlePrint = () => {
     window.print();
   };
@@ -40,17 +47,78 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({ data, onClose }) => 
     'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'
   ];
 
+  const earnedBase = data.effective_salary ?? data.gross_salary;
+  const isPartialMonth = (data.effective_days ?? 30) < 30;
+
+  // توليد نص مفردات الراتب لإرساله عبر الواتساب أو نسخه
+  const generateTextMessage = () => {
+    const lines = [
+      `🏢 *${data.company_name || 'شركة TriPro ERP'}*`,
+      `📄 *قسيمة مفردات الراتب (Payslip)*`,
+      `📅 *شهر:* ${monthNames[data.month - 1]} ${data.year}`,
+      `👤 *الموظف:* ${data.employee_name}`,
+      `🏢 *القسم / الفرع:* ${data.department || 'الرئيسي'}`,
+      `---------------------------------`,
+      `💵 *الراتب الأساسي:* ${data.gross_salary.toLocaleString()} ج.م`,
+      ...(isPartialMonth ? [`⏱️ *أيام العمل الفعلية:* ${data.effective_days} يوم (المستحق: ${earnedBase.toLocaleString()} ج.م)`] : []),
+      `➕ *إضافي ومكافآت:* +${data.additions.toLocaleString()} ج.م`,
+      `---------------------------------`,
+      ...(data.advances_deducted > 0 ? [`➖ *سلف مستقطعة:* -${data.advances_deducted.toLocaleString()} ج.م`] : []),
+      ...(data.absence_days && data.absence_days > 0 ? [`➖ *خصم غياب (${data.absence_days} يوم):* -${(data.absence_deduction || 0).toLocaleString()} ج.م`] : []),
+      ...(data.late_minutes && data.late_minutes > 0 ? [`➖ *خصم تأخير (${data.late_minutes} دقيقة):* -${(data.late_deduction || 0).toLocaleString()} ج.م`] : []),
+      ...(data.penalty_amount && data.penalty_amount > 0 ? [`➖ *جزاءات إدارية:* -${data.penalty_amount.toLocaleString()} ج.م`] : []),
+      ...(data.social_insurance && data.social_insurance > 0 ? [`➖ *تأمينات اجتماعية:* -${data.social_insurance.toLocaleString()} ج.م`] : []),
+      ...(data.payroll_tax > 0 ? [`➖ *ضريبة كسب عمل:* -${data.payroll_tax.toLocaleString()} ج.م`] : []),
+      `---------------------------------`,
+      `💰 *صافي الراتب المستحق للصرف:* *${data.net_salary.toLocaleString()} ج.م*`,
+      `---------------------------------`,
+      `✅ مع تحيات إدارة الموارد البشرية والمالية`
+    ];
+    return lines.join('\n');
+  };
+
+  const handleShareWhatsApp = () => {
+    const text = encodeURIComponent(generateTextMessage());
+    const phone = data.phone ? data.phone.replace(/[^0-9]/g, '') : '';
+    const url = phone ? `https://wa.me/${phone}?text=${text}` : `https://api.whatsapp.com/send?text=${text}`;
+    window.open(url, '_blank');
+  };
+
+  const handleCopyText = () => {
+    navigator.clipboard.writeText(generateTextMessage());
+    setCopied(true);
+    showToast('تم نسخ مفردات الراتب بنجاح! يمكنك لصقها الآن في أي محادثة.', 'success');
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden p-6 md:p-8 space-y-6 text-right print:shadow-none print:border-none print:m-0 print:p-0">
         {/* Actions (Hidden in Print) */}
-        <div className="flex justify-between items-center border-b pb-4 print:hidden">
-          <div className="flex items-center gap-2">
+        <div className="flex justify-between items-center border-b pb-4 print:hidden flex-wrap gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <button
               onClick={handlePrint}
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow transition"
+              title="طباعة قسيمة الراتب"
             >
-              <Printer className="w-4 h-4" /> طباعة مفردات المرتب
+              <Printer className="w-4 h-4" /> طباعة القسيمة
+            </button>
+
+            <button
+              onClick={handleShareWhatsApp}
+              className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow transition"
+              title="إرسال كشف الراتب للموظف عبر WhatsApp"
+            >
+              <MessageCircle className="w-4 h-4" /> إرسال WhatsApp
+            </button>
+
+            <button
+              onClick={handleCopyText}
+              className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-slate-200 transition"
+              title="نسخ مفردات الراتب كنص"
+            >
+              <Copy className="w-4 h-4" /> {copied ? 'تم النسخ!' : 'نسخ'}
             </button>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
@@ -76,7 +144,7 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({ data, onClose }) => 
           </div>
 
           {/* Employee Details Grid */}
-          <div className="grid grid-cols-2 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
             <div>
               <span className="text-slate-400 block text-[10px]">اسم الموظف:</span>
               <span className="font-bold text-sm text-slate-900">{data.employee_name}</span>
@@ -84,6 +152,12 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({ data, onClose }) => 
             <div>
               <span className="text-slate-400 block text-[10px]">المسمى الوظيفي / القسم:</span>
               <span className="font-bold text-slate-800">{data.job_title || 'موظف بالشركة'} - {data.department || 'القسم الإداري'}</span>
+            </div>
+            <div>
+              <span className="text-slate-400 block text-[10px]">أيام العمل المحتسبة:</span>
+              <span className={`font-bold font-mono ${isPartialMonth ? 'text-amber-700' : 'text-slate-700'}`}>
+                {data.effective_days ?? 30} يوماً {isPartialMonth && '(تعيين/إيقاف خلال الشهر)'}
+              </span>
             </div>
           </div>
 
@@ -96,16 +170,22 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({ data, onClose }) => 
               </h4>
               <div className="space-y-1.5 text-xs">
                 <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
-                  <span className="text-slate-600">الراتب الأساسي:</span>
+                  <span className="text-slate-600">الراتب الأساسي التعاقدي:</span>
                   <span className="font-mono font-bold">{data.gross_salary.toLocaleString()} ج.م</span>
                 </div>
+                {isPartialMonth && (
+                  <div className="flex justify-between py-1 border-b border-slate-100 font-medium text-amber-800 bg-amber-50/50 px-1 rounded">
+                    <span>المستحق الفعلي ({data.effective_days} يوم):</span>
+                    <span className="font-mono font-bold">{earnedBase.toLocaleString()} ج.م</span>
+                  </div>
+                )}
                 <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
                   <span className="text-slate-600">إضافي ومكافآت:</span>
                   <span className="font-mono font-bold text-emerald-600">+{data.additions.toLocaleString()} ج.م</span>
                 </div>
                 <div className="flex justify-between py-1.5 font-bold text-slate-900 bg-slate-50 px-2 rounded">
                   <span>إجمالي الاستحقاقات:</span>
-                  <span className="font-mono text-emerald-700">{(data.gross_salary + data.additions).toLocaleString()} ج.م</span>
+                  <span className="font-mono text-emerald-700">{(earnedBase + data.additions).toLocaleString()} ج.م</span>
                 </div>
               </div>
             </div>
@@ -116,10 +196,12 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({ data, onClose }) => 
                 2. الاستقطاعات والخصومات (-)
               </h4>
               <div className="space-y-1.5 text-xs">
-                <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
-                  <span className="text-slate-600">سلف مستقطعة:</span>
-                  <span className="font-mono text-rose-600">-{data.advances_deducted.toLocaleString()} ج.م</span>
-                </div>
+                {data.advances_deducted > 0 && (
+                  <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
+                    <span className="text-slate-600">سلف مستقطعة:</span>
+                    <span className="font-mono text-rose-600">-{data.advances_deducted.toLocaleString()} ج.م</span>
+                  </div>
+                )}
                 {data.absence_days && data.absence_days > 0 ? (
                   <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
                     <span className="text-slate-600">خصم غياب ({data.absence_days} يوم):</span>
@@ -144,20 +226,28 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({ data, onClose }) => 
                     <span className="font-mono text-rose-600">-{data.penalty_amount.toLocaleString()} ج.م</span>
                   </div>
                 ) : null}
+                {data.social_insurance && data.social_insurance > 0 ? (
+                  <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
+                    <span className="text-slate-600">تأمينات اجتماعية:</span>
+                    <span className="font-mono text-rose-600">-{data.social_insurance.toLocaleString()} ج.م</span>
+                  </div>
+                ) : null}
+                {data.payroll_tax > 0 && (
+                  <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
+                    <span className="text-slate-600">ضريبة كسب العمل:</span>
+                    <span className="font-mono text-slate-700">-{data.payroll_tax.toLocaleString()} ج.م</span>
+                  </div>
+                )}
                 {!data.absence_days && !data.late_minutes && !data.unpaid_leave_days && !data.penalty_amount && data.other_deductions > 0 ? (
                   <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
-                    <span className="text-slate-600">خصومات وجزاءات أخرى:</span>
+                    <span className="text-slate-600">خصومات أخرى:</span>
                     <span className="font-mono text-rose-600">-{data.other_deductions.toLocaleString()} ج.م</span>
                   </div>
                 ) : null}
-                <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
-                  <span className="text-slate-600">ضريبة كسب العمل:</span>
-                  <span className="font-mono text-slate-700">-{data.payroll_tax.toLocaleString()} ج.م</span>
-                </div>
                 <div className="flex justify-between py-1.5 font-bold text-slate-900 bg-slate-50 px-2 rounded">
                   <span>إجمالي الاستقطاعات:</span>
                   <span className="font-mono text-rose-700">
-                    -{(data.advances_deducted + data.other_deductions + data.payroll_tax).toLocaleString()} ج.م
+                    -{(data.advances_deducted + data.other_deductions + data.payroll_tax + (data.social_insurance || 0)).toLocaleString()} ج.م
                   </span>
                 </div>
               </div>

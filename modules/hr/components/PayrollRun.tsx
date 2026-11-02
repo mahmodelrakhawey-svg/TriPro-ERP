@@ -44,6 +44,9 @@ type PayrollItem = {
   full_name: string;
   department?: string;
   gross_salary: number;
+  // الأيام الفعلية والراتب المحسوب بناءً على تاريخ التعيين/الإيقاف/انتهاء الخدمة
+  effective_days: number;
+  effective_salary: number;
   overtime_hours: number;
   overtime_pay: number;
   reward_amount: number;
@@ -58,6 +61,8 @@ type PayrollItem = {
   other_deductions: number;
   advances_deducted: number;
   payroll_tax: number;
+  social_insurance?: number;
+  phone?: string;
   net_salary: number;
   advances_ids: string[];
 };
@@ -207,6 +212,8 @@ const PayrollRun = () => {
             additions: Number(it.additions || 0),
             advances_deducted: Number(it.advances_deducted || 0),
             payroll_tax: Number(it.payroll_tax || 0),
+            social_insurance: Number(it.social_insurance || 0),
+            phone: it.employees?.phone || undefined,
             other_deductions: Number(it.other_deductions || 0),
             net_salary: Number(it.net_salary || 0),
             advances_ids: linkedAdvancesByEmp[it.employee_id] || [],
@@ -216,7 +223,10 @@ const PayrollRun = () => {
             absence_deduction: Number(it.absence_deduction || 0),
             late_minutes: Number(it.late_minutes || 0),
             late_deduction: Number(it.late_deduction || 0),
-            penalty_amount: Number(it.penalty_amount || 0)
+            penalty_amount: Number(it.penalty_amount || 0),
+            // ✅ قيم الأيام الفعلية من السجل المحفوظ (أو المحسوبة من gross_salary إذا لم تُحفظ بعد)
+            effective_days: Number(it.effective_days || 30),
+            effective_salary: Number(it.effective_salary || it.net_salary || 0)
           }));
           setPayrollData(mappedItems);
         }
@@ -348,7 +358,14 @@ const PayrollRun = () => {
       // 🚀 جلب البيانات بالتوازي مع ضمان التجزئة الكاملة (fetchCompleteDataset) لمنع سقف 1000 سجل
       const [rawEmployees, advances, approvedLeaves, attendanceLogs, penaltiesRewards] = await Promise.all([
         fetchCompleteDataset<any>(async (from, to) => {
-          let q = supabase.from('employees').select('*').eq('status', 'active').order('id', { ascending: true });
+          // ✅ جلب النشطين + من تحولوا لغير نشط أو انتهت خدمتهم خلال شهر المسير
+          let q = supabase
+            .from('employees')
+            .select('*')
+            .or(
+              `status.eq.active,and(status.in.(inactive,terminated,resigned),termination_date.gte.${monthStartStr})`
+            )
+            .order('id', { ascending: true });
           if (targetOrg) q = q.eq('organization_id', targetOrg);
           if (hrScope === 'factory') {
             q = q.in('department', ['المصنع', 'مصنع']);
@@ -381,10 +398,36 @@ const PayrollRun = () => {
           ? rawEmployees.filter((e: Record<string, unknown>) => !isFactoryDept(e.department))
           : rawEmployees;
 
+
+      // ✅ دالة مساعدة: حساب الأيام الفعلية للموظف في الشهر
+      // تأخذ في الاعتبار: تاريخ التعيين، تاريخ انتهاء الخدمة، وتغييرات الحالة
+      const calcEffectiveWorkDays = (e: Record<string, any>): number => {
+        // بداية العمل الفعلية: إما أول الشهر أو تاريخ التعيين أيهما أحدث
+        const hireRaw = e.hire_date ? String(e.hire_date).slice(0, 10) : monthStartStr;
+        const effectiveStart = hireRaw > monthStartStr ? hireRaw : monthStartStr;
+
+        // نهاية العمل الفعلية: آخر يوم عمل أو تاريخ انتهاء الخدمة أو نهاية الشهر
+        const terminationRaw =
+          (e.termination_date ? String(e.termination_date).slice(0, 10) : null) ||
+          (e.last_working_date ? String(e.last_working_date).slice(0, 10) : null) ||
+          (e.inactive_date ? String(e.inactive_date).slice(0, 10) : null) ||
+          monthEndStr;
+        const effectiveEnd = terminationRaw < monthEndStr ? terminationRaw : monthEndStr;
+
+        if (effectiveStart > effectiveEnd) return 0;
+        const msPerDay = 1000 * 60 * 60 * 24;
+        return Math.round((new Date(effectiveEnd).getTime() - new Date(effectiveStart).getTime()) / msPerDay) + 1;
+      };
+
       const preparedData: PayrollItem[] = employees.map(emp => {
         const basicSalary = Number(emp.basic_salary || 0);
         const dailyRate = basicSalary > 0 ? basicSalary / 30 : 0;
         const hourlyRate = dailyRate > 0 ? dailyRate / 8 : 0;
+
+        // ✅ حساب الأيام الفعلية بناءً على تاريخ التعيين، انتهاء الخدمة، أو الإيقاف المؤقت
+        const effectiveDays = calcEffectiveWorkDays(emp);
+        // الراتب المستحق فعلاً = (الراتب الأساسي / 30) × أيام العمل الفعلية
+        const effectiveSalary = Math.round(effectiveDays * dailyRate * 100) / 100;
 
         // أ) السلف غير المخصومة لشهر المسير وما قبله (حتى نهاية شهر المسير المحدد فقط)
         const empAdvances = advances.filter(adv => {
@@ -487,18 +530,25 @@ const PayrollRun = () => {
         const otherDeductions = Math.round((unpaidLeaveDeduction + absenceDeduction + lateDeduction + totalPenaltyAmount) * 100) / 100;
 
         // و) ضريبة كسب العمل التقديرية (افتراضياً 0 أو حسب الإعدادات)
+        const socialInsurance = Number(emp.social_insurance || emp.insurance_amount || 0);
         const payrollTax = 0;
 
-        const netSalary = Math.max(0, Math.round((basicSalary + additions - totalAdvances - otherDeductions - payrollTax) * 100) / 100);
+        // ✅ الصافي يعتمد على effectiveSalary (الراتب المستحق فعلاً) لا basicSalary الكامل
+        const netSalary = Math.max(0, Math.round((effectiveSalary + additions - totalAdvances - otherDeductions - payrollTax - socialInsurance) * 100) / 100);
 
         return {
           employee_id: emp.id,
           full_name: emp.full_name,
           department: emp.department || '-',
           gross_salary: basicSalary,
+          // ✅ الأيام والراتب الفعلي — مراعاةً لتاريخ التعيين/الإيقاف/انتهاء الخدمة
+          effective_days: effectiveDays,
+          effective_salary: effectiveSalary,
           additions,
           advances_deducted: totalAdvances,
           payroll_tax: payrollTax,
+          social_insurance: socialInsurance,
+          phone: emp.phone || undefined,
           other_deductions: otherDeductions,
           net_salary: netSalary,
           advances_ids: empAdvances.map(a => a.id),
@@ -529,8 +579,10 @@ const PayrollRun = () => {
     setPayrollData(prev => prev.map(emp => {
       if (emp.employee_id === employeeId) {
         const val = Number(value) || 0;
-        const newNet = Math.max(0, val + emp.additions - emp.advances_deducted - emp.other_deductions - emp.payroll_tax);
-        return { ...emp, gross_salary: val, net_salary: Math.round(newNet * 100) / 100 };
+        const days = emp.effective_days ?? 30;
+        const effectiveSal = Math.round((val / 30) * days * 100) / 100;
+        const newNet = Math.max(0, effectiveSal + emp.additions - emp.advances_deducted - emp.other_deductions - emp.payroll_tax);
+        return { ...emp, gross_salary: val, effective_salary: effectiveSal, net_salary: Math.round(newNet * 100) / 100 };
       }
       return emp;
     }));
@@ -541,7 +593,8 @@ const PayrollRun = () => {
       if (emp.employee_id === employeeId) {
         const val = Number(value) || 0;
         const newAdditions = Math.round((val + (emp.reward_amount || 0)) * 100) / 100;
-        const newNet = Math.max(0, emp.gross_salary + newAdditions - emp.advances_deducted - emp.other_deductions - emp.payroll_tax);
+        const baseSal = emp.effective_salary ?? emp.gross_salary;
+        const newNet = Math.max(0, baseSal + newAdditions - emp.advances_deducted - emp.other_deductions - emp.payroll_tax);
         return { ...emp, overtime_pay: val, additions: newAdditions, net_salary: Math.round(newNet * 100) / 100 };
       }
       return emp;
@@ -553,7 +606,8 @@ const PayrollRun = () => {
       if (emp.employee_id === employeeId) {
         const val = Number(value) || 0;
         const newAdditions = Math.round(((emp.overtime_pay || 0) + val) * 100) / 100;
-        const newNet = Math.max(0, emp.gross_salary + newAdditions - emp.advances_deducted - emp.other_deductions - emp.payroll_tax);
+        const baseSal = emp.effective_salary ?? emp.gross_salary;
+        const newNet = Math.max(0, baseSal + newAdditions - emp.advances_deducted - emp.other_deductions - emp.payroll_tax);
         return { ...emp, reward_amount: val, additions: newAdditions, net_salary: Math.round(newNet * 100) / 100 };
       }
       return emp;
@@ -564,7 +618,8 @@ const PayrollRun = () => {
     setPayrollData(prev => prev.map(emp => {
       if (emp.employee_id === employeeId) {
         const val = Number(value) || 0;
-        const newNet = Math.max(0, emp.gross_salary + val - emp.advances_deducted - emp.other_deductions - emp.payroll_tax);
+        const baseSal = emp.effective_salary ?? emp.gross_salary;
+        const newNet = Math.max(0, baseSal + val - emp.advances_deducted - emp.other_deductions - emp.payroll_tax);
         return { ...emp, additions: val, net_salary: Math.round(newNet * 100) / 100 };
       }
       return emp;
@@ -578,7 +633,8 @@ const PayrollRun = () => {
         const dailyRate = emp.gross_salary > 0 ? emp.gross_salary / 30 : 0;
         const newDeduction = Math.round(d * dailyRate * 100) / 100;
         const newOtherDeductions = Math.round((newDeduction + (emp.late_deduction || 0) + (emp.penalty_amount || 0) + (emp.unpaid_leave_deduction || 0)) * 100) / 100;
-        const newNet = Math.max(0, emp.gross_salary + emp.additions - emp.advances_deducted - newOtherDeductions - emp.payroll_tax);
+        const baseSal = emp.effective_salary ?? emp.gross_salary;
+        const newNet = Math.max(0, baseSal + emp.additions - emp.advances_deducted - newOtherDeductions - emp.payroll_tax);
         return {
           ...emp,
           absence_days: d,
@@ -598,7 +654,8 @@ const PayrollRun = () => {
         const dailyRate = emp.gross_salary > 0 ? emp.gross_salary / 30 : 0;
         const updatedDays = dailyRate > 0 ? Math.round((val / dailyRate) * 10) / 10 : emp.absence_days;
         const newOtherDeductions = Math.round((val + (emp.late_deduction || 0) + (emp.penalty_amount || 0) + (emp.unpaid_leave_deduction || 0)) * 100) / 100;
-        const newNet = Math.max(0, emp.gross_salary + emp.additions - emp.advances_deducted - newOtherDeductions - emp.payroll_tax);
+        const baseSal = emp.effective_salary ?? emp.gross_salary;
+        const newNet = Math.max(0, baseSal + emp.additions - emp.advances_deducted - newOtherDeductions - emp.payroll_tax);
         return { 
           ...emp, 
           absence_days: updatedDays,
@@ -616,7 +673,8 @@ const PayrollRun = () => {
       if (emp.employee_id === employeeId) {
         const val = Number(value) || 0;
         const newOtherDeductions = Math.round(((emp.absence_deduction || 0) + val + (emp.penalty_amount || 0) + (emp.unpaid_leave_deduction || 0)) * 100) / 100;
-        const newNet = Math.max(0, emp.gross_salary + emp.additions - emp.advances_deducted - newOtherDeductions - emp.payroll_tax);
+        const baseSal = emp.effective_salary ?? emp.gross_salary;
+        const newNet = Math.max(0, baseSal + emp.additions - emp.advances_deducted - newOtherDeductions - emp.payroll_tax);
         return { ...emp, late_deduction: val, other_deductions: newOtherDeductions, net_salary: Math.round(newNet * 100) / 100 };
       }
       return emp;
@@ -628,7 +686,8 @@ const PayrollRun = () => {
       if (emp.employee_id === employeeId) {
         const val = Number(value) || 0;
         const newOtherDeductions = Math.round(((emp.absence_deduction || 0) + (emp.late_deduction || 0) + val + (emp.unpaid_leave_deduction || 0)) * 100) / 100;
-        const newNet = Math.max(0, emp.gross_salary + emp.additions - emp.advances_deducted - newOtherDeductions - emp.payroll_tax);
+        const baseSal = emp.effective_salary ?? emp.gross_salary;
+        const newNet = Math.max(0, baseSal + emp.additions - emp.advances_deducted - newOtherDeductions - emp.payroll_tax);
         return { ...emp, penalty_amount: val, other_deductions: newOtherDeductions, net_salary: Math.round(newNet * 100) / 100 };
       }
       return emp;
@@ -640,7 +699,8 @@ const PayrollRun = () => {
       if (emp.employee_id === employeeId) {
         const val = Number(value) || 0;
         const newOtherDeductions = Math.round(((emp.absence_deduction || 0) + (emp.late_deduction || 0) + (emp.penalty_amount || 0) + val) * 100) / 100;
-        const newNet = Math.max(0, emp.gross_salary + emp.additions - emp.advances_deducted - newOtherDeductions - emp.payroll_tax);
+        const baseSal = emp.effective_salary ?? emp.gross_salary;
+        const newNet = Math.max(0, baseSal + emp.additions - emp.advances_deducted - newOtherDeductions - emp.payroll_tax);
         return { ...emp, unpaid_leave_deduction: val, other_deductions: newOtherDeductions, net_salary: Math.round(newNet * 100) / 100 };
       }
       return emp;
@@ -651,7 +711,8 @@ const PayrollRun = () => {
     setPayrollData(prev => prev.map(emp => {
       if (emp.employee_id === employeeId) {
         const val = Number(value) || 0;
-        const newNet = Math.max(0, emp.gross_salary + emp.additions - emp.advances_deducted - val - emp.payroll_tax);
+        const baseSal = emp.effective_salary ?? emp.gross_salary;
+        const newNet = Math.max(0, baseSal + emp.additions - emp.advances_deducted - val - emp.payroll_tax);
         return { ...emp, other_deductions: val, net_salary: Math.round(newNet * 100) / 100 };
       }
       return emp;
@@ -662,7 +723,8 @@ const PayrollRun = () => {
     setPayrollData(prev => prev.map(emp => {
       if (emp.employee_id === employeeId) {
         const val = Number(value) || 0;
-        const newNet = Math.max(0, emp.gross_salary + emp.additions - emp.advances_deducted - emp.other_deductions - val);
+        const baseSal = emp.effective_salary ?? emp.gross_salary;
+        const newNet = Math.max(0, baseSal + emp.additions - emp.advances_deducted - emp.other_deductions - val);
         return { ...emp, payroll_tax: val, net_salary: Math.round(newNet * 100) / 100 };
       }
       return emp;
@@ -1505,6 +1567,7 @@ const PayrollRun = () => {
                   <th className="p-3 text-right">الموظف</th>
                   <th className="p-3 text-center">الفرع / القسم</th>
                   <th className="p-3 text-center">الأساسي</th>
+                  <th className="p-3 text-center text-blue-700 bg-blue-50/40" title="الأيام الفعلية للعمل في الشهر مع مراعاة تاريخ التعيين/الإيقاف/انتهاء الخدمة">أيام فعلية</th>
                   <th className="p-3 text-center text-emerald-700 bg-emerald-50/40">أجر الإضافي (+)</th>
                   <th className="p-3 text-center text-emerald-700 bg-emerald-50/40">مكافآت (+)</th>
                   <th className="p-3 text-center text-rose-700 bg-rose-50/30">خصم غياب (-)</th>
@@ -1564,6 +1627,16 @@ const PayrollRun = () => {
                         className="w-20 text-center border rounded-lg p-1 font-mono font-bold text-slate-700 bg-white"
                         disabled={existingPayroll?.status === 'paid'}
                       />
+                    </td>
+
+                    {/* ✅ الأيام الفعلية */}
+                    <td className="p-2.5 text-center">
+                      <span
+                        className={(emp.effective_days ?? 30) < 30 ? 'px-2 py-1 rounded-lg text-[11px] font-bold border inline-block bg-amber-50 text-amber-700 border-amber-200' : 'px-2 py-1 rounded-lg text-[11px] font-bold border inline-block bg-slate-50 text-slate-600 border-slate-200'}
+                        title={`الراتب المستحق فعلاً: ${(emp.effective_salary ?? emp.gross_salary).toLocaleString()} ج.م`}
+                      >
+                        {emp.effective_days ?? 30} يوم
+                      </span>
                     </td>
 
                     {/* أجر الإضافي */}

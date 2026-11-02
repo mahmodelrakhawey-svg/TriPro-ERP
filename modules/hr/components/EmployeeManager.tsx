@@ -201,11 +201,26 @@ const EmployeeManager = () => {
 
   const handleToggleStatus = async (employee: Record<string, any>, newStatus: 'active' | 'inactive' | 'terminated') => {
     try {
-      await updateEmployee(employee.id, {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const payload: Record<string, any> = {
         status: newStatus,
         deleted_at: newStatus === 'active' ? null : (employee.deleted_at || null)
-      } as any);
-      const label = newStatus === 'active' ? 'نشط' : newStatus === 'inactive' ? 'إجازة' : 'منتهي الخدمات';
+      };
+
+      if (newStatus === 'inactive' || newStatus === 'terminated') {
+        const promptDate = window.prompt(`أدخل تاريخ سريان الإيقاف/انتهاء الخدمة للموظف (${employee.full_name || employee.name}):`, todayStr);
+        if (promptDate === null) return;
+        payload.termination_date = promptDate.trim() || todayStr;
+        payload.last_working_date = promptDate.trim() || todayStr;
+        payload.inactive_date = promptDate.trim() || todayStr;
+      } else if (newStatus === 'active') {
+        payload.termination_date = null;
+        payload.last_working_date = null;
+        payload.inactive_date = null;
+      }
+
+      await updateEmployee(employee.id, payload as any);
+      const label = newStatus === 'active' ? 'نشط' : newStatus === 'inactive' ? 'إجازة / غير نشط' : 'منتهي الخدمات';
       showToast(`تم تغيير حالة الموظف (${employee.full_name || employee.name}) إلى "${label}" بنجاح ✅`, 'success');
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : typeof error === 'object' && error && 'message' in error ? String((error as any).message) : String(error);
