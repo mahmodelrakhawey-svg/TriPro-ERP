@@ -20,8 +20,10 @@ import {
   FileText,
   Filter,
   Pencil,
-  Building2
+  Building2,
+  Search
 } from 'lucide-react';
+import EmployeeSearchSelect, { normalizeArabic } from '../../../components/EmployeeSearchSelect';
 
 export const PenaltiesAndRewards: React.FC = () => {
   const { currentSelectedOrgId, currentUser, employees } = useAccounting();
@@ -31,6 +33,7 @@ export const PenaltiesAndRewards: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'ALL' | 'PENALTY' | 'REWARD' | 'WARNING'>('ALL');
   const [departmentFilter, setDepartmentFilter] = useState<string>('ALL');
+  const [searchTerm, setSearchTerm] = useState('');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -149,6 +152,13 @@ export const PenaltiesAndRewards: React.FC = () => {
     }
   };
 
+  const enrichedEmployees = React.useMemo(() => {
+    return employees.map(emp => ({
+      ...emp,
+      full_name: emp.full_name || emp.name || 'موظف'
+    }));
+  }, [employees]);
+
   const departments = React.useMemo(() => {
     const depts = new Set<string>();
     employees.forEach(e => {
@@ -163,11 +173,31 @@ export const PenaltiesAndRewards: React.FC = () => {
   const filteredItems = items.filter(i => {
     const matchesTab = activeTab === 'ALL' ? true : i.type === activeTab;
     if (!matchesTab) return false;
+
+    const emp = employees.find(e => e.id === i.employee_id);
+    const empName = emp?.full_name || emp?.name || i.employee_name || '';
+    const dept = emp?.department || i.employee_department || '';
+
     if (departmentFilter !== 'ALL') {
-      const emp = employees.find(e => e.id === i.employee_id);
-      const dept = emp?.department || i.employee_department || '';
       if (dept !== departmentFilter) return false;
     }
+
+    if (searchTerm.trim()) {
+      const query = normalizeArabic(searchTerm);
+      const nameNorm = normalizeArabic(empName);
+      const reasonNorm = normalizeArabic(i.reason || '');
+      const categoryNorm = normalizeArabic(i.category || '');
+      const deptNorm = normalizeArabic(dept);
+
+      const matchesSearch =
+        nameNorm.includes(query) ||
+        reasonNorm.includes(query) ||
+        categoryNorm.includes(query) ||
+        deptNorm.includes(query);
+
+      if (!matchesSearch) return false;
+    }
+
     return true;
   });
 
@@ -197,7 +227,7 @@ export const PenaltiesAndRewards: React.FC = () => {
         </button>
       </div>
 
-      {/* Tabs & Department Filter */}
+      {/* Tabs */}
       <div className="flex flex-wrap items-center justify-between border-b border-slate-200 gap-4 pb-2">
         <div className="flex gap-4">
           <button
@@ -233,15 +263,39 @@ export const PenaltiesAndRewards: React.FC = () => {
             الإنذارات ولفت النظر ({items.filter(i => i.type === 'WARNING').length})
           </button>
         </div>
+      </div>
+
+      {/* Search & Department Filter Bar */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">
+        <div className="relative flex-1 w-full">
+          <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none" />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            placeholder="بحث باسم الموظف، سبب القرار، أو التصنيف..."
+            className="w-full pr-10 pl-9 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 placeholder-slate-400 outline-none focus:bg-white focus:border-rose-500 focus:ring-2 focus:ring-rose-100 transition-all"
+          />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => setSearchTerm('')}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition"
+              title="مسح البحث"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
 
         {departments.length > 0 && (
-          <div className="flex items-center gap-2 pb-1">
-            <Filter className="w-3.5 h-3.5 text-slate-400" />
-            <span className="text-xs text-slate-500 font-bold">تصفية بالقسم:</span>
+          <div className="flex items-center gap-2 shrink-0 w-full md:w-auto">
+            <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+            <span className="text-xs text-slate-500 font-bold shrink-0">تصفية بالقسم:</span>
             <select
               value={departmentFilter}
               onChange={e => setDepartmentFilter(e.target.value)}
-              className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1 text-slate-700 font-bold outline-none focus:border-rose-500 cursor-pointer"
+              className="text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 font-bold outline-none focus:bg-white focus:border-rose-500 cursor-pointer w-full md:w-auto"
             >
               <option value="ALL">كل الأقسام ({departments.length})</option>
               {departments.map(dept => (
@@ -354,7 +408,20 @@ export const PenaltiesAndRewards: React.FC = () => {
               {filteredItems.length === 0 && (
                 <tr>
                   <td colSpan={8} className="p-8 text-center text-slate-400">
-                    لا توجد سجلات مسجلة في هذا القسم حالياً.
+                    {searchTerm ? (
+                      <div className="space-y-2">
+                        <p className="text-slate-600 font-bold">لا توجد نتائج مطابقة للبحث عن "{searchTerm}"</p>
+                        <button
+                          type="button"
+                          onClick={() => setSearchTerm('')}
+                          className="text-xs text-rose-600 hover:underline font-bold"
+                        >
+                          إلغاء تصفية البحث وعرض جميع السجلات
+                        </button>
+                      </div>
+                    ) : (
+                      'لا توجد سجلات مسجلة في هذا القسم حالياً.'
+                    )}
                   </td>
                 </tr>
               )}
@@ -366,7 +433,7 @@ export const PenaltiesAndRewards: React.FC = () => {
       {/* Add / Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden space-y-4 p-6 text-right">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg space-y-4 p-6 text-right">
             <div className="flex justify-between items-center border-b pb-3">
               <h3 className="font-bold text-base text-slate-800 flex items-center gap-2">
                 {editingItem ? (
@@ -392,14 +459,25 @@ export const PenaltiesAndRewards: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="space-y-3 text-xs">
+            <form onSubmit={handleSave} className="space-y-4 text-xs">
+              <EmployeeSearchSelect
+                label="الموظف المعني *"
+                value={formEmpId}
+                onChange={(empId) => setFormEmpId(empId)}
+                employees={enrichedEmployees}
+                required
+                placeholder="ابحث باسم الموظف، القسم، أو الهاتف..."
+                showSalaryBadge={true}
+                showAdvancesBadge={false}
+              />
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">نوع القرار <span className="text-red-500">*</span></label>
                   <select
                     value={formType}
                     onChange={e => setFormType(e.target.value as any)}
-                    className="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-bold bg-white outline-none"
+                    className="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-bold bg-white outline-none focus:border-rose-500"
                   >
                     <option value="PENALTY">خصم / جزاء مالي</option>
                     <option value="REWARD">مكافأة / حافز تميز</option>
@@ -408,42 +486,25 @@ export const PenaltiesAndRewards: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">الموظف المعني <span className="text-red-500">*</span></label>
-                  <select
-                    value={formEmpId}
-                    onChange={e => setFormEmpId(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-bold bg-white outline-none"
-                  >
-                    {employees.map(emp => (
-                      <option key={emp.id} value={emp.id}>
-                        {emp.name || emp.full_name} {emp.department ? `(${emp.department})` : ''} - (أساسي: {Number(emp.basic_salary || 0).toLocaleString()} ج)
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">تصنيف المخالفة أو المكافأة</label>
-                  <input
-                    type="text"
-                    value={formCategory}
-                    onChange={e => setFormCategory(e.target.value)}
-                    placeholder="مثال: تأخير غير مبرر / تميز في العمل"
-                    className="w-full border border-slate-300 rounded-xl p-2.5 text-xs outline-none"
-                  />
-                </div>
-
-                <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1">تاريخ القرار</label>
                   <input
                     type="date"
                     value={formActionDate}
                     onChange={e => setFormActionDate(e.target.value)}
-                    className="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-mono outline-none"
+                    className="w-full border border-slate-300 rounded-xl p-2.5 text-xs font-mono outline-none focus:border-rose-500"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">تصنيف المخالفة أو المكافأة</label>
+                <input
+                  type="text"
+                  value={formCategory}
+                  onChange={e => setFormCategory(e.target.value)}
+                  placeholder="مثال: تأخير غير مبرر / تميز في العمل"
+                  className="w-full border border-slate-300 rounded-xl p-2.5 text-xs outline-none focus:border-rose-500"
+                />
               </div>
 
               {formType !== 'WARNING' && (
