@@ -402,7 +402,9 @@ class HrEnterpriseService {
           .from('hr_penalties_rewards')
           .select('*, employee:employees(name, full_name, basic_salary, department)')
           .order('action_date', { ascending: false });
-        if (organizationId && isValidUUID(organizationId)) query = query.eq('organization_id', organizationId);
+        if (organizationId && isValidUUID(organizationId)) {
+          query = query.or(`organization_id.eq.${organizationId},organization_id.is.null`);
+        }
         return query.range(from, to);
       });
       if (!data || data.length === 0) return local;

@@ -179,7 +179,7 @@ export const PenaltiesAndRewards: React.FC = () => {
     const dept = emp?.department || i.employee_department || '';
 
     if (departmentFilter !== 'ALL') {
-      if (dept !== departmentFilter) return false;
+      if (normalizeArabic(dept) !== normalizeArabic(departmentFilter)) return false;
     }
 
     if (searchTerm.trim()) {
