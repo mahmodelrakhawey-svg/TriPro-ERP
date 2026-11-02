@@ -210,13 +210,16 @@ const EmployeeManager = () => {
       if (newStatus === 'inactive' || newStatus === 'terminated') {
         const promptDate = window.prompt(`أدخل تاريخ سريان الإيقاف/انتهاء الخدمة للموظف (${employee.full_name || employee.name}):`, todayStr);
         if (promptDate === null) return;
-        payload.termination_date = promptDate.trim() || todayStr;
-        payload.last_working_date = promptDate.trim() || todayStr;
-        payload.inactive_date = promptDate.trim() || todayStr;
+        const chosenDate = promptDate.trim() || todayStr;
+        if (newStatus === 'terminated') {
+          payload.deleted_at = `${chosenDate}T00:00:00.000Z`;
+        }
+        const cleanNotes = (employee.notes || '').replace(/\[تاريخ سريان الحالة: \d{4}-\d{2}-\d{2}\]\s*/g, '').trim();
+        payload.notes = `[تاريخ سريان الحالة: ${chosenDate}] ${cleanNotes}`.trim();
       } else if (newStatus === 'active') {
-        payload.termination_date = null;
-        payload.last_working_date = null;
-        payload.inactive_date = null;
+        payload.deleted_at = null;
+        const cleanNotes = (employee.notes || '').replace(/\[تاريخ سريان الحالة: \d{4}-\d{2}-\d{2}\]\s*/g, '').trim();
+        payload.notes = cleanNotes;
       }
 
       await updateEmployee(employee.id, payload as any);

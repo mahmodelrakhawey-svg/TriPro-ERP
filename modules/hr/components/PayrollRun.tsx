@@ -362,9 +362,7 @@ const PayrollRun = () => {
           let q = supabase
             .from('employees')
             .select('*')
-            .or(
-              `status.eq.active,and(status.in.(inactive,terminated,resigned),termination_date.gte.${monthStartStr})`
-            )
+            
             .order('id', { ascending: true });
           if (targetOrg) q = q.eq('organization_id', targetOrg);
           if (hrScope === 'factory') {
@@ -392,12 +390,38 @@ const PayrollRun = () => {
         hrEnterpriseService.getPenaltiesRewards(targetOrg)
       ]);
 
-      const employees = hrScope === 'factory'
-        ? rawEmployees.filter((e: Record<string, unknown>) => isFactoryDept(e.department))
-        : hrScope === 'branches'
-          ? rawEmployees.filter((e: Record<string, unknown>) => !isFactoryDept(e.department))
-          : rawEmployees;
+      // استخراج تاريخ انتهاء الخدمة أو الإيقاف إن وجد من أي حقل متاح أو الملاحظات
+      const getTerminationDate = (e: Record<string, any>): string | null => {
+        if (e.termination_date) return String(e.termination_date).slice(0, 10);
+        if (e.last_working_date) return String(e.last_working_date).slice(0, 10);
+        if (e.inactive_date) return String(e.inactive_date).slice(0, 10);
+        if (e.deleted_at) return String(e.deleted_at).slice(0, 10);
+        if (e.notes) {
+          const match = String(e.notes).match(/\d{4}-\d{2}-\d{2}/);
+          if (match) return match[0];
+        }
+        return null;
+      };
 
+      // ✅ تصفية الموظفين المستحقين: النشطين، أو من أوقفوا/انتهت خدمتهم خلال أو بعد هذا الشهر
+      const eligibleEmployees = rawEmployees.filter((e: Record<string, any>) => {
+        const st = String(e.status || 'active').toLowerCase();
+        const termDate = getTerminationDate(e);
+        // إذا كان الموظف غير نشط أو منتهي الخدمة أو محذوف
+        if (st === 'inactive' || st === 'terminated' || st === 'resigned' || e.deleted_at) {
+          // إذا لم يسجل تاريخ أو كان تاريخ تركه العمل قبل بداية هذا الشهر، يستبعد من المسير
+          if (!termDate || termDate < monthStartStr) return false;
+          // إذا كان تاريخ تركه العمل خلال أو بعد هذا الشهر، يتم ضمه لاحتساب أيامه المستحقة
+          return true;
+        }
+        return true;
+      });
+
+      const employees = hrScope === 'factory'
+        ? eligibleEmployees.filter((e: Record<string, unknown>) => isFactoryDept(e.department))
+        : hrScope === 'branches'
+          ? eligibleEmployees.filter((e: Record<string, unknown>) => !isFactoryDept(e.department))
+          : eligibleEmployees;
 
       // ✅ دالة مساعدة: حساب الأيام الفعلية للموظف في الشهر
       // تأخذ في الاعتبار: تاريخ التعيين، تاريخ انتهاء الخدمة، وتغييرات الحالة
@@ -407,16 +431,13 @@ const PayrollRun = () => {
         const effectiveStart = hireRaw > monthStartStr ? hireRaw : monthStartStr;
 
         // نهاية العمل الفعلية: آخر يوم عمل أو تاريخ انتهاء الخدمة أو نهاية الشهر
-        const terminationRaw =
-          (e.termination_date ? String(e.termination_date).slice(0, 10) : null) ||
-          (e.last_working_date ? String(e.last_working_date).slice(0, 10) : null) ||
-          (e.inactive_date ? String(e.inactive_date).slice(0, 10) : null) ||
-          monthEndStr;
-        const effectiveEnd = terminationRaw < monthEndStr ? terminationRaw : monthEndStr;
+        const termDate = getTerminationDate(e);
+        const effectiveEnd = (termDate && termDate < monthEndStr) ? termDate : monthEndStr;
 
         if (effectiveStart > effectiveEnd) return 0;
         const msPerDay = 1000 * 60 * 60 * 24;
-        return Math.round((new Date(effectiveEnd).getTime() - new Date(effectiveStart).getTime()) / msPerDay) + 1;
+        const days = Math.round((new Date(effectiveEnd).getTime() - new Date(effectiveStart).getTime()) / msPerDay) + 1;
+        return Math.max(0, Math.min(30, days));
       };
 
       const preparedData: PayrollItem[] = employees.map(emp => {
