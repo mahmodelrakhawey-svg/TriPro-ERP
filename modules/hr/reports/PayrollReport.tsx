@@ -7,6 +7,7 @@ import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { FileText, Printer, Search, Loader2, Receipt, FileSpreadsheet, X } from 'lucide-react';
 import { PayslipModal, PayslipData } from '../components/PayslipModal';
+import { BulkPayslipsModal } from '../components/BulkPayslipsModal';
 
 const PayrollReport = () => {
   const { settings, currentUser, selectedFiscalYear, organization } = useAccounting();
@@ -18,6 +19,7 @@ const PayrollReport = () => {
   const [loading, setLoading] = useState(false);
   const [payrollSummary, setPayrollSummary] = useState<any>(null);
   const [selectedPayslip, setSelectedPayslip] = useState<PayslipData | null>(null);
+  const [showBulkPayslips, setShowBulkPayslips] = useState(false);
 
   // مزامنة السنة المختارة مع السنة المالية للنظام
   useEffect(() => {
@@ -283,6 +285,14 @@ const PayrollReport = () => {
           >
             <FileSpreadsheet size={18} /> تصدير Excel
           </button>
+          <button
+            onClick={() => setShowBulkPayslips(true)}
+            disabled={loading || filteredPayrollData.length === 0}
+            className="bg-indigo-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition shadow-sm font-bold text-sm"
+            title="طباعة قسائم الرواتب الفردية لجميع الموظفين (صفحة مستقلة لكل موظف)"
+          >
+            <Printer size={18} /> طباعة القسائم ({filteredPayrollData.length})
+          </button>
           <button onClick={() => window.print()} className="bg-slate-800 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-700 font-bold text-sm">
             <Printer size={18} /> طباعة الكشف
           </button>
@@ -439,6 +449,16 @@ const PayrollReport = () => {
 
       {selectedPayslip && (
         <PayslipModal data={selectedPayslip} onClose={() => setSelectedPayslip(null)} />
+      )}
+
+      {showBulkPayslips && (
+        <BulkPayslipsModal
+          list={filteredPayrollData}
+          month={selectedMonth}
+          year={selectedYear}
+          companyName={organization?.name || settings?.company_name}
+          onClose={() => setShowBulkPayslips(false)}
+        />
       )}
     </div>
   );

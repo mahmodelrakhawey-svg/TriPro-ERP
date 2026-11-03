@@ -7,6 +7,7 @@ import { useToast } from '../../../context/ToastContext';
 import { hrEnterpriseService } from '../../../services/hrEnterpriseService';
 import { fetchCompleteDataset } from '../../../services/balanceService';
 import { PayslipModal, PayslipData } from './PayslipModal';
+import { BulkPayslipsModal } from './BulkPayslipsModal';
 import {
   Banknote,
   Play,
@@ -117,6 +118,7 @@ const PayrollRun = () => {
 
   // Payslip Modal State
   const [selectedPayslip, setSelectedPayslip] = useState<PayslipData | null>(null);
+  const [showBulkPayslips, setShowBulkPayslips] = useState(false);
 
   // مزامنة السنة المختارة مع السنة المالية للنظام
   useEffect(() => {
@@ -1757,6 +1759,15 @@ const PayrollRun = () => {
               <>
                 <button
                   type="button"
+                  onClick={() => setShowBulkPayslips(true)}
+                  className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md transition active:scale-95"
+                  title="طباعة قسائم الرواتب لجميع موظفي المسير دفعة واحدة (كل موظف في صفحة A4 مستقلة)"
+                >
+                  <Printer className="w-4 h-4 text-sky-400" />
+                  <span>طباعة كافة القسائم ({filteredPayrollData.length})</span>
+                </button>
+                <button
+                  type="button"
                   onClick={handleExportExcel}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition active:scale-95"
                   title="تصدير مسير الرواتب إلى Excel"
@@ -2511,6 +2522,17 @@ const PayrollRun = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-3">
+            {payrollData.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowBulkPayslips(true)}
+                className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-slate-800/20 transition active:scale-95"
+                title="طباعة قسائم الرواتب لجميع موظفي المسير دفعة واحدة (كل موظف في صفحة A4 مستقلة)"
+              >
+                <Printer className="w-4 h-4 text-sky-400" />
+                <span>طباعة كافة القسائم ({filteredPayrollData.length})</span>
+              </button>
+            )}
             <button
               type="button"
               onClick={handleExportExcel}
@@ -2598,6 +2620,17 @@ const PayrollRun = () => {
       {/* Payslip Modal */}
       {selectedPayslip && (
         <PayslipModal data={selectedPayslip} onClose={() => setSelectedPayslip(null)} />
+      )}
+
+      {/* Bulk Payslips Modal */}
+      {showBulkPayslips && (
+        <BulkPayslipsModal
+          list={filteredPayrollData}
+          month={selectedMonth}
+          year={selectedYear}
+          companyName={organization?.name}
+          onClose={() => setShowBulkPayslips(false)}
+        />
       )}
     </div>
   );
