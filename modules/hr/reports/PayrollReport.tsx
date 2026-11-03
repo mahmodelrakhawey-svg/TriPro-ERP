@@ -54,7 +54,10 @@ const PayrollReport = () => {
         // 2. جلب تفاصيل الرواتب للموظفين مع القسم (Uncapped with fetchCompleteDataset)
         interface PayrollItemRow {
           gross_salary?: number;
+          effective_days?: number;
+          effective_salary?: number;
           additions?: number;
+          social_insurance?: number;
           payroll_tax?: number;
           advances_deducted?: number;
           other_deductions?: number;
@@ -63,13 +66,16 @@ const PayrollReport = () => {
             full_name?: string;
             position?: string;
             department?: string;
+            phone?: string;
           };
           [key: string]: unknown;
         }
 
         interface PayrollSummaryTotals {
           total_gross_salary: number;
+          total_effective_salary: number;
           total_additions: number;
+          total_social_insurance: number;
           total_payroll_tax: number;
           total_deductions: number;
           total_net_salary: number;
@@ -78,7 +84,7 @@ const PayrollReport = () => {
         const items = await fetchCompleteDataset<PayrollItemRow>(async (from, to) => {
           let q = supabase
             .from('payroll_items')
-            .select('*, employees(full_name, position, department)')
+            .select('*, employees(full_name, position, department, phone)')
             .eq('organization_id', userOrgId)
             .in('payroll_id', payrollIds);
           return q.range(from, to);
@@ -102,11 +108,13 @@ const PayrollReport = () => {
         // حساب الملخص بناء على الموظفين المتاحين للمستخدم فقط
         const summary = filteredItems.reduce<PayrollSummaryTotals>((acc, curr) => ({
             total_gross_salary: acc.total_gross_salary + Number(curr.gross_salary || 0),
+            total_effective_salary: acc.total_effective_salary + Number(curr.effective_salary || curr.gross_salary || 0),
             total_additions: acc.total_additions + Number(curr.additions || 0),
+            total_social_insurance: acc.total_social_insurance + Number(curr.social_insurance || 0),
             total_payroll_tax: acc.total_payroll_tax + Number(curr.payroll_tax || 0),
-            total_deductions: acc.total_deductions + Number(curr.advances_deducted || 0) + Number(curr.other_deductions || 0),
+            total_deductions: acc.total_deductions + Number(curr.advances_deducted || 0) + Number(curr.other_deductions || 0) + Number(curr.social_insurance || 0),
             total_net_salary: acc.total_net_salary + Number(curr.net_salary || 0),
-        }), { total_gross_salary: 0, total_additions: 0, total_payroll_tax: 0, total_deductions: 0, total_net_salary: 0 });
+        }), { total_gross_salary: 0, total_effective_salary: 0, total_additions: 0, total_social_insurance: 0, total_payroll_tax: 0, total_deductions: 0, total_net_salary: 0 });
 
         setPayrollSummary(summary);
         setPayrollData(filteredItems);
@@ -134,12 +142,16 @@ const PayrollReport = () => {
       month: selectedMonth,
       year: selectedYear,
       gross_salary: item.gross_salary || 0,
+      effective_days: item.effective_days,
+      effective_salary: item.effective_salary,
       additions: item.additions || 0,
+      social_insurance: item.social_insurance || 0,
       advances_deducted: item.advances_deducted || 0,
       payroll_tax: item.payroll_tax || 0,
       other_deductions: item.other_deductions || 0,
       net_salary: item.net_salary || 0,
-      company_name: organization?.name || settings?.companyName
+      company_name: organization?.name || settings?.companyName,
+      phone: item.employees?.phone || ''
     });
   };
 
@@ -159,11 +171,13 @@ const PayrollReport = () => {
     if (!filteredPayrollData || filteredPayrollData.length === 0) return null;
     return filteredPayrollData.reduce((acc, curr) => ({
       total_gross_salary: acc.total_gross_salary + Number(curr.gross_salary || 0),
+      total_effective_salary: acc.total_effective_salary + Number(curr.effective_salary || curr.gross_salary || 0),
       total_additions: acc.total_additions + Number(curr.additions || 0),
+      total_social_insurance: acc.total_social_insurance + Number(curr.social_insurance || 0),
       total_payroll_tax: acc.total_payroll_tax + Number(curr.payroll_tax || 0),
-      total_deductions: acc.total_deductions + Number(curr.advances_deducted || 0) + Number(curr.other_deductions || 0),
+      total_deductions: acc.total_deductions + Number(curr.advances_deducted || 0) + Number(curr.other_deductions || 0) + Number(curr.social_insurance || 0),
       total_net_salary: acc.total_net_salary + Number(curr.net_salary || 0),
-    }), { total_gross_salary: 0, total_additions: 0, total_payroll_tax: 0, total_deductions: 0, total_net_salary: 0 });
+    }), { total_gross_salary: 0, total_effective_salary: 0, total_additions: 0, total_social_insurance: 0, total_payroll_tax: 0, total_deductions: 0, total_net_salary: 0 });
   }, [filteredPayrollData]);
 
   // تصدير كشف الرواتب إلى Excel
@@ -178,8 +192,11 @@ const PayrollReport = () => {
       'اسم الموظف': item.employees?.full_name || 'موظف',
       'القسم / الفرع': item.employees?.department || '-',
       'المسمى الوظيفي': item.employees?.position || '-',
-      'الراتب الأساسي (ج.م)': Number(item.gross_salary) || 0,
+      'أيام العمل': item.effective_days !== undefined && item.effective_days !== null ? item.effective_days : '-',
+      'الراتب التعاقدي (ج.م)': Number(item.gross_salary) || 0,
+      'الراتب المستحق عن المدة (ج.م)': Number(item.effective_salary ?? item.gross_salary) || 0,
       'الإضافي والبدلات (ج.م)': Number(item.additions) || 0,
+      'تأمينات اجتماعية (ج.م)': Number(item.social_insurance) || 0,
       'السلف المخصومة (ج.م)': Number(item.advances_deducted) || 0,
       'ضريبة كسب العمل (ج.م)': Number(item.payroll_tax) || 0,
       'استقطاعات أخرى (ج.م)': Number(item.other_deductions) || 0,
@@ -192,8 +209,11 @@ const PayrollReport = () => {
         'اسم الموظف': `الإجمالي العام (${filteredPayrollData.length} موظف)${searchTerm ? ` [بحث: ${searchTerm}]` : ''}`,
         'القسم / الفرع': searchTerm ? `بحث: ${searchTerm}` : '',
         'المسمى الوظيفي': '',
-        'الراتب الأساسي (ج.م)': displayedSummary.total_gross_salary,
+        'أيام العمل': '',
+        'الراتب التعاقدي (ج.م)': displayedSummary.total_gross_salary,
+        'الراتب المستحق عن المدة (ج.م)': displayedSummary.total_effective_salary,
         'الإضافي والبدلات (ج.م)': displayedSummary.total_additions,
+        'تأمينات اجتماعية (ج.م)': displayedSummary.total_social_insurance,
         'السلف المخصومة (ج.م)': filteredPayrollData.reduce((s, i) => s + Number(i.advances_deducted || 0), 0),
         'ضريبة كسب العمل (ج.م)': displayedSummary.total_payroll_tax,
         'استقطاعات أخرى (ج.م)': filteredPayrollData.reduce((s, i) => s + Number(i.other_deductions || 0), 0),
@@ -208,8 +228,11 @@ const PayrollReport = () => {
       { wch: 25 }, // اسم الموظف
       { wch: 18 }, // القسم
       { wch: 18 }, // المسمى الوظيفي
-      { wch: 18 }, // الراتب الأساسي
+      { wch: 12 }, // أيام العمل
+      { wch: 20 }, // الراتب التعاقدي
+      { wch: 24 }, // الراتب المستحق عن المدة
       { wch: 20 }, // الإضافي والبدلات
+      { wch: 20 }, // التأمينات الاجتماعية
       { wch: 18 }, // السلف المخصومة
       { wch: 18 }, // ضريبة كسب العمل
       { wch: 18 }, // استقطاعات أخرى
@@ -331,6 +354,7 @@ const PayrollReport = () => {
                             <th className="p-3 border-b">الفرع / القسم</th>
                             <th className="p-3 border-b">الراتب الأساسي</th>
                             <th className="p-3 border-b text-emerald-700">إضافي (+)</th>
+                            <th className="p-3 border-b text-amber-700">تأمينات (-)</th>
                             <th className="p-3 border-b text-red-700">ضريبة (-)</th>
                             <th className="p-3 border-b text-red-700">خصومات (-)</th>
                             <th className="p-3 border-b text-red-700">سلف (-)</th>
@@ -347,8 +371,9 @@ const PayrollReport = () => {
                                 {item.employees?.department || '-'}
                             </span>
                         </td>
-                        <td className="p-3 font-mono">{(item.gross_salary || 0).toLocaleString()}</td>
+                        <td className="p-3 font-mono">{(item.effective_salary ?? item.gross_salary ?? 0).toLocaleString()}</td>
                         <td className="p-3 text-emerald-600 font-mono">{(item.additions || 0).toLocaleString()}</td>
+                        <td className="p-3 text-amber-600 font-mono">{(item.social_insurance || 0).toLocaleString()}</td>
                         <td className="p-3 text-red-600 font-mono">{(item.payroll_tax || 0).toLocaleString()}</td>
                         <td className="p-3 text-red-600 font-mono">{(item.other_deductions || 0).toLocaleString()}</td>
                         <td className="p-3 text-red-600 font-mono">{(item.advances_deducted || 0).toLocaleString()}</td>
@@ -366,8 +391,9 @@ const PayrollReport = () => {
                             <td className="p-3" colSpan={2}>
                               الإجمالي {searchTerm ? `(المطابق للبحث: ${filteredPayrollData.length} موظف)` : `(${filteredPayrollData.length} موظف)`}
                             </td>
-                            <td className="p-3 font-mono">{displayedSummary.total_gross_salary.toLocaleString()}</td>
+                            <td className="p-3 font-mono">{(displayedSummary.total_effective_salary || displayedSummary.total_gross_salary).toLocaleString()}</td>
                             <td className="p-3 text-emerald-700 font-mono">{displayedSummary.total_additions.toLocaleString()}</td>
+                            <td className="p-3 text-amber-700 font-mono">{displayedSummary.total_social_insurance.toLocaleString()}</td>
                             <td className="p-3 text-red-700 font-mono">{displayedSummary.total_payroll_tax.toLocaleString()}</td>
                             <td className="p-3 text-red-700 font-mono" colSpan={2}>{displayedSummary.total_deductions.toLocaleString()}</td>
                             <td className="p-3 text-lg font-mono">{displayedSummary.total_net_salary.toLocaleString()}</td>
