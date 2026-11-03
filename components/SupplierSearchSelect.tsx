@@ -59,7 +59,7 @@ export const normalizeArabic = (text: string): string => {
 };
 
 // مكون تظليل الحروف المطابقة
-const HighlightedText: React.FC<{ text: string; query: string }> = ({ text, query }) => {
+export const HighlightedText: React.FC<{ text: string; query: string }> = ({ text, query }) => {
   if (!text) return null;
   const cleanQuery = normalizeArabic(query);
   if (!cleanQuery) return <span>{text}</span>;

@@ -5,7 +5,7 @@ import {
   FileText, Search, Printer, Loader2, RotateCcw, AlertTriangle, 
   Edit, CheckCircle, DollarSign, X, ChevronLeft, ChevronRight, 
   Plus, Download, MessageCircle, Trash2, Filter, Warehouse as WarehouseIcon, Clock,
-  Paperclip, ExternalLink, Percent, Image as ImageIcon, Copy
+  Paperclip, ExternalLink, Percent, Image as ImageIcon, Copy, Phone, Truck
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
@@ -16,6 +16,8 @@ import SupplierInvoiceExcelImporter from './SupplierInvoiceExcelImporter';
 import { FileSpreadsheet } from 'lucide-react';
 import { logDocumentAction } from '../../services/auditService';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { SupplierFilterCombobox, matchSupplierSmart } from '../../components/SupplierFilterCombobox';
+import { HighlightedText } from '../../components/SupplierSearchSelect';
 
 export const PurchaseInvoiceList = () => {
   const navigate = useNavigate();
@@ -95,6 +97,46 @@ export const PurchaseInvoiceList = () => {
     return accounts.filter(a => !(a.isGroup || a.is_group) && a.code !== '123' && a.code !== '12' && a.code !== '1' && (a.code.startsWith('123') || a.code.startsWith('101') || a.name.includes('صندوق') || a.name.includes('بنك') || a.type === 'ASSET'));
   }, [accounts]);
 
+  // دالة بناء شرط البحث الشامل والذكي (رقم الفاتورة، الملاحظات، وبيانات المورد)
+  const buildSearchOrCondition = async (term: string, orgId: string): Promise<string | null> => {
+    if (!term || !term.trim()) return null;
+    const cleanTerm = term.trim().replace(/['"(),%]/g, '');
+    if (!cleanTerm) return null;
+
+    // 1. بحث فوري في الموردين المحملين محلياً بالذاكرة (سرعة فائقة 0ms)
+    const localMatched = (suppliers || []).filter(s => matchSupplierSmart(s, cleanTerm));
+    let matchedIds = localMatched.map(s => s.id);
+
+    // 2. إذا كانت الكلمة حرفين أو أكثر، نبحث في قاعدة البيانات لتغطية أي مورد إضافي
+    if (orgId && cleanTerm.length >= 2) {
+      try {
+        const { data: dbMatched } = await supabase
+          .from('suppliers')
+          .select('id')
+          .eq('organization_id', orgId)
+          .or(`name.ilike.%${cleanTerm}%,phone.ilike.%${cleanTerm}%,code.ilike.%${cleanTerm}%,tax_number.ilike.%${cleanTerm}%`)
+          .limit(40);
+        if (dbMatched && dbMatched.length > 0) {
+          const dbIds = dbMatched.map(s => s.id);
+          matchedIds = Array.from(new Set([...matchedIds, ...dbIds]));
+        }
+      } catch {
+        // الاستمرار بالنتائج المتوفرة بالذاكرة
+      }
+    }
+
+    const conditions: string[] = [
+      `invoice_number.ilike.%${cleanTerm}%`,
+      `notes.ilike.%${cleanTerm}%`
+    ];
+
+    if (matchedIds.length > 0) {
+      conditions.push(`supplier_id.in.(${matchedIds.slice(0, 50).join(',')})`);
+    }
+
+    return conditions.join(',');
+  };
+
   const fetchInvoices = async () => {
     setLoading(true);
     try {
@@ -104,6 +146,8 @@ export const PurchaseInvoiceList = () => {
         setLoading(false);
         return;
       }
+
+      const searchCondition = await buildSearchOrCondition(debouncedSearch, userOrgId);
 
       // 1. استعلام خفيف للصفحة الحالية فقط دون جلب عناصر الفواتير الثقيلة
       let query = supabase
@@ -137,9 +181,8 @@ export const PurchaseInvoiceList = () => {
       if (selectedSupplierId) query = query.eq('supplier_id', selectedSupplierId);
       if (selectedWarehouseId) query = query.eq('warehouse_id', selectedWarehouseId);
       if (filterStatus !== 'all') query = query.eq('status', filterStatus);
-      if (debouncedSearch.trim()) {
-        const term = debouncedSearch.trim();
-        query = query.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
+      if (searchCondition) {
+        query = query.or(searchCondition);
       }
 
       const from = (currentPage - 1) * itemsPerPage;
@@ -164,6 +207,7 @@ export const PurchaseInvoiceList = () => {
         if (selectedSupplierId) fbQuery = fbQuery.eq('supplier_id', selectedSupplierId);
         if (selectedWarehouseId) fbQuery = fbQuery.eq('warehouse_id', selectedWarehouseId);
         if (filterStatus !== 'all') fbQuery = fbQuery.eq('status', filterStatus);
+        if (searchCondition) fbQuery = fbQuery.or(searchCondition);
         const fbRes = await fbQuery.range(from, to);
         data = fbRes.data;
         count = fbRes.count;
@@ -185,9 +229,8 @@ export const PurchaseInvoiceList = () => {
       if (selectedSupplierId) summaryQuery = summaryQuery.eq('supplier_id', selectedSupplierId);
       if (selectedWarehouseId) summaryQuery = summaryQuery.eq('warehouse_id', selectedWarehouseId);
       if (filterStatus !== 'all') summaryQuery = summaryQuery.eq('status', filterStatus);
-      if (debouncedSearch.trim()) {
-        const term = debouncedSearch.trim();
-        summaryQuery = summaryQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
+      if (searchCondition) {
+        summaryQuery = summaryQuery.or(searchCondition);
       }
 
       let sumRows: any[] = [];
@@ -198,12 +241,18 @@ export const PurchaseInvoiceList = () => {
       } catch (sumErr) {
         const errObj = sumErr as { code?: string };
         if (errObj && errObj.code === '42703') {
+          let fbSum = supabase
+            .from('purchase_invoices')
+            .select('total_amount, tax_amount, paid_amount, status')
+            .eq('organization_id', userOrgId);
+          if (startDate) fbSum = fbSum.gte('invoice_date', startDate);
+          if (endDate) fbSum = fbSum.lte('invoice_date', endDate);
+          if (selectedSupplierId) fbSum = fbSum.eq('supplier_id', selectedSupplierId);
+          if (selectedWarehouseId) fbSum = fbSum.eq('warehouse_id', selectedWarehouseId);
+          if (filterStatus !== 'all') fbSum = fbSum.eq('status', filterStatus);
+          if (searchCondition) fbSum = fbSum.or(searchCondition);
           sumRows = await fetchCompleteDataset<any>(async (from, to) => {
-            return supabase
-              .from('purchase_invoices')
-              .select('total_amount, tax_amount, paid_amount, status')
-              .eq('organization_id', userOrgId)
-              .range(from, to);
+            return fbSum.range(from, to);
           });
         }
       }
@@ -577,6 +626,8 @@ export const PurchaseInvoiceList = () => {
       const { data: { session } } = await supabase.auth.getSession();
       const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
 
+      const searchCondition = await buildSearchOrCondition(debouncedSearch, userOrgId);
+
       let expQuery = supabase
         .from('purchase_invoices')
         .select(`
@@ -602,9 +653,8 @@ export const PurchaseInvoiceList = () => {
       if (selectedSupplierId) expQuery = expQuery.eq('supplier_id', selectedSupplierId);
       if (selectedWarehouseId) expQuery = expQuery.eq('warehouse_id', selectedWarehouseId);
       if (filterStatus !== 'all') expQuery = expQuery.eq('status', filterStatus);
-      if (debouncedSearch.trim()) {
-        const term = debouncedSearch.trim();
-        expQuery = expQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
+      if (searchCondition) {
+        expQuery = expQuery.or(searchCondition);
       }
 
       let exportRows: any[] = [];
@@ -628,9 +678,8 @@ export const PurchaseInvoiceList = () => {
           if (selectedSupplierId) fbExp = fbExp.eq('supplier_id', selectedSupplierId);
           if (selectedWarehouseId) fbExp = fbExp.eq('warehouse_id', selectedWarehouseId);
           if (filterStatus !== 'all') fbExp = fbExp.eq('status', filterStatus);
-          if (debouncedSearch.trim()) {
-            const term = debouncedSearch.trim();
-            fbExp = fbExp.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
+          if (searchCondition) {
+            fbExp = fbExp.or(searchCondition);
           }
           exportRows = await fetchCompleteDataset<any>(async (from, to) => {
             return fbExp.range(from, to);
@@ -833,22 +882,30 @@ export const PurchaseInvoiceList = () => {
           <Search className="absolute right-3 top-3 text-slate-400" size={16} />
           <input 
             type="text" 
-            placeholder="بحث برقم الفاتورة، المورد..." 
+            placeholder="بحث برقم الفاتورة، المورد، الهاتف..." 
             value={searchTerm}
             onChange={e => { setSearchTerm(e.target.value); setCurrentPage(1); }}
-            className="w-full pr-9 pl-3 py-2 bg-slate-50 border rounded-xl text-xs font-bold outline-none focus:border-blue-500"
+            className="w-full pr-9 pl-8 py-2 bg-slate-50 border rounded-xl text-xs font-bold outline-none focus:border-blue-500 placeholder:text-slate-400 transition-all"
           />
+          {searchTerm && (
+            <button
+              type="button"
+              onClick={() => { setSearchTerm(''); setCurrentPage(1); }}
+              className="absolute left-2.5 top-2.5 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition-colors"
+              title="مسح البحث"
+            >
+              <X size={14} />
+            </button>
+          )}
         </div>
 
         <div>
-          <select 
-            value={selectedSupplierId} 
-            onChange={e => { setSelectedSupplierId(e.target.value); setCurrentPage(1); }}
-            className="w-full p-2 bg-slate-50 border rounded-xl text-xs font-bold outline-none focus:border-blue-500"
-          >
-            <option value="">جميع الموردين</option>
-            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          <SupplierFilterCombobox
+            value={selectedSupplierId}
+            onChange={(id) => { setSelectedSupplierId(id); setCurrentPage(1); }}
+            suppliers={suppliers}
+            placeholder="جميع الموردين"
+          />
         </div>
 
         <div>
@@ -931,9 +988,35 @@ export const PurchaseInvoiceList = () => {
 
                   return (
                     <tr key={inv.id} className="hover:bg-slate-50/60 transition-colors">
-                      <td className="p-3.5 font-mono font-bold text-blue-700">{inv.invoice_number || '-'}</td>
+                      <td className="p-3.5 font-mono font-bold text-blue-700">
+                        {searchTerm.trim() ? (
+                          <HighlightedText text={inv.invoice_number || '-'} query={searchTerm} />
+                        ) : (
+                          inv.invoice_number || '-'
+                        )}
+                      </td>
                       <td className="p-3.5 text-slate-600 font-mono text-xs">{inv.invoice_date}</td>
-                      <td className="p-3.5 font-bold text-slate-800">{inv.suppliers?.name || 'مورد عام'}</td>
+                      <td className="p-3.5">
+                        <div className="font-bold text-slate-800">
+                          {searchTerm.trim() ? (
+                            <HighlightedText text={inv.suppliers?.name || 'مورد عام'} query={searchTerm} />
+                          ) : (
+                            inv.suppliers?.name || 'مورد عام'
+                          )}
+                        </div>
+                        {inv.suppliers?.phone && (
+                          <div className="text-[11px] text-slate-400 font-mono flex items-center gap-1 mt-0.5" dir="ltr">
+                            <Phone size={10} className="text-slate-400" />
+                            <span>
+                              {searchTerm.trim() ? (
+                                <HighlightedText text={inv.suppliers.phone} query={searchTerm} />
+                              ) : (
+                                inv.suppliers.phone
+                              )}
+                            </span>
+                          </div>
+                        )}
+                      </td>
                       <td className="p-3.5 text-slate-600 text-xs">{inv.warehouses?.name || '-'}</td>
                       <td className="p-3.5 text-center font-mono font-black text-slate-900" dir="ltr">
                         {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
