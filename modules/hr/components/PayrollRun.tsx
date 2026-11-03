@@ -30,7 +30,8 @@ import {
   Trash2,
   RotateCcw,
   Search,
-  X
+  X,
+  FileUp
 } from 'lucide-react';
 import {
   payrollRunSchema,
@@ -94,6 +95,8 @@ const PayrollRun = () => {
   const [selectedDepartment, setSelectedDepartment] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [tableMode, setTableMode] = useState<'detailed' | 'summary'>('detailed');
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [importingExcel, setImportingExcel] = useState(false);
 
   // Function to calculate last day of a month
   const getLastDayOfMonth = (year: number, month: number) => {
@@ -1208,6 +1211,7 @@ const PayrollRun = () => {
 
     const rows = filteredPayrollData.map((item, idx) => ({
       'م': idx + 1,
+      'كود الموظف': item.employee_id,
       'اسم الموظف': item.full_name,
       'الفرع / القسم': item.department && item.department !== '-' ? item.department : 'بدون فرع',
       'الراتب الأساسي (ج.م)': Number(item.gross_salary) || 0,
@@ -1239,6 +1243,7 @@ const PayrollRun = () => {
 
     rows.push({
       'م': '' as any,
+      'كود الموظف': '',
       'اسم الموظف': `الإجمالي (${filteredPayrollData.length} موظف)${searchTerm ? ` [بحث: ${searchTerm}]` : ''}`,
       'الفرع / القسم': filterDesc,
       'الراتب الأساسي (ج.م)': displayedTotals.gross,
@@ -1266,9 +1271,12 @@ const PayrollRun = () => {
 
     ws['!cols'] = [
       { wch: 6 },  // م
+      { wch: 22 }, // كود الموظف
       { wch: 26 }, // اسم الموظف
       { wch: 20 }, // الفرع / القسم
       { wch: 18 }, // الراتب الأساسي
+      { wch: 16 }, // أيام العمل الفعلية
+      { wch: 22 }, // الراتب المستحق فعلياً
       { wch: 18 }, // ساعات العمل الإضافي
       { wch: 20 }, // أجر العمل الإضافي
       { wch: 18 }, // حوافز ومكافآت
@@ -1282,6 +1290,7 @@ const PayrollRun = () => {
       { wch: 22 }, // خصم إجازات بدون راتب
       { wch: 25 }, // إجمالي الخصومات والجزاءات
       { wch: 18 }, // السلف المستقطعة
+      { wch: 18 }, // تأمينات اجتماعية
       { wch: 18 }, // ضريبة كسب العمل
       { wch: 22 }  // صافي الراتب المستحق
     ];
@@ -1292,6 +1301,302 @@ const PayrollRun = () => {
     XLSX.utils.book_append_sheet(wb, ws, `مسير_${selectedMonth}_${selectedYear}`);
     XLSX.writeFile(wb, `مسير_رواتب_شهر_${selectedMonth}_سنة_${selectedYear}${deptSuffix}${searchSuffix}.xlsx`);
     showToast(`تم تصدير مسير رواتب شهر ${selectedMonth}/${selectedYear} لعدد ${filteredPayrollData.length} موظف إلى Excel بجميع الأعمدة المفصلة بنجاح ✅`, 'success');
+  };
+
+  // دالة تسوية النصوص العربية لمطابقة أسماء الموظفين بدقة
+  const normalizeArabic = (str: string): string => {
+    if (!str) return '';
+    return String(str)
+      .trim()
+      .toLowerCase()
+      .replace(/[\u064B-\u065F\u0670]/g, '') // إزالة التشكيل
+      .replace(/[أإآ]/g, 'ا') // توحيد الهمزات
+      .replace(/ة/g, 'ه') // التاء المربوطة
+      .replace(/ى/g, 'ي') // الألف المقصورة
+      .replace(/\s+/g, ' '); // إزالة المسافات المتكررة
+  };
+
+  // دالة مساعدة لاستخراج وتحويل الأرقام من خلايا الإكسيل
+  const parseNumCell = (val: unknown): number | null => {
+    if (val === undefined || val === null) return null;
+    if (typeof val === 'number') return isNaN(val) ? null : val;
+    const str = String(val)
+      .trim()
+      .replace(/ج\.م|egp|\$|le/gi, '')
+      .replace(/[,،\s]/g, '');
+    if (str === '') return null;
+    const num = Number(str);
+    return isNaN(num) ? null : num;
+  };
+
+  // معالجة استيراد وتطبيق تعديلات مسير الرواتب من ملف Excel
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (existingPayroll?.status === 'paid') {
+      showToast('لا يمكن تعديل أو استيراد مسير تم صرفه وإقفاله محاسبياً', 'error');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    if (payrollData.length === 0) {
+      showToast('يرجى أولاً الضغط على "تجهيز واحتساب المسير" لجلب الموظفين، ثم استيراد التعديلات', 'warning');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setImportingExcel(true);
+    const reader = new FileReader();
+
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsName = wb.SheetNames[0];
+        const ws = wb.Sheets[wsName];
+        const rows: any[] = XLSX.utils.sheet_to_json(ws);
+
+        if (!rows || rows.length === 0) {
+          showToast('الملف المستورد فارغ ولا يحتوي على أي بيانات', 'warning');
+          setImportingExcel(false);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+          return;
+        }
+
+        let updatedCount = 0;
+        const unmatchedList: string[] = [];
+        const currentData = [...payrollData];
+
+        for (const r of rows) {
+          const nameVal = String(
+            r['اسم الموظف'] ||
+            r['الموظف'] ||
+            r['الاسم'] ||
+            r['Employee Name'] ||
+            r['Employee'] ||
+            r['full_name'] ||
+            ''
+          ).trim();
+
+          // تجاهل صفوف الإجماليات والمجاميع الفارغة
+          if (!nameVal || nameVal.includes('الإجمالي') || nameVal.includes('Total') || nameVal.startsWith('المجموع')) {
+            continue;
+          }
+
+          const codeVal = String(
+            r['كود الموظف'] ||
+            r['معرف الموظف'] ||
+            r['Employee ID'] ||
+            r['employee_id'] ||
+            r['ID'] ||
+            r['كود'] ||
+            ''
+          ).trim();
+
+          // 1. المطابقة عبر كود الموظف ID
+          let matchedIdx = -1;
+          if (codeVal) {
+            matchedIdx = currentData.findIndex(item => item.employee_id.toLowerCase() === codeVal.toLowerCase());
+          }
+
+          // 2. المطابقة البديلة عبر الاسم العربي بعد التسوية
+          if (matchedIdx === -1 && nameVal) {
+            const normTarget = normalizeArabic(nameVal);
+            matchedIdx = currentData.findIndex(item => normalizeArabic(item.full_name) === normTarget);
+            if (matchedIdx === -1) {
+              matchedIdx = currentData.findIndex(item => {
+                const normItem = normalizeArabic(item.full_name);
+                return normItem.includes(normTarget) || normTarget.includes(normItem);
+              });
+            }
+          }
+
+          if (matchedIdx === -1) {
+            unmatchedList.push(nameVal || codeVal);
+            continue;
+          }
+
+          // تحديث بيانات الموظف المطابق
+          const emp = { ...currentData[matchedIdx] };
+          let isEmpModified = false;
+
+          // الراتب الأساسي
+          const grossIn = parseNumCell(r['الراتب الأساسي (ج.م)'] ?? r['الراتب الأساسي'] ?? r['الراتب'] ?? r['gross_salary']);
+          if (grossIn !== null && grossIn >= 0) {
+            emp.gross_salary = grossIn;
+            isEmpModified = true;
+          }
+
+          // أيام العمل الفعلية
+          const daysIn = parseNumCell(r['أيام العمل الفعلية'] ?? r['أيام العمل'] ?? r['effective_days']);
+          if (daysIn !== null && daysIn >= 0 && daysIn <= 31) {
+            emp.effective_days = daysIn;
+            isEmpModified = true;
+          }
+
+          // الراتب المستحق فعلياً
+          const effSalIn = parseNumCell(r['الراتب المستحق فعلياً (ج.م)'] ?? r['الراتب المستحق فعلياً'] ?? r['effective_salary']);
+          if (effSalIn !== null && effSalIn >= 0) {
+            emp.effective_salary = effSalIn;
+            isEmpModified = true;
+          } else if (isEmpModified) {
+            const days = emp.effective_days ?? 30;
+            const dailyRate = emp.gross_salary > 0 ? emp.gross_salary / 30 : 0;
+            emp.effective_salary = Math.round(days * dailyRate * 100) / 100;
+          }
+
+          // الإضافي والمكافآت
+          const otHoursIn = parseNumCell(r['ساعات العمل الإضافي'] ?? r['ساعات الإضافي'] ?? r['overtime_hours']);
+          if (otHoursIn !== null && otHoursIn >= 0) {
+            emp.overtime_hours = otHoursIn;
+            isEmpModified = true;
+          }
+
+          const otPayIn = parseNumCell(r['أجر العمل الإضافي (ج.م)'] ?? r['أجر الإضافي'] ?? r['overtime_pay']);
+          if (otPayIn !== null && otPayIn >= 0) {
+            emp.overtime_pay = otPayIn;
+            isEmpModified = true;
+          }
+
+          const rewIn = parseNumCell(r['حوافز ومكافآت (ج.م)'] ?? r['حوافز'] ?? r['مكافآت'] ?? r['reward_amount']);
+          if (rewIn !== null && rewIn >= 0) {
+            emp.reward_amount = rewIn;
+            isEmpModified = true;
+          }
+
+          const addIn = parseNumCell(r['إجمالي الإضافي والمكافآت (ج.م)'] ?? r['إجمالي الإضافي'] ?? r['additions']);
+          if (addIn !== null && addIn >= 0) {
+            emp.additions = addIn;
+            isEmpModified = true;
+          } else if (otPayIn !== null || rewIn !== null) {
+            emp.additions = Math.round(((emp.overtime_pay || 0) + (emp.reward_amount || 0)) * 100) / 100;
+            isEmpModified = true;
+          }
+
+          // الغياب والتأخيرات والجزاءات
+          const absDaysIn = parseNumCell(r['أيام الغياب'] ?? r['غياب'] ?? r['absence_days']);
+          if (absDaysIn !== null && absDaysIn >= 0) {
+            emp.absence_days = absDaysIn;
+            isEmpModified = true;
+          }
+
+          const absDedIn = parseNumCell(r['خصم الغياب (ج.م)'] ?? r['خصم الغياب'] ?? r['absence_deduction']);
+          if (absDedIn !== null && absDedIn >= 0) {
+            emp.absence_deduction = absDedIn;
+            isEmpModified = true;
+          }
+
+          const lateMinIn = parseNumCell(r['دقائق التأخير'] ?? r['تأخير'] ?? r['late_minutes']);
+          if (lateMinIn !== null && lateMinIn >= 0) {
+            emp.late_minutes = lateMinIn;
+            isEmpModified = true;
+          }
+
+          const lateDedIn = parseNumCell(r['خصم التأخير (ج.م)'] ?? r['خصم التأخير'] ?? r['late_deduction']);
+          if (lateDedIn !== null && lateDedIn >= 0) {
+            emp.late_deduction = lateDedIn;
+            isEmpModified = true;
+          }
+
+          const penIn = parseNumCell(r['جزاءات إدارية (ج.م)'] ?? r['جزاءات'] ?? r['خصم جزاءات'] ?? r['penalty_amount']);
+          if (penIn !== null && penIn >= 0) {
+            emp.penalty_amount = penIn;
+            isEmpModified = true;
+          }
+
+          const unpaidDaysIn = parseNumCell(r['أيام إجازة بدون راتب'] ?? r['إجازة بدون راتب'] ?? r['unpaid_leave_days']);
+          if (unpaidDaysIn !== null && unpaidDaysIn >= 0) {
+            emp.unpaid_leave_days = unpaidDaysIn;
+            isEmpModified = true;
+          }
+
+          const unpaidDedIn = parseNumCell(r['خصم إجازات بدون راتب (ج.م)'] ?? r['خصم إجازة بدون راتب'] ?? r['unpaid_leave_deduction']);
+          if (unpaidDedIn !== null && unpaidDedIn >= 0) {
+            emp.unpaid_leave_deduction = unpaidDedIn;
+            isEmpModified = true;
+          }
+
+          const othDedIn = parseNumCell(r['إجمالي الخصومات والجزاءات (ج.م)'] ?? r['إجمالي الخصومات'] ?? r['other_deductions']);
+          if (othDedIn !== null && othDedIn >= 0) {
+            emp.other_deductions = othDedIn;
+            isEmpModified = true;
+          } else if (absDedIn !== null || lateDedIn !== null || penIn !== null || unpaidDedIn !== null) {
+            emp.other_deductions = Math.round(
+              ((emp.absence_deduction || 0) + (emp.late_deduction || 0) + (emp.penalty_amount || 0) + (emp.unpaid_leave_deduction || 0)) * 100
+            ) / 100;
+            isEmpModified = true;
+          }
+
+          // السلف المستقطعة
+          const advIn = parseNumCell(r['السلف المستقطعة (ج.م)'] ?? r['سلف'] ?? r['advances_deducted']);
+          if (advIn !== null && advIn >= 0) {
+            emp.advances_deducted = advIn;
+            isEmpModified = true;
+          }
+
+          // التأمينات الاجتماعية
+          const insIn = parseNumCell(r['تأمينات اجتماعية (ج.م)'] ?? r['تأمينات'] ?? r['social_insurance']);
+          if (insIn !== null && insIn >= 0) {
+            emp.social_insurance = insIn;
+            isEmpModified = true;
+          }
+
+          // ضريبة كسب العمل
+          const taxIn = parseNumCell(r['ضريبة كسب العمل (ج.م)'] ?? r['ضريبة'] ?? r['payroll_tax']);
+          if (taxIn !== null && taxIn >= 0) {
+            emp.payroll_tax = taxIn;
+            isEmpModified = true;
+          }
+
+          // إعادة احتساب صافي الراتب المستحق بدقة
+          const baseSalary = emp.effective_salary ?? emp.gross_salary;
+          emp.net_salary = calcNetSalary(
+            baseSalary,
+            emp.additions,
+            emp.advances_deducted,
+            emp.other_deductions,
+            emp.payroll_tax,
+            emp.social_insurance || 0
+          );
+
+          if (isEmpModified) {
+            currentData[matchedIdx] = emp;
+            updatedCount++;
+          }
+        }
+
+        if (updatedCount > 0) {
+          setPayrollData(currentData);
+          if (unmatchedList.length > 0) {
+            showToast(`تم استيراد وتحديث ${updatedCount} موظف بنجاح ✅ (تم تجاهل ${unmatchedList.length} سجل غير مطابق)`, 'info');
+          } else {
+            showToast(`تم استيراد وتحديث بيانات ${updatedCount} موظف من Excel بنجاح تام ✅`, 'success');
+          }
+        } else {
+          showToast('لم يتم العثور على أي موظفين مطابقين لتحديثهم من الملف', 'warning');
+        }
+      } catch (err: unknown) {
+        logger.error('Error importing payroll excel:', err);
+        const message = err instanceof Error ? err.message : 'تأكد من صحة تنسيق الملف';
+        showToast('حدث خطأ أثناء قراءة ملف Excel: ' + message, 'error');
+      } finally {
+        setImportingExcel(false);
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
+    };
+
+    reader.onerror = () => {
+      showToast('تعذر قراءة الملف المرفق', 'error');
+      setImportingExcel(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    };
+
+    reader.readAsBinaryString(file);
   };
 
   if (currentUser?.role === 'demo') {
@@ -1306,6 +1611,15 @@ const PayrollRun = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in">
+      {/* Hidden File Input for Excel Import */}
+      <input
+        type="file"
+        ref={fileInputRef}
+        accept=".xlsx, .xls, .csv"
+        className="hidden"
+        onChange={handleImportExcel}
+      />
+
       {/* Header */}
       <div className="flex flex-wrap justify-between items-center gap-4 bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
         <div className="flex items-center gap-3">
@@ -1440,15 +1754,28 @@ const PayrollRun = () => {
 
           <div className="flex items-center gap-2">
             {payrollData.length > 0 && (
-              <button
-                type="button"
-                onClick={handleExportExcel}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition active:scale-95"
-                title="تصدير مسير الرواتب إلى Excel"
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                <span>تصدير المسير Excel</span>
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition active:scale-95"
+                  title="تصدير مسير الرواتب إلى Excel"
+                >
+                  <FileSpreadsheet className="w-4 h-4" />
+                  <span>تصدير المسير Excel</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={importingExcel || existingPayroll?.status === 'paid'}
+                  className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition active:scale-95"
+                  title="استيراد التعديلات من ملف Excel بعد تعديلها"
+                >
+                  {importingExcel ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileUp className="w-4 h-4" />}
+                  <span>استيراد من Excel</span>
+                </button>
+              </>
             )}
             <button
               onClick={preparePayroll}
@@ -2193,6 +2520,18 @@ const PayrollRun = () => {
               <FileSpreadsheet className="w-4 h-4" />
               <span>تصدير Excel</span>
             </button>
+            {existingPayroll?.status !== 'paid' && (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={importingExcel}
+                className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition active:scale-95"
+                title="استيراد التعديلات من ملف Excel وتطبيقها على المسير"
+              >
+                {importingExcel ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileUp className="w-4 h-4" />}
+                <span>استيراد من Excel</span>
+              </button>
+            )}
             {existingPayroll?.status === 'paid' ? (
               <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 border border-emerald-200 px-5 py-2.5 rounded-xl text-xs font-bold">
                 <CheckCircle2 className="w-4 h-4 text-emerald-600" />
