@@ -92,7 +92,53 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({ data, onClose }) => 
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in">
+    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto animate-in fade-in print:p-0 print:bg-transparent print:static print:overflow-visible">
+      {/* 🖨️ نمط الطباعة المعزول لمنع تكرار القسيمة أو طباعة الشاشة الخلفية */}
+      <style>{`
+        @media print {
+          html, body {
+            height: auto !important;
+            overflow: visible !important;
+            background: #ffffff !important;
+          }
+          /* 1. إخفاء كل عناصر صفحة التطبيق والمسير والخلفية بالكامل */
+          body * {
+            visibility: hidden !important;
+          }
+          /* 2. إظهار كارت قسيمة الراتب فقط لا غير */
+          #printable-payslip-card,
+          #printable-payslip-card * {
+            visibility: visible !important;
+          }
+          /* 3. تثبيت أبعاد القسيمة في صفحة واحدة نظيفة ومنع التكرار */
+          #printable-payslip-card {
+            display: block !important;
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            margin: 0 !important;
+            padding: 24px !important;
+            background: #ffffff !important;
+            color: #000000 !important;
+            border: 2px solid #0f172a !important;
+            border-radius: 12px !important;
+            box-sizing: border-box !important;
+            page-break-inside: avoid !important;
+            page-break-after: avoid !important;
+            break-inside: avoid !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            z-index: 99999999 !important;
+          }
+          @page {
+            size: A4 portrait;
+            margin: 10mm;
+          }
+        }
+      `}</style>
+
       <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-2xl overflow-hidden p-6 md:p-8 space-y-6 text-right print:shadow-none print:border-none print:m-0 print:p-0">
         {/* Actions (Hidden in Print) */}
         <div className="flex justify-between items-center border-b pb-4 print:hidden flex-wrap gap-2">
@@ -127,7 +173,7 @@ export const PayslipModal: React.FC<PayslipModalProps> = ({ data, onClose }) => 
         </div>
 
         {/* Printable Payslip Card */}
-        <div className="space-y-6 border-2 border-slate-800 p-6 rounded-2xl print:border-2 print:border-black">
+        <div id="printable-payslip-card" className="space-y-6 border-2 border-slate-800 p-6 rounded-2xl print:border-2 print:border-black bg-white">
           {/* Header */}
           <div className="flex justify-between items-start border-b-2 border-slate-800 pb-4">
             <div>
