@@ -2,6 +2,7 @@ import React from 'react';
 import { createPortal } from 'react-dom';
 import { Printer, X, Users, CheckCircle2 } from 'lucide-react';
 import { PayslipCard, PayslipData } from './PayslipModal';
+import { formatNumber } from '../../../utils/formatters';
 
 interface BulkPayslipsModalProps {
   list: any[];
@@ -199,7 +200,7 @@ export const BulkPayslipsModal: React.FC<BulkPayslipsModalProps> = ({
               <div className="bulk-no-print flex items-center justify-between text-xs font-bold text-slate-500 mb-2 px-1">
                 <span>قسيمة رقم {idx + 1} من {payslipsList.length} - {payslip.employee_name}</span>
                 <span className="flex items-center gap-1 text-emerald-600 font-mono">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> الصافي: {payslip.net_salary.toLocaleString()} ج.م
+                  <CheckCircle2 className="w-3.5 h-3.5" /> الصافي: {formatNumber(payslip.net_salary)} ج.م
                 </span>
               </div>
               <PayslipCard data={payslip} id={`bulk-payslip-${idx}`} />

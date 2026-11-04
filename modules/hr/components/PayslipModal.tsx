@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useToast } from '../../../context/ToastContext';
 import { Printer, X, MessageCircle, Copy } from 'lucide-react';
+import { formatNumber } from '../../../utils/formatters';
 
 export interface PayslipData {
   employee_name: string;
@@ -95,21 +96,21 @@ export const PayslipCard: React.FC<PayslipCardProps> = ({ data, id = 'printable-
           <div className="space-y-1.5 text-xs">
             <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
               <span className="text-slate-600">الراتب الأساسي التعاقدي:</span>
-              <span className="font-mono font-bold">{data.gross_salary.toLocaleString()} ج.م</span>
+              <span className="font-mono font-bold">{formatNumber(data.gross_salary)} ج.م</span>
             </div>
             {isPartialMonth && (
               <div className="flex justify-between py-1 border-b border-slate-100 font-medium text-amber-800 bg-amber-50/50 px-1 rounded">
                 <span>المستحق الفعلي ({data.effective_days} يوم):</span>
-                <span className="font-mono font-bold">{earnedBase.toLocaleString()} ج.م</span>
+                <span className="font-mono font-bold">{formatNumber(earnedBase)} ج.م</span>
               </div>
             )}
             <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
               <span className="text-slate-600">إضافي ومكافآت:</span>
-              <span className="font-mono font-bold text-emerald-600">+{data.additions.toLocaleString()} ج.م</span>
+              <span className="font-mono font-bold text-emerald-600">+{formatNumber(data.additions)} ج.م</span>
             </div>
             <div className="flex justify-between py-1.5 font-bold text-slate-900 bg-slate-50 px-2 rounded">
               <span>إجمالي الاستحقاقات:</span>
-              <span className="font-mono text-emerald-700">{(earnedBase + data.additions).toLocaleString()} ج.م</span>
+              <span className="font-mono text-emerald-700">{formatNumber(earnedBase + data.additions)} ج.م</span>
             </div>
           </div>
         </div>
@@ -123,55 +124,55 @@ export const PayslipCard: React.FC<PayslipCardProps> = ({ data, id = 'printable-
             {data.advances_deducted > 0 && (
               <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
                 <span className="text-slate-600">سلف مستقطعة:</span>
-                <span className="font-mono text-rose-600">-{data.advances_deducted.toLocaleString()} ج.م</span>
+                <span className="font-mono text-rose-600">-{formatNumber(data.advances_deducted)} ج.م</span>
               </div>
             )}
             {data.absence_days && data.absence_days > 0 ? (
               <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
                 <span className="text-slate-600">خصم غياب ({data.absence_days} يوم):</span>
-                <span className="font-mono text-rose-600">-{data.absence_deduction?.toLocaleString() || 0} ج.م</span>
+                <span className="font-mono text-rose-600">-{formatNumber(data.absence_deduction)} ج.م</span>
               </div>
             ) : null}
             {data.late_minutes && data.late_minutes > 0 ? (
               <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
                 <span className="text-slate-600">خصم تأخير ({data.late_minutes} دقيقة):</span>
-                <span className="font-mono text-amber-600">-{data.late_deduction?.toLocaleString() || 0} ج.م</span>
+                <span className="font-mono text-amber-600">-{formatNumber(data.late_deduction)} ج.م</span>
               </div>
             ) : null}
             {data.unpaid_leave_days && data.unpaid_leave_days > 0 ? (
               <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
                 <span className="text-slate-600">إجازات بدون أجر ({data.unpaid_leave_days} يوم):</span>
-                <span className="font-mono text-purple-600">-{data.unpaid_leave_deduction?.toLocaleString() || 0} ج.م</span>
+                <span className="font-mono text-purple-600">-{formatNumber(data.unpaid_leave_deduction)} ج.م</span>
               </div>
             ) : null}
             {data.penalty_amount && data.penalty_amount > 0 ? (
               <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
                 <span className="text-slate-600">جزاءات إدارية معتمدة:</span>
-                <span className="font-mono text-rose-600">-{data.penalty_amount.toLocaleString()} ج.م</span>
+                <span className="font-mono text-rose-600">-{formatNumber(data.penalty_amount)} ج.م</span>
               </div>
             ) : null}
             {data.social_insurance && data.social_insurance > 0 ? (
               <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
                 <span className="text-slate-600">تأمينات اجتماعية:</span>
-                <span className="font-mono text-rose-600">-{data.social_insurance.toLocaleString()} ج.م</span>
+                <span className="font-mono text-rose-600">-{formatNumber(data.social_insurance)} ج.م</span>
               </div>
             ) : null}
             {data.payroll_tax > 0 && (
               <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
                 <span className="text-slate-600">ضريبة كسب العمل:</span>
-                <span className="font-mono text-slate-700">-{data.payroll_tax.toLocaleString()} ج.م</span>
+                <span className="font-mono text-slate-700">-{formatNumber(data.payroll_tax)} ج.م</span>
               </div>
             )}
             {!data.absence_days && !data.late_minutes && !data.unpaid_leave_days && !data.penalty_amount && data.other_deductions > 0 ? (
               <div className="flex justify-between py-1 border-b border-slate-100 font-medium">
                 <span className="text-slate-600">خصومات أخرى:</span>
-                <span className="font-mono text-rose-600">-{data.other_deductions.toLocaleString()} ج.م</span>
+                <span className="font-mono text-rose-600">-{formatNumber(data.other_deductions)} ج.م</span>
               </div>
             ) : null}
             <div className="flex justify-between py-1.5 font-bold text-slate-900 bg-slate-50 px-2 rounded">
               <span>إجمالي الاستقطاعات:</span>
               <span className="font-mono text-rose-700">
-                -{(data.advances_deducted + data.other_deductions + data.payroll_tax + (data.social_insurance || 0)).toLocaleString()} ج.م
+                -{formatNumber(data.advances_deducted + data.other_deductions + data.payroll_tax + (data.social_insurance || 0))} ج.م
               </span>
             </div>
           </div>
@@ -185,7 +186,7 @@ export const PayslipCard: React.FC<PayslipCardProps> = ({ data, id = 'printable-
           <span className="text-[10px] text-slate-400">Net Payable Amount</span>
         </div>
         <div className="text-2xl font-black font-mono text-emerald-400 print:text-white">
-          {data.net_salary.toLocaleString()} ج.م
+          {formatNumber(data.net_salary)} ج.م
         </div>
       </div>
 
