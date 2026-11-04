@@ -855,7 +855,9 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
         [],
         ['التاريخ', 'المستند', 'البيان', 'مدين (فاتورة)', 'دائن (سداد)', 'الرصيد'],
         ['-', '-', 'رصيد افتتاحي', '-', '-', openingBalance],
-        ...transactions.map(t => [t.date, t.reference.replace(/^(CHQ-|RV-|INV-|SR-|OB-)/, ''), t.description, t.debit, t.credit, t.balance])
+        ...filteredTransactions.map(t => [t.date, t.reference.replace(/^(CHQ-|RV-|INV-|SR-|OB-)/, ''), t.description, t.debit, t.credit, t.balance]),
+        [],
+        ['الإجمالي', '', 'إجمالي الحركات', totalDebit, totalCredit, closingBalance]
     ];
     const ws = XLSX.utils.aoa_to_sheet(data);
     const wb = XLSX.utils.book_new();
@@ -875,6 +877,8 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
 العميل: ${selectedCustomer.name}
 الفترة: ${startDate} إلى ${endDate}
 رصيد افتتاحي: ${openingBalance.toLocaleString()}
+إجمالي المدين (فاتورة): ${totalDebit.toLocaleString()}
+إجمالي الدائن (سداد): ${totalCredit.toLocaleString()}
 رصيد ختامي: ${closingBalance.toLocaleString()}
 شكراً لتعاملكم معنا.`;
 
@@ -885,6 +889,15 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
   const filteredTransactions = useMemo(() => {
     return transactions.filter(t => !showUnpostedOnly || !t.isPosted);
   }, [transactions, showUnpostedOnly]);
+
+  // 🌟 حساب إجماليات المدين والدائن في نهاية الكشف
+  const totalDebit = useMemo(() => {
+    return filteredTransactions.reduce((sum, t) => sum + (Number(t.debit) || 0), 0);
+  }, [filteredTransactions]);
+
+  const totalCredit = useMemo(() => {
+    return filteredTransactions.reduce((sum, t) => sum + (Number(t.credit) || 0), 0);
+  }, [filteredTransactions]);
 
   const totalPages = useMemo(() => {
     if (pageSize === 'all') return 1;
@@ -1486,17 +1499,28 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
       {selectedCustomerId && (
           <div id="printable-statement" className={`bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden p-8 animate-in fade-in print:break-after-page ${printDoc ? 'print:hidden' : ''}`}>
 
-              <div className="flex justify-between mb-8 border-b pb-6">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 border-b pb-6 gap-4">
                   <div>
                       <h1 className="text-2xl font-bold text-slate-900">{settings.companyName}</h1>
                       <p className="text-slate-500 font-bold mt-1">كشف حساب العميل: {selectedCustomer?.name}</p>
                       {selectedCustomer?.phone && <p className="text-xs text-slate-400">هاتف: {selectedCustomer.phone}</p>}
+                      <p className="text-xs text-slate-400 mt-0.5">الفترة: من {startDate} إلى {endDate}</p>
                   </div>
-                  <div className="text-left">
-                      <div className="bg-blue-600 text-white px-4 py-2 rounded-lg inline-block font-black text-xl mb-2" dir="ltr">
-                        {closingBalance.toLocaleString()} <span className="text-sm">{settings.currency}</span>
+
+                  {/* 🌟 بطاقات الإجماليات الملخصة في أعلى الكشف: إجمالي المدين وإجمالي الدائن بجوار الرصيد */}
+                  <div className="flex items-center gap-3 flex-wrap">
+                      <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-2 rounded-xl text-center">
+                        <span className="text-[10px] font-bold block uppercase tracking-wider">إجمالي المدين (فاتورة)</span>
+                        <span className="text-lg font-black font-mono" dir="ltr">{totalDebit.toLocaleString()}</span>
                       </div>
-                      <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest">الرصيد الحالي (المستحق على العميل)</p>
+                      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-xl text-center">
+                        <span className="text-[10px] font-bold block uppercase tracking-wider">إجمالي الدائن (سداد)</span>
+                        <span className="text-lg font-black font-mono" dir="ltr">{totalCredit.toLocaleString()}</span>
+                      </div>
+                      <div className="bg-blue-600 text-white px-5 py-2.5 rounded-xl text-center shadow-md">
+                        <span className="text-[10px] text-blue-100 font-bold block uppercase tracking-wider">الرصيد الحالي المستحق</span>
+                        <span className="text-xl font-black font-mono" dir="ltr">{closingBalance.toLocaleString()} {settings.currency}</span>
+                      </div>
                   </div>
               </div>
 
@@ -1586,6 +1610,27 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                         لا توجد حركات خلال هذه الفترة
                       </div>
                     )}
+
+                    {/* 📱 بطاقة ملخص الحركات لشاشات الموبايل */}
+                    {filteredTransactions.length > 0 && (
+                      <div className="bg-slate-100 border border-slate-300 rounded-2xl p-4 space-y-2 text-xs">
+                        <div className="font-black text-slate-800 pb-1 border-b border-slate-200">
+                          إجمالي حركات الفترة ({filteredTransactions.length} حركة)
+                        </div>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-slate-600 font-bold">إجمالي المدين (فاتورة):</span>
+                          <span className="font-mono font-black text-emerald-600 text-sm" dir="ltr">{totalDebit.toLocaleString()} {settings.currency}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs">
+                          <span className="text-slate-600 font-bold">إجمالي الدائن (سداد):</span>
+                          <span className="font-mono font-black text-red-600 text-sm" dir="ltr">{totalCredit.toLocaleString()} {settings.currency}</span>
+                        </div>
+                        <div className="flex justify-between items-center text-xs pt-2 border-t border-slate-200 font-black">
+                          <span className="text-slate-800">الرصيد الختامي المستحق:</span>
+                          <span className="font-mono font-black text-blue-600 text-sm" dir="ltr">{closingBalance.toLocaleString()} {settings.currency}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* 🖥️ جدول العرض المكتبي والطباعة الورقية */}
@@ -1669,6 +1714,25 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                                 </tr>
                             ))}
                         </tbody>
+
+                        {/* 🌟 خانة جمع المدين وخانة جمع الدائن في نهاية الكشف (تظهر في الشاشة والطباعة) */}
+                        <tfoot className="border-t-2 border-slate-300 font-bold bg-slate-100/90 text-sm">
+                          <tr className="border-b border-slate-200">
+                            <td colSpan={3} className="p-4 text-slate-900 font-black">
+                              إجمالي حركات الفترة ({filteredTransactions.length} حركة)
+                            </td>
+                            <td className="p-4 text-center font-black text-emerald-600 bg-emerald-50/70 font-mono text-base" dir="ltr">
+                              {totalDebit.toLocaleString()}
+                            </td>
+                            <td className="p-4 text-center font-black text-red-600 bg-red-50/70 font-mono text-base" dir="ltr">
+                              {totalCredit.toLocaleString()}
+                            </td>
+                            <td className="p-4 text-center font-mono font-black text-slate-900 bg-slate-200/80 text-base" dir="ltr">
+                              {closingBalance.toLocaleString()}
+                            </td>
+                            <td className="p-4 print:hidden"></td>
+                          </tr>
+                        </tfoot>
                     </table>
                   </div>
 
