@@ -16,6 +16,7 @@
 
 import { supabase } from '../supabaseClient';
 import { journalAuditService } from './journalAuditService';
+import { fetchCompleteDataset } from './balanceService';
 
 export interface AuditCheckItem {
   id: string;
@@ -246,14 +247,17 @@ class AuditDaemonService {
         }
       } catch (_) {}
 
-      // استعلام الرصيد الحي الفعلي من قيود اليومية لحساب الموردين 201 (الدائن - المدين)
+      // استعلام الرصيد الحي الفعلي من قيود اليومية لحساب الموردين 201 (الدائن - المدين) مع دعم التجزئة التلقائية (Pagination)
       if (apAccountId) {
         try {
-          const { data: lines } = await supabase
-            .from('journal_lines')
-            .select('debit, credit, journal_entries!inner(status)')
-            .eq('account_id', apAccountId)
-            .eq('journal_entries.status', 'posted');
+          const lines = await fetchCompleteDataset<{ debit: number | string | null; credit: number | string | null }>(async (from, to) => {
+            return supabase
+              .from('journal_lines')
+              .select('debit, credit, journal_entries!inner(status)')
+              .eq('account_id', apAccountId)
+              .eq('journal_entries.status', 'posted')
+              .range(from, to);
+          });
 
           if (lines && lines.length > 0) {
             const totalCredit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);

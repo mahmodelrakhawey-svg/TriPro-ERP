@@ -672,7 +672,7 @@ const GeneralJournal: React.FC = () => {
       if (insertErr) throw insertErr;
 
       // 3. إدراج الأسطر المعكوسة (المدين يصبح دائناً، والدائن يصبح مديناً)
-      const reversedLines = lines.map((l: any) => ({
+      const reversedLines = lines.map((l: Record<string, unknown>) => ({
         journal_entry_id: newEntry.id,
         account_id: l.account_id,
         debit: Number(l.credit) || 0,
@@ -706,8 +706,8 @@ const GeneralJournal: React.FC = () => {
       await clearCache();
       await refreshData();
       refresh();
-    } catch (err: any) {
-      toast.error('فشل إنشاء القيد العكسي: ' + (err?.message || err));
+    } catch (err: unknown) {
+      toast.error('فشل إنشاء القيد العكسي: ' + ((err as Error)?.message || String(err)));
     }
   };
 
@@ -769,8 +769,8 @@ const GeneralJournal: React.FC = () => {
         }
         throw rpcError;
       }
-    } catch (err: any) {
-      toast.error('تعذر حذف القيد: ' + (err?.message || err));
+    } catch (err: unknown) {
+      toast.error('تعذر حذف القيد: ' + ((err as Error)?.message || String(err)));
     }
   };
 
