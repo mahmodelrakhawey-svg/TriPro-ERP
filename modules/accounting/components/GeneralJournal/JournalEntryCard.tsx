@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, CheckSquare, AlertTriangle, Eye, Printer, Copy, Edit, Trash2, Paperclip, Download, ShieldCheck, XCircle, Clock } from 'lucide-react';
+import { Calendar, CheckSquare, AlertTriangle, Eye, Printer, Copy, Edit, Trash2, Paperclip, Download, ShieldCheck, XCircle, Clock, RotateCcw } from 'lucide-react';
 import { getEntrySource } from './journalSourceClassifier';
 import { JournalEntry } from '../../../../types';
 
@@ -8,6 +8,7 @@ export interface JournalEntryCardProps {
   canPost: boolean;
   onPost: (id: string) => void;
   onUnpost?: (id: string) => void;
+  onReverse?: (entry: JournalEntry) => void;
   onView: (id: string) => void;
   onPrint: (entry: JournalEntry) => void;
   onDuplicate: (entry: JournalEntry) => void;
@@ -20,6 +21,7 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
   canPost,
   onPost,
   onUnpost,
+  onReverse,
   onView,
   onPrint,
   onDuplicate,
@@ -65,7 +67,11 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {(entry.status as string) === 'rejected' || entry.description?.includes('[مرفوض') ? (
+          {(entry.status as string) === 'reversed' || entry.description?.includes('[معكوس') ? (
+            <span className="flex items-center gap-1.5 font-bold text-purple-700 bg-purple-100 border border-purple-200 px-3 py-1.5 rounded-full text-xs">
+              <RotateCcw size={14} className="text-purple-600" /> معكوس (ملغى)
+            </span>
+          ) : (entry.status as string) === 'rejected' || entry.description?.includes('[مرفوض') ? (
             <span className="flex items-center gap-1.5 font-bold text-rose-700 bg-rose-100 border border-rose-200 px-3 py-1.5 rounded-full text-xs">
               <XCircle size={14} className="text-rose-600" /> مرفوض من الاعتماد
             </span>
@@ -92,11 +98,23 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
             </span>
           )}
           
+          {/* زر عكس القيد المحاسبي المعتمد رسمياً في النظام */}
+          {entry.status === 'posted' && onReverse && (
+            <button 
+              onClick={() => onReverse(entry)} 
+              className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-purple-700 transition-colors shadow-xs flex items-center gap-1 cursor-pointer"
+              title="عمل قيد تسوية عكسي لإلغاء الأثر المالي لهذا القيد وتصفير رصيده قانونياً بالأستاذ العام"
+            >
+              <RotateCcw size={13} />
+              عكس القيد
+            </button>
+          )}
+
           {/* زر إلغاء الترحيل للقيود غير المتوازنة لتصحيحها */}
           {!isBalanced && entry.status === 'posted' && onUnpost && (
             <button 
               onClick={() => onUnpost(entry.id)} 
-              className="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-700 transition-colors shadow-xs flex items-center gap-1 cursor-pointer"
+              className="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-rose-700 transition-colors shadow-xs flex items-center gap-1 cursor-pointer animate-pulse"
               title="فك ترحيل هذا القيد غير المتوازن لتحويله إلى مسودة وتصحيحه"
             >
               فك الترحيل للتصحيح
@@ -117,7 +135,7 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
           {/* تنبيه وشارة واضحة إذا كان القيد معلقاً بانتظار الاعتماد */}
           {entry.status === 'draft' && (entry.description?.includes('[قيد معلق للاعتماد') || (entry.status as string) === 'pending_approval') && (
             <span 
-              className="bg-amber-50 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-not-allowed select-none shadow-xs"
+              className="bg-amber-50 text-amber-800 border border-amber-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-not-allowed select-none shadow-xs" 
               title="هذا القيد معلق بانتظار موافقة مسار الاعتماد الإداري والمالي ولا يمكن ترحيله مباشرة من شاشة المسودات."
             >
               🔒 معلق للاعتماد
@@ -127,7 +145,7 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
           {/* تنبيه وشارة واضحة إذا كان القيد مرفوضاً */}
           {entry.status === 'draft' && (entry.description?.includes('[مرفوض') || (entry.status as string) === 'rejected') && (
             <span 
-              className="bg-rose-50 text-rose-800 border border-rose-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-not-allowed select-none shadow-xs"
+              className="bg-rose-50 text-rose-800 border border-rose-300 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1 cursor-not-allowed select-none shadow-xs" 
               title="تم رفض هذا القيد رسمياً من مسار الاعتماد ولا يمكن ترحيله نهائياً."
             >
               ⛔ مرفوض من الاعتماد
@@ -154,7 +172,7 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
           >
             <Copy size={16} />
           </button>
-          {source.label === 'قيد يدوي' ? (
+          {source.label === 'قيد يدوي' && entry.status === 'draft' ? (
             <button 
               onClick={() => onEdit(entry)} 
               className="p-2 text-slate-400 hover:text-amber-600 rounded-full hover:bg-slate-100 transition-colors" 
@@ -163,7 +181,7 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
               <Edit size={16} />
             </button>
           ) : (
-            <span className="p-2 text-slate-300 cursor-not-allowed" title="لا يمكن تعديل القيود الآلية">
+            <span className="p-2 text-slate-300 cursor-not-allowed" title={entry.status === 'posted' ? "القيود المرحلة لا تعدل مباشرة بل بعكس القيد" : "لا يمكن تعديل القيود الآلية"}>
               <Edit size={16} />
             </span>
           )}

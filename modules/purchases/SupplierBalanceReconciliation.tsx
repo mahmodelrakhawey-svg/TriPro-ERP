@@ -4,7 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../supabaseClient';
 import { 
-  Scale, AlertTriangle, CheckCircle, Search, ArrowRight, 
+  Scale, AlertTriangle, RotateCcw, CheckCircle, Search, ArrowRight, 
   RefreshCw, Trash2, Plus, X, Truck, BookOpen, 
   FileText, FileCheck, Download, HardHat
 } from 'lucide-react';
@@ -353,11 +353,15 @@ export const SupplierBalanceReconciliation: React.FC = () => {
             const clean = ref.trim().toUpperCase();
             refToSupplierId.set(clean, suppId);
             // إضافة بدائل البادئات الشائعة
-            const rawNum = clean.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-|REJ-CHQ-|REJ-|DISB-|CUST-|SETTL-|MAINT-|STD-)/i, '');
+            const withoutRev = clean.replace(/^(REV-)+/i, '');
+            const rawNum = withoutRev.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-|REJ-CHQ-|REJ-|DISB-|CUST-|SETTL-|MAINT-|STD-)/i, '');
             if (rawNum) {
               refToSupplierId.set(rawNum, suppId);
               refToSupplierId.set(`PUR-${rawNum}`, suppId);
               refToSupplierId.set(`PI-${rawNum}`, suppId);
+              refToSupplierId.set(`REV-${rawNum}`, suppId);
+              refToSupplierId.set(`REV-PUR-${rawNum}`, suppId);
+              refToSupplierId.set(`REV-PI-${rawNum}`, suppId);
               refToSupplierId.set(`SUB-BILL-${rawNum}`, suppId);
               refToSupplierId.set(`SUB-${rawNum}`, suppId);
               refToSupplierId.set(`PV-${rawNum}`, suppId);
@@ -377,18 +381,28 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       dnRes.data?.forEach(d => registerDoc(d.id, d.related_journal_entry_id, d.supplier_id, d.debit_note_number));
       pvRes.data?.forEach(p => registerDoc(p.id, p.related_journal_entry_id, p.supplier_id, p.voucher_number));
       
+      // قائمة الكلمات الشائعة والمحاسبية المستبعدة من المطابقة الجزئية
+      const ACCOUNTING_STOP_WORDS = new Set([
+        'شركة', 'مؤسسة', 'مصنع', 'مجموعة', 'توكيلات', 'تجارة', 'توزيع', 'توريد', 'توريدات',
+        'صناعة', 'صناعات', 'استيراد', 'تصدير', 'خدمات', 'العامة', 'الحديثة', 'الدولية',
+        'المتحدة', 'الغذائية', 'للتجارة', 'للتوزيع',
+        'مورد', 'موردين', 'موردي', 'المورد', 'الموردين', 'عميل', 'عملاء', 'العميل', 'العملاء',
+        'حساب', 'الحساب', 'نقد', 'نقدي', 'نقدى', 'عام', 'عامة', 'شيك', 'سداد', 'فاتورة',
+        'قيد', 'تسوية', 'صرف', 'قبض', 'استحقاق', 'أستاذ', 'دفتر'
+      ]);
+
       // ربط الشيكات بالـ party_id أو بمطابقة party_name مع اسم المورد
       chqRes.data?.forEach(c => {
         let suppId = c.party_id;
         if (!suppId && c.party_name) {
-          const pName = c.party_name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
-          suppId = supplierNameToIdMap.get(pName) || suppliersList?.find(s => {
+          const pName = c.party_name.trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
+          suppId = supplierNameToIdMap.get(pName) || suppliersList?.filter(s => {
             if (!s.name) return false;
-            const sNorm = s.name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
-            return sNorm.includes(pName) || pName.includes(sNorm) || 
-                   sNorm.split(' ').some(w => w.length > 2 && pName.includes(w)) ||
-                   pName.split(' ').some(w => w.length > 2 && sNorm.includes(w));
-          })?.id;
+            const sNorm = s.name.trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
+            if (sNorm === pName || (sNorm.length >= 4 && pName.includes(sNorm)) || (pName.length >= 4 && sNorm.includes(pName))) return true;
+            const sDistinct = sNorm.split(' ').filter(w => w.length > 2 && !ACCOUNTING_STOP_WORDS.has(w));
+            return sDistinct.length > 0 && sDistinct.every(w => pName.includes(w));
+          })?.sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0))[0]?.id;
         }
         registerDoc(c.id, c.related_journal_entry_id, suppId, String(c.cheque_number));
       });
@@ -397,14 +411,14 @@ export const SupplierBalanceReconciliation: React.FC = () => {
       modularSupplierDocs.forEach(doc => {
         let suppId = doc.supplierId;
         if (!suppId && doc.supplierName) {
-          const pName = doc.supplierName.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
-          suppId = supplierNameToIdMap.get(pName) || suppliersList?.find(s => {
+          const pName = doc.supplierName.trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
+          suppId = supplierNameToIdMap.get(pName) || suppliersList?.filter(s => {
             if (!s.name) return false;
-            const sNorm = s.name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
-            return sNorm.includes(pName) || pName.includes(sNorm) || 
-                   sNorm.split(' ').some(w => w.length > 2 && pName.includes(w)) ||
-                   pName.split(' ').some(w => w.length > 2 && sNorm.includes(w));
-          })?.id;
+            const sNorm = s.name.trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
+            if (sNorm === pName || (sNorm.length >= 4 && pName.includes(sNorm)) || (pName.length >= 4 && sNorm.includes(pName))) return true;
+            const sDistinct = sNorm.split(' ').filter(w => w.length > 2 && !ACCOUNTING_STOP_WORDS.has(w));
+            return sDistinct.length > 0 && sDistinct.every(w => pName.includes(w));
+          })?.sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0))[0]?.id;
         }
         registerDoc(doc.docId, doc.journalEntryId, suppId, doc.ref || undefined);
       });
@@ -500,14 +514,21 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         // استنتاج المورد من: ID القيد -> مستند الأصل -> المرجع -> الاسم في البيان
         let suppId = entryIdToSupplierId.get(jeId);
         if (!suppId && docId) {
-          suppId = docIdToSupplierId.get(docId);
+          suppId = docIdToSupplierId.get(docId) || entryIdToSupplierId.get(docId) || (supplierBreakdown.has(docId) ? docId : undefined);
         }
         if (!suppId && ref) {
           suppId = refToSupplierId.get(ref);
           if (!suppId) {
-            const rawRef = ref.replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-|REJ-CHQ-|REJ-|DISB-|CUST-|SETTL-|MAINT-|STD-|REQ-)/i, '');
+            const cleanRefWithoutRev = ref.replace(/^(REV-)+/i, '');
+            suppId = refToSupplierId.get(cleanRefWithoutRev);
+          }
+          if (!suppId) {
+            const rawRef = ref.replace(/^(REV-)+/i, '').replace(/^(PUR-|PI-|PV-|PR-|DN-|SUB-BILL-|SUB-|CHQ-|REJ-OUT-|REJ-CHQ-|REJ-|DISB-|CUST-|SETTL-|MAINT-|STD-|REQ-)/i, '');
             if (rawRef) {
               suppId = refToSupplierId.get(rawRef) 
+                    || refToSupplierId.get(`REV-${rawRef}`)
+                    || refToSupplierId.get(`PUR-${rawRef}`) 
+                    || refToSupplierId.get(`PI-${rawRef}`) 
                     || refToSupplierId.get(`CHQ-${rawRef}`) 
                     || refToSupplierId.get(`REJ-CHQ-${rawRef}`) 
                     || refToSupplierId.get(`REJ-${rawRef}`) 
@@ -532,15 +553,18 @@ export const SupplierBalanceReconciliation: React.FC = () => {
         }
 
         if (!suppId) {
-          const lowerDesc = desc.toLowerCase();
-          const stopWords = new Set(['شركة', 'مؤسسة', 'مصنع', 'مجموعة', 'توكيلات', 'تجارة', 'توزيع', 'توريد', 'توريدات', 'صناعة', 'صناعات', 'استيراد', 'تصدير', 'خدمات', 'العامة', 'الحديثة', 'الدولية', 'المتحدة', 'الغذائية', 'للتجارة', 'للتوزيع']);
-          const matchedSupp = suppliersList?.find(s => {
-            if (!s.name) return false;
-            const sName = s.name.trim().toLowerCase();
-            if (lowerDesc.includes(sName)) return true;
-            const distinctWords = sName.split(' ').filter(w => w.length > 3 && !stopWords.has(w));
-            return distinctWords.length > 0 && distinctWords.some(w => lowerDesc.includes(w));
-          });
+          const normDesc = desc.toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
+          const matchedSupp = suppliersList
+            ?.filter(s => {
+              if (!s.name) return false;
+              const sNorm = s.name.trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
+              // 1. مطابقة الاسم الكامل داخل البيان (الأولوية الأولى)
+              if (sNorm.length >= 3 && normDesc.includes(sNorm)) return true;
+              // 2. الكلمات المميزة للمورد بعد استبعاد الكلمات المحاسبية وكلمات الوقف
+              const distinctWords = sNorm.split(' ').filter(w => w.length > 2 && !ACCOUNTING_STOP_WORDS.has(w));
+              return distinctWords.length > 0 && distinctWords.every(w => normDesc.includes(w));
+            })
+            ?.sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0))[0];
           if (matchedSupp) suppId = matchedSupp.id;
         }
 
@@ -550,7 +574,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           b.totalCredit += credit;
           b.totalDebit += debit;
 
-          if (ref.startsWith('PUR-') || ref.startsWith('PI-') || desc.includes('مشتريات') || desc.includes('فاتورة مشتريات')) {
+          if (ref.startsWith('PUR-') || ref.startsWith('PI-') || desc.includes('مشتريات') || desc.includes('فاتورة مشتريات') || (credit > 0 && !desc.includes('مستخلص') && !ref.startsWith('SUB-'))) {
             b.grossInvoices += credit;
           } else if (ref.startsWith('PR-') || desc.includes('مرتجع مشتريات')) {
             b.returnsTotal += debit;
@@ -673,7 +697,14 @@ export const SupplierBalanceReconciliation: React.FC = () => {
     if (!window.confirm('هل أنت متأكد من حذف هذا القيد؟ لا يمكن التراجع عن هذا الإجراء.')) return;
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const userOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+
+      // 🛡️ فك ترحيل القيد أولاً وتحويله إلى مسودة لتخطي مشغل الحصانة المحاسبية
+      try {
+        await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', entryId);
+      } catch (unpostErr) {
+        logger.warn('Pre-unpost draft update warning:', unpostErr);
+      }
 
       const { error: rpcError } = await supabase.rpc('delete_journal_entry_safe', {
         p_entry_id: entryId,
@@ -774,13 +805,15 @@ export const SupplierBalanceReconciliation: React.FC = () => {
   const handleFixSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const isCheque  = entryToFix.ref?.startsWith('CHQ-') || (entryToFix.description || '').includes('شيك');
-    if (!fixFormData.supplierId || (!isCheque && !fixFormData.treasuryAccountId)) {
-      showToast(isCheque ? 'الرجاء اختيار المورد' : 'الرجاء اختيار المورد وحساب الخزينة/البنك', 'warning');
+    const isPayment = entryToFix.debit > 0;
+    const isAdjustmentOrReversal = isPayment && (!fixFormData.treasuryAccountId || entryToFix.ref?.startsWith('REV-') || (entryToFix.description || '').includes('عكس'));
+
+    if (!fixFormData.supplierId) {
+      showToast('الرجاء اختيار المورد أولاً', 'warning');
       return;
     }
     try {
       const userOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id;
-      const isPayment = entryToFix.debit > 0;
       const amount    = isPayment ? entryToFix.debit : entryToFix.credit;
       const jeId      = entryToFix.journal_entries?.id || entryToFix.id;
       const rawNum    = entryToFix.ref?.replace('CHQ-', '').trim();
@@ -795,6 +828,20 @@ export const SupplierBalanceReconciliation: React.FC = () => {
             await supabase.from('cheques').update({ party_id: fixFormData.supplierId }).eq('cheque_number', rawNum);
           }
           showToast('تم ربط الشيك بالمورد بنجاح ومطابقة الأستاذ المساعد ✅', 'success');
+        } else if (isAdjustmentOrReversal) {
+          // ربط القيد المدين/العكسي كإشعار مدين دون المساس بالخزينة
+          const { error } = await supabase.from('debit_notes').insert({
+            organization_id:          userOrgId,
+            debit_note_number:        entryToFix.ref || `DN-FIX-${Date.now().toString().slice(-6)}`,
+            debit_note_date:          entryToFix.date || new Date().toISOString().split('T')[0],
+            supplier_id:              fixFormData.supplierId,
+            total_amount:             amount,
+            status:                   'posted',
+            related_journal_entry_id: jeId,
+            notes:                    fixFormData.notes || entryToFix.description
+          });
+          if (error) throw error;
+          showToast('تم ربط القيد العكسي/المدين بالمورد كإشعار مدين وتطابقت الأرصدة ✅', 'success');
         } else {
           const { error } = await supabase.from('payment_vouchers').insert({
             organization_id:     userOrgId,
@@ -810,8 +857,20 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           showToast('تم إنشاء سند الصرف وربطه بالقيد بنجاح ✅', 'success');
         }
       } else {
-        showToast('هذا القيد دائن — يمكنك ربطه كفاتورة مشتريات من شاشة المشتريات.', 'info');
-        return;
+        const { error } = await supabase.from('purchase_invoices').insert({
+          organization_id:          userOrgId,
+          invoice_number:           entryToFix.ref || `PI-FIX-${Date.now().toString().slice(-6)}`,
+          invoice_date:             entryToFix.date || new Date().toISOString().split('T')[0],
+          supplier_id:              fixFormData.supplierId,
+          total_amount:             amount,
+          subtotal:                 amount,
+          paid_amount:              0,
+          status:                   'posted',
+          related_journal_entry_id: jeId,
+          notes:                    fixFormData.notes || entryToFix.description
+        });
+        if (error) throw error;
+        showToast('تم ربط القيد الدائن بالمورد كفاتورة مشتريات وتطابقت الأرصدة ✅', 'success');
       }
       setFixModalOpen(false);
       fetchReconciliation();
@@ -1072,13 +1131,13 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                           >
                             عرض
                           </button>
-                          {entry.debit > 0 && (
+                          {(entry.debit > 0 || entry.credit > 0) && (
                             <button
                               onClick={() => openFixModal(entry)}
                               className="bg-orange-600 text-white px-2.5 py-1 rounded-lg text-xs font-bold hover:bg-orange-700 transition-colors"
                               title="ربط هذا القيد بمورد لمعالجة الفرق وتطابق الأستاذ المساعد"
                             >
-                              {entry.ref?.startsWith('CHQ-') ? 'ربط الشيك بمورد' : 'ربط بمورد / إصلاح'}
+                              {entry.ref?.startsWith('CHQ-') ? 'ربط الشيك بمورد' : entry.credit > 0 ? 'ربط بمورد' : 'ربط بمورد / إصلاح'}
                             </button>
                           )}
                           <button
@@ -1264,7 +1323,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl animate-in fade-in zoom-in-95">
             <div className="flex justify-between items-center border-b border-slate-100 pb-3">
               <h3 className="font-bold text-slate-800 text-base flex items-center gap-2">
-                <Plus className="text-orange-600" size={18} /> ربط القيد كسند صرف لمورد
+                <Plus className="text-orange-600" size={18} /> {entryToFix?.credit > 0 ? 'ربط قيد الفاتورة / المستحقات بمورد' : 'ربط القيد كسند صرف لمورد'}
               </h3>
               <button onClick={() => setFixModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
             </div>
@@ -1276,8 +1335,8 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                   <span className="font-mono font-bold">{entryToFix.ref || 'بدون مرجع'}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-slate-500">المبلغ المدين:</span>
-                  <span className="font-mono font-bold text-orange-600 text-sm">{entryToFix.debit.toLocaleString()} {settings.currency || 'ج.م'}</span>
+                  <span className="text-slate-500">{entryToFix.credit > 0 ? 'المبلغ الدائن:' : 'المبلغ المدين:'}</span>
+                  <span className="font-mono font-bold text-orange-600 text-sm">{(entryToFix.credit || entryToFix.debit).toLocaleString()} {settings.currency || 'ج.م'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">البيان:</span>
@@ -1314,7 +1373,17 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                 </select>
               </div>
 
-              {entryToFix.ref?.startsWith('CHQ-') || (entryToFix.description || '').includes('شيك') ? (
+              {entryToFix.credit > 0 ? (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 space-y-1">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <CheckCircle size={15} className="text-emerald-600" />
+                    قيد فاتورة / استحقاق دائن مسجل مسبقاً بالأستاذ العام
+                  </p>
+                  <p className="leading-relaxed">
+                    سيتم ربط القيد مباشرة ببطاقة المورد المختار ليظهر في كشف حسابه وتتطابق الأرصدة 100% دون إنشاء قيود مكررة.
+                  </p>
+                </div>
+              ) : entryToFix.ref?.startsWith('CHQ-') || (entryToFix.description || '').includes('شيك') ? (
                 <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800 space-y-1">
                   <p className="font-bold flex items-center gap-1.5">
                     <CheckCircle size={15} className="text-blue-600" />
@@ -1324,15 +1393,25 @@ export const SupplierBalanceReconciliation: React.FC = () => {
                     <strong>لن يتم إنشاء أي قيد محاسبي جديد</strong> (منعاً للازدواجية وتكرار المبالغ) — الربط سيقوم فقط بتعيين المورد للشيك ليظهر ضمن كشف حسابه وتتطابق الأرصدة فوراً.
                   </p>
                 </div>
+              ) : entryToFix.ref?.startsWith('REV-') || (entryToFix.description || '').includes('عكس') ? (
+                <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl text-xs text-purple-800 space-y-1">
+                  <p className="font-bold flex items-center gap-1.5">
+                    <CheckCircle size={15} className="text-purple-600" />
+                    قيد تسوية / قيد عكسي مدين مسجل مسبقاً بالأستاذ العام
+                  </p>
+                  <p className="leading-relaxed">
+                    سيتم ربط القيد العكسي ببطاقة المورد المختار كإشعار مدين ليتم خصمه من رصيد المورد وتتطابق الأرصدة 100% دون المساس بالخزينة.
+                  </p>
+                </div>
               ) : (
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">حساب الخزينة / البنك <span className="text-red-500">*</span></label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">حساب الخزينة / البنك <span className="text-slate-400 font-normal">(اختياري في التسويات والقيود العكسية)</span></label>
                   <select
-                    required
                     className="w-full border rounded-xl p-2.5 bg-slate-50 text-sm font-bold outline-none focus:border-orange-500"
                     value={fixFormData.treasuryAccountId}
                     onChange={e => setFixFormData({...fixFormData, treasuryAccountId: e.target.value})}
                   >
+                    <option value="">-- تسوية محاسبية مباشرة (بدون حركة نقدية) --</option>
                     {treasuryAccounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.code})</option>)}
                   </select>
                 </div>
@@ -1351,7 +1430,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button type="button" onClick={() => setFixModalOpen(false)} className="px-4 py-2 bg-slate-100 text-slate-700 font-bold rounded-xl text-xs hover:bg-slate-200">إلغاء</button>
                 <button type="submit" className="px-5 py-2 bg-orange-600 text-white font-bold rounded-xl text-xs hover:bg-orange-700 shadow-sm">
-                  {entryToFix.ref?.startsWith('CHQ-') ? 'ربط الشيك بالمورد' : 'إنشاء وربط السند'}
+                  {entryToFix.credit > 0 ? 'ربط القيد بالمورد' : entryToFix.ref?.startsWith('CHQ-') ? 'ربط الشيك بالمورد' : 'إنشاء وربط السند'}
                 </button>
               </div>
             </form>

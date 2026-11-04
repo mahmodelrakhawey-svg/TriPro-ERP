@@ -629,42 +629,153 @@ const GeneralJournal: React.FC = () => {
     }
   };
 
-  const handleDeleteEntry = async (entryId: string) => {
-    if (!window.confirm('هل أنت متأكد من حذف هذا القيد؟ لا يمكن التراجع عن هذا الإجراء.')) {
+  const handleReverseEntry = async (entry: JournalEntry | any) => {
+    if (!window.confirm(`هل أنت متأكد من إنشاء قيد تسوية عكسي لإلغاء القيد (${entry.reference || entry.id.slice(0, 8)}) وتصفير أثره المالي؟\n\nوفقاً لمعايير الحوكمة المحاسبية، يتم إلغاء أثر القيود المرحّلة رسمياً عبر قيد عكسي معتمد بالأستاذ العام.`)) {
       return;
     }
     try {
-      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
-      
-      await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', entryId);
+      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || entry.organization_id;
 
+      // 1. جلب أسطر القيد الأصلي
+      const { data: fullEntry, error: fetchErr } = await supabase
+        .from('journal_entries')
+        .select('*, journal_lines(*)')
+        .eq('id', entry.id)
+        .single();
+      if (fetchErr) throw fetchErr;
+
+      const lines = fullEntry.journal_lines || [];
+      if (lines.length === 0) {
+        toast.error('لا يمكن عكس قيد لا يحتوي على أسطر محاسبية.');
+        return;
+      }
+
+      // 2. إنشاء القيد العكسي
+      const revRef = `REV-${entry.reference || entry.id.slice(0, 8)}`;
+      const revDesc = `قيد عكسي لتسوية وإلغاء أثر القيد: ${entry.description || entry.reference || ''}`;
+      const targetOrg = orgId || fullEntry.organization_id;
+
+      const { data: newEntry, error: insertErr } = await supabase
+        .from('journal_entries')
+        .insert({
+          organization_id: targetOrg,
+          reference: revRef,
+          description: revDesc,
+          transaction_date: new Date().toISOString().split('T')[0],
+          status: 'posted',
+          is_posted: true,
+          related_document_id: entry.id,
+          related_document_type: 'journal_reversal'
+        })
+        .select()
+        .single();
+      if (insertErr) throw insertErr;
+
+      // 3. إدراج الأسطر المعكوسة (المدين يصبح دائناً، والدائن يصبح مديناً)
+      const reversedLines = lines.map((l: any) => ({
+        journal_entry_id: newEntry.id,
+        account_id: l.account_id,
+        debit: Number(l.credit) || 0,
+        credit: Number(l.debit) || 0,
+        description: `عكس: ${l.description || revDesc}`,
+        cost_center_id: l.cost_center_id
+      }));
+
+      const { error: linesErr } = await supabase
+        .from('journal_lines')
+        .insert(reversedLines);
+      if (linesErr) throw linesErr;
+
+      // 4. تحديث حالة القيد الأصلي إلى reversed (المصرح بها في مشغل الحصانة المحاسبية)
+      const { error: updateErr } = await supabase
+        .from('journal_entries')
+        .update({ status: 'reversed' })
+        .eq('id', entry.id);
+      if (updateErr) {
+        logger.warn('Could not set status to reversed on original entry:', updateErr);
+      }
+
+      // 5. إعادة احتساب موازين النظام
+      try {
+        if (targetOrg) {
+          await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrg });
+        }
+      } catch (_) {}
+
+      toast.success('تم إنشاء القيد العكسي وإلغاء الأثر المالي بنجاح ✅');
+      await clearCache();
+      await refreshData();
+      refresh();
+    } catch (err: any) {
+      toast.error('فشل إنشاء القيد العكسي: ' + (err?.message || err));
+    }
+  };
+
+  const handleDeleteEntry = async (entryId: string) => {
+    const targetEntry = journalEntries.find(e => e.id === entryId);
+    const isPosted = targetEntry?.status === 'posted' || targetEntry?.is_posted;
+
+    if (!window.confirm(isPosted 
+      ? 'هذا القيد مرحّل لدفتر الأستاذ العام ومحصن رقابياً. هل أنت متأكد من محاولة حذفه؟' 
+      : 'هل أنت متأكد من حذف هذا القيد المسودة؟ لا يمكن التراجع عن هذا الإجراء.'
+    )) {
+      return;
+    }
+
+    try {
+      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+
+      // 1. إذا كان القيد مسودة، حذفه مباشرة
+      if (!isPosted) {
+        await supabase.from('journal_lines').delete().eq('journal_entry_id', entryId);
+        const { error: delErr } = await supabase.from('journal_entries').delete().eq('id', entryId);
+        if (delErr) throw delErr;
+        toast.success('تم حذف القيد المسودة بنجاح.');
+        await clearCache();
+        await refreshData();
+        refresh();
+        return;
+      }
+
+      // 2. إذا كان مرحلاً، الحذف عبر الدالة المخزنة المصرحة داخل قاعدة البيانات
       const { error: rpcError } = await supabase.rpc('delete_journal_entry_safe', {
         p_entry_id: entryId,
         p_org_id: orgId
       });
 
-      if (rpcError) {
-        await supabase.from('journal_lines').delete().eq('journal_entry_id', entryId);
-        const { error: delErr } = await supabase.from('journal_entries').delete().eq('id', entryId);
-        if (delErr) throw delErr;
+      if (!rpcError) {
+        try {
+          if (orgId) {
+            await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+          }
+        } catch (_) {}
+        toast.success('تم حذف القيد وتحديث الأرصدة بنجاح.');
+        await clearCache();
+        await refreshData();
+        refresh();
+        return;
       }
 
-      try {
-        if (orgId) {
-          await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
+      // 3. إذا اعترض مشغل الحصانة المحاسبية، نقترح فوراً عكس القيد نظامياً
+      if (rpcError) {
+        const msg = rpcError.message || '';
+        if (msg.includes('TRIPRO_SECURITY_ALERT') || msg.includes('قيد عكسي') || msg.includes('محصنة') || msg.includes('غير مصرح')) {
+          if (window.confirm('🛡️ هذا القيد محصن محاسبياً ومرحل بالأستاذ العام ولا يمكن حذفه نهائياً.\n\nهل تريد إنشاء «قيد تسوية عكسي» لإلغاء وتصفير أثره المالي فوراً بالأستاذ العام؟')) {
+            if (targetEntry) {
+              await handleReverseEntry(targetEntry);
+              return;
+            }
+          }
         }
-      } catch (_) {}
-
-      toast.success('تم حذف القيد وتحديث الأرصدة بنجاح.');
-      refreshData();
-      refresh();
-    } catch (err) {
-      toast.error('فشل حذف القيد: ' + err.message);
+        throw rpcError;
+      }
+    } catch (err: any) {
+      toast.error('تعذر حذف القيد: ' + (err?.message || err));
     }
   };
 
   const handleCleanOrphanedAssetEntries = async () => {
-    const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
     if (!orgId) return;
 
     setIsCleaningAssets(true);
@@ -968,22 +1079,10 @@ const GeneralJournal: React.FC = () => {
   };
 
   const handleUnpostEntry = async (entryId: string) => {
-    if (!window.confirm('هل تريد فك ترحيل هذا القيد غير المتوازن وتحويله إلى مسودة لتتمكن من تصحيحه أو حذفه؟')) {
-      return;
-    }
-    try {
-      const res = await journalAuditService.unpostEntryForCorrection(entryId);
-      if (res.success) {
-        toast.success(res.message);
-        await clearCache();
-        await refreshData();
-        refresh();
-        checkUnbalancedEntries();
-      } else {
-        toast.error(res.message);
-      }
-    } catch (err) {
-      toast.error('حدث خطأ: ' + err.message);
+    const targetEntry = journalEntries.find(e => e.id === entryId);
+    if (!targetEntry) return;
+    if (window.confirm('🛡️ القيود المحاسبية المرحّلة محصنة من العودة لمسودة لحماية دفاتر الأستاذ العام.\n\nهل تريد إنشاء «قيد عكسي» معتمد لإلغاء وتصفير هذا القيد فوراً؟')) {
+      await handleReverseEntry(targetEntry);
     }
   };
 
@@ -1136,6 +1235,7 @@ const GeneralJournal: React.FC = () => {
               canPost={Boolean(can('journals', 'post'))}
               onPost={handlePostEntry}
               onUnpost={handleUnpostEntry}
+              onReverse={handleReverseEntry}
               onView={handleViewEntry}
               onPrint={printJournalEntry}
               onDuplicate={handleDuplicateEntry}

@@ -130,7 +130,7 @@ const ManufacturingVariances = React.memo(({ data }: { data: any[] }) => (
 ));
 
 export default function AccountingDashboard() {
-  const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser, emptyRecycleBin, deleteOrganization, organizations, selectedFiscalYear } = useAccounting();
+  const { accounts, entries, refreshData, clearCache, clearTransactions, currentUser, emptyRecycleBin, deleteOrganization, organizations, selectedFiscalYear, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -645,7 +645,7 @@ export default function AccountingDashboard() {
       </div>
 
       {/* 🛡️ درع النزاهة والتدقيق المحاسبي الليلي */}
-      <MidnightAuditShieldCard organizationId={currentUser?.organization_id || ''} />
+      <MidnightAuditShieldCard organizationId={currentSelectedOrgId || currentUser?.organization_id || ''} />
 
       {/* Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">

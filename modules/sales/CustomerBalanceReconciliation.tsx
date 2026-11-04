@@ -279,18 +279,28 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       retRes.data?.forEach(r => registerDoc(r.id, r.related_journal_entry_id, r.customer_id, r.return_number));
       cnRes.data?.forEach(c => registerDoc(c.id, c.related_journal_entry_id, c.customer_id, c.credit_note_number));
       
+      // قائمة الكلمات الشائعة والمحاسبية المستبعدة من المطابقة الجزئية
+      const CUSTOMER_STOP_WORDS = new Set([
+        'شركة', 'مؤسسة', 'مصنع', 'مجموعة', 'توكيلات', 'تجارة', 'توزيع', 'توريد', 'توريدات',
+        'صناعة', 'صناعات', 'استيراد', 'تصدير', 'خدمات', 'العامة', 'الحديثة', 'الدولية',
+        'المتحدة', 'الغذائية', 'للتجارة', 'للتوزيع',
+        'عميل', 'عملاء', 'عميلي', 'العميل', 'العملاء', 'مورد', 'موردين', 'المورد', 'الموردين',
+        'حساب', 'الحساب', 'نقد', 'نقدي', 'نقدى', 'عام', 'عامة', 'شيك', 'سداد', 'فاتورة',
+        'قيد', 'تسوية', 'صرف', 'قبض', 'استحقاق', 'أستاذ', 'دفتر'
+      ]);
+
       // ربط الشيكات بالعميل إما بالـ party_id أو بمطابقة party_name مع اسم العميل
       chqRes.data?.forEach(c => {
         let custId = c.party_id;
         if (!custId && c.party_name) {
-          const pName = c.party_name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
-          custId = customerNameToIdMap.get(pName) || customersList?.find(cust => {
+          const pName = c.party_name.trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
+          custId = customerNameToIdMap.get(pName) || customersList?.filter(cust => {
             if (!cust.name) return false;
-            const cNorm = cust.name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
-            return cNorm.includes(pName) || pName.includes(cNorm) || 
-                   cNorm.split(' ').some(w => w.length > 2 && pName.includes(w)) ||
-                   pName.split(' ').some(w => w.length > 2 && cNorm.includes(w));
-          })?.id;
+            const cNorm = cust.name.trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
+            if (cNorm === pName || (cNorm.length >= 4 && pName.includes(cNorm)) || (pName.length >= 4 && cNorm.includes(pName))) return true;
+            const cDistinct = cNorm.split(' ').filter(w => w.length > 2 && !CUSTOMER_STOP_WORDS.has(w));
+            return cDistinct.length > 0 && cDistinct.every(w => pName.includes(w));
+          })?.sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0))[0]?.id;
         }
         registerDoc(c.id, c.related_journal_entry_id, custId, String(c.cheque_number));
       });
@@ -301,14 +311,14 @@ export const CustomerBalanceReconciliation: React.FC = () => {
       modularCustomerDocs.forEach(doc => {
         let custId = doc.customerId;
         if (!custId && doc.customerName) {
-          const pName = doc.customerName.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
-          custId = customerNameToIdMap.get(pName) || customersList?.find(cust => {
+          const pName = doc.customerName.trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
+          custId = customerNameToIdMap.get(pName) || customersList?.filter(cust => {
             if (!cust.name) return false;
-            const cNorm = cust.name.trim().toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
-            return cNorm.includes(pName) || pName.includes(cNorm) || 
-                   cNorm.split(' ').some(w => w.length > 2 && pName.includes(w)) ||
-                   pName.split(' ').some(w => w.length > 2 && cNorm.includes(w));
-          })?.id;
+            const cNorm = cust.name.trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
+            if (cNorm === pName || (cNorm.length >= 4 && pName.includes(cNorm)) || (pName.length >= 4 && cNorm.includes(pName))) return true;
+            const cDistinct = cNorm.split(' ').filter(w => w.length > 2 && !CUSTOMER_STOP_WORDS.has(w));
+            return cDistinct.length > 0 && cDistinct.every(w => pName.includes(w));
+          })?.sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0))[0]?.id;
         }
         if (!custId && doc.customerPhone) {
           const cleanP = doc.customerPhone.replace(/[^0-9]/g, '');
@@ -419,12 +429,18 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         }
 
         if (!custId) {
-          const lowerDesc = desc.toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
-          const matchedCust = customersList?.find(c => {
-            if (!c.name) return false;
-            const cNorm = c.name.toLowerCase().replace(/ى/g, 'ي').replace(/أ|إ|آ/g, 'ا').replace(/ة/g, 'ه');
-            return lowerDesc.includes(cNorm) || cNorm.split(' ').some(w => w.length > 2 && lowerDesc.includes(w));
-          });
+          const normDesc = desc.toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
+          const matchedCust = customersList
+            ?.filter(c => {
+              if (!c.name) return false;
+              const cNorm = c.name.toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
+              // 1. مطابقة الاسم الكامل داخل البيان
+              if (cNorm.length >= 3 && normDesc.includes(cNorm)) return true;
+              // 2. الكلمات المميزة للعميل بعد استبعاد الكلمات المحاسبية
+              const distinctWords = cNorm.split(' ').filter(w => w.length > 2 && !CUSTOMER_STOP_WORDS.has(w));
+              return distinctWords.length > 0 && distinctWords.every(w => normDesc.includes(w));
+            })
+            ?.sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0))[0];
           if (matchedCust) custId = matchedCust.id;
         }
 
