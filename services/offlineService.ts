@@ -87,9 +87,83 @@ class OfflineDB extends Dexie {
   }
 }
 
+let cachedServerTimeDelta: number = 0;
+try {
+  const storedDelta = secureStorage.getItem<number>('tripro_server_time_delta');
+  if (typeof storedDelta === 'number' && !isNaN(storedDelta)) {
+    cachedServerTimeDelta = storedDelta;
+  }
+} catch (_) {}
+
 export const db = new OfflineDB();
 
 export const offlineService = {
+  /**
+   * Retrieves the current calibrated server-time delta (in milliseconds).
+   */
+  getServerTimeDelta(): number {
+    return cachedServerTimeDelta;
+  },
+
+  /**
+   * Updates and persists the server-time calibration delta (in milliseconds).
+   */
+  setServerTimeDelta(deltaMs: number) {
+    if (typeof deltaMs === 'number' && !isNaN(deltaMs)) {
+      cachedServerTimeDelta = Math.round(deltaMs);
+      try {
+        secureStorage.setItem('tripro_server_time_delta', cachedServerTimeDelta);
+      } catch (_) {}
+    }
+  },
+
+  /**
+   * Returns a calibrated Date adjusted for any clock skew between client and server.
+   */
+  getCalibratedDate(): Date {
+    return new Date(Date.now() + cachedServerTimeDelta);
+  },
+
+  /**
+   * Calibrates client clock against server time when online.
+   * Calculates round-trip latency and stores the offset.
+   */
+  async calibrateServerTime(): Promise<number> {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return cachedServerTimeDelta;
+    }
+
+    try {
+      const clientStart = Date.now();
+      let serverMs: number | null = null;
+
+      try {
+        const { data, error } = await supabase.rpc('get_server_time');
+        if (!error && data) {
+          serverMs = new Date(data).getTime();
+        }
+      } catch (_) {}
+
+      if (serverMs && !isNaN(serverMs)) {
+        const clientEnd = Date.now();
+        const roundTripLatency = (clientEnd - clientStart) / 2;
+        const delta = Math.round(serverMs - (clientStart + roundTripLatency));
+        this.setServerTimeDelta(delta);
+        logger.log(`Server time calibrated. Clock skew offset: ${delta}ms`);
+        return delta;
+      }
+    } catch (e) {
+      logger.warn('Failed to calibrate server time:', e);
+    }
+    return cachedServerTimeDelta;
+  },
+
+  /**
+   * Returns clock skew in minutes for diagnostic monitoring.
+   */
+  getServerTimeSkewMinutes(): number {
+    return Math.round(cachedServerTimeDelta / 60000);
+  },
   /**
    * Resolves the real, valid organization UUID for syncing offline records.
    */
@@ -500,9 +574,18 @@ export const offlineService = {
         orderPayload.organization_id = lastValidOrg;
       }
 
+      // 🕒 Calibrate order timestamp to eliminate local clock skew errors
+      const calibratedDate = this.getCalibratedDate();
+      if (!orderPayload.created_at) {
+        orderPayload.created_at = calibratedDate.toISOString();
+      }
+      if (!orderPayload.date) {
+        orderPayload.date = calibratedDate.toISOString().split('T')[0];
+      }
+
       await db.queuedOrders.add({
         payload: orderPayload,
-        createdAt: new Date(),
+        createdAt: calibratedDate,
         status: 'pending',
         attempts: 0,
       });

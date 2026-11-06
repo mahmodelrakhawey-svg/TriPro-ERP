@@ -47,6 +47,73 @@ async function sha256Hex(data: string | Uint8Array): Promise<string> {
 
 export const offsiteBackupService = {
   /**
+   * تشفير حمولة النسخة الاحتياطية باستخدام معيار التشفير المتقدم AES-256-GCM
+   */
+  async encryptPayload(content: string, secretPassphrase: string): Promise<{ encryptedBase64: string; ivHex: string }> {
+    const enc = new TextEncoder();
+    const rawKeyMaterial = await crypto.subtle.digest('SHA-256', enc.encode(secretPassphrase));
+    const key = await crypto.subtle.importKey(
+      'raw',
+      rawKeyMaterial,
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt', 'decrypt']
+    );
+
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const encrypted = await crypto.subtle.encrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      enc.encode(content)
+    );
+
+    const ivHex = Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join('');
+    let binary = '';
+    const bytes = new Uint8Array(encrypted);
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const encryptedBase64 = btoa(binary);
+
+    return { encryptedBase64, ivHex };
+  },
+
+  /**
+   * فك تشفير حمولة النسخة الاحتياطية المشفرة بـ AES-256-GCM
+   */
+  async decryptPayload(encryptedBase64: string, ivHex: string, secretPassphrase: string): Promise<string> {
+    const enc = new TextEncoder();
+    const rawKeyMaterial = await crypto.subtle.digest('SHA-256', enc.encode(secretPassphrase));
+    const key = await crypto.subtle.importKey(
+      'raw',
+      rawKeyMaterial,
+      { name: 'AES-GCM' },
+      false,
+      ['encrypt', 'decrypt']
+    );
+
+    const ivMatch = ivHex.match(/.{1,2}/g);
+    if (!ivMatch || ivMatch.length !== 12) {
+      throw new Error('متجه التهيئة (IV) غير صالح');
+    }
+    const iv = new Uint8Array(ivMatch.map(byte => parseInt(byte, 16)));
+
+    const binary = atob(encryptedBase64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+
+    const decrypted = await crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      bytes
+    );
+
+    const dec = new TextDecoder();
+    return dec.decode(decrypted);
+  },
+  /**
    * اختبار الاتصال بمستودع S3 / Cloudflare R2
    */
   async testConnection(settings: S3BackupSettings): Promise<{ success: boolean; message: string }> {

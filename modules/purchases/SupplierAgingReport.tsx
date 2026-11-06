@@ -4,7 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { History, Printer, Download, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { fetchCompleteDataset } from '../../services/balanceService';
+import { fetchAllSupplierBalances, fetchCompleteDataset } from '../../services/balanceService';
 
 const SupplierAgingReport = () => {
   const { currentUser } = useAccounting();
@@ -36,23 +36,15 @@ const SupplierAgingReport = () => {
 
       const [
         suppliers,
+        balancesMap,
         invoices,
-        payments,
-        returns,
-        debitNotes,
-        cheques,
-        rebates,
         subs,
         contracts,
         subBillings
       ] = await Promise.all([
         fetchCompleteDataset<any>(async (from, to) => supabase.from('suppliers').select('id, name, opening_balance').match(filter).is('deleted_at', null).range(from, to)),
+        fetchAllSupplierBalances(userOrgId),
         fetchCompleteDataset<any>(async (from, to) => supabase.from('purchase_invoices').select('id, supplier_id, invoice_number, invoice_date, total_amount, paid_amount').eq('organization_id', userOrgId).neq('status', 'draft').order('invoice_date', { ascending: false }).range(from, to)),
-        fetchCompleteDataset<any>(async (from, to) => supabase.from('payment_vouchers').select('supplier_id, amount, notes').match(filter).not('supplier_id', 'is', null).range(from, to)),
-        fetchCompleteDataset<any>(async (from, to) => supabase.from('purchase_returns').select('supplier_id, total_amount').match(filter).neq('status', 'draft').range(from, to)),
-        fetchCompleteDataset<any>(async (from, to) => supabase.from('debit_notes').select('supplier_id, total_amount').match(filter).eq('status', 'posted').range(from, to)),
-        fetchCompleteDataset<any>(async (from, to) => supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'outgoing').neq('status', 'rejected').range(from, to)),
-        fetchCompleteDataset<any>(async (from, to) => supabase.from('vendor_rebate_settlements').select('vendor_id, total_claim_amount').match(filter).in('status', ['APPROVED', 'SETTLED']).range(from, to)),
         fetchCompleteDataset<any>(async (from, to) => supabase.from('subcontractors').select('id, name, supplier_id').match(filter).range(from, to)),
         fetchCompleteDataset<any>(async (from, to) => supabase.from('subcontractor_contracts').select('id, subcontractor_id').match(filter).range(from, to)),
         fetchCompleteDataset<any>(async (from, to) => supabase.from('subcontractor_billings').select('contract_id, net_amount, billing_date').match(filter).neq('status', 'draft').order('billing_date', { ascending: false }).range(from, to))
@@ -66,9 +58,17 @@ const SupplierAgingReport = () => {
       const today = new Date();
       
       const agingData = suppliers.map(supplier => {
-        const opening = Number(supplier.opening_balance || 0);
+        // 🛡️ الاعتماد على محرك الأرصدة الموحد لضمان التطابق 100% مع تقرير أرصدة الموردين والأستاذ العام
+        const canonicalBalance = balancesMap.get(supplier.id);
 
-        // 1. تحديد فواتير هذا المورد (مع خصم السداد الفوري على الفاتورة)
+        // استبعاد الموردين الخالصين (0) أو أصحاب الدفعات المقدمة (الرصيد السالب لا يدخل في أعمار الديون)
+        if (canonicalBalance === undefined || canonicalBalance <= 0.01) {
+            return null;
+        }
+
+        const netBalance = canonicalBalance;
+
+        // 1. تحديد فواتير هذا المورد
         const supplierInvoices = invoices.filter(inv => inv.supplier_id === supplier.id);
 
         // 2. تحديد مقاولي الباطن المرتبطين بهذا المورد
@@ -91,9 +91,7 @@ const SupplierAgingReport = () => {
         const debitItems: DebitItem[] = [];
 
         supplierInvoices.forEach(inv => {
-            const pvPaidForThisInvoice = payments?.filter(p => p.supplier_id === supplier.id && p.notes && inv.invoice_number && p.notes.includes(inv.invoice_number)).reduce((s, p) => s + Number(p.amount || 0), 0) || 0;
-            const immediatePaidAtCheckout = Math.max(0, Number(inv.paid_amount || 0) - pvPaidForThisInvoice);
-            const netInvAmount = Math.max(0, Number(inv.total_amount || 0) - immediatePaidAtCheckout);
+            const netInvAmount = Math.max(0, Number(inv.total_amount || 0));
             if (netInvAmount > 0) {
                 const invDate = new Date(inv.invoice_date || today);
                 const diffTime = Math.abs(today.getTime() - invDate.getTime());
@@ -118,54 +116,44 @@ const SupplierAgingReport = () => {
         // ترتيب بنود الاستحقاق من الأحدث للأقدم لتوزيع الرصيد المتبقي (FIFO)
         debitItems.sort((a, b) => a.ageDays - b.ageDays);
 
-        // 4. السدادات والتخفيضات (سندات صرف + مردودات + إشعارات خصم + شيكات صادرة + بونص/ريبايت)
-        const suppPayments = payments?.filter(p => p.supplier_id === supplier.id).reduce((sum, p) => sum + Number(p.amount), 0) || 0;
-        const suppReturns = returns?.filter(r => r.supplier_id === supplier.id).reduce((sum, r) => sum + Number(r.total_amount), 0) || 0;
-        const suppDebitNotes = debitNotes?.filter(d => d.supplier_id === supplier.id).reduce((sum, d) => sum + Number(d.total_amount), 0) || 0;
-        const suppCheques = cheques?.filter(c => c.party_id === supplier.id).reduce((sum, c) => sum + Number(c.amount), 0) || 0;
-        const suppRebates = rebates?.filter(reb => reb.vendor_id === supplier.id).reduce((sum, reb) => sum + Number(reb.total_claim_amount), 0) || 0;
-
-        const totalCredits = suppPayments + suppReturns + suppDebitNotes + suppCheques + suppRebates;
-        
-        // الرصيد المستحق الحالي
-        const totalDebits = debitItems.reduce((sum, item) => sum + item.amount, 0);
-        const grossPayable = opening + totalDebits;
-        const netBalance = Math.max(0, grossPayable - totalCredits);
-
         let range0_30 = 0;
         let range31_60 = 0;
         let range61_90 = 0;
         let range90_plus = 0;
 
-        // توزيع الرصيد على الفترات الزمنية (FIFO)
-        if (netBalance > 0.01) {
-            let remainingToAllocate = netBalance;
+        // توزيع الرصيد المعتمد على الفترات الزمنية (FIFO)
+        let remainingToAllocate = netBalance;
 
-            // نمر على بنود الاستحقاق من الأحدث للأقدم
-            for (const item of debitItems) {
-                if (remainingToAllocate <= 0) break;
+        // نمر على بنود الاستحقاق من الأحدث للأقدم
+        for (const item of debitItems) {
+            if (remainingToAllocate <= 0) break;
 
-                const amountFromThisItem = Math.min(item.amount, remainingToAllocate);
+            const amountFromThisItem = Math.min(item.amount, remainingToAllocate);
 
-                if (item.ageDays <= 30) range0_30 += amountFromThisItem;
-                else if (item.ageDays <= 60) range31_60 += amountFromThisItem;
-                else if (item.ageDays <= 90) range61_90 += amountFromThisItem;
-                else range90_plus += amountFromThisItem;
+            if (item.ageDays <= 30) range0_30 += amountFromThisItem;
+            else if (item.ageDays <= 60) range31_60 += amountFromThisItem;
+            else if (item.ageDays <= 90) range61_90 += amountFromThisItem;
+            else range90_plus += amountFromThisItem;
 
-                remainingToAllocate -= amountFromThisItem;
-            }
-
-            // أي رصيد متبقي (رصيد افتتاحي أو مديونيات قديمة) يوضع في أقدم فترة (+90 يوم)
-            if (remainingToAllocate > 0) {
-                range90_plus += remainingToAllocate;
-                remainingToAllocate = 0;
-            }
-
-            // ضمان ألا يبقى أي صف برصيد موجب وجميع فتراته أصفار
-            if ((range0_30 + range31_60 + range61_90 + range90_plus) === 0) {
-                range90_plus = netBalance;
-            }
+            remainingToAllocate -= amountFromThisItem;
         }
+
+        // أي رصيد متبقي (رصيد افتتاحي أو مديونيات قديمة) يوضع في أقدم فترة (+90 يوم)
+        if (remainingToAllocate > 0) {
+            range90_plus += remainingToAllocate;
+            remainingToAllocate = 0;
+        }
+
+        // ضمان ألا يبقى أي صف برصيد موجب وجميع فتراته أصفار
+        if ((range0_30 + range31_60 + range61_90 + range90_plus) === 0) {
+            range90_plus = netBalance;
+        }
+
+        // تقريب الفترات وضمان انضباط المجموع بدقة السنتات
+        range0_30 = Math.round(range0_30 * 100) / 100;
+        range31_60 = Math.round(range31_60 * 100) / 100;
+        range61_90 = Math.round(range61_90 * 100) / 100;
+        range90_plus = Math.round((netBalance - range0_30 - range31_60 - range61_90) * 100) / 100;
 
         return {
           id: supplier.id,
@@ -176,7 +164,9 @@ const SupplierAgingReport = () => {
           range61_90,
           range90_plus
         };
-      }).filter(s => s.balance > 0.01).sort((a, b) => b.balance - a.balance);
+      })
+      .filter((s): s is NonNullable<typeof s> => s !== null && s.balance > 0.01)
+      .sort((a, b) => b.balance - a.balance);
 
       setReportData(agingData);
     } catch (error) {

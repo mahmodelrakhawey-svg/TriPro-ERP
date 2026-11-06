@@ -4,6 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { History, Printer, Download, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { fetchAllCustomerBalances, fetchCompleteDataset } from '../../services/balanceService';
 
 const CustomerAgingReport = () => {
   const { currentUser } = useAccounting();
@@ -35,17 +36,34 @@ const CustomerAgingReport = () => {
         return;
       }
 
-      // المحرك الشامل المباشر في المتصفح مطابقاً 100% لكشف الحساب والأستاذ العام
-      const { fetchCompleteDataset } = await import('../../services/balanceService');
-      const { SubledgerRegistry } = await import('../../services/subledgerRegistry');
       const filter = { organization_id: userOrgId };
 
-      // جلب العملاء
-      const { data: customers } = await supabase
-        .from('customers')
-        .select('id, name, phone, opening_balance')
-        .match(filter)
-        .is('deleted_at', null);
+      // جلب العملاء، الأرصدة المعتمدة، والفواتير والمستخلصات لحساب التوزيع الزمني
+      const [
+        customers,
+        balancesMap,
+        invoicesRes,
+        projectsRes,
+        billingsRes,
+        ordersRes
+      ] = await Promise.all([
+        fetchCompleteDataset<any>(async (from, to) =>
+          supabase.from('customers').select('id, name, phone, opening_balance').match(filter).is('deleted_at', null).range(from, to)
+        ),
+        fetchAllCustomerBalances(userOrgId),
+        fetchCompleteDataset<any>(async (from, to) =>
+          supabase.from('invoices').select('id, customer_id, invoice_number, invoice_date, total_amount, paid_amount').match(filter).neq('status', 'draft').neq('status', 'cancelled').order('invoice_date', { ascending: false }).range(from, to)
+        ),
+        fetchCompleteDataset<any>(async (from, to) =>
+          supabase.from('projects').select('id, customer_id, name').match(filter).range(from, to)
+        ),
+        fetchCompleteDataset<any>(async (from, to) =>
+          supabase.from('project_progress_billings').select('id, project_id, billing_number, billing_date, net_amount').match(filter).neq('status', 'draft').neq('status', 'cancelled').order('billing_date', { ascending: false }).range(from, to)
+        ),
+        fetchCompleteDataset<any>(async (from, to) =>
+          supabase.from('orders').select('id, customer_id, grand_total, created_at, status').match(filter).neq('status', 'CANCELLED').range(from, to)
+        )
+      ]);
 
       if (!customers || customers.length === 0) {
         setReportData([]);
@@ -53,287 +71,118 @@ const CustomerAgingReport = () => {
         return;
       }
 
-      // حساب مراقبة العملاء (Accounts Receivable): كود 1221 حصراً وما يتفرع منه (1221%) بدون حسابات أوراق القبض 1222
-      const { data: customerAccounts } = await supabase
-        .from('accounts')
-        .select('id, code, name')
-        .match(filter)
-        .or('code.eq.1221,code.ilike.1221%')
-        .limit(10);
-
-      let arAccountIds = (customerAccounts || []).map(a => a.id);
-
-      // احتياطي: إذا لم يوجد كود 1221، البحث بالاسم مع استبعاد أوراق القبض 1222
-      if (arAccountIds.length === 0) {
-        const { data: fallbackAccounts } = await supabase
-          .from('accounts')
-          .select('id, code, name')
-          .match(filter)
-          .or('name.ilike.%العملاء%,name.ilike.%عملاء%')
-          .not('name', 'ilike', '%أوراق%')
-          .not('name', 'ilike', '%اوراق%')
-          .not('code', 'ilike', '1222%')
-          .neq('code', '122')
-          .limit(10);
-        arAccountIds = (fallbackAccounts || []).map(a => a.id);
-      }
-
-      // جلب الفواتير والمستندات والقيود
-      const [
-        invoicesRes,
-        projectsRes,
-        billingsRes,
-        receiptsRes,
-        returnsRes,
-        creditNotesRes,
-        chequesRes,
-        ordersRes,
-        journalEntriesRes,
-        modularCustomerDocs
-      ] = await Promise.all([
-        fetchCompleteDataset(async (from, to) =>
-          supabase.from('invoices').select('id, customer_id, invoice_number, invoice_date, total_amount, paid_amount, related_journal_entry_id').match(filter).neq('status', 'draft').neq('status', 'cancelled').range(from, to)
-        ),
-        fetchCompleteDataset(async (from, to) =>
-          supabase.from('projects').select('id, customer_id, name').match(filter).range(from, to)
-        ),
-        fetchCompleteDataset(async (from, to) =>
-          supabase.from('project_progress_billings').select('id, project_id, billing_number, billing_date, net_amount, related_journal_entry_id').match(filter).neq('status', 'draft').neq('status', 'cancelled').range(from, to)
-        ),
-        fetchCompleteDataset(async (from, to) =>
-          supabase.from('receipt_vouchers').select('id, customer_id, related_journal_entry_id, amount').match(filter).not('related_journal_entry_id', 'is', null).range(from, to)
-        ),
-        fetchCompleteDataset(async (from, to) =>
-          supabase.from('sales_returns').select('id, customer_id, related_journal_entry_id, total_amount').match(filter).not('related_journal_entry_id', 'is', null).range(from, to)
-        ),
-        fetchCompleteDataset(async (from, to) =>
-          supabase.from('credit_notes').select('id, customer_id, related_journal_entry_id, total_amount').match(filter).not('related_journal_entry_id', 'is', null).range(from, to)
-        ),
-        fetchCompleteDataset(async (from, to) =>
-          supabase.from('cheques').select('id, party_id, party_name, related_journal_entry_id, amount').match(filter).not('related_journal_entry_id', 'is', null).range(from, to)
-        ),
-        fetchCompleteDataset(async (from, to) =>
-          supabase.from('orders').select('id, customer_id, grand_total, created_at, related_journal_entry_id, status').match(filter).range(from, to)
-        ),
-        fetchCompleteDataset(async (from, to) =>
-          supabase.from('journal_entries').select('id, description, reference, related_document_type, related_document_id').match(filter).neq('status', 'cancelled').range(from, to)
-        ),
-        SubledgerRegistry.fetchCustomerDocs(userOrgId).catch(() => [])
-      ]);
-
       // خريطة المشاريع -> العميل
       const projectToCustomer = new Map<string, string>();
       projectsRes?.forEach(p => { if (p.id && p.customer_id) projectToCustomer.set(p.id, p.customer_id); });
 
-      // خريطة قيد اليومية -> العميل (مطابق لكشف الحساب 100%)
-      const entryToCustomer = new Map<string, string>();
-      invoicesRes?.forEach(i => { if (i.related_journal_entry_id && i.customer_id) entryToCustomer.set(i.related_journal_entry_id, i.customer_id); });
-      billingsRes?.forEach(pb => {
-        const cId = projectToCustomer.get(pb.project_id);
-        if (pb.related_journal_entry_id && cId) entryToCustomer.set(pb.related_journal_entry_id, cId);
-      });
-      receiptsRes?.forEach(r => { if (r.related_journal_entry_id && r.customer_id) entryToCustomer.set(r.related_journal_entry_id, r.customer_id); });
-      returnsRes?.forEach(r => { if (r.related_journal_entry_id && r.customer_id) entryToCustomer.set(r.related_journal_entry_id, r.customer_id); });
-      creditNotesRes?.forEach(c => { if (c.related_journal_entry_id && c.customer_id) entryToCustomer.set(c.related_journal_entry_id, c.customer_id); });
-      ordersRes?.forEach(o => { if (o.related_journal_entry_id && o.customer_id) entryToCustomer.set(o.related_journal_entry_id, o.customer_id); });
-
-      // الشيكات (ربط بمعرف الطرف أو اسمه)
-      chequesRes?.forEach(ch => {
-        if (ch.related_journal_entry_id) {
-          if (ch.party_id) {
-            entryToCustomer.set(ch.related_journal_entry_id, ch.party_id);
-          }
-          if (ch.party_name) {
-            const pName = ch.party_name.trim().toLowerCase();
-            const matched = customers.find(c => {
-              const cName = (c.name || '').trim().toLowerCase();
-              return cName && (pName.includes(cName) || cName.includes(pName));
-            });
-            if (matched) entryToCustomer.set(ch.related_journal_entry_id, matched.id);
-          }
-        }
-      });
-
-      // مستندات المديولات المتقدمة
-      modularCustomerDocs?.forEach(doc => {
-        let cId = doc.customerId;
-        if (!cId && doc.customerName) {
-          const docName = doc.customerName.trim().toLowerCase();
-          const matched = customers.find(c => (c.name || '').trim().toLowerCase() === docName);
-          if (matched) cId = matched.id;
-        }
-        if (doc.journalEntryId && cId) {
-          entryToCustomer.set(doc.journalEntryId, cId);
-        }
-      });
-
-      // جلب معرفات القيود الخاصة بكل عميل من المديولات (المقاولات والمستشفيات) بمطابقة كشف الحساب
-      await Promise.all(
-        customers.map(async (c) => {
-          try {
-            const entryIds = await SubledgerRegistry.fetchStatementCustomerEntryIds(userOrgId, c.id, c.name);
-            entryIds?.forEach(eid => {
-              if (eid) entryToCustomer.set(eid, c.id);
-            });
-          } catch {}
-        })
-      );
-
-      // القيود اليومية والتسويات اليدوية باسم أو معرف العميل
-      journalEntriesRes?.forEach((je: Record<string, any>) => {
-        const desc = (je.description || '').toLowerCase();
-        const ref = (je.reference || '').toLowerCase();
-        const docId = je.related_document_id;
-        customers.forEach(c => {
-          const cName = (c.name || '').trim().toLowerCase();
-          const isMatch = (docId && docId === c.id) ||
-                          (cName && cName.length > 1 && (desc.includes(cName) || ref.includes(cName))) ||
-                          (ref && ref.includes(c.id.toLowerCase())) ||
-                          (ref && ref.includes(`op-cust-${c.id.toLowerCase()}`)) ||
-                          (ref && ref.includes(`ob-${c.id.toLowerCase()}`));
-          if (isMatch && !entryToCustomer.has(je.id)) {
-            entryToCustomer.set(je.id, c.id);
-          }
-        });
-      });
-
-      // جلب سطور الأستاذ العام لحسابات العملاء بدون تجاوز سقف PostgREST (دفعات 300)
-      const allEntryIds = Array.from(entryToCustomer.keys());
-      const customerMovements = new Map<string, number>();
-
-      if (allEntryIds.length > 0 && arAccountIds.length > 0) {
-        for (let i = 0; i < allEntryIds.length; i += 300) {
-          const chunk = allEntryIds.slice(i, i + 300);
-          const { data: lines, error: linesErr } = await supabase
-            .from('journal_lines')
-            .select('journal_entry_id, debit, credit')
-            .in('journal_entry_id', chunk)
-            .in('account_id', arAccountIds);
-
-          if (!linesErr && lines) {
-            lines.forEach(line => {
-              const custId = entryToCustomer.get(line.journal_entry_id);
-              if (custId) {
-                const current = customerMovements.get(custId) || 0;
-                customerMovements.set(custId, current + (Number(line.debit || 0) - Number(line.credit || 0)));
-              }
-            });
-          }
-        }
-      }
-
-      // التحقق من وجود قيد افتتاحي
-      const customersWithOpeningEntry = new Set<string>();
-      journalEntriesRes?.forEach((je: Record<string, any>) => {
-        const desc = (je.description || '').toLowerCase();
-        const ref = (je.reference || '').toLowerCase();
-        const isOpening = je.related_document_type === 'opening_balance' || ref.startsWith('op-cust-') || ref.startsWith('ob-') || desc.includes('رصيد افتتاحي');
-        if (isOpening) {
-          customers.forEach(c => {
-            const cName = (c.name || '').trim().toLowerCase();
-            if ((cName && desc.includes(cName)) || ref.includes(c.id.toLowerCase())) {
-              customersWithOpeningEntry.add(c.id);
-            }
-          });
-        }
-      });
-
-      // طلبات المطاعم غير المرحلة
-      const unpostedOrders = new Map<string, number>();
-      ordersRes?.forEach(ord => {
-        if (!ord.related_journal_entry_id && ord.status !== 'CANCELLED' && ord.customer_id) {
-          const cur = unpostedOrders.get(ord.customer_id) || 0;
-          unpostedOrders.set(ord.customer_id, cur + Number(ord.grand_total || 0));
-        }
-      });
-
-      // توزيع المديونية وحساب الأعمار الزمنية
       const today = new Date();
+
       const agingData = customers.map(customer => {
-        const initialBal = customersWithOpeningEntry.has(customer.id) ? 0 : Number(customer.opening_balance || 0);
-        const hasLedgerRecord = customerMovements.has(customer.id) || customersWithOpeningEntry.has(customer.id);
-        const ledgerMovement = customerMovements.get(customer.id) || 0;
-        const unposted = unpostedOrders.get(customer.id) || 0;
+        // 🛡️ الاعتماد على محرك الأرصدة الموحد لضمان التطابق 100% مع شاشة إدارة العملاء والأستاذ العام
+        const canonicalBalance = balancesMap.get(customer.id);
 
-        let raw0_30 = 0;
-        let raw31_60 = 0;
-        let raw61_90 = 0;
-        let raw90_plus = 0;
+        // استبعاد العملاء الخالصين (0) أو أصحاب الأرصدة الدائنة (الدفعات المقدمة لا تدخل في أعمار الديون)
+        if (canonicalBalance === undefined || canonicalBalance <= 0.01) {
+          return null;
+        }
 
-        // الفواتير التجارية
+        const netBalance = canonicalBalance;
+
+        interface DebitItem {
+          amount: number;
+          ageDays: number;
+        }
+
+        const debitItems: DebitItem[] = [];
+
+        // 1. الفواتير التجارية
         const custInvs = invoicesRes?.filter(i => i.customer_id === customer.id) || [];
         custInvs.forEach(inv => {
           const amt = Number(inv.total_amount || 0);
-          if (amt <= 0) return;
-          const invDate = new Date(inv.invoice_date || today);
-          const diffDays = Math.ceil(Math.abs(today.getTime() - invDate.getTime()) / (1000 * 60 * 60 * 24));
-          if (diffDays <= 30) raw0_30 += amt;
-          else if (diffDays <= 60) raw31_60 += amt;
-          else if (diffDays <= 90) raw61_90 += amt;
-          else raw90_plus += amt;
+          if (amt > 0) {
+            const invDate = new Date(inv.invoice_date || today);
+            const diffDays = Math.ceil(Math.abs(today.getTime() - invDate.getTime()) / (1000 * 60 * 60 * 24));
+            debitItems.push({ amount: amt, ageDays: diffDays });
+          }
         });
 
-        // مستخلصات المقاولات
+        // 2. مستخلصات المقاولات
         billingsRes?.forEach(pb => {
           const custId = projectToCustomer.get(pb.project_id);
           if (custId === customer.id) {
             const amt = Number(pb.net_amount || 0);
-            if (amt <= 0) return;
-            const bDate = new Date(pb.billing_date || today);
-            const diffDays = Math.ceil(Math.abs(today.getTime() - bDate.getTime()) / (1000 * 60 * 60 * 24));
-            if (diffDays <= 30) raw0_30 += amt;
-            else if (diffDays <= 60) raw31_60 += amt;
-            else if (diffDays <= 90) raw61_90 += amt;
-            else raw90_plus += amt;
+            if (amt > 0) {
+              const bDate = new Date(pb.billing_date || today);
+              const diffDays = Math.ceil(Math.abs(today.getTime() - bDate.getTime()) / (1000 * 60 * 60 * 24));
+              debitItems.push({ amount: amt, ageDays: diffDays });
+            }
           }
         });
 
-        if (unposted > 0) raw0_30 += unposted;
+        // 3. طلبات المطاعم والمبيعات الفورية
+        const custOrders = ordersRes?.filter(o => o.customer_id === customer.id) || [];
+        custOrders.forEach(ord => {
+          const amt = Number(ord.grand_total || 0);
+          if (amt > 0) {
+            const ordDate = new Date(ord.created_at || today);
+            const diffDays = Math.ceil(Math.abs(today.getTime() - ordDate.getTime()) / (1000 * 60 * 60 * 24));
+            debitItems.push({ amount: amt, ageDays: diffDays });
+          }
+        });
 
-        // الرصيد الافتتاحي يوضع في أقدم فترة (+90 يوم)
-        const rawOpening = Number(customer.opening_balance || 0);
-        raw90_plus += rawOpening;
+        // ترتيب بنود الاستحقاق من الأحدث للأقدم لتوزيع الرصيد المتبقي (FIFO)
+        debitItems.sort((a, b) => a.ageDays - b.ageDays);
 
-        // حساب الرصيد الحقيقي المعتمد (المطابق لكشف الحساب والأستاذ العام 100%)
-        let trueBalance = 0;
-        if (hasLedgerRecord) {
-          trueBalance = Math.round((initialBal + ledgerMovement + unposted) * 100) / 100;
-        } else {
-          // حساب احتياطي في حال عدم وجود أي قيود مسجلة
-          const recs = receiptsRes?.filter(r => r.customer_id === customer.id).reduce((s, r) => s + Number(r.amount || 0), 0) || 0;
-          const rets = returnsRes?.filter(r => r.customer_id === customer.id).reduce((s, r) => s + Number(r.total_amount || 0), 0) || 0;
-          const cns = creditNotesRes?.filter(c => c.customer_id === customer.id).reduce((s, c) => s + Number(c.total_amount || 0), 0) || 0;
-          const chqs = chequesRes?.filter(c => c.party_id === customer.id).reduce((s, c) => s + Number(c.amount || 0), 0) || 0;
-          const totalGross = raw0_30 + raw31_60 + raw61_90 + raw90_plus;
-          trueBalance = Math.max(0, Math.round((totalGross - recs - rets - cns - chqs) * 100) / 100);
-        }
-
-        const totalGross = raw0_30 + raw31_60 + raw61_90 + raw90_plus;
         let range0_30 = 0;
         let range31_60 = 0;
         let range61_90 = 0;
         let range90_plus = 0;
 
-        if (totalGross > 0 && trueBalance > 0) {
-          const ratio = Math.min(1, Math.max(0, trueBalance / totalGross));
-          range0_30 = Math.round(raw0_30 * ratio * 100) / 100;
-          range31_60 = Math.round(raw31_60 * ratio * 100) / 100;
-          range61_90 = Math.round(raw61_90 * ratio * 100) / 100;
-          range90_plus = Math.max(0, Math.round((trueBalance - range0_30 - range31_60 - range61_90) * 100) / 100);
-        } else if (trueBalance > 0) {
-          range90_plus = trueBalance;
+        let remainingToAllocate = netBalance;
+
+        // توزيع الرصيد المعتمد على الفترات الزمنية (FIFO)
+        for (const item of debitItems) {
+          if (remainingToAllocate <= 0) break;
+
+          const amountFromThisItem = Math.min(item.amount, remainingToAllocate);
+
+          if (item.ageDays <= 30) range0_30 += amountFromThisItem;
+          else if (item.ageDays <= 60) range31_60 += amountFromThisItem;
+          else if (item.ageDays <= 90) range61_90 += amountFromThisItem;
+          else range90_plus += amountFromThisItem;
+
+          remainingToAllocate -= amountFromThisItem;
         }
+
+        // أي رصيد متبقي (رصيد افتتاحي أو مديونيات قديمة) يوضع في أقدم فترة (+90 يوم)
+        if (remainingToAllocate > 0) {
+          range90_plus += remainingToAllocate;
+          remainingToAllocate = 0;
+        }
+
+        // ضمان ألا يبقى أي صف برصيد موجب وجميع فتراته أصفار
+        if ((range0_30 + range31_60 + range61_90 + range90_plus) === 0) {
+          range90_plus = netBalance;
+        }
+
+        // تقريب الفترات وضمان انضباط المجموع بدقة السنتات
+        range0_30 = Math.round(range0_30 * 100) / 100;
+        range31_60 = Math.round(range31_60 * 100) / 100;
+        range61_90 = Math.round(range61_90 * 100) / 100;
+        range90_plus = Math.round((netBalance - range0_30 - range31_60 - range61_90) * 100) / 100;
 
         return {
           id: customer.id,
           name: customer.name,
-          balance: trueBalance,
+          balance: netBalance,
           range0_30,
           range31_60,
           range61_90,
           range90_plus
         };
-      }).filter(c => c.balance > 0.01).sort((a, b) => b.balance - a.balance);
+      })
+      .filter((c): c is NonNullable<typeof c> => c !== null && c.balance > 0.01)
+      .sort((a, b) => b.balance - a.balance);
 
       setReportData(agingData);
     } catch (error) {
