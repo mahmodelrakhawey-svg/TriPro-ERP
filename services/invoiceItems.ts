@@ -123,7 +123,7 @@ export async function calculateInvoiceTotals(invoiceId: string) {
 export async function bulkUpdateInvoiceItems(
   updates: Array<{ id: string; changes: Partial<InvoiceItemInput> }>
 ) {
-  const results: any[] = [];
+  const results: Array<Awaited<ReturnType<typeof updateInvoiceItem>>> = [];
   for (const { id, changes } of updates) {
     const result = await updateInvoiceItem(id, changes);
     results.push(result);

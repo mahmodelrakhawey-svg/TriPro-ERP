@@ -59,7 +59,7 @@ export interface GeneralLedgerProviderProps {
   children: React.ReactNode;
   orgId?: string | null;
   currentUser?: UserProfile | null;
-  settings?: any;
+  settings?: Record<string, unknown> | null;
   logActivity?: (action: string, details: string) => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   isDemo?: boolean;

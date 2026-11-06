@@ -111,7 +111,23 @@ class JournalAuditService {
 
     // 2. المسار الاحتياطي الأول: استعلام أسطر القيود journal_lines
     try {
-      let allLines: any[] = [];
+      interface RawJournalLineItem {
+        id?: string;
+        journal_entry_id: string;
+        account_id?: string;
+        debit: number;
+        credit: number;
+        journal_entries?: {
+          id?: string;
+          reference?: string;
+          description?: string;
+          transaction_date?: string;
+          status?: string;
+          organization_id?: string;
+        } | null;
+        [key: string]: unknown;
+      }
+      let allLines: RawJournalLineItem[] = [];
       let from = 0;
       const pageSize = 1000;
 
@@ -139,7 +155,7 @@ class JournalAuditService {
         }
         if (!data || data.length === 0) break;
 
-        allLines = allLines.concat(data);
+        allLines = allLines.concat(data as unknown as RawJournalLineItem[]);
         if (data.length < pageSize || typeof selectObj.range !== 'function') break;
         from += pageSize;
       }

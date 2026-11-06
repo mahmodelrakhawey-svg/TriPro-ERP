@@ -26,6 +26,17 @@ export interface ReorderItemRecommendation {
   urgency: 'CRITICAL' | 'LOW_STOCK' | 'NORMAL';
 }
 
+export interface CreatedPurchaseOrder {
+  id: string;
+  po_number: string;
+  supplier_name: string;
+  items_count: number;
+  total_amount: number;
+  order_date: string;
+  status: string;
+}
+
+
 class AutoReorderService {
   /**
    * مسح وتحديد الأصناف التي هبطت عن حد الأمان وتوليد مقترحات أوامر الشراء
@@ -92,7 +103,7 @@ class AutoReorderService {
     recommendations: ReorderItemRecommendation[],
     organizationId?: string,
     createdById?: string
-  ): Promise<{ success: boolean; createdOrdersCount: number; createdOrders: any[]; errors?: string[] }> {
+  ): Promise<{ success: boolean; createdOrdersCount: number; createdOrders: CreatedPurchaseOrder[]; errors?: string[] }> {
     // Group recommendations by supplier
     const supplierGroups: Record<string, ReorderItemRecommendation[]> = {};
 
@@ -103,7 +114,7 @@ class AutoReorderService {
     });
 
     let createdCount = 0;
-    const createdOrders: any[] = [];
+    const createdOrders: CreatedPurchaseOrder[] = [];
     const errors: string[] = [];
 
     for (const [supId, items] of Object.entries(supplierGroups)) {
@@ -154,7 +165,7 @@ class AutoReorderService {
           createdCount++;
           createdOrders.push({
             id: po.id,
-            po_number: (po as any).po_number || (po as any).order_number || poNumber,
+            po_number: (po as Record<string, unknown>)['po_number'] as string || (po as Record<string, unknown>)['order_number'] as string || poNumber,
             supplier_name: supplierName,
             items_count: items.length,
             total_amount: totalAmount,

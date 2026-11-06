@@ -8,7 +8,7 @@ export interface Patient {
   dob: string;
   blood_type: string;
   allergies: string[];
-  medical_history: any;
+  medical_history: Record<string, unknown>;
 }
 
 export interface PrescriptionItem {

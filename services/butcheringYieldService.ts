@@ -965,13 +965,21 @@ class ButcheringYieldService {
             .single();
 
           if (!adjErr && adjDoc) {
-            const adjItems: any[] = [];
+            const adjItems: Array<{
+              stock_adjustment_id: string;
+              product_id: string;
+              quantity: number;
+              unit_cost: number;
+              total_cost: number;
+              type: 'in' | 'out';
+              organization_id: string | null;
+            }> = [];
 
             // بند صرف الخام (خروج - out) مع تكلفة الكيلو الخام
             if (isValidUUID(order.source_product_id) && Number(order.input_weight) > 0) {
               adjItems.push({
                 stock_adjustment_id: adjDoc.id,
-                product_id: order.source_product_id,
+                product_id: order.source_product_id!,
                 quantity: -Math.abs(Number(order.input_weight)),
                 unit_cost: Number(order.input_cost_per_kg || 0),
                 total_cost: Number(order.total_input_cost || 0),
@@ -985,7 +993,7 @@ class ButcheringYieldService {
               if (isValidUUID(it.output_product_id) && Number(it.actual_weight) > 0) {
                 adjItems.push({
                   stock_adjustment_id: adjDoc.id,
-                  product_id: it.output_product_id,
+                  product_id: it.output_product_id!,
                   quantity: Math.abs(Number(it.actual_weight)),
                   unit_cost: Number(it.allocated_cost_per_kg || 0),
                   total_cost: Number(it.total_allocated_cost || 0),

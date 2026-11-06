@@ -5,7 +5,7 @@ export interface DocumentAuditLog {
     document_type: 'purchase_invoice' | 'sales_invoice' | 'payment_voucher' | 'receipt_voucher' | 'journal_entry';
     document_id: string;
     action: 'created' | 'updated' | 'posted' | 'unposted' | 'paid' | 'deleted' | 'printed';
-    details?: any;
+    details?: Record<string, any>;
     user_id?: string;
     user_name?: string;
     created_at: string;
@@ -26,7 +26,7 @@ export const logDocumentAction = async ({
     documentType: DocumentAuditLog['document_type'];
     documentId: string;
     action: DocumentAuditLog['action'];
-    details?: any;
+    details?: Record<string, any>;
     userId?: string | null;
     userName?: string | null;
     organizationId?: string | null;

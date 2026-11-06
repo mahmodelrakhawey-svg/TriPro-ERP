@@ -823,7 +823,7 @@ export class RecurringInvoiceService {
       const today = new Date().toISOString().split('T')[0];
       const validOrgId = this.sanitizeUuid(orgId);
 
-      let dueSubs: any[] = [];
+      let dueSubs: Array<{ id: string; organization_id?: string; title?: string; subscription_number?: string; next_run_date?: string; status?: string }> = [];
 
       try {
         let query = supabase

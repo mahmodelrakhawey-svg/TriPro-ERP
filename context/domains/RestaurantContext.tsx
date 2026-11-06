@@ -11,7 +11,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import type { UserProfile } from '../AccountingContext';
-import type { ShiftReconciliationData } from '../../types';
+import type { ShiftReconciliationData, RestaurantTable } from '../../types';
 import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
@@ -24,8 +24,8 @@ import {
 } from '../accountingConstants';
 
 export interface RestaurantDomainState {
-  restaurantTables: any[];
-  currentShift: any;
+  restaurantTables: RestaurantTable[];
+  currentShift: Record<string, unknown> | null;
   openTableSession: (tableId: string) => Promise<string | null>;
   reserveTable: (tableId: string, name: string, time: string) => Promise<boolean>;
   cancelReservation: (tableId: string) => Promise<void>;
@@ -56,8 +56,8 @@ export interface RestaurantProviderProps {
   logActivity?: (action: string, details: string) => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   isDemo?: boolean;
-  initialTables?: any[];
-  initialShift?: any;
+  initialTables?: RestaurantTable[];
+  initialShift?: Record<string, unknown> | null;
   products?: any[];
   defaultWarehouseId?: string;
   cashAccountId?: string;
@@ -698,7 +698,7 @@ export const useRestaurantDomain = (): RestaurantDomainState => {
   const acc = useAccounting() as unknown as Record<string, unknown>;
   return {
     restaurantTables: (acc.restaurantTables as any[]) || [],
-    currentShift: acc.currentShift,
+    currentShift: (acc.currentShift as Record<string, unknown> | null) || null,
     openTableSession: acc.openTableSession as (tableId: string) => Promise<string | null>,
     reserveTable: acc.reserveTable as (tableId: string, name: string, time: string) => Promise<boolean>,
     cancelReservation: acc.cancelReservation as (tableId: string) => Promise<void>,

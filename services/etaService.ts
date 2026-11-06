@@ -70,7 +70,11 @@ export const etaService = {
   /**
    * Formats a local invoice database record into the official ETA document structure (v1.0)
    */
-  formatToETADocument(invoice: any, items: any[], companySettings: any): any {
+  formatToETADocument(
+    invoice: Record<string, any>,
+    items: Array<Record<string, any>>,
+    companySettings?: Record<string, any> | null
+  ): Record<string, any> {
     const isSandbox = (companySettings?.eta_environment || 'sandbox') === 'sandbox';
     
     // Standard ETA Document structure

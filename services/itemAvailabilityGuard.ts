@@ -27,7 +27,7 @@ class ItemAvailabilityGuard {
   public calculateMaxPortions(
     productId: string,
     bomIngredients: Array<{ raw_material_id: string; quantity_required: number; raw_material_name?: string }>,
-    productsMap: Record<string, { stock?: number; warehouse_stock?: any; name?: string }>,
+    productsMap: Record<string, { stock?: number; warehouse_stock?: Record<string, number> | null; name?: string }>,
     warehouseId?: string
   ): PortionAvailabilityResult {
     const manual86List = this.getManual86List();

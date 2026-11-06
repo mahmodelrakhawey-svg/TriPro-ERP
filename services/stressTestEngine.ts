@@ -51,11 +51,11 @@ export interface StressTestSummary {
 
 export class StressTestEngine {
   private orgId: string;
-  private currentUser: any;
+  private currentUser?: unknown;
   private onLogUpdate?: (log: TestLog) => void;
   private logs: TestLog[] = [];
 
-  constructor(orgId: string, currentUser?: Record<string, any> | null, onLogUpdate?: (log: TestLog) => void) {
+  constructor(orgId: string, currentUser?: unknown, onLogUpdate?: (log: TestLog) => void) {
     this.orgId = orgId;
     this.currentUser = currentUser;
     this.onLogUpdate = onLogUpdate;

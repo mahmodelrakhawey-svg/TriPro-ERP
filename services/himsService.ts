@@ -59,7 +59,11 @@ export const himsService = {
   },
 
   // 9. اعتماد نتيجة المختبر مع خصم المخزن
-  async completeLabOrder(orderId: string, result: string, consumables: any[]) {
+  async completeLabOrder(
+    orderId: string,
+    result: string,
+    consumables: Array<{ product_id?: string; quantity?: number; [key: string]: unknown }>
+  ) {
     const { data, error } = await supabase.rpc('hims_complete_lab_with_inventory', {
       p_order_id: orderId,
       p_result: result,
@@ -189,7 +193,7 @@ export const himsService = {
     return data;
   },
 
-  async registerDonor(donor: Record<string, any>) {
+  async registerDonor(donor: Record<string, unknown>) {
     const { data, error } = await supabase.from('hims_blood_donors').insert([donor]).select().single();
     if (error) throw error;
     return data;

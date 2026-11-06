@@ -52,7 +52,7 @@ export interface CachedProduct {
 
 export interface QueuedMedicalItem {
   id?: number;
-  payload: any;
+  payload: Record<string, any>;
   createdAt: Date;
   status: 'pending' | 'syncing' | 'synced' | 'failed';
   attempts: number;
@@ -300,7 +300,7 @@ export const offlineService = {
     // 6. Items
     const rawItems = sanitized.items || sanitized.p_items || [];
     if (Array.isArray(rawItems)) {
-      const sanitizedItems: any[] = [];
+      const sanitizedItems: Array<Record<string, unknown>> = [];
       const targetOrg = sanitized.orgId || resolvedOrgId;
       for (const item of rawItems) {
         let pId = item.product_id;
@@ -1207,7 +1207,7 @@ export const offlineService = {
   /**
    * Seeds offline fallback products into IndexedDB if empty.
    */
-  async seedFallbackProducts(productsList: any[]): Promise<void> {
+  async seedFallbackProducts(productsList: Array<Partial<CachedProduct> & { id: string; name: string }>): Promise<void> {
     try {
       const count = await db.products.count();
       if (count === 0 && productsList && productsList.length > 0) {

@@ -36,7 +36,7 @@ export interface AggregatorOrder {
     unit_price: number;
     total_price: number;
     notes?: string;
-    modifiers?: any[];
+    modifiers?: Array<Record<string, unknown>>;
   }>;
   subtotal: number;
   tax: number;

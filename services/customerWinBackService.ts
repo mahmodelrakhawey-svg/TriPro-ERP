@@ -24,7 +24,7 @@ class CustomerWinBackService {
    */
   public analyzeDormantCustomers(
     customers: Array<{ id: string; name: string; phone?: string }>,
-    orders: Array<{ customer_id?: string; created_at: string; grand_total: number; items?: any[] }>
+    orders: Array<{ customer_id?: string; created_at: string; grand_total: number; items?: Array<Record<string, unknown>> }>
   ): DormantCustomerInsight[] {
     const now = Date.now();
     const customerOrdersMap: Record<string, typeof orders> = {};
