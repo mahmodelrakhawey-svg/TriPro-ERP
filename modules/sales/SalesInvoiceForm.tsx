@@ -91,7 +91,7 @@ export const clearSalesInvoiceDraft = () => {
 };
 
 const SalesInvoiceForm = () => { // Removed unused useParams import
-  const { products, warehouses, salespeople, accounts, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice, currentSelectedOrgId, organization, organizations } = useAccounting();
+  const { products, warehouses, salespeople, accounts, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, addCustomer, updateCustomer, settings, can, currentUser, customers, invoices: contextInvoices, getSystemAccount, addEntry, addDemoInvoice, postDemoSalesInvoice, currentSelectedOrgId, organization, organizations, selectedFiscalYear } = useAccounting();
   const currentUserRole = (currentUser as any)?.role || '';
   const navigate = useNavigate();
   const location = useLocation();
@@ -162,6 +162,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const [editCustomerData, setEditCustomerData] = useState<{ name: string; phone: string; pricing_tier?: 'retail' | 'wholesale' | 'half' }>({ name: '', phone: '', pricing_tier: 'retail' });
   const [saving, setSaving] = useState(false);
   const [customerBalance, setCustomerBalance] = useState(0);
+  const customerBalanceCacheRef = useRef<Map<string, { balance: number; timestamp: number }>>(new Map());
 
   const [customerSearchTerm, setCustomerSearchTerm] = useState(() => {
     if (location.state?.invoiceToEdit || location.state?.quotationToConvert) return '';
@@ -347,10 +348,18 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   }, [formData.customerId, customers]);
 
   // حساب مديونية العميل عند اختياره (مطابق تماماً لكشف الحساب والأستاذ العام)
-  const fetchCustomerBalance = async () => {
+  const fetchCustomerBalance = async (forceRefresh = false) => {
       if (!formData.customerId) {
           setCustomerBalance(0);
           return;
+      }
+
+      if (!forceRefresh) {
+          const cached = customerBalanceCacheRef.current.get(formData.customerId);
+          if (cached && (Date.now() - cached.timestamp < 30000)) {
+              setCustomerBalance(cached.balance);
+              return;
+          }
       }
 
       if (currentUserRole === 'demo') {
@@ -500,7 +509,9 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
           const initialBal = hasOpeningEntryInTrans ? 0 : Number(customer.opening_balance || 0);
 
-          setCustomerBalance(initialBal + movement + unpostedRestaurantSales);
+          const finalCustomerBal = initialBal + movement + unpostedRestaurantSales;
+          setCustomerBalance(finalCustomerBal);
+          customerBalanceCacheRef.current.set(formData.customerId, { balance: finalCustomerBal, timestamp: Date.now() });
 
           // 🔍 التحقق من الفواتير المتأخرة
           const { data: overdueData } = await supabase
@@ -535,7 +546,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
   const handleRefreshBalance = async () => {
       setIsRefreshingBalance(true);
-      await fetchCustomerBalance();
+      await fetchCustomerBalance(true);
       setIsRefreshingBalance(false);
   };
 
@@ -546,15 +557,21 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       const userOrgId = session?.user?.user_metadata?.org_id;
       if (!userOrgId) return;
 
-      const { data, error } = await supabase
+      let query = supabase
         .from('invoices')
         .select('id')
-        .eq('organization_id', userOrgId)
-        .order('invoice_date', { ascending: true })
-        .order('created_at', { ascending: true });
+        .eq('organization_id', userOrgId);
+
+      if (selectedFiscalYear) {
+        query = query.gte('invoice_date', `${selectedFiscalYear}-01-01`);
+      }
+
+      const { data, error } = await query
+        .order('invoice_date', { ascending: false })
+        .limit(300);
 
       if (error) throw error;
-      const ids = (data || []).map(inv => inv.id);
+      const ids = (data || []).map(inv => inv.id).reverse();
       setInvoiceIds(ids);
     } catch (err) {
       logger.error('Error fetching invoice IDs:', err);

@@ -48,6 +48,32 @@ export interface RawBalanceRpcRow {
   total_count?: number | string | null;
 }
 
+// 🛡️ طبقة كاش في الذاكرة لترشيد استهلاك سوباباز (Egress Bandwidth Saver)
+interface BalanceCacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+const supplierBalancesCache = new Map<string, BalanceCacheEntry<Map<string, number>>>();
+const customerBalancesCache = new Map<string, BalanceCacheEntry<Map<string, number>>>();
+const singleSupplierCache = new Map<string, BalanceCacheEntry<number>>();
+const BALANCE_CACHE_TTL_MS = 45000; // 45 ثانية لمنع تكرار التحميل عند التنقل السريع
+
+export function invalidateBalanceCache(orgId?: string) {
+  if (orgId) {
+    supplierBalancesCache.delete(orgId);
+    customerBalancesCache.delete(orgId);
+    for (const key of singleSupplierCache.keys()) {
+      if (key.startsWith(`${orgId}_`)) {
+        singleSupplierCache.delete(key);
+      }
+    }
+  } else {
+    supplierBalancesCache.clear();
+    customerBalancesCache.clear();
+    singleSupplierCache.clear();
+  }
+}
+
 export interface RawCustomerAgingRpcRow {
   customer_id: string;
   customer_name: string;
@@ -144,6 +170,11 @@ export async function fetchCompleteDataset<T = any>(
 export async function fetchAllSupplierBalances(orgId: string): Promise<Map<string, number>> {
   const balances = new Map<string, number>();
   if (!orgId) return balances;
+
+  const cached = supplierBalancesCache.get(orgId);
+  if (cached && (Date.now() - cached.timestamp < BALANCE_CACHE_TTL_MS)) {
+    return new Map(cached.data);
+  }
 
   // 1. محاولة جلب الأرصدة عبر محرك قاعدة البيانات المباشر
   try {
@@ -334,6 +365,7 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
     balances.set(supplier.id, finalBalance);
   });
 
+  supplierBalancesCache.set(orgId, { data: new Map(balances), timestamp: Date.now() });
   return balances;
 }
 
@@ -347,6 +379,12 @@ export async function fetchSingleSupplierBalance(
   supplierName?: string
 ): Promise<number> {
   if (!supplierId || !orgId) return 0;
+
+  const cacheKey = `${orgId}_${supplierId}`;
+  const cached = singleSupplierCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp < BALANCE_CACHE_TTL_MS)) {
+    return cached.data;
+  }
 
   try {
     let name = (supplierName || '').trim();
@@ -406,12 +444,14 @@ export async function fetchSingleSupplierBalance(
       // قيود اليومية اليدوية المؤثرة على حسابات الموردين 201 / 221 / 2101
       supabase.from('journal_lines')
         .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id), accounts!inner(code, name)')
+        .eq('journal_entries.organization_id', orgId)
         .eq('journal_entries.status', 'posted')
         .or('code.ilike.201%,code.ilike.221%,code.ilike.2101%,name.ilike.%الموردين%,name.ilike.%موردين%', { foreignTable: 'accounts' }),
 
       // قيود الرصيد الافتتاحي في اليومية
       supabase.from('journal_lines')
         .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id, related_document_type), accounts!inner(code, name)')
+        .eq('journal_entries.organization_id', orgId)
         .eq('journal_entries.status', 'posted')
         .eq('journal_entries.related_document_id', supplierId)
         .eq('journal_entries.related_document_type', 'opening_balance')
@@ -538,7 +578,9 @@ export async function fetchSingleSupplierBalance(
     const effectiveOpening = hasOpeningInEntries ? openingEntriesNet : rawOpening;
     const finalBalance = effectiveOpening + totalInvoiced + contractorBillings + manualEntriesNet - totalPaid;
 
-    return Math.round(finalBalance * 100) / 100;
+    const rounded = Math.round(finalBalance * 100) / 100;
+    singleSupplierCache.set(cacheKey, { data: rounded, timestamp: Date.now() });
+    return rounded;
   } catch (err) {
     logger.warn('[balanceService] fetchSingleSupplierBalance calculation error, falling back:', err);
     const balances = await fetchAllSupplierBalances(orgId);
@@ -554,6 +596,11 @@ export async function fetchSingleSupplierBalance(
 export async function fetchAllCustomerBalances(orgId: string): Promise<Map<string, number>> {
   const balances = new Map<string, number>();
   if (!orgId) return balances;
+
+  const cached = customerBalancesCache.get(orgId);
+  if (cached && (Date.now() - cached.timestamp < BALANCE_CACHE_TTL_MS)) {
+    return new Map(cached.data);
+  }
 
   // 1. محاولة جلب الأرصدة عبر محرك قاعدة البيانات المباشر
   try {
@@ -622,6 +669,7 @@ export async function fetchAllCustomerBalances(orgId: string): Promise<Map<strin
     balances.set(customer.id, opening + totalInvoiced + totalProjectBillings - totalReceipts - totalCreditNotes - totalCheques);
   });
 
+  customerBalancesCache.set(orgId, { data: new Map(balances), timestamp: Date.now() });
   return balances;
 }
 
