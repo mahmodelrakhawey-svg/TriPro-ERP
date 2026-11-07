@@ -52,6 +52,14 @@ const EMPTY_INVOICES: SalesInvoice[] = [];
 const EMPTY_CUSTOMERS: Customer[] = [];
 const EMPTY_SALESPEOPLE: Salesperson[] = [];
 
+// 🛡️ كاش في الذاكرة لترشيد Egress ومنع تكرار جلب فواتير المبيعات
+const salesInvoicesCache = new Map<string, { data: SalesInvoice[]; timestamp: number }>();
+
+export const clearSalesInvoicesCache = (orgId?: string) => {
+  if (orgId) salesInvoicesCache.delete(orgId);
+  else salesInvoicesCache.clear();
+};
+
 export const SalesProvider: React.FC<SalesProviderProps> = ({
   children,
   orgId,
@@ -70,7 +78,24 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
 
   const targetOrgId = orgId || currentUser?.organization_id || null;
 
-  const fetchSalesData = useCallback(async () => {
+  // 🛡️ ترشيد Egress: استثناء الأدوار التشغيلية (كاشير/ويتر/مطبخ) من تحميل فواتير المبيعات الكاملة
+  const isOperationalRole = useMemo(() => {
+    const role = currentUser?.role;
+    if (!role) return false;
+    return [
+      'cashier',
+      'retail_cashier',
+      'restaurant_cashier',
+      'restaurant_waiter',
+      'restaurant_chef',
+      'restaurant_cook',
+      'restaurant_driver',
+      'storekeeper',
+      'worker'
+    ].includes(role);
+  }, [currentUser?.role]);
+
+  const fetchSalesData = useCallback(async (force = false) => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') {
       if (initialInvoices.length > 0) setInvoices(initialInvoices);
       if (initialCustomers.length > 0) setCustomers(initialCustomers);
@@ -78,21 +103,28 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
       return;
     }
 
+    const cached = !force ? salesInvoicesCache.get(targetOrgId) : null;
+    const isCacheValid = cached && (Date.now() - cached.timestamp < 90000);
+
     try {
       const [invRes, custRes, spRes] = await Promise.all([
-        fetchCompleteDataset<SalesInvoice>(async (from, to) => {
-          let invQuery = supabase
-            .from('invoices')
-            .select('*')
-            .eq('organization_id', targetOrgId);
+        isOperationalRole
+          ? Promise.resolve({ data: [] as SalesInvoice[], error: null })
+          : isCacheValid
+            ? Promise.resolve({ data: cached.data, error: null })
+            : fetchCompleteDataset<SalesInvoice>(async (from, to) => {
+                let invQuery = supabase
+                  .from('invoices')
+                  .select('*')
+                  .eq('organization_id', targetOrgId);
 
-          if (fiscalYearRange?.startDate && fiscalYearRange?.endDate) {
-            invQuery = invQuery
-              .gte('invoice_date', fiscalYearRange.startDate)
-              .lte('invoice_date', fiscalYearRange.endDate);
-          }
-          return invQuery.order('invoice_date', { ascending: false }).range(from, to);
-        }).then(data => ({ data, error: null })),
+                if (fiscalYearRange?.startDate && fiscalYearRange?.endDate) {
+                  invQuery = invQuery
+                    .gte('invoice_date', fiscalYearRange.startDate)
+                    .lte('invoice_date', fiscalYearRange.endDate);
+                }
+                return invQuery.order('invoice_date', { ascending: false }).range(from, to);
+              }).then(data => ({ data, error: null })),
         supabase
           .from('customers')
           .select('*')
@@ -109,7 +141,11 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
       if (invRes.error) {
         logger.error('Error fetching invoices in SalesProvider:', invRes.error);
       } else {
-        setInvoices((invRes.data as SalesInvoice[]) || []);
+        const invData = (invRes.data as SalesInvoice[]) || [];
+        if (!isOperationalRole && !isCacheValid) {
+          salesInvoicesCache.set(targetOrgId, { data: invData, timestamp: Date.now() });
+        }
+        setInvoices(invData);
       }
 
       if (custRes.error) {
@@ -289,8 +325,8 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     unpostSalesInvoice,
     deleteSalesInvoice,
     addCustomer,
-    refreshSales: fetchSalesData,
-    refreshInvoices: fetchSalesData,
+    refreshSales: () => fetchSalesData(true),
+    refreshInvoices: () => fetchSalesData(true),
   }), [
     invoices,
     customers,

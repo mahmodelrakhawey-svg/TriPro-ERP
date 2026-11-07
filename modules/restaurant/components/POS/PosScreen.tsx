@@ -72,7 +72,7 @@ const PosScreen = () => {
       }
     }
   };
-  const { accounts, restaurantTables, openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, products: allProducts, menuCategories, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, createRestaurantOrder, getOpenTableOrder, completeRestaurantOrder, processSplitPayment, settings, currentShift, startShift, closeCurrentShift, getCurrentShiftSummary, isDemo, currentUser, organization, refreshData, currentSelectedOrgId } = useAccounting();
+  const { accounts, restaurantTables, openTableSession, reserveTable, cancelReservation, transferTableSession, mergeTableSessions, products: allProducts, menuCategories, addRestaurantTable, updateRestaurantTable, deleteRestaurantTable, createRestaurantOrder, getOpenTableOrder, completeRestaurantOrder, processSplitPayment, settings, currentShift, startShift, closeCurrentShift, getCurrentShiftSummary, isDemo, currentUser, organization, refreshData, refreshRestaurant, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const [activeTab, setActiveTab] = useState('dine-in');
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -199,14 +199,14 @@ const PosScreen = () => {
     return () => clearInterval(interval);
   }, [currentUser, currentShift]);
 
-  // New useEffect to fetch external orders (Takeaway, Delivery & Self-Ordering Kiosk)
+  // جلب الطلبات الخارجية وترشيد استهلاك Egress مع فلترة المنظمة
   useEffect(() => {
+    const orgFilter = currentSelectedOrgId || currentUser?.organization_id;
     const fetchOpenExternalOrders = async () => {
         if (isDemo || !navigator.onLine) {
             return;
         }
         try {
-            const orgFilter = currentSelectedOrgId || currentUser?.organization_id;
             let query = supabase
                 .from('orders')
                 .select('id, order_number, order_type, session_id, status, grand_total, notes, created_at, delivery_orders(*), customers(id, name, phone, address)')
@@ -228,22 +228,40 @@ const PosScreen = () => {
 
     fetchOpenExternalOrders();
     if (!isDemo && navigator.onLine) {
-      const channel = supabase.channel('public:orders').on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchOpenExternalOrders).subscribe();
+      const channel = orgFilter
+        ? supabase.channel(`public:orders:${orgFilter}`).on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `organization_id=eq.${orgFilter}` }, fetchOpenExternalOrders).subscribe()
+        : supabase.channel('public:orders').on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchOpenExternalOrders).subscribe();
       return () => { supabase.removeChannel(channel); };
     }
   }, [isDemo, currentSelectedOrgId, currentUser]);
 
-  // الاشتراك في تحديثات الطاولات (لظهور الطلبات الجديدة من رمز QR فوراً كطاولة مشغولة)
+  // الاشتراك في تحديثات الطاولات مع فلترة المنظمة وتحديث محلي خفيف بدلاً من refreshData الشامل
   useEffect(() => {
-    if (!navigator.onLine || isDemo) return;
-    const channel = supabase.channel('pos-table-updates')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables' }, () => {
-        refreshData();
+    const orgFilter = currentSelectedOrgId || currentUser?.organization_id;
+    if (!navigator.onLine || isDemo || !orgFilter) return;
+
+    let lastTableRefresh = 0;
+    const channel = supabase.channel(`pos-table-updates:${orgFilter}`)
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'restaurant_tables',
+        filter: `organization_id=eq.${orgFilter}`
+      }, () => {
+        const now = Date.now();
+        if (now - lastTableRefresh > 2000) {
+          lastTableRefresh = now;
+          if (refreshRestaurant) {
+            refreshRestaurant();
+          } else {
+            refreshData();
+          }
+        }
       })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [refreshData, isDemo]);
+  }, [refreshData, refreshRestaurant, isDemo, currentSelectedOrgId, currentUser]);
 
   // Effect to trigger print when orderToPrint is set
   useEffect(() => {

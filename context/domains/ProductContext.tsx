@@ -74,6 +74,14 @@ const EMPTY_WAREHOUSES: Warehouse[] = [];
 const EMPTY_CATEGORIES: Category[] = [];
 const EMPTY_TRANSFERS: StockTransfer[] = [];
 
+// 🛡️ كاش في الذاكرة لترشيد استهلاك سوباباز ومنع تكرار جلب المنتجات عند كل تنقل
+const productMemoryCache = new Map<string, { data: Product[]; timestamp: number }>();
+
+export const clearProductCache = (orgId?: string) => {
+  if (orgId) productMemoryCache.delete(orgId);
+  else productMemoryCache.clear();
+};
+
 export const ProductProvider: React.FC<ProductProviderProps> = ({
   children,
   orgId,
@@ -105,7 +113,7 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
 
   const targetOrgId = orgId || currentUser?.organization_id || null;
 
-  const fetchProducts = useCallback(async () => {
+  const fetchProducts = useCallback(async (force = false) => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') {
       if (initialProducts.length > 0) {
         setProducts(initialProducts);
@@ -115,6 +123,14 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
         setProducts([]);
       }
       return;
+    }
+
+    if (!force) {
+      const cached = productMemoryCache.get(targetOrgId);
+      if (cached && (Date.now() - cached.timestamp < 120000)) {
+        setProducts(cached.data);
+        return;
+      }
     }
 
     try {
@@ -127,6 +143,7 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
         logger.error('Error fetching products in ProductProvider:', res.error);
       } else if (res.data) {
         if (res.data.length > 0) {
+          productMemoryCache.set(targetOrgId, { data: res.data, timestamp: Date.now() });
           setProducts(res.data);
           offlineService.seedFallbackProducts(res.data).catch(() => {});
         } else if (isDemo || currentUser?.role === 'demo') {
@@ -242,7 +259,8 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
         logger.error('Error recalculating stock in ProductProvider:', error);
       } else {
         showToast?.('تم تحديث المخزون بنجاح ✅', 'success');
-        await fetchProducts();
+        productMemoryCache.delete(targetOrgId || '');
+        await fetchProducts(true);
       }
     } catch (err) {
       logger.error('Unexpected error recalculating stock:', err);
@@ -308,7 +326,8 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
 
     showToast?.('تمت إضافة الصنف بنجاح ✅', 'success');
     logActivity?.('إضافة صنف', `تمت إضافة الصنف: ${data.name || ''}`);
-    await fetchProducts();
+    productMemoryCache.delete(targetOrgId || '');
+    await fetchProducts(true);
     return p as Product;
   }, [targetOrgId, currentUser, logActivity, showToast, fetchProducts]);
 
@@ -365,7 +384,8 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
 
     showToast?.('تم تحديث بيانات الصنف بنجاح ✅', 'success');
     logActivity?.('تعديل صنف', `تم تعديل بيانات الصنف رقم: ${id}`);
-    await fetchProducts();
+    productMemoryCache.delete(targetOrgId || '');
+    await fetchProducts(true);
   }, [targetOrgId, currentUser, logActivity, showToast, fetchProducts]);
 
   const deleteProduct = useCallback(async (id: string, reason?: string): Promise<void> => {
@@ -394,7 +414,8 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
 
     showToast?.('تم نقل الصنف إلى سلة المحذوفات', 'success');
     logActivity?.('حذف صنف', `تم حذف الصنف رقم: ${id}`);
-    await fetchProducts();
+    productMemoryCache.delete(targetOrgId || '');
+    await fetchProducts(true);
   }, [targetOrgId, currentUser, logActivity, showToast, fetchProducts]);
 
   const addStockTransfer = useCallback(async (transfer: Partial<StockTransfer>): Promise<void> => {
@@ -408,7 +429,8 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
     const { error } = await supabase.rpc('approve_stock_transfer', { p_transfer_id: id });
     if (error) throw error;
     await fetchTransfers();
-    await fetchProducts();
+    productMemoryCache.delete(targetOrgId || '');
+    await fetchProducts(true);
   }, [fetchTransfers, fetchProducts]);
 
   const cancelStockTransfer = useCallback(async (id: string): Promise<void> => {
@@ -453,7 +475,8 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
       showToast?.('فشل تسجيل الهالك: ' + error.message, 'error');
     } else {
       showToast?.('تم تسجيل الهالك وتحديث المخزن ✅', 'success');
-      await fetchProducts();
+      productMemoryCache.delete(targetOrgId || '');
+      await fetchProducts(true);
     }
     return !error;
   }, [showToast, fetchProducts]);
@@ -486,7 +509,7 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
     deleteWarehouse,
     addWastage,
     produceItem,
-    refreshProducts: fetchProducts,
+    refreshProducts: () => fetchProducts(true),
     refreshWarehouses: fetchWarehouses,
     refreshCategories: fetchCategories,
     refreshTransfers: fetchTransfers,

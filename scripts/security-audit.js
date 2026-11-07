@@ -53,7 +53,8 @@ const SAFE_PATHS = [
   'keep-alive.ts',
   'tools/eta-local-signer',
   'public/sw.js',
-  'utils/logger.ts'
+  'utils/logger.ts',
+  'playwright.config.ts'
 ];
 
 function scanFile(filePath) {

@@ -10,7 +10,7 @@
  * ==============================================================================
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { JournalEntry, Account, CostCenter, Budget } from '../../types';
 import type { UserProfile } from '../AccountingContext';
 import { useAccounting } from '../AccountingContext';
@@ -126,9 +126,40 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
     if (initialBudgets.length > 0) setBudgets(initialBudgets);
   }, [initialBudgets]);
 
-  const fetchLedgerData = useCallback(async () => {
+  // 🛡️ ترشيد Egress: استثناء الأدوار التشغيلية (كاشير/ويتر/مطبخ) من تحميل آلاف قيود اليومية وخطوطها
+  const isAccountingAuditor = useMemo(() => {
+    const role = currentUser?.role;
+    if (!role) return true;
+    const operationalRoles = [
+      'cashier',
+      'retail_cashier',
+      'restaurant_cashier',
+      'restaurant_waiter',
+      'restaurant_chef',
+      'restaurant_cook',
+      'restaurant_driver',
+      'storekeeper',
+      'worker',
+      'van_sales'
+    ];
+    return !operationalRoles.includes(role);
+  }, [currentUser?.role]);
+
+  const lastLedgerFetchRef = useRef<{ orgId: string; start: string; end: string; timestamp: number } | null>(null);
+
+  const fetchLedgerData = useCallback(async (force = false) => {
     const effectiveOrg = targetOrgId;
     if (!effectiveOrg || effectiveOrg === 'org-default-offline') return;
+
+    const now = Date.now();
+    if (!force && lastLedgerFetchRef.current &&
+        lastLedgerFetchRef.current.orgId === effectiveOrg &&
+        lastLedgerFetchRef.current.start === fiscalYearRange.startDate &&
+        lastLedgerFetchRef.current.end === fiscalYearRange.endDate &&
+        (now - lastLedgerFetchRef.current.timestamp < 60000)) {
+      return;
+    }
+
     try {
       const [accRes, entRes, ccRes, budRes] = await Promise.all([
         supabase
@@ -136,16 +167,18 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
           .select('*')
           .eq('organization_id', effectiveOrg)
           .order('code'),
-        fetchCompleteDataset<JournalEntryItem>(async (from, to) =>
-          supabase
-            .from('journal_entries')
-            .select('*, journal_lines(*)')
-            .eq('organization_id', effectiveOrg)
-            .gte('transaction_date', fiscalYearRange.startDate)
-            .lte('transaction_date', fiscalYearRange.endDate)
-            .order('transaction_date', { ascending: false })
-            .range(from, to)
-        ).then(data => ({ data, error: null })),
+        isAccountingAuditor
+          ? fetchCompleteDataset<JournalEntryItem>(async (from, to) =>
+              supabase
+                .from('journal_entries')
+                .select('*, journal_lines(*)')
+                .eq('organization_id', effectiveOrg)
+                .gte('transaction_date', fiscalYearRange.startDate)
+                .lte('transaction_date', fiscalYearRange.endDate)
+                .order('transaction_date', { ascending: false })
+                .range(from, to)
+            ).then(data => ({ data, error: null }))
+          : Promise.resolve({ data: [] as JournalEntryItem[], error: null }),
         supabase
           .from('cost_centers')
           .select('*')
@@ -184,6 +217,13 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
       } else if (budRes.data) {
         setBudgets((budRes.data as Budget[]) || []);
       }
+
+      lastLedgerFetchRef.current = {
+        orgId: effectiveOrg,
+        start: fiscalYearRange.startDate,
+        end: fiscalYearRange.endDate,
+        timestamp: Date.now()
+      };
     } catch (err) {
       logger.error('Unexpected error fetching ledger data:', err);
     }
@@ -529,9 +569,9 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
     closeFinancialYear,
     reopenFinancialYear,
     recalculateAllBalances,
-    refreshLedger: fetchLedgerData,
-    refreshAccounts: fetchLedgerData,
-    refreshEntries: fetchLedgerData,
+    refreshLedger: () => fetchLedgerData(true),
+    refreshAccounts: () => fetchLedgerData(true),
+    refreshEntries: () => fetchLedgerData(true),
   }), [
     entries,
     accounts,

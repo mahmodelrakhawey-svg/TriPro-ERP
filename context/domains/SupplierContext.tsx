@@ -54,6 +54,14 @@ const DEFAULT_OFFLINE_SUPPLIERS: Supplier[] = [
 const EMPTY_SUPPLIERS: Supplier[] = [];
 const EMPTY_INVOICES: PurchaseInvoice[] = [];
 
+// 🛡️ كاش في الذاكرة لترشيد Egress ومنع تكرار جلب فواتير المشتريات
+const purchaseInvoicesCache = new Map<string, { data: PurchaseInvoice[]; timestamp: number }>();
+
+export const clearPurchaseInvoicesCache = (orgId?: string) => {
+  if (orgId) purchaseInvoicesCache.delete(orgId);
+  else purchaseInvoicesCache.clear();
+};
+
 export const SupplierProvider: React.FC<SupplierProviderProps> = ({
   children,
   orgId,
@@ -107,8 +115,37 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
     }
   }, [targetOrgId, isDemo, currentUser?.role, initialSuppliers]);
 
-  const fetchInvoices = useCallback(async () => {
+  // 🛡️ ترشيد Egress: استثناء الأدوار التشغيلية (كاشير/ويتر/مطبخ) من تحميل فواتير المشتريات
+  const isOperationalRole = useMemo(() => {
+    const role = currentUser?.role;
+    if (!role) return false;
+    return [
+      'cashier',
+      'retail_cashier',
+      'restaurant_cashier',
+      'restaurant_waiter',
+      'restaurant_chef',
+      'restaurant_cook',
+      'restaurant_driver',
+      'worker'
+    ].includes(role);
+  }, [currentUser?.role]);
+
+  const fetchInvoices = useCallback(async (force = false) => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') return;
+    if (isOperationalRole) {
+      setPurchaseInvoices([]);
+      return;
+    }
+
+    if (!force) {
+      const cached = purchaseInvoicesCache.get(targetOrgId);
+      if (cached && (Date.now() - cached.timestamp < 90000)) {
+        setPurchaseInvoices(cached.data);
+        return;
+      }
+    }
+
     try {
       const data = await fetchCompleteDataset<PurchaseInvoice>(async (from, to) =>
         supabase
@@ -119,11 +156,13 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
           .range(from, to)
       );
 
-      setPurchaseInvoices(data || []);
+      const loaded = data || [];
+      purchaseInvoicesCache.set(targetOrgId, { data: loaded, timestamp: Date.now() });
+      setPurchaseInvoices(loaded);
     } catch (err) {
       logger.error('Unexpected error fetching purchase invoices:', err);
     }
-  }, [targetOrgId]);
+  }, [targetOrgId, isOperationalRole]);
 
   useEffect(() => {
     if (initialSuppliers.length > 0) {
@@ -395,7 +434,8 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
       logger.error('Error converting po to invoice:', error);
     } else {
       showToast?.('تم تحويل أمر الشراء إلى فاتورة بنجاح ✅', 'success');
-      await fetchInvoices();
+      purchaseInvoicesCache.delete(targetOrgId || '');
+      await fetchInvoices(true);
     }
   }, [targetOrgId, currentUser, showToast, fetchInvoices]);
 
@@ -410,7 +450,7 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
     deletePurchaseInvoice,
     convertPoToInvoice,
     refreshSuppliers: fetchSuppliers,
-    refreshPurchaseInvoices: fetchInvoices,
+    refreshPurchaseInvoices: () => fetchInvoices(true),
   }), [
     suppliers,
     purchaseInvoices,

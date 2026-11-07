@@ -195,6 +195,7 @@ interface AccountingContextType {
   startShift: (amount: number) => Promise<void>;
   closeCurrentShift: (actualCash: number, notes: string, reconciliation?: ShiftReconciliationData | null) => Promise<void>;
   getCurrentShiftSummary: () => Promise<any>;
+  refreshRestaurant?: () => Promise<void>;
   createMissingSystemAccounts: () => Promise<any>;
   recalculateAllBalances: () => Promise<void>;
   purgeDeletedRecords: () => Promise<void>;
@@ -3758,6 +3759,7 @@ const AccountingFacadeBridge: React.FC<{
     closeCurrentShift: restaurantDomain.closeCurrentShift,
     getCurrentShiftSummary: restaurantDomain.getCurrentShiftSummary,
     finalizeProductionOrder: restaurantDomain.finalizeProductionOrder,
+    refreshRestaurant: restaurantDomain.refreshRestaurant,
     // Asset Domain Delegation
     assets: assetDomain.assets,
     addAsset: assetDomain.addAsset,
