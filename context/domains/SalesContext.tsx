@@ -17,6 +17,7 @@ import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { queryClient, QUERY_KEYS, invalidateSalesInvoices } from '../../services/queryClient';
 import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
 
 export type SalesInvoice = Invoice & { total?: number; [key: string]: unknown };
@@ -52,12 +53,9 @@ const EMPTY_INVOICES: SalesInvoice[] = [];
 const EMPTY_CUSTOMERS: Customer[] = [];
 const EMPTY_SALESPEOPLE: Salesperson[] = [];
 
-// 🛡️ كاش في الذاكرة لترشيد Egress ومنع تكرار جلب فواتير المبيعات
-const salesInvoicesCache = new Map<string, { data: SalesInvoice[]; timestamp: number }>();
-
+// 🛡️ توحيد الكاش مع TanStack Query لترشيد استهلاك سوباباز وضمان سلامة بيانات الإنتاج
 export const clearSalesInvoicesCache = (orgId?: string) => {
-  if (orgId) salesInvoicesCache.delete(orgId);
-  else salesInvoicesCache.clear();
+  invalidateSalesInvoices(orgId);
 };
 
 export const SalesProvider: React.FC<SalesProviderProps> = ({
@@ -103,28 +101,35 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
       return;
     }
 
-    const cached = !force ? salesInvoicesCache.get(targetOrgId) : null;
-    const isCacheValid = cached && (Date.now() - cached.timestamp < 90000);
+    const queryKey = QUERY_KEYS.salesInvoices(targetOrgId, fiscalYearRange);
+    if (force) {
+      queryClient.invalidateQueries({ queryKey });
+    }
 
     try {
-      const [invRes, custRes, spRes] = await Promise.all([
+      const [invData, custRes, spRes] = await Promise.all([
         isOperationalRole
-          ? Promise.resolve({ data: [] as SalesInvoice[], error: null })
-          : isCacheValid
-            ? Promise.resolve({ data: cached.data, error: null })
-            : fetchCompleteDataset<SalesInvoice>(async (from, to) => {
-                let invQuery = supabase
-                  .from('invoices')
-                  .select('*')
-                  .eq('organization_id', targetOrgId);
+          ? Promise.resolve([] as SalesInvoice[])
+          : queryClient.fetchQuery({
+              queryKey,
+              queryFn: async () => {
+                const data = await fetchCompleteDataset<SalesInvoice>(async (from, to) => {
+                  let invQuery = supabase
+                    .from('invoices')
+                    .select('*')
+                    .eq('organization_id', targetOrgId);
 
-                if (fiscalYearRange?.startDate && fiscalYearRange?.endDate) {
-                  invQuery = invQuery
-                    .gte('invoice_date', fiscalYearRange.startDate)
-                    .lte('invoice_date', fiscalYearRange.endDate);
-                }
-                return invQuery.order('invoice_date', { ascending: false }).range(from, to);
-              }).then(data => ({ data, error: null })),
+                  if (fiscalYearRange?.startDate && fiscalYearRange?.endDate) {
+                    invQuery = invQuery
+                      .gte('invoice_date', fiscalYearRange.startDate)
+                      .lte('invoice_date', fiscalYearRange.endDate);
+                  }
+                  return invQuery.order('invoice_date', { ascending: false }).range(from, to);
+                });
+                return (data || []) as SalesInvoice[];
+              },
+              staleTime: 60 * 1000,
+            }),
         supabase
           .from('customers')
           .select('*')
@@ -138,25 +143,11 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
           .order('full_name')
       ]);
 
-      if (invRes.error) {
-        logger.error('Error fetching invoices in SalesProvider:', invRes.error);
-      } else {
-        const invData = (invRes.data as SalesInvoice[]) || [];
-        if (!isOperationalRole && !isCacheValid) {
-          salesInvoicesCache.set(targetOrgId, { data: invData, timestamp: Date.now() });
-        }
-        setInvoices(invData);
-      }
-
-      if (custRes.error) {
-        logger.error('Error fetching customers in SalesProvider:', custRes.error);
-      } else {
+      setInvoices(invData || []);
+      if (!custRes.error) {
         setCustomers((custRes.data as Customer[]) || []);
       }
-
-      if (spRes.error) {
-        logger.error('Error fetching salespeople in SalesProvider:', spRes.error);
-      } else {
+      if (!spRes.error) {
         const mappedSalespeople: Salesperson[] = (spRes.data || []).map((p: { id: string; full_name?: string }) => ({
           id: p.id,
           name: p.full_name || ''
@@ -164,9 +155,9 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
         setSalespeople(mappedSalespeople);
       }
     } catch (err) {
-      logger.error('Unexpected error fetching sales domain data:', err);
+      logger.error('Unexpected error fetching sales domain data in SalesProvider:', err);
     }
-  }, [targetOrgId, fiscalYearRange?.startDate, fiscalYearRange?.endDate, initialInvoices, initialCustomers, initialSalespeople]);
+  }, [targetOrgId, isOperationalRole, fiscalYearRange?.startDate, fiscalYearRange?.endDate, initialInvoices, initialCustomers, initialSalespeople]);
 
   useEffect(() => {
     if (initialInvoices.length > 0) {
@@ -232,7 +223,8 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
 
     showToast?.('تم اعتماد فاتورة المبيعات بنجاح ✅', 'success');
     logActivity?.('اعتماد فاتورة مبيعات', `تم اعتماد الفاتورة رقم: ${id}`);
-    await fetchSalesData();
+    invalidateSalesInvoices(effectiveOrg);
+    await fetchSalesData(true);
     return true;
   }, [targetOrgId, currentUser, logActivity, showToast, fetchSalesData]);
 
@@ -251,7 +243,8 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
 
     showToast?.('تم إلغاء ترحيل فاتورة المبيعات بنجاح', 'info');
     logActivity?.('إلغاء ترحيل فاتورة مبيعات', `فاتورة رقم: ${id}`);
-    await fetchSalesData();
+    invalidateSalesInvoices(effectiveOrg);
+    await fetchSalesData(true);
     return true;
   }, [targetOrgId, currentUser, logActivity, showToast, fetchSalesData]);
 
@@ -270,7 +263,8 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
 
     showToast?.('تم حذف فاتورة المبيعات', 'info');
     logActivity?.('حذف فاتورة مبيعات', `فاتورة رقم: ${id}`);
-    await fetchSalesData();
+    invalidateSalesInvoices(effectiveOrg);
+    await fetchSalesData(true);
     return true;
   }, [targetOrgId, currentUser, logActivity, showToast, fetchSalesData]);
 

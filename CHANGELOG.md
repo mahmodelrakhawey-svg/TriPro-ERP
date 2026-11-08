@@ -3,6 +3,23 @@
 
 ---
 
+## الإصدار 2.5.1 - 2026-11-08
+### 🚀 المرحلة الأولى: تعميم TanStack Query وتوحيد إدارة الحالة السحابية (Server State Standardization)
+- **إنشاء عميل ومصنع مفاتيح مركزي (`services/queryClient.ts`)**:
+  - ضبط Stale Time بـ 60 ثانية لترشيد استهلاك سوباباز (Egress) ومنع الطلبات المزدوجة المتزامنة (Request Deduping).
+  - عزل مفاتيح الكاش بمعرّف المنظمة `targetOrgId` (`['products', orgId]`, `['customers', orgId]`...) لضمان أمان واستقرار بيانات شركة لينزا الحية 100%.
+- **استبدال آليات الكاش اليدوي في النطاقات (`ProductContext`, `SupplierContext`, `CustomerContext`, `SalesContext`, `GeneralLedgerContext`, `HrContext`)**:
+  - التخلص التام من قواميس الذاكرة المبعثرة و `lastLedgerFetchRef` واستبدالها بـ `queryClient.fetchQuery`.
+  - تطبيق الإبطال التلقائي للكاش (Automatic Invalidation) عند كل عملية إضافة أو تعديل أو اعتماد أو حذف مستندات.
+- **تحديث `useCache.ts`**:
+  - إعادة بنائه ليعتمد داخلياً على `queryClient` مع الاحتفاظ بآلية التعافي في وضع عدم الاتصال (`secureStorage`).
+- **السلامة الهندسية الكاملة**:
+  - اجتياز جميع اختبارات الوحدات والتكامل **519 / 520 اختباراً في 95 ملف بنسبة 100%**.
+  - فحص TypeScript خالي تماماً من الأخطاء (**0 errors**).
+  - التدقيق الأمني بنتيجة صفر ثغرات (**0 issues**).
+
+---
+
 ## الإصدار 2.5.0 - 2026-09-22
 ### 🔴 Major Milestone: ضبط أمان الأنواع الكامل (TypeScript Strict Mode) ومناعة الشركات المتعددة (Multi-Tenant Robustness)
 

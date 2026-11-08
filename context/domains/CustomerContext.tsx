@@ -16,6 +16,7 @@ import type { UserProfile } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { fetchAllTableRecords } from './domainUtils';
+import { queryClient, QUERY_KEYS, invalidateCustomers } from '../../services/queryClient';
 import { useAccounting } from '../AccountingContext';
 
 export interface CustomerDomainState {
@@ -43,6 +44,11 @@ const DEFAULT_OFFLINE_CUSTOMERS: Customer[] = [
 
 const EMPTY_CUSTOMERS: Customer[] = [];
 
+// 🛡️ توحيد الكاش مع TanStack Query لترشيد استهلاك سوباباز وضمان سلامة بيانات الإنتاج
+export const clearCustomerCache = (orgId?: string) => {
+  invalidateCustomers(orgId);
+};
+
 export const CustomerProvider: React.FC<CustomerProviderProps> = ({
   children,
   orgId,
@@ -59,7 +65,7 @@ export const CustomerProvider: React.FC<CustomerProviderProps> = ({
 
   const targetOrgId = orgId || currentUser?.organization_id || null;
 
-  const fetchCustomers = useCallback(async () => {
+  const fetchCustomers = useCallback(async (force = false) => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') {
       if (initialCustomers.length > 0) {
         setCustomers(initialCustomers);
@@ -71,27 +77,36 @@ export const CustomerProvider: React.FC<CustomerProviderProps> = ({
       return;
     }
 
-    try {
-      const res = await fetchAllTableRecords<Customer>(
-        'customers',
-        q => q.eq('organization_id', targetOrgId).is('deleted_at', null).order('name')
-      );
+    const queryKey = QUERY_KEYS.customers(targetOrgId);
+    if (force) {
+      queryClient.invalidateQueries({ queryKey });
+    }
 
-      if (res.error) {
-        logger.error('Error fetching customers in CustomerProvider:', res.error);
-      } else if (res.data) {
-        if (res.data.length > 0) {
-          setCustomers(res.data);
-        } else if (isDemo || currentUser?.role === 'demo') {
-          setCustomers(DEFAULT_OFFLINE_CUSTOMERS);
-        } else {
-          setCustomers([]);
-        }
+    try {
+      const loadedCustomers = await queryClient.fetchQuery({
+        queryKey,
+        queryFn: async () => {
+          const res = await fetchAllTableRecords<Customer>(
+            'customers',
+            q => q.eq('organization_id', targetOrgId).is('deleted_at', null).order('name')
+          );
+          if (res.error) throw res.error;
+          return (res.data || []) as Customer[];
+        },
+        staleTime: 60 * 1000,
+      });
+
+      if (loadedCustomers && loadedCustomers.length > 0) {
+        setCustomers(loadedCustomers);
+      } else if (isDemo || currentUser?.role === 'demo') {
+        setCustomers(DEFAULT_OFFLINE_CUSTOMERS);
+      } else {
+        setCustomers([]);
       }
     } catch (err) {
-      logger.error('Unexpected error fetching customers:', err);
+      logger.error('Unexpected error fetching customers in CustomerProvider:', err);
     }
-  }, [targetOrgId, isDemo, currentUser?.role]);
+  }, [targetOrgId, isDemo, currentUser?.role, initialCustomers]);
 
   useEffect(() => {
     if (initialCustomers.length > 0) {
@@ -229,7 +244,7 @@ export const CustomerProvider: React.FC<CustomerProviderProps> = ({
     addCustomer,
     updateCustomer,
     deleteCustomer,
-    refreshCustomers: fetchCustomers,
+    refreshCustomers: () => fetchCustomers(true),
   }), [customers, addCustomer, updateCustomer, deleteCustomer, fetchCustomers]);
 
   return (

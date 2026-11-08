@@ -16,6 +16,7 @@ import type { UserProfile } from '../AccountingContext';
 import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { queryClient, QUERY_KEYS, invalidateEmployees } from '../../services/queryClient';
 import { logger } from '../../utils/logger';
 
 export interface HrDomainState {
@@ -43,6 +44,11 @@ export interface HrProviderProps {
 }
 
 const EMPTY_EMPLOYEES: Employee[] = [];
+
+// 🛡️ توحيد الكاش مع TanStack Query لترشيد استهلاك سوباباز وضمان سلامة بيانات الإنتاج
+export const clearEmployeeCache = (orgId?: string) => {
+  invalidateEmployees(orgId);
+};
 
 export const HrProvider: React.FC<HrProviderProps> = ({
   children,
@@ -79,24 +85,36 @@ export const HrProvider: React.FC<HrProviderProps> = ({
     return rawEmployees;
   }, [rawEmployees, currentUser, isFactoryDept]);
 
-  const fetchEmployees = useCallback(async () => {
+  const fetchEmployees = useCallback(async (force = false) => {
     const effectiveOrg = targetOrgId;
     if (!effectiveOrg || effectiveOrg === 'org-default-offline') return;
+
+    const queryKey = QUERY_KEYS.employees(effectiveOrg);
+    if (force) {
+      queryClient.invalidateQueries({ queryKey });
+    }
+
     try {
-      const data = await fetchCompleteDataset<Employee>(async (from, to) => {
-        let q = supabase
-          .from('employees')
-          .select('*')
-          .eq('organization_id', effectiveOrg)
-          .order('full_name');
-        return q.range(from, to);
+      const data = await queryClient.fetchQuery({
+        queryKey,
+        queryFn: async () => {
+          return await fetchCompleteDataset<Employee>(async (from, to) => {
+            let q = supabase
+              .from('employees')
+              .select('*')
+              .eq('organization_id', effectiveOrg)
+              .order('full_name');
+            return q.range(from, to);
+          });
+        },
+        staleTime: 60 * 1000,
       });
 
       if (data) {
         setRawEmployees(data as Employee[]);
       }
     } catch (e) {
-      logger.error('Unexpected error fetching employees:', e);
+      logger.error('Unexpected error fetching employees in HrProvider:', e);
     }
   }, [targetOrgId]);
 
@@ -377,7 +395,7 @@ export const HrProvider: React.FC<HrProviderProps> = ({
     runPayrollAccrual,
     payAccruedPayroll,
     cancelPayrollAccrual,
-    refreshEmployees: fetchEmployees,
+    refreshEmployees: () => fetchEmployees(true),
   }), [
     scopedEmployees,
     addEmployee,

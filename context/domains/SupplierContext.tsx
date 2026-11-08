@@ -17,6 +17,7 @@ import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { fetchAllTableRecords } from './domainUtils';
+import { queryClient, QUERY_KEYS, invalidateSuppliers, invalidatePurchaseInvoices } from '../../services/queryClient';
 import { fetchCompleteDataset } from '../../services/balanceService';
 import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
 
@@ -54,12 +55,9 @@ const DEFAULT_OFFLINE_SUPPLIERS: Supplier[] = [
 const EMPTY_SUPPLIERS: Supplier[] = [];
 const EMPTY_INVOICES: PurchaseInvoice[] = [];
 
-// 🛡️ كاش في الذاكرة لترشيد Egress ومنع تكرار جلب فواتير المشتريات
-const purchaseInvoicesCache = new Map<string, { data: PurchaseInvoice[]; timestamp: number }>();
-
+// 🛡️ توحيد الكاش مع TanStack Query لترشيد استهلاك سوباباز وضمان سلامة بيانات الإنتاج
 export const clearPurchaseInvoicesCache = (orgId?: string) => {
-  if (orgId) purchaseInvoicesCache.delete(orgId);
-  else purchaseInvoicesCache.clear();
+  invalidatePurchaseInvoices(orgId);
 };
 
 export const SupplierProvider: React.FC<SupplierProviderProps> = ({
@@ -81,7 +79,7 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
 
   const targetOrgId = orgId || currentUser?.organization_id || null;
 
-  const fetchSuppliers = useCallback(async () => {
+  const fetchSuppliers = useCallback(async (force = false) => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') {
       if (initialSuppliers.length > 0) {
         setSuppliers(initialSuppliers);
@@ -93,25 +91,34 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
       return;
     }
 
-    try {
-      const res = await fetchAllTableRecords<Supplier>(
-        'suppliers',
-        q => q.eq('organization_id', targetOrgId).is('deleted_at', null).order('name')
-      );
+    const queryKey = QUERY_KEYS.suppliers(targetOrgId);
+    if (force) {
+      queryClient.invalidateQueries({ queryKey });
+    }
 
-      if (res.error) {
-        logger.error('Error fetching suppliers in SupplierProvider:', res.error);
-      } else if (res.data) {
-        if (res.data.length > 0) {
-          setSuppliers(res.data);
-        } else if (isDemo || currentUser?.role === 'demo') {
-          setSuppliers(DEFAULT_OFFLINE_SUPPLIERS);
-        } else {
-          setSuppliers([]);
-        }
+    try {
+      const loadedSuppliers = await queryClient.fetchQuery({
+        queryKey,
+        queryFn: async () => {
+          const res = await fetchAllTableRecords<Supplier>(
+            'suppliers',
+            q => q.eq('organization_id', targetOrgId).is('deleted_at', null).order('name')
+          );
+          if (res.error) throw res.error;
+          return (res.data || []) as Supplier[];
+        },
+        staleTime: 60 * 1000,
+      });
+
+      if (loadedSuppliers && loadedSuppliers.length > 0) {
+        setSuppliers(loadedSuppliers);
+      } else if (isDemo || currentUser?.role === 'demo') {
+        setSuppliers(DEFAULT_OFFLINE_SUPPLIERS);
+      } else {
+        setSuppliers([]);
       }
     } catch (err) {
-      logger.error('Unexpected error fetching suppliers:', err);
+      logger.error('Unexpected error fetching suppliers in SupplierProvider:', err);
     }
   }, [targetOrgId, isDemo, currentUser?.role, initialSuppliers]);
 
@@ -138,29 +145,31 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
       return;
     }
 
-    if (!force) {
-      const cached = purchaseInvoicesCache.get(targetOrgId);
-      if (cached && (Date.now() - cached.timestamp < 90000)) {
-        setPurchaseInvoices(cached.data);
-        return;
-      }
+    const queryKey = QUERY_KEYS.purchaseInvoices(targetOrgId);
+    if (force) {
+      queryClient.invalidateQueries({ queryKey });
     }
 
     try {
-      const data = await fetchCompleteDataset<PurchaseInvoice>(async (from, to) =>
-        supabase
-          .from('purchase_invoices')
-          .select('*')
-          .eq('organization_id', targetOrgId)
-          .order('invoice_date', { ascending: false })
-          .range(from, to)
-      );
+      const loadedInvoices = await queryClient.fetchQuery({
+        queryKey,
+        queryFn: async () => {
+          const data = await fetchCompleteDataset<PurchaseInvoice>(async (from, to) =>
+            supabase
+              .from('purchase_invoices')
+              .select('*')
+              .eq('organization_id', targetOrgId)
+              .order('invoice_date', { ascending: false })
+              .range(from, to)
+          );
+          return (data || []) as PurchaseInvoice[];
+        },
+        staleTime: 60 * 1000,
+      });
 
-      const loaded = data || [];
-      purchaseInvoicesCache.set(targetOrgId, { data: loaded, timestamp: Date.now() });
-      setPurchaseInvoices(loaded);
+      setPurchaseInvoices(loadedInvoices);
     } catch (err) {
-      logger.error('Unexpected error fetching purchase invoices:', err);
+      logger.error('Unexpected error fetching purchase invoices in SupplierProvider:', err);
     }
   }, [targetOrgId, isOperationalRole]);
 
@@ -227,7 +236,8 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
 
     showToast?.('تم إضافة المورد بنجاح ✅', 'success');
     logActivity?.('إضافة مورد', `تم إضافة المورد: ${data.name || ''}`);
-    await fetchSuppliers();
+    invalidateSuppliers(targetOrgId);
+    await fetchSuppliers(true);
     return s as Supplier;
   }, [targetOrgId, currentUser, logActivity, showToast, fetchSuppliers]);
 
@@ -312,7 +322,8 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
     }
 
     logActivity?.('حذف مورد', `تم حذف المورد رقم: ${id}`);
-    await fetchSuppliers();
+    invalidateSuppliers(targetOrgId);
+    await fetchSuppliers(true);
   }, [targetOrgId, currentUser, logActivity, fetchSuppliers]);
 
   const approvePurchaseInvoice = useCallback(async (id: string, customOrgId?: string, warehouseId?: string): Promise<void> => {
@@ -434,7 +445,7 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
       logger.error('Error converting po to invoice:', error);
     } else {
       showToast?.('تم تحويل أمر الشراء إلى فاتورة بنجاح ✅', 'success');
-      purchaseInvoicesCache.delete(targetOrgId || '');
+      invalidatePurchaseInvoices(targetOrgId);
       await fetchInvoices(true);
     }
   }, [targetOrgId, currentUser, showToast, fetchInvoices]);

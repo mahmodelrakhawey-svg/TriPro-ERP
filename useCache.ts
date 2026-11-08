@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { queryClient } from './services/queryClient';
 import { secureStorage } from './utils/securityMiddleware';
 
 interface CacheItem<T> {
@@ -7,10 +8,10 @@ interface CacheItem<T> {
 }
 
 /**
- * Custom hook for caching data in localStorage to reduce server requests.
+ * Custom hook for caching data using TanStack Query Client with fallback to secureStorage.
  * Useful for static data like countries, currencies, or settings.
  * 
- * @param key Unique key for localStorage
+ * @param key Unique key for cache
  * @param fetcher Async function to fetch data
  * @param expirationMinutes Cache duration in minutes (default: 60)
  */
@@ -35,33 +36,29 @@ export function useCache<T>(
     setError(null);
 
     try {
-      if (!forceUpdate) {
-        const cached = secureStorage.getItem<CacheItem<T>>(key);
-        if (cached) {
-          try {
-            const age = (Date.now() - cached.timestamp) / (1000 * 60);
-            
-            if (age < expirationMinutes) {
-              setData(cached.value);
-              setLoading(false);
-              return;
-            }
-          } catch (e) {
-            if (process.env.NODE_ENV === 'development') console.warn('Failed to parse cached data for key:', key);
-            secureStorage.removeItem(key);
-          }
-        }
+      if (forceUpdate) {
+        queryClient.invalidateQueries({ queryKey: [key] });
       }
 
-      const freshData = await fetcherRef.current();
+      const freshData = await queryClient.fetchQuery({
+        queryKey: [key],
+        queryFn: () => fetcherRef.current(),
+        staleTime: expirationMinutes * 60 * 1000,
+      });
+
       setData(freshData);
       secureStorage.setItem(key, {
         value: freshData,
         timestamp: Date.now()
       });
-    } catch (err) {
-      if (process.env.NODE_ENV === 'development') console.error(`Error fetching data for ${key}:`, err);
-      setError(err);
+    } catch (err: unknown) {
+      // Fallback to secureStorage if offline or query fails
+      const cached = secureStorage.getItem<CacheItem<T>>(key);
+      if (cached && (Date.now() - cached.timestamp < expirationMinutes * 60 * 1000)) {
+        setData(cached.value);
+      } else {
+        setError(err instanceof Error ? err : new Error(String(err)));
+      }
     } finally {
       setLoading(false);
     }
@@ -74,7 +71,8 @@ export function useCache<T>(
   const refetch = () => fetchData(true);
 
   const clearCache = () => {
-    localStorage.removeItem(key);
+    queryClient.invalidateQueries({ queryKey: [key] });
+    secureStorage.removeItem(key);
     setData(null);
   };
 

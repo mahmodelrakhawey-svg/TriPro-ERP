@@ -83,6 +83,14 @@
 
 ---
 
+### د. توحيد إدارة الحالة السحابية والكاش عبر TanStack Query (Server State Standardization):
+تم استبدال آليات الكاش اليدوي المتفرقة (`ref.current` وخرائط الذاكرة المحلية) بعميل مركزي موحد في `services/queryClient.ts`:
+1. **عزل الشركات المتعددة (Multi-Tenant Scoping):** يعتمد مصنع المفاتيح `QUERY_KEYS` على معرف المنظمة `targetOrgId` كجزء أساسي من مفتاح الكاش (`['products', orgId]`، `['customers', orgId]`...) مما يضمن مناعة تامة لبيانات شركة لينزا الإنتاجية وعدم تداخل كاش أي منشأة مع أخرى.
+2. **ترشيد استهلاك Egress:** ضبط StaleTime بـ 60 ثانية مع منع تكرار الجلب عند تبديل النوافذ (`refetchOnWindowFocus: false`) ومنع تكرار العمليات المالية (`mutations.retry: 0`).
+3. **إبطال الكاش التلقائي (Automatic Cache Invalidation on Mutations):** عند تنفيذ أي عملية إضافة أو تعديل أو اعتماد أو حذف، يتم استدعاء دوال الإبطال القياسية (`invalidateProducts`, `invalidateCustomers`, `invalidateSuppliers`, `invalidateSalesInvoices`, `invalidateGeneralLedger`, `invalidateEmployees`) لتحديث البيانات تلقائياً وفوراً.
+
+---
+
 ## 3. المعادلات الذرية والعمليات غير القابلة للتجزئة (Atomic Operations & Formulas)
 يعتمد نظام TriPro-ERP على فلسفة **قاعدة البيانات أولاً (Database-First)** لضمان السلامة المالية الكاملة ومنع أي تلاعب أو عدم اتساق عبر المعاملات الذرية (ACID Transactions) المنفذة داخل إجراءات PL/pgSQL:
 

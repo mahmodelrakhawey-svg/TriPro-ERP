@@ -19,6 +19,7 @@ import { logger } from '../../utils/logger';
 import { closeFinancialYearEngine, reopenFinancialYearEngine } from '../../services/financialYearService';
 import { validateEntryBalance } from '../../utils/financialSafety';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { queryClient, QUERY_KEYS, invalidateGeneralLedger } from '../../services/queryClient';
 import { SYSTEM_ACCOUNTS } from '../accountingConstants';
 
 export interface FiscalYearRange {
@@ -75,6 +76,11 @@ const EMPTY_ENTRIES: JournalEntryItem[] = [];
 const EMPTY_ACCOUNTS: Account[] = [];
 const EMPTY_COST_CENTERS: CostCenter[] = [];
 const EMPTY_BUDGETS: Budget[] = [];
+
+// 🛡️ توحيد الكاش مع TanStack Query لترشيد استهلاك سوباباز وضمان سلامة بيانات الإنتاج
+export const clearGeneralLedgerCache = (orgId?: string) => {
+  invalidateGeneralLedger(orgId);
+};
 
 export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
   children,
@@ -145,89 +151,72 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
     return !operationalRoles.includes(role);
   }, [currentUser?.role]);
 
-  const lastLedgerFetchRef = useRef<{ orgId: string; start: string; end: string; timestamp: number } | null>(null);
-
   const fetchLedgerData = useCallback(async (force = false) => {
     const effectiveOrg = targetOrgId;
     if (!effectiveOrg || effectiveOrg === 'org-default-offline') return;
 
-    const now = Date.now();
-    if (!force && lastLedgerFetchRef.current &&
-        lastLedgerFetchRef.current.orgId === effectiveOrg &&
-        lastLedgerFetchRef.current.start === fiscalYearRange.startDate &&
-        lastLedgerFetchRef.current.end === fiscalYearRange.endDate &&
-        (now - lastLedgerFetchRef.current.timestamp < 60000)) {
-      return;
+    const queryKey = QUERY_KEYS.generalLedger(effectiveOrg, fiscalYearRange);
+    if (force) {
+      queryClient.invalidateQueries({ queryKey });
     }
 
     try {
-      const [accRes, entRes, ccRes, budRes] = await Promise.all([
-        supabase
-          .from('accounts')
-          .select('*')
-          .eq('organization_id', effectiveOrg)
-          .order('code'),
-        isAccountingAuditor
-          ? fetchCompleteDataset<JournalEntryItem>(async (from, to) =>
-              supabase
-                .from('journal_entries')
-                .select('*, journal_lines(*)')
-                .eq('organization_id', effectiveOrg)
-                .gte('transaction_date', fiscalYearRange.startDate)
-                .lte('transaction_date', fiscalYearRange.endDate)
-                .order('transaction_date', { ascending: false })
-                .range(from, to)
-            ).then(data => ({ data, error: null }))
-          : Promise.resolve({ data: [] as JournalEntryItem[], error: null }),
-        supabase
-          .from('cost_centers')
-          .select('*')
-          .eq('organization_id', effectiveOrg)
-          .order('name'),
-        supabase
-          .from('budgets')
-          .select('*')
-          .eq('organization_id', effectiveOrg)
-      ]);
+      const ledgerResult = await queryClient.fetchQuery({
+        queryKey,
+        queryFn: async () => {
+          const [accRes, entRes, ccRes, budRes] = await Promise.all([
+            supabase
+              .from('accounts')
+              .select('*')
+              .eq('organization_id', effectiveOrg)
+              .order('code'),
+            isAccountingAuditor
+              ? fetchCompleteDataset<JournalEntryItem>(async (from, to) =>
+                  supabase
+                    .from('journal_entries')
+                    .select('*, journal_lines(*)')
+                    .eq('organization_id', effectiveOrg)
+                    .gte('transaction_date', fiscalYearRange.startDate)
+                    .lte('transaction_date', fiscalYearRange.endDate)
+                    .order('transaction_date', { ascending: false })
+                    .range(from, to)
+                ).then(data => ({ data, error: null }))
+              : Promise.resolve({ data: [] as JournalEntryItem[], error: null }),
+            supabase
+              .from('cost_centers')
+              .select('*')
+              .eq('organization_id', effectiveOrg)
+              .order('name'),
+            supabase
+              .from('budgets')
+              .select('*')
+              .eq('organization_id', effectiveOrg)
+          ]);
 
-      if (accRes.error) {
-        logger.error('Error fetching accounts in GeneralLedgerProvider:', accRes.error);
-      } else if (accRes.data) {
-        setAccounts(accRes.data.map((acc: Record<string, any>) => ({
-          ...acc,
-          isGroup: Boolean(acc.is_group ?? acc.isGroup),
-          type: acc.type ? acc.type.toUpperCase() : acc.type
-        })) as Account[]);
-      }
+          const loadedAccounts = accRes.data ? accRes.data.map((acc: Record<string, any>) => ({
+            ...acc,
+            isGroup: Boolean(acc.is_group ?? acc.isGroup),
+            type: acc.type ? acc.type.toUpperCase() : acc.type
+          })) : [];
 
-      if (entRes.error) {
-        logger.error('Error fetching entries in GeneralLedgerProvider:', entRes.error);
-      } else if (entRes.data) {
-        setEntries((entRes.data as JournalEntryItem[]) || []);
-      }
+          return {
+            accounts: loadedAccounts as Account[],
+            entries: (entRes.data || []) as JournalEntryItem[],
+            costCenters: (ccRes.data || []) as CostCenter[],
+            budgets: (budRes.data || []) as Budget[]
+          };
+        },
+        staleTime: 60 * 1000,
+      });
 
-      if (ccRes.error) {
-        logger.error('Error fetching cost centers in GeneralLedgerProvider:', ccRes.error);
-      } else if (ccRes.data) {
-        setCostCenters((ccRes.data as CostCenter[]) || []);
-      }
-
-      if (budRes.error) {
-        logger.error('Error fetching budgets in GeneralLedgerProvider:', budRes.error);
-      } else if (budRes.data) {
-        setBudgets((budRes.data as Budget[]) || []);
-      }
-
-      lastLedgerFetchRef.current = {
-        orgId: effectiveOrg,
-        start: fiscalYearRange.startDate,
-        end: fiscalYearRange.endDate,
-        timestamp: Date.now()
-      };
+      if (ledgerResult.accounts.length > 0) setAccounts(ledgerResult.accounts);
+      setEntries(ledgerResult.entries);
+      if (ledgerResult.costCenters.length > 0) setCostCenters(ledgerResult.costCenters);
+      if (ledgerResult.budgets.length > 0) setBudgets(ledgerResult.budgets);
     } catch (err) {
-      logger.error('Unexpected error fetching ledger data:', err);
+      logger.error('Unexpected error fetching ledger data in GeneralLedgerProvider:', err);
     }
-  }, [targetOrgId, fiscalYearRange.startDate, fiscalYearRange.endDate]);
+  }, [targetOrgId, isAccountingAuditor, fiscalYearRange.startDate, fiscalYearRange.endDate]);
 
   useEffect(() => {
     if (targetOrgId && targetOrgId !== 'org-default-offline') {
@@ -286,7 +275,8 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
 
     showToast?.('تم تسجيل وترحيل القيد المحاسبي بنجاح ✅', 'success');
     logActivity?.('إنشاء قيد يومية', `قيد مرجعي: ${(payload.reference as string) || 'عام'}`);
-    await fetchLedgerData();
+    invalidateGeneralLedger(effectiveOrg);
+    await fetchLedgerData(true);
   }, [targetOrgId, logActivity, showToast, fetchLedgerData]);
 
   const addAccount = useCallback(async (acc: Partial<Account>): Promise<any> => {
@@ -304,7 +294,8 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
 
     showToast?.('تمت إضافة الحساب بنجاح ✅', 'success');
     logActivity?.('إضافة حساب', `حساب: ${acc.name || acc.code}`);
-    await fetchLedgerData();
+    invalidateGeneralLedger(effectiveOrg);
+    await fetchLedgerData(true);
     return data;
   }, [targetOrgId, logActivity, showToast, fetchLedgerData]);
 
@@ -322,7 +313,8 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
 
     showToast?.('تم تعديل بيانات الحساب بنجاح ✅', 'success');
     logActivity?.('تعديل حساب', `حساب رقم: ${id}`);
-    await fetchLedgerData();
+    invalidateGeneralLedger(effectiveOrg);
+    await fetchLedgerData(true);
   }, [targetOrgId, logActivity, showToast, fetchLedgerData]);
 
   const deleteAccount = useCallback(async (id: string, _reason?: string): Promise<{ success: boolean; message?: string }> => {
@@ -338,7 +330,8 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
       showToast?.('تم حذف الحساب بنجاح', 'info');
       logActivity?.('حذف حساب', `حساب رقم: ${id}`);
     }
-    await fetchLedgerData();
+    invalidateGeneralLedger(effectiveOrg);
+    await fetchLedgerData(true);
     return { success: !error, message: error?.message };
   }, [targetOrgId, logActivity, showToast, fetchLedgerData]);
 
@@ -460,7 +453,8 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
     if (res.success) {
       showToast?.(`تم إغلاق السنة المالية ${year} بنجاح ✅`, 'success');
       logActivity?.('إغلاق سنة مالية', `السنة: ${year}`);
-      await fetchLedgerData();
+      invalidateGeneralLedger(effectiveOrg);
+      await fetchLedgerData(true);
       return true;
     }
     showToast?.(`تعذر إغلاق السنة المالية ${year}`, 'error');
@@ -474,7 +468,8 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
     if (res.success) {
       showToast?.(`تم إعادة فتح السنة المالية ${year} بنجاح ✅`, 'success');
       logActivity?.('إعادة فتح سنة مالية', `السنة: ${year}`);
-      await fetchLedgerData();
+      invalidateGeneralLedger(effectiveOrg);
+      await fetchLedgerData(true);
       return true;
     }
     showToast?.(`تعذر إعادة فتح السنة المالية ${year}`, 'error');
@@ -489,7 +484,8 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
       await supabase.rpc('recalculate_all_balances');
     }
     showToast?.('تمت إعادة احتساب أرصدة الحسابات بنجاح ✅', 'success');
-    await fetchLedgerData();
+    invalidateGeneralLedger(effectiveOrg);
+    await fetchLedgerData(true);
   }, [targetOrgId, showToast, fetchLedgerData]);
 
   const exportJournalToCSV = useCallback(async (): Promise<void> => {

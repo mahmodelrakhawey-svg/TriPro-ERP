@@ -1,6 +1,7 @@
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './services/queryClient';
 import { ConfigProvider } from 'antd';
 import arEG from 'antd/locale/ar_EG';
 import { supabase } from './supabaseClient';
@@ -310,21 +311,7 @@ const ProgramProfitReport = lazy(() => import('./modules/stadium/reports/Program
 
 
 
-// إنشاء عميل React Query بإعدادات متقدمة للحفظ المؤقت وإعادة المحاولة
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 5 * 60 * 1000,        // 5 دقائق: الحفاظ على البيانات لتجنب جلبها مع كل انتقال
-      gcTime: 10 * 60 * 1000,          // 10 دقائق في الكاش
-      retry: 2,                         // إعادة المحاولة مرتين عند الفشل الشبكي
-      refetchOnWindowFocus: false,      // منع إعادة الجلب غير الضروري عند التبديل بين النوافذ
-      refetchOnReconnect: true,         // إعادة الجلب التلقائي عند استعادة الاتصال
-    },
-    mutations: {
-      retry: 0,                         // منع تكرار العمليات المالية التلقائية
-    },
-  },
-});
+// عميل React Query موحد في services/queryClient.ts
 
 import {
   PrintHeader,
