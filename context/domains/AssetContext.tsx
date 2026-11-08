@@ -68,10 +68,33 @@ export const AssetProvider: React.FC<AssetProviderProps> = ({
     if (showToast) showToast(message, type);
   }, [showToast]);
 
+  // 🛡️ ترشيد Egress: استثناء الأدوار التشغيلية (كاشير/ويتر/مطبخ) من تحميل الأصول الثابتة
+  const isOperationalRole = useMemo(() => {
+    const role = currentUser?.role;
+    if (!role) return false;
+    return [
+      'cashier',
+      'retail_cashier',
+      'restaurant_cashier',
+      'restaurant_waiter',
+      'restaurant_chef',
+      'restaurant_cook',
+      'restaurant_driver',
+      'storekeeper',
+      'worker',
+      'van_sales'
+    ].includes(role);
+  }, [currentUser?.role]);
+
   // --- جلب الأصول بالكامل بدون التقيد بـ 1000 سطر ---
   const fetchAssets = useCallback(async () => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') {
       if (initialAssets.length > 0) setAssets(initialAssets);
+      return;
+    }
+
+    if (isOperationalRole) {
+      setAssets([]);
       return;
     }
 
@@ -91,7 +114,7 @@ export const AssetProvider: React.FC<AssetProviderProps> = ({
     } catch (err) {
       logger.error('Unexpected error fetching assets in AssetProvider:', err);
     }
-  }, [targetOrgId, initialAssets]);
+  }, [targetOrgId, initialAssets, isOperationalRole]);
 
   // التحميل التلقائي عند تغيير المنظمة
   useEffect(() => {

@@ -65,9 +65,32 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
 
   const targetOrgId = orgId || currentUser?.organization_id || null;
 
+  // 🛡️ ترشيد Egress: استثناء الأدوار التشغيلية (كاشير/ويتر/مطبخ) من تحميل الشيكات وسندات الصرف
+  const isOperationalRole = useMemo(() => {
+    const role = currentUser?.role;
+    if (!role) return false;
+    return [
+      'cashier',
+      'retail_cashier',
+      'restaurant_cashier',
+      'restaurant_waiter',
+      'restaurant_chef',
+      'restaurant_cook',
+      'restaurant_driver',
+      'storekeeper',
+      'worker',
+      'van_sales'
+    ].includes(role);
+  }, [currentUser?.role]);
+
   const fetchCheques = useCallback(async () => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') {
       if (initialCheques.length > 0) setCheques(initialCheques);
+      return;
+    }
+
+    if (isOperationalRole) {
+      setCheques([]);
       return;
     }
 
@@ -86,11 +109,16 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
     } catch (err) {
       logger.error('Unexpected error fetching cheques:', err);
     }
-  }, [targetOrgId, initialCheques]);
+  }, [targetOrgId, initialCheques, isOperationalRole]);
 
   const fetchVouchers = useCallback(async () => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') {
       if (initialVouchers.length > 0) setVouchers(initialVouchers);
+      return;
+    }
+
+    if (isOperationalRole) {
+      setVouchers([]);
       return;
     }
 
@@ -131,7 +159,7 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
     } catch (err) {
       logger.error('Unexpected error fetching vouchers:', err);
     }
-  }, [targetOrgId, initialVouchers]);
+  }, [targetOrgId, initialVouchers, isOperationalRole]);
 
   useEffect(() => {
     if (initialCheques.length > 0) {
