@@ -17,7 +17,7 @@ import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { fetchCompleteDataset } from '../../services/balanceService';
-import { queryClient, QUERY_KEYS, invalidateSalesInvoices } from '../../services/queryClient';
+import { queryClient, QUERY_KEYS, invalidateSalesInvoices, STALE_TIMES } from '../../services/queryClient';
 import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
 
 export type SalesInvoice = Invoice & { total?: number; [key: string]: unknown };
@@ -128,7 +128,7 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
                 });
                 return (data || []) as SalesInvoice[];
               },
-              staleTime: 60 * 1000,
+              staleTime: STALE_TIMES.TRANSACTIONS,
             }),
         supabase
           .from('customers')

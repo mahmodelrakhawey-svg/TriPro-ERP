@@ -220,13 +220,37 @@ const SaaSAdmin: React.FC = () => {
   const fetchBackups = async (orgId: string) => {
     setLoadingBackups(true);
     try {
+      // 🛡️ ترشيد Egress: استعلام الحقول الوصفية فقط واستبعاد backup_data لتوفير عشرات الميجابايت
       const { data, error } = await supabase
         .from('organization_backups')
-        .select('*, profiles(full_name)')
+        .select('id, organization_id, file_size_kb, backup_date, notes, created_at, user_id, profiles(full_name)')
         .eq('organization_id', orgId)
         .order('backup_date', { ascending: false });
       if (error) throw error;
-      setBackups(data || []);
+
+      interface RawBackupMetaRow {
+        id: string;
+        organization_id: string;
+        file_size_kb: number;
+        backup_date: string;
+        notes?: string | null;
+        created_at?: string;
+        user_id?: string;
+        profiles?: { full_name?: string } | { full_name?: string }[] | null;
+      }
+      const mappedBackups: OrganizationBackup[] = ((data as unknown as RawBackupMetaRow[]) || []).map(b => {
+        const prof = Array.isArray(b.profiles) ? b.profiles[0] : b.profiles;
+        return {
+          id: b.id,
+          organization_id: b.organization_id,
+          file_size_kb: b.file_size_kb,
+          backup_date: b.backup_date,
+          notes: b.notes || '',
+          profiles: prof?.full_name ? { full_name: prof.full_name } : null,
+          created_by: b.user_id || ''
+        };
+      });
+      setBackups(mappedBackups);
     } catch (err) {
       showToast('فشل جلب النسخ الاحتياطية', 'error');
     } finally {
@@ -271,14 +295,32 @@ const SaaSAdmin: React.FC = () => {
   };
 
 
-  const handleDownloadBackup = (backup: OrganizationBackup) => {
-    const blob = new Blob([JSON.stringify(backup.backup_data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `backup_${getOrgName(backup.organization_id)}_${new Date(backup.backup_date).toISOString().split('T')[0]}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const handleDownloadBackup = async (backup: OrganizationBackup) => {
+    try {
+      let backupData = backup.backup_data;
+      if (!backupData) {
+        showToast('جاري جلب ملف النسخة الاحتياطية من السحابة...', 'info');
+        const { data: record, error: fetchErr } = await supabase
+          .from('organization_backups')
+          .select('backup_data')
+          .eq('id', backup.id)
+          .single();
+        if (fetchErr || !record?.backup_data) {
+          throw new Error('تعذر جلب ملف النسخة الاحتياطية من السحابة');
+        }
+        backupData = record.backup_data;
+      }
+
+      const blob = new Blob([typeof backupData === 'string' ? backupData : JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `backup_${getOrgName(backup.organization_id)}_${new Date(backup.backup_date).toISOString().split('T')[0]}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      showToast((err as Error)?.message || 'فشل تحميل النسخة الاحتياطية', 'error');
+    }
   };
 
   const handleRestoreBackup = async (backup: OrganizationBackup) => {
@@ -286,14 +328,27 @@ const SaaSAdmin: React.FC = () => {
     if (window.prompt('لتأكيد الاستعادة النهائية، يرجى كتابة "استعادة" في المربع أدناه:') !== 'استعادة') return;
     setRestoringId(backup.id);
     try {
+      let backupData = backup.backup_data;
+      if (!backupData && backup.id !== 'temp') {
+        const { data: record, error: fetchErr } = await supabase
+          .from('organization_backups')
+          .select('backup_data')
+          .eq('id', backup.id)
+          .single();
+        if (fetchErr || !record?.backup_data) {
+          throw new Error('تعذر جلب بيانات النسخة الاحتياطية للاستعادة');
+        }
+        backupData = record.backup_data;
+      }
+
       const { data, error } = await supabase.rpc('restore_organization_backup', {
         p_org_id: backup.organization_id,
-        p_backup_data: backup.backup_data
+        p_backup_data: typeof backupData === 'string' ? JSON.parse(backupData) : backupData
       });
       if (error) throw error;
       showToast(data || 'تمت استعادة البيانات بنجاح ✅', 'success');
-    } catch (err) {
-      showToast('فشل عملية الاستعادة', 'error');
+    } catch (err: unknown) {
+      showToast((err as Error)?.message || 'فشل عملية الاستعادة', 'error');
     } finally {
       setRestoringId(null);
     }

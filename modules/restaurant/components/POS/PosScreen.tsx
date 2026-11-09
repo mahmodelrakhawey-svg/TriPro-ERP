@@ -227,10 +227,8 @@ const PosScreen = () => {
     };
 
     fetchOpenExternalOrders();
-    if (!isDemo && navigator.onLine) {
-      const channel = orgFilter
-        ? supabase.channel(`public:orders:${orgFilter}`).on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `organization_id=eq.${orgFilter}` }, fetchOpenExternalOrders).subscribe()
-        : supabase.channel('public:orders').on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, fetchOpenExternalOrders).subscribe();
+    if (!isDemo && navigator.onLine && orgFilter) {
+      const channel = supabase.channel(`public:orders:${orgFilter}`).on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `organization_id=eq.${orgFilter}` }, fetchOpenExternalOrders).subscribe();
       return () => { supabase.removeChannel(channel); };
     }
   }, [isDemo, currentSelectedOrgId, currentUser]);

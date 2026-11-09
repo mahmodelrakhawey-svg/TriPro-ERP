@@ -16,7 +16,7 @@ import type { UserProfile } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { fetchAllTableRecords } from './domainUtils';
-import { queryClient, QUERY_KEYS, invalidateCustomers } from '../../services/queryClient';
+import { queryClient, QUERY_KEYS, invalidateCustomers, STALE_TIMES } from '../../services/queryClient';
 import { useAccounting } from '../AccountingContext';
 
 export interface CustomerDomainState {
@@ -93,7 +93,7 @@ export const CustomerProvider: React.FC<CustomerProviderProps> = ({
           if (res.error) throw res.error;
           return (res.data || []) as Customer[];
         },
-        staleTime: 60 * 1000,
+        staleTime: STALE_TIMES.MASTER_DATA,
       });
 
       if (loadedCustomers && loadedCustomers.length > 0) {

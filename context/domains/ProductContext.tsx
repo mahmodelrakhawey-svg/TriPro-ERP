@@ -17,7 +17,7 @@ import type { UserProfile } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { fetchAllTableRecords } from './domainUtils';
-import { queryClient, QUERY_KEYS, invalidateProducts } from '../../services/queryClient';
+import { queryClient, QUERY_KEYS, invalidateProducts, STALE_TIMES } from '../../services/queryClient';
 import { offlineService } from '../../services/offlineService';
 
 export interface ProductDomainState {
@@ -142,7 +142,7 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
           }
           return (res.data || []) as Product[];
         },
-        staleTime: 60 * 1000,
+        staleTime: STALE_TIMES.MASTER_DATA,
       });
 
       if (loadedProducts && loadedProducts.length > 0) {

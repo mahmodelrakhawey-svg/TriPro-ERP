@@ -64,9 +64,9 @@ export interface OrganizationBackup {
   id: string;
   organization_id: string;
   backup_date: string;
-  backup_data: any; // jsonb
+  backup_data?: Record<string, unknown> | unknown[] | string | null; // Lazy loaded on demand to conserve Egress bandwidth
   file_size_kb: number;
-  created_by: string; // auth.users.id
-  profiles: { full_name: string } | null; // Joined from profiles table
-  notes: string;
+  created_by?: string; // auth.users.id
+  profiles?: { full_name: string } | null; // Joined from profiles table
+  notes?: string;
 }

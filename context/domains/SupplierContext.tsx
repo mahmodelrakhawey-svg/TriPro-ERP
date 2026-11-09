@@ -17,7 +17,7 @@ import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { fetchAllTableRecords } from './domainUtils';
-import { queryClient, QUERY_KEYS, invalidateSuppliers, invalidatePurchaseInvoices } from '../../services/queryClient';
+import { queryClient, QUERY_KEYS, invalidateSuppliers, invalidatePurchaseInvoices, STALE_TIMES } from '../../services/queryClient';
 import { fetchCompleteDataset } from '../../services/balanceService';
 import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
 
@@ -107,7 +107,7 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
           if (res.error) throw res.error;
           return (res.data || []) as Supplier[];
         },
-        staleTime: 60 * 1000,
+        staleTime: STALE_TIMES.MASTER_DATA,
       });
 
       if (loadedSuppliers && loadedSuppliers.length > 0) {
@@ -164,7 +164,7 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
           );
           return (data || []) as PurchaseInvoice[];
         },
-        staleTime: 60 * 1000,
+        staleTime: STALE_TIMES.TRANSACTIONS,
       });
 
       setPurchaseInvoices(loadedInvoices);

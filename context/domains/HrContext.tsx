@@ -16,7 +16,7 @@ import type { UserProfile } from '../AccountingContext';
 import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { fetchCompleteDataset } from '../../services/balanceService';
-import { queryClient, QUERY_KEYS, invalidateEmployees } from '../../services/queryClient';
+import { queryClient, QUERY_KEYS, invalidateEmployees, STALE_TIMES } from '../../services/queryClient';
 import { logger } from '../../utils/logger';
 
 export interface HrDomainState {
@@ -107,7 +107,7 @@ export const HrProvider: React.FC<HrProviderProps> = ({
             return q.range(from, to);
           });
         },
-        staleTime: 60 * 1000,
+        staleTime: STALE_TIMES.MASTER_DATA,
       });
 
       if (data) {

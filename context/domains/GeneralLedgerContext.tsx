@@ -19,7 +19,7 @@ import { logger } from '../../utils/logger';
 import { closeFinancialYearEngine, reopenFinancialYearEngine } from '../../services/financialYearService';
 import { validateEntryBalance } from '../../utils/financialSafety';
 import { fetchCompleteDataset } from '../../services/balanceService';
-import { queryClient, QUERY_KEYS, invalidateGeneralLedger } from '../../services/queryClient';
+import { queryClient, QUERY_KEYS, invalidateGeneralLedger, STALE_TIMES } from '../../services/queryClient';
 import { SYSTEM_ACCOUNTS } from '../accountingConstants';
 
 export interface FiscalYearRange {
@@ -206,7 +206,7 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
             budgets: (budRes.data || []) as Budget[]
           };
         },
-        staleTime: 60 * 1000,
+        staleTime: STALE_TIMES.TRANSACTIONS,
       });
 
       if (ledgerResult.accounts.length > 0) setAccounts(ledgerResult.accounts);
