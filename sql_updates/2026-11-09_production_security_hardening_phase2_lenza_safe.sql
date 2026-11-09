@@ -9,6 +9,50 @@
 -- =============================================================================
 
 -- #############################################################################
+-- #############################################################################
+-- 0. تعريف دالة التحقق الأمني لعزل المنشآت (validate_tenant_access)
+-- #############################################################################
+CREATE OR REPLACE FUNCTION public.validate_tenant_access(p_target_org uuid)
+RETURNS uuid
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $
+DECLARE
+    v_my_org uuid;
+    v_my_role text;
+    v_caller_id uuid := auth.uid();
+BEGIN
+    -- 1. إذا كان الاستدعاء داخلياً من خادم النظام / Service Role / Cron Trigger
+    IF v_caller_id IS NULL THEN
+        IF auth.role() = 'service_role' OR current_user IN ('postgres', 'service_role', 'supabase_admin') THEN
+            RETURN p_target_org;
+        END IF;
+        RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: تم رفض الوصول. يجب تسجيل الدخول للوصول إلى بيانات المنشأة.';
+    END IF;
+
+    -- 2. جلب منظمة ورتبة المستخدم المصادق عليه
+    v_my_org := public.get_my_org();
+    SELECT role INTO v_my_role FROM public.profiles WHERE id = v_caller_id;
+
+    -- السوبر أدمن فقط من يحق له استعراض أي منظمة
+    IF v_my_role = 'super_admin' THEN
+        RETURN COALESCE(p_target_org, v_my_org);
+    END IF;
+
+    -- رفض أي استعلام لمنظمة أخرى غير منظمة المستخدم المصادق عليها
+    IF p_target_org IS NOT NULL AND p_target_org <> v_my_org THEN
+        RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: تم رفض الوصول. لا تملك صلاحية استعراض بيانات أو تقارير مالية لمنشأة أخرى.';
+    END IF;
+
+    IF v_my_org IS NULL THEN
+        RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: تعذر التحقق من المنظمة التابع لها حسابك.';
+    END IF;
+
+    RETURN v_my_org;
+END;
+$;
+
 -- 1. تحصين دالة حذف المنشآت بالكامل ومنع أي أدمن من حذف شركات أخرى (SEC-01)
 -- #############################################################################
 -- الهدف: حصر حذف أي منشأة في super_admin فقط، مع وضع درع دائم لحماية شركة لينزا
