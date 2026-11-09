@@ -102,6 +102,7 @@ const ProductManager = () => {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [showOffersOnly, setShowOffersOnly] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState('all');
+  const [warehouseFilter, setWarehouseFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [routingFilter, setRoutingFilter] = useState<'all' | 'has_routing_and_steps' | 'has_routing_no_steps' | 'no_routing' | 'has_any_routing'>('all');
   const [routingsMap, setRoutingsMap] = useState<Map<string, { routingId: string; routingName: string; stepsCount: number }>>(new Map());
@@ -905,12 +906,15 @@ const ProductManager = () => {
   const handleDownloadTemplate = () => downloadProductsTemplate();
 
   const handleExportExcel = () => {
+    const selectedWh = warehouses.find(w => w.id === warehouseFilter);
     exportProductsToExcel({
       targetOrgId,
       categories,
       queryModifier,
       showToast: toastFn,
       setIsExporting,
+      selectedWarehouseId: warehouseFilter,
+      selectedWarehouseName: selectedWh?.name,
     });
   };
 
@@ -1902,7 +1906,7 @@ const ProductManager = () => {
                 </>
             )}
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3 pt-3 border-t">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-3 pt-3 border-t">
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1">فلترة حسب نوع الصنف</label>
             <select 
@@ -1927,6 +1931,21 @@ const ProductManager = () => {
             >
                 <option value="all">-- كل التصنيفات --</option>
                 {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-bold text-slate-700 mb-1">المستودع / المخزن</label>
+            <select 
+                value={warehouseFilter}
+                onChange={e => setWarehouseFilter(e.target.value)}
+                className={`w-full border rounded-lg p-2.5 text-xs font-bold outline-none focus:ring-2 transition-all ${
+                  warehouseFilter !== 'all' 
+                    ? 'bg-blue-50 border-blue-300 text-blue-900 focus:ring-blue-500' 
+                    : 'bg-white text-slate-700 focus:ring-emerald-500'
+                }`}
+            >
+                <option value="all">-- كل المستودعات (الرصيد الإجمالي) --</option>
+                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
           </div>
           <div>
@@ -2003,7 +2022,12 @@ const ProductManager = () => {
               <th className="p-4">اسم الصنف</th>
               <th className="p-4">التصنيف</th>
               <th className="p-4">النوع</th>
-              <th className="p-4 text-center">الرصيد الحالي</th>
+              <th className={`p-4 text-center ${warehouseFilter !== 'all' ? 'text-blue-700 bg-blue-50/60 font-black' : ''}`}>
+                {warehouseFilter === 'all' 
+                  ? 'الرصيد الحالي' 
+                  : `رصيد (${warehouses.find(w => w.id === warehouseFilter)?.name || 'المستودع'})`
+                }
+              </th>
               <th className="p-4 text-center">المحجوز</th>
               <th className="p-4 text-center">الصلاحية</th>
               <th className="p-4">متوسط التكلفة</th>
@@ -2152,7 +2176,22 @@ const ProductManager = () => {
                   )}
                 </td>
                 <td className="p-4 text-center font-bold text-slate-700">
-                    {item.stock}
+                    {warehouseFilter === 'all' ? (
+                      item.stock
+                    ) : (
+                      (() => {
+                        let wStock = (item as any).warehouse_stock || (item as any).warehouseStock || {};
+                        if (typeof wStock === 'string') {
+                          try { wStock = JSON.parse(wStock); } catch {}
+                        }
+                        const qty = Number(wStock?.[warehouseFilter] || 0);
+                        return (
+                          <span className={`inline-block px-2.5 py-1 rounded-lg font-mono font-black ${qty > 0 ? 'bg-blue-50 text-blue-800 border border-blue-200' : 'text-slate-400'}`}>
+                            {qty}
+                          </span>
+                        );
+                      })()
+                    )}
                 </td>
                 <td className="p-4 text-center font-bold text-amber-600">
                     {reservedStock[item.id] > 0 ? (

@@ -41,12 +41,16 @@ export const exportProductsToExcel = async ({
   queryModifier,
   showToast,
   setIsExporting,
+  selectedWarehouseId,
+  selectedWarehouseName,
 }: {
   targetOrgId?: string | null;
   categories: any[];
   queryModifier: (query: SupabaseQuery) => SupabaseQuery;
   showToast: (msg: string, type?: string) => void;
   setIsExporting: (val: boolean) => void;
+  selectedWarehouseId?: string;
+  selectedWarehouseName?: string;
 }) => {
   setIsExporting(true);
   showToast('جاري جلب وتجهيز كافة الأصناف للتصدير...', 'info');
@@ -78,6 +82,8 @@ export const exportProductsToExcel = async ({
       return;
     }
 
+    const isSpecificWh = Boolean(selectedWarehouseId && selectedWarehouseId !== 'all');
+
     const dataToExport = allItems.map(item => {
       const categoryName = categories.find(c => c.id === item.category_id)?.name || (item as any).category || '-';
       const pType = String(item.product_type || item.item_type || '').toUpperCase();
@@ -88,6 +94,38 @@ export const exportProductsToExcel = async ({
       else if (pType === 'MANUFACTURED' || mType === 'standard' || item.item_type === 'MANUFACTURED') typeLabel = 'منتج تام';
       else if (pType === 'SERVICE' || item.item_type === 'SERVICE') typeLabel = 'خدمي';
 
+      const unitCost = Number(item.weighted_average_cost || item.purchase_price || 0);
+
+      if (isSpecificWh) {
+        let wStock = (item as any).warehouse_stock || (item as any).warehouseStock || {};
+        if (typeof wStock === 'string') {
+          try {
+            wStock = JSON.parse(wStock);
+          } catch {}
+        }
+        const whQty = Number(wStock?.[selectedWarehouseId!] || 0);
+        const totalCostValue = Number((whQty * unitCost).toFixed(2));
+
+        return {
+          'المستودع': selectedWarehouseName || 'المستودع المحدد',
+          'اسم الصنف': item.name,
+          'الكود (SKU)': item.sku || '-',
+          'الباركود': item.barcode || (item as any).barcode2 || '-',
+          'التصنيف': categoryName,
+          'النوع': typeLabel,
+          'الوحدة': item.unit || '-',
+          'رصيد المستودع': whQty,
+          'سعر الشراء': Number(item.purchase_price || 0),
+          'متوسط التكلفة': unitCost,
+          'إجمالي قيمة مخزون المستودع': totalCostValue,
+          'سعر البيع': Number(item.sales_price || 0),
+          'إجمالي رصيد الصنف (كافة الفروع)': Number(item.stock || 0),
+        };
+      }
+
+      const totalQty = Number(item.stock || 0);
+      const totalCostValue = Number((totalQty * unitCost).toFixed(2));
+
       return {
         'اسم الصنف': item.name,
         'الكود (SKU)': item.sku || '-',
@@ -95,17 +133,20 @@ export const exportProductsToExcel = async ({
         'التصنيف': categoryName,
         'النوع': typeLabel,
         'الوحدة': item.unit || '-',
-        'الرصيد الحالي': Number(item.stock || 0),
+        'الرصيد الحالي': totalQty,
         'سعر الشراء': Number(item.purchase_price || 0),
-        'متوسط التكلفة': Number(item.weighted_average_cost || item.purchase_price || 0),
+        'متوسط التكلفة': unitCost,
+        'إجمالي القيمة التقديرية': totalCostValue,
         'سعر البيع': Number(item.sales_price || 0),
       };
     });
 
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "قائمة الأصناف");
-    XLSX.writeFile(wb, `Products_List_${new Date().toISOString().split('T')[0]}.xlsx`);
+    const sheetTitle = isSpecificWh ? (selectedWarehouseName || 'رصيد المستودع') : "قائمة الأصناف";
+    XLSX.utils.book_append_sheet(wb, ws, sheetTitle.substring(0, 31));
+    const whSuffix = isSpecificWh && selectedWarehouseName ? `_${selectedWarehouseName.replace(/[\/\\?*:[\]]/g, '_')}` : '';
+    XLSX.writeFile(wb, `Products_List${whSuffix}_${new Date().toISOString().split('T')[0]}.xlsx`);
     showToast(`تم تصدير ${allItems.length} صنف بنجاح إلى Excel ✅`, 'success');
   } catch (err) {
     showToast('فشل التصدير: ' + err.message, 'error');
