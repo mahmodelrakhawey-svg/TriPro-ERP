@@ -17,7 +17,7 @@ RETURNS uuid
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
-AS $
+AS $$
 DECLARE
     v_my_org uuid;
     v_my_role text;
@@ -51,7 +51,7 @@ BEGIN
 
     RETURN v_my_org;
 END;
-$;
+$$;
 
 -- 1. تحصين دالة حذف المنشآت بالكامل ومنع أي أدمن من حذف شركات أخرى (SEC-01)
 -- #############################################################################
