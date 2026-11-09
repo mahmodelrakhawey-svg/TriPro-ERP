@@ -19,8 +19,8 @@ export default defineConfig(({ mode }) => {
       plugins: [react()],
       define: {
         // حماية المفاتيح السرية: لا يتم حرق مفتاح GEMINI_API_KEY السيرفري داخل كود الواجهة الأمامية في بيئة الإنتاج
-        'process.env.API_KEY': JSON.stringify(mode === 'development' || mode === 'demo' ? env.GEMINI_API_KEY : ''),
-        'process.env.GEMINI_API_KEY': JSON.stringify(mode === 'development' || mode === 'demo' ? env.GEMINI_API_KEY : '')
+        'process.env.API_KEY': JSON.stringify(mode === 'development' ? env.GEMINI_API_KEY : ''),
+        'process.env.GEMINI_API_KEY': JSON.stringify(mode === 'development' ? env.GEMINI_API_KEY : '')
       },
       resolve: {
         alias: {

@@ -21,6 +21,20 @@ const CODE128_PATTERNS = [
 const START_CODE_B = 104;
 const STOP_CODE = 106;
 
+function escapeXml(unsafe: string): string {
+  if (!unsafe) return '';
+  return unsafe.replace(/[<>&'"]/g, (c) => {
+    switch (c) {
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '&': return '&amp;';
+      case '\'': return '&apos;';
+      case '"': return '&quot;';
+      default: return c;
+    }
+  });
+}
+
 export function generateCode128Svg(text: string, options?: { height?: number; barWidth?: number; showText?: boolean }): string {
   const height = options?.height || 50;
   const barWidth = options?.barWidth || 2;
@@ -68,7 +82,7 @@ export function generateCode128Svg(text: string, options?: { height?: number; ba
   }
 
   const textElement = showText
-    ? `<text x="${totalWidth / 2}" y="${height + 14}" text-anchor="middle" font-family="monospace" font-size="12" font-weight="bold" fill="#000000">${text}</text>`
+    ? `<text x="${totalWidth / 2}" y="${height + 14}" text-anchor="middle" font-family="monospace" font-size="12" font-weight="bold" fill="#000000">${escapeXml(text)}</text>`
     : "";
 
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth} ${svgHeight}" width="${totalWidth}" height="${svgHeight}">${paths}${textElement}</svg>`;

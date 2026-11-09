@@ -4,11 +4,20 @@ import { createClient } from '@supabase/supabase-js';
 const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite'];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS configuration
+  // CORS configuration (Validated for Lenza production, Vercel & local development)
   const origin = req.headers.origin;
-  if (origin) {
+  const isAllowedOrigin = (orig?: string): boolean => {
+    if (!orig) return true;
+    if (/^https?:\/\/localhost(:\d+)?$/.test(orig)) return true;
+    if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(orig)) return true;
+    if (/^https?:\/\/([a-zA-Z0-9-]+\.)*vercel\.app$/.test(orig)) return true;
+    if (process.env.APP_URL && orig === process.env.APP_URL) return true;
+    return false;
+  };
+
+  if (origin && isAllowedOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
+  } else if (!origin) {
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');

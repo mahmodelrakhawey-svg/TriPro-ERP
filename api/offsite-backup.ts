@@ -2,11 +2,20 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // إعدادات CORS القياسية المتوافقة مع معايير الأمان
+  // إعدادات CORS الآمنة المتوافقة مع معايير الأمان وتطبيق لينزا و Electron
   const origin = req.headers.origin;
-  if (origin) {
+  const isAllowedOrigin = (orig?: string): boolean => {
+    if (!orig) return true;
+    if (/^https?:\/\/localhost(:\d+)?$/.test(orig)) return true;
+    if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(orig)) return true;
+    if (/^https?:\/\/([a-zA-Z0-9-]+\.)*vercel\.app$/.test(orig)) return true;
+    if (process.env.APP_URL && orig === process.env.APP_URL) return true;
+    return false;
+  };
+
+  if (origin && isAllowedOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-  } else {
+  } else if (!origin) {
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
