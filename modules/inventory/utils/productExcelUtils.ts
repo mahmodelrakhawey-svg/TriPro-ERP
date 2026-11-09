@@ -1,5 +1,6 @@
 import { logger } from '../../../utils/logger';
 import * as XLSX from 'xlsx';
+import { sanitizeExcelRows } from '../../../utils/excelSanitizer';
 import { supabase } from '../../../supabaseClient';
 
 export const downloadProductsTemplate = () => {
@@ -141,7 +142,7 @@ export const exportProductsToExcel = async ({
       };
     });
 
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const ws = XLSX.utils.json_to_sheet(sanitizeExcelRows(dataToExport));
     const wb = XLSX.utils.book_new();
     const sheetTitle = isSpecificWh ? (selectedWarehouseName || 'رصيد المستودع') : "قائمة الأصناف";
     XLSX.utils.book_append_sheet(wb, ws, sheetTitle.substring(0, 31));
@@ -196,7 +197,7 @@ export const exportScalePLUToExcel = async (showToast: (msg: string, type?: stri
       };
     });
 
-    const ws = XLSX.utils.json_to_sheet(pluData);
+    const ws = XLSX.utils.json_to_sheet(sanitizeExcelRows(pluData));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Scale_PLU_List");
     XLSX.writeFile(wb, `Scale_PLU_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
@@ -780,7 +781,7 @@ export const exportPriceListForUpdate = async ({
       'سعر البيع الجديد': Number(item.sales_price || 0)
     }));
 
-    const ws = XLSX.utils.json_to_sheet(rows);
+    const ws = XLSX.utils.json_to_sheet(sanitizeExcelRows(rows));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "تحديث أسعار البيع");
     XLSX.writeFile(wb, `Price_Update_Sheet_${new Date().toISOString().split('T')[0]}.xlsx`);

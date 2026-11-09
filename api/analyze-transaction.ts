@@ -10,7 +10,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!orig) return true;
     if (/^https?:\/\/localhost(:\d+)?$/.test(orig)) return true;
     if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(orig)) return true;
-    if (/^https?:\/\/([a-zA-Z0-9-]+\.)*vercel\.app$/.test(orig)) return true;
     if (process.env.APP_URL && orig === process.env.APP_URL) return true;
     return false;
   };
@@ -29,7 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // 🔒 التحقق الصارم من جلسة المستخدم عبر JWT لمنع استهلاك حصة الذكاء الاصطناعي كبروكسي مفتوح
+  // 🔒 التحقق الصارم من جلسة المستخدم عبر JWT (Fail-Closed)
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ 
@@ -41,23 +40,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_KEY;
 
-  if (supabaseUrl && supabaseKey) {
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return res.status(401).json({ error: 'جلسة المستخدم غير صالحة أو منتهية الصلاحية (Invalid session).' });
-    }
+  if (!supabaseUrl || !supabaseKey) {
+    return res.status(500).json({ 
+      error: 'إعدادات الاتصال بقاعدة البيانات غير متوفرة في بيئة السيرفر (Supabase credentials missing).' 
+    });
+  }
 
-    // التحقق من أن الحساب نشط وغير معطل
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('is_active')
-      .eq('id', user.id)
-      .maybeSingle();
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+  if (authError || !user) {
+    return res.status(401).json({ error: 'جلسة المستخدم غير صالحة أو منتهية الصلاحية (Invalid session).' });
+  }
 
-    if (profile && profile.is_active === false) {
-      return res.status(403).json({ error: 'الحساب معطل (Deactivated account).' });
-    }
+  // التحقق من أن الحساب نشط وغير معطل
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_active')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (profile && profile.is_active === false) {
+    return res.status(403).json({ error: 'الحساب معطل (Deactivated account).' });
   }
 
   const apiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || '').trim();
@@ -68,8 +71,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const { text, accounts } = req.body || {};
-  if (!text || !Array.isArray(accounts)) {
-    return res.status(400).json({ error: 'Missing text or accounts in request body.' });
+  if (!text || typeof text !== 'string' || !Array.isArray(accounts)) {
+    return res.status(400).json({ error: 'Missing or invalid text or accounts in request body.' });
+  }
+
+  if (text.length > 5000) {
+    return res.status(400).json({ error: 'حجم النص المدخل يتجاوز الحد الأقصى المسموح به (5000 حرف).' });
+  }
+
+  if (accounts.length > 500) {
+    return res.status(400).json({ error: 'قائمة الحسابات تتجاوز الحد الأقصى المسموح به.' });
   }
 
   const accountsContext = accounts.map((a: Record<string, any>) => `${a.code}: ${a.name} (${a.type})`).join('\n');
@@ -101,11 +112,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   for (const model of FALLBACK_MODELS) {
     try {
       if (process.env.NODE_ENV === 'development') console.log(`[API /api/analyze-transaction] Requesting REST API for model: ${model}`);
-      const endpoint = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent?key=${apiKey}`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent`;
       
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey
+        },
         body: JSON.stringify({
           systemInstruction: {
             parts: [{ text: systemInstruction }]

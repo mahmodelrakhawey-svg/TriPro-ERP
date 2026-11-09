@@ -1,20 +1,21 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
-interface ETASettingsPayload {
-  eta_client_id?: string;
-  eta_client_secret?: string;
-  eta_environment?: 'sandbox' | 'production';
-  eta_taxpayer_id?: string;
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // 1. CORS headers (W3C compliant: do not use wildcard '*' when credentials are true)
+  // 1. CORS headers (حماية ضد Arbitrary Origin Reflection مع الحفاظ على التوافق)
   const origin = req.headers.origin;
-  if (origin) {
+  const isAllowedOrigin = (orig?: string): boolean => {
+    if (!orig) return true;
+    if (/^https?:\/\/localhost(:\d+)?$/.test(orig)) return true;
+    if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(orig)) return true;
+    if (process.env.APP_URL && orig === process.env.APP_URL) return true;
+    return false;
+  };
+
+  if (origin && isAllowedOrigin(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
-  } else {
+  } else if (!origin) {
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
@@ -31,7 +32,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // 🔒 التحقق الصارم من جلسة المستخدم عبر JWT لمنع استغلال خادم الضرائب كبروكسي مفتوح
+  // 🔒 التحقق الصارم من جلسة المستخدم عبر JWT (Fail-Closed) لمنع استغلال خادم الضرائب كبروكسي مفتوح
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'غير مصرح: يجب توفير جلسة تسجيل دخول صالحة (Unauthorized: Bearer token required).' });
@@ -40,12 +41,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const token = authHeader.split(' ')[1];
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_KEY;
-  if (supabaseUrl && supabaseKey) {
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-    if (authErr || !user) {
-      return res.status(401).json({ error: 'جلسة المستخدم غير صالحة أو منتهية الصلاحية (Invalid session).' });
-    }
+  if (!supabaseUrl || !supabaseKey) {
+    return res.status(500).json({ error: 'إعدادات الاتصال بقاعدة البيانات غير متوفرة في بيئة السيرفر (Supabase credentials missing).' });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+  if (authErr || !user) {
+    return res.status(401).json({ error: 'جلسة المستخدم غير صالحة أو منتهية الصلاحية (Invalid session).' });
+  }
+
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_active')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (profile && profile.is_active === false) {
+    return res.status(403).json({ error: 'الحساب معطل (Deactivated account).' });
   }
 
   try {
@@ -98,7 +111,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               });
             }
           }
-        } catch (fetchErr) {
+        } catch (fetchErr: any) {
           if (process.env.NODE_ENV !== 'production') console.warn('Status live fetch failed, fallback to standard response:', fetchErr?.message);
         }
       }
@@ -178,7 +191,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } else {
           throw new Error(submitResult.message || submitResult.error || 'فشل استلام المستند من مصلحة الضرائب');
         }
-      } catch (liveErr) {
+      } catch (liveErr: any) {
         if (process.env.NODE_ENV !== 'production') console.error('ETA Live Submission Failed:', liveErr);
         return res.status(502).json({
           success: false,
@@ -203,7 +216,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       message: 'تم إرسال الفاتورة بنجاح في بيئة المحاكاة والاختبار التجريبية للضرائب.'
     });
 
-  } catch (globalErr) {
+  } catch (globalErr: any) {
     if (process.env.NODE_ENV !== 'production') console.error('ETA Serverless Handler Error:', globalErr);
     return res.status(500).json({
       success: false,

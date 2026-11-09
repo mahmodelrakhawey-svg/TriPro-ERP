@@ -1,11 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
 
-const ENDPOINTS_TO_TRY = (key: string) => [
-  `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash:generateContent?key=${key}`,
-  `https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key=${key}`,
-  `https://generativelanguage.googleapis.com/v1/models/gemini-3.5-flash-lite:generateContent?key=${key}`
-];
+const FALLBACK_MODELS = ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite'];
+const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic'];
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // CORS configuration (Validated for Lenza production, Vercel & local development)
@@ -14,7 +11,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!orig) return true;
     if (/^https?:\/\/localhost(:\d+)?$/.test(orig)) return true;
     if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(orig)) return true;
-    if (/^https?:\/\/([a-zA-Z0-9-]+\.)*vercel\.app$/.test(orig)) return true;
     if (process.env.APP_URL && orig === process.env.APP_URL) return true;
     return false;
   };
@@ -33,7 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // 🔒 التحقق الصارم من جلسة المستخدم عبر JWT لمنع استهلاك حصة الذكاء الاصطناعي كبروكسي مفتوح
+  // 🔒 التحقق الصارم من جلسة المستخدم عبر JWT (Fail-Closed)
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ 
@@ -45,23 +41,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_KEY;
 
-  if (supabaseUrl && supabaseKey) {
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return res.status(401).json({ error: 'جلسة المستخدم غير صالحة أو منتهية الصلاحية (Invalid session).' });
-    }
+  if (!supabaseUrl || !supabaseKey) {
+    return res.status(500).json({ 
+      error: 'إعدادات الاتصال بقاعدة البيانات غير متوفرة في بيئة السيرفر (Supabase credentials missing).' 
+    });
+  }
 
-    // التحقق من أن الحساب نشط وغير معطل
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('is_active')
-      .eq('id', user.id)
-      .maybeSingle();
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  const { data: { user }, error: authError } = await supabase.auth.getUser(token);
+  if (authError || !user) {
+    return res.status(401).json({ error: 'جلسة المستخدم غير صالحة أو منتهية الصلاحية (Invalid session).' });
+  }
 
-    if (profile && profile.is_active === false) {
-      return res.status(403).json({ error: 'الحساب معطل (Deactivated account).' });
-    }
+  // التحقق من أن الحساب نشط وغير معطل
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_active')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  if (profile && profile.is_active === false) {
+    return res.status(403).json({ error: 'الحساب معطل (Deactivated account).' });
   }
 
   const apiKey = (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY || '').trim();
@@ -76,7 +76,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(400).json({ error: 'Missing base64Data or mimeType in request body.' });
   }
 
+  if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
+    return res.status(400).json({ error: 'نوع الملف غير مدعوم. الصيغ المدعومة: JPG, PNG, WEBP, HEIC.' });
+  }
+
   const cleanBase64 = base64Data.replace(/^data:[^;]+;base64,/, '').trim();
+  // حد أقصى 7 ميجابايت للبيانات المشفرة (حوالي 5 ميجابايت للصورة الأصلية)
+  if (cleanBase64.length > 7 * 1024 * 1024) {
+    return res.status(400).json({ error: 'حجم الصورة كبير جداً. الحد الأقصى هو 5 ميجابايت.' });
+  }
 
   const systemInstruction = `
     You are an expert document parser. Extract information from the provided Egyptian National ID card image (front side).
@@ -88,13 +96,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   let lastErrorMsg = '';
 
-  for (const endpoint of ENDPOINTS_TO_TRY(apiKey)) {
+  for (const model of FALLBACK_MODELS) {
     try {
-      if (process.env.NODE_ENV === 'development') console.log(`[API /api/scan-id] Requesting REST API: ${endpoint.split('?')[0]}`);
+      const endpoint = `https://generativelanguage.googleapis.com/v1/models/${model}:generateContent`;
+      if (process.env.NODE_ENV === 'development') console.log(`[API /api/scan-id] Requesting REST API: ${endpoint}`);
       
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'x-goog-api-key': apiKey
+        },
         body: JSON.stringify({
           systemInstruction: {
             parts: [{ text: systemInstruction }]
@@ -123,7 +135,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const responseData = await response.json();
 
       if (!response.ok) {
-        if (process.env.NODE_ENV === 'development') console.warn(`[API /api/scan-id] Endpoint ${endpoint.split('?')[0]} HTTP ${response.status}:`, responseData);
+        if (process.env.NODE_ENV === 'development') console.warn(`[API /api/scan-id] Model ${model} HTTP ${response.status}:`, responseData);
         lastErrorMsg = responseData?.error?.message || `HTTP ${response.status} error`;
         if (response.status === 400 || response.status === 401 || response.status === 403) {
           break; // stop on API key errors
@@ -143,7 +155,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      if (process.env.NODE_ENV === 'development') console.warn(`[API /api/scan-id] Endpoint ${endpoint.split('?')[0]} exception:`, errMsg);
+      if (process.env.NODE_ENV === 'development') console.warn(`[API /api/scan-id] Model ${model} exception:`, errMsg);
       lastErrorMsg = errMsg;
     }
   }
