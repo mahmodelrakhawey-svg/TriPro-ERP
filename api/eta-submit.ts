@@ -111,8 +111,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               });
             }
           }
-        } catch (fetchErr: any) {
-          if (process.env.NODE_ENV !== 'production') console.warn('Status live fetch failed, fallback to standard response:', fetchErr?.message);
+        } catch (fetchErr: unknown) {
+          const errMsg = fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+          if (process.env.NODE_ENV !== 'production') console.warn('Status live fetch failed, fallback to standard response:', errMsg);
         }
       }
 
@@ -191,11 +192,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         } else {
           throw new Error(submitResult.message || submitResult.error || 'فشل استلام المستند من مصلحة الضرائب');
         }
-      } catch (liveErr: any) {
+      } catch (liveErr: unknown) {
+        const liveErrMsg = liveErr instanceof Error ? liveErr.message : 'حدث خطأ أثناء الاتصال بسيرفرات مصلحة الضرائب المصرية.';
         if (process.env.NODE_ENV !== 'production') console.error('ETA Live Submission Failed:', liveErr);
         return res.status(502).json({
           success: false,
-          error: liveErr.message || 'حدث خطأ أثناء الاتصال بسيرفرات مصلحة الضرائب المصرية.'
+          error: liveErrMsg
         });
       }
     }
@@ -216,11 +218,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       message: 'تم إرسال الفاتورة بنجاح في بيئة المحاكاة والاختبار التجريبية للضرائب.'
     });
 
-  } catch (globalErr: any) {
+  } catch (globalErr: unknown) {
+    const globalErrMsg = globalErr instanceof Error ? globalErr.message : 'خطأ غير متوقع في معالجة طلب الضرائب.';
     if (process.env.NODE_ENV !== 'production') console.error('ETA Serverless Handler Error:', globalErr);
     return res.status(500).json({
       success: false,
-      error: globalErr.message || 'خطأ غير متوقع في معالجة طلب الضرائب.'
+      error: globalErrMsg
     });
   }
 }
