@@ -7,6 +7,7 @@ import { Users, Plus, Search, Edit2, Trash2, X, Phone, MapPin, FileText, CircleD
 import { useCustomers } from '../hooks/usePermissions';
 import { useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
+import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import { createCustomerSchema } from '../../utils/validationSchemas';
 import { useNavigate } from 'react-router-dom';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
@@ -328,7 +329,7 @@ const CustomerManager = () => {
         'إجمالي المبيعات': totalSales,
     } as any);
 
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const ws = safeJsonToSheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "تقرير العملاء");
     XLSX.writeFile(wb, `Customers_Report_${new Date().toISOString().split('T')[0]}.xlsx`);

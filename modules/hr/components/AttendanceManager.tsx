@@ -4,6 +4,7 @@ import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import * as XLSX from 'xlsx';
+import { safeJsonToSheet } from '../../../utils/excelSanitizer';
 import {
   Clock, CheckCircle2, XCircle, AlertCircle, Plus, Search,
   Filter, FileSpreadsheet, Printer, Users, Upload, UserCheck,
@@ -758,7 +759,7 @@ export default function AttendanceManager() {
       }));
     }
 
-    const ws = XLSX.utils.json_to_sheet(rowsToExport);
+    const ws = safeJsonToSheet(rowsToExport);
     ws['!cols'] = [
       { wch: 6 },  // #
       { wch: 38 }, // كود الموظف

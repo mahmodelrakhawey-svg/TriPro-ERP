@@ -11,6 +11,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
 import * as XLSX from 'xlsx';
+import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import { PurchaseOrderPrint } from './PurchaseOrderPrint';
 
 export const PurchaseOrderList = () => {
@@ -306,7 +307,7 @@ export const PurchaseOrderList = () => {
       'ملاحظات': o.notes || ''
     }));
 
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const ws = safeJsonToSheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'أوامر الشراء');
     XLSX.writeFile(wb, `سجل_أوامر_الشراء_${new Date().toISOString().split('T')[0]}.xlsx`);

@@ -6,6 +6,7 @@ import {
   Paperclip, Upload, Trash2, Eye, Download, FileText, Image as ImageIcon, 
   FileSpreadsheet, Loader2, CheckCircle2, AlertCircle, X, ExternalLink
 } from 'lucide-react';
+import { validateFileUpload } from '../../../utils/fileValidation';
 
 export interface PurchaseAttachmentItem {
   id?: string;
@@ -97,12 +98,14 @@ export const PurchaseInvoiceAttachments: React.FC<PurchaseInvoiceAttachmentsProp
       const newItems: PurchaseAttachmentItem[] = [...attachments];
 
       for (const file of fileList) {
-        if (file.size > 20 * 1024 * 1024) {
-          showToast(`الملف "${file.name}" حجمه كبير جداً (الحد الأقصى 20 ميجابايت)`, 'warning');
+        // 🔒 التحقق الأمني المشدد من نوع وحجم الملف
+        const validation = validateFileUpload(file, { maxSizeMb: 20 });
+        if (!validation.valid) {
+          showToast(validation.error || `الملف "${file.name}" غير صالح`, 'warning');
           continue;
         }
 
-        const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const cleanName = validation.cleanName || file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
 
         if (invoiceId) {
           // الفاتورة محفوظة مسبقاً -> رفع فوري إلى Supabase Storage

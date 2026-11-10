@@ -113,8 +113,6 @@ const PayrollRun = () => {
   // Existing Payroll in DB for selected month & year
   const [existingPayroll, setExistingPayroll] = useState<any | null>(null);
   const [checkingExisting, setCheckingExisting] = useState(false);
-  const [healingLoading, setHealingLoading] = useState(false);
-  const [wronglyDeductedCount, setWronglyDeductedCount] = useState<number>(0);
 
   // Payslip Modal State
   const [selectedPayslip, setSelectedPayslip] = useState<PayslipData | null>(null);
@@ -245,81 +243,10 @@ const PayrollRun = () => {
     }
   };
 
-  // فحص السلف التي وسمت بـ "تم الخصم" خطأ وتاريخها في شهر أكتوبر وما بعده
-  const checkWronglyDeductedAdvances = async () => {
-    try {
-      const targetOrg = currentSelectedOrgId || (currentUser as any)?.organization_id;
-      let q = supabase
-        .from('employee_advances')
-        .select('id, request_date, advance_date, created_at, status')
-        .eq('status', 'deducted');
-      if (targetOrg) q = q.eq('organization_id', targetOrg);
-      const { data } = await q;
-      if (data && data.length > 0) {
-        const octOrLater = data.filter(a => {
-          const d = (a.request_date || a.advance_date || (a.created_at ? a.created_at.split('T')[0] : '')).trim();
-          return d >= '2026-10-01';
-        });
-        setWronglyDeductedCount(octOrLater.length);
-      } else {
-        setWronglyDeductedCount(0);
-      }
-    } catch (e) {
-      logger.error('Error checking advances:', e);
-    }
-  };
-
-  // استعادة سلف أكتوبر المسحوبة خطأ بضغطة زر واحدة
-  const handleHealAdvances = async () => {
-    setHealingLoading(true);
-    try {
-      const targetOrg = currentSelectedOrgId || (currentUser as any)?.organization_id;
-      let rpcSuccess = false;
-      try {
-        const { data: rpcRes, error: rpcErr } = await supabase.rpc('heal_erroneous_advances_rpc', {
-          p_org_id: targetOrg || null,
-          p_target_date: '2026-10-01'
-        });
-        if (!rpcErr && rpcRes?.success) {
-          rpcSuccess = true;
-          showToast(`تم استعادة ${rpcRes.restored_count || ''} سلفة لشهر أكتوبر بنجاح وإعادتها كـ [قائمة] 🔄✅`, 'success');
-        }
-      } catch (e) {
-        // Fallback below
-      }
-
-      if (!rpcSuccess) {
-        let q = supabase
-          .from('employee_advances')
-          .update({ status: 'paid', payroll_item_id: null })
-          .eq('status', 'deducted')
-          .gte('request_date', '2026-10-01');
-        if (targetOrg) q = q.eq('organization_id', targetOrg);
-        const { error: updErr } = await q;
-        if (updErr) throw updErr;
-        showToast('تم تصحيح واستعادة سلف شهر أكتوبر بنجاح إلى [قائمة] 🔄✅', 'success');
-      }
-
-      await checkWronglyDeductedAdvances();
-      if (selectedMonth === 10) {
-        await preparePayroll();
-      } else {
-        await fetchExistingPayroll(selectedMonth, selectedYear);
-      }
-    } catch (err: unknown) {
-      logger.error('Failed healing advances:', err);
-      const msg = err instanceof Error ? err.message : String(err);
-      showToast('حدث خطأ أثناء استعادة السلف: ' + msg, 'error');
-    } finally {
-      setHealingLoading(false);
-    }
-  };
-
-  useEffect(() => {
+    useEffect(() => {
     const endOfMonth = getLastDayOfMonth(selectedYear, selectedMonth);
     setAccrualDate(endOfMonth);
     fetchExistingPayroll(selectedMonth, selectedYear);
-    checkWronglyDeductedAdvances();
   }, [selectedMonth, selectedYear, currentSelectedOrgId, currentUser]);
 
   const preparePayroll = async () => {
@@ -1799,37 +1726,6 @@ const PayrollRun = () => {
           </div>
         </div>
       </div>
-
-      {/* Recovery Banner for Wrongly Deducted Advances */}
-      {wronglyDeductedCount > 0 && (
-        <div className="bg-rose-50 border border-rose-300 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700 shrink-0">
-              <ShieldAlert className="w-5 h-5 text-rose-600" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-rose-950 text-sm">تنبيه حرج: رصد سلف تخص شهر أكتوبر وما بعده وُسمت بـ (تم الخصم)</span>
-                <span className="bg-rose-200 text-rose-900 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-rose-300">
-                  {wronglyDeductedCount} سلفة متأثرة
-                </span>
-              </div>
-              <p className="text-xs text-rose-700 mt-0.5">
-                قام النظام بخصم سلف شهر أكتوبر بالخطأ عند تنفيذ قيد الصرف لسبتمبر. اضغط على الزر لاستعادتها فوراً لتصبح قائمة بمسير أكتوبر.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={handleHealAdvances}
-            disabled={healingLoading}
-            className="bg-rose-600 hover:bg-rose-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-md shadow-rose-600/20 transition active:scale-95 shrink-0"
-          >
-            {healingLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-            <span>استعادة سلف أكتوبر كـ (قائمة) الآن 🔄</span>
-          </button>
-        </div>
-      )}
 
       {/* Status Alert Banner */}
       {existingPayroll?.status === 'accrued' && (

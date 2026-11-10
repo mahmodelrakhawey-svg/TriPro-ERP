@@ -3,6 +3,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { FileText, Printer, Download, ArrowUpRight, ArrowDownLeft } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import ReportHeader from '../../components/ReportHeader';
 
 const ChequeMovementReport = () => {
@@ -57,7 +58,7 @@ const ChequeMovementReport = () => {
       'ملاحظات': c.notes || '-'
     }));
 
-    const ws = XLSX.utils.json_to_sheet(data);
+    const ws = safeJsonToSheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Cheques");
     XLSX.writeFile(wb, `Cheque_Movement_${startDate}_${endDate}.xlsx`);

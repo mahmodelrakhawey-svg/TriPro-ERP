@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import { safeJsonToSheet } from '../../../utils/excelSanitizer';
 import { PaymentVoucherPrint } from './PaymentVoucherPrint';
 import { usePagination } from '../../../components/usePagination';
 import { fetchCompleteDataset } from '../../../services/balanceService';
@@ -598,7 +599,7 @@ const PaymentVoucherList = () => {
         };
       });
 
-      const ws = XLSX.utils.json_to_sheet(rows);
+      const ws = safeJsonToSheet(rows);
 
       // ضبط أبعاد الأعمدة تلقائياً لتكون القراءة مريحة
       ws['!cols'] = [

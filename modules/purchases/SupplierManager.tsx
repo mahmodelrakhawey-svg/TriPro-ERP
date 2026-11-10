@@ -5,6 +5,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { useQueryClient } from '@tanstack/react-query';
 import * as XLSX from 'xlsx';
+import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import { Truck, Plus, Search, Edit2, Trash2, X, Phone, Mail, Loader2, Upload, Download, RefreshCw, Scale, FileSpreadsheet, ArrowUp, ArrowDown, Printer, ChevronRight, ChevronLeft, ShieldAlert } from 'lucide-react'; // Removed z import
 import { createSupplierSchema, updateSupplierSchema } from '../../utils/validationSchemas';
 import { useNavigate } from 'react-router-dom';
@@ -572,7 +573,7 @@ const SupplierManager = () => {
     const totalPurchases = dataToExport.reduce((sum, item) => sum + item['إجمالي المشتريات'], 0);
     dataToExport.push({} as any); 
     dataToExport.push({ 'الاسم': 'الإجمالي:', 'الرصيد الحالي': totalBalance, 'إجمالي المشتريات': totalPurchases } as any);
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const ws = safeJsonToSheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "تقرير الموردين");
     XLSX.writeFile(wb, `Suppliers_Report_${new Date().toISOString().split('T')[0]}.xlsx`);

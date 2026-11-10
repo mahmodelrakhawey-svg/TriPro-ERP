@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { useToastNotification } from '../../utils/toastUtils';
 import { FileText, Search, Download, Filter, Printer, Loader2, CheckCircle, AlertTriangle, RefreshCw, ExternalLink, X, ShieldAlert } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import ReportHeader from '../../components/ReportHeader';
@@ -549,7 +550,7 @@ const TrialBalanceAdvanced = () => {
       'رصيد آخر (دائن)': r.closeBalance < 0 ? Math.abs(r.closeBalance) : 0,
     }));
     
-    const ws = XLSX.utils.json_to_sheet(data);
+    const ws = safeJsonToSheet(data);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "ميزان المراجعة");
     XLSX.writeFile(wb, "TrialBalance_Advanced.xlsx");

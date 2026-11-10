@@ -3,6 +3,7 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { supabase } from '../../supabaseClient';
 import { fetchCompleteDataset } from '../../services/balanceService';
 import * as XLSX from 'xlsx';
+import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import { useAccounting } from '../../context/AccountingContext';
 import { 
   Users, 
@@ -699,7 +700,7 @@ const SaaSAdmin: React.FC = () => {
         };
       });
 
-      const ws = XLSX.utils.json_to_sheet(exportData);
+      const ws = safeJsonToSheet(exportData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "الشركات المشتركة");
       

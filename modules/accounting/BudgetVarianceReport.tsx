@@ -6,7 +6,7 @@ import {
     Activity, TrendingUp, AlertCircle, Loader2, Sparkles,
     BarChart3, Info, Calendar, Filter, CheckCircle2, ArrowRight
 } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
+import { analyzeBudgetVariance } from '../../services/geminiService';
 
 const BudgetVarianceReport = () => {
   // Fix: Added invoices to destructuring to calculate actuals for non-account budget items
@@ -84,36 +84,16 @@ const BudgetVarianceReport = () => {
       if (reportData.length === 0) return;
       setIsAiLoading(true);
       try {
-          const apiKey = import.meta.env.VITE_GEMINI_API_KEY || (typeof process !== 'undefined' ? process.env.GEMINI_API_KEY : '');
-          if (!apiKey) {
-            setAiReport('مفتاح Gemini API غير معرف.');
-            return;
-          }
-          const ai = new GoogleGenAI({ apiKey });
           // Fix: Use targetName instead of non-existent accountName (Line 50)
           const summaryText = reportData.map(r => 
               `- ${r.type === 'account' ? 'الحساب' : 'المستهدف'}: ${r.targetName || r.target_name} | المخطط: ${r.plannedAmount || r.planned_amount} | الفعلي: ${r.actual} | الانحراف: ${r.variance}`
           ).join('\n');
 
-          const prompt = `أنت خبير مراقبة تكاليف وأداء. حلل تقرير انحرافات الموازنة والمستهدفات التالي لشهر ${month}/${year} وقدم 3 نصائح عملية لتحسين الأداء المالي باللغة العربية:\n${summaryText}`;
-
-          let responseText = '';
-          for (const modelName of ['gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-3.5-flash-lite']) {
-            try {
-              const res = await ai.models.generateContent({
-                model: modelName,
-                contents: prompt
-              });
-              responseText = res.text || '';
-              if (responseText) break;
-            } catch (err) {
-              logger.warn(`[BudgetVarianceReport] Model ${modelName} failed:`, err);
-            }
-          }
-
+          const responseText = await analyzeBudgetVariance(summaryText, month, year);
           setAiReport(responseText || 'لم يتم استرجاع تحليل من Gemini AI.');
-      } catch (e) {
-          setAiReport('فشل الاتصال بـ Gemini AI. يرجى مراجعة الإعدادات.');
+      } catch (e: unknown) {
+          const errMsg = e instanceof Error ? e.message : 'فشل الاتصال بـ Gemini AI. يرجى مراجعة الإعدادات.';
+          setAiReport(errMsg);
       } finally {
           setIsAiLoading(false);
       }

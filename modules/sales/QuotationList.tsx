@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import { QuotationPrint } from './QuotationPrint';
 
 export const QuotationList = () => {
@@ -228,7 +229,7 @@ export const QuotationList = () => {
       'ملاحظات': q.notes || ''
     }));
 
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const ws = safeJsonToSheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'عروض الأسعار');
     XLSX.writeFile(wb, `سجل_عروض_الأسعار_${new Date().toISOString().split('T')[0]}.xlsx`);

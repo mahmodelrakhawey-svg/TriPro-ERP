@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { Download, Calendar, Loader2, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import { fetchCompleteDataset } from '../../services/balanceService';
 import { useToast } from '../../context/ToastContext';
 import { useAccounting } from '../../context/AccountingContext';
@@ -76,7 +77,7 @@ export default function JournalEntriesExport() {
       });
 
       // إنشاء ملف Excel/CSV
-      const ws = XLSX.utils.json_to_sheet(flatData);
+      const ws = safeJsonToSheet(flatData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Journal Entries");
 

@@ -242,57 +242,7 @@ const EmployeeAdvances = () => {
     });
   }, [advances, searchTerm, statusFilter, treasuryFilter, accountsMap, treasuryAccounts]);
 
-  // رصد سلف شهر أكتوبر التي وسمت بالخطأ بـ "تم الخصم"
-  const wronglyDeductedOctoberAdvances = useMemo(() => {
-    return advances.filter(a => {
-      if (a.status !== 'deducted') return false;
-      const d = (a.request_date || a.advance_date || (a.created_at ? a.created_at.split('T')[0] : '')).trim();
-      return d >= '2026-10-01';
-    });
-  }, [advances]);
-
-  // استعادة سلف شهر أكتوبر المخصومة بالخطأ
-  const handleHealOctoberAdvances = async () => {
-    setSaving(true);
-    try {
-      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
-      let rpcSuccess = false;
-      try {
-        const { data: rpcRes, error: rpcErr } = await supabase.rpc('heal_erroneous_advances_rpc', {
-          p_org_id: orgId || null,
-          p_target_date: '2026-10-01'
-        });
-        if (!rpcErr && rpcRes?.success) {
-          rpcSuccess = true;
-          showToast(`تم استعادة ${rpcRes.restored_count || ''} سلفة لشهر أكتوبر بنجاح كـ [قائمة] ✅`, 'success');
-        }
-      } catch (e) {
-        // Fallback below
-      }
-
-      if (!rpcSuccess) {
-        let q = supabase
-          .from('employee_advances')
-          .update({ status: 'paid', payroll_item_id: null })
-          .eq('status', 'deducted')
-          .gte('request_date', '2026-10-01');
-        if (orgId) q = q.eq('organization_id', orgId);
-        const { error: updErr } = await q;
-        if (updErr) throw updErr;
-        showToast('تم استعادة سلف شهر أكتوبر بنجاح كـ [تم الصرف (قائمة)] 🔄✅', 'success');
-      }
-
-      await fetchData();
-    } catch (err: unknown) {
-      logger.error('Failed healing advances in advances screen:', err);
-      const msg = err instanceof Error ? err.message : String(err);
-      showToast('حدث خطأ أثناء استعادة السلف: ' + msg, 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // تصدير سجل السلف إلى ملف Excel منسق واحترافي
+    // تصدير سجل السلف إلى ملف Excel منسق واحترافي
   const handleExportExcel = () => {
     if (filteredAdvances.length === 0) {
       showToast('لا توجد سلف مطابقة للتصدير', 'warning');
@@ -709,37 +659,6 @@ const EmployeeAdvances = () => {
           </button>
         </div>
       </div>
-
-      {/* تنبيه واستعادة سلف أكتوبر المخصومة خطأ */}
-      {wronglyDeductedOctoberAdvances.length > 0 && (
-        <div className="bg-rose-50 border border-rose-300 p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 shadow-sm">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-rose-100 flex items-center justify-center text-rose-700 shrink-0">
-              <RotateCcw className="w-5 h-5 text-rose-600" />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-rose-950 text-sm">تنبيه: تم رصد {wronglyDeductedOctoberAdvances.length} سلفة لشهر أكتوبر وُسمت بـ (تم الخصم من الراتب)</span>
-                <span className="bg-rose-200 text-rose-900 text-[10px] font-black px-2 py-0.5 rounded-full border border-rose-300">
-                  متأثرة بالصرف
-                </span>
-              </div>
-              <p className="text-xs text-rose-700 mt-0.5">
-                خُصمت سلف شهر أكتوبر بالخطأ عند تنفيذ قيد صرف سبتمبر. يمكنك استعادتها فوراً كـ "تم الصرف (قائمة)" بانتظار مسير رواتب أكتوبر.
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={handleHealOctoberAdvances}
-            disabled={saving}
-            className="bg-rose-600 hover:bg-rose-700 text-white px-5 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-md shadow-rose-600/20 transition active:scale-95 shrink-0"
-          >
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-            <span>استعادة سلف أكتوبر كـ (قائمة) الآن 🔄</span>
-          </button>
-        </div>
-      )}
 
       {/* شريط البحث وفلترة الحالة والخزينة */}
       <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-3">

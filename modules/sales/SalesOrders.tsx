@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import { SalesOrderPrint } from './SalesOrderPrint';
 
 export const SalesOrders: React.FC = () => {
@@ -282,7 +283,7 @@ export const SalesOrders: React.FC = () => {
       'ملاحظات': o.notes || ''
     }));
 
-    const ws = XLSX.utils.json_to_sheet(dataToExport);
+    const ws = safeJsonToSheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'أوامر البيع والتعميد');
     XLSX.writeFile(wb, `سجل_أوامر_البيع_${new Date().toISOString().split('T')[0]}.xlsx`);

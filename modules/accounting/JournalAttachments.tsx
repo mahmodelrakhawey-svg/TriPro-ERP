@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { Upload, X, FileText, Image, Loader2, Trash2, Eye, Paperclip } from 'lucide-react';
+import { validateFileUpload } from '../../utils/fileValidation';
 
 type Attachment = {
   id: string;
@@ -46,11 +47,19 @@ export default function JournalAttachments({ journalEntryId, readOnly = false }:
     if (!e.target.files || e.target.files.length === 0) return;
     
     const file = e.target.files[0];
+
+    // 🔒 التحقق الأمني المشدد من امتداد وحجم الملف لمنع رفع أي ملفات خبيثة
+    const validation = validateFileUpload(file, { maxSizeMb: 20 });
+    if (!validation.valid) {
+      showToast(validation.error || 'الملف المختار غير صالح', 'error');
+      e.target.value = '';
+      return;
+    }
+
     setUploading(true);
 
     try {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}.${fileExt}`;
+      const fileName = `${Math.random().toString(36).substring(2)}_${Date.now()}_${validation.cleanName}`;
       const filePath = `${journalEntryId}/${fileName}`;
 
       // 1. Upload to Storage
@@ -65,7 +74,7 @@ export default function JournalAttachments({ journalEntryId, readOnly = false }:
         .from('journal_attachments')
         .insert({
           journal_entry_id: journalEntryId,
-          file_name: file.name,
+          file_name: validation.cleanName || file.name,
           file_path: filePath,
           file_type: file.type,
           file_size: file.size

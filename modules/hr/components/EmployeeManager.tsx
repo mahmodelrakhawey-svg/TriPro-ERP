@@ -1,6 +1,7 @@
 import { logger } from '../../../utils/logger';
 import React, { useState, useMemo } from 'react';
 import * as XLSX from 'xlsx';
+import { safeJsonToSheet } from '../../../utils/excelSanitizer';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -357,7 +358,7 @@ const EmployeeManager = () => {
       'ملاحظات': ''
     });
 
-    const ws = XLSX.utils.json_to_sheet(rows);
+    const ws = safeJsonToSheet(rows);
 
     ws['!cols'] = [
       { wch: 6 },  // م

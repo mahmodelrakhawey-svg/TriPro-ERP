@@ -542,3 +542,40 @@ export const scanPurchaseInvoiceOCR = async (base64Data: string, mimeType: strin
     '2. احصل على مفتاحك المجاني من aistudio.google.com/app/apikey.'
   );
 };
+
+
+/**
+ * تحليل انحرافات الموازنة والمستهدفات المالية بواسطة Gemini AI
+ */
+export const analyzeBudgetVariance = async (
+  summaryText: string,
+  month: number,
+  year: number
+): Promise<string> => {
+  const customKey = typeof window !== 'undefined' ? ((secureStorage.getItem('user_gemini_api_key') as string) || '') : '';
+  const cleanCustomKey = customKey ? customKey.replace(/["'\s]/g, '').trim() : '';
+
+  const apiKey = cleanCustomKey || import.meta.env.VITE_GEMINI_API_KEY || 
+                 (typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || process.env.API_KEY) : undefined);
+
+  if (!apiKey || !apiKey.trim()) {
+    throw new Error('مفتاح Gemini API غير معرف. يرجى إدخال مفتاح الذكاء الاصطناعي الخاص بك من شاشة الإعدادات أو زر المفتاح 🔑.');
+  }
+
+  const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
+  const prompt = `أنت خبير مراقبة تكاليف وأداء مالي. حلل تقرير انحرافات الموازنة والمستهدفات التالي لشهر ${month}/${year} وقدم 3 نصائح عملية لتحسين الأداء المالي باللغة العربية:\n${summaryText}`;
+
+  for (const modelName of VALID_MODELS) {
+    try {
+      const res = await ai.models.generateContent({
+        model: modelName,
+        contents: prompt
+      });
+      if (res.text) return res.text;
+    } catch (err) {
+      logger.warn(`[analyzeBudgetVariance] Model ${modelName} failed:`, err);
+    }
+  }
+
+  throw new Error('تعذر استخراج تحليل الذكاء الاصطناعي حالياً. يرجى المحاولة لاحقاً.');
+};
