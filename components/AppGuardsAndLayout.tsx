@@ -15,6 +15,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../supabaseClient';
 import { ErrorBoundary } from './ErrorBoundary';
+import { isModuleAllowedForOrganization } from '../utils/permissionEngine';
 
 export { ErrorBoundary };
 
@@ -186,29 +187,7 @@ export const ModuleGuard = ({
     }
 
     const normalizedModule = module === 'mfg' ? 'manufacturing' : module;
-    
-    let isAllowedByOrg = true;
-    if (Array.isArray(allowedModules) && allowedModules.length > 0) {
-      if (module === 'treasury') {
-        isAllowedByOrg = allowedModules.includes('treasury') || allowedModules.includes('accounting');
-      } else if (module === 'restaurant' || module === 'pos' || module === 'kitchen') {
-        isAllowedByOrg = allowedModules.includes('restaurant') || allowedModules.includes('pos');
-      } else if (module === 'retail') {
-        isAllowedByOrg = allowedModules.includes('retail');
-      } else if (module === 'construction') {
-        isAllowedByOrg = allowedModules.includes('construction');
-      } else if (module === 'hims') {
-        isAllowedByOrg = allowedModules.includes('hims');
-      } else if (module === 'stadium') {
-        isAllowedByOrg = allowedModules.includes('stadium');
-      } else if (module === 'manufacturing' || module === 'mfg') {
-        isAllowedByOrg = allowedModules.includes('manufacturing') || allowedModules.includes('mfg');
-      } else if (module === 'reports') {
-        isAllowedByOrg = allowedModules.includes('reports') || allowedModules.includes('accounting');
-      } else {
-        isAllowedByOrg = allowedModules.includes(module) || allowedModules.includes(normalizedModule);
-      }
-    }
+    const isAllowedByOrg = isModuleAllowedForOrganization(module, organization, role);
 
     const hasPermission = can ? (
       requiredPermission ? (

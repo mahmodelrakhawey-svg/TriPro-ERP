@@ -330,3 +330,112 @@ export function evaluatePermission(
 
   return false;
 }
+
+/**
+ * بنية معلومات المنظمة لفحص الموديولات المتاحة
+ */
+export interface OrganizationModuleScope {
+  allowed_modules?: string[] | null;
+  plan?: string | null;
+  activity_type?: string | null;
+}
+
+/**
+ * فحص إتاحة الموديول على مستوى المنظمة واشتراكها التجاري
+ * يجمع بين 3 مستويات من التخصيص:
+ * 1. قائمة الموديولات المخصصة الصريحة (allowed_modules) إن وجدت
+ * 2. باقة اشتراك المنظمة (plan: basic, pro, sports, premium, enterprise)
+ * 3. نوع نشاط المنظمة التجاري (activity_type)
+ */
+export function isModuleAllowedForOrganization(
+  module: string,
+  organization?: OrganizationModuleScope | null,
+  userRole?: string | null
+): boolean {
+  if (!module) return true;
+
+  // 1. صلاحيات السوبر أدمن والمالك وحساب الديمو غير مقيدة
+  const role = String(userRole || '').toLowerCase();
+  if (role === 'super_admin' || role === 'owner' || role === 'demo') {
+    return true;
+  }
+
+  // إذا لم يتم تحديد منظمة، نسمح افتراضياً
+  if (!organization) return true;
+
+  const rawMod = module.toLowerCase().trim();
+  const normalizedModule = rawMod === 'mfg' ? 'manufacturing' : rawMod;
+
+  // 2. إذا تم تخصيص قائمة صريحة للموديولات (Explicit allowed_modules)
+  const allowed = organization.allowed_modules;
+  if (Array.isArray(allowed) && allowed.length > 0) {
+    if (normalizedModule === 'reports' || normalizedModule === 'treasury') {
+      return allowed.includes(normalizedModule) || allowed.includes('accounting');
+    }
+    if (normalizedModule === 'restaurant' || normalizedModule === 'kitchen') {
+      return allowed.includes('restaurant') || allowed.includes('pos');
+    }
+    if (normalizedModule === 'pos' || normalizedModule === 'retail') {
+      return allowed.includes('retail') || allowed.includes('pos') || allowed.includes('sales');
+    }
+    if (normalizedModule === 'manufacturing' || normalizedModule === 'mfg') {
+      return allowed.includes('manufacturing') || allowed.includes('mfg');
+    }
+    return allowed.includes(normalizedModule) || allowed.includes(rawMod);
+  }
+
+  // 3. النواة الأساسية للنظام (Core ERP) متاحة لجميع الشركات والباقات دائماً
+  const coreModules = ['dashboard', 'mobile', 'accounting', 'treasury', 'sales', 'purchases', 'inventory', 'reports', 'settings', 'admin'];
+  if (coreModules.includes(normalizedModule)) {
+    return true;
+  }
+
+  // 4. الباقة الشاملة (Enterprise) أو عدم وجود باقة محددة -> إتاحة كاملة دون حجب
+  const plan = String(organization.plan || '').toLowerCase().trim();
+  const activity = String(organization.activity_type || '').toLowerCase().trim();
+
+  if (!plan && !activity) return true;
+  if (plan === 'enterprise' || activity === 'all' || activity === 'enterprise') return true;
+
+  // تحديد الموديول المستهدف
+  const isRestaurant = normalizedModule === 'restaurant' || normalizedModule === 'kitchen';
+  const isMfg = normalizedModule === 'manufacturing' || normalizedModule === 'mfg';
+  const isConstruction = normalizedModule === 'construction';
+  const isHims = normalizedModule === 'hims';
+  const isStadium = normalizedModule === 'stadium';
+  const isRetailPos = normalizedModule === 'retail' || normalizedModule === 'pos';
+
+  // 5. التحقق عبر النشاط التجاري (activity_type) إن كان محدداً
+  if (activity) {
+    if (isRestaurant && (activity.includes('restaurant') || activity.includes('food') || activity.includes('cafe') || activity.includes('bakery') || activity.includes('confectionery'))) return true;
+    if (isMfg && (activity.includes('manufacturing') || activity.includes('factory') || activity.includes('industry'))) return true;
+    if (isConstruction && (activity.includes('construction') || activity.includes('contracting') || activity.includes('projects'))) return true;
+    if (isHims && (activity.includes('healthcare') || activity.includes('hospital') || activity.includes('clinic') || activity.includes('hims'))) return true;
+    if (isStadium && (activity.includes('sports') || activity.includes('stadium') || activity.includes('club'))) return true;
+  }
+
+  // 6. التحقق عبر الباقة التعاقدية (plan)
+  if (plan) {
+    if (plan === 'basic') {
+      // باقة أساسية فقط: لا تشمل المطاعم، المصانع، المقاولات، المستشفيات، أو الملاعب
+      return !isRestaurant && !isMfg && !isConstruction && !isHims && !isStadium;
+    }
+    if (plan === 'pro') {
+      // باقة احترافية: تشمل نقاط البيع، الموارد البشرية، المطاعم، والحلويات والتصنيع
+      // وتحجب فقط القطاعات شديدة التخصص (المستشفيات، الملاعب الرياضية، والمقاولات)
+      if (isConstruction || isHims || isStadium) return false;
+      return true;
+    }
+    if (plan === 'sports') {
+      // باقة النوادي والملاعب
+      return isStadium || isRetailPos;
+    }
+    if (plan === 'premium') {
+      // باقة بريميوم: تشمل كل شيء عدا المستشفيات أو الملاعب أو المقاولات إن لم تكن مطلوبة
+      if (isHims || isStadium || isConstruction) return false;
+      return true;
+    }
+  }
+
+  return true;
+}

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
 import { getRouteTitle } from '../utils/routeTitles';
+import { isModuleAllowedForOrganization } from '../utils/permissionEngine';
 import { 
   GitCommit,
   Activity, 
@@ -155,44 +156,12 @@ const Sidebar: React.FC<SidebarProps> = ({
   const isSuperAdmin = userRole === 'super_admin' || userRole === 'owner';
   const allowedModules = (organization as any)?.allowed_modules || [];
 
-  // دالة للتحقق مما إذا كان الموديول مسموحاً به لهذه الشركة
+  // دالة للتحقق مما إذا كان الموديول مسموحاً به لهذه الشركة (بناءً على الصلاحيات والباقة ونوع النشاط)
   const isModuleAllowed = (module: string) => {
-    const normalizedModule = module === 'mfg' ? 'manufacturing' : module;
-    
-    // 🛡️ عزل موديولات المنشأة بناءً على اشتراكها في SaaS
-    if (Array.isArray(allowedModules) && allowedModules.length > 0) {
-      if (module === 'reports') {
-        return allowedModules.includes('reports') || allowedModules.includes('accounting');
-      }
-      if (module === 'treasury') {
-        return allowedModules.includes('treasury') || allowedModules.includes('accounting');
-      }
-      if (module === 'restaurant') {
-        return allowedModules.includes('restaurant') || allowedModules.includes('pos');
-      }
-      if (module === 'retail') {
-        return allowedModules.includes('retail');
-      }
-      if (module === 'construction') {
-        return allowedModules.includes('construction');
-      }
-      if (module === 'hims') {
-        return allowedModules.includes('hims');
-      }
-      if (module === 'stadium') {
-        return allowedModules.includes('stadium');
-      }
-      if (module === 'manufacturing' || module === 'mfg') {
-        return allowedModules.includes('manufacturing') || allowedModules.includes('mfg');
-      }
-      return allowedModules.includes(module) || allowedModules.includes(normalizedModule);
-    }
-
-    // إذا لم تكن هناك قيود مسجلة، أو سوبر أدمن بدون اختيار شركة محددة
     if (userRole === 'demo') return true;
     if (isSuperAdmin && !currentSelectedOrgId) return true;
 
-    return true;
+    return isModuleAllowedForOrganization(module, organization, userRole);
   };
 
 

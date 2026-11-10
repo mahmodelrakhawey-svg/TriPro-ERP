@@ -3,8 +3,10 @@ name: TriPro ERP CI/CD Pipeline
 on:
   push:
     branches: [ main, master, dev ]
+    tags: [ 'v*.*.*', 'v*' ]
   pull_request:
     branches: [ main, master, dev ]
+  workflow_dispatch:
 
 jobs:
   build-and-test:
@@ -49,3 +51,64 @@ jobs:
           VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
           VITE_DEMO_USER_ID: ${{ secrets.VITE_DEMO_USER_ID }}
           VITE_ADMIN_USER_ID: ${{ secrets.VITE_ADMIN_USER_ID }}
+
+  build-desktop-release:
+    name: Build Windows Desktop Release (Portable & Installer)
+    needs: build-and-test
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+
+      - name: Cache dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Application
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_KEY: ${{ secrets.VITE_SUPABASE_KEY }}
+          VITE_GEMINI_API_KEY: ${{ secrets.VITE_GEMINI_API_KEY }}
+
+      - name: Build Standalone Portable Desktop (TriPro-POS.exe & TriPro-ERP.exe)
+        run: npm run desktop:portable
+
+      - name: Build Desktop Installer (electron-builder)
+        run: npx electron-builder --win
+        continue-on-error: true # Safe fallback if codesigning certificate is not provisioned on GitHub runner
+
+      - name: Archive Desktop Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: TriPro-ERP-Desktop-Windows-Release
+          path: |
+            release/TriPro-ERP-Portable
+            release/*.exe
+          retention-days: 14
+
+      - name: Publish GitHub Release (On Version Tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        continue-on-error: true
+        with:
+          files: |
+            release/*.exe
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { evaluatePermission } from '../../utils/permissionEngine';
+import { evaluatePermission, isModuleAllowedForOrganization } from '../../utils/permissionEngine';
 import { User } from '../../types';
 
 describe('🛡️ Permission Engine Tests', () => {
@@ -140,6 +140,68 @@ describe('🛡️ Permission Engine Tests', () => {
       expect(evaluatePermission('inventory', 'adjustment', 'storekeeper', new Set(['inventory.adjustment_approve']), dummyUser)).toBe(true);
       expect(evaluatePermission('restaurant', 'pos', 'cashier', new Set(['restaurant.pos']), dummyUser)).toBe(true);
       expect(evaluatePermission('restaurant', 'pos', 'cashier', new Set(['sales.view']), dummyUser)).toBe(true);
+    });
+  });
+
+  describe('6. Organization Module & Plan Gating (isModuleAllowedForOrganization)', () => {
+    it('always grants full access to super_admin, owner and demo roles', () => {
+      const basicOrg = { plan: 'basic' };
+      expect(isModuleAllowedForOrganization('hims', basicOrg, 'super_admin')).toBe(true);
+      expect(isModuleAllowedForOrganization('stadium', basicOrg, 'owner')).toBe(true);
+      expect(isModuleAllowedForOrganization('construction', basicOrg, 'demo')).toBe(true);
+    });
+
+    it('always allows Core ERP modules regardless of plan', () => {
+      const basicOrg = { plan: 'basic' };
+      expect(isModuleAllowedForOrganization('accounting', basicOrg, 'accountant')).toBe(true);
+      expect(isModuleAllowedForOrganization('sales', basicOrg, 'accountant')).toBe(true);
+      expect(isModuleAllowedForOrganization('purchases', basicOrg, 'accountant')).toBe(true);
+      expect(isModuleAllowedForOrganization('inventory', basicOrg, 'accountant')).toBe(true);
+      expect(isModuleAllowedForOrganization('reports', basicOrg, 'accountant')).toBe(true);
+    });
+
+    it('respects explicit allowed_modules array if provided', () => {
+      const customOrg = { allowed_modules: ['restaurant', 'pos', 'accounting'] };
+      expect(isModuleAllowedForOrganization('restaurant', customOrg, 'accountant')).toBe(true);
+      expect(isModuleAllowedForOrganization('hims', customOrg, 'accountant')).toBe(false);
+      expect(isModuleAllowedForOrganization('stadium', customOrg, 'accountant')).toBe(false);
+    });
+
+    it('hides vertical addons in basic plan', () => {
+      const basicOrg = { plan: 'basic' };
+      expect(isModuleAllowedForOrganization('restaurant', basicOrg, 'accountant')).toBe(false);
+      expect(isModuleAllowedForOrganization('manufacturing', basicOrg, 'accountant')).toBe(false);
+      expect(isModuleAllowedForOrganization('construction', basicOrg, 'accountant')).toBe(false);
+      expect(isModuleAllowedForOrganization('hims', basicOrg, 'accountant')).toBe(false);
+      expect(isModuleAllowedForOrganization('stadium', basicOrg, 'accountant')).toBe(false);
+    });
+
+    it('pro plan allows POS and Restaurant but hides HIMS, Stadium, and Construction', () => {
+      const proOrg = { plan: 'pro' };
+      expect(isModuleAllowedForOrganization('pos', proOrg, 'accountant')).toBe(true);
+      expect(isModuleAllowedForOrganization('restaurant', proOrg, 'accountant')).toBe(true);
+      expect(isModuleAllowedForOrganization('hims', proOrg, 'accountant')).toBe(false);
+      expect(isModuleAllowedForOrganization('stadium', proOrg, 'accountant')).toBe(false);
+      expect(isModuleAllowedForOrganization('construction', proOrg, 'accountant')).toBe(false);
+    });
+
+    it('allows industry modules when activity_type matches', () => {
+      const bakeryOrg = { activity_type: 'restaurant_confectionery', plan: 'basic' };
+      expect(isModuleAllowedForOrganization('restaurant', bakeryOrg, 'accountant')).toBe(true);
+
+      const clinicOrg = { activity_type: 'healthcare_clinic' };
+      expect(isModuleAllowedForOrganization('hims', clinicOrg, 'accountant')).toBe(true);
+
+      const clubOrg = { activity_type: 'sports_club' };
+      expect(isModuleAllowedForOrganization('stadium', clubOrg, 'accountant')).toBe(true);
+    });
+
+    it('enterprise plan allows all modules without restrictions', () => {
+      const entOrg = { plan: 'enterprise' };
+      expect(isModuleAllowedForOrganization('hims', entOrg, 'accountant')).toBe(true);
+      expect(isModuleAllowedForOrganization('stadium', entOrg, 'accountant')).toBe(true);
+      expect(isModuleAllowedForOrganization('construction', entOrg, 'accountant')).toBe(true);
+      expect(isModuleAllowedForOrganization('restaurant', entOrg, 'accountant')).toBe(true);
     });
   });
 });
