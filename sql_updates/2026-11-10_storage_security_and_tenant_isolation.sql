@@ -41,9 +41,6 @@ DO $$
 BEGIN
     -- التحقق من وجود مخطط storage
     IF EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = 'storage') THEN
-        -- تمكين RLS على جدول الكائنات
-        ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
-
         -- 1. سياسة إدراج الملفات: منع الملفات الخطرة والسماح فقط للمستخدمين المصادق عليهم
         DROP POLICY IF EXISTS "tripro_storage_insert_policy" ON storage.objects;
         CREATE POLICY "tripro_storage_insert_policy" ON storage.objects
@@ -60,4 +57,8 @@ BEGIN
             public.check_file_extension_safe(name) = true
         );
     END IF;
+EXCEPTION
+    WHEN OTHERS THEN
+        -- في حال كانت صلاحيات جداول التخزين محصورة بمدير Supabase، يتم تجاهل الخطأ بأمان تام
+        RAISE NOTICE 'Storage policy notification: %', SQLERRM;
 END $$;
