@@ -95,6 +95,43 @@ class NotificationService {
   }
 
   /**
+   * جلب خريطة المستخدم المسؤول عن كل عميل دفعة واحدة لتجنب استعلامات N+1 داخل الحلقات
+   */
+  private static async fetchCustomerResponsibleMap(
+    orgId: string,
+    customerIds: Array<string | null | undefined>
+  ): Promise<Map<string, string>> {
+    const map = new Map<string, string>();
+    const uniqueIds = Array.from(
+      new Set(
+        customerIds
+          .filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+          .map(id => id.trim())
+      )
+    );
+    if (uniqueIds.length === 0) return map;
+
+    const chunkSize = 200;
+    for (let i = 0; i < uniqueIds.length; i += chunkSize) {
+      const chunk = uniqueIds.slice(i, i + chunkSize);
+      const { data, error } = await supabase
+        .from('customers')
+        .select('id, responsible_user_id')
+        .eq('organization_id', orgId)
+        .in('id', chunk);
+
+      if (error || !data) continue;
+      for (const row of data) {
+        if (row?.id && row?.responsible_user_id) {
+          map.set(row.id, row.responsible_user_id);
+        }
+      }
+    }
+
+    return map;
+  }
+
+  /**
    * جلب سياق المستخدم الحالي مع كاش قصير لتقليل طلبات auth المتكررة
    */
   private static async getCurrentAuthUserContext(forceRefresh = false): Promise<{
@@ -408,25 +445,24 @@ class NotificationService {
         .neq('status', 'draft')
         .neq('status', 'cancelled');
 
-      if (error || !overdueInvoices) return;
+      if (error || !overdueInvoices || overdueInvoices.length === 0) return;
+
+      const responsibleMap = await this.fetchCustomerResponsibleMap(
+        orgId,
+        overdueInvoices.map(inv => inv.customer_id)
+      );
 
       for (const invoice of overdueInvoices) {
-        // جلب بيانات المستخدم المسؤول عن هذا العميل
-        const { data: customer } = await supabase
-          .from('customers')
-          .select('id, responsible_user_id')
-          .eq('id', invoice.customer_id)
-          .eq('organization_id', orgId)
-          .single();
+        const responsibleUserId = invoice.customer_id ? responsibleMap.get(invoice.customer_id) : undefined;
 
-        if (customer?.responsible_user_id) {
-          if (this.rlsBlockedCrossUser && customer.responsible_user_id !== authCtx.userId) continue;
+        if (responsibleUserId) {
+          if (this.rlsBlockedCrossUser && responsibleUserId !== authCtx.userId) continue;
           const daysOverdue = Math.floor(
             (new Date().getTime() - new Date(invoice.due_date).getTime()) / (1000 * 60 * 60 * 24)
           );
 
           await this.createNotification(
-            customer.responsible_user_id,
+            responsibleUserId,
             orgId,
             `دفعة مستحقة منذ ${daysOverdue} يوم`,
             `الفاتورة رقم ${invoice.invoice_number} استحقت منذ ${daysOverdue} يوم`,
@@ -527,11 +563,13 @@ class NotificationService {
       }
       const targetAdminIds = await this.resolveTargetAdminIds(orgId, authCtx, ['admin', 'super_admin']);
       const adminId = targetAdminIds[0];
+      const responsibleMap = await this.fetchCustomerResponsibleMap(
+        orgId,
+        customers.map((c: { id?: string }) => c.id)
+      );
 
       for (const customer of customers) {
-        // محاولة جلب المستخدم المسؤول
-        const { data: custDetails } = await supabase.from('customers').select('responsible_user_id').eq('id', customer.id).eq('organization_id', orgId).single();
-        const targetUser = custDetails?.responsible_user_id || adminId;
+        const targetUser = (customer.id ? responsibleMap.get(customer.id) : undefined) || adminId;
 
         if (targetUser) {
           if (this.rlsBlockedCrossUser && targetUser !== authCtx.userId) continue;
@@ -625,23 +663,23 @@ class NotificationService {
         .neq('status', 'draft')
         .neq('status', 'cancelled');
 
-      if (upcomingPayments) {
-        for (const invoice of upcomingPayments) {
-          const { data: customer } = await supabase
-            .from('customers')
-            .select('responsible_user_id')
-            .eq('id', invoice.customer_id)
-            .eq('organization_id', orgId)
-            .single();
+      if (upcomingPayments && upcomingPayments.length > 0) {
+        const responsibleMap = await this.fetchCustomerResponsibleMap(
+          orgId,
+          upcomingPayments.map(inv => inv.customer_id)
+        );
 
-          if (customer?.responsible_user_id) {
-            if (this.rlsBlockedCrossUser && customer.responsible_user_id !== authCtx.userId) continue;
+        for (const invoice of upcomingPayments) {
+          const responsibleUserId = invoice.customer_id ? responsibleMap.get(invoice.customer_id) : undefined;
+
+          if (responsibleUserId) {
+            if (this.rlsBlockedCrossUser && responsibleUserId !== authCtx.userId) continue;
             const daysUntilDue = Math.floor(
               (new Date(invoice.due_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
             );
 
             await this.createNotification(
-              customer.responsible_user_id,
+              responsibleUserId,
               orgId,
               `تاريخ دفع قريب: ${invoice.invoice_number}`,
               `ستستحق الفاتورة رقم ${invoice.invoice_number} بعد ${daysUntilDue} يوم`,
