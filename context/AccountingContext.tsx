@@ -253,6 +253,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const { currentUser: authUser, can } = useAuth();
   const { showToast } = useToast();
   const [organization, setOrganization] = useState<any>(null);
+  const lenzaNegativeStockSyncedRef = useRef<Set<string>>(new Set());
   const [currentSelectedOrgId, setCurrentSelectedOrgIdState] = useState<string | null>(() => {
     return getActiveOrgIdSync() || secureStorage.getItem<string>('tripro_active_org_id') || null;
   });
@@ -645,7 +646,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         (activeOrgObj?.name && /لينزا|lenza/i.test(activeOrgObj.name)) ||
         (activeOrgObj?.commercial_name && /لينزا|lenza/i.test(activeOrgObj.commercial_name))
       );
-      if (isLenzaActive && fetchOrgId && fetchOrgId !== 'org-default-offline' && !(sett as any)?.allow_negative_stock) {
+      const canSyncCompanySettings = ['admin', 'super_admin', 'owner'].includes(
+        String(authUser?.role || '').toLowerCase()
+      );
+      const hasNegStockDisabled =
+        sett &&
+        !(sett as any)?.allow_negative_stock &&
+        !(sett as any)?.allowNegativeStock;
+      if (
+        isLenzaActive &&
+        canSyncCompanySettings &&
+        hasNegStockDisabled &&
+        fetchOrgId &&
+        fetchOrgId !== 'org-default-offline' &&
+        !lenzaNegativeStockSyncedRef.current.has(fetchOrgId)
+      ) {
+        lenzaNegativeStockSyncedRef.current.add(fetchOrgId);
         supabase
           .from('company_settings')
           .update({ allow_negative_stock: true })

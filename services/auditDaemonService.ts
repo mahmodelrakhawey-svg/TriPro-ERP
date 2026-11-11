@@ -67,6 +67,36 @@ class AuditDaemonService {
         p_org_id: orgId || null
       });
 
+      if (error) {
+        const msg = (error.message || '').toUpperCase();
+        if (
+          msg.includes('TRIPRO_SECURITY_ALERT') ||
+          error.code === '42501' ||
+          msg.includes('PERMISSION')
+        ) {
+          return {
+            organizationId: orgId,
+            timestamp: new Date().toISOString(),
+            overallStatus: 'warning',
+            checks: [{
+              id: 'pillar-permission',
+              pillar: 'gl_balance',
+              title: 'صلاحيات التدقيق المالي',
+              expected: 0,
+              actual: 0,
+              variance: 0,
+              status: 'warning',
+              notes: error.message || 'تقارير التدقيق المالي تقتصر على المدراء والمحاسبين المعتمدين.'
+            }],
+            summary: {
+              totalChecks: 1,
+              passedCount: 0,
+              failedCount: 0
+            }
+          };
+        }
+      }
+
       if (!error && data?.success && Array.isArray(data.checks)) {
         if (data.checks.length === 1 && data.checks[0]?.id === 'pillar-gl') {
           // تم إرجاع ركن الأستاذ العام فقط من قاعدة البيانات؛ نعتمد نتيجته الدقيقة ونستكمل باقي الأركان الأربعة
@@ -283,12 +313,12 @@ class AuditDaemonService {
       // إذا كان عمود الرصيد بجدول الموردين يحمل رصيداً افتتاحياً قديماً غير محدث تراكمياً،
       // نتحقق مما إذا كانت قيود حساب الموردين 201 مطابقة تماماً لكشوف الحسابات (بدون قيود شاردة)
       let finalExpected = totalSupplierBalances;
-      if (Math.abs(totalSupplierBalances - glApBalance) > 0.05 && glApBalance > 0) {
+      if (Math.abs(totalSupplierBalances - glApBalance) > 0.05 && glApBalance > 0 && apAccountId) {
         try {
           const { count: unlinkedCount } = await supabase
             .from('journal_lines')
-            .select('id', { count: 'exact', head: true })
-            .eq('account_id', apAccountId || '')
+            .select('id, journal_entries!inner(id)', { count: 'exact', head: true })
+            .eq('account_id', apAccountId)
             .is('journal_entries.related_document_id', null);
 
           // إذا كانت كافة القيود مرتبطة بمستندات وموردين (0 قيود غير مربوطة)، فالأستاذ المساعد مطابق للأستاذ العام

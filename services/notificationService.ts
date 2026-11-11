@@ -41,6 +41,15 @@ export interface Notification {
 }
 
 class NotificationService {
+  private static rlsBlockedCrossUser = false;
+  private static lastAuthUserId: string | null = null;
+  private static cachedAuthContext: {
+    userId: string | null;
+    orgId: string | null;
+    role: string | null;
+    expiresAt: number;
+  } | null = null;
+
   /**
    * التحقق من صحة صيغة الـ UUID
    */
@@ -48,6 +57,92 @@ class NotificationService {
     if (!val || typeof val !== 'string') return null;
     const trimmed = val.trim();
     return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(trimmed) ? trimmed : null;
+  }
+
+  private static isOrgWideActor(role?: string | null): boolean {
+    return ['super_admin', 'owner'].includes((role || '').toLowerCase());
+  }
+
+  private static isManagementRole(role?: string | null): boolean {
+    return ['super_admin', 'owner', 'admin', 'manager', 'accountant'].includes((role || '').toLowerCase());
+  }
+
+  private static canAuditFinances(role?: string | null): boolean {
+    return ['super_admin', 'admin', 'manager', 'accountant'].includes((role || '').toLowerCase());
+  }
+
+  /**
+   * تحديد معرفات المستخدمين المستهدفين للإشعارات الإدارية بما يتوافق مع سياسات RLS
+   */
+  private static async resolveTargetAdminIds(
+    orgId: string,
+    authCtx: { userId: string | null; role: string | null },
+    roles: string[] = ['admin', 'super_admin']
+  ): Promise<string[]> {
+    if (!this.isManagementRole(authCtx.role)) {
+      return [];
+    }
+    if (!this.isOrgWideActor(authCtx.role)) {
+      return authCtx.userId ? [authCtx.userId] : [];
+    }
+    const { data: admins } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('organization_id', orgId)
+      .in('role', roles);
+
+    return (admins || []).map(a => a.id).filter(Boolean);
+  }
+
+  /**
+   * جلب سياق المستخدم الحالي مع كاش قصير لتقليل طلبات auth المتكررة
+   */
+  private static async getCurrentAuthUserContext(forceRefresh = false): Promise<{
+    userId: string | null;
+    orgId: string | null;
+    role: string | null;
+  }> {
+    const now = Date.now();
+    if (!forceRefresh && this.cachedAuthContext && this.cachedAuthContext.expiresAt > now) {
+      return {
+        userId: this.cachedAuthContext.userId,
+        orgId: this.cachedAuthContext.orgId,
+        role: this.cachedAuthContext.role,
+      };
+    }
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const userId = this.sanitizeUuid(user?.id);
+      if (!userId) {
+        this.cachedAuthContext = { userId: null, orgId: null, role: null, expiresAt: now + 30_000 };
+        return { userId: null, orgId: null, role: null };
+      }
+
+      if (this.lastAuthUserId !== userId) {
+        this.lastAuthUserId = userId;
+        this.rlsBlockedCrossUser = false;
+      }
+
+      let orgId = this.sanitizeUuid(user?.user_metadata?.org_id);
+      let role: string | null = typeof user?.user_metadata?.role === 'string' ? user.user_metadata.role : null;
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('organization_id, role')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (profile) {
+        orgId = this.sanitizeUuid(profile.organization_id) || orgId;
+        role = profile.role || role;
+      }
+
+      this.cachedAuthContext = { userId, orgId, role, expiresAt: now + 30_000 };
+      return { userId, orgId, role };
+    } catch {
+      return { userId: null, orgId: null, role: null };
+    }
   }
 
   /**
@@ -73,6 +168,14 @@ class NotificationService {
         return null;
       }
 
+      const authCtx = await this.getCurrentAuthUserContext();
+      const isSelfNotification = Boolean(authCtx.userId && validUserId === authCtx.userId);
+
+      // إذا رفضت سياسة RLS الإدراج لمستخدمين آخرين في هذه الجلسة، نتوقف فوراً لمنع عاصفة 403
+      if (!isSelfNotification && this.rlsBlockedCrossUser) {
+        return null;
+      }
+
       // 🛡️ منع التكرار: إذا كان هناك إشعار غير مقروء بالفعل لنفس السجل والمستخدم، لا تقم بإنشاء إشعار مكرر
       if (validRelatedId) {
         const { data: existing } = await supabase
@@ -90,30 +193,63 @@ class NotificationService {
         }
       }
 
-      const { data, error } = await supabase
+      const createdAt = new Date().toISOString();
+      const payload = {
+        user_id: validUserId,
+        organization_id: validOrgId,
+        title,
+        message,
+        type,
+        priority,
+        is_read: false,
+        related_id: validRelatedId,
+        action_url: actionUrl,
+        created_at: createdAt,
+        expires_at: expiresAt,
+      };
+
+      // عند الإدراج لمستخدم آخر نتجنب .select().single() حتى لا يفشل RETURNING بسبب سياسة USING (user_id = auth.uid())
+      if (isSelfNotification) {
+        const { data, error } = await supabase
+          .from('notifications')
+          .insert(payload)
+          .select()
+          .single();
+
+        if (error) {
+          logger.warn('Notice creating notification:', error.message);
+          return null;
+        }
+
+        return data;
+      }
+
+      const { error } = await supabase
         .from('notifications')
-        .insert({
-          user_id: validUserId,
-          organization_id: validOrgId,
-          title,
-          message,
-          type,
-          priority,
-          is_read: false,
-          related_id: validRelatedId,
-          action_url: actionUrl,
-          created_at: new Date().toISOString(),
-          expires_at: expiresAt,
-        })
-        .select()
-        .single();
+        .insert(payload);
 
       if (error) {
+        const msg = (error.message || '').toLowerCase();
+        if (error.code === '42501' || msg.includes('row-level security') || msg.includes('policy')) {
+          this.rlsBlockedCrossUser = true;
+        }
         logger.warn('Notice creating notification:', error.message);
         return null;
       }
 
-      return data;
+      return {
+        id: '',
+        user_id: validUserId,
+        title,
+        message,
+        type,
+        priority,
+        is_read: false,
+        related_id: validRelatedId ?? undefined,
+        action_url: actionUrl,
+        created_at: createdAt,
+        expires_at: expiresAt,
+      };
     } catch (err) {
       logger.warn('Notification creation notice:', err);
       return null;
@@ -259,12 +395,9 @@ class NotificationService {
    */
   static async checkOverduePayments(organizationId?: string): Promise<void> {
     try {
-      let orgId = organizationId;
-      if (!orgId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        orgId = user?.user_metadata?.org_id;
-      }
-      if (!orgId) return;
+      const authCtx = await this.getCurrentAuthUserContext();
+      const orgId = organizationId || authCtx.orgId;
+      if (!orgId || !this.isManagementRole(authCtx.role)) return;
 
       const { data: overdueInvoices, error } = await supabase
         .from('invoices')
@@ -287,6 +420,7 @@ class NotificationService {
           .single();
 
         if (customer?.responsible_user_id) {
+          if (this.rlsBlockedCrossUser && customer.responsible_user_id !== authCtx.userId) continue;
           const daysOverdue = Math.floor(
             (new Date().getTime() - new Date(invoice.due_date).getTime()) / (1000 * 60 * 60 * 24)
           );
@@ -313,12 +447,12 @@ class NotificationService {
    */
   static async checkLowInventory(organizationId?: string): Promise<void> {
     try {
-      let orgId = organizationId;
-      if (!orgId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        orgId = user?.user_metadata?.org_id;
-      }
+      const authCtx = await this.getCurrentAuthUserContext();
+      const orgId = organizationId || authCtx.orgId;
       if (!orgId) return;
+
+      const targetUserIds = await this.resolveTargetAdminIds(orgId, authCtx, ['admin', 'super_admin']);
+      if (targetUserIds.length === 0) return;
 
       const { data: products, error } = await supabase
         .from('products')
@@ -327,23 +461,19 @@ class NotificationService {
 
       if (error || !products) return;
 
-      // جلب معرّفات المسؤولين (المدير العام)
-      const { data: admins } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('organization_id', orgId)
-        .in('role', ['admin', 'super_admin']);
-
-      if (!admins || admins.length === 0) return;
-
       // 🛡️ جلب معرفات الأصناف التي لها إشعار نقص مخزون غير مقروء بالفعل لمنع التكرار والإغراق
-      const { data: existingNotifs } = await supabase
+      let existingQuery = supabase
         .from('notifications')
         .select('related_id')
         .eq('organization_id', orgId)
         .eq('type', 'low_inventory')
-        .eq('is_read', false)
-        .limit(300);
+        .eq('is_read', false);
+
+      if (!this.isOrgWideActor(authCtx.role) && authCtx.userId) {
+        existingQuery = existingQuery.eq('user_id', authCtx.userId);
+      }
+
+      const { data: existingNotifs } = await existingQuery.limit(300);
 
       const existingProductIds = new Set((existingNotifs || []).map(n => n.related_id).filter(Boolean));
 
@@ -357,9 +487,10 @@ class NotificationService {
 
       for (const item of neededAlerts) {
         const minLevel = item.min_stock_level || 5;
-        for (const admin of admins) {
+        for (const targetUserId of targetUserIds) {
+          if (this.rlsBlockedCrossUser && targetUserId !== authCtx.userId) continue;
           await this.createNotification(
-            admin.id,
+            targetUserId,
             orgId,
             `مخزون منخفض: ${item.name}`,
             `المخزون الحالي: ${item.stock} والحد الأدنى: ${minLevel}`,
@@ -380,12 +511,9 @@ class NotificationService {
    */
   static async checkHighDebt(organizationId?: string): Promise<void> {
     try {
-      let orgId = organizationId;
-      if (!orgId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        orgId = user?.user_metadata?.org_id;
-      }
-      if (!orgId) return;
+      const authCtx = await this.getCurrentAuthUserContext();
+      const orgId = organizationId || authCtx.orgId;
+      if (!orgId || !this.isManagementRole(authCtx.role)) return;
 
       // استخدام RPC لتجنب خطأ 400 في المقارنة بين الأعمدة
       // ملاحظة: يجب تعديل الـ RPC في قاعدة البيانات ليستقبل org_id
@@ -397,14 +525,8 @@ class NotificationService {
           }
           return;
       }
-      // جلب المسؤولين كاحتياطي
-      const { data: admins } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('organization_id', orgId)
-        .in('role', ['admin', 'super_admin'])
-        .limit(1);
-      const adminId = admins?.[0]?.id;
+      const targetAdminIds = await this.resolveTargetAdminIds(orgId, authCtx, ['admin', 'super_admin']);
+      const adminId = targetAdminIds[0];
 
       for (const customer of customers) {
         // محاولة جلب المستخدم المسؤول
@@ -412,6 +534,7 @@ class NotificationService {
         const targetUser = custDetails?.responsible_user_id || adminId;
 
         if (targetUser) {
+          if (this.rlsBlockedCrossUser && targetUser !== authCtx.userId) continue;
           const exceedPercentage = Math.round(
             ((customer.total_debt - customer.credit_limit) / customer.credit_limit) * 100
           );
@@ -438,12 +561,12 @@ class NotificationService {
    */
   static async checkPendingApprovals(organizationId?: string): Promise<void> {
     try {
-      let orgId = organizationId;
-      if (!orgId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        orgId = user?.user_metadata?.org_id;
-      }
+      const authCtx = await this.getCurrentAuthUserContext();
+      const orgId = organizationId || authCtx.orgId;
       if (!orgId) return;
+
+      const targetUserIds = await this.resolveTargetAdminIds(orgId, authCtx, ['admin', 'super_admin']);
+      if (targetUserIds.length === 0) return;
 
       // فواتير مبيعات معلقة (مسودات قديمة)
       const { data: pendingInvoices } = await supabase
@@ -453,17 +576,12 @@ class NotificationService {
         .eq('status', 'draft')
         .lt('invoice_date', new Date(Date.now() - 86400000).toISOString().split('T')[0]);
 
-      // إرسال تنبيه للمدراء
-      const { data: admins } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('organization_id', orgId)
-        .in('role', ['admin', 'super_admin']);
-      if (pendingInvoices && admins) {
+      if (pendingInvoices) {
         for (const invoice of pendingInvoices) {
-          for (const admin of admins) {
-             await this.createNotification(
-              admin.id,
+          for (const targetUserId of targetUserIds) {
+            if (this.rlsBlockedCrossUser && targetUserId !== authCtx.userId) continue;
+            await this.createNotification(
+              targetUserId,
               orgId,
               `مسودة فاتورة معلقة: ${invoice.invoice_number}`,
               `الفاتورة لا تزال مسودة منذ أكثر من 24 ساعة`,
@@ -485,12 +603,9 @@ class NotificationService {
    */
   static async checkUpcomingDueDates(organizationId?: string): Promise<void> {
     try {
-      let orgId = organizationId;
-      if (!orgId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        orgId = user?.user_metadata?.org_id;
-      }
-      if (!orgId) return;
+      const authCtx = await this.getCurrentAuthUserContext();
+      const orgId = organizationId || authCtx.orgId;
+      if (!orgId || !this.isManagementRole(authCtx.role)) return;
 
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
@@ -520,6 +635,7 @@ class NotificationService {
             .single();
 
           if (customer?.responsible_user_id) {
+            if (this.rlsBlockedCrossUser && customer.responsible_user_id !== authCtx.userId) continue;
             const daysUntilDue = Math.floor(
               (new Date(invoice.due_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)
             );
@@ -548,12 +664,12 @@ class NotificationService {
    */
   static async checkUpcomingRetentionReleases(organizationId?: string): Promise<void> {
     try {
-      let orgId = organizationId;
-      if (!orgId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        orgId = user?.user_metadata?.org_id;
-      }
+      const authCtx = await this.getCurrentAuthUserContext();
+      const orgId = organizationId || authCtx.orgId;
       if (!orgId) return;
+
+      const targetUserIds = await this.resolveTargetAdminIds(orgId, authCtx, ['admin', 'super_admin']);
+      if (targetUserIds.length === 0) return;
 
       const nextWeek = new Date();
       nextWeek.setDate(nextWeek.getDate() + 7);
@@ -577,20 +693,12 @@ class NotificationService {
         .gt('retention_amount', 0)
         .eq('status', 'approved');
 
-      // جلب المسؤولين
-      const { data: admins } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('organization_id', orgId)
-        .in('role', ['admin', 'super_admin']);
-
-      if (!admins) return;
-
       // إرسال تنبيهات للعملاء
       for (const item of (customerRetentions || [])) {
-        for (const admin of admins) {
+        for (const targetUserId of targetUserIds) {
+          if (this.rlsBlockedCrossUser && targetUserId !== authCtx.userId) continue;
           await this.createNotification(
-            admin.id, orgId, 'موعد استرداد تأمين',
+            targetUserId, orgId, 'موعد استرداد تأمين',
             `المستخلص رقم ${item.billing_number} حان موعد فك محتجز الضمان الخاص به بتاريخ ${item.retention_release_date}`,
             'retention_release_alert', 'high', item.id, `/construction`
           );
@@ -599,9 +707,10 @@ class NotificationService {
 
       // إرسال تنبيهات للمقاولين
       for (const item of (subRetentions || [])) {
-        for (const admin of admins) {
+        for (const targetUserId of targetUserIds) {
+          if (this.rlsBlockedCrossUser && targetUserId !== authCtx.userId) continue;
           await this.createNotification(
-            admin.id, orgId, 'استحقاق رد تأمين مقاول',
+            targetUserId, orgId, 'استحقاق رد تأمين مقاول',
             `المستخلص رقم ${item.billing_number} يستحق رد محتجز الضمان للمقاول بتاريخ ${item.retention_release_date}`,
             'retention_release_alert', 'medium', item.id, `/subcontractors`
           );
@@ -618,12 +727,12 @@ class NotificationService {
    */
   static async checkProjectPerformanceThresholds(organizationId?: string): Promise<void> {
     try {
-      let orgId = organizationId;
-      if (!orgId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        orgId = user?.user_metadata?.org_id;
-      }
+      const authCtx = await this.getCurrentAuthUserContext();
+      const orgId = organizationId || authCtx.orgId;
       if (!orgId) return;
+
+      const targetUserIds = await this.resolveTargetAdminIds(orgId, authCtx, ['admin', 'super_admin']);
+      if (targetUserIds.length === 0) return;
 
       // استدعاء دالة RPC التي تجلب المشاريع ذات الأداء المنخفض
       const { data: projectsWithLowPerformance, error } = await supabase.rpc('fn_check_cpi_threshold', {
@@ -640,27 +749,19 @@ class NotificationService {
       }
 
       if (projectsWithLowPerformance && projectsWithLowPerformance.length > 0) {
-        // جلب معرفات المدراء لإرسال التنبيهات إليهم
-        const { data: admins } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('organization_id', orgId)
-          .in('role', ['admin', 'super_admin']);
-
-        if (admins) {
-          for (const project of projectsWithLowPerformance) {
-            for (const admin of admins) {
-              await this.createNotification(
-                admin.id,
-                orgId,
-                `⚠️ أداء مشروع منخفض: ${project.project_name}`,
-                `مؤشر التكلفة (CPI): ${project.cpi}، مؤشر الجدول (SPI): ${project.spi}. يتطلب مراجعة عاجلة!`,
-                'project_performance_alert',
-                'high',
-                project.project_id,
-                `/construction/analytics?projectId=${project.project_id}` // رابط مباشر للوحة تحكم المشروع
-              );
-            }
+        for (const project of projectsWithLowPerformance) {
+          for (const targetUserId of targetUserIds) {
+            if (this.rlsBlockedCrossUser && targetUserId !== authCtx.userId) continue;
+            await this.createNotification(
+              targetUserId,
+              orgId,
+              `⚠️ أداء مشروع منخفض: ${project.project_name}`,
+              `مؤشر التكلفة (CPI): ${project.cpi}، مؤشر الجدول (SPI): ${project.spi}. يتطلب مراجعة عاجلة!`,
+              'project_performance_alert',
+              'high',
+              project.project_id,
+              `/construction/analytics?projectId=${project.project_id}` // رابط مباشر للوحة تحكم المشروع
+            );
           }
         }
       }
@@ -675,12 +776,9 @@ class NotificationService {
    */
   static async checkFinancialIntegrityPillars(organizationId?: string): Promise<void> {
     try {
-      let orgId = organizationId;
-      if (!orgId) {
-        const { data: { user } } = await supabase.auth.getUser();
-        orgId = user?.user_metadata?.org_id;
-      }
-      if (!orgId) return;
+      const authCtx = await this.getCurrentAuthUserContext();
+      const orgId = organizationId || authCtx.orgId;
+      if (!orgId || !this.canAuditFinances(authCtx.role)) return;
 
       // لتجنب تكرار الإشعار عدة مرات في نفس اليوم، نقرأ آخر وقت فحص
       const cacheKey = `tripro_last_financial_audit_${orgId}`;
@@ -702,26 +800,24 @@ class NotificationService {
         const failedChecks = report.checks.filter(c => c.status === 'failed' || c.status === 'warning');
         const issuePillars = failedChecks.map(c => c.title).join('، ');
 
-        // جلب معرفات المدراء والمحاسبين
-        const { data: managers } = await supabase
-          .from('profiles')
-          .select('id')
-          .eq('organization_id', orgId)
-          .in('role', ['admin', 'super_admin', 'owner', 'accountant']);
+        const targetManagerIds = await this.resolveTargetAdminIds(
+          orgId,
+          authCtx,
+          ['admin', 'super_admin', 'owner', 'accountant']
+        );
 
-        if (managers && managers.length > 0) {
-          for (const manager of managers) {
-            await this.createNotification(
-              manager.id,
-              orgId,
-              report.overallStatus === 'failed' ? '🚨 خلل في توازن النظام المالي' : '⚠️ تنبيه رقابي محاسبي',
-              `تم اكتشاف عدم تطابق في: ${issuePillars}. يرجى زيارة مركز الرقابة والحوكمة للفحص وإعادة التسوية.`,
-              'system_alert',
-              report.overallStatus === 'failed' ? 'high' : 'medium',
-              undefined,
-              '/admin/audit-logs'
-            );
-          }
+        for (const managerId of targetManagerIds) {
+          if (this.rlsBlockedCrossUser && managerId !== authCtx.userId) continue;
+          await this.createNotification(
+            managerId,
+            orgId,
+            report.overallStatus === 'failed' ? '🚨 خلل في توازن النظام المالي' : '⚠️ تنبيه رقابي محاسبي',
+            `تم اكتشاف عدم تطابق في: ${issuePillars}. يرجى زيارة مركز الرقابة والحوكمة للفحص وإعادة التسوية.`,
+            'system_alert',
+            report.overallStatus === 'failed' ? 'high' : 'medium',
+            undefined,
+            '/admin/audit-logs'
+          );
         }
       }
     } catch (err) {
@@ -736,18 +832,32 @@ class NotificationService {
   static async runAllChecks(): Promise<void> {
     logger.log('🔔 Running periodic notification checks...');
     try {
-      // الوظائف الآن قادرة على جلب orgId بنفسها إذا لم يتم تمريره
-      await Promise.all([
-        this.checkOverduePayments(),
-        this.checkLowInventory(),
-        this.checkHighDebt(),
-        this.checkPendingApprovals(),
-        this.checkUpcomingDueDates(),
-        this.checkProjectPerformanceThresholds(), // 🏗️ جديد: إضافة فحص أداء المشاريع
-        this.checkUpcomingRetentionReleases(),    // 🏗️ جديد: فحص محتجزات الضمان
-        this.checkDueRecurringInvoices(),         // 🔁 جديد: فحص وإصدار الفواتير الدورية والاشتراكات آلياً
-        this.checkFinancialIntegrityPillars(),    // 🛡️ جديد: فحص سلامة الأركان المالية الأربعة
-      ]);
+      const authCtx = await this.getCurrentAuthUserContext(true);
+      if (!authCtx.userId || !authCtx.orgId) {
+        return;
+      }
+
+      if (!this.isManagementRole(authCtx.role)) {
+        logger.log('ℹ️ Skipping management notification checks for operational role');
+        return;
+      }
+
+      const checks: Promise<void>[] = [
+        this.checkOverduePayments(authCtx.orgId),
+        this.checkLowInventory(authCtx.orgId),
+        this.checkHighDebt(authCtx.orgId),
+        this.checkPendingApprovals(authCtx.orgId),
+        this.checkUpcomingDueDates(authCtx.orgId),
+        this.checkProjectPerformanceThresholds(authCtx.orgId), // 🏗️ جديد: إضافة فحص أداء المشاريع
+        this.checkUpcomingRetentionReleases(authCtx.orgId),    // 🏗️ جديد: فحص محتجزات الضمان
+        this.checkDueRecurringInvoices(),                      // 🔁 جديد: فحص وإصدار الفواتير الدورية والاشتراكات آلياً
+      ];
+
+      if (this.canAuditFinances(authCtx.role)) {
+        checks.push(this.checkFinancialIntegrityPillars(authCtx.orgId)); // 🛡️ جديد: فحص سلامة الأركان المالية الأربعة
+      }
+
+      await Promise.all(checks);
       logger.log('✅ Notification checks completed');
     } catch (err) {
       logger.error('Error running notification checks:', err);

@@ -134,8 +134,9 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
 
   // 🛡️ ترشيد Egress: استثناء الأدوار التشغيلية (كاشير/ويتر/مطبخ) من تحميل آلاف قيود اليومية وخطوطها
   const isAccountingAuditor = useMemo(() => {
-    const role = currentUser?.role;
-    if (!role) return true;
+    if (!currentUser) return false;
+    const role = currentUser.role;
+    if (!role) return false;
     const operationalRoles = [
       'cashier',
       'retail_cashier',
@@ -149,13 +150,13 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
       'van_sales'
     ];
     return !operationalRoles.includes(role);
-  }, [currentUser?.role]);
+  }, [currentUser]);
 
   const fetchLedgerData = useCallback(async (force = false) => {
     const effectiveOrg = targetOrgId;
     if (!effectiveOrg || effectiveOrg === 'org-default-offline') return;
 
-    const queryKey = QUERY_KEYS.generalLedger(effectiveOrg, fiscalYearRange);
+    const queryKey = [...QUERY_KEYS.generalLedger(effectiveOrg, fiscalYearRange), isAccountingAuditor ? 'auditor' : 'ops'] as const;
     if (force) {
       queryClient.invalidateQueries({ queryKey });
     }
@@ -279,6 +280,52 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
     await fetchLedgerData(true);
   }, [targetOrgId, logActivity, showToast, fetchLedgerData]);
 
+  const refreshAccountsOnly = useCallback(async (orgToRefresh?: string | null): Promise<void> => {
+    const effectiveOrg = orgToRefresh || targetOrgId;
+    if (!effectiveOrg || effectiveOrg === 'org-default-offline') return;
+
+    const { data, error } = await supabase
+      .from('accounts')
+      .select('*')
+      .eq('organization_id', effectiveOrg)
+      .order('code');
+
+    if (error || !data) return;
+
+    const loadedAccounts = data.map((acc: Record<string, any>) => ({
+      ...acc,
+      isGroup: Boolean(acc.is_group ?? acc.isGroup),
+      type: acc.type ? acc.type.toUpperCase() : acc.type
+    })) as Account[];
+
+    setAccounts(loadedAccounts);
+
+    queryClient.setQueriesData({ queryKey: ['general_ledger', effectiveOrg] }, (old: Record<string, any> | undefined) => {
+      if (!old) return old;
+      return { ...old, accounts: loadedAccounts };
+    });
+  }, [targetOrgId]);
+
+  const refreshBudgetsOnly = useCallback(async (orgToRefresh?: string | null): Promise<void> => {
+    const effectiveOrg = orgToRefresh || targetOrgId;
+    if (!effectiveOrg || effectiveOrg === 'org-default-offline') return;
+
+    const { data, error } = await supabase
+      .from('budgets')
+      .select('*')
+      .eq('organization_id', effectiveOrg);
+
+    if (error || !data) return;
+
+    const loadedBudgets = data as Budget[];
+    setBudgets(loadedBudgets);
+
+    queryClient.setQueriesData({ queryKey: ['general_ledger', effectiveOrg] }, (old: Record<string, any> | undefined) => {
+      if (!old) return old;
+      return { ...old, budgets: loadedBudgets };
+    });
+  }, [targetOrgId]);
+
   const addAccount = useCallback(async (acc: Partial<Account>): Promise<any> => {
     const effectiveOrg = targetOrgId;
     const { data, error } = await supabase
@@ -294,10 +341,9 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
 
     showToast?.('تمت إضافة الحساب بنجاح ✅', 'success');
     logActivity?.('إضافة حساب', `حساب: ${acc.name || acc.code}`);
-    invalidateGeneralLedger(effectiveOrg);
-    await fetchLedgerData(true);
+    await refreshAccountsOnly(effectiveOrg);
     return data;
-  }, [targetOrgId, logActivity, showToast, fetchLedgerData]);
+  }, [targetOrgId, logActivity, showToast, refreshAccountsOnly]);
 
   const updateAccount = useCallback(async (id: string, updates: Partial<Account>): Promise<void> => {
     const effectiveOrg = targetOrgId;
@@ -313,9 +359,8 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
 
     showToast?.('تم تعديل بيانات الحساب بنجاح ✅', 'success');
     logActivity?.('تعديل حساب', `حساب رقم: ${id}`);
-    invalidateGeneralLedger(effectiveOrg);
-    await fetchLedgerData(true);
-  }, [targetOrgId, logActivity, showToast, fetchLedgerData]);
+    await refreshAccountsOnly(effectiveOrg);
+  }, [targetOrgId, logActivity, showToast, refreshAccountsOnly]);
 
   const deleteAccount = useCallback(async (id: string, _reason?: string): Promise<{ success: boolean; message?: string }> => {
     const effectiveOrg = targetOrgId;
@@ -329,11 +374,10 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
     } else {
       showToast?.('تم حذف الحساب بنجاح', 'info');
       logActivity?.('حذف حساب', `حساب رقم: ${id}`);
+      await refreshAccountsOnly(effectiveOrg);
     }
-    invalidateGeneralLedger(effectiveOrg);
-    await fetchLedgerData(true);
     return { success: !error, message: error?.message };
-  }, [targetOrgId, logActivity, showToast, fetchLedgerData]);
+  }, [targetOrgId, logActivity, showToast, refreshAccountsOnly]);
 
   const getSystemAccount = useCallback((key: string): Account | undefined => {
     const mappingId = settings?.account_mappings?.[key];
@@ -443,8 +487,8 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
       throw error;
     }
     showToast?.('تم حفظ الموازنة بنجاح ✅', 'success');
-    await fetchLedgerData();
-  }, [showToast, fetchLedgerData]);
+    await refreshBudgetsOnly();
+  }, [showToast, refreshBudgetsOnly]);
 
   const closeFinancialYear = useCallback(async (year: number, date: string): Promise<boolean> => {
     const effectiveOrg = targetOrgId;
