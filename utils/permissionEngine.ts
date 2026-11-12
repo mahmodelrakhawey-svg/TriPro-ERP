@@ -376,7 +376,7 @@ export function isModuleAllowedForOrganization(
       return allowed.includes('restaurant') || allowed.includes('pos');
     }
     if (normalizedModule === 'pos' || normalizedModule === 'retail') {
-      return allowed.includes('retail') || allowed.includes('pos') || allowed.includes('sales');
+      return allowed.includes('retail') || allowed.includes('pos');
     }
     if (normalizedModule === 'manufacturing' || normalizedModule === 'mfg') {
       return allowed.includes('manufacturing') || allowed.includes('mfg');

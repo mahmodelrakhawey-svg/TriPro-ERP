@@ -165,6 +165,11 @@ describe('🛡️ Permission Engine Tests', () => {
       expect(isModuleAllowedForOrganization('restaurant', customOrg, 'accountant')).toBe(true);
       expect(isModuleAllowedForOrganization('hims', customOrg, 'accountant')).toBe(false);
       expect(isModuleAllowedForOrganization('stadium', customOrg, 'accountant')).toBe(false);
+
+      const salesOnlyOrg = { allowed_modules: ['accounting', 'sales', 'inventory'] };
+      expect(isModuleAllowedForOrganization('sales', salesOnlyOrg, 'accountant')).toBe(true);
+      expect(isModuleAllowedForOrganization('retail', salesOnlyOrg, 'accountant')).toBe(false);
+      expect(isModuleAllowedForOrganization('pos', salesOnlyOrg, 'accountant')).toBe(false);
     });
 
     it('hides vertical addons in basic plan', () => {
