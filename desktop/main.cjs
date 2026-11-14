@@ -4,7 +4,7 @@
  * ==============================================================================
  */
 
-const { app, BrowserWindow, Menu, session } = require('electron');
+const { app, BrowserWindow, Menu, session, shell } = require('electron');
 const path = require('path');
 const http = require('http');
 const fs = require('fs');
@@ -215,7 +215,24 @@ async function createWindow() {
     }
   });
 
+  // 🛡️ صمام أمان Electron: توجيه كافة الروابط الخارجية للمتصفح الافتراضي للنظام ومنع فتحها داخل التطبيق
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('https:') || url.startsWith('http:')) {
+      shell.openExternal(url).catch(() => {});
+    }
+    return { action: 'deny' };
+  });
+
   const port = await startLocalDistServer();
+
+  // 🛡️ حماية التنقل الداخلي (Navigation Guard): منع توجيه النافذة الرئيسية لأي نطاق خارجي
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith(`http://127.0.0.1:${port}`) && !url.startsWith(`http://localhost:${port}`)) {
+      event.preventDefault();
+      shell.openExternal(url).catch(() => {});
+    }
+  });
+
   const initialUrl = isRestaurantPos 
     ? `http://127.0.0.1:${port}/index.html#/pos`
     : (isPos || isRetailPos)
@@ -257,9 +274,10 @@ app.on('second-instance', () => {
 });
 
 app.whenReady().then(() => {
-  // ✅ السماح بكل أذونات التخزين (IndexedDB, localStorage, etc.) في Electron
-  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(true);
+  // 🛡️ السماح فقط بالأذونات الضرورية لـ TriPro ERP (إشعارات، وسائط، نسخ ولصق) ورفض أي أذونات غير مصرح بها
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    const allowedPermissions = ['notifications', 'media', 'clipboard-read', 'clipboard-sanitized-write', 'fullscreen'];
+    callback(allowedPermissions.includes(permission));
   });
 
   createWindow();

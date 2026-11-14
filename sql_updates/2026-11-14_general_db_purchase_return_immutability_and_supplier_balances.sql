@@ -163,10 +163,31 @@ SET search_path = public
 AS $$
 DECLARE
     v_return record;
+    v_caller_role text;
+    v_caller_id uuid := auth.uid();
 BEGIN
     SELECT * INTO v_return FROM public.purchase_returns WHERE id = p_return_id;
     IF NOT FOUND THEN
         RETURN true;
+    END IF;
+
+    -- 🛡️ التحقق الأمني من هوية وصلاحيات المستخدم المتصل
+    IF v_caller_id IS NULL AND auth.role() <> 'service_role' THEN
+        RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: تم رفض الوصول. يجب تسجيل الدخول لحذف مرتجع المشتريات.';
+    END IF;
+
+    IF v_caller_id IS NOT NULL THEN
+        SELECT role INTO v_caller_role FROM public.profiles WHERE id = v_caller_id;
+        IF COALESCE(v_caller_role, '') NOT IN ('super_admin', 'admin', 'manager', 'accountant', 'owner') THEN
+            RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: لا تملك الصلاحية اللازمة لحذف مرتجع المشتريات.';
+        END IF;
+
+        -- 🛡️ صمام أمان عزل المنشآت الصارم (Tenant Isolation Guard)
+        IF v_return.organization_id IS NOT NULL 
+           AND v_return.organization_id <> public.get_my_org() 
+           AND COALESCE(v_caller_role, '') NOT IN ('super_admin') THEN
+            RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: هذا المرتجع يتبع منشأة أخرى ولا يحق لك حذفه.';
+        END IF;
     END IF;
 
     -- 🛡️ صمام الأمان: منع حذف أي مرتجع مرحل إطلاقاً

@@ -202,12 +202,8 @@ export const offlineService = {
             return prof.organization_id;
           }
         }
-        // Fallback: fetch from organizations table
-        const { data: firstOrg } = await supabase.from('organizations').select('id').order('created_at', { ascending: true }).limit(1).maybeSingle();
-        if (firstOrg?.id && isValidNonNilUUID(firstOrg.id)) {
-          this.setLastValidOrgId(firstOrg.id);
-          return firstOrg.id;
-        }
+        // 🛡️ صمام أمان عزل المنشآت: يُحظر نهائياً الربط التلقائي بأول منشأة في قاعدة البيانات لمنع اختلاط بيانات الشركات
+        logger.warn('[offlineService] Could not resolve user organization ID. Halting fallback to prevent cross-tenant data corruption.');
       } catch (e) {
         logger.warn('Failed to resolve online organization UUID:', e);
       }

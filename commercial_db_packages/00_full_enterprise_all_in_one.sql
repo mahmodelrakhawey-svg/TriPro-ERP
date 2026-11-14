@@ -98,36 +98,83 @@ CREATE TABLE public.profiles (
 );
 
 -- دوال الصلاحيات والمنظمات الأساسية (Core Identity Helpers)
-CREATE OR REPLACE FUNCTION public.get_my_role() RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE _role text;
+CREATE OR REPLACE FUNCTION public.get_my_role() 
+RETURNS text 
+LANGUAGE plpgsql 
+SECURITY DEFINER 
+SET search_path = public
+AS $$
+DECLARE 
+    _role text;
+    _user_id uuid := auth.uid();
 BEGIN
-    _role := COALESCE(
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', ''),
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role', ''),
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'app_role', '')
-    );
-    IF _role IS NULL THEN
-        _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb ->> 'role', '');
+    IF _user_id IS NULL THEN
+        RETURN 'anon';
     END IF;
-    IF _role IS NOT NULL THEN RETURN _role; END IF;
-    SELECT role INTO _role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
-    RETURN COALESCE(_role, 'viewer');
-END; $$;
 
-CREATE OR REPLACE FUNCTION public.get_my_org() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE _org_id uuid;
-DECLARE _role text;
-DECLARE _user_id uuid := auth.uid();
+    -- 1. المرجع الأوحد والموثق: جدول profiles الخاضع لحراس الأمان
+    SELECT role INTO _role FROM public.profiles WHERE id = _user_id LIMIT 1;
+    IF _role IS NOT NULL THEN 
+        RETURN _role; 
+    END IF;
+
+    -- 2. الفحص الاحتياطي من app_metadata الحصري لإدارة السيرفر (غير قابل للتعديل من العميل)
+    BEGIN
+        _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role', '');
+        IF _role IS NOT NULL THEN 
+            RETURN _role; 
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
+
+    RETURN 'viewer';
+END; 
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_my_org() 
+RETURNS uuid 
+LANGUAGE plpgsql 
+SECURITY DEFINER 
+SET search_path = public
+AS $$
+DECLARE 
+    _org_id uuid;
+    _user_id uuid := auth.uid();
 BEGIN
-    _org_id := COALESCE(
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid,
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'org_id', '')::uuid
-    );
-    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
-    SELECT organization_id, role INTO _org_id, _role FROM public.profiles WHERE id = _user_id LIMIT 1;
-    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+    IF _user_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    -- 0. فحص متغير الجلسة السيرفرية المؤقت (لتشغيل الاختبارات والهجرات الإدارية)
+    BEGIN
+        _org_id := NULLIF(current_setting('app.current_org_id', true), '')::uuid;
+        IF _org_id IS NOT NULL THEN
+            RETURN _org_id;
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
+
+    -- 1. المرجع الأوحد والموثق: جدول profiles المحمي
+    SELECT organization_id INTO _org_id FROM public.profiles WHERE id = _user_id LIMIT 1;
+    IF _org_id IS NOT NULL THEN 
+        RETURN _org_id; 
+    END IF;
+
+    -- 2. الفحص الاحتياطي من app_metadata الحصري لإدارة السيرفر
+    BEGIN
+        _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'org_id', '')::uuid;
+        IF _org_id IS NOT NULL THEN 
+            RETURN _org_id; 
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
+
     RETURN NULL;
-END; $$;
+END; 
+$$;
 
 -- المحاسبة
 CREATE TABLE public.cost_centers (
@@ -1770,54 +1817,83 @@ CREATE TABLE IF NOT EXISTS public.organization_backups (
 -- ================================================================
 -- 1.5 دوال الهوية الموحدة (Standard Identity Helpers)
 -- ================================================================
-CREATE OR REPLACE FUNCTION public.get_my_role() RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE _role text;
+CREATE OR REPLACE FUNCTION public.get_my_role() 
+RETURNS text 
+LANGUAGE plpgsql 
+SECURITY DEFINER 
+SET search_path = public
+AS $$
+DECLARE 
+    _role text;
+    _user_id uuid := auth.uid();
 BEGIN
-    -- 1. فحص التوكن أولاً (JWT Claims) - البحث في user_metadata و app_metadata لضمان التوافق
-    _role := COALESCE(
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', ''),
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role', ''),
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'app_role', '')
-    );
-    IF _role IS NULL THEN
-        _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb ->> 'role', '');
+    IF _user_id IS NULL THEN
+        RETURN 'anon';
     END IF;
-    IF _role IS NOT NULL THEN RETURN _role; END IF;
-    -- 2. الرجوع للجدول (Fall-back)
-    SELECT role INTO _role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
-    RETURN COALESCE(_role, 'viewer');
-END; $$;
 
-CREATE OR REPLACE FUNCTION public.get_my_org() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE _org_id uuid;
-DECLARE _role text;
-DECLARE _user_id uuid := auth.uid();
+    -- 1. المرجع الأوحد والموثق: جدول profiles الخاضع لحراس الأمان
+    SELECT role INTO _role FROM public.profiles WHERE id = _user_id LIMIT 1;
+    IF _role IS NOT NULL THEN 
+        RETURN _role; 
+    END IF;
+
+    -- 2. الفحص الاحتياطي من app_metadata الحصري لإدارة السيرفر (غير قابل للتعديل من العميل)
+    BEGIN
+        _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role', '');
+        IF _role IS NOT NULL THEN 
+            RETURN _role; 
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
+
+    RETURN 'viewer';
+END; 
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_my_org() 
+RETURNS uuid 
+LANGUAGE plpgsql 
+SECURITY DEFINER 
+SET search_path = public
+AS $$
+DECLARE 
+    _org_id uuid;
+    _user_id uuid := auth.uid();
 BEGIN
-    -- 1. الأولوية لـ org_id في التوكن (JWT Claims) لسرعة الأداء ودعم التبديل بين الشركات
-    _org_id := COALESCE(
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid,
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'org_id', '')::uuid
-    );
+    IF _user_id IS NULL THEN
+        RETURN NULL;
+    END IF;
 
-    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+    -- 0. فحص متغير الجلسة السيرفرية المؤقت (لتشغيل الاختبارات والهجرات الإدارية)
+    BEGIN
+        _org_id := NULLIF(current_setting('app.current_org_id', true), '')::uuid;
+        IF _org_id IS NOT NULL THEN
+            RETURN _org_id;
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
 
-   -- 2. Fallback: جلب المنظمة من البروفايل (المصدر الثابت)
-    SELECT organization_id, role INTO _org_id, _role FROM public.profiles WHERE id = _user_id LIMIT 1;
-    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+    -- 1. المرجع الأوحد والموثق: جدول profiles المحمي
+    SELECT organization_id INTO _org_id FROM public.profiles WHERE id = _user_id LIMIT 1;
+    IF _org_id IS NOT NULL THEN 
+        RETURN _org_id; 
+    END IF;
 
-    -- 3. [جديد] إذا كان المستخدم موثقاً ودوره 'admin' (وليس 'super_admin') ولم يتم تحديد منظمة بعد，
-    -- ابحث عن أول منظمة يكون هذا المستخدم مديراً لها في جدول الأدوار.
-    -- هذا يعالج حالة "المدير العالمي" الذي يدخل لشركة معينة دون أن يكون organization_id في البروفايل أو الـ JWT.
-    IF _user_id IS NOT NULL AND _role = 'admin' AND _org_id IS NULL THEN
-        SELECT r.organization_id INTO _org_id
-        FROM public.roles r
-        JOIN public.role_permissions rp ON r.id = rp.role_id
-        JOIN public.permissions p ON rp.permission_id = p.id
-        WHERE r.organization_id IS NOT NULL AND r.name = 'admin' AND p.module = 'admin' AND p.action = 'manage'
-        LIMIT 1;
-        IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
-    END IF;    RETURN NULL;
-END; $$;
+    -- 2. الفحص الاحتياطي من app_metadata الحصري لإدارة السيرفر
+    BEGIN
+        _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'org_id', '')::uuid;
+        IF _org_id IS NOT NULL THEN 
+            RETURN _org_id; 
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
+
+    RETURN NULL;
+END; 
+$$;
 
 CREATE OR REPLACE FUNCTION public.is_admin() RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER AS $$
 BEGIN RETURN (public.get_my_role() IN ('super_admin', 'admin', 'owner')); END; $$;
@@ -3011,52 +3087,82 @@ END $$;
 -- ================================================================
 
 CREATE OR REPLACE FUNCTION public.get_my_role() 
-RETURNS text LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE _role text;
+RETURNS text 
+LANGUAGE plpgsql 
+SECURITY DEFINER 
+SET search_path = public
+AS $$
+DECLARE 
+    _role text;
+    _user_id uuid := auth.uid();
 BEGIN
-    _role := COALESCE(
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'role', ''),
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role', '')
-    );
-    IF _role IS NOT NULL THEN RETURN _role; END IF;
-    SELECT role INTO _role FROM public.profiles WHERE id = auth.uid() LIMIT 1;
-    RETURN COALESCE(_role, 'viewer');
-END; $$;
-
-CREATE OR REPLACE FUNCTION public.get_my_org() RETURNS uuid LANGUAGE plpgsql SECURITY DEFINER AS $$
-DECLARE _org_id uuid;
-DECLARE _role text;
-DECLARE _user_id uuid := auth.uid();
-BEGIN
-    -- 0. التحقق من وجود متغير جلسة مخصص للمنظمة (لتشغيل الاختبارات والهجرات)
-    BEGIN
-        _org_id := NULLIF(current_setting('app.current_org_id', true), '')::uuid;
-        IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
-    EXCEPTION WHEN OTHERS THEN
-        -- تجاهل الأخطاء في حال لم يكن المتغير معرفاً
-    END;
-
-    -- 1. الأولوية لـ org_id في التوكن (JWT Claims) لسرعة الأداء ودعم التبديل بين الشركات
-    _org_id := COALESCE(
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'user_metadata' ->> 'org_id', '')::uuid,
-        NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'org_id', '')::uuid
-    );
-    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
-    
-    -- 2. Fallback: جلب المنظمة من البروفايل (المصدر الثابت)
-    SELECT organization_id, role INTO _org_id, _role FROM public.profiles WHERE id = _user_id LIMIT 1;
-    IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
-
-    -- 3. [جديد] إذا كان المستخدم موثقاً ودوره 'admin' (وليس 'super_admin') ولم يتم تحديد منظمة بعد،
-    -- ابحث عن أول منظمة يكون هذا المستخدم مديراً لها في جدول الأدوار.
-    IF _user_id IS NOT NULL AND _role = 'admin' AND _org_id IS NULL THEN
-        SELECT r.organization_id INTO _org_id
-        FROM public.roles r JOIN public.role_permissions rp ON r.id = rp.role_id JOIN public.permissions p ON rp.permission_id = p.id
-        WHERE r.organization_id IS NOT NULL AND r.name = 'admin' AND p.module = 'admin' AND p.action = 'manage' LIMIT 1;
-        IF _org_id IS NOT NULL THEN RETURN _org_id; END IF;
+    IF _user_id IS NULL THEN
+        RETURN 'anon';
     END IF;
 
+    -- 1. المرجع الأوحد والموثق: جدول profiles الخاضع لحراس الأمان
+    SELECT role INTO _role FROM public.profiles WHERE id = _user_id LIMIT 1;
+    IF _role IS NOT NULL THEN 
+        RETURN _role; 
+    END IF;
+
+    -- 2. الفحص الاحتياطي من app_metadata الحصري لإدارة السيرفر (غير قابل للتعديل من العميل)
+    BEGIN
+        _role := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'role', '');
+        IF _role IS NOT NULL THEN 
+            RETURN _role; 
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
+
+    RETURN 'viewer';
+END; 
+$$;
+
+CREATE OR REPLACE FUNCTION public.get_my_org() 
+RETURNS uuid 
+LANGUAGE plpgsql 
+SECURITY DEFINER 
+SET search_path = public
+AS $$
+DECLARE 
+    _org_id uuid;
+    _user_id uuid := auth.uid();
+BEGIN
+    IF _user_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    -- 0. فحص متغير الجلسة السيرفرية المؤقت (لتشغيل الاختبارات والهجرات الإدارية)
+    BEGIN
+        _org_id := NULLIF(current_setting('app.current_org_id', true), '')::uuid;
+        IF _org_id IS NOT NULL THEN
+            RETURN _org_id;
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
+
+    -- 1. المرجع الأوحد والموثق: جدول profiles المحمي
+    SELECT organization_id INTO _org_id FROM public.profiles WHERE id = _user_id LIMIT 1;
+    IF _org_id IS NOT NULL THEN 
+        RETURN _org_id; 
+    END IF;
+
+    -- 2. الفحص الاحتياطي من app_metadata الحصري لإدارة السيرفر
+    BEGIN
+        _org_id := NULLIF(current_setting('request.jwt.claims', true)::jsonb -> 'app_metadata' ->> 'org_id', '')::uuid;
+        IF _org_id IS NOT NULL THEN 
+            RETURN _org_id; 
+        END IF;
+    EXCEPTION WHEN OTHERS THEN
+        NULL;
+    END;
+
     RETURN NULL;
+END; 
+$$;
 
 END; $$;
 

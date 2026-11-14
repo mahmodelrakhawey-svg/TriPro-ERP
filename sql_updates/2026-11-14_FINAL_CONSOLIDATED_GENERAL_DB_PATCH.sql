@@ -47,7 +47,11 @@ BEGIN
         RETURN true;
     END IF;
 
-    -- 🛡️ التحقق الأمني الصارم من صلاحيات المستخدم المتصل
+    -- 🛡️ التحقق الأمني الصارم من هوية وصلاحيات المستخدم المتصل
+    IF v_caller_id IS NULL AND auth.role() <> 'service_role' THEN
+        RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: تم رفض الوصول. يجب تسجيل الدخول لإلغاء ترحيل مرتجع المشتريات.';
+    END IF;
+
     IF v_caller_id IS NOT NULL THEN
         SELECT role INTO v_caller_role FROM public.profiles WHERE id = v_caller_id;
         IF COALESCE(v_caller_role, '') NOT IN ('super_admin', 'admin', 'manager', 'accountant', 'owner') THEN
@@ -168,10 +172,22 @@ BEGIN
         RAISE EXCEPTION 'مرتجع المشتريات غير موجود (ID: %)', p_return_id;
     END IF;
 
+    -- 🛡️ التحقق الأمني من هوية وصلاحيات المستخدم المتصل
+    IF v_caller_id IS NULL AND auth.role() <> 'service_role' THEN
+        RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: تم رفض الوصول. يجب تسجيل الدخول لحذف مرتجع المشتريات.';
+    END IF;
+
     IF v_caller_id IS NOT NULL THEN
         SELECT role INTO v_caller_role FROM public.profiles WHERE id = v_caller_id;
         IF COALESCE(v_caller_role, '') NOT IN ('super_admin', 'admin', 'manager', 'accountant', 'owner') THEN
             RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: لا تملك الصلاحية اللازمة لحذف مرتجع المشتريات.';
+        END IF;
+
+        -- 🛡️ صمام أمان عزل المنشآت الصارم (Tenant Isolation Guard)
+        IF v_org_id IS NOT NULL 
+           AND v_org_id <> public.get_my_org() 
+           AND COALESCE(v_caller_role, '') NOT IN ('super_admin') THEN
+            RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: هذا المرتجع يتبع منشأة أخرى ولا يحق لك حذفه.';
         END IF;
     END IF;
 
