@@ -346,46 +346,14 @@ const EmployeeAdvances = () => {
 
     setSaving(true);
     try {
-      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
-
       // 1. محاولة الحذف عبر الإجراء المخزن المحمي بقاعدة البيانات
       const { error: rpcError } = await supabase.rpc('delete_employee_advance', {
         p_advance_id: adv.id
       });
 
       if (rpcError) {
-        logger.warn('delete_employee_advance RPC failed, executing direct fallback:', rpcError);
-
-        // Fallback: حذف القيد المحاسبي المرتبط إن وجد
-        const ref = adv.reference;
-        if (ref) {
-          const { data: entries } = await supabase
-            .from('journal_entries')
-            .select('id, organization_id')
-            .eq('reference', ref);
-
-          if (entries && entries.length > 0) {
-            for (const entry of entries) {
-              const { error: delEntryError } = await supabase.rpc('delete_journal_entry_safe', {
-                p_entry_id: entry.id,
-                p_org_id: entry.organization_id || orgId
-              });
-
-              if (delEntryError) {
-                await supabase.from('journal_lines').delete().eq('journal_entry_id', entry.id);
-                await supabase.from('journal_entries').delete().eq('id', entry.id);
-              }
-            }
-          }
-        }
-
-        // حذف سجل السلفة نفسه
-        const { error: delError } = await supabase
-          .from('employee_advances')
-          .delete()
-          .eq('id', adv.id);
-
-        if (delError) throw delError;
+        logger.error('delete_employee_advance RPC failed:', rpcError);
+        throw new Error(rpcError.message || 'فشل حذف السلفة من قاعدة البيانات');
       }
 
       showToast(`تم حذف سلفة الموظف "${empName}" وإلغاء أثرها المالي بنجاح 🗑️`, 'success');
@@ -438,10 +406,7 @@ const EmployeeAdvances = () => {
       const employee = employees.find(e => e.id === formData.employeeId);
 
       if (editingId) {
-        // --- 1. وضع التعديل (Edit Mode) ---
-        let updateSucceeded = false;
-
-        // استدعاء الإجراء المخزن المباشر لضمان التعديل المترابط والمحمي
+        // --- 1. وضع التعديل (Edit Mode) عبر الإجراء المحاسبي المحمي بالكامل ---
         const { error: rpcError } = await supabase.rpc('update_employee_advance', {
           p_advance_id: editingId,
           p_employee_id: formData.employeeId,
@@ -451,111 +416,12 @@ const EmployeeAdvances = () => {
           p_notes: formData.notes || ''
         });
 
-        if (!rpcError) {
-          updateSucceeded = true;
-        } else {
-          logger.warn('update_employee_advance RPC failed, executing direct fallback:', rpcError);
-          // Fallback: التعديل المباشر على جدول السلف
-          const { error: updateError } = await supabase
-            .from('employee_advances')
-            .update({
-              employee_id: formData.employeeId,
-              amount: formData.amount,
-              request_date: formData.date,
-              advance_date: formData.date,
-              treasury_account_id: formData.treasuryId,
-              notes: formData.notes
-            })
-            .eq('id', editingId);
-
-          if (updateError) throw updateError;
-
-          // تحديث ومزامنة القيد المحاسبي
-          const existingAdv = advances.find(a => a.id === editingId);
-          let ref = existingAdv?.reference;
-          if (!ref || ref.trim() === '') {
-            ref = `ADV-${Date.now().toString().slice(-6)}`;
-            await supabase
-              .from('employee_advances')
-              .update({ reference: ref })
-              .eq('id', editingId);
-          }
-
-          const { data: journalEntries } = await supabase
-            .from('journal_entries')
-            .select('id, status')
-            .eq('reference', ref)
-            .limit(1);
-
-          const advancesAcc = getSystemAccount('EMPLOYEE_ADVANCES') || accounts.find(a => a.code === '1223');
-          const empName = employee?.full_name || '';
-
-          if (journalEntries && journalEntries.length > 0) {
-            const jEntry = journalEntries[0];
-
-            // إلغاء ترحيل القيد مؤقتاً لتعديل أسطره
-            await supabase
-              .from('journal_entries')
-              .update({ 
-                status: 'draft', 
-                is_posted: false,
-                transaction_date: formData.date,
-                description: `صرف سلفة للموظف ${empName}`
-              })
-              .eq('id', jEntry.id);
-
-            await supabase
-              .from('journal_lines')
-              .delete()
-              .eq('journal_entry_id', jEntry.id);
-
-            if (advancesAcc) {
-              await supabase.from('journal_lines').insert([
-                {
-                  journal_entry_id: jEntry.id,
-                  account_id: advancesAcc.id,
-                  debit: formData.amount,
-                  credit: 0,
-                  description: `سلفة موظف - ${empName}`,
-                  organization_id: orgId
-                },
-                {
-                  journal_entry_id: jEntry.id,
-                  account_id: formData.treasuryId,
-                  debit: 0,
-                  credit: formData.amount,
-                  description: 'صرف نقدية لسلفة',
-                  organization_id: orgId
-                }
-              ]);
-            }
-
-            // إعادة ترحيل القيد
-            await supabase
-              .from('journal_entries')
-              .update({ status: 'posted', is_posted: true })
-              .eq('id', jEntry.id);
-          } else {
-            // 🛡️ حماية استباقية: إذا لم يكن هناك قيد سابق، يتم إنشاؤه فوراً لضمان ظهوره في الأستاذ والخزينة!
-            if (advancesAcc) {
-              await addEntry({
-                date: formData.date,
-                description: `صرف سلفة للموظف ${empName}`,
-                reference: ref,
-                status: 'posted',
-                lines: [
-                  { account_id: advancesAcc.id, accountId: advancesAcc.id, debit: formData.amount, credit: 0, description: `سلفة موظف - ${empName}` },
-                  { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: 'صرف نقدية لسلفة' }
-                ]
-              });
-            }
-          }
-          updateSucceeded = true;
+        if (rpcError) {
+          logger.error('update_employee_advance RPC failed:', rpcError);
+          throw new Error(rpcError.message || 'فشل تحديث السلفة والقيد المحاسبي في قاعدة البيانات');
         }
 
-        if (updateSucceeded) {
-          showToast('تم تعديل بيانات السلفة وتحديث القيد المحاسبي بنجاح ✅', 'success');
-        }
+        showToast('تم تعديل بيانات السلفة وتحديث القيد المحاسبي بنجاح ✅', 'success');
       } else {
         // --- 2. وضع الإضافة الجديد (Create Mode) ---
         const reference = `ADV-${Date.now().toString().slice(-6)}`;
