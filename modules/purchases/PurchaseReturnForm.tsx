@@ -7,7 +7,7 @@ import { useToast } from '../../context/ToastContext';
 import { 
   RotateCw, Save, Loader2, Plus, Trash2, AlertCircle, 
   ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, 
-  Printer, List, RefreshCw, FileText, Search
+  Printer, List, RefreshCw, FileText, Search, Unlock
 } from 'lucide-react';
 import { createPurchaseReturnSchema } from '../../utils/validationSchemas';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -16,7 +16,19 @@ import ProductSearchSelect from '../../components/ProductSearchSelect';
 import SupplierSearchSelect from '../../components/SupplierSearchSelect';
 
 const PurchaseReturnForm = () => {
-  const { suppliers, products, warehouses, settings, purchaseInvoices, currentUser } = useAccounting();
+  const { 
+    suppliers, 
+    products, 
+    warehouses, 
+    settings, 
+    purchaseInvoices, 
+    currentUser,
+    can,
+    unpostPurchaseReturn,
+    deletePurchaseReturn
+  } = useAccounting();
+  const currentUserRole = (currentUser as any)?.role || '';
+  const canUnpost = can?.('accounting', 'unpost') || can?.('purchases', 'unpost') || can?.('purchases', 'delete') || ['admin', 'super_admin', 'owner', 'manager'].includes(currentUserRole);
   const navigate = useNavigate();
   const location = useLocation();
   const { showToast } = useToast();
@@ -278,6 +290,38 @@ const PurchaseReturnForm = () => {
     showToast('تم فتح نموذج مرتجع مشتريات جديد ➕', 'info');
   };
 
+  // 🛡️ إلغاء ترحيل مرتجع المشتريات للتعديل (خاص بالمحاسبين والمديرين)
+  const handleUnpostReturn = async () => {
+    if (!editingId) return;
+
+    if (!canUnpost) {
+      showToast('عفواً، لا تملك الصلاحية اللازمة لإلغاء ترحيل مرتجعات المشتريات. يرجى مراجعة الإدارة المالية.', 'error');
+      return;
+    }
+
+    if (!window.confirm(`هل أنت متأكد من إلغاء ترحيل مرتجع المشتريات رقم (${formData.returnNumber})؟\n\nسيتم:\n1- عكس حركة المخزون وإعادة الكميات المرتجعة للمستودع.\n2- حذف القيد المحاسبي بالكامل وعكس أثره على حساب المورد ودفتر الأستاذ.\n3- تحويل المرتجع إلى مسودة (Draft) لتتمكن من تعديله بحرية.`)) {
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const success = await unpostPurchaseReturn(editingId, formData.originalInvoiceOrgId || undefined);
+      if (success) {
+        showToast('تم إلغاء ترحيل مرتجع المشتريات وتحويله لمسودة بنجاح ✅', 'success');
+        setFormData(prev => ({ ...prev, status: 'draft' }));
+        await loadReturnById(editingId);
+      } else {
+        throw new Error('فشلت عملية إلغاء الترحيل');
+      }
+    } catch (err: unknown) {
+      logger.error('Error unposting purchase return:', err);
+      const msg = err instanceof Error ? err.message : 'حدث خطأ غير متوقع';
+      showToast('فشل إلغاء الترحيل: ' + msg, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleItemChange = (index: number, field: string, value: DynamicParam) => {
     const newItems = [...items];
     newItems[index][field] = value;
@@ -337,6 +381,12 @@ const PurchaseReturnForm = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     
+    // 🛡️ صمام أمان عدم القابلية للتعديل المباشر للمرتجعات المرحلة
+    if (editingId && formData.status === 'posted') {
+      showToast('❌ لا يمكن تعديل مرتجع المشتريات المرحل مباشرة حفاظاً على سلامة المخزون والدفاتر المحاسبية. يرجى إلغاء الترحيل أولاً لتحويله إلى مسودة.', 'warning');
+      return;
+    }
+
     const validationResult = createPurchaseReturnSchema.safeParse({ ...formData, items });
     if (!validationResult.success) {
         showToast(validationResult.error.issues[0].message, 'warning');
@@ -358,33 +408,7 @@ const PurchaseReturnForm = () => {
       let returnIdToApprove = editingId;
 
       if (editingId) {
-        // وضع التعديل: عكس القديم أولاً
-        const { data: oldRet } = await supabase.from('purchase_returns').select('*, purchase_return_items(*)').eq('id', editingId).single();
-        if (oldRet && oldRet.status === 'posted') {
-          // إعادة إضافة الكميات للمخزون
-          for (const oldItem of (oldRet.purchase_return_items || [])) {
-            if (oldItem.product_id && oldItem.quantity) {
-              const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', oldItem.product_id).single();
-              if (prod) {
-                const newStock = (Number(prod.stock) || 0) + Number(oldItem.quantity);
-                let newWStock = prod.warehouse_stock || {};
-                if (oldRet.warehouse_id && newWStock[oldRet.warehouse_id] !== undefined) {
-                  newWStock[oldRet.warehouse_id] = (Number(newWStock[oldRet.warehouse_id]) || 0) + Number(oldItem.quantity);
-                }
-                await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', oldItem.product_id);
-              }
-            }
-          }
-
-          // حذف القيد القديم
-          if (oldRet.related_journal_entry_id) {
-            await supabase.from('journal_entries').delete().eq('id', oldRet.related_journal_entry_id);
-          } else {
-            await supabase.from('journal_entries').delete().eq('organization_id', targetOrgId).eq('reference', oldRet.return_number);
-          }
-        }
-
-        // تحديث الرأس
+        // تحديث الرأس (المرتجع في حالة مسودة فقط بعد فك الترحيل)
         const { error: updateError } = await supabase.from('purchase_returns').update({
           supplier_id: formData.supplierId,
           original_invoice_id: formData.originalInvoiceId || null,
@@ -476,57 +500,38 @@ const PurchaseReturnForm = () => {
   const handleDeleteCurrent = async () => {
     if (!editingId) return;
 
-    if (!window.confirm(`هل أنت متأكد من حذف مرتجع المشتريات رقم (${formData.returnNumber})؟\nسيتم إلغاء أثره على المخزون والقيد المحاسبي بالكامل.`)) {
+    // 🛡️ حظر حذف المرتجع المرحل مباشرة
+    if (formData.status === 'posted') {
+      showToast('❌ لا يمكن حذف مرتجع المشتريات المرحل مباشرة حفاظاً على توازن الحسابات والمخزون. يرجى إلغاء الترحيل أولاً لتحويله إلى مسودة ثم حذفه.', 'warning');
+      return;
+    }
+
+    if (!window.confirm(`هل أنت متأكد من حذف مسودة مرتجع المشتريات رقم (${formData.returnNumber})؟`)) {
       return;
     }
 
     setDeleting(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const success = await deletePurchaseReturn(editingId, formData.originalInvoiceOrgId || undefined);
+      if (success) {
+        showToast('تم حذف مسودة مرتجع المشتريات بنجاح ✅', 'success');
 
-      const { data: ret } = await supabase.from('purchase_returns').select('*, purchase_return_items(*)').eq('id', editingId).single();
-      if (ret && ret.status === 'posted') {
-        for (const item of (ret.purchase_return_items || [])) {
-          if (item.product_id && item.quantity) {
-            const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
-            if (prod) {
-              const newStock = (Number(prod.stock) || 0) + Number(item.quantity);
-              let newWStock = prod.warehouse_stock || {};
-              if (ret.warehouse_id && newWStock[ret.warehouse_id] !== undefined) {
-                newWStock[ret.warehouse_id] = (Number(newWStock[ret.warehouse_id]) || 0) + Number(item.quantity);
-              }
-              await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', item.product_id);
-            }
-          }
-        }
+        const newIds = returnIds.filter(id => id !== editingId);
+        setReturnIds(newIds);
 
-        if (ret.related_journal_entry_id) {
-          await supabase.from('journal_entries').delete().eq('id', ret.related_journal_entry_id);
+        if (newIds.length > 0) {
+          const nextId = newIds[Math.min(currentIndex, newIds.length - 1)];
+          loadReturnById(nextId);
         } else {
-          await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', ret.return_number);
+          handleNewReturn();
         }
-      }
-
-      await supabase.from('purchase_return_items').delete().eq('purchase_return_id', editingId);
-      const { error: delErr } = await supabase.from('purchase_returns').delete().eq('id', editingId);
-      if (delErr) throw delErr;
-
-      showToast('تم حذف مرتجع المشتريات وعكس الحركات بنجاح ✅', 'success');
-
-      const newIds = returnIds.filter(id => id !== editingId);
-      setReturnIds(newIds);
-
-      if (newIds.length > 0) {
-        const nextId = newIds[Math.min(currentIndex, newIds.length - 1)];
-        loadReturnById(nextId);
       } else {
-        handleNewReturn();
+        throw new Error('فشلت عملية الحذف');
       }
-
-    } catch (err) {
+    } catch (err: unknown) {
       logger.error('Error deleting purchase return:', err);
-      showToast('فشل حذف المرتجع: ' + err.message, 'error');
+      const msg = err instanceof Error ? err.message : 'حدث خطأ';
+      showToast('فشل حذف المرتجع: ' + msg, 'error');
     } finally {
       setDeleting(false);
     }
@@ -689,31 +694,89 @@ const PurchaseReturnForm = () => {
                 <Printer size={16} /> طباعة
               </button>
 
-              <button 
-                type="button" 
-                onClick={handleDeleteCurrent} 
-                disabled={deleting} 
-                className="bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                title="حذف هذا المرتجع"
-              >
-                {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />} حذف
-              </button>
+              {formData.status !== 'posted' && (
+                <button 
+                  type="button" 
+                  onClick={handleDeleteCurrent} 
+                  disabled={deleting} 
+                  className="bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  title="حذف هذا المرتجع"
+                >
+                  {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />} حذف
+                </button>
+              )}
             </>
           )}
 
-          <button 
-            type="button" 
-            onClick={handleSave} 
-            disabled={saving} 
-            className="bg-orange-600 text-white px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-orange-700 transition-colors shadow-sm disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />} 
-            {editingId ? 'حفظ التعديلات' : 'حفظ وترحيل'}
-          </button>
+          {formData.status === 'posted' ? (
+            canUnpost && (
+              <button
+                type="button"
+                onClick={handleUnpostReturn}
+                disabled={saving}
+                className="bg-amber-600 hover:bg-amber-700 text-white px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+                title="إلغاء الترحيل للتعديل"
+              >
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Unlock size={16} />}
+                إلغاء الترحيل للتعديل
+              </button>
+            )
+          ) : (
+            <button 
+              type="button" 
+              onClick={handleSave} 
+              disabled={saving} 
+              className="bg-orange-600 text-white px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-orange-700 transition-colors shadow-sm disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />} 
+              {editingId ? 'حفظ التعديلات' : 'حفظ وترحيل'}
+            </button>
+          )}
         </div>
       </div>
 
+      {/* 🛡️ صمام حماية المستندات المرحلة (Posted Document Shield Banner) */}
+      {formData.status === 'posted' && (
+        <div className="bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border-2 border-amber-300 rounded-3xl p-5 shadow-sm mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in">
+          <div className="flex items-start md:items-center gap-3.5">
+            <div className="p-3 bg-amber-500 text-white rounded-2xl shadow-sm">
+              <AlertCircle size={26} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-black text-slate-900 text-base">مرتجع مشتريات مرحل محاسبياً (Posted Return)</h4>
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-200 text-amber-900">
+                  مرحل ومقفل
+                </span>
+              </div>
+              <p className="text-xs text-amber-900 mt-1 leading-relaxed font-medium">
+                هذا المرتجع معتمد ومرحل في حسابات الموردين ودفتر الأستاذ والمخزون. لا يمكن تعديله أو حذفه مباشرة حفاظاً على سلامة الحسابات. لإجراء تعديلات، يرجى إلغاء الترحيل أولاً لتحويله إلى مسودة (Draft) إذا كانت لديك الصلاحية.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 self-end md:self-center shrink-0">
+            {canUnpost ? (
+              <button
+                type="button"
+                onClick={handleUnpostReturn}
+                disabled={saving}
+                className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs rounded-xl shadow-md shadow-amber-600/20 transition-all flex items-center gap-2"
+                title="إلغاء الترحيل وتحويل المرتجع لمسودة قابلة للتعديل"
+              >
+                {saving ? <Loader2 size={16} className="animate-spin" /> : <Unlock size={16} />}
+                إلغاء الترحيل للتعديل
+              </button>
+            ) : (
+              <div className="text-xs text-slate-500 font-bold bg-white/70 px-3 py-2 rounded-xl border border-amber-200">
+                🔒 يتطلب صلاحية محاسب أو مدير لإلغاء الترحيل
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <form onSubmit={handleSave} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+        <fieldset disabled={formData.status === 'posted'} className="space-y-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-3">
             <SupplierSearchSelect
@@ -879,12 +942,28 @@ const PurchaseReturnForm = () => {
             </div>
           </div>
         </div>
+        </fieldset>
 
         <div className="flex justify-end pt-2">
-          <button type="submit" disabled={saving} className="bg-orange-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-orange-700 flex items-center gap-2 shadow-md transition-colors disabled:opacity-50">
-            {saving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />} 
-            {editingId ? 'حفظ وتحديث مرتجع المشتريات' : 'حفظ وترحيل مرتجع المشتريات'}
-          </button>
+          {formData.status === 'posted' ? (
+            canUnpost && (
+              <button 
+                type="button" 
+                onClick={handleUnpostReturn} 
+                disabled={saving} 
+                className="bg-amber-600 hover:bg-amber-700 text-white px-8 py-3 rounded-xl font-bold flex items-center gap-2 shadow-md transition-colors disabled:opacity-50"
+                title="إلغاء الترحيل للتعديل"
+              >
+                {saving ? <Loader2 className="animate-spin" size={18} /> : <Unlock size={18} />} 
+                إلغاء الترحيل للتعديل
+              </button>
+            )
+          ) : (
+            <button type="submit" disabled={saving} className="bg-orange-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-orange-700 flex items-center gap-2 shadow-md transition-colors disabled:opacity-50">
+              {saving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />} 
+              {editingId ? 'حفظ وتحديث مرتجع المشتريات' : 'حفظ وترحيل مرتجع المشتريات'}
+            </button>
+          )}
         </div>
       </form>
 

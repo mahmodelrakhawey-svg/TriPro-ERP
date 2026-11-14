@@ -30,6 +30,8 @@ export interface SupplierDomainState {
   approvePurchaseInvoice: (id: string, orgId?: string, warehouseId?: string) => Promise<void>;
   unpostPurchaseInvoice: (id: string, orgId?: string) => Promise<boolean>;
   deletePurchaseInvoice: (id: string, orgId?: string) => Promise<boolean>;
+  unpostPurchaseReturn: (id: string, orgId?: string) => Promise<boolean>;
+  deletePurchaseReturn: (id: string, orgId?: string) => Promise<boolean>;
   convertPoToInvoice: (poId: string, warehouseId?: string, orgId?: string) => Promise<void>;
   refreshSuppliers: () => Promise<void>;
   refreshPurchaseInvoices?: () => Promise<void>;
@@ -404,6 +406,36 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
     return true;
   }, [targetOrgId, currentUser, fetchInvoices]);
 
+  const unpostPurchaseReturn = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
+    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
+    const { error } = await supabase.rpc('unpost_purchase_return', {
+      p_return_id: id,
+      p_org_id: effectiveOrg
+    });
+
+    if (error) {
+      logger.warn('RPC unpost_purchase_return error:', error);
+      throw error;
+    }
+
+    return true;
+  }, [targetOrgId, currentUser]);
+
+  const deletePurchaseReturn = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
+    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
+    const { error } = await supabase.rpc('delete_purchase_return', {
+      p_return_id: id,
+      p_org_id: effectiveOrg
+    });
+
+    if (error) {
+      logger.warn('RPC delete_purchase_return error:', error);
+      throw error;
+    }
+
+    return true;
+  }, [targetOrgId, currentUser]);
+
   const convertPoToInvoice = useCallback(async (id: string, warehouseId?: string, customOrgId?: string): Promise<void> => {
     const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
 
@@ -459,6 +491,8 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
     approvePurchaseInvoice,
     unpostPurchaseInvoice,
     deletePurchaseInvoice,
+    unpostPurchaseReturn,
+    deletePurchaseReturn,
     convertPoToInvoice,
     refreshSuppliers: fetchSuppliers,
     refreshPurchaseInvoices: () => fetchInvoices(true),
@@ -471,6 +505,8 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
     approvePurchaseInvoice,
     unpostPurchaseInvoice,
     deletePurchaseInvoice,
+    unpostPurchaseReturn,
+    deletePurchaseReturn,
     convertPoToInvoice,
     fetchSuppliers,
     fetchInvoices,
@@ -503,6 +539,8 @@ export const useSupplierDomain = (): SupplierDomainState => {
     approvePurchaseInvoice: acc.approvePurchaseInvoice as (id: string, orgId?: string, warehouseId?: string) => Promise<void>,
     unpostPurchaseInvoice: acc.unpostPurchaseInvoice as (id: string, orgId?: string) => Promise<boolean>,
     deletePurchaseInvoice: acc.deletePurchaseInvoice as (id: string, orgId?: string) => Promise<boolean>,
+    unpostPurchaseReturn: acc.unpostPurchaseReturn as (id: string, orgId?: string) => Promise<boolean>,
+    deletePurchaseReturn: acc.deletePurchaseReturn as (id: string, orgId?: string) => Promise<boolean>,
     convertPoToInvoice: acc.convertPoToInvoice as (poId: string, warehouseId?: string, orgId?: string) => Promise<void>,
     refreshSuppliers: (acc.refreshSuppliers as () => Promise<void>) || (acc.refreshData as () => Promise<void>),
   };

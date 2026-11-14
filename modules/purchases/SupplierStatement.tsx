@@ -102,34 +102,41 @@ const SupplierStatement = () => {
 
         if (!userOrgId) return;
 
-        const filter = { supplier_id: selectedSupplierId, organization_id: userOrgId };
-
         // 1. جلب الفواتير (دائن - تزيد الرصيد) المعتمدة والمرحلة فقط
-        const invoices = await fetchCompleteDataset(async (from, to) => 
-            supabase.from('purchase_invoices')
+        const invoices = await fetchCompleteDataset(async (from, to) => {
+            let q = supabase.from('purchase_invoices')
                 .select('id, invoice_number, invoice_date, total_amount, notes, paid_amount, status')
-                .match(filter)
-                .in('status', ['posted', 'paid'])
-                .range(from, to)
-        );
+                .eq('supplier_id', selectedSupplierId)
+                .in('status', ['posted', 'paid']);
+            if (userOrgId) {
+                q = q.or(`organization_id.eq.${userOrgId},organization_id.is.null`);
+            }
+            return q.range(from, to);
+        });
 
         // 2. جلب المرتجعات (مدين - تنقص الرصيد)
-        const returns = await fetchCompleteDataset(async (from, to) =>
-            supabase.from('purchase_returns')
-                .select('id, return_number, return_date, total_amount, notes')
-                .match(filter)
-                .eq('status', 'posted')
-                .range(from, to)
-        );
+        const returns = await fetchCompleteDataset(async (from, to) => {
+            let q = supabase.from('purchase_returns')
+                .select('id, return_number, return_date, total_amount, notes, status')
+                .eq('supplier_id', selectedSupplierId)
+                .neq('status', 'cancelled');
+            if (userOrgId) {
+                q = q.or(`organization_id.eq.${userOrgId},organization_id.is.null`);
+            }
+            return q.range(from, to);
+        });
 
         // 3. جلب سندات الصرف المعتمدة فقط (استبعاد المرفوضة والملغاة والمعلقة للاعتماد)
-        const rawPayments = await fetchCompleteDataset(async (from, to) =>
-            supabase.from('payment_vouchers')
+        const rawPayments = await fetchCompleteDataset(async (from, to) => {
+            let q = supabase.from('payment_vouchers')
                 .select('id, voucher_number, payment_date, amount, notes, status, deleted_at')
-                .match(filter)
-                .is('deleted_at', null)
-                .range(from, to)
-        );
+                .eq('supplier_id', selectedSupplierId)
+                .is('deleted_at', null);
+            if (userOrgId) {
+                q = q.or(`organization_id.eq.${userOrgId},organization_id.is.null`);
+            }
+            return q.range(from, to);
+        });
 
         const payments = (rawPayments || []).filter((p: Record<string, any>) => {
             if (p.deleted_at) return false;
@@ -141,24 +148,29 @@ const SupplierStatement = () => {
         });
 
         // 4. جلب الإشعارات المدينة (مدين - تنقص الرصيد)
-        const debitNotes = await fetchCompleteDataset(async (from, to) =>
-            supabase.from('debit_notes')
+        const debitNotes = await fetchCompleteDataset(async (from, to) => {
+            let q = supabase.from('debit_notes')
                 .select('id, debit_note_number, note_date, total_amount, notes')
-                .match(filter)
-                .eq('status', 'posted')
-                .range(from, to)
-        );
+                .eq('supplier_id', selectedSupplierId)
+                .eq('status', 'posted');
+            if (userOrgId) {
+                q = q.or(`organization_id.eq.${userOrgId},organization_id.is.null`);
+            }
+            return q.range(from, to);
+        });
 
         // 5. جلب الشيكات الصادرة (مدين - تنقص الرصيد)
-        const cheques = await fetchCompleteDataset(async (from, to) =>
-            supabase.from('cheques')
+        const cheques = await fetchCompleteDataset(async (from, to) => {
+            let q = supabase.from('cheques')
                 .select('id, cheque_number, due_date, amount, notes, created_at')
                 .eq('party_id', selectedSupplierId)
-                .eq('organization_id', userOrgId)
                 .eq('type', 'outgoing')
-                .neq('status', 'rejected')
-                .range(from, to)
-        );
+                .neq('status', 'rejected');
+            if (userOrgId) {
+                q = q.or(`organization_id.eq.${userOrgId},organization_id.is.null`);
+            }
+            return q.range(from, to);
+        });
 
         // 6. جلب مستخلصات مقاولي الباطن المعتمدة (إذا كان المورد مقاول باطن)
         let subBillingsData: any[] = [];
@@ -289,7 +301,7 @@ const SupplierStatement = () => {
         openingEntries?.forEach((line: Record<string, any>) => {
             const isDuplicate = allTrans.some(t => {
                 const clean = (r: unknown) => r?.toString().trim().toUpperCase()
-                    .replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '') || '';
+                    .replace(/^(CHQ-|PV-|PINV-|PUR-|PRET-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '') || '';
                 return clean(t.ref) === clean(line.journal_entries.reference);
             });
 
@@ -307,10 +319,11 @@ const SupplierStatement = () => {
         });
 
         manualEntries?.forEach((line: Record<string, any>) => {
-            // 🛡️ منع تكرار المستندات إذا كانت مسجلة بالفعل (مثل الشيكات أو الفواتير)
+            // 🛡️ منع تكرار المستندات إذا كانت مسجلة بالفعل (مثل الشيكات أو الفواتير أو المرتجعات)
             const isDuplicate = allTrans.some(t => {
+                if (t.docId && line.journal_entries?.related_document_id === t.docId) return true;
                 const clean = (r: unknown) => r?.toString().trim().toUpperCase()
-                    .replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '') || '';
+                    .replace(/^(CHQ-|PV-|PINV-|PUR-|PRET-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '') || '';
                 const r1 = clean(t.ref);
                 const r2 = clean(line.journal_entries.reference);
                 return r1 === r2 && r1 !== '' && r1 !== 'NULL';

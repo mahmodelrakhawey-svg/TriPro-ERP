@@ -214,35 +214,63 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
     manualJournalLines,
     openingJournalLines
   ] = await Promise.all([
-    fetchCompleteDataset(async (from, to) => supabase.from('suppliers').select('id, name, opening_balance').match(filter).is('deleted_at', null).range(from, to)),
-    fetchCompleteDataset(async (from, to) => supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount, invoice_number, status').match(filter).in('status', ['posted', 'paid']).range(from, to)),
-    fetchCompleteDataset(async (from, to) => supabase.from('payment_vouchers').select('supplier_id, amount, notes, voucher_number, status, deleted_at').match(filter).not('supplier_id', 'is', null).is('deleted_at', null).range(from, to)),
-    fetchCompleteDataset(async (from, to) => supabase.from('purchase_returns').select('supplier_id, total_amount, return_number').match(filter).eq('status', 'posted').range(from, to)),
-    fetchCompleteDataset(async (from, to) => supabase.from('debit_notes').select('supplier_id, total_amount, debit_note_number').match(filter).eq('status', 'posted').range(from, to)),
-    fetchCompleteDataset(async (from, to) => supabase.from('cheques').select('party_id, amount, cheque_number').match(filter).eq('type', 'outgoing').neq('status', 'rejected').range(from, to)),
+    fetchCompleteDataset(async (from, to) => {
+      let q = supabase.from('suppliers').select('id, name, opening_balance').is('deleted_at', null);
+      if (orgId) q = q.or(`organization_id.eq.${orgId},organization_id.is.null`);
+      return q.range(from, to);
+    }),
+    fetchCompleteDataset(async (from, to) => {
+      let q = supabase.from('purchase_invoices').select('supplier_id, total_amount, paid_amount, invoice_number, status').in('status', ['posted', 'paid']);
+      if (orgId) q = q.or(`organization_id.eq.${orgId},organization_id.is.null`);
+      return q.range(from, to);
+    }),
+    fetchCompleteDataset(async (from, to) => {
+      let q = supabase.from('payment_vouchers').select('supplier_id, amount, notes, voucher_number, status, deleted_at').not('supplier_id', 'is', null).is('deleted_at', null);
+      if (orgId) q = q.or(`organization_id.eq.${orgId},organization_id.is.null`);
+      return q.range(from, to);
+    }),
+    fetchCompleteDataset(async (from, to) => {
+      let q = supabase.from('purchase_returns').select('supplier_id, total_amount, return_number, status').neq('status', 'cancelled');
+      if (orgId) q = q.or(`organization_id.eq.${orgId},organization_id.is.null`);
+      return q.range(from, to);
+    }),
+    fetchCompleteDataset(async (from, to) => {
+      let q = supabase.from('debit_notes').select('supplier_id, total_amount, debit_note_number').eq('status', 'posted');
+      if (orgId) q = q.or(`organization_id.eq.${orgId},organization_id.is.null`);
+      return q.range(from, to);
+    }),
+    fetchCompleteDataset(async (from, to) => {
+      let q = supabase.from('cheques').select('party_id, amount, cheque_number').eq('type', 'outgoing').neq('status', 'rejected');
+      if (orgId) q = q.or(`organization_id.eq.${orgId},organization_id.is.null`);
+      return q.range(from, to);
+    }),
     fetchCompleteDataset(async (from, to) => supabase.from('vendor_rebate_settlements').select('vendor_id, total_claim_amount').match(filter).in('status', ['APPROVED', 'SETTLED']).range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('subcontractors').select('id, name, supplier_id').match(filter).range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('subcontractor_contracts').select('id, subcontractor_id').match(filter).range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('subcontractor_billings').select('contract_id, net_amount').match(filter).neq('status', 'draft').range(from, to)),
     // قيود اليومية اليدوية المؤثرة على حسابات الموردين
-    fetchCompleteDataset(async (from, to) => 
-      supabase.from('journal_lines')
+    fetchCompleteDataset(async (from, to) => {
+      let q = supabase.from('journal_lines')
         .select('debit, credit, account_id, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id, related_document_type), accounts!inner(code, name)')
         .eq('journal_entries.status', 'posted')
-        .or('code.ilike.201%,code.ilike.221%,code.ilike.2101%,name.ilike.%الموردين%,name.ilike.%موردين%', { foreignTable: 'accounts' })
-        .match(filter)
-        .range(from, to)
-    ),
+        .or('code.ilike.201%,code.ilike.221%,code.ilike.2101%,name.ilike.%الموردين%,name.ilike.%موردين%', { foreignTable: 'accounts' });
+      if (orgId) {
+        q = q.or(`organization_id.eq.${orgId},organization_id.is.null`);
+      }
+      return q.range(from, to);
+    }),
     // قيود الأرصدة الافتتاحية للموردين
-    fetchCompleteDataset(async (from, to) =>
-      supabase.from('journal_lines')
+    fetchCompleteDataset(async (from, to) => {
+      let q = supabase.from('journal_lines')
         .select('debit, credit, account_id, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id, related_document_type), accounts!inner(code, name)')
         .eq('journal_entries.status', 'posted')
         .eq('journal_entries.related_document_type', 'opening_balance')
-        .or('code.ilike.201%,code.ilike.221%,code.ilike.2101%,name.ilike.%الموردين%,name.ilike.%موردين%', { foreignTable: 'accounts' })
-        .match(filter)
-        .range(from, to)
-    )
+        .or('code.ilike.201%,code.ilike.221%,code.ilike.2101%,name.ilike.%الموردين%,name.ilike.%موردين%', { foreignTable: 'accounts' });
+      if (orgId) {
+        q = q.or(`organization_id.eq.${orgId},organization_id.is.null`);
+      }
+      return q.range(from, to);
+    })
   ]);
 
   if (!suppliers) return balances;
@@ -268,7 +296,7 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
   });
 
   const cleanRef = (r: string) => (r || '').toString().trim().toUpperCase()
-    .replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '');
+    .replace(/^(CHQ-|PV-|PINV-|PUR-|PRET-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '');
 
   suppliers.forEach(supplier => {
     const rawOpening = Number(supplier.opening_balance || 0);
@@ -417,41 +445,45 @@ export async function fetchSingleSupplierBalance(
     ] = await Promise.all([
       supabase.from('purchase_invoices')
         .select('invoice_number, invoice_date, total_amount, paid_amount')
-        .match(filter)
+        .eq('supplier_id', supplierId)
+        .or(orgId ? `organization_id.eq.${orgId},organization_id.is.null` : 'organization_id.is.null')
         .neq('status', 'draft'),
 
       supabase.from('payment_vouchers')
         .select('voucher_number, payment_date, amount, notes')
-        .match(filter),
+        .eq('supplier_id', supplierId)
+        .or(orgId ? `organization_id.eq.${orgId},organization_id.is.null` : 'organization_id.is.null'),
 
       supabase.from('purchase_returns')
         .select('return_number, total_amount')
-        .match(filter)
+        .eq('supplier_id', supplierId)
+        .or(orgId ? `organization_id.eq.${orgId},organization_id.is.null` : 'organization_id.is.null')
         .neq('status', 'draft'),
 
       supabase.from('debit_notes')
         .select('debit_note_number, total_amount')
-        .match(filter)
+        .eq('supplier_id', supplierId)
+        .or(orgId ? `organization_id.eq.${orgId},organization_id.is.null` : 'organization_id.is.null')
         .eq('status', 'posted'),
 
       supabase.from('cheques')
         .select('cheque_number, amount')
         .eq('party_id', supplierId)
-        .eq('organization_id', orgId)
+        .or(orgId ? `organization_id.eq.${orgId},organization_id.is.null` : 'organization_id.is.null')
         .eq('type', 'outgoing')
         .neq('status', 'rejected'),
 
       // قيود اليومية اليدوية المؤثرة على حسابات الموردين 201 / 221 / 2101
       supabase.from('journal_lines')
         .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id), accounts!inner(code, name)')
-        .eq('journal_entries.organization_id', orgId)
+        .or(orgId ? `journal_entries.organization_id.eq.${orgId},journal_entries.organization_id.is.null` : 'journal_entries.organization_id.is.null')
         .eq('journal_entries.status', 'posted')
         .or('code.ilike.201%,code.ilike.221%,code.ilike.2101%,name.ilike.%الموردين%,name.ilike.%موردين%', { foreignTable: 'accounts' }),
 
       // قيود الرصيد الافتتاحي في اليومية
       supabase.from('journal_lines')
         .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id, related_document_type), accounts!inner(code, name)')
-        .eq('journal_entries.organization_id', orgId)
+        .or(orgId ? `journal_entries.organization_id.eq.${orgId},journal_entries.organization_id.is.null` : 'journal_entries.organization_id.is.null')
         .eq('journal_entries.status', 'posted')
         .eq('journal_entries.related_document_id', supplierId)
         .eq('journal_entries.related_document_type', 'opening_balance')
@@ -512,7 +544,7 @@ export async function fetchSingleSupplierBalance(
                       (cheques.reduce((sum, c) => sum + Number(c.amount || 0), 0));
 
     const cleanRef = (r: string) => (r || '').toString().trim().toUpperCase()
-      .replace(/^(CHQ-|PV-|PINV-|PUR-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '');
+      .replace(/^(CHQ-|PV-|PINV-|PUR-|PRET-|PR-|DN-|JV-|SUB-BILL-|SUB-|OP-SUPP-|OP-)/i, '');
 
     const docRefs = new Set<string>();
     invoices.forEach(i => i.invoice_number && docRefs.add(cleanRef(i.invoice_number)));
