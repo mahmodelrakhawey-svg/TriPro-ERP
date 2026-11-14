@@ -16,7 +16,7 @@
 
 import { supabase } from '../supabaseClient';
 import { journalAuditService } from './journalAuditService';
-import { fetchCompleteDataset } from './balanceService';
+import { fetchCompleteDataset, fetchAllSupplierBalances } from './balanceService';
 
 export interface AuditCheckItem {
   id: string;
@@ -253,16 +253,31 @@ class AuditDaemonService {
     };
 
     try {
-      const { data: suppliers } = await supabase
-        .from('suppliers')
-        .select('balance')
-        .eq('organization_id', orgId)
-        .is('deleted_at', null);
+      // 1. الأولوية الأولى: جلب الأرصدة الحية المحسوبة للموردين (المطابقة لكشوف الحسابات 100%)
+      let totalSupplierBalances = 0;
+      try {
+        const canonicalBalances = await fetchAllSupplierBalances(orgId);
+        if (canonicalBalances && canonicalBalances.size > 0) {
+          totalSupplierBalances = Array.from(canonicalBalances.values()).reduce(
+            (sum, b) => sum + (Number(b) || 0),
+            0
+          );
+        }
+      } catch (_) {}
 
-      const totalSupplierBalances = (suppliers || []).reduce(
-        (sum, s) => sum + (Number(s.balance) || 0),
-        0
-      );
+      // 2. إذا لم تتوفر الأرصدة الحية، يتم الرجوع لعمود الجدول كاحتياطي
+      if (totalSupplierBalances === 0) {
+        const { data: suppliers } = await supabase
+          .from('suppliers')
+          .select('balance')
+          .eq('organization_id', orgId)
+          .is('deleted_at', null);
+
+        totalSupplierBalances = (suppliers || []).reduce(
+          (sum, s) => sum + (Number(s.balance) || 0),
+          0
+        );
+      }
 
       let glApBalance = 0;
       let apAccountId = '';
