@@ -63,8 +63,7 @@ BEGIN
 
         -- تحديث رأس القيد بالوصف الصحيح واسم الموظف الصحيح
         UPDATE public.journal_entries
-        SET description = 'صرف سلفة للموظف ' || COALESCE(v_new_emp_name, 'محمد هانى سعيد'),
-            updated_at = now()
+        SET description = 'صرف سلفة للموظف ' || COALESCE(v_new_emp_name, 'محمد هانى سعيد')
         WHERE id = v_journal_id;
 
         RAISE NOTICE '✅ تم تصحيح القيد ADV-445716 بنجاح وإزالة التكرار وضبط القيمة على 200 ج.م.';
@@ -76,8 +75,7 @@ BEGIN
     IF v_new_emp_id IS NOT NULL THEN
         UPDATE public.employee_advances
         SET employee_id = v_new_emp_id,
-            amount = 200.00,
-            updated_at = now()
+            amount = 200.00
         WHERE reference ILIKE '%445716%' OR notes ILIKE '%445716%';
 
         RAISE NOTICE '✅ تم ربط السلفة بالموظف الجديد: %', v_new_emp_name;
@@ -150,8 +148,7 @@ BEGIN
         advance_date = p_date,
         treasury_account_id = p_treasury_id,
         notes = p_notes,
-        reference = v_ref,
-        updated_at = now()
+        reference = v_ref
     WHERE id = p_advance_id;
 
     -- 5. جلب حساب سلف الموظفين (1223)
@@ -182,8 +179,7 @@ BEGIN
         UPDATE public.journal_entries
         SET date = p_date,
             transaction_date = p_date,
-            description = 'صرف سلفة للموظف ' || COALESCE(v_emp_name, ''),
-            updated_at = now()
+            description = 'صرف سلفة للموظف ' || COALESCE(v_emp_name, '')
         WHERE id = v_journal_id;
 
         -- حذف الأسطر السابقة بالكامل لمنع أي تكرار
