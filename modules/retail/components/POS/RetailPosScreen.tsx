@@ -480,7 +480,7 @@ export default function RetailPosScreen() {
     if (!currentUser) return;
     setIsSyncingProducts(true);
     try {
-      await offlineService.syncProductsLocally(currentUser.organization_id);
+      await offlineService.syncProductsLocally(currentUser.organization_id, true);
       showToast('تم تحديث قائمة المنتجات والباركود بنجاح 🔄', 'success');
       playBeep();
     } catch (e) {

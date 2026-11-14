@@ -607,18 +607,39 @@ export const offlineService = {
 
   /**
    * Syncs products from Supabase and stores them locally in IndexedDB.
+   * مزامنة الأصناف محلياً مع ترشيد استهلاك الباندويث (Smart TTL & Selective Columns)
    */
-  async syncProductsLocally(orgId: string): Promise<void> {
-    if (!navigator.onLine) return;
+  async syncProductsLocally(orgId: string, force: boolean = false): Promise<void> {
+    if (!navigator.onLine || !orgId) return;
+
+    const SYNC_CACHE_KEY = `tripro_products_last_synced_${orgId}`;
+    const SYNC_TTL_MS = 4 * 60 * 60 * 1000; // 4 ساعات كاش محلي آمن للأصناف في نقطة البيع
+    const lastSyncTimeStr = secureStorage.getItem<string>(SYNC_CACHE_KEY);
+    const lastSyncTime = lastSyncTimeStr ? parseInt(lastSyncTimeStr, 10) : 0;
+    const isFresh = lastSyncTime > 0 && (Date.now() - lastSyncTime < SYNC_TTL_MS);
+
+    if (!force && isFresh) {
+      try {
+        const localCount = await db.products.count();
+        if (localCount > 0) {
+          logger.log(`[offlineService] كاش المنتجات المحلي سليم ومحدث (${localCount} صنف، تم التحديث قبل ${Math.round((Date.now() - lastSyncTime) / 60000)} دقيقة). تم تخطي إعادة السحب عبر الشبكة.`);
+          return;
+        }
+      } catch {
+        // إذا فشل فحص قاعدة البيانات المحلية يتم المتابعة
+      }
+    }
+
     try {
       let data: Array<Record<string, unknown>> | null = null;
+      const POS_CORE_COLUMNS = 'id, organization_id, name, barcode, sku, sales_price, cost, category_id, stock, image_url, is_scale_item, plu_number, scale_prefix, barcode2, age_restricted, tax_rate_override, unit_barcodes, offer_price, offer_start_date, offer_end_date, min_sales_price, max_stock_level, wholesale_price, half_wholesale_price, warehouse_stock, is_produced, is_active, track_inventory, uom';
       
-      // 1. مزامنة شاملة لكافة منتجات الهايبرماركت ونقاط البيع دون سقف 1000 صنف
+      // 1. مزامنة أعمدة البيع الأساسية المحددة لترشيد حزمة الشبكة Egress
       try {
         const allData = await fetchCompleteDataset<Record<string, unknown>>(async (from, to) =>
           supabase
             .from('products')
-            .select('*')
+            .select(POS_CORE_COLUMNS)
             .eq('organization_id', orgId)
             .range(from, to)
         );
@@ -626,7 +647,7 @@ export const offlineService = {
           data = allData;
         }
       } catch (e) {
-        logger.warn('Offline product sync select(*) notice, attempting core columns:', e);
+        logger.warn('Offline product sync selective columns notice, attempting fallback columns:', e);
       }
 
       if (!data || data.length === 0) {
@@ -641,7 +662,7 @@ export const offlineService = {
         data = fallbackData || [];
       }
       
-      if (data) {
+      if (data && data.length > 0) {
         await db.products.clear();
         const productsToCache: CachedProduct[] = data.map((p: Record<string, unknown>) => ({
           id: String(p.id || ''),
@@ -670,6 +691,7 @@ export const offlineService = {
           warehouse_stock: (p.warehouse_stock as Record<string, number> | null) || null,
         }));
         await db.products.bulkAdd(productsToCache);
+        secureStorage.setItem(SYNC_CACHE_KEY, Date.now().toString());
         logger.log(`Synced ${productsToCache.length} products locally.`);
       }
     } catch (error) {

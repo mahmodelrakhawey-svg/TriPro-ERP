@@ -56,7 +56,7 @@ interface BalanceCacheEntry<T> {
 const supplierBalancesCache = new Map<string, BalanceCacheEntry<Map<string, number>>>();
 const customerBalancesCache = new Map<string, BalanceCacheEntry<Map<string, number>>>();
 const singleSupplierCache = new Map<string, BalanceCacheEntry<number>>();
-const BALANCE_CACHE_TTL_MS = 45000; // 45 ثانية لمنع تكرار التحميل عند التنقل السريع
+const BALANCE_CACHE_TTL_MS = 10 * 60 * 1000; // 10 دقائق كاش في الذاكرة لترشيد استهلاك سوباباز ومنع استنزاف الباندويث مع الإبطال الفوري عند التعديل
 
 export function invalidateBalanceCache(orgId?: string) {
   if (orgId) {

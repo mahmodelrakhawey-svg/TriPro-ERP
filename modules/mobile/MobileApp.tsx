@@ -872,7 +872,7 @@ export default function MobileApp() {
     setSyncingNow(true);
     try {
       if (currentOrgId) {
-        await offlineService.syncProductsLocally(currentOrgId);
+        await offlineService.syncProductsLocally(currentOrgId, true);
       }
       showToast('تم تحديث وتنزيل بيانات الأصناف محلياً بنجاح 🚀', 'success');
     } catch (err) {

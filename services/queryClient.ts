@@ -12,6 +12,7 @@
  */
 
 import { QueryClient } from '@tanstack/react-query';
+import { invalidateBalanceCache } from './balanceService';
 
 // ثوابت مدد الكاش الموحدة لترشيد استهلاك سوباباز والـ Egress
 export const STALE_TIMES = {
@@ -63,6 +64,7 @@ export const invalidateProducts = (orgId?: string | null) => {
 };
 
 export const invalidateCustomers = (orgId?: string | null) => {
+  invalidateBalanceCache(orgId || undefined);
   if (orgId) {
     queryClient.invalidateQueries({ queryKey: ['customers', orgId] });
   } else {
@@ -71,6 +73,7 @@ export const invalidateCustomers = (orgId?: string | null) => {
 };
 
 export const invalidateSuppliers = (orgId?: string | null) => {
+  invalidateBalanceCache(orgId || undefined);
   if (orgId) {
     queryClient.invalidateQueries({ queryKey: ['suppliers', orgId] });
   } else {
@@ -79,6 +82,7 @@ export const invalidateSuppliers = (orgId?: string | null) => {
 };
 
 export const invalidatePurchaseInvoices = (orgId?: string | null) => {
+  invalidateBalanceCache(orgId || undefined);
   if (orgId) {
     queryClient.invalidateQueries({ queryKey: ['purchase_invoices', orgId] });
   } else {
@@ -87,6 +91,7 @@ export const invalidatePurchaseInvoices = (orgId?: string | null) => {
 };
 
 export const invalidateSalesInvoices = (orgId?: string | null) => {
+  invalidateBalanceCache(orgId || undefined);
   if (orgId) {
     queryClient.invalidateQueries({ queryKey: ['sales_invoices', orgId] });
   } else {
@@ -95,6 +100,7 @@ export const invalidateSalesInvoices = (orgId?: string | null) => {
 };
 
 export const invalidateGeneralLedger = (orgId?: string | null) => {
+  invalidateBalanceCache(orgId || undefined);
   if (orgId) {
     queryClient.invalidateQueries({ queryKey: ['general_ledger', orgId] });
   } else {

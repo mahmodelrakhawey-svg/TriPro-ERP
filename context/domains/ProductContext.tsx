@@ -158,58 +158,77 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
     }
   }, [targetOrgId, isDemo, currentUser?.role, initialProducts]);
 
-  const fetchWarehouses = useCallback(async () => {
+  const fetchWarehouses = useCallback(async (force = false) => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') return;
+    const queryKey = QUERY_KEYS.warehouses(targetOrgId);
+    if (force) queryClient.invalidateQueries({ queryKey });
+
     try {
-      const { data, error } = await supabase
-        .from('warehouses')
-        .select('*')
-        .eq('organization_id', targetOrgId)
-        .eq('is_active', true);
-      if (error) {
-        logger.error('Error fetching warehouses in ProductProvider:', error);
-      } else {
-        const loaded = (data as Warehouse[]) || [];
-        setWarehouses(loaded.length > 0 ? loaded : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_WAREHOUSES : []));
-      }
+      const loaded = await queryClient.fetchQuery({
+        queryKey,
+        queryFn: async () => {
+          const { data, error } = await supabase
+            .from('warehouses')
+            .select('*')
+            .eq('organization_id', targetOrgId)
+            .eq('is_active', true);
+          if (error) throw error;
+          return (data as Warehouse[]) || [];
+        },
+        staleTime: STALE_TIMES.MASTER_DATA,
+      });
+      setWarehouses(loaded.length > 0 ? loaded : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_WAREHOUSES : []));
     } catch (err) {
       logger.error('Unexpected error fetching warehouses:', err);
     }
   }, [targetOrgId, currentUser?.role]);
 
-  const fetchCategories = useCallback(async () => {
+  const fetchCategories = useCallback(async (force = false) => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') return;
+    const queryKey = QUERY_KEYS.categories(targetOrgId);
+    if (force) queryClient.invalidateQueries({ queryKey });
+
     try {
-      const { data, error } = await supabase
-        .from('item_categories')
-        .select('*')
-        .eq('organization_id', targetOrgId)
-        .order('name');
-      if (error) {
-        logger.error('Error fetching categories in ProductProvider:', error);
-      } else {
-        const loaded = (data as Category[]) || [];
-        setCategories(loaded.length > 0 ? loaded : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_CATEGORIES : []));
-      }
+      const loaded = await queryClient.fetchQuery({
+        queryKey,
+        queryFn: async () => {
+          const { data, error } = await supabase
+            .from('item_categories')
+            .select('*')
+            .eq('organization_id', targetOrgId)
+            .order('name');
+          if (error) throw error;
+          return (data as Category[]) || [];
+        },
+        staleTime: STALE_TIMES.MASTER_DATA,
+      });
+      setCategories(loaded.length > 0 ? loaded : (currentUser?.role === 'demo' ? DEFAULT_OFFLINE_CATEGORIES : []));
     } catch (err) {
       logger.error('Unexpected error fetching categories:', err);
     }
   }, [targetOrgId, currentUser?.role]);
 
-  const fetchTransfers = useCallback(async () => {
+  const fetchTransfers = useCallback(async (force = false) => {
     if (!targetOrgId || targetOrgId === 'org-default-offline') return;
+    const queryKey = QUERY_KEYS.transfers(targetOrgId);
+    if (force) queryClient.invalidateQueries({ queryKey });
+
     try {
-      const { data, error } = await supabase
-        .from('stock_transfers')
-        .select('*')
-        .eq('organization_id', targetOrgId)
-        .order('transfer_date', { ascending: false })
-        .limit(500);
-      if (error) {
-        logger.error('Error fetching transfers in ProductProvider:', error);
-      } else {
-        setTransfers((data as StockTransfer[]) || []);
-      }
+      const loaded = await queryClient.fetchQuery({
+        queryKey,
+        queryFn: async () => {
+          const { data, error } = await supabase
+            .from('stock_transfers')
+            .select('*')
+            .eq('organization_id', targetOrgId)
+            .order('transfer_date', { ascending: false })
+            .limit(200);
+          if (error) throw error;
+          return (data as StockTransfer[]) || [];
+        },
+        staleTime: STALE_TIMES.TRANSACTIONS,
+      });
+      setTransfers(loaded || []);
     } catch (err) {
       logger.error('Unexpected error fetching transfers:', err);
     }
@@ -423,13 +442,13 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const { error } = await supabase.from('stock_transfers').insert({ ...transfer, organization_id: effectiveOrg });
     if (error) throw error;
-    await fetchTransfers();
+    await fetchTransfers(true);
   }, [targetOrgId, currentUser, fetchTransfers]);
 
   const approveStockTransfer = useCallback(async (id: string): Promise<void> => {
     const { error } = await supabase.rpc('approve_stock_transfer', { p_transfer_id: id });
     if (error) throw error;
-    await fetchTransfers();
+    await fetchTransfers(true);
     invalidateProducts(targetOrgId);
     await fetchProducts(true);
   }, [fetchTransfers, fetchProducts]);
@@ -438,14 +457,14 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
     const { error } = await supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id);
     if (error) throw error;
     showToast?.('تم إلغاء طلب التحويل', 'info');
-    await fetchTransfers();
+    await fetchTransfers(true);
   }, [showToast, fetchTransfers]);
 
   const addWarehouse = useCallback(async (warehouse: Partial<Warehouse>): Promise<void> => {
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const { error } = await supabase.from('warehouses').insert({ ...warehouse, organization_id: effectiveOrg });
     if (error) throw error;
-    await fetchWarehouses();
+    await fetchWarehouses(true);
   }, [targetOrgId, currentUser, fetchWarehouses]);
 
   const updateWarehouse = useCallback(async (id: string, updates: Partial<Warehouse>): Promise<void> => {
@@ -456,7 +475,7 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
     }
     const { error } = await query;
     if (error) throw error;
-    await fetchWarehouses();
+    await fetchWarehouses(true);
   }, [targetOrgId, currentUser, fetchWarehouses]);
 
   const deleteWarehouse = useCallback(async (id: string): Promise<void> => {
@@ -467,7 +486,7 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
     }
     const { error } = await query;
     if (error) throw error;
-    await fetchWarehouses();
+    await fetchWarehouses(true);
   }, [targetOrgId, currentUser, fetchWarehouses]);
 
   const addWastage = useCallback(async (wastage: Record<string, unknown>): Promise<boolean> => {

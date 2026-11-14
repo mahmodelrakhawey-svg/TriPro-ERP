@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -45,6 +45,7 @@ export const InvoiceList = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
   const itemsPerPage = 15;
+  const lastSummaryFilterKeyRef = useRef<string>('');
 
   const [summaryData, setSummaryData] = useState({
     totalAmount: 0,
@@ -83,7 +84,7 @@ export const InvoiceList = () => {
     setCurrentPage(1);
   }, [startDate, endDate, selectedCustomerId, selectedWarehouseId, statusFilter]);
 
-  const fetchInvoices = async () => {
+  const fetchInvoices = async (forceSummary: boolean = false) => {
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -151,55 +152,89 @@ export const InvoiceList = () => {
       setInvoices(data || []);
       setTotalCount(count || 0);
 
-      // 2. استعلام إحصائي فائق السرعة لحساب إجماليات KPIs للفترة المحددة
-      let summaryQuery = supabase
-        .from('invoices')
-        .select('total_amount, tax_amount, paid_amount, status')
-        .eq('organization_id', userOrgId);
+      // 2. استعلام إحصائي مرشد فائق السرعة لحساب إجماليات KPIs للفترة المحددة
+      const filterKey = `${userOrgId}_${startDate}_${endDate}_${selectedCustomerId}_${selectedWarehouseId}_${statusFilter}_${debouncedSearch}`;
+      const isFilterChanged = forceSummary || (lastSummaryFilterKeyRef.current !== filterKey);
 
-      if (startDate) summaryQuery = summaryQuery.gte('invoice_date', startDate);
-      if (endDate) summaryQuery = summaryQuery.lte('invoice_date', endDate);
-      if (selectedCustomerId) summaryQuery = summaryQuery.eq('customer_id', selectedCustomerId);
-      if (selectedWarehouseId) summaryQuery = summaryQuery.eq('warehouse_id', selectedWarehouseId);
-      if (statusFilter !== 'all') {
-        if (statusFilter === 'posted') {
-          summaryQuery = summaryQuery.in('status', ['posted', 'paid']);
+      if (isFilterChanged) {
+        lastSummaryFilterKeyRef.current = filterKey;
+        const totalMatching = count || 0;
+
+        if (totalMatching <= itemsPerPage && data) {
+          // ترشيد حاسم: حساب الإجماليات محلياً من السجلات المحملة بالفعل دون استهلاك أي باندويث
+          let tAmount = 0;
+          let tTax = 0;
+          let tPaid = 0;
+          let postedC = 0;
+          let draftC = 0;
+
+          for (const row of data) {
+            tAmount += Number(row.total_amount || 0);
+            tTax += Number(row.tax_amount || 0);
+            tPaid += Number(row.paid_amount || 0);
+            if (row.status === 'posted' || row.status === 'paid') postedC++;
+            else if (row.status === 'draft') draftC++;
+          }
+
+          setSummaryData({
+            totalAmount: tAmount,
+            totalTax: tTax,
+            totalPaid: tPaid,
+            totalRemaining: tAmount - tPaid,
+            postedCount: postedC,
+            draftCount: draftC,
+            count: data.length
+          });
         } else {
-          summaryQuery = summaryQuery.eq('status', statusFilter);
+          // جلب استعلام إحصائي واحد بحد أقصى 1000 فاتورة بدلاً من سحب شلال البيانات غير المحدود
+          let summaryQuery = supabase
+            .from('invoices')
+            .select('total_amount, tax_amount, paid_amount, status')
+            .eq('organization_id', userOrgId);
+
+          if (startDate) summaryQuery = summaryQuery.gte('invoice_date', startDate);
+          if (endDate) summaryQuery = summaryQuery.lte('invoice_date', endDate);
+          if (selectedCustomerId) summaryQuery = summaryQuery.eq('customer_id', selectedCustomerId);
+          if (selectedWarehouseId) summaryQuery = summaryQuery.eq('warehouse_id', selectedWarehouseId);
+          if (statusFilter !== 'all') {
+            if (statusFilter === 'posted') {
+              summaryQuery = summaryQuery.in('status', ['posted', 'paid']);
+            } else {
+              summaryQuery = summaryQuery.eq('status', statusFilter);
+            }
+          }
+          if (debouncedSearch.trim()) {
+            const term = debouncedSearch.trim();
+            summaryQuery = summaryQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
+          }
+
+          const { data: sumRows, error: sumErr } = await summaryQuery.limit(1000);
+          if (!sumErr && sumRows) {
+            let tAmount = 0;
+            let tTax = 0;
+            let tPaid = 0;
+            let postedC = 0;
+            let draftC = 0;
+
+            for (const row of sumRows) {
+              tAmount += Number(row.total_amount || 0);
+              tTax += Number(row.tax_amount || 0);
+              tPaid += Number(row.paid_amount || 0);
+              if (row.status === 'posted' || row.status === 'paid') postedC++;
+              else if (row.status === 'draft') draftC++;
+            }
+
+            setSummaryData({
+              totalAmount: tAmount,
+              totalTax: tTax,
+              totalPaid: tPaid,
+              totalRemaining: tAmount - tPaid,
+              postedCount: postedC,
+              draftCount: draftC,
+              count: totalMatching || sumRows.length
+            });
+          }
         }
-      }
-      if (debouncedSearch.trim()) {
-        const term = debouncedSearch.trim();
-        summaryQuery = summaryQuery.or(`invoice_number.ilike.%${term}%,notes.ilike.%${term}%`);
-      }
-
-      const sumRows = await fetchCompleteDataset<any>(async (from, to) => {
-        return summaryQuery.range(from, to);
-      });
-      if (sumRows) {
-        let tAmount = 0;
-        let tTax = 0;
-        let tPaid = 0;
-        let postedC = 0;
-        let draftC = 0;
-
-        for (const row of sumRows) {
-          tAmount += Number(row.total_amount || 0);
-          tTax += Number(row.tax_amount || 0);
-          tPaid += Number(row.paid_amount || 0);
-          if (row.status === 'posted' || row.status === 'paid') postedC++;
-          else if (row.status === 'draft') draftC++;
-        }
-
-        setSummaryData({
-          totalAmount: tAmount,
-          totalTax: tTax,
-          totalPaid: tPaid,
-          totalRemaining: tAmount - tPaid,
-          postedCount: postedC,
-          draftCount: draftC,
-          count: sumRows.length
-        });
       }
 
     } catch (err) {
@@ -243,7 +278,7 @@ export const InvoiceList = () => {
           userName: (currentUser as any)?.name || (currentUser as any)?.email,
           organizationId: userOrgId
         });
-        fetchInvoices();
+        fetchInvoices(true);
       }
     } catch (err) {
       logger.error('Invoice approve error:', err);
@@ -286,7 +321,7 @@ export const InvoiceList = () => {
           userName: currentUser?.full_name || 'مستخدم',
           organizationId: userOrgId
         });
-        fetchInvoices();
+        fetchInvoices(true);
         return;
       } catch (rpcErr: unknown) {
         const errObj = rpcErr as { message?: string; code?: string } | null;
@@ -359,7 +394,7 @@ export const InvoiceList = () => {
         userName: (currentUser as any)?.name || (currentUser as any)?.email,
         organizationId: userOrgId
       });
-      fetchInvoices();
+      fetchInvoices(true);
 
     } catch (err) {
       logger.error('Error unposting invoice:', err);
@@ -402,7 +437,7 @@ export const InvoiceList = () => {
           userName: (currentUser as any)?.name || (currentUser as any)?.email,
           organizationId: userOrgId
         });
-        fetchInvoices();
+        fetchInvoices(true);
         return;
       } catch (rpcErr) {
         logger.warn('Atomic delete RPC unavailable or failed, attempting client fallback:', rpcErr);
@@ -426,7 +461,7 @@ export const InvoiceList = () => {
         userName: (currentUser as any)?.name || (currentUser as any)?.email,
         organizationId: userOrgId
       });
-      fetchInvoices();
+      fetchInvoices(true);
 
     } catch (err) {
       logger.error('Error deleting sales invoice:', err);
@@ -617,7 +652,7 @@ export const InvoiceList = () => {
 
         <div className="flex items-center gap-2">
           <button 
-            onClick={fetchInvoices} 
+            onClick={() => fetchInvoices(true)} 
             className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-3.5 py-2.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
             title="تحديث البيانات"
           >
