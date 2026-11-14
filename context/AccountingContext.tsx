@@ -151,6 +151,8 @@ interface AccountingContextType {
   deletePurchaseInvoice: (id: string, orgId?: string) => Promise<boolean>;
   unpostPurchaseReturn: (id: string, orgId?: string) => Promise<boolean>;
   deletePurchaseReturn: (id: string, orgId?: string) => Promise<boolean>;
+  unpostSalesReturn: (id: string, orgId?: string) => Promise<boolean>;
+  deleteSalesReturn: (id: string, orgId?: string) => Promise<boolean>;
   convertPoToInvoice: (poId: string, warehouseId?: string, orgId?: string) => Promise<void>;
   addOpeningBalanceTransaction: (id: string, type: string, amount: number, date: string, name: string) => Promise<void>;
   addPaymentVoucher: (voucher: DynamicParam) => Promise<void>;
@@ -1804,6 +1806,34 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await refreshSalesAndPurchases();
     return true; 
   };
+
+  const unpostSalesReturn = async (id: string, orgId?: string): Promise<boolean> => {
+    const targetOrgId = orgId || currentSelectedOrgId || currentUser?.organization_id || null;
+    const { error } = await supabase.rpc('unpost_sales_return', {
+      p_return_id: id,
+      p_org_id: targetOrgId
+    });
+    if (error) {
+      logger.warn('RPC unpost_sales_return error:', error);
+      throw error;
+    }
+    await refreshSalesAndPurchases();
+    return true; 
+  };
+
+  const deleteSalesReturn = async (id: string, orgId?: string): Promise<boolean> => {
+    const targetOrgId = orgId || currentSelectedOrgId || currentUser?.organization_id || null;
+    const { error } = await supabase.rpc('delete_sales_return', {
+      p_return_id: id,
+      p_org_id: targetOrgId
+    });
+    if (error) {
+      logger.warn('RPC delete_sales_return error:', error);
+      throw error;
+    }
+    await refreshSalesAndPurchases();
+    return true; 
+  };
   const convertPoToInvoice = async (id: string, warehouseId?: string, orgId?: string) => { 
     const targetOrg = orgId || currentSelectedOrgId || currentUser?.organization_id;
 
@@ -3448,7 +3478,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     deleteWarehouse, addWastage, produceItem,
     // Sales & Purchases
     addCustomer, updateCustomer, deleteCustomer, addSupplier, updateSupplier,
-    deleteSupplier, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, approvePurchaseInvoice, unpostPurchaseInvoice, deletePurchaseInvoice, unpostPurchaseReturn, deletePurchaseReturn, convertPoToInvoice,
+    deleteSupplier, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, approvePurchaseInvoice, unpostPurchaseInvoice, deletePurchaseInvoice, unpostPurchaseReturn, deletePurchaseReturn, unpostSalesReturn, deleteSalesReturn, convertPoToInvoice,
     addOpeningBalanceTransaction, addPaymentVoucher,
     // Assets & Cheques
     addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, addCheque, updateCheque, deleteCheque, updateChequeStatus, addTransfer, updateTransfer, deleteTransfer,
@@ -3477,7 +3507,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     approveStockTransfer, cancelStockTransfer, addWarehouse, updateWarehouse,
     deleteWarehouse, addWastage, produceItem,
     addCustomer, updateCustomer, deleteCustomer, addSupplier, updateSupplier,
-    deleteSupplier, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, approvePurchaseInvoice, unpostPurchaseInvoice, deletePurchaseInvoice, unpostPurchaseReturn, deletePurchaseReturn, convertPoToInvoice,
+    deleteSupplier, approveInvoice, unpostSalesInvoice, deleteSalesInvoice, approvePurchaseInvoice, unpostPurchaseInvoice, deletePurchaseInvoice, unpostPurchaseReturn, deletePurchaseReturn, unpostSalesReturn, deleteSalesReturn, convertPoToInvoice,
     addOpeningBalanceTransaction, addPaymentVoucher,
     addAsset, updateAsset, deleteAsset, runDepreciation, revaluateAsset, addCheque, updateCheque, deleteCheque, updateChequeStatus, addTransfer, updateTransfer, deleteTransfer,
     restoreItem, permanentDeleteItem, exportJournalToCSV,

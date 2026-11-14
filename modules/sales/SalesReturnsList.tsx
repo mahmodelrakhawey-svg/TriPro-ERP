@@ -14,7 +14,7 @@ import * as XLSX from 'xlsx';
 import { SalesReturnPrint } from './SalesReturnPrint';
 
 export const SalesReturnsList: React.FC = () => {
-  const { warehouses, customers, currentUser, settings, selectedFiscalYear, fiscalYearRange } = useAccounting();
+  const { warehouses, customers, currentUser, settings, selectedFiscalYear, fiscalYearRange, unpostSalesReturn, deleteSalesReturn } = useAccounting();
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -31,6 +31,7 @@ export const SalesReturnsList: React.FC = () => {
   const [returnToPrint, setReturnToPrint] = useState<any>(null);
   const [companySettings, setCompanySettings] = useState<any>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [unpostingId, setUnpostingId] = useState<string | null>(null);
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -115,65 +116,52 @@ export const SalesReturnsList: React.FC = () => {
   }, [filteredReturns, currentPage]);
 
   const handleDelete = async (ret: Record<string, any>) => {
-    if (!window.confirm(`هل أنت متأكد من حذف مرتجع المبيعات رقم ${ret.return_number}؟\nسيتم إلغاء حركة المخزون والقيد المحاسبي بالكامل.`)) {
+    if (ret.status !== 'draft' && ret.status !== 'cancelled') {
+      showToast('لا يمكن حذف مرتجع مبيعات مرحل. يرجى إلغاء ترحيله أولاً لإعادته إلى مسودة ثم حذفه ⚠️', 'warning');
+      return;
+    }
+
+    if (!window.confirm(`هل أنت متأكد من حذف مسودة مرتجع المبيعات رقم ${ret.return_number}؟`)) {
       return;
     }
 
     setDeletingId(ret.id);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
-
-      // 1. إذا كان المرتجع مرحلاً، نعكس المخزون
-      if (ret.status === 'posted' && ret.sales_return_items && ret.sales_return_items.length > 0) {
-        for (const item of ret.sales_return_items) {
-          if (item.product_id && item.quantity) {
-            // خصم الكمية التي كانت قد أضيفت عند الإرجاع
-            const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
-            if (prod) {
-              const newStock = Math.max(0, (Number(prod.stock) || 0) - Number(item.quantity));
-              let newWStock = prod.warehouse_stock || {};
-              if (ret.warehouse_id && newWStock[ret.warehouse_id] !== undefined) {
-                newWStock[ret.warehouse_id] = Math.max(0, (Number(newWStock[ret.warehouse_id]) || 0) - Number(item.quantity));
-              }
-              await supabase.from('products').update({
-                stock: newStock,
-                warehouse_stock: newWStock
-              }).eq('id', item.product_id);
-            }
-          }
-        }
-      }
-
-      // 2. حذف قيد اليومية المرتبط
-      if (ret.related_journal_entry_id) {
-        await supabase.from('journal_entries').delete().eq('id', ret.related_journal_entry_id);
-      } else {
-        // البحث بالمرجع إن لم يكن مربوطاً بالحقل المباشر
-        await supabase.from('journal_entries')
-          .delete()
-          .eq('organization_id', userOrgId)
-          .eq('reference', ret.return_number);
-      }
-
-      // 3. حذف بنود المرتجع
-      await supabase.from('sales_return_items').delete().eq('sales_return_id', ret.id);
-
-      // 4. حذف سجل المرتجع
-      const { error: delError } = await supabase.from('sales_returns').delete().eq('id', ret.id);
-      if (delError) throw delError;
-
-      showToast('تم حذف مرتجع المبيعات وعكس القيد والمخزون بنجاح ✅', 'success');
+      await deleteSalesReturn(ret.id);
+      showToast('تم حذف مسودة مرتجع المبيعات بنجاح ✅', 'success');
       fetchReturns();
-    } catch (err) {
+    } catch (err: unknown) {
       logger.error('Error deleting sales return:', err);
-      showToast('فشل حذف المرتجع: ' + err.message, 'error');
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('فشل حذف المرتجع: ' + msg, 'error');
     } finally {
       setDeletingId(null);
     }
   };
 
+  const handleUnpost = async (ret: Record<string, any>) => {
+    if (!window.confirm(`هل أنت متأكد من إلغاء ترحيل مرتجع المبيعات رقم ${ret.return_number}؟\nسيتم عكس أثر المخزون والقيد المحاسبي بالأستاذ العام وتحويل المرتجع إلى مسودة.`)) {
+      return;
+    }
+
+    setUnpostingId(ret.id);
+    try {
+      await unpostSalesReturn(ret.id);
+      showToast('تم إلغاء ترحيل مرتجع المبيعات وعكس القيد والمخزون بنجاح ✅', 'success');
+      fetchReturns();
+    } catch (err: unknown) {
+      logger.error('Error unposting sales return:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('فشل إلغاء ترحيل المرتجع: ' + msg, 'error');
+    } finally {
+      setUnpostingId(null);
+    }
+  };
+
   const handleEdit = (ret: Record<string, any>) => {
+    if (ret.status === 'posted') {
+      showToast('تنبيه: هذا المرتجع مرحل ومحصن قانونياً. لعرض بياناته يمكنك الدخول، ولكن للتعديل يجب إلغاء ترحيله أولاً.', 'info');
+    }
     navigate('/sales-return', { state: { returnToEdit: ret } });
   };
 
@@ -477,11 +465,21 @@ export const SalesReturnsList: React.FC = () => {
                               <MessageCircle size={16} />
                             </button>
                           )}
+                          {ret.status === 'posted' && (
+                            <button 
+                              onClick={() => handleUnpost(ret)} 
+                              disabled={unpostingId === ret.id}
+                              className="p-1.5 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-50"
+                              title="إلغاء ترحيل المرتجع (تحويله إلى مسودة)"
+                            >
+                              {unpostingId === ret.id ? <Loader2 size={16} className="animate-spin" /> : <RotateCcw size={16} />}
+                            </button>
+                          )}
                           <button 
                             onClick={() => handleDelete(ret)} 
                             disabled={deletingId === ret.id}
                             className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
-                            title="حذف المرتجع بالكامل"
+                            title="حذف المرتجع"
                           >
                             {deletingId === ret.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
                           </button>

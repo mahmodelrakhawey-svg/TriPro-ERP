@@ -44,6 +44,7 @@ const SalesReturnForm = () => {
   const [loadingReturn, setLoadingReturn] = useState(false);
   const [returnToPrint, setReturnToPrint] = useState<any>(null);
   const [companySettings, setCompanySettings] = useState<any>(null);
+  const [unposting, setUnposting] = useState(false);
 
   useEffect(() => {
     supabase.rpc('get_current_company_settings').maybeSingle().then(({ data }) => {
@@ -365,30 +366,11 @@ const SalesReturnForm = () => {
 
       if (editingId) {
         // وضع التعديل على مرتجع موجود
-        const { data: oldRet } = await supabase.from('sales_returns').select('*, sales_return_items(*)').eq('id', editingId).single();
+        const { data: oldRet } = await supabase.from('sales_returns').select('status').eq('id', editingId).single();
         if (oldRet && oldRet.status === 'posted') {
-          for (const oldItem of (oldRet.sales_return_items || [])) {
-            if (oldItem.product_id && oldItem.quantity) {
-              const { data: p } = await supabase.from('products').select('stock, warehouse_stock').eq('id', oldItem.product_id).single();
-              if (p) {
-                const updatedStock = Math.max(0, (Number(p.stock) || 0) - Number(oldItem.quantity));
-                let updatedWStock = p.warehouse_stock || {};
-                if (oldRet.warehouse_id && updatedWStock[oldRet.warehouse_id] !== undefined) {
-                  updatedWStock[oldRet.warehouse_id] = Math.max(0, (Number(updatedWStock[oldRet.warehouse_id]) || 0) - Number(oldItem.quantity));
-                }
-                await supabase.from('products').update({
-                  stock: updatedStock,
-                  warehouse_stock: updatedWStock
-                }).eq('id', oldItem.product_id);
-              }
-            }
-          }
-
-          if (oldRet.related_journal_entry_id) {
-            await supabase.from('journal_entries').delete().eq('id', oldRet.related_journal_entry_id);
-          } else {
-            await supabase.from('journal_entries').delete().eq('organization_id', targetOrgId).eq('reference', oldRet.return_number);
-          }
+          showToast('لا يمكن تعديل مرتجع مبيعات مرحل مباشرة. يرجى إلغاء ترحيله أولاً لإعادته كمسودة ثم إجراء التعديل ⚠️', 'warning');
+          setSaving(false);
+          return;
         }
 
         const { error: updateError } = await supabase.from('sales_returns').update({
@@ -475,47 +457,49 @@ const SalesReturnForm = () => {
     }
   };
 
+  // إلغاء ترحيل المرتجع الحالي (تحويله إلى مسودة)
+  const handleUnpostCurrent = async () => {
+    if (!editingId) return;
+
+    if (!window.confirm(`هل أنت متأكد من إلغاء ترحيل مرتجع المبيعات رقم (${formData.returnNumber})؟\nسيتم عكس أثر المخزون والقيد المحاسبي بالأستاذ العام وتحويل المرتجع إلى مسودة.`)) {
+      return;
+    }
+
+    setUnposting(true);
+    try {
+      const { error: rpcError } = await supabase.rpc('unpost_sales_return', { p_return_id: editingId });
+      if (rpcError) throw rpcError;
+
+      showToast('تم إلغاء ترحيل مرتجع المبيعات وعكس القيد والمخزون بنجاح ✅', 'success');
+      loadReturnById(editingId);
+    } catch (err: unknown) {
+      logger.error('Error unposting sales return:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('فشل إلغاء ترحيل المرتجع: ' + msg, 'error');
+    } finally {
+      setUnposting(false);
+    }
+  };
+
   // حذف المرتجع الحالي
   const handleDeleteCurrent = async () => {
     if (!editingId) return;
 
-    if (!window.confirm(`هل أنت متأكد من حذف هذا المرتجع رقم (${formData.returnNumber})؟\nسيتم إلغاء أثره على المخزون والقيد المحاسبي بالكامل.`)) {
+    if (formData.status === 'posted') {
+      showToast('لا يمكن حذف مرتجع مبيعات مرحل مباشرة. يرجى إلغاء ترحيله أولاً لإعادته كمسودة ثم حذفه ⚠️', 'warning');
+      return;
+    }
+
+    if (!window.confirm(`هل أنت متأكد من حذف هذا المرتجع رقم (${formData.returnNumber})؟`)) {
       return;
     }
 
     setDeleting(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
-
-      const { data: ret } = await supabase.from('sales_returns').select('*, sales_return_items(*)').eq('id', editingId).single();
-      if (ret && ret.status === 'posted') {
-        for (const item of (ret.sales_return_items || [])) {
-          if (item.product_id && item.quantity) {
-            const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
-            if (prod) {
-              const newStock = Math.max(0, (Number(prod.stock) || 0) - Number(item.quantity));
-              let newWStock = prod.warehouse_stock || {};
-              if (ret.warehouse_id && newWStock[ret.warehouse_id] !== undefined) {
-                newWStock[ret.warehouse_id] = Math.max(0, (Number(newWStock[ret.warehouse_id]) || 0) - Number(item.quantity));
-              }
-              await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', item.product_id);
-            }
-          }
-        }
-
-        if (ret.related_journal_entry_id) {
-          await supabase.from('journal_entries').delete().eq('id', ret.related_journal_entry_id);
-        } else {
-          await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', ret.return_number);
-        }
-      }
-
-      await supabase.from('sales_return_items').delete().eq('sales_return_id', editingId);
-      const { error: delErr } = await supabase.from('sales_returns').delete().eq('id', editingId);
+      const { error: delErr } = await supabase.rpc('delete_sales_return', { p_return_id: editingId });
       if (delErr) throw delErr;
 
-      showToast('تم حذف مرتجع المبيعات وعكس الحركات بنجاح ✅', 'success');
+      showToast('تم حذف مسودة مرتجع المبيعات بنجاح ✅', 'success');
 
       const newIds = returnIds.filter(id => id !== editingId);
       setReturnIds(newIds);
@@ -527,9 +511,10 @@ const SalesReturnForm = () => {
         handleNewReturn();
       }
 
-    } catch (err) {
+    } catch (err: unknown) {
       logger.error('Error deleting return:', err);
-      showToast('فشل حذف المرتجع: ' + err.message, 'error');
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('فشل حذف المرتجع: ' + msg, 'error');
     } finally {
       setDeleting(false);
     }
@@ -692,6 +677,18 @@ const SalesReturnForm = () => {
 
           {editingId && (
             <>
+              {formData.status === 'posted' && (
+                <button 
+                  type="button" 
+                  onClick={handleUnpostCurrent} 
+                  disabled={unposting} 
+                  className="bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  title="إلغاء ترحيل المرتجع لإعادته كمسودة قابلة للتعديل"
+                >
+                  {unposting ? <Loader2 size={16} className="animate-spin" /> : <RotateCcw size={16} />} إلغاء الترحيل
+                </button>
+              )}
+
               <button 
                 type="button" 
                 onClick={handlePrintCurrent} 
@@ -716,11 +713,16 @@ const SalesReturnForm = () => {
           <button 
             type="button" 
             onClick={handleSave} 
-            disabled={saving} 
-            className="bg-red-600 text-white px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-red-700 transition-colors shadow-sm disabled:opacity-50"
+            disabled={saving || Boolean(editingId && formData.status === 'posted')} 
+            className={`px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50 ${
+              editingId && formData.status === 'posted'
+                ? 'bg-slate-400 text-white cursor-not-allowed'
+                : 'bg-red-600 text-white hover:bg-red-700'
+            }`}
+            title={editingId && formData.status === 'posted' ? 'المرتجع مرحل ومحصن قانونياً. يرجى إلغاء الترحيل أولاً للتعديل' : ''}
           >
             {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />} 
-            {editingId ? 'حفظ التعديلات' : 'حفظ وترحيل'}
+            {editingId && formData.status === 'posted' ? 'مرحل (محصن 🔒)' : editingId ? 'حفظ التعديلات' : 'حفظ وترحيل'}
           </button>
         </div>
       </div>
