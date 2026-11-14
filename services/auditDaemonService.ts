@@ -206,7 +206,8 @@ class AuditDaemonService {
       const { data: customers } = await supabase
         .from('customers')
         .select('balance')
-        .eq('organization_id', orgId);
+        .eq('organization_id', orgId)
+        .is('deleted_at', null);
 
       const totalCustomerBalances = (customers || []).reduce(
         (sum, c) => sum + (Number(c.balance) || 0),
@@ -255,7 +256,8 @@ class AuditDaemonService {
       const { data: suppliers } = await supabase
         .from('suppliers')
         .select('balance')
-        .eq('organization_id', orgId);
+        .eq('organization_id', orgId)
+        .is('deleted_at', null);
 
       const totalSupplierBalances = (suppliers || []).reduce(
         (sum, s) => sum + (Number(s.balance) || 0),
