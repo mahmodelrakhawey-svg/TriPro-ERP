@@ -295,6 +295,30 @@ const AddClientModal: React.FC<AddClientModalProps> = ({
         if (cloneError) showToast('تحذير أثناء الاستنساخ: ' + cloneError.message, 'warning');
       }
 
+      // ── 3.1 ضمان وجود سجل إعدادات الشركة والحسابات الافتراضية ──
+      try {
+        const { data: existingSett } = await supabase
+          .from('company_settings')
+          .select('id')
+          .eq('organization_id', newOrgId)
+          .maybeSingle();
+
+        if (!existingSett?.id) {
+          await supabase.from('company_settings').insert({
+            organization_id: newOrgId,
+            company_name: formData.companyName,
+            vat_rate: 0.14,
+            currency: 'EGP',
+            enable_tax: true,
+            allow_negative_stock: false,
+            prevent_price_modification: false,
+            decimal_places: 2,
+          });
+        }
+      } catch (settInitErr) {
+        process.env.NODE_ENV !== 'production' && console.warn('Could not auto-seed company_settings for new org:', settInitErr);
+      }
+
       // ── 4. إنشاء حساب المدير ──
       const { error: authError } = await supabase.auth.signUp({
         email:    formData.email,

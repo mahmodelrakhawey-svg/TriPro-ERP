@@ -26,7 +26,10 @@
     "update-memory": "node update_memory.js",
     "security-audit": "node scripts/security-audit.js",
     "security-check": "npm audit && npm run security-audit",
-    "health-check": "node scripts/system_health_check.mjs"
+    "health-check": "node scripts/system_health_check.mjs",
+    "db:migrate": "node scripts/db_migrate.mjs",
+    "db:status": "node scripts/db_migrate.mjs --status",
+    "db:bundle": "node scripts/db_migrate.mjs --bundle"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.3",

@@ -174,10 +174,21 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({
       return;
     }
 
-    const { error } = await supabase
+    let { error } = await supabase
       .from('company_settings')
       .update(newSettings)
       .eq('organization_id', effectiveOrg);
+
+    // إذا لم يكن السجل موجوداً في قاعدة البيانات نقوم بإنشائه لضمان سلامة الإعدادات
+    if (error && (error.code === 'PGRST116' || error.message?.includes('0 rows') || error.message?.includes('not found'))) {
+      const insertRes = await supabase
+        .from('company_settings')
+        .insert({
+          ...newSettings,
+          organization_id: effectiveOrg
+        });
+      error = insertRes.error;
+    }
 
     if (error) {
       showToast?.('فشل تحديث الإعدادات: ' + error.message, 'error');

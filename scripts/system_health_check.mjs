@@ -332,7 +332,12 @@ async function runEnterpriseHealthCheck() {
     if (settings && settings.length > 0) {
       report('PASS', 'Integration', 'جاهزية سجل إعدادات الربط المحاسبي (company_settings)', 'تم العثور على الإعدادات');
     } else {
-      report('WARN', 'Integration', 'سجل إعدادات الشركة وربط الحسابات الافتراضية', 'الجدول موجود ويحتاج لتهيئة قيم الحسابات الافتراضية');
+      const { count: orgCount } = await supabase.from('organizations').select('*', { count: 'exact', head: true });
+      if (!orgCount || orgCount === 0) {
+        report('PASS', 'Integration', 'جاهزية سجل إعدادات الربط المحاسبي (company_settings)', 'الجدول سليم وجاهز للتأسيس التلقائي للشركات الجديدة');
+      } else {
+        report('WARN', 'Integration', 'سجل إعدادات الشركة وربط الحسابات الافتراضية', 'الجدول موجود ويحتاج لتهيئة قيم الحسابات الافتراضية');
+      }
     }
   } catch (e) {
     report('FAIL', 'Integration', 'فحص سجل إعدادات الشركة', e.message);

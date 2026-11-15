@@ -45,6 +45,7 @@ export interface RawBalanceRpcRow {
   supplier_id?: string;
   customer_id?: string;
   balance?: number | string | null;
+  final_balance?: number | string | null;
   total_count?: number | string | null;
 }
 
@@ -178,19 +179,37 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
 
   // 1. محاولة جلب الأرصدة عبر محرك قاعدة البيانات المباشر
   try {
-    const { data: rpcRows, error: rpcError } = await (supabase.rpc as unknown as SupabaseRpcCaller)('get_all_supplier_balances_fast', {
-      p_org_id: orgId,
-      p_search: null,
-      p_limit: 10000,
-      p_offset: 0
+    let rpcRows: unknown = null;
+    let rpcError: unknown = null;
+
+    // استدعاء دالة RPC: نجرب التوقيع ذو المعامل الواحد (المعتمد في التحديث الموحد)، ثم المتعدد كبديل
+    const res1 = await (supabase.rpc as unknown as SupabaseRpcCaller)('get_all_supplier_balances_fast', {
+      p_org_id: orgId
     });
+
+    if (!res1.error && Array.isArray(res1.data)) {
+      rpcRows = res1.data;
+    } else {
+      const res2 = await (supabase.rpc as unknown as SupabaseRpcCaller)('get_all_supplier_balances_fast', {
+        p_org_id: orgId,
+        p_search: null,
+        p_limit: 10000,
+        p_offset: 0
+      });
+      if (!res2.error && Array.isArray(res2.data)) {
+        rpcRows = res2.data;
+      } else {
+        rpcError = res2.error || res1.error;
+      }
+    }
 
     if (!rpcError && Array.isArray(rpcRows)) {
       (rpcRows as RawBalanceRpcRow[]).forEach((row: RawBalanceRpcRow) => {
         if (row.supplier_id) {
-          balances.set(row.supplier_id, Number(row.balance || 0));
+          balances.set(row.supplier_id, Number(row.final_balance ?? row.balance ?? 0));
         }
       });
+      supplierBalancesCache.set(orgId, { data: new Map(balances), timestamp: Date.now() });
       return balances;
     }
   } catch (rpcEx) {
@@ -646,9 +665,10 @@ export async function fetchAllCustomerBalances(orgId: string): Promise<Map<strin
     if (!rpcError && Array.isArray(rpcRows)) {
       (rpcRows as RawBalanceRpcRow[]).forEach((row: RawBalanceRpcRow) => {
         if (row.customer_id) {
-          balances.set(row.customer_id, Number(row.balance || 0));
+          balances.set(row.customer_id, Number(row.balance ?? row.final_balance ?? 0));
         }
       });
+      customerBalancesCache.set(orgId, { data: new Map(balances), timestamp: Date.now() });
       return balances;
     }
   } catch (rpcEx) {
@@ -685,18 +705,50 @@ export async function fetchAllCustomerBalances(orgId: string): Promise<Map<strin
     return true;
   });
 
+  // 🛡️ تجميع القيم مسبقاً في قواميس O(1) لتسريع المعالجة بآلاف المرات ومنع تجميد المتصفح
+  const invoiceNetByCust = new Map<string, number>();
+  invoices?.forEach((inv: Record<string, any>) => {
+    if (inv.customer_id) {
+      const net = Number(inv.total_amount || 0) - Number(inv.paid_amount || 0);
+      invoiceNetByCust.set(inv.customer_id, (invoiceNetByCust.get(inv.customer_id) || 0) + net);
+    }
+  });
+
+  const projectBillingsByCust = new Map<string, number>();
+  projectBillings?.forEach((p: Record<string, any>) => {
+    if (p.customer_id) {
+      projectBillingsByCust.set(p.customer_id, (projectBillingsByCust.get(p.customer_id) || 0) + Number(p.net_amount || 0));
+    }
+  });
+
+  const receiptsByCust = new Map<string, number>();
+  validReceipts?.forEach((r: Record<string, any>) => {
+    if (r.customer_id) {
+      receiptsByCust.set(r.customer_id, (receiptsByCust.get(r.customer_id) || 0) + Number(r.amount || 0));
+    }
+  });
+
+  const creditNotesByCust = new Map<string, number>();
+  creditNotes?.forEach((c: Record<string, any>) => {
+    if (c.customer_id) {
+      creditNotesByCust.set(c.customer_id, (creditNotesByCust.get(c.customer_id) || 0) + Number(c.total_amount || 0));
+    }
+  });
+
+  const chequesByCust = new Map<string, number>();
+  cheques?.forEach((c: Record<string, any>) => {
+    if (c.party_id) {
+      chequesByCust.set(c.party_id, (chequesByCust.get(c.party_id) || 0) + Number(c.amount || 0));
+    }
+  });
+
   customers.forEach(customer => {
     const opening = Number(customer.opening_balance || 0);
-
-    const totalInvoiced = invoices?.filter(i => i.customer_id === customer.id).reduce((sum, inv) => {
-      return sum + (Number(inv.total_amount || 0) - Number(inv.paid_amount || 0));
-    }, 0) || 0;
-
-    const totalProjectBillings = projectBillings?.filter(p => p.customer_id === customer.id).reduce((sum, p) => sum + Number(p.net_amount || 0), 0) || 0;
-
-    const totalReceipts = validReceipts?.filter(r => r.customer_id === customer.id).reduce((sum, r) => sum + Number(r.amount || 0), 0) || 0;
-    const totalCreditNotes = creditNotes?.filter(c => c.customer_id === customer.id).reduce((sum, c) => sum + Number(c.total_amount || 0), 0) || 0;
-    const totalCheques = cheques?.filter(c => c.party_id === customer.id).reduce((sum, c) => sum + Number(c.amount || 0), 0) || 0;
+    const totalInvoiced = invoiceNetByCust.get(customer.id) || 0;
+    const totalProjectBillings = projectBillingsByCust.get(customer.id) || 0;
+    const totalReceipts = receiptsByCust.get(customer.id) || 0;
+    const totalCreditNotes = creditNotesByCust.get(customer.id) || 0;
+    const totalCheques = chequesByCust.get(customer.id) || 0;
 
     balances.set(customer.id, opening + totalInvoiced + totalProjectBillings - totalReceipts - totalCreditNotes - totalCheques);
   });

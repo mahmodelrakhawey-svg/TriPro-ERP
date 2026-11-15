@@ -172,12 +172,32 @@ describe('🛒 RetailPosScreen Integration Tests', () => {
     });
 
     // Default RPC mock returns success values
-    (supabase.rpc as any).mockImplementation((funcName) => {
+    (supabase.rpc as any).mockImplementation((funcName: string) => {
       if (funcName === 'create_restaurant_order') {
         return Promise.resolve({ data: 'order-123', error: null });
       }
       if (funcName === 'complete_restaurant_order') {
         return Promise.resolve({ data: true, error: null });
+      }
+      if (funcName === 'get_shift_summary') {
+        return Promise.resolve({
+          data: {
+            opening_balance: 1000,
+            total_sales: 500,
+            cash_sales: 500,
+            card_sales: 0,
+            cash_returns: 0,
+            cash_drops: 0,
+            safe_drops: 0,
+            paid_ins: 0,
+            paid_outs: 0,
+            cash_deposits_in: 0,
+            cash_deposits_refund: 0,
+            expected_cash: 1500,
+            order_count: 5,
+          },
+          error: null,
+        });
       }
       return Promise.resolve({ data: null, error: null });
     });
@@ -346,7 +366,7 @@ describe('🛒 RetailPosScreen Integration Tests', () => {
     });
   });
 
-  it.skip('يجب إظهار شارة رصيد الدرج وفتح نافذة إغلاق الوردية مع تفاصيل النقدية والمرتجعات', async () => {
+  it('يجب إظهار شارة رصيد الدرج وفتح نافذة إغلاق الوردية مع تفاصيل النقدية والمرتجعات', async () => {
     render(<RetailPosScreen />);
 
     await waitFor(() => {
@@ -359,13 +379,13 @@ describe('🛒 RetailPosScreen Integration Tests', () => {
     fireEvent.click(closeShiftButton);
 
     await waitFor(() => {
-      // التحقق من ظهور نافذة إغلاق الوردية
-      expect(screen.getByText('إغلاق الوردية وجرد النقدية')).toBeDefined();
-      expect(screen.getByText('الرصيد الافتتاحي')).toBeDefined();
-      expect(screen.getByText('مبيعات نقدية (كاش)')).toBeDefined();
-      expect(screen.getByText('مرتجعات نقدية من الدرج')).toBeDefined();
-      expect(screen.getByText('سحوبات نقدية (تفريغ)')).toBeDefined();
-      expect(screen.getByText('صافي النقدية المتوقع بالدرج:')).toBeDefined();
+      // التحقق من ظهور نافذة إغلاق الوردية ومطابقة النقدية
+      expect(screen.getByText(/إغلاق الوردية وجرد النقدية/)).toBeDefined();
+      expect(screen.getByText(/رصيد افتتاحي/)).toBeDefined();
+      expect(screen.getByText(/مبيعات كاش/)).toBeDefined();
+      expect(screen.getByText(/مرتجعات مبيعات/)).toBeDefined();
+      expect(screen.getByText(/توريدات للخزينة/)).toBeDefined();
+      expect(screen.getByText(/صافي النقدية المفترض بالدرج:/)).toBeDefined();
     });
   });
 });
