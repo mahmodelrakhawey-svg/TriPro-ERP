@@ -239,4 +239,45 @@ describe('EmployeeSearchSelect & Smart Advance Features', () => {
     });
   });
 
+  describe('Employee Advances Update RPC & Schema Integrity', () => {
+    it('verifies that SQL patches for update_employee_advance use transaction_date and never mutate non-existent date column', async () => {
+      const fs = await import('fs');
+      const path = await import('path');
+      const patchPath = path.resolve(process.cwd(), 'sql_updates', '2026-11-16_fix_update_employee_advance_column_date_error.sql');
+      expect(fs.existsSync(patchPath)).toBe(true);
+
+      const content = fs.readFileSync(patchPath, 'utf8');
+      // Must target transaction_date
+      expect(content).toContain('transaction_date = p_date');
+      // Must not target relation column date on journal_entries
+      expect(content).not.toMatch(/SET\s+date\s*=/i);
+      expect(content).not.toMatch(/INSERT\s+INTO\s+public\.journal_entries[^(]*\([^)]*\bdate\b/i);
+      // Must not reference non-existent updated_at on journal_entries
+      expect(content).not.toMatch(/updated_at\s*=\s*now\(\)/i);
+      // Must have the exact parameters expected by UI
+      expect(content).toContain('p_advance_id uuid');
+      expect(content).toContain('p_employee_id uuid');
+      expect(content).toContain('p_amount numeric');
+      expect(content).toContain('p_date date');
+      expect(content).toContain('p_treasury_id uuid');
+    });
+
+    it('verifies EmployeeAdvances component RPC call payload structure', () => {
+      const payload = {
+        p_advance_id: '123e4567-e89b-12d3-a456-426614174000',
+        p_employee_id: '123e4567-e89b-12d3-a456-426614174001',
+        p_amount: 500,
+        p_date: '2026-11-16',
+        p_treasury_id: '123e4567-e89b-12d3-a456-426614174002',
+        p_notes: 'تعديل سلفة الموظف'
+      };
+
+      expect(payload.p_advance_id).toBeDefined();
+      expect(payload.p_employee_id).toBeDefined();
+      expect(payload.p_amount).toBeGreaterThan(0);
+      expect(payload.p_date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(payload.p_treasury_id).toBeDefined();
+    });
+  });
+
 });

@@ -178,7 +178,6 @@ BEGIN
         UPDATE public.journal_entries
         SET status = 'draft',
             is_posted = false,
-            date = p_date,
             transaction_date = p_date,
             description = 'صرف سلفة للموظف ' || COALESCE(v_emp_name, '')
         WHERE id = v_journal_id;
@@ -197,12 +196,10 @@ BEGIN
     ELSE
         IF v_advances_acc_id IS NOT NULL AND p_treasury_id IS NOT NULL THEN
             INSERT INTO public.journal_entries (
-                organization_id, entry_number, reference, date, transaction_date, description, status, is_posted
+                organization_id, reference, transaction_date, description, status, is_posted
             ) VALUES (
                 v_org_id,
-                'JE-' || TO_CHAR(p_date, 'YYYYMMDD') || '-' || LPAD(FLOOR(RANDOM() * 9000 + 1000)::text, 4, '0'),
                 v_ref,
-                p_date,
                 p_date,
                 'صرف سلفة للموظف ' || COALESCE(v_emp_name, ''),
                 'posted',

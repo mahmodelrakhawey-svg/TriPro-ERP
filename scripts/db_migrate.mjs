@@ -60,7 +60,7 @@ function getAllMigrationFiles() {
     return [];
   }
   const files = fs.readdirSync(updatesDir)
-    .filter(f => f.endsWith('.sql'))
+    .filter(f => f.endsWith('.sql') && f !== 'pending_migration_bundle.sql')
     .sort((a, b) => a.localeCompare(b));
 
   return files.map(file => {
