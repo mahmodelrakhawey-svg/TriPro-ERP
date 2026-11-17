@@ -1,6 +1,6 @@
 import { logger } from '../../utils/logger';
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X, Copy, Search } from 'lucide-react';
+import { Plus, Trash2, Save, Wand2, Loader2, BookPlus, Building, Info, Upload, X, Copy, Search, AlertTriangle } from 'lucide-react';
 import { useAccounting } from '../../context/AccountingContext';
 import { analyzeTransactionText } from '../../services/geminiService';
 import SearchableSelect from '../../components/SearchableSelect';
@@ -197,6 +197,28 @@ const JournalEntryForm = () => {
   );
 
   const isBalanced = Math.abs(totals.debit - totals.credit) < 0.01 && totals.debit > 0;
+
+  // فحص استرشادي خفيف (غير مانع للحفظ) ينبه المحاسب بصرياً إذا أُدرج نفس الحساب في أكثر من سطر بنفس الاتجاه
+  const isDuplicateOnSameSide = (currentIndex: number): boolean => {
+    const currentLine = lines[currentIndex];
+    if (!currentLine?.account_id) return false;
+    const curDebit = Number(currentLine.debit || 0);
+    const curCredit = Number(currentLine.credit || 0);
+    if (curDebit === 0 && curCredit === 0) return false;
+
+    return lines.some((otherLine, otherIdx) => {
+      if (otherIdx === currentIndex || !otherLine?.account_id) return false;
+      if (otherLine.account_id !== currentLine.account_id) return false;
+
+      const otherDebit = Number(otherLine.debit || 0);
+      const otherCredit = Number(otherLine.credit || 0);
+
+      // نفس الحساب وله قيمة في نفس الجانب (مدين مع مدين، أو دائن مع دائن)
+      if (curDebit > 0 && otherDebit > 0) return true;
+      if (curCredit > 0 && otherCredit > 0) return true;
+      return false;
+    });
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -562,6 +584,12 @@ const JournalEntryForm = () => {
                   placeholder="اختر الحساب..."
                   className="w-full"
                 />
+                {isDuplicateOnSameSide(index) && (
+                  <p className="text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-[11px] font-medium mt-1 flex items-center gap-1 inline-flex animate-in fade-in" title="تنبيه إرشادي: هذا الحساب تم إدراجه في سطر آخر بنفس الاتجاه (مدين/دائن). يمكنك الاستمرار إذا كان لمركز تكلفة مختلف أو مبرر محاسبي.">
+                    <AlertTriangle size={12} className="text-amber-600 shrink-0" />
+                    <span>تنبيه: حساب مكرر بنفس الجانب</span>
+                  </p>
+                )}
                 {errors[`lines.${index}.account_id`] && <p className="text-red-500 text-xs mt-1">{errors[`lines.${index}.account_id`]}</p>}
               </div>
               <div className="col-span-2">
