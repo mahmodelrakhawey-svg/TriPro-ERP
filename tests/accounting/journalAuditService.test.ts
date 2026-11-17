@@ -159,4 +159,58 @@ describe('🛡️ Journal Audit & Integrity Service (كشف القيود غير 
     expect(result.success).toBe(true);
     expect(result.message).toContain('مسودة');
   });
+
+  it('يمنع التكرار الوهمي للأسطر الناتجة عن انزلاق التصفح (Pagination Drift Deduplication)', async () => {
+    (supabase.rpc as any).mockResolvedValue({
+      data: null,
+      error: { message: 'function does not exist' }
+    });
+
+    // محاكاة سطر مكرر ناتج عن انزلاق التصفح بدون ترتيب
+    const mockDuplicateLines = [
+      {
+        id: 'line-1',
+        journal_entry_id: 'entry-balanced-drift',
+        debit: 310877,
+        credit: 0,
+        journal_entries: { id: 'entry-balanced-drift', reference: 'MAN-957243', status: 'posted' }
+      },
+      {
+        id: 'line-2',
+        journal_entry_id: 'entry-balanced-drift',
+        debit: 0,
+        credit: 310877,
+        journal_entries: { id: 'entry-balanced-drift', reference: 'MAN-957243', status: 'posted' }
+      },
+      // تكرار السطر line-2 بسبب تداخل الدفعات
+      {
+        id: 'line-2',
+        journal_entry_id: 'entry-balanced-drift',
+        debit: 0,
+        credit: 310877,
+        journal_entries: { id: 'entry-balanced-drift', reference: 'MAN-957243', status: 'posted' }
+      }
+    ];
+
+    (supabase.from as any).mockImplementation((table: string) => {
+      if (table === 'journal_lines') {
+        const queryChain = {
+          select: vi.fn().mockReturnThis(),
+          order: vi.fn().mockReturnThis(),
+          range: vi.fn().mockReturnThis(),
+          eq: vi.fn().mockReturnThis(),
+          then: vi.fn((cb: any) => Promise.resolve({ data: mockDuplicateLines, error: null }).then(cb))
+        };
+        return queryChain;
+      }
+      return {};
+    });
+
+    const result = await journalAuditService.findUnbalancedEntries(testOrgId, 'all');
+
+    // بفضل حماية منع التكرار، يتم استبعاد السطر المكرر ويظل القيد متزناً ولا يُسجل أي خطأ
+    expect(result.unbalancedIds).toEqual([]);
+    expect(result.entries.length).toBe(0);
+    expect(result.totalDifference).toBe(0);
+  });
 });

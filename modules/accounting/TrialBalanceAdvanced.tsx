@@ -142,7 +142,8 @@ const TrialBalanceAdvanced = () => {
       // 🛡️ الخطوة 2 (Graceful Degradation Fallback): جلب السطور مقسمة إذا لم تتوفر دالة الخادم
       if (!rpcSuccess) {
         setRpcSummary(null);
-        let allLines: any[] = [];
+        const seenLineIds = new Set<string>();
+        const allLines: any[] = [];
         let from = 0;
         const CHUNK_SIZE = 1000;
 
@@ -153,12 +154,20 @@ const TrialBalanceAdvanced = () => {
             .eq('journal_entries.status', 'posted')
             .eq('journal_entries.organization_id', userOrgId)
             .lte('journal_entries.transaction_date', endDate)
+            .order('id', { ascending: true })
             .range(from, from + CHUNK_SIZE - 1);
 
           if (chunkErr) throw chunkErr;
           if (!chunk || chunk.length === 0) break;
 
-          allLines = allLines.concat(chunk);
+          for (const line of chunk) {
+            const lineId = line.id || `${line.journal_entry_id}-${line.account_id}-${line.debit}-${line.credit}`;
+            if (!seenLineIds.has(lineId)) {
+              seenLineIds.add(lineId);
+              allLines.push(line);
+            }
+          }
+
           if (chunk.length < CHUNK_SIZE) break;
           from += CHUNK_SIZE;
         }
@@ -203,7 +212,8 @@ const TrialBalanceAdvanced = () => {
           return;
         }
 
-        let allLines: any[] = [];
+        const seenLineIds = new Set<string>();
+        const allLines: any[] = [];
         let from = 0;
         const CHUNK_SIZE = 1000;
         while (true) {
@@ -213,11 +223,18 @@ const TrialBalanceAdvanced = () => {
             .eq('journal_entries.status', 'posted')
             .eq('journal_entries.organization_id', userOrgId)
             .lte('journal_entries.transaction_date', endDate)
+            .order('id', { ascending: true })
             .range(from, from + CHUNK_SIZE - 1);
 
           if (chunkErr) throw chunkErr;
           if (!chunk || chunk.length === 0) break;
-          allLines = allLines.concat(chunk);
+          for (const line of chunk) {
+            const lineId = line.id || `${line.journal_entry_id}-${line.account_id}-${line.debit}-${line.credit}`;
+            if (!seenLineIds.has(lineId)) {
+              seenLineIds.add(lineId);
+              allLines.push(line);
+            }
+          }
           if (chunk.length < CHUNK_SIZE) break;
           from += CHUNK_SIZE;
         }

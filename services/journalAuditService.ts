@@ -127,14 +127,19 @@ class JournalAuditService {
         } | null;
         [key: string]: unknown;
       }
+      const seenLineIds = new Set<string>();
       let allLines: RawJournalLineItem[] = [];
       let from = 0;
       const pageSize = 1000;
 
       while (true) {
-        const selectObj = supabase
+        let selectObj = supabase
           .from('journal_lines')
           .select('id, journal_entry_id, account_id, debit, credit, journal_entries!inner(id, reference, description, transaction_date, status, organization_id)');
+
+        if (typeof (selectObj as any).order === 'function') {
+          selectObj = (selectObj as any).order('id', { ascending: true });
+        }
 
         let query = typeof (selectObj as unknown as { range?: Function }).range === 'function'
           ? (selectObj as unknown as { range: (from: number, to: number) => typeof selectObj }).range(from, from + pageSize - 1)
@@ -155,8 +160,14 @@ class JournalAuditService {
         }
         if (!data || data.length === 0) break;
 
-        allLines = allLines.concat(data as unknown as RawJournalLineItem[]);
-        if (data.length < pageSize || typeof selectObj.range !== 'function') break;
+        for (const item of (data as unknown as RawJournalLineItem[])) {
+          const lId = item.id || `${item.journal_entry_id}-${item.account_id}-${item.debit}-${item.credit}`;
+          if (!seenLineIds.has(lId)) {
+            seenLineIds.add(lId);
+            allLines.push(item);
+          }
+        }
+        if (data.length < pageSize || typeof (selectObj as any).range !== 'function') break;
         from += pageSize;
       }
 
