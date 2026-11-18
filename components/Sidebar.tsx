@@ -784,6 +784,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <li key={`section-${index}`} className="pt-2">
                   <button 
                     onClick={() => toggleSection(item.label)}
+                    aria-expanded={isOpen}
                     className={`w-full flex items-center justify-between p-2.5 rounded-xl transition-all font-bold hover:bg-slate-200/60 group cursor-pointer ${isOpen || hasActiveChild ? 'bg-blue-50 text-blue-900 border border-blue-200/80 shadow-2xs' : 'text-blue-900/90'}`}
                   >
                     <span className="text-xs font-black uppercase tracking-widest leading-none">

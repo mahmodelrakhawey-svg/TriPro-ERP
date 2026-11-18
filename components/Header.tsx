@@ -4,7 +4,7 @@ import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
 import { secureStorage } from '../utils/securityMiddleware';
-import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2, ArrowLeftCircle, Calendar, Layers, Smartphone, Menu } from 'lucide-react';
+import { RefreshCw, Trash2, Bell, X, User as UserIcon, Settings, LogOut, ChevronDown, UserCircle, Landmark, Info, MessageCircle, Clock, ShoppingCart, Loader2, ArrowLeftCircle, Calendar, Layers, Smartphone, Menu, Search } from 'lucide-react';
 import { supabase, supabaseUrl } from '../supabaseClient';
 import NotificationCenter from './NotificationCenter';
 import { useNotifications } from '../utils/useNotifications';
@@ -209,6 +209,7 @@ const Header: React.FC<HeaderProps> = ({
                     }}
                     className="p-2 -mr-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors cursor-pointer"
                     title={isDesktopCollapsed ? "إظهار القائمة الجانبية" : "إخفاء القائمة الجانبية (الشاشة الكاملة)"}
+                    aria-label={isDesktopCollapsed ? "إظهار القائمة الجانبية" : "إخفاء القائمة الجانبية"}
                 >
                     <Menu size={22} />
                 </button>
@@ -218,10 +219,30 @@ const Header: React.FC<HeaderProps> = ({
                     <img src="/logo.jpg" alt="Logo" className="w-9 h-9 object-contain rounded-lg shrink-0" />
                 )}
                 <h1 className="text-base sm:text-lg font-black text-slate-800 tracking-tight truncate max-w-[180px] sm:max-w-none">{pageTitle}</h1>
+                <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent('tripro:open-command-palette'))}
+                    className="hidden md:flex items-center gap-2 bg-slate-100/90 hover:bg-slate-200/80 text-slate-500 hover:text-slate-800 px-3 py-1.5 rounded-xl text-xs font-bold transition-all border border-slate-200/80 cursor-pointer shadow-2xs mr-2"
+                    title="بحث سريع والتنقل في النظام (Ctrl+K)"
+                    aria-label="فتح شريط البحث السريع"
+                >
+                    <Search size={14} className="text-slate-400" />
+                    <span>بحث سريع...</span>
+                    <kbd className="hidden lg:inline-block bg-white border border-slate-200 px-1.5 py-0.5 rounded text-[10px] text-slate-400 font-mono shadow-2xs">Ctrl+K</kbd>
+                </button>
             </div>
 
             {/* Actions */}
             <div className="flex items-center gap-4">
+                <button
+                    type="button"
+                    onClick={() => window.dispatchEvent(new CustomEvent('tripro:open-command-palette'))}
+                    className="md:hidden p-2 text-slate-600 hover:text-blue-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+                    title="بحث سريع (Ctrl+K)"
+                    aria-label="فتح البحث السريع"
+                >
+                    <Search size={20} />
+                </button>
                 {Boolean(secureStorage.getItem('admin_original_org_id')) && (
                     <button 
                         onClick={handleReturnToAdmin}
@@ -376,6 +397,7 @@ const Header: React.FC<HeaderProps> = ({
                         onClick={() => setNotificationCenterOpen(true)}
                         className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors"
                         title="الإخطارات الذكية"
+                        aria-label="الإخطارات الذكية"
                     >
                         <Bell size={20} />
                         {unreadCount > 0 && (
@@ -390,7 +412,13 @@ const Header: React.FC<HeaderProps> = ({
 
                 {/* User Menu */}
                 <div className="relative" ref={userMenuRef}>
-                    <button onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} className="flex items-center gap-2 hover:bg-slate-100 p-1 pr-3 rounded-full transition-colors">
+                    <button 
+                        onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} 
+                        aria-haspopup="menu"
+                        aria-expanded={isUserMenuOpen}
+                        aria-label="قائمة المستخدم"
+                        className="flex items-center gap-2 hover:bg-slate-100 p-1 pr-3 rounded-full transition-colors"
+                    >
                         <span className="text-sm font-bold text-slate-700 hidden md:block">{currentUser?.full_name || '...'}</span>
                         <ChevronDown size={16} className="text-slate-400" />
                         <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center ring-2 ring-white overflow-hidden">

@@ -193,6 +193,37 @@ export class DoubleSubmissionProtection {
   }
 }
 
+const ENCRYPTED_STORAGE_PREFIX = 'enc:v1:';
+const STORAGE_SALT = 'TriPro_Secure_Storage_Salt_2026_@Key';
+
+function encryptStorageValue(plainText: string): string {
+  try {
+    let result = '';
+    for (let i = 0; i < plainText.length; i++) {
+      result += String.fromCharCode(plainText.charCodeAt(i) ^ STORAGE_SALT.charCodeAt(i % STORAGE_SALT.length));
+    }
+    return ENCRYPTED_STORAGE_PREFIX + btoa(encodeURIComponent(result));
+  } catch {
+    return plainText;
+  }
+}
+
+function decryptStorageValue(cipherText: string): string {
+  try {
+    if (typeof cipherText !== 'string' || !cipherText.startsWith(ENCRYPTED_STORAGE_PREFIX)) {
+      return cipherText;
+    }
+    const raw = decodeURIComponent(atob(cipherText.slice(ENCRYPTED_STORAGE_PREFIX.length)));
+    let result = '';
+    for (let i = 0; i < raw.length; i++) {
+      result += String.fromCharCode(raw.charCodeAt(i) ^ STORAGE_SALT.charCodeAt(i % STORAGE_SALT.length));
+    }
+    return result;
+  } catch {
+    return cipherText;
+  }
+}
+
 /**
  * Secure local storage wrapper
  */
@@ -210,13 +241,19 @@ export const secureStorage = {
         return;
       }
       
+      // 🛡️ التشفير التلقائي للمفاتيح الحساسة الصريحة مثل مفتاح الذكاء الاصطناعي لمنع تخزينها كنص مكشوف
+      let valueToStore = value;
+      if (allowedExplicitKeys.includes(key) && typeof value === 'string') {
+        valueToStore = encryptStorageValue(value);
+      }
+
       // 🛡️ FIX: Do NOT apply sanitizeHtml on JSON/object values.
       // sanitizeHtml encodes " => &quot;, / => &#x2F;, = => &#x3D; which corrupts
       // JSON structure and breaks JSON.parse on retrieval (e.g. invoice/payroll drafts).
       // JSON.stringify is sufficient to safely store without altering data structure.
       // SECURITY-WRAPPER: Direct storage interface usage is intentional here - this is the secure wrapper layer
       const storage = typeof window !== 'undefined' ? window.localStorage : null;
-      if (storage) storage.setItem(key, JSON.stringify(value));
+      if (storage) storage.setItem(key, JSON.stringify(valueToStore));
     } catch (error) {
       if (process.env.NODE_ENV === 'development') {
         logger.error('Storage error:', error);
@@ -227,15 +264,22 @@ export const secureStorage = {
   getItem<T>(key: string, fallback?: T): T | null {
     try {
       // SECURITY-WRAPPER: Direct storage interface usage is intentional here - this is the secure wrapper layer
+      const allowedExplicitKeys = ['user_gemini_api_key'];
       const storage = typeof window !== 'undefined' ? window.localStorage : null;
       const item = storage ? storage.getItem(key) : null;
       if (item === null || item === undefined) return fallback || null;
+      let parsed: unknown;
       try {
-        return JSON.parse(item) as T;
+        parsed = JSON.parse(item);
       } catch {
         // Fallback for plain text strings previously saved directly without JSON.stringify
-        return (item as unknown as T);
+        parsed = item;
       }
+      // 🛡️ فك تشفير المفاتيح الحساسة في حال كانت مشفرة، مع التوافق التلقائي للبيانات القديمة
+      if (allowedExplicitKeys.includes(key) && typeof parsed === 'string') {
+        parsed = decryptStorageValue(parsed);
+      }
+      return parsed as T;
     } catch (error) {
       return fallback || null;
     }

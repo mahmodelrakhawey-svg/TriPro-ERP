@@ -22,6 +22,7 @@ import { secureStorage } from './utils/securityMiddleware';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import NotFound from './components/NotFound';
+import CommandPalette from './components/CommandPalette';
 
 // 📱 تطبيق الموبايل الميداني التقدمي (Mobile PWA Companion)
 const MobileApp = lazy(() => import('./modules/mobile/MobileApp'));
@@ -506,6 +507,7 @@ const MainLayout = () => {
                 <DemoBanner />
                 <DemoWelcomeModal />
                 <DemoTour />
+                <CommandPalette />
                 <DemoWatermark />
                 <OfflineSyncProvider />
                 <PrintHeader />

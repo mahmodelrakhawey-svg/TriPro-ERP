@@ -2,7 +2,7 @@ import { logger } from '../utils/logger';
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
-import { supabaseUrl } from '../supabaseClient';
+
 import { LogIn, AlertCircle, Loader2, ShieldCheck, PlayCircle } from 'lucide-react';
 
 const Login = () => {
@@ -145,8 +145,8 @@ const Login = () => {
 
         <div className="mt-8 text-center text-[11px] text-slate-400 font-bold space-y-1">
           <p>TriPro ERP © {new Date().getFullYear()} • الإصدار المؤسسي 7.0.0</p>
-          <p className="text-[10px] text-slate-400 opacity-60 font-mono" dir="ltr">
-            Host: {supabaseUrl || 'Not Configured'}
+          <p className="text-[10px] text-slate-400 opacity-60">
+            النظام المحاسبي السحابي الموحد
           </p>
         </div>
       </div>

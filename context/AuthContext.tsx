@@ -65,7 +65,7 @@ const DEFAULT_AUTH_FALLBACK: AuthContextType = {
       window.location.reload();
     }
   },
-  can: () => true,
+  can: () => false,
   refreshPermissions: async () => {}
 };
 
@@ -210,12 +210,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle() as { data: Profile | null };
         
         const email = (user.email || profile?.email || '').toLowerCase();
-        // فرض دور demo للمستخدم المحدد
+        // فرض دور demo للمستخدم المحدد أو admin للمسؤول المعتمد
         const isDemoUser = email === DEMO_EMAIL || user.id === DEMO_USER_ID;
+        const isAdminUser = user.id === ADMIN_USER_ID;
         
-        // تحديد الدور: الديمو أولاً، ثم البيانات الوصفية، ثم البروفايل، وأخيراً admin كافتراضي للمنشئ
-        // تحديد الدور: الديمو أولاً، ثم البروفايل من قاعدة البيانات (لضمان فورية التعديلات)، ثم البيانات الوصفية، وأخيراً admin
-        const roleName = isDemoUser ? 'demo' : (profile?.role || user.user_metadata?.role || user.user_metadata?.app_role || 'admin');
+        // تحديد الدور: الديمو أولاً، ثم المسؤول المعتمد، ثم البروفايل من قاعدة البيانات، ثم البيانات الوصفية، وأخيراً viewer كأقل صلاحية أماناً (Fail-Secure)
+        const roleName = isDemoUser 
+          ? 'demo' 
+          : (isAdminUser 
+              ? 'admin' 
+              : (profile?.role || user.user_metadata?.role || user.user_metadata?.app_role || 'viewer'));
         const hrScope = (profile as any)?.hr_scope || user.user_metadata?.hr_scope || 'all';
         const canViewDashboard = (profile as any)?.can_view_dashboard !== undefined && (profile as any)?.can_view_dashboard !== null
           ? Boolean((profile as any)?.can_view_dashboard)

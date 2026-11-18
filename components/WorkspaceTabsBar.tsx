@@ -208,6 +208,8 @@ export const WorkspaceTabsBar: React.FC = () => {
             <div 
                 ref={scrollContainerRef}
                 onWheel={handleWheel}
+                role="tablist"
+                aria-label="أشرطة مساحات العمل المفتوحة"
                 className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5 flex-1 scroll-smooth"
             >
                 {tabs.map((tab) => {
@@ -218,7 +220,16 @@ export const WorkspaceTabsBar: React.FC = () => {
                     return (
                         <div
                             key={tab.path}
+                            role="tab"
+                            tabIndex={0}
+                            aria-selected={isActive}
                             onClick={() => navigate(tab.path)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    navigate(tab.path);
+                                }
+                            }}
                             className={`group flex items-center gap-2 px-3 py-1.5 rounded-xl cursor-pointer text-xs font-bold transition-all duration-150 whitespace-nowrap border ${
                                 isActive 
                                     ? 'bg-emerald-50 text-emerald-800 border-emerald-300 shadow-xs font-black' 

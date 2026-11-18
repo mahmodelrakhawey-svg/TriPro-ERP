@@ -201,8 +201,14 @@ export interface FinancialJournalEntry {
   lines: FinancialJournalLine[];
 }
 
+/**
+ * عتبة التسامح المحاسبية الموحدة في كافة أجزاء النظام (نصف قرش = 0.005 ج.م)
+ * أي فارق يتجاوز نصف القرش يعتبر خللاً في توازن القيد المزدوج.
+ */
+export const BALANCE_TOLERANCE = 0.005;
+
 export interface EntryBalanceValidationResult {
-  /** هل القيد متوازن محاسبياً (الفرق أقل من 0.001) */
+  /** هل القيد متوازن محاسبياً (الفرق أقل من أو يساوي 0.005) */
   isBalanced: boolean;
   /** إجمالي المبالغ المدينة مقربة لأقرب قرشين */
   totalDebit: number;
@@ -265,7 +271,7 @@ export function validateEntryBalance(entry: FinancialJournalEntry): EntryBalance
   const difference = roundToTwoDecimals(Math.abs(totalDebit - totalCredit));
 
   return {
-    isBalanced: difference < 0.001,
+    isBalanced: difference <= BALANCE_TOLERANCE,
     totalDebit,
     totalCredit,
     difference

@@ -159,7 +159,7 @@ export const createJournalEntrySchema = baseJournalEntrySchema.refine(
   (data) => {
     const totalDebit = data.lines.reduce((sum, line) => sum + line.debit, 0);
     const totalCredit = data.lines.reduce((sum, line) => sum + line.credit, 0);
-    return Math.abs(totalDebit - totalCredit) < 0.01; // السماح بخطأ تقريب بسيط
+    return Math.abs(totalDebit - totalCredit) <= 0.005; // عتبة التسامح المحاسبية الموحدة (نصف قرش = 0.005)
   },
   {
     message: 'إجمالي المدين يجب أن يساوي إجمالي الدائن (لا توازن)',

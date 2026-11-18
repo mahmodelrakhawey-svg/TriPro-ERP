@@ -10,6 +10,8 @@
 import { logger } from '../utils/logger';
 import { supabase } from '../supabaseClient';
 import { fetchCompleteDataset } from './balanceService';
+import { BALANCE_TOLERANCE } from '../utils/financialSafety';
+import { logDocumentAction } from './auditService';
 
 export interface UnbalancedJournalEntrySummary {
   id: string;
@@ -254,8 +256,8 @@ class JournalAuditService {
         const diff = Number((data.debit - data.credit).toFixed(4));
         const absDiff = Math.abs(diff);
 
-        // إذا كان الفارق أكبر من نصف قرش (0.005 ج.م)
-        if (absDiff > 0.005) {
+        // إذا كان الفارق أكبر من عتبة التسامح الموحدة (0.005 ج.م)
+        if (absDiff > BALANCE_TOLERANCE) {
           unbalancedIds.push(id);
           entries.push({
             id,
@@ -308,6 +310,19 @@ class JournalAuditService {
         .eq('id', entryId);
 
       if (error) throw error;
+
+      // 🛡️ توثيق حركة إلغاء الترحيل في سجل التدقيق والمراجعة
+      try {
+        await logDocumentAction({
+          documentType: 'journal_entry',
+          documentId: entryId,
+          action: 'unposted',
+          details: { note: 'تم إلغاء ترحيل القيد وتحويله إلى مسودة للتصحيح عبر درع تدقيق اليومية' }
+        });
+      } catch (_) {
+        // عدم تعطيل سير العمل في حال تعذر تسجيل التدقيق
+      }
+
       return { success: true, message: 'تم تحويل القيد إلى مسودة بنجاح لتعديله وتصحيحه.' };
     } catch (err) {
       return { success: false, message: err.message || 'فشل إلغاء ترحيل القيد' };

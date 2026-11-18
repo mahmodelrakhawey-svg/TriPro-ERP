@@ -196,7 +196,7 @@ const JournalEntryForm = () => {
     { debit: 0, credit: 0 }
   );
 
-  const isBalanced = Math.abs(totals.debit - totals.credit) < 0.01 && totals.debit > 0;
+  const isBalanced = Math.abs(totals.debit - totals.credit) <= 0.005 && totals.debit > 0;
 
   // فحص استرشادي خفيف (غير مانع للحفظ) ينبه المحاسب بصرياً إذا أُدرج نفس الحساب في أكثر من سطر بنفس الاتجاه
   const isDuplicateOnSameSide = (currentIndex: number): boolean => {
