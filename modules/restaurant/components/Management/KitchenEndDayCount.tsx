@@ -6,6 +6,7 @@ import { useAccounting } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
 import { Calculator, Save, Search, CheckCircle2, AlertTriangle, Loader2, Utensils, RefreshCw } from 'lucide-react';
 import { z } from 'zod';
+import { getProductWarehouseStock } from '../../../../components/ProductSearchSelect';
 
 const KitchenEndDayCount = () => {
   const navigate = useNavigate();
@@ -55,13 +56,7 @@ const KitchenEndDayCount = () => {
 
         const warehouseProducts = productsSource
             .map((p: Record<string, any>) => {
-                let currentQty = 0;
-                let wStock = p.warehouse_stock || {};
-                if (wStock && typeof wStock === 'object' && wStock[warehouseId] !== undefined) {
-                    currentQty = Number(wStock[warehouseId]);
-                } else {
-                    currentQty = Number(p.stock || 0);
-                }
+                const currentQty = warehouseId ? getProductWarehouseStock(p, warehouseId) : Number(p.stock || 0);
 
                 return {
                     productId: p.id,

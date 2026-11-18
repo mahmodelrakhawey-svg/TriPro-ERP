@@ -5,6 +5,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { fetchAllTableRecords } from '../../context/domains/domainUtils';
+import { getProductWarehouseStock } from '../../components/ProductSearchSelect';
 
 interface PdaCountedItem {
   id: string;
@@ -136,10 +137,7 @@ export default function MobilePdaStocktaking() {
     playBeep('success');
 
     // Get system stock for selected warehouse if available, else overall stock
-    let sysStock = Number(matched.stock || 0);
-    if (selectedWarehouseId && matched.warehouse_stock && matched.warehouse_stock[selectedWarehouseId] !== undefined) {
-      sysStock = Number(matched.warehouse_stock[selectedWarehouseId] || 0);
-    }
+    const sysStock = selectedWarehouseId ? getProductWarehouseStock(matched, selectedWarehouseId) : Number(matched.stock || 0);
 
     setCountedItems(prev => {
       const existing = prev.find(it => it.id === matched.id);

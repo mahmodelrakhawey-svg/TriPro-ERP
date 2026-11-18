@@ -65,9 +65,13 @@ const HighlightedText: React.FC<{ text: string; query: string }> = ({ text, quer
 
 export const getProductWarehouseStock = (product?: Product | Record<string, any> | null, warehouseId?: string): number => {
   if (!product) return 0;
-  if (!product) return 0;
-  if (!warehouseId) return product.stock ?? 0;
-  const stockMap = product.warehouse_stock || product.warehouseStock;
+  if (!warehouseId) return Number(product.stock ?? 0);
+  let stockMap = product.warehouse_stock || (product as any).warehouseStock;
+  if (typeof stockMap === 'string') {
+    try {
+      stockMap = JSON.parse(stockMap);
+    } catch {}
+  }
   if (stockMap && typeof stockMap === 'object' && warehouseId in stockMap) {
     return Number(stockMap[warehouseId] || 0);
   }

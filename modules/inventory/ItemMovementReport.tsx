@@ -6,7 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { Package, Search, Printer, Loader2, ArrowUpRight, ArrowDownLeft, Filter, Download, X, User, ArrowRightLeft, Factory, ChevronLeft, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import ProductSearchSelect from '../../components/ProductSearchSelect';
+import ProductSearchSelect, { getProductWarehouseStock } from '../../components/ProductSearchSelect';
 import { fetchCompleteDataset } from '../../services/balanceService';
 
 type Movement = {
@@ -80,8 +80,8 @@ const ItemMovementReport = () => {
     if (selectedProductId) {
       const product = products.find(p => p.id === selectedProductId);
       if (product) {
-        if (selectedWarehouseId && product.warehouse_stock && product.warehouse_stock[selectedWarehouseId] !== undefined) {
-          setCurrentStock(Number(product.warehouse_stock[selectedWarehouseId] || 0));
+        if (selectedWarehouseId) {
+          setCurrentStock(getProductWarehouseStock(product, selectedWarehouseId));
         } else {
           setCurrentStock(Number(product.stock || 0));
         }
@@ -104,8 +104,8 @@ const ItemMovementReport = () => {
         setOpeningBalance(0);
         const product = products.find(p => p.id === selectedProductId);
         if (product) {
-          if (selectedWarehouseId && product.warehouse_stock && product.warehouse_stock[selectedWarehouseId] !== undefined) {
-            setCurrentStock(Number(product.warehouse_stock[selectedWarehouseId] || 0));
+          if (selectedWarehouseId) {
+            setCurrentStock(getProductWarehouseStock(product, selectedWarehouseId));
           } else {
             setCurrentStock(Number(product.stock || 0));
           }
@@ -122,8 +122,8 @@ const ItemMovementReport = () => {
 
       const product = products.find(p => p.id === selectedProductId);
       if (product) {
-        if (selectedWarehouseId && product.warehouse_stock && product.warehouse_stock[selectedWarehouseId] !== undefined) {
-          setCurrentStock(Number(product.warehouse_stock[selectedWarehouseId] || 0));
+        if (selectedWarehouseId) {
+          setCurrentStock(getProductWarehouseStock(product, selectedWarehouseId));
         } else {
           setCurrentStock(Number(product.stock || 0));
         }

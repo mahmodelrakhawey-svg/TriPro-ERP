@@ -12,7 +12,7 @@ import {
   ShieldCheck, Clock, Edit3
 } from 'lucide-react';
 import { createInventoryCountSchema } from '../../utils/validationSchemas';
-import ProductSearchSelect, { normalizeArabic } from '../../components/ProductSearchSelect';
+import ProductSearchSelect, { normalizeArabic, getProductWarehouseStock } from '../../components/ProductSearchSelect';
 import { Product } from '../../types';
 import { fetchAllTableRecords } from '../../context/domains/domainUtils';
 import { getCurrencySymbol } from '../../utils/constants';
@@ -88,6 +88,57 @@ export const clearInventoryCountDraft = () => {
     secureStorage.removeItem(INVENTORY_COUNT_DRAFT_KEY);
     secureStorage.removeItem(LEGACY_INVENTORY_COUNT_DRAFT_KEY);
   } catch {}
+};
+
+// 🛡️ بناء صنف كشف الجرد مع الفهرسة النصية والتطبيع الشامل للعربية وضبط رصيد المستودع بدقة
+export const createCountItem = (
+  p: Record<string, any>, 
+  targetWhId: string, 
+  categories: any[] = []
+): CountTableItem => {
+  // 🛡️ جلب رصيد المستودع الفعلي المطلوب جرده بدقة (صفر إذا لم يكن مسجلاً بالمستودع بدلاً من سحب إجمالي رصيد الشركة)
+  const currentQty = targetWhId ? getProductWarehouseStock(p, targetWhId) : Number(p.stock || 0);
+
+  const skuVal = p.sku || p.code || '';
+  const normName = normalizeArabic(p.name || '');
+  const normSku = normalizeArabic(skuVal);
+  const normBarcode = normalizeArabic(p.barcode || '');
+  const normBarcode2 = normalizeArabic(p.barcode2 || '');
+  const normDesc = normalizeArabic(p.description || '');
+  
+  // إيجاد اسم التصنيف
+  const catObj = (categories || []).find(c => c.id === p.category_id);
+  const categoryName = catObj?.name || p.category || '';
+  const normCat = normalizeArabic(categoryName);
+
+  const normUnitBarcodes = Array.isArray(p.unit_barcodes)
+    ? p.unit_barcodes.map((ub: { barcode?: string }) => normalizeArabic(ub?.barcode || '')).filter(Boolean).join(' ')
+    : '';
+
+  // توليد كلمات البحث مع وبدون الـ التعريفية لمطابقة فائقة الدقة
+  const words = normName.split(/\s+/).filter(Boolean);
+  const variations = words.map(w => w.startsWith('ال') && w.length > 3 ? w.slice(2) : `ال${w}`).join(' ');
+
+  const searchableText = `${normName} ${variations} ${normSku} ${normBarcode} ${normBarcode2} ${normUnitBarcodes} ${normDesc} ${normCat}`;
+
+  return {
+    productId: p.id,
+    productName: p.name || 'صنف بدون اسم',
+    productDescription: p.description || '',
+    sku: skuVal,
+    barcode: p.barcode || '',
+    barcode2: p.barcode2 || '',
+    categoryId: p.category_id || '',
+    categoryName: categoryName,
+    unit: p.unit || p.uom || 'قطعة',
+    purchasePrice: Number(p.purchase_price || p.cost || 0),
+    systemQty: currentQty,
+    actualQty: currentQty,
+    difference: 0,
+    notes: '',
+    isCounted: false,
+    searchableText
+  };
 };
 
 const InventoryCountForm = () => {
@@ -287,6 +338,31 @@ const InventoryCountForm = () => {
     }
   }, []);
 
+  // 🛡️ مزامنة وتصحيح الأرصدة الدفترية للأصناف في القائمة طبقاً للمستودع المختار (لتصحيح أي مسودة قديمة كانت محتفظة بإجمالي رصيد الشركة)
+  useEffect(() => {
+    if (warehouseId && allAvailableProducts.length > 0 && items.length > 0 && !editingCountId) {
+      setItems(prevItems => {
+        let hasChanges = false;
+        const updated = prevItems.map(item => {
+          const freshProd = allAvailableProducts.find(p => p.id === item.productId);
+          if (freshProd) {
+            const correctSystemQty = getProductWarehouseStock(freshProd, warehouseId);
+            if (correctSystemQty !== item.systemQty) {
+              hasChanges = true;
+              return {
+                ...item,
+                systemQty: correctSystemQty,
+                difference: Number((item.actualQty - correctSystemQty).toFixed(4))
+              };
+            }
+          }
+          return item;
+        });
+        return hasChanges ? updated : prevItems;
+      });
+    }
+  }, [warehouseId, allAvailableProducts, editingCountId]);
+
   // 🛡️ حفظ مسودة كشف الجرد تلقائياً في التخزين الآمن عند أي تغيير
   useEffect(() => {
     if (!isMountedRef.current) {
@@ -361,64 +437,9 @@ const InventoryCountForm = () => {
     showToast('تم مسح المسودة وتصفير كشف الجرد بنجاح', 'info');
   };
 
-  // بناء صنف كشف الجرد مع الفهرسة النصية والتطبيع الشامل للعربية
+  // 🛡️ بناء صنف كشف الجرد مع الفهرسة النصية والتطبيع الشامل للعربية وضبط رصيد المستودع بدقة
   const buildCountItem = (p: Record<string, any>, targetWhId: string): CountTableItem => {
-    let currentQty = 0;
-    
-    // فحص رصيد المستودع (يدعم الكائن أو النص بصيغة JSON)
-    let wStock = p.warehouse_stock || p.warehouseStock || {};
-    if (typeof wStock === 'string') {
-      try {
-        wStock = JSON.parse(wStock);
-      } catch {}
-    }
-
-    if (wStock && typeof wStock === 'object' && targetWhId && wStock[targetWhId] !== undefined) {
-      currentQty = Number(wStock[targetWhId]) || 0;
-    } else {
-      currentQty = Number(p.stock || 0);
-    }
-
-    const skuVal = p.sku || p.code || '';
-    const normName = normalizeArabic(p.name || '');
-    const normSku = normalizeArabic(skuVal);
-    const normBarcode = normalizeArabic(p.barcode || '');
-    const normBarcode2 = normalizeArabic(p.barcode2 || '');
-    const normDesc = normalizeArabic(p.description || '');
-    
-    // إيجاد اسم التصنيف
-    const catObj = (categories || []).find(c => c.id === p.category_id);
-    const categoryName = catObj?.name || p.category || '';
-    const normCat = normalizeArabic(categoryName);
-
-    const normUnitBarcodes = Array.isArray(p.unit_barcodes)
-      ? p.unit_barcodes.map((ub: { barcode?: string }) => normalizeArabic(ub?.barcode || '')).filter(Boolean).join(' ')
-      : '';
-
-    // توليد كلمات البحث مع وبدون الـ التعريفية لمطابقة فائقة الدقة
-    const words = normName.split(/\s+/).filter(Boolean);
-    const variations = words.map(w => w.startsWith('ال') && w.length > 3 ? w.slice(2) : `ال${w}`).join(' ');
-
-    const searchableText = `${normName} ${variations} ${normSku} ${normBarcode} ${normBarcode2} ${normUnitBarcodes} ${normDesc} ${normCat}`;
-
-    return {
-      productId: p.id,
-      productName: p.name || 'صنف بدون اسم',
-      productDescription: p.description || '',
-      sku: skuVal,
-      barcode: p.barcode || '',
-      barcode2: p.barcode2 || '',
-      categoryId: p.category_id || '',
-      categoryName: categoryName,
-      unit: p.unit || p.uom || 'قطعة',
-      purchasePrice: Number(p.purchase_price || p.cost || 0),
-      systemQty: currentQty,
-      actualQty: currentQty,
-      difference: 0,
-      notes: '',
-      isCounted: false,
-      searchableText
-    };
+    return createCountItem(p, targetWhId, categories);
   };
 
   // تمييز الصنف والتمرير إليه والتركيز على حقل الكمية

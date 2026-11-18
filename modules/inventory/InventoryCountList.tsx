@@ -7,7 +7,7 @@ import { useToast } from '../../context/ToastContext';
 import { 
   History, Eye, CheckCircle, Clock, X, Package, AlertTriangle, 
   Check, Loader2, Search, Edit3, Trash2, Plus, Save, ExternalLink,
-  Calendar, Warehouse, FileText, ArrowUpDown, RefreshCw
+  Calendar, Warehouse, FileText, ArrowUpDown, RefreshCw, RotateCcw
 } from 'lucide-react';
 import { normalizeArabic } from '../../components/ProductSearchSelect';
 import { fetchCompleteDataset } from '../../services/balanceService';
@@ -21,6 +21,8 @@ const CountDetailsModal = ({
   onClose, 
   onPost, 
   onEdit,
+  onReverse,
+  isReversing,
   isLoading 
 }: { 
   count: Record<string, any>, 
@@ -28,6 +30,8 @@ const CountDetailsModal = ({
   onClose: () => void, 
   onPost: (id: string) => void, 
   onEdit: (count: Record<string, any>) => void,
+  onReverse?: (count: Record<string, any>) => void,
+  isReversing?: boolean,
   isLoading: boolean 
 }) => {
   const [showDiscrepanciesOnly, setShowDiscrepanciesOnly] = useState(false);
@@ -171,6 +175,17 @@ const CountDetailsModal = ({
                     className="bg-emerald-600 text-white px-5 py-2 rounded-lg font-bold text-sm flex items-center gap-1.5 hover:bg-emerald-700 transition-colors shadow-sm"
                 >
                     <CheckCircle size={16} /> اعتماد وترحيل التسوية
+                </button>
+              )}
+              {count.status === 'posted' && onReverse && (
+                <button 
+                    onClick={() => onReverse(count)}
+                    disabled={isReversing}
+                    className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 rounded-lg font-bold text-sm flex items-center gap-1.5 transition-colors shadow-sm disabled:opacity-50"
+                    title="استعادة أرصدة كافة الأصناف وعكس أثر الجرد بالكامل بتسوية عكسية فورية"
+                >
+                    {isReversing ? <Loader2 size={16} className="animate-spin" /> : <RotateCcw size={16} />}
+                    {isReversing ? 'جاري استعادة الأرصدة...' : '🔄 عكس الجرد واستعادة كافة الأصناف'}
                 </button>
               )}
             </div>
@@ -534,8 +549,9 @@ const InventoryCountList = () => {
   const [isEditLoading, setIsEditLoading] = useState(false);
   const [isSavingEdit, setIsSavingEdit] = useState(false);
 
-  // الحذف
+  // الحذف والعكس
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [reversingId, setReversingId] = useState<string | null>(null);
 
   // جلب سجلات الجرد
   const fetchCounts = async () => {
@@ -705,6 +721,16 @@ const InventoryCountList = () => {
 
       // إذا كان مرحلاً، نبحث عن التسوية المخزنية والقيود المحاسبية المرتبطة ونحذفها بأمان
       if (isPosted) {
+        // 🚀 1. المحاولة المركزية الأولى: استدعاء دالة السيرفر الذرية المعتمدة RPC (تتجاوز حارس الحصانة بأمان)
+        const { error: rpcErr } = await supabase.rpc('delete_inventory_count', { p_count_id: count.id });
+        if (!rpcErr) {
+          await recalculateStock();
+          showToast(`تم حذف كشف الجرد (${count.count_number}) بنجاح والتراجع عن التسوية والقيود المحاسبية ✅`, 'success');
+          await fetchCounts();
+          return;
+        }
+
+        // 2. المسار البديل في حال لم تكن الدالة منشورة بعد على السيرفر
         const adjNumber = `ADJ-CNT-${count.count_number}`;
 
         const { data: adjs } = await supabase
@@ -758,7 +784,11 @@ const InventoryCountList = () => {
     } catch (err) {
       const errorObj = err as Error;
       logger.error('Error deleting inventory count:', err);
-      showToast('فشل في حذف كشف الجرد: ' + (errorObj?.message || ''), 'error');
+      let errMsg = errorObj?.message || '';
+      if (errMsg.includes('TRIPRO_SECURITY_ALERT') || errMsg.includes('immutability') || errMsg.includes('محصنة') || errMsg.includes('معتمد')) {
+        errMsg = 'القيود المحاسبية لهذا الجرد محصنة بقواعد الأمان المحاسبي ضد الحذف المباشر. يمكنك تصحيح الرصيد محاسبياً بعمل جرد جديد لنفس المخزن أو تسوية مخزنية عكسية.';
+      }
+      showToast('فشل في حذف كشف الجرد: ' + errMsg, 'error');
     } finally {
       setDeletingId(null);
     }
@@ -790,6 +820,168 @@ const InventoryCountList = () => {
         const errObj = error as Error;
         logger.error(error);
         showToast('فشل ترحيل الجرد: ' + (errObj?.message || ''), 'error');
+    }
+  };
+
+  // 🔄 عكس كشف الجرد بالكامل واستعادة كافة الأصناف دفعة واحدة بتسوية عكسية فورية
+  const handleReverseCount = async (count: Record<string, any>) => {
+    if (currentUser?.role === 'demo') {
+      showToast('تم عكس كشف الجرد واستعادة الأصناف بنجاح ✅ (محاكاة)', 'success');
+      return;
+    }
+
+    setReversingId(count.id);
+    try {
+      // 1. جلب كافة بنود الجرد التي بها فروقات
+      const { data: countItems, error: fetchErr } = await supabase
+        .from('inventory_count_items')
+        .select('*, products(name, purchase_price, cost)')
+        .eq('inventory_count_id', count.id);
+
+      if (fetchErr) throw fetchErr;
+
+      const diffItems = (countItems || []).filter(item => Number(item.difference) !== 0);
+
+      if (diffItems.length === 0) {
+        showToast('لا توجد فروقات مسجلة في هذا الجرد لعكسها (كافة الأصناف متطابقة)', 'info');
+        setReversingId(null);
+        return;
+      }
+
+      const confirmMsg = `⚠️ تأكيد استعادة الأرصدة وعكس الجرد:\n\nهل تريد إلغاء أثر كشف الجرد رقم (${count.count_number}) واستعادة أرصدة كافة الأصناف المسجلة به (${diffItems.length} صنف) إلى حالتها الأصلية قبل الجرد؟\n\nسيقوم النظام فوراً بإنشاء تسوية مخزنية عكسية تعيد كل صنف تم تصفيره أو خصمه بالكمية الدقيقة فوراً وتعديل القيود المحاسبية بنقرة واحدة.`;
+      
+      if (!window.confirm(confirmMsg)) {
+        setReversingId(null);
+        return;
+      }
+
+      const revAdjNo = `ADJ-REV-${count.count_number.replace(/^CNT-/, '')}-${Date.now().toString().slice(-4)}`;
+      const userOrgId = currentSelectedOrgId || count.organization_id;
+
+      // 2. إنشاء رأس تسوية مخزنية عكسية
+      const { data: revAdj, error: adjErr } = await supabase
+        .from('stock_adjustments')
+        .insert({
+          warehouse_id: count.warehouse_id,
+          adjustment_date: new Date().toISOString().split('T')[0],
+          adjustment_number: revAdjNo,
+          reason: `تسوية عكسية شاملة لتصحيح كشف الجرد رقم: ${count.count_number} (${diffItems.length} صنف)`,
+          status: 'posted',
+          organization_id: userOrgId
+        })
+        .select()
+        .single();
+
+      if (adjErr) throw adjErr;
+
+      // 3. بنود التسوية العكسية (عكس الإشارة: العجز السالب يصبح وارداً موجباً، والفائض الموجب يصبح صادراً سالباً)
+      const revItemsPayload = diffItems.map(item => {
+        const origDiff = Number(item.difference || 0);
+        const isDeficit = origDiff < 0;
+        const revQty = isDeficit ? Math.abs(origDiff) : -Math.abs(origDiff);
+        const revType = isDeficit ? 'in' : 'out';
+
+        return {
+          stock_adjustment_id: revAdj.id,
+          product_id: item.product_id,
+          quantity: revQty,
+          type: revType,
+          organization_id: userOrgId
+        };
+      });
+
+      const { error: revItemsErr } = await supabase
+        .from('stock_adjustment_items')
+        .insert(revItemsPayload);
+
+      if (revItemsErr) throw revItemsErr;
+
+      // 4. إنشاء القيد المحاسبي العكسي للفروقات
+      let totalVal = 0;
+      diffItems.forEach(item => {
+        const prod = item.products || {};
+        const cost = Number(prod.purchase_price || prod.cost || 0);
+        const origDiff = Number(item.difference || 0);
+        totalVal += origDiff * cost;
+      });
+
+      const revVal = -totalVal;
+      if (Math.abs(revVal) > 0.01) {
+        const { data: settings } = await supabase
+          .from('company_settings')
+          .select('account_mappings')
+          .eq('organization_id', userOrgId)
+          .maybeSingle();
+
+        const v_mappings = settings?.account_mappings || {};
+        const { data: invAcc } = await supabase
+          .from('accounts')
+          .select('id')
+          .eq('organization_id', userOrgId)
+          .eq('code', '10302')
+          .maybeSingle();
+
+        const { data: adjAcc } = await supabase
+          .from('accounts')
+          .select('id')
+          .eq('organization_id', userOrgId)
+          .eq('code', '512')
+          .maybeSingle();
+
+        const invAccId = v_mappings.INVENTORY_FINISHED_GOODS || invAcc?.id;
+        const adjAccId = v_mappings.INVENTORY_ADJUSTMENTS || adjAcc?.id;
+
+        if (invAccId && adjAccId) {
+          const { data: je, error: jeErr } = await supabase
+            .from('journal_entries')
+            .insert({
+              transaction_date: new Date().toISOString().split('T')[0],
+              description: `قيد تسوية عكسية لإلغاء أثر جرد رقم ${count.count_number}`,
+              reference: revAdjNo,
+              status: 'posted',
+              organization_id: userOrgId,
+              is_posted: true,
+              related_document_id: revAdj.id,
+              related_document_type: 'stock_adjustment'
+            })
+            .select()
+            .single();
+
+          if (!jeErr && je) {
+            const lines = revVal > 0 
+              ? [
+                  { journal_entry_id: je.id, account_id: invAccId, debit: revVal, credit: 0, organization_id: userOrgId },
+                  { journal_entry_id: je.id, account_id: adjAccId, debit: 0, credit: revVal, organization_id: userOrgId }
+                ]
+              : [
+                  { journal_entry_id: je.id, account_id: adjAccId, debit: Math.abs(revVal), credit: 0, organization_id: userOrgId },
+                  { journal_entry_id: je.id, account_id: invAccId, debit: 0, credit: Math.abs(revVal), organization_id: userOrgId }
+                ];
+            await supabase.from('journal_lines').insert(lines);
+          }
+        }
+      }
+
+      // 5. تحديث ملاحظات الجرد للإشارة بأنه تم عكسه
+      await supabase
+        .from('inventory_counts')
+        .update({
+          notes: `${count.notes || ''} [تمت استعادة الأصناف وعكس أثره بتسوية عكسية رقم ${revAdjNo}]`.trim()
+        })
+        .eq('id', count.id);
+
+      // 6. إعادة احتساب المخزون الشامل فورياً
+      await recalculateStock();
+
+      showToast(`تمت استعادة أرصدة كافة الأصناف (${diffItems.length} صنف) وعكس أثر الجرد بنجاح تام! 🎉`, 'success');
+      await fetchCounts();
+      if (isModalOpen) setIsModalOpen(false);
+    } catch (err) {
+      const errorObj = err as Error;
+      logger.error('Error reversing count:', err);
+      showToast('فشل في عكس كشف الجرد: ' + (errorObj?.message || ''), 'error');
+    } finally {
+      setReversingId(null);
     }
   };
 
@@ -886,13 +1078,14 @@ const InventoryCountList = () => {
                     <th className="p-4">ملاحظات</th>
                     <th className="p-4 text-center">عرض</th>
                     <th className="p-4 text-center">تعديل</th>
+                    <th className="p-4 text-center text-purple-700">عكس / استعادة</th>
                     <th className="p-4 text-center">حذف</th>
                 </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
                 {loading ? (
                     <tr>
-                      <td colSpan={8} className="p-12 text-center">
+                      <td colSpan={9} className="p-12 text-center">
                         <Loader2 className="animate-spin mx-auto text-blue-600 mb-2" size={28} />
                         <span className="text-xs font-bold text-slate-400">جاري تحميل سجلات الجرد...</span>
                       </td>
@@ -938,6 +1131,26 @@ const InventoryCountList = () => {
                                 </button>
                             </td>
 
+                            {/* عمود عكس الجرد واستعادة الأصناف */}
+                            <td className="p-4 text-center">
+                              {count.status === 'posted' ? (
+                                <button 
+                                  onClick={() => handleReverseCount(count)} 
+                                  disabled={reversingId === count.id}
+                                  className="p-2 text-purple-600 hover:text-purple-700 hover:bg-purple-50 rounded-lg transition-colors disabled:opacity-50" 
+                                  title="عكس أثر كشف الجرد واستعادة كافة الأصناف دفعة واحدة"
+                                >
+                                  {reversingId === count.id ? (
+                                    <Loader2 size={18} className="animate-spin text-purple-600" />
+                                  ) : (
+                                    <RotateCcw size={18} />
+                                  )}
+                                </button>
+                              ) : (
+                                <span className="text-slate-300 text-xs">-</span>
+                              )}
+                            </td>
+
                             {/* عمود الحذف */}
                             <td className="p-4 text-center">
                                 <button 
@@ -957,7 +1170,7 @@ const InventoryCountList = () => {
                     ))
                 ) : (
                     <tr>
-                      <td colSpan={8} className="p-12 text-center text-slate-400">
+                      <td colSpan={9} className="p-12 text-center text-slate-400">
                         <History size={36} className="mx-auto mb-2 opacity-30 text-slate-400" />
                         <p className="font-bold text-sm">لا توجد عمليات جرد سابقة مطابقة</p>
                       </td>
@@ -975,6 +1188,8 @@ const InventoryCountList = () => {
             onClose={() => setIsModalOpen(false)}
             onPost={handlePostCount}
             onEdit={handleEditCount}
+            onReverse={handleReverseCount}
+            isReversing={reversingId === selectedCount?.id}
             isLoading={isItemsLoading}
         />
       )}

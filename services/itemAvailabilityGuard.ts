@@ -46,8 +46,14 @@ class ItemAvailabilityGuard {
       const p = productsMap[productId];
       let directStock = 999;
       if (p) {
-        if (warehouseId && p.warehouse_stock && p.warehouse_stock[warehouseId] !== undefined) {
-          directStock = Number(p.warehouse_stock[warehouseId]);
+        if (warehouseId) {
+          let wStock = p.warehouse_stock || (p as any).warehouseStock;
+          if (typeof wStock === 'string') {
+            try { wStock = JSON.parse(wStock); } catch {}
+          }
+          directStock = (wStock && typeof wStock === 'object' && wStock[warehouseId] !== undefined)
+            ? Number(wStock[warehouseId]) || 0
+            : 0;
         } else if (p.stock !== undefined) {
           directStock = Number(p.stock);
         }
@@ -72,8 +78,14 @@ class ItemAvailabilityGuard {
       if (!rawProd) continue;
 
       let rawStock = 0;
-      if (warehouseId && rawProd.warehouse_stock && rawProd.warehouse_stock[warehouseId] !== undefined) {
-        rawStock = Number(rawProd.warehouse_stock[warehouseId]);
+      if (warehouseId) {
+        let wStock = rawProd.warehouse_stock || (rawProd as any).warehouseStock;
+        if (typeof wStock === 'string') {
+          try { wStock = JSON.parse(wStock); } catch {}
+        }
+        rawStock = (wStock && typeof wStock === 'object' && wStock[warehouseId] !== undefined)
+          ? Number(wStock[warehouseId]) || 0
+          : 0;
       } else {
         rawStock = Number(rawProd.stock || 0);
       }
