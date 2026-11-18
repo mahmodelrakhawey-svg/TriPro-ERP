@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { normalizeArabic } from '../../components/ProductSearchSelect';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { Product } from '../../types';
 
 // =========================================================================
 // 1. مودال عرض تفاصيل الجرد (CountDetailsModal)
@@ -527,7 +528,8 @@ const InventoryCountList = () => {
     currentUser, 
     currentSelectedOrgId, 
     selectedFiscalYear,
-    warehouses 
+    warehouses,
+    products
   } = useAccounting();
   const { showToast } = useToast();
 
@@ -599,9 +601,10 @@ const InventoryCountList = () => {
     setIsModalOpen(true);
     setIsItemsLoading(true);
     
+    // استعلام خفيف وسريع بدون Join لتجنب بطء الشبكة ومهلة الـ 503
     const { data, error } = await supabase
       .from('inventory_count_items')
-      .select('*, products(name, sku, barcode, purchase_price, cost)')
+      .select('*')
       .eq('inventory_count_id', count.id);
 
     if (error) {
@@ -609,7 +612,11 @@ const InventoryCountList = () => {
         showToast("فشل في جلب تفاصيل الجرد.", 'error');
         setCountItems([]);
     } else {
-        setCountItems(data || []);
+        const enriched = (data || []).map(ci => ({
+          ...ci,
+          products: ci.products || products?.find((p: Product) => p.id === ci.product_id) || {}
+        }));
+        setCountItems(enriched);
     }
     setIsItemsLoading(false);
   };
@@ -622,7 +629,7 @@ const InventoryCountList = () => {
 
     const { data, error } = await supabase
       .from('inventory_count_items')
-      .select('*, products(name, sku, barcode, purchase_price, cost)')
+      .select('*')
       .eq('inventory_count_id', count.id);
 
     if (error) {
@@ -630,7 +637,11 @@ const InventoryCountList = () => {
       showToast("فشل في جلب بيانات الأصناف للتعديل.", 'error');
       setEditItems([]);
     } else {
-      setEditItems(data || []);
+      const enriched = (data || []).map(ci => ({
+        ...ci,
+        products: ci.products || products?.find((p: Product) => p.id === ci.product_id) || {}
+      }));
+      setEditItems(enriched);
     }
     setIsEditLoading(false);
   };
@@ -830,12 +841,35 @@ const InventoryCountList = () => {
       return;
     }
 
+    // 1. طلب التأكيد من المستخدم أولاً قبل أي طلب للشبكة لتجنب أي استهلاك غير مبرر
+    const confirmMsg = `⚠️ تأكيد استعادة الأرصدة وعكس الجرد:\n\nهل تريد إلغاء أثر كشف الجرد رقم (${count.count_number}) واستعادة أرصدة كافة الأصناف التي تم تصفيرها أو خصمها في هذا المخزن؟\n\nسيقوم النظام فوراً بإنشاء تسوية مخزنية تعويضية تعيد كافة الأرصدة المستقطعة، وضبط القيود المحاسبية وإعادة احتساب المخزون دفعة واحدة.`;
+    
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
     setReversingId(count.id);
+    showToast('جاري استعادة الأرصدة وعكس أثر الجرد، يرجى الانتظار...', 'info');
+
     try {
-      // 1. جلب كافة بنود الجرد التي بها فروقات
+      // 🚀 المسار الأول (الأسرع والأضمن): استدعاء دالة السيرفر الذرية reverse_inventory_count
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc('reverse_inventory_count', {
+        p_count_id: count.id
+      });
+
+      if (!rpcErr && rpcRes && (rpcRes.success || rpcRes.adjustment_number)) {
+        showToast(`تمت استعادة أرصدة كافة الأصناف (${rpcRes.items_count || ''} صنف) وعكس أثر الجرد بنجاح تام! 🎉`, 'success');
+        await recalculateStock();
+        await fetchCounts();
+        if (isModalOpen) setIsModalOpen(false);
+        return;
+      }
+
+      // 🛡️ المسار الثاني (المسار البديل الخفيف والسريع): التنفيذ الآمن من الواجهة بدون استعلامات ثقيلة
+      // استعلام خفيف وسريع لجلب الأصناف بدون عمل JOIN مع جدول المنتجات لتجنب مهلة الـ 503
       const { data: countItems, error: fetchErr } = await supabase
         .from('inventory_count_items')
-        .select('*, products(name, purchase_price, cost)')
+        .select('id, product_id, difference, system_quantity, counted_quantity')
         .eq('inventory_count_id', count.id);
 
       if (fetchErr) throw fetchErr;
@@ -844,13 +878,6 @@ const InventoryCountList = () => {
 
       if (diffItems.length === 0) {
         showToast('لا توجد فروقات مسجلة في هذا الجرد لعكسها (كافة الأصناف متطابقة)', 'info');
-        setReversingId(null);
-        return;
-      }
-
-      const confirmMsg = `⚠️ تأكيد استعادة الأرصدة وعكس الجرد:\n\nهل تريد إلغاء أثر كشف الجرد رقم (${count.count_number}) واستعادة أرصدة كافة الأصناف المسجلة به (${diffItems.length} صنف) إلى حالتها الأصلية قبل الجرد؟\n\nسيقوم النظام فوراً بإنشاء تسوية مخزنية عكسية تعيد كل صنف تم تصفيره أو خصمه بالكمية الدقيقة فوراً وتعديل القيود المحاسبية بنقرة واحدة.`;
-      
-      if (!window.confirm(confirmMsg)) {
         setReversingId(null);
         return;
       }
@@ -890,75 +917,83 @@ const InventoryCountList = () => {
         };
       });
 
-      const { error: revItemsErr } = await supabase
-        .from('stock_adjustment_items')
-        .insert(revItemsPayload);
+      // إدراج البنود على دفعات (Chunks) بحد أقصى 50 صنف لتفادي سقف حجم الطلب ومهلة الشبكة
+      const CHUNK_SIZE = 50;
+      for (let i = 0; i < revItemsPayload.length; i += CHUNK_SIZE) {
+        const chunk = revItemsPayload.slice(i, i + CHUNK_SIZE);
+        const { error: revItemsErr } = await supabase
+          .from('stock_adjustment_items')
+          .insert(chunk);
+        if (revItemsErr) throw revItemsErr;
+      }
 
-      if (revItemsErr) throw revItemsErr;
-
-      // 4. إنشاء القيد المحاسبي العكسي للفروقات
+      // 4. احتساب القيمة المالية من كروت الأصناف المتاحة محلياً في الذاكرة دون استعلامات إضافية
       let totalVal = 0;
       diffItems.forEach(item => {
-        const prod = item.products || {};
-        const cost = Number(prod.purchase_price || prod.cost || 0);
+        const prod = products?.find((p: Product) => p.id === item.product_id);
+        const cost = Number(prod?.weighted_average_cost || prod?.cost || prod?.purchase_price || 0);
         const origDiff = Number(item.difference || 0);
         totalVal += origDiff * cost;
       });
 
       const revVal = -totalVal;
       if (Math.abs(revVal) > 0.01) {
-        const { data: settings } = await supabase
-          .from('company_settings')
-          .select('account_mappings')
-          .eq('organization_id', userOrgId)
-          .maybeSingle();
+        try {
+          const { data: settings } = await supabase
+            .from('company_settings')
+            .select('account_mappings')
+            .eq('organization_id', userOrgId)
+            .maybeSingle();
 
-        const v_mappings = settings?.account_mappings || {};
-        const { data: invAcc } = await supabase
-          .from('accounts')
-          .select('id')
-          .eq('organization_id', userOrgId)
-          .eq('code', '10302')
-          .maybeSingle();
+          const v_mappings = settings?.account_mappings || {};
+          const { data: invAcc } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('organization_id', userOrgId)
+            .eq('code', '10302')
+            .maybeSingle();
 
-        const { data: adjAcc } = await supabase
-          .from('accounts')
-          .select('id')
-          .eq('organization_id', userOrgId)
-          .eq('code', '512')
-          .maybeSingle();
+          const { data: adjAcc } = await supabase
+            .from('accounts')
+            .select('id')
+            .eq('organization_id', userOrgId)
+            .eq('code', '512')
+            .maybeSingle();
 
-        const invAccId = v_mappings.INVENTORY_FINISHED_GOODS || invAcc?.id;
-        const adjAccId = v_mappings.INVENTORY_ADJUSTMENTS || adjAcc?.id;
+          const invAccId = v_mappings.INVENTORY_FINISHED_GOODS || invAcc?.id;
+          const adjAccId = v_mappings.INVENTORY_ADJUSTMENTS || adjAcc?.id;
 
-        if (invAccId && adjAccId) {
-          const { data: je, error: jeErr } = await supabase
-            .from('journal_entries')
-            .insert({
-              transaction_date: new Date().toISOString().split('T')[0],
-              description: `قيد تسوية عكسية لإلغاء أثر جرد رقم ${count.count_number}`,
-              reference: revAdjNo,
-              status: 'posted',
-              organization_id: userOrgId,
-              is_posted: true,
-              related_document_id: revAdj.id,
-              related_document_type: 'stock_adjustment'
-            })
-            .select()
-            .single();
+          if (invAccId && adjAccId) {
+            const { data: je, error: jeErr } = await supabase
+              .from('journal_entries')
+              .insert({
+                transaction_date: new Date().toISOString().split('T')[0],
+                description: `قيد تسوية عكسية لإلغاء أثر جرد رقم ${count.count_number}`,
+                reference: revAdjNo,
+                status: 'posted',
+                organization_id: userOrgId,
+                is_posted: true,
+                related_document_id: revAdj.id,
+                related_document_type: 'stock_adjustment'
+              })
+              .select()
+              .single();
 
-          if (!jeErr && je) {
-            const lines = revVal > 0 
-              ? [
-                  { journal_entry_id: je.id, account_id: invAccId, debit: revVal, credit: 0, organization_id: userOrgId },
-                  { journal_entry_id: je.id, account_id: adjAccId, debit: 0, credit: revVal, organization_id: userOrgId }
-                ]
-              : [
-                  { journal_entry_id: je.id, account_id: adjAccId, debit: Math.abs(revVal), credit: 0, organization_id: userOrgId },
-                  { journal_entry_id: je.id, account_id: invAccId, debit: 0, credit: Math.abs(revVal), organization_id: userOrgId }
-                ];
-            await supabase.from('journal_lines').insert(lines);
+            if (!jeErr && je) {
+              const lines = revVal > 0 
+                ? [
+                    { journal_entry_id: je.id, account_id: invAccId, debit: revVal, credit: 0, organization_id: userOrgId },
+                    { journal_entry_id: je.id, account_id: adjAccId, debit: 0, credit: revVal, organization_id: userOrgId }
+                  ]
+                : [
+                    { journal_entry_id: je.id, account_id: adjAccId, debit: Math.abs(revVal), credit: 0, organization_id: userOrgId },
+                    { journal_entry_id: je.id, account_id: invAccId, debit: 0, credit: Math.abs(revVal), organization_id: userOrgId }
+                  ];
+              await supabase.from('journal_lines').insert(lines);
+            }
           }
+        } catch (jeErr) {
+          logger.warn('Could not post reverse journal entry:', jeErr);
         }
       }
 
