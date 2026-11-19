@@ -279,6 +279,7 @@ export interface User {
   can_access_mobile?: boolean;
   dashboard_view_mode?: DashboardViewMode;
   allowed_treasury_ids?: string[];
+  avatar_url?: string;
 }
 
 export interface Salesperson {

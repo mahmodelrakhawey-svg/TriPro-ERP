@@ -41,6 +41,7 @@ export interface Notification {
 }
 
 class NotificationService {
+  private static inFlightUnreadPromises = new Map<string, Promise<number>>();
   private static rlsBlockedCrossUser = false;
   private static lastAuthUserId: string | null = null;
   private static cachedAuthContext: {
@@ -921,27 +922,41 @@ class NotificationService {
     try {
       const validUserId = this.sanitizeUuid(userId);
       if (!validUserId) return 0;
-
-      let query = supabase
-        .from('notifications')
-        .select('id')
-        .eq('user_id', validUserId)
-        .eq('is_read', false);
-
       const validOrgId = this.sanitizeUuid(orgId);
-      if (validOrgId) {
-        query = query.eq('organization_id', validOrgId);
-      }
+      const cacheKey = `${validUserId}_${validOrgId || 'none'}`;
 
-      // قصر الاستعلام على حد 100 لسرعة التنفيذ الفورية وتجنب مهلة خادم PostgREST (500 Error)
-      const { data, error } = await query.limit(100);
+      // منع الطلبات المزدوجة المتزامنة في نفس اللحظة
+      const inFlight = this.inFlightUnreadPromises.get(cacheKey);
+      if (inFlight) return inFlight;
 
-      if (error) {
-        logger.warn('Notice getting unread count:', error.message);
-        return 0;
-      }
+      const promise = (async () => {
+        try {
+          let query = supabase
+            .from('notifications')
+            .select('id')
+            .eq('user_id', validUserId)
+            .eq('is_read', false);
 
-      return data?.length || 0;
+          if (validOrgId) {
+            query = query.eq('organization_id', validOrgId);
+          }
+
+          // قصر الاستعلام على حد 100 لسرعة التنفيذ الفورية وتجنب مهلة خادم PostgREST (500 Error)
+          const { data, error } = await query.limit(100);
+
+          if (error) {
+            logger.warn('Notice getting unread count:', error.message);
+            return 0;
+          }
+
+          return data?.length || 0;
+        } finally {
+          this.inFlightUnreadPromises.delete(cacheKey);
+        }
+      })();
+
+      this.inFlightUnreadPromises.set(cacheKey, promise);
+      return promise;
     } catch (err) {
       logger.warn('Error getting unread count:', err);
       return 0;

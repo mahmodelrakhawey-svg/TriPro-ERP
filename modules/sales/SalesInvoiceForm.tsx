@@ -32,6 +32,7 @@ import { InvoiceItemsTable } from './components/InvoiceItemsTable';
 import { InvoiceSummary } from './components/InvoiceSummary';
 const SalesInvoiceExcelImporter = lazy(() => import('./components/SalesInvoiceExcelImporter').then(m => ({ default: m.SalesInvoiceExcelImporter })));
 import { SalesInvoiceActionBar } from './components/SalesInvoiceActionBar';
+import { fetchUoms } from '../../services/uomService';
 
 const SALES_DRAFT_KEY = 'tripro_sales_invoice_draft_v2';
 const LEGACY_SALES_DRAFT_KEY = 'tripro_sales_invoice_draft';
@@ -216,15 +217,14 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     });
   }, []);
 
-  // تحميل كافة الوحدات عند فتح الشاشة
+  // تحميل كافة الوحدات مع الكاش وترشيد الطلبات
   useEffect(() => {
-    const fetchUoms = async () => {
+    const loadUomsList = async () => {
       const orgId = (currentUser as any)?.organization_id;
-      if (!orgId) return;
-      const { data } = await supabase.from('uoms').select('*').eq('organization_id', orgId);
+      const data = await fetchUoms(orgId);
       if (data) setUoms(data);
     };
-    if (currentUser) fetchUoms();
+    if (currentUser) loadUomsList();
   }, [currentUser]);
 
   // 🎁 حالة عروض الهايبر ماركت الترويجية

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
+import { fetchUoms } from '../services/uomService';
 import {
   getInvoiceItems,
   getInvoiceItemsWithTotals,
@@ -57,11 +58,11 @@ export const InvoiceItemsList: React.FC<InvoiceItemsListProps> = ({
   // تحميل البنود والمجاميع
   useEffect(() => {
     loadItems();
-    fetchUoms();
+    loadUomsList();
   }, [invoiceId]);
 
-  const fetchUoms = async () => {
-    const { data } = await supabase.from('uoms').select('*');
+  const loadUomsList = async () => {
+    const data = await fetchUoms();
     if (data) setUoms(data);
   };
 

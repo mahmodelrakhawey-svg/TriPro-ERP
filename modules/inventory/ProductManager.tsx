@@ -20,6 +20,7 @@ import { AutoCreatedProductsModal } from './components/AutoCreatedProductsModal'
 import { ExpectedConsumptionModal } from './components/ExpectedConsumptionModal';
 import { ProductFormModal, ProductFormData } from './components/ProductFormModal';
 export type { ProductFormData };
+import { fetchUoms } from '../../services/uomService';
 import { ExcelPriceUpdateModal } from './components/ExcelPriceUpdateModal';
 import { printOfferBarcode, printBarcode, printBulkBarcodes } from './utils/productBarcodeUtils';
 import { 
@@ -244,7 +245,7 @@ const ProductManager = () => {
   );
 
   useEffect(() => {
-    const fetchUoms = async () => {
+    const loadUomsList = async () => {
       if (currentUser?.role === 'demo') {
         setUoms([
           { id: 'u1', name: 'قطعة' },
@@ -256,12 +257,10 @@ const ProductManager = () => {
         return;
       }
       const orgId = (currentUser as any)?.organization_id;
-      let query = supabase.from('uoms').select('*');
-      if (orgId) query = query.eq('organization_id', orgId);
-      const { data } = await query.order('name');
+      const data = await fetchUoms(orgId);
       if (data) setUoms(data);
     };
-    if (isModalOpen) fetchUoms();
+    if (isModalOpen) loadUomsList();
   }, [isModalOpen, currentUser]);
 
   // في وضع الديمو، نستخدم المنتجات من السياق (الوهمية)

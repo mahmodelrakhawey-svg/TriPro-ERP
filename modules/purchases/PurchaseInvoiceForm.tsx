@@ -22,6 +22,7 @@ import SupplierSearchSelect from '../../components/SupplierSearchSelect';
 import { calculatePurchaseInvoiceTotals } from './purchaseInvoiceUtils';
 import PurchaseInvoiceAttachments, { PurchaseAttachmentItem } from './components/PurchaseInvoiceAttachments';
 import { ProductFormModal, ProductFormData } from '../inventory/components/ProductFormModal';
+import { fetchUoms } from '../../services/uomService';
 
 const PurchaseInvoiceForm = () => {
   const { 
@@ -170,14 +171,14 @@ const PurchaseInvoiceForm = () => {
     fetchInvoiceIds();
   }, []);
 
-  // تحميل الوحدات
+  // تحميل الوحدات مع الكاش ومنع تكرار الطلبات المتزامنة
   useEffect(() => {
-    const fetchUoms = async () => {
+    const loadUomsList = async () => {
       const orgId = (currentUser as any)?.organization_id;
-      const { data } = await supabase.from('uoms').select('*').eq('organization_id', orgId);
+      const data = await fetchUoms(orgId);
       if (data) setUoms(data);
     };
-    if (currentUser) fetchUoms();
+    if (currentUser) loadUomsList();
   }, [currentUser]);
 
   // حسابات الخزينة (استبعاد الحسابات الرئيسية والتجميعية قطيعاً)

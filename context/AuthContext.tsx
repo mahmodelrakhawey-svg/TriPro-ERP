@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { logger } from '../utils/logger';
 import { supabase } from '../services/supabaseClient';
 import { User, UserRole } from '../types';
@@ -17,6 +17,7 @@ interface Profile {
   is_active?: boolean | null;
   organization_id?: string | null;
   role_id?: string | null;
+  avatar_url?: string | null;
   can_view_dashboard?: boolean | null;
   can_access_mobile?: boolean | null;
   dashboard_view_mode?: 'both' | 'workflow_only' | 'analytics_only' | null;
@@ -84,6 +85,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [userPermissions, setUserPermissions] = useState<Set<string>>(new Set());
   const [authInitialized, setAuthInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+
+  // مهدئات وحواجز لمنع الازدواجية اللحظية للاستعلامات
+  const inFlightAuthUserId = useRef<string | null>(null);
+  const lastAuthProcessTime = useRef<{ [userId: string]: number }>({});
 
   // دالة لجلب قائمة المستخدمين
   const fetchUsers = useCallback(async () => {
@@ -206,6 +211,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setIsLoading(true);
     }
     if (user) {
+      const now = Date.now();
+      const lastTime = lastAuthProcessTime.current[user.id] || 0;
+      // منع استدعاءات المصادقة المكررة المتزامنة خلال 2.5 ثانية
+      if (inFlightAuthUserId.current === user.id || (now - lastTime < 2500 && isSilent)) {
+        return;
+      }
+      inFlightAuthUserId.current = user.id;
+
       try {
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle() as { data: Profile | null };
         
@@ -236,6 +249,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           role: roleName as UserRole,
           is_active: profile.is_active ?? true,
           organization_id: profile.organization_id || user.user_metadata?.org_id || undefined,
+          avatar_url: profile.avatar_url || (user.user_metadata?.avatar_url as string) || undefined,
           hr_scope: hrScope,
           can_view_dashboard: canViewDashboard,
           can_access_mobile: canAccessMobile,
@@ -248,6 +262,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           role: roleName as UserRole,
           is_active: true,
           organization_id: (user.user_metadata?.org_id as string) || undefined,
+          avatar_url: (user.user_metadata?.avatar_url as string) || undefined,
           hr_scope: hrScope,
           can_view_dashboard: canViewDashboard,
           can_access_mobile: canAccessMobile,
@@ -378,6 +393,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (error: unknown) {
         if (process.env.NODE_ENV === 'development') logger.error("Error handling auth change:", error);
         setCurrentUser(null);
+      } finally {
+        if (user) {
+          inFlightAuthUserId.current = null;
+          lastAuthProcessTime.current[user.id] = Date.now();
+        }
       }
     } else {
       setCurrentUser(null);
@@ -408,9 +428,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
     });
 
-    // 🔄 مزامنة صامتة لتحديث الصلاحيات في الخلفية عند عودة التبويب للظهور (بدون تفريغ الواجهة)
+    // 🔄 مزامنة صامتة لتحديث الصلاحيات في الخلفية عند عودة التبويب للظهور مع حماية الخادم بكود مهلة (60 ثانية)
+    let lastVisibilitySync = 0;
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
+        const now = Date.now();
+        if (now - lastVisibilitySync < 60_000) {
+          return;
+        }
+        lastVisibilitySync = now;
         supabase.auth.getSession().then(({ data: { session } }) => {
           if (session?.user) {
             handleAuthChange(session.user, true);

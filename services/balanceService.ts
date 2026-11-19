@@ -274,7 +274,7 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
         .eq('journal_entries.status', 'posted')
         .or('code.ilike.201%,code.ilike.221%,code.ilike.2101%,name.ilike.%الموردين%,name.ilike.%موردين%', { foreignTable: 'accounts' });
       if (orgId) {
-        q = q.or(`organization_id.eq.${orgId},organization_id.is.null`);
+        q = q.or(`organization_id.eq.${orgId},organization_id.is.null`, { foreignTable: 'journal_entries' });
       }
       return q.range(from, to);
     }),
@@ -286,7 +286,7 @@ export async function fetchAllSupplierBalances(orgId: string): Promise<Map<strin
         .eq('journal_entries.related_document_type', 'opening_balance')
         .or('code.ilike.201%,code.ilike.221%,code.ilike.2101%,name.ilike.%الموردين%,name.ilike.%موردين%', { foreignTable: 'accounts' });
       if (orgId) {
-        q = q.or(`organization_id.eq.${orgId},organization_id.is.null`);
+        q = q.or(`organization_id.eq.${orgId},organization_id.is.null`, { foreignTable: 'journal_entries' });
       }
       return q.range(from, to);
     })
@@ -495,14 +495,14 @@ export async function fetchSingleSupplierBalance(
       // قيود اليومية اليدوية المؤثرة على حسابات الموردين 201 / 221 / 2101
       supabase.from('journal_lines')
         .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id), accounts!inner(code, name)')
-        .or(orgId ? `journal_entries.organization_id.eq.${orgId},journal_entries.organization_id.is.null` : 'journal_entries.organization_id.is.null')
+        .or(orgId ? `organization_id.eq.${orgId},organization_id.is.null` : 'organization_id.is.null', { foreignTable: 'journal_entries' })
         .eq('journal_entries.status', 'posted')
         .or('code.ilike.201%,code.ilike.221%,code.ilike.2101%,name.ilike.%الموردين%,name.ilike.%موردين%', { foreignTable: 'accounts' }),
 
       // قيود الرصيد الافتتاحي في اليومية
       supabase.from('journal_lines')
         .select('debit, credit, journal_entries!inner(id, transaction_date, description, reference, status, related_document_id, related_document_type), accounts!inner(code, name)')
-        .or(orgId ? `journal_entries.organization_id.eq.${orgId},journal_entries.organization_id.is.null` : 'journal_entries.organization_id.is.null')
+        .or(orgId ? `organization_id.eq.${orgId},organization_id.is.null` : 'organization_id.is.null', { foreignTable: 'journal_entries' })
         .eq('journal_entries.status', 'posted')
         .eq('journal_entries.related_document_id', supplierId)
         .eq('journal_entries.related_document_type', 'opening_balance')

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { invalidateUomsCache } from '../../services/uomService';
 import { 
   Scale, 
   Plus, 
@@ -112,23 +113,35 @@ export default function UomManager() {
     if (editingUom) {
       const { error } = await supabase.from('uoms').update(payload).eq('id', editingUom.id);
       if (error) showToast(error.message, 'error');
-      else { showToast('تم التحديث', 'success'); setIsUomModalOpen(false); fetchUoms(selectedCategoryId); }
+      else { 
+        invalidateUomsCache(orgId);
+        showToast('تم التحديث', 'success'); 
+        setIsUomModalOpen(false); 
+        fetchUoms(selectedCategoryId); 
+      }
     } else {
       const { error } = await supabase.from('uoms').insert([payload]);
       if (error) showToast(error.message, 'error');
-      else { showToast('تمت الإضافة', 'success'); setIsUomModalOpen(false); fetchUoms(selectedCategoryId); }
+      else { 
+        invalidateUomsCache(orgId);
+        showToast('تمت الإضافة', 'success'); 
+        setIsUomModalOpen(false); 
+        fetchUoms(selectedCategoryId); 
+      }
     }
   };
 
   const handleDeleteCategory = async (id: string) => {
     if (!window.confirm('سيتم حذف كافة الوحدات التابعة، هل تستمر؟')) return;
     await supabase.from('uom_categories').delete().eq('id', id);
+    invalidateUomsCache(orgId);
     fetchCategories();
   };
 
   const handleDeleteUom = async (id: string) => {
     if (!window.confirm('حذف الوحدة؟')) return;
     await supabase.from('uoms').delete().eq('id', id);
+    invalidateUomsCache(orgId);
     if (selectedCategoryId) fetchUoms(selectedCategoryId);
   };
 

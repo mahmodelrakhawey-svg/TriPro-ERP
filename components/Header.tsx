@@ -24,7 +24,7 @@ const Header: React.FC<HeaderProps> = ({
 }) => {
     const location = useLocation();
     const { lastUpdated, refreshData, clearCache, settings, isLoading, selectedFiscalYear, setSelectedFiscalYear } = useAccounting();
-    const { can } = useAuth();
+    const { can, currentUser: authUser } = useAuth();
     const navigate = useNavigate();
     const [currentUser, setCurrentUser] = useState<any>(null);
     const [isReturning, setIsReturning] = useState(false);
@@ -69,25 +69,16 @@ const Header: React.FC<HeaderProps> = ({
 
     const pageTitle = getRouteTitle(location.pathname);
 
-    // Fetch user data
+    // استخدام بيانات المستخدم المجهزة مسبقاً في AuthContext دون طلبات شبكة إضافية
     useEffect(() => {
-        const fetchUserData = async () => {
-          try {
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-                const { data: profile } = await supabase
-                    .from('profiles')
-                    .select('full_name, role, avatar_url')
-                    .eq('id', user.id)
-                    .single();
-                setCurrentUser(profile);
-            }
-          } catch (e) {
-            if (process.env.NODE_ENV === 'development') logger.error(`فشل تحميل بيانات المستخدم: ${e.message}`);
-          }
-        };
-        fetchUserData();
-    }, []);
+        if (authUser) {
+            setCurrentUser({
+                full_name: authUser.name,
+                role: authUser.role,
+                avatar_url: (authUser as any).avatar_url
+            });
+        }
+    }, [authUser]);
 
     const handleReturnToAdmin = async () => {
         const originalOrgId = secureStorage.getItem('admin_original_org_id');
