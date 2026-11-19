@@ -98,8 +98,8 @@ export const JournalEntryCard: React.FC<JournalEntryCardProps> = ({
             </span>
           )}
           
-          {/* زر عكس القيد المحاسبي المعتمد رسمياً في النظام */}
-          {entry.status === 'posted' && onReverse && (
+          {/* زر عكس القيد المحاسبي المعتمد رسمياً في النظام (يمنع عكس القيد العكسي نفسه) */}
+          {entry.status === 'posted' && !entry.reference?.startsWith('REV-') && (entry as any).related_document_type !== 'journal_reversal' && onReverse && (
             <button 
               onClick={() => onReverse(entry)} 
               className="bg-purple-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-purple-700 transition-colors shadow-xs flex items-center gap-1 cursor-pointer"

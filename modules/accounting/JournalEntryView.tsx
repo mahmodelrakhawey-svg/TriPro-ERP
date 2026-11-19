@@ -45,7 +45,12 @@ const getEntrySource = (reference: string = '', description: string = '') => {
         return { label: 'تسوية فروقات صندوق', color: 'bg-amber-100 text-amber-800' };
     }
 
-    // 8. تسويات بادئة ADJ عامة - يتم الفحص والتمييز الذكي بناءً على نص البيان
+    // 8. القيود العكسية (Reversals)
+    if (ref.startsWith('REV-') || desc.includes('قيد عكسي') || desc.includes('تسوية وإلغاء أثر القيد') || desc.includes('[معكوس')) {
+        return { label: 'قيد عكسي', color: 'bg-purple-100 text-purple-700 border border-purple-200' };
+    }
+
+    // 9. تسويات بادئة ADJ عامة - يتم الفحص والتمييز الذكي بناءً على نص البيان
     if (ref.startsWith('ADJ-')) {
         if (desc.includes('صندوق') || desc.includes('خزينة') || desc.includes('إقفال يومي') || desc.includes('عجز') || desc.includes('زيادة في الصندوق') || desc.includes('فروقات صندوق')) {
             return { label: 'تسوية فروقات صندوق', color: 'bg-amber-100 text-amber-800' };
@@ -55,7 +60,7 @@ const getEntrySource = (reference: string = '', description: string = '') => {
         }
         return { label: 'تسوية مخزنية', color: 'bg-red-100 text-red-700' };
     }
-    if (ref.startsWith('STK-') || ref.startsWith('REV-') || desc.includes('تسوية مخزنية') || desc.includes('جرد مخزني')) {
+    if (ref.startsWith('STK-') || desc.includes('تسوية مخزنية') || desc.includes('جرد مخزني')) {
         return { label: 'تسوية مخزنية', color: 'bg-red-100 text-red-700' };
     }
 

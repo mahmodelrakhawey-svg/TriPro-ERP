@@ -87,6 +87,7 @@ export const JournalAdvancedFilters: React.FC<JournalAdvancedFiltersProps> = ({
           <option value="bank_adjustment">تسوية بنكية (BANK-ADJ)</option>
           <option value="cash_adjustment">تسوية فروقات صندوق (CASH-ADJ)</option>
           <option value="stock_adjustment">تسوية مخزنية (STK-ADJ/ADJ)</option>
+          <option value="reversal">قيد عكسي (REV)</option>
           <option value="asset_depreciation">أصول وإهلاك (DEP/ASSET)</option>
           <option value="payroll">رواتب (PAYROLL)</option>
           <option value="shift_closing">إغلاق وردية (SHIFT)</option>
@@ -104,6 +105,7 @@ export const JournalAdvancedFilters: React.FC<JournalAdvancedFiltersProps> = ({
         >
           <option value="">كل الحالات</option>
           <option value="posted">مرحّل فقط</option>
+          <option value="reversed">معكوس (ملغى)</option>
           <option value="draft">مسودة فقط</option>
           <option value="pending_approval">⏳ بانتظار الاعتماد</option>
           <option value="rejected">❌ مرفوض من الاعتماد</option>

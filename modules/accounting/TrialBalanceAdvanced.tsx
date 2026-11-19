@@ -43,7 +43,7 @@ const TrialBalanceAdvanced = () => {
     if (currentUser?.role === 'demo') {
         // تحسين بيانات الديمو لتكون منطقية ومتزنة
         const demoLines = entries
-            .filter(e => e.status === 'posted')
+            .filter(e => (e.status as string) === 'posted')
             .flatMap(entry => {
                 // استنتاج نوع الحساب بناءً على نوع القيد لضمان عرض بيانات واقعية
                 const ref = (entry.reference || '').toUpperCase();

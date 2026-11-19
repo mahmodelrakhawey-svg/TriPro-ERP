@@ -357,8 +357,10 @@ const GeneralJournal: React.FC = () => {
         query = query.or('reference.like.BANK-ADJ-%,reference.like.BNK-%,reference.like.BADJ-%');
       } else if (filterSource === 'cash_adjustment') {
         query = query.or('reference.like.CASH-ADJ-%,reference.like.CADJ-%,reference.like.CSH-%');
+      } else if (filterSource === 'reversal') {
+        query = query.or('reference.like.REV-%,description.ilike.%قيد عكسي%');
       } else if (filterSource === 'stock_adjustment') {
-        query = query.or('reference.like.STK-ADJ-%,reference.like.ADJ-%,reference.like.REV-%');
+        query = query.or('reference.like.STK-ADJ-%,reference.like.ADJ-%');
       } else if (filterSource === 'payroll') {
         query = query.like('reference', 'PAYROLL-%');
       } else if (filterSource === 'shift_closing') {
