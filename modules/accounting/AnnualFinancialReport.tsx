@@ -208,8 +208,14 @@ const AnnualFinancialReport: React.FC = () => {
     const cashAccounts: AccountSummary[] = [];
     const receivableAccounts: AccountSummary[] = [];
     const inventoryAccounts: AccountSummary[] = [];
+    const otherCurrentAssets: AccountSummary[] = [];
     const payableAccounts: AccountSummary[] = [];
+    const otherCurrentLiabilities: AccountSummary[] = [];
     const relatedPartyAccounts: AccountSummary[] = [];
+    const capitalAccounts: AccountSummary[] = [];
+    const reserveAccounts: AccountSummary[] = [];
+    const retainedEarningsAccounts: AccountSummary[] = [];
+    const openingOrSuspenseAccounts: AccountSummary[] = [];
 
     accounts.forEach(acc => {
       const code = String(acc.code || '').trim();
@@ -261,23 +267,47 @@ const AnnualFinancialReport: React.FC = () => {
       const isEquity = code.startsWith('3') || type.includes('equity') || type.includes('حقوق');
 
       if (isAsset) {
-        const isContra = code.startsWith('1119') || code.startsWith('1129') || name.includes('مجمع إهلاك') || name.includes('مخصص');
+        const isContra = (name.includes('مجمع') || name.includes('مخصص') || name.includes('إهلاك') || name.includes('اهلاك'));
         const curVal = isContra ? -Math.abs(curBsRaw) : curBsRaw;
         const prVal = isContra ? -Math.abs(prBsRaw) : prBsRaw;
 
         if (Math.abs(curVal) > 0.001 || Math.abs(prVal) > 0.001) {
           const item: AccountSummary = { id: acc.id, code, name, currentYear: curVal, priorYear: prVal };
-          const isCurrentAsset = (
-            code.startsWith('12') || code.startsWith('10') || !code.startsWith('11') ||
-            name.includes('نقد') || name.includes('بنك') || name.includes('عملاء') || 
-            name.includes('مخزون') || name.includes('مدين') || name.includes('أوراق قبض')
-          );
+          const isNonCurrent = code.startsWith('11') || name.includes('أصول ثابتة') || name.includes('أصل ثابت') || isContra;
 
-          if (isCurrentAsset && !code.startsWith('11')) {
+          if (!isNonCurrent) {
             currentAssets.push(item);
-            if (name.includes('نقد') || name.includes('بنك') || name.includes('صندوق') || code.startsWith('121')) cashAccounts.push(item);
-            if (name.includes('عميل') || name.includes('عملاء') || code.startsWith('122')) receivableAccounts.push(item);
-            if (name.includes('مخزون') || code.startsWith('123')) inventoryAccounts.push(item);
+
+            // 💰 1. النقدية وما في حكمها (الصناديق، البنوك، الخزن، المحافظ الإلكترونية)
+            const isCash = (
+              code.startsWith('123') || code.startsWith('121') ||
+              name.includes('نقد') || name.includes('بنك') || name.includes('صندوق') ||
+              name.includes('خزينة') || name.includes('خزينه') || name.includes('كاش') ||
+              name.includes('فودافون') || name.includes('انستا') || name.includes('محفظة')
+            );
+
+            // 👥 2. العملاء وأوراق القبض وسلف وعهد الموظفين
+            const isReceivable = !isCash && (
+              code.startsWith('122') ||
+              name.includes('عميل') || name.includes('عملاء') || name.includes('مدين') ||
+              name.includes('أوراق قبض') || name.includes('سلف') || name.includes('عهد')
+            );
+
+            // 📦 3. المخزون السلعي (المواد الخام، الإنتاج التام، تحت التشغيل، بضاعة)
+            const isInventory = !isCash && !isReceivable && (
+              code.startsWith('103') || code.startsWith('102') || code.startsWith('104') || code.startsWith('10') ||
+              name.includes('مخزون') || name.includes('بضاعة') || name.includes('خامات') || name.includes('منتج تام') || name.includes('إنتاج تحت التشغيل')
+            );
+
+            if (isCash) {
+              cashAccounts.push(item);
+            } else if (isReceivable) {
+              receivableAccounts.push(item);
+            } else if (isInventory) {
+              inventoryAccounts.push(item);
+            } else {
+              otherCurrentAssets.push(item);
+            }
           } else {
             nonCurrentAssets.push(item);
           }
@@ -288,25 +318,41 @@ const AnnualFinancialReport: React.FC = () => {
 
         if (Math.abs(curVal) > 0.001 || Math.abs(prVal) > 0.001) {
           const item: AccountSummary = { id: acc.id, code, name, currentYear: curVal, priorYear: prVal };
-          const isNonCurrent = code.startsWith('22') || name.includes('طويلة الأجل') || name.includes('قرض طويل');
+          const isNonCurrent = code.startsWith('22') && (name.includes('طويلة') || name.includes('قرض طويل') || name.includes('تسهيلات طويلة'));
 
           if (isNonCurrent) {
             nonCurrentLiabilities.push(item);
           } else {
             currentLiabilities.push(item);
-            if (name.includes('مورد') || code.startsWith('211')) payableAccounts.push(item);
+            const isTradePayable = (
+              code.startsWith('201') || code.startsWith('211') || code.startsWith('221') || code === '222' ||
+              name.includes('مورد') || name.includes('موردين') || name.includes('أوراق دفع') || name.includes('دائنون تجاريون')
+            );
+            if (isTradePayable) {
+              payableAccounts.push(item);
+            } else {
+              otherCurrentLiabilities.push(item);
+            }
           }
         }
       } else if (isEquity) {
-        if (code === '3999' || name.includes('وسيط')) return;
         const curVal = -curBsRaw;
         const prVal = -prBsRaw;
 
         if (Math.abs(curVal) > 0.001 || Math.abs(prVal) > 0.001) {
           const item: AccountSummary = { id: acc.id, code, name, currentYear: curVal, priorYear: prVal };
           equityAccounts.push(item);
-          if (name.includes('جاري') || name.includes('شريك') || code.startsWith('33')) {
+
+          if (code.startsWith('31') || name.includes('رأس المال') || name.includes('راس المال')) {
+            capitalAccounts.push(item);
+          } else if (code.startsWith('32') || name.includes('احتياط')) {
+            reserveAccounts.push(item);
+          } else if (code.startsWith('33') || name.includes('مبقاة') || name.includes('مرحلة') || name.includes('مدورة') || name.includes('أرباح سنوات')) {
+            retainedEarningsAccounts.push(item);
+          } else if (code.startsWith('34') || name.includes('جاري') || name.includes('شريك') || name.includes('مساهم')) {
             relatedPartyAccounts.push(item);
+          } else if (code === '3999' || name.includes('وسيط') || name.includes('افتتاحي')) {
+            openingOrSuspenseAccounts.push(item);
           }
         }
       }
@@ -385,12 +431,18 @@ const AnnualFinancialReport: React.FC = () => {
       prior: baseEquity.prior + netIncome.prior
     };
 
+    // إهلاك الأصول الثابتة من قائمة الدخل
+    const depreciationExpense = adminExpenses
+      .filter(a => a.code.startsWith('533') || a.name.includes('إهلاك') || a.name.includes('اهلاك'))
+      .reduce((s, a) => s + a.currentYear, 0);
+
     const deltaAR = (sumLines(receivableAccounts).current - sumLines(receivableAccounts).prior);
     const deltaInv = (sumLines(inventoryAccounts).current - sumLines(inventoryAccounts).prior);
     const deltaAP = (sumLines(payableAccounts).current - sumLines(payableAccounts).prior);
 
+    // التدفق النقدي التشغيلي وفق معيار IAS 7 بالطريقة غير المباشرة:
     const operatingCashFlow = {
-      current: netIncome.current - deltaAR - deltaInv + deltaAP,
+      current: netIncome.current + (depreciationExpense || 0) - deltaAR - deltaInv + deltaAP,
       prior: netIncome.prior
     };
 
@@ -409,7 +461,8 @@ const AnnualFinancialReport: React.FC = () => {
         finIncome, finCosts, netFinance,
         profitBeforeTax,
         taxExpenses, totalTaxes,
-        netIncome
+        netIncome,
+        depreciationExpense
       },
       bs: {
         currentAssets, totalCurrentAssets,
@@ -427,14 +480,24 @@ const AnnualFinancialReport: React.FC = () => {
       },
       cashFlow: {
         operatingCashFlow,
-        totalCashEnding
+        totalCashEnding,
+        depreciationExpense,
+        deltaAR,
+        deltaInv,
+        deltaAP
       },
       notesData: {
         cashAccounts,
         receivableAccounts,
         inventoryAccounts,
+        otherCurrentAssets,
         payableAccounts,
-        relatedPartyAccounts
+        otherCurrentLiabilities,
+        relatedPartyAccounts,
+        capitalAccounts,
+        reserveAccounts,
+        retainedEarningsAccounts,
+        openingOrSuspenseAccounts
       }
     };
   }, [accounts, ledgerLinesCurrent, ledgerLinesPrior, cumulativeLinesCurrent, cumulativeLinesPrior]);
@@ -501,6 +564,10 @@ const AnnualFinancialReport: React.FC = () => {
       const notesDataRows = [
         ['الإيضاحات المتممة للقوائم المالية'],
         [],
+        ['إيضاح 3: الأصول الثابتة ومجمع الإهلاك'],
+        ['كود الحساب', 'اسم الأصل / الحساب', `رصيد ${reportYear}`, `رصيد ${priorYear}`],
+        ...financialStatements.bs.nonCurrentAssets.map(a => [a.code, a.name, a.currentYear, a.priorYear]),
+        [],
         ['إيضاح 4: النقدية وما في حكمها'],
         ['كود الحساب', 'اسم الحساب', `رصيد ${reportYear}`, `رصيد ${priorYear}`],
         ...financialStatements.notesData.cashAccounts.map(a => [a.code, a.name, a.currentYear, a.priorYear]),
@@ -509,13 +576,21 @@ const AnnualFinancialReport: React.FC = () => {
         ['كود الحساب', 'اسم الحساب', `رصيد ${reportYear}`, `رصيد ${priorYear}`],
         ...financialStatements.notesData.receivableAccounts.map(a => [a.code, a.name, a.currentYear, a.priorYear]),
         [],
-        ['إيضاح 6: المخزون'],
+        ['إيضاح 6: المخزون السلعي'],
         ['كود الحساب', 'اسم الحساب', `رصيد ${reportYear}`, `رصيد ${priorYear}`],
         ...financialStatements.notesData.inventoryAccounts.map(a => [a.code, a.name, a.currentYear, a.priorYear]),
         [],
-        ['إيضاح 7: الموردون والالتزامات'],
+        ['إيضاح 7: الموردون والدائنون التجاريون'],
         ['كود الحساب', 'اسم الحساب', `رصيد ${reportYear}`, `رصيد ${priorYear}`],
-        ...financialStatements.notesData.payableAccounts.map(a => [a.code, a.name, a.currentYear, a.priorYear])
+        ...financialStatements.notesData.payableAccounts.map(a => [a.code, a.name, a.currentYear, a.priorYear]),
+        [],
+        ['إيضاح 8: تفاصيل حقوق الملكية والوسيط'],
+        ['كود الحساب', 'اسم البند', `رصيد ${reportYear}`, `رصيد ${priorYear}`],
+        ...financialStatements.notesData.capitalAccounts.map(a => [a.code, a.name, a.currentYear, a.priorYear]),
+        ...financialStatements.notesData.reserveAccounts.map(a => [a.code, a.name, a.currentYear, a.priorYear]),
+        ...financialStatements.notesData.retainedEarningsAccounts.map(a => [a.code, a.name, a.currentYear, a.priorYear]),
+        ...financialStatements.notesData.relatedPartyAccounts.map(a => [a.code, a.name, a.currentYear, a.priorYear]),
+        ...financialStatements.notesData.openingOrSuspenseAccounts.map(a => [a.code, a.name, a.currentYear, a.priorYear])
       ];
       const wsNotes = XLSX.utils.aoa_to_sheet(notesDataRows);
       XLSX.utils.book_append_sheet(wb, wsNotes, 'الإيضاحات المتممة');
@@ -896,6 +971,15 @@ const AnnualFinancialReport: React.FC = () => {
                     <td className="p-2.5 text-left text-slate-600">{formatMoney(financialStatements.notesData.inventoryAccounts.reduce((s, a) => s + a.priorYear, 0))}</td>
                     <td className="p-2.5 text-left">{formatMoney(calcVariance(financialStatements.notesData.inventoryAccounts.reduce((s, a) => s + a.currentYear, 0), financialStatements.notesData.inventoryAccounts.reduce((s, a) => s + a.priorYear, 0)).diff)}</td>
                   </tr>
+                  {financialStatements.notesData.otherCurrentAssets.length > 0 && (
+                    <tr>
+                      <td className="p-2.5 pr-6 font-medium">أرصدة مدينة وأصول متداولة أخرى</td>
+                      <td className="p-2.5 text-center font-bold text-indigo-700">-</td>
+                      <td className="p-2.5 text-left font-bold">{formatMoney(financialStatements.notesData.otherCurrentAssets.reduce((s, a) => s + a.currentYear, 0))}</td>
+                      <td className="p-2.5 text-left text-slate-600">{formatMoney(financialStatements.notesData.otherCurrentAssets.reduce((s, a) => s + a.priorYear, 0))}</td>
+                      <td className="p-2.5 text-left">{formatMoney(calcVariance(financialStatements.notesData.otherCurrentAssets.reduce((s, a) => s + a.currentYear, 0), financialStatements.notesData.otherCurrentAssets.reduce((s, a) => s + a.priorYear, 0)).diff)}</td>
+                    </tr>
+                  )}
                   <tr className="bg-slate-100 font-bold">
                     <td className="p-2.5">إجمالي الأصول المتداولة (أ)</td>
                     <td className="p-2.5 text-center">-</td>
@@ -908,12 +992,21 @@ const AnnualFinancialReport: React.FC = () => {
                     <td colSpan={5} className="p-2.5">يطرح: الالتزامات المتداولة (Current Liabilities)</td>
                   </tr>
                   <tr>
-                    <td className="p-2.5 pr-6 font-medium">الموردون وأوراق الدفع والدفعات المقدمة</td>
+                    <td className="p-2.5 pr-6 font-medium">الموردون وأوراق الدفع والدائنون التجاريون</td>
                     <td className="p-2.5 text-center font-bold text-indigo-700">7</td>
                     <td className="p-2.5 text-left font-bold text-red-600">({formatMoney(financialStatements.notesData.payableAccounts.reduce((s, a) => s + a.currentYear, 0))})</td>
                     <td className="p-2.5 text-left text-slate-600">({formatMoney(financialStatements.notesData.payableAccounts.reduce((s, a) => s + a.priorYear, 0))})</td>
                     <td className="p-2.5 text-left">-</td>
                   </tr>
+                  {financialStatements.notesData.otherCurrentLiabilities.length > 0 && (
+                    <tr>
+                      <td className="p-2.5 pr-6 font-medium text-red-600">أرصدة دائنة والتزامات متداولة أخرى</td>
+                      <td className="p-2.5 text-center font-bold text-indigo-700">-</td>
+                      <td className="p-2.5 text-left font-bold text-red-600">({formatMoney(financialStatements.notesData.otherCurrentLiabilities.reduce((s, a) => s + a.currentYear, 0))})</td>
+                      <td className="p-2.5 text-left text-slate-600">({formatMoney(financialStatements.notesData.otherCurrentLiabilities.reduce((s, a) => s + a.priorYear, 0))})</td>
+                      <td className="p-2.5 text-left">-</td>
+                    </tr>
+                  )}
                   <tr className="bg-slate-100 font-bold">
                     <td className="p-2.5">إجمالي الالتزامات المتداولة (ب)</td>
                     <td className="p-2.5 text-center">-</td>
@@ -969,9 +1062,15 @@ const AnnualFinancialReport: React.FC = () => {
                   <tr className="bg-emerald-50/70 font-black text-emerald-950 border-t-2 border-emerald-300">
                     <td className="p-3.5 flex items-center justify-between">
                       <span>إجمالي حقوق الملكية (Total Equity)</span>
-                      <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
-                        <CheckCircle2 size={12} /> متطابق محاسبياً
-                      </span>
+                      {Math.abs(financialStatements.bs.netAssets.current - financialStatements.bs.totalEquity.current) < 1.0 ? (
+                        <span className="text-xs bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                          <CheckCircle2 size={12} /> متطابق محاسبياً
+                        </span>
+                      ) : (
+                        <span className="text-xs bg-amber-100 text-amber-900 border border-amber-300 px-2 py-0.5 rounded-md font-bold flex items-center gap-1" title="فارق بين صافي الأصول وإجمالي حقوق الملكية نتيجة قيود افتتاحية أو تسويات لم تقفل">
+                          فارق توازن: {formatMoney(Math.abs(financialStatements.bs.netAssets.current - financialStatements.bs.totalEquity.current))}
+                        </span>
+                      )}
                     </td>
                     <td className="p-3.5 text-center text-indigo-700 font-bold">8</td>
                     <td className="p-3.5 text-left font-mono text-emerald-900 font-black">{formatMoney(financialStatements.bs.totalEquity.current)}</td>
@@ -1003,43 +1102,77 @@ const AnnualFinancialReport: React.FC = () => {
                     <th className="p-3 text-left">رأس المال المدفوع</th>
                     <th className="p-3 text-left">الاحتياطيات</th>
                     <th className="p-3 text-left">الأرباح المبقاة</th>
-                    <th className="p-3 text-left">جاري الشركاء</th>
+                    <th className="p-3 text-left">جاري الشركاء والوسيط</th>
                     <th className="p-3 text-left bg-slate-800 font-mono">إجمالي حقوق الملكية</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  <tr className="font-bold bg-slate-50">
-                    <td className="p-3">الرصيد كما في 1 يناير {reportYear} (افتتاحي)</td>
-                    <td className="p-3 text-left font-mono">{formatMoney(financialStatements.bs.totalEquity.prior * 0.7)}</td>
-                    <td className="p-3 text-left font-mono">{formatMoney(financialStatements.bs.totalEquity.prior * 0.1)}</td>
-                    <td className="p-3 text-left font-mono">{formatMoney(financialStatements.bs.totalEquity.prior * 0.15)}</td>
-                    <td className="p-3 text-left font-mono">{formatMoney(financialStatements.bs.totalEquity.prior * 0.05)}</td>
-                    <td className="p-3 text-left font-mono font-black bg-slate-100">{formatMoney(financialStatements.bs.totalEquity.prior)}</td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 pr-6 font-bold text-emerald-700">صافي ربح العام {reportYear} (من قائمة الدخل)</td>
-                    <td className="p-3 text-left font-mono">-</td>
-                    <td className="p-3 text-left font-mono">-</td>
-                    <td className="p-3 text-left font-mono font-bold text-emerald-700">{formatMoney(financialStatements.pnl.netIncome.current)}</td>
-                    <td className="p-3 text-left font-mono">-</td>
-                    <td className="p-3 text-left font-mono font-bold text-emerald-700 bg-emerald-50">{formatMoney(financialStatements.pnl.netIncome.current)}</td>
-                  </tr>
-                  <tr>
-                    <td className="p-3 pr-6 font-medium">التحويل إلى الاحتياطي القانوني والنظامي</td>
-                    <td className="p-3 text-left font-mono">-</td>
-                    <td className="p-3 text-left font-mono">{formatMoney(financialStatements.pnl.netIncome.current * 0.1)}</td>
-                    <td className="p-3 text-left font-mono text-red-600">({formatMoney(financialStatements.pnl.netIncome.current * 0.1)})</td>
-                    <td className="p-3 text-left font-mono">-</td>
-                    <td className="p-3 text-left font-mono bg-slate-50">0.00</td>
-                  </tr>
-                  <tr className="bg-indigo-900 text-white font-black text-sm">
-                    <td className="p-3.5">الرصيد كما في 31 ديسمبر {reportYear} (ختامي)</td>
-                    <td className="p-3.5 text-left font-mono">{formatMoney(financialStatements.bs.totalEquity.prior * 0.7)}</td>
-                    <td className="p-3.5 text-left font-mono">{formatMoney(financialStatements.bs.totalEquity.prior * 0.1 + financialStatements.pnl.netIncome.current * 0.1)}</td>
-                    <td className="p-3.5 text-left font-mono">{formatMoney(financialStatements.bs.totalEquity.prior * 0.15 + financialStatements.pnl.netIncome.current * 0.9)}</td>
-                    <td className="p-3.5 text-left font-mono">{formatMoney(financialStatements.bs.totalEquity.prior * 0.05)}</td>
-                    <td className="p-3.5 text-left font-mono font-black bg-indigo-950">{formatMoney(financialStatements.bs.totalEquity.current)}</td>
-                  </tr>
+                  {(() => {
+                    const capPrior = financialStatements.notesData.capitalAccounts.reduce((s, a) => s + a.priorYear, 0);
+                    const resPrior = financialStatements.notesData.reserveAccounts.reduce((s, a) => s + a.priorYear, 0);
+                    const retPrior = financialStatements.notesData.retainedEarningsAccounts.reduce((s, a) => s + a.priorYear, 0);
+                    const partPrior = financialStatements.notesData.relatedPartyAccounts.reduce((s, a) => s + a.priorYear, 0) +
+                                      financialStatements.notesData.openingOrSuspenseAccounts.reduce((s, a) => s + a.priorYear, 0);
+
+                    const capCur = financialStatements.notesData.capitalAccounts.reduce((s, a) => s + a.currentYear, 0);
+                    const resCur = financialStatements.notesData.reserveAccounts.reduce((s, a) => s + a.currentYear, 0);
+                    const retCur = financialStatements.notesData.retainedEarningsAccounts.reduce((s, a) => s + a.currentYear, 0);
+                    const partCur = financialStatements.notesData.relatedPartyAccounts.reduce((s, a) => s + a.currentYear, 0) +
+                                    financialStatements.notesData.openingOrSuspenseAccounts.reduce((s, a) => s + a.currentYear, 0);
+
+                    const netInc = financialStatements.pnl.netIncome.current;
+                    const transferReserve = netInc > 0 ? Number((netInc * 0.1).toFixed(2)) : 0;
+                    const retainedProfitShare = netInc - transferReserve;
+
+                    return (
+                      <>
+                        <tr className="font-bold bg-slate-50">
+                          <td className="p-3">الرصيد كما في 1 يناير {reportYear} (افتتاحي)</td>
+                          <td className="p-3 text-left font-mono">{formatMoney(capPrior)}</td>
+                          <td className="p-3 text-left font-mono">{formatMoney(resPrior)}</td>
+                          <td className="p-3 text-left font-mono">{formatMoney(retPrior)}</td>
+                          <td className="p-3 text-left font-mono">{formatMoney(partPrior)}</td>
+                          <td className="p-3 text-left font-mono font-black bg-slate-100">{formatMoney(financialStatements.bs.totalEquity.prior)}</td>
+                        </tr>
+                        <tr>
+                          <td className="p-3 pr-6 font-bold text-emerald-700">صافي ربح العام {reportYear} (من قائمة الدخل)</td>
+                          <td className="p-3 text-left font-mono">-</td>
+                          <td className="p-3 text-left font-mono">-</td>
+                          <td className="p-3 text-left font-mono font-bold text-emerald-700">{formatMoney(netInc)}</td>
+                          <td className="p-3 text-left font-mono">-</td>
+                          <td className="p-3 text-left font-mono font-bold text-emerald-700 bg-emerald-50">{formatMoney(netInc)}</td>
+                        </tr>
+                        {transferReserve > 0 && (
+                          <tr>
+                            <td className="p-3 pr-6 font-medium">التحويل إلى الاحتياطي القانوني والنظامي (10%)</td>
+                            <td className="p-3 text-left font-mono">-</td>
+                            <td className="p-3 text-left font-mono text-emerald-700">{formatMoney(transferReserve)}</td>
+                            <td className="p-3 text-left font-mono text-red-600">({formatMoney(transferReserve)})</td>
+                            <td className="p-3 text-left font-mono">-</td>
+                            <td className="p-3 text-left font-mono bg-slate-50">0.00</td>
+                          </tr>
+                        )}
+                        {Math.abs(partCur - partPrior) > 0.01 && (
+                          <tr>
+                            <td className="p-3 pr-6 font-medium">حركات جاري الشركاء والوسيط الافتتاحي</td>
+                            <td className="p-3 text-left font-mono">-</td>
+                            <td className="p-3 text-left font-mono">-</td>
+                            <td className="p-3 text-left font-mono">-</td>
+                            <td className="p-3 text-left font-mono">{formatMoney(partCur - partPrior)}</td>
+                            <td className="p-3 text-left font-mono bg-slate-50">{formatMoney(partCur - partPrior)}</td>
+                          </tr>
+                        )}
+                        <tr className="bg-indigo-900 text-white font-black text-sm">
+                          <td className="p-3.5">الرصيد كما في 31 ديسمبر {reportYear} (ختامي)</td>
+                          <td className="p-3.5 text-left font-mono">{formatMoney(capCur)}</td>
+                          <td className="p-3.5 text-left font-mono">{formatMoney(resCur + transferReserve)}</td>
+                          <td className="p-3.5 text-left font-mono">{formatMoney(retCur + retainedProfitShare)}</td>
+                          <td className="p-3.5 text-left font-mono">{formatMoney(partCur)}</td>
+                          <td className="p-3.5 text-left font-mono font-black bg-indigo-950">{formatMoney(financialStatements.bs.totalEquity.current)}</td>
+                        </tr>
+                      </>
+                    );
+                  })()}
                 </tbody>
               </table>
             </div>
@@ -1075,25 +1208,33 @@ const AnnualFinancialReport: React.FC = () => {
                     <td className="p-2.5 text-left font-mono font-bold">{formatMoney(financialStatements.pnl.profitBeforeTax.current)}</td>
                     <td className="p-2.5 text-left font-mono">{formatMoney(financialStatements.pnl.profitBeforeTax.prior)}</td>
                   </tr>
+                  {financialStatements.cashFlow.depreciationExpense > 0 && (
+                    <tr>
+                      <td className="p-2.5 pr-6 font-medium text-emerald-700">تعديل: إهلاك الأصول الثابتة (بند غير نقدي)</td>
+                      <td className="p-2.5 text-left font-mono text-emerald-700">{formatMoney(financialStatements.cashFlow.depreciationExpense)}</td>
+                      <td className="p-2.5 text-left font-mono">0.00</td>
+                    </tr>
+                  )}
                   <tr>
-                    <td className="p-2.5 pr-6 font-medium text-emerald-700">تعديل: إهلاك الأصول الثابتة (بند غير نقدي)</td>
-                    <td className="p-2.5 text-left font-mono text-emerald-700">100,000.00</td>
+                    <td className="p-2.5 pr-6 font-medium">(الزيادة)/النقص في العملاء والمدينين</td>
+                    <td className={`p-2.5 text-left font-mono ${-financialStatements.cashFlow.deltaAR < 0 ? 'text-red-600' : ''}`}>
+                      {-financialStatements.cashFlow.deltaAR < 0 ? `(${formatMoney(Math.abs(financialStatements.cashFlow.deltaAR))})` : formatMoney(-financialStatements.cashFlow.deltaAR)}
+                    </td>
                     <td className="p-2.5 text-left font-mono">0.00</td>
                   </tr>
                   <tr>
-                    <td className="p-2.5 pr-6 font-medium">(الزيادة)/النقص في العملاء والمدينين</td>
-                    <td className="p-2.5 text-left font-mono">-</td>
-                    <td className="p-2.5 text-left font-mono">-</td>
-                  </tr>
-                  <tr>
                     <td className="p-2.5 pr-6 font-medium">(الزيادة)/النقص في المخزون السلعي</td>
-                    <td className="p-2.5 text-left font-mono">-</td>
-                    <td className="p-2.5 text-left font-mono">-</td>
+                    <td className={`p-2.5 text-left font-mono ${-financialStatements.cashFlow.deltaInv < 0 ? 'text-red-600' : ''}`}>
+                      {-financialStatements.cashFlow.deltaInv < 0 ? `(${formatMoney(Math.abs(financialStatements.cashFlow.deltaInv))})` : formatMoney(-financialStatements.cashFlow.deltaInv)}
+                    </td>
+                    <td className="p-2.5 text-left font-mono">0.00</td>
                   </tr>
                   <tr>
                     <td className="p-2.5 pr-6 font-medium">الزيادة/(النقص) في الموردين والدائنين</td>
-                    <td className="p-2.5 text-left font-mono">-</td>
-                    <td className="p-2.5 text-left font-mono">-</td>
+                    <td className={`p-2.5 text-left font-mono ${financialStatements.cashFlow.deltaAP < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                      {financialStatements.cashFlow.deltaAP < 0 ? `(${formatMoney(Math.abs(financialStatements.cashFlow.deltaAP))})` : formatMoney(financialStatements.cashFlow.deltaAP)}
+                    </td>
+                    <td className="p-2.5 text-left font-mono">0.00</td>
                   </tr>
                   <tr className="bg-slate-100 font-bold">
                     <td className="p-3">صافي التدفق النقدي من الأنشطة التشغيلية</td>
@@ -1217,11 +1358,10 @@ const AnnualFinancialReport: React.FC = () => {
                 <table className="w-full text-right text-xs border-collapse">
                   <thead>
                     <tr className="bg-slate-800 text-white font-bold">
-                      <th className="p-2.5">اسم الأصل / التصنيف</th>
-                      <th className="p-2.5 text-left">التكلفة الافتتاحية</th>
-                      <th className="p-2.5 text-left">إضافات العام</th>
-                      <th className="p-2.5 text-left">مجمع الإهلاك</th>
-                      <th className="p-2.5 text-left bg-slate-900 font-mono">صافي القيمة الدفترية ({reportYear})</th>
+                      <th className="p-2.5">اسم الأصل / الحساب</th>
+                      <th className="p-2.5 text-center w-24">كود الحساب</th>
+                      <th className="p-2.5 text-left w-36">الرصيد الدفتري ({reportYear})</th>
+                      <th className="p-2.5 text-left w-36">السنة السابقة ({priorYear})</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200">
@@ -1233,28 +1373,32 @@ const AnnualFinancialReport: React.FC = () => {
                         return (
                           <tr key={asset.id}>
                             <td className="p-2 font-medium">{asset.name}</td>
-                            <td className="p-2 text-left font-mono">{formatMoney(cost)}</td>
-                            <td className="p-2 text-left font-mono">0.00</td>
-                            <td className="p-2 text-left font-mono text-red-600">({formatMoney(dep)})</td>
+                            <td className="p-2 text-center font-mono text-slate-500">-</td>
                             <td className="p-2 text-left font-mono font-bold bg-slate-50">{formatMoney(nbv)}</td>
+                            <td className="p-2 text-left font-mono text-slate-500">0.00</td>
                           </tr>
                         );
                       })
+                    ) : financialStatements.bs.nonCurrentAssets.length > 0 ? (
+                      financialStatements.bs.nonCurrentAssets.map(a => (
+                        <tr key={a.id}>
+                          <td className="p-2 font-medium">{a.name}</td>
+                          <td className="p-2 text-center font-mono text-slate-500">{a.code}</td>
+                          <td className={`p-2 text-left font-mono font-bold ${a.currentYear < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                            {a.currentYear < 0 ? `(${formatMoney(Math.abs(a.currentYear))})` : formatMoney(a.currentYear)}
+                          </td>
+                          <td className="p-2 text-left font-mono text-slate-500">{formatMoney(a.priorYear)}</td>
+                        </tr>
+                      ))
                     ) : (
                       <tr>
-                        <td className="p-2 font-medium">الآلات والمعدات والحفارات والأجهزة</td>
-                        <td className="p-2 text-left font-mono">100,000.00</td>
-                        <td className="p-2 text-left font-mono">0.00</td>
-                        <td className="p-2 text-left font-mono text-red-600">(0.00)</td>
-                        <td className="p-2 text-left font-mono font-bold bg-slate-50">100,000.00</td>
+                        <td colSpan={4} className="p-4 text-center text-slate-400">لا توجد حسابات أصول غير متداولة مسجلة</td>
                       </tr>
                     )}
                     <tr className="bg-indigo-50 font-black text-indigo-900">
-                      <td className="p-2.5">الإجمالي المطابق للمركز المالي</td>
-                      <td className="p-2.5 text-left font-mono">-</td>
-                      <td className="p-2.5 text-left font-mono">-</td>
-                      <td className="p-2.5 text-left font-mono">-</td>
+                      <td className="p-2.5" colSpan={2}>الإجمالي المطابق للمركز المالي</td>
                       <td className="p-2.5 text-left font-mono font-black">{formatMoney(financialStatements.bs.totalNonCurrentAssets.current)}</td>
+                      <td className="p-2.5 text-left font-mono text-slate-500">{formatMoney(financialStatements.bs.totalNonCurrentAssets.prior)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -1281,7 +1425,9 @@ const AnnualFinancialReport: React.FC = () => {
                       {financialStatements.notesData.cashAccounts.map(a => (
                         <tr key={a.id}>
                           <td className="p-2">{a.name} ({a.code})</td>
-                          <td className="p-2 text-left font-mono font-bold">{formatMoney(a.currentYear)}</td>
+                          <td className={`p-2 text-left font-mono font-bold ${a.currentYear < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                            {a.currentYear < 0 ? `(${formatMoney(Math.abs(a.currentYear))})` : formatMoney(a.currentYear)}
+                          </td>
                           <td className="p-2 text-left font-mono text-slate-500">{formatMoney(a.priorYear)}</td>
                         </tr>
                       ))}
@@ -1348,7 +1494,9 @@ const AnnualFinancialReport: React.FC = () => {
                       {financialStatements.notesData.inventoryAccounts.map(a => (
                         <tr key={a.id}>
                           <td className="p-2">{a.name} ({a.code})</td>
-                          <td className="p-2 text-left font-mono font-bold">{formatMoney(a.currentYear)}</td>
+                          <td className={`p-2 text-left font-mono font-bold ${a.currentYear < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                            {a.currentYear < 0 ? `(${formatMoney(Math.abs(a.currentYear))})` : formatMoney(a.currentYear)}
+                          </td>
                           <td className="p-2 text-left font-mono text-slate-500">{formatMoney(a.priorYear)}</td>
                         </tr>
                       ))}
@@ -1380,18 +1528,90 @@ const AnnualFinancialReport: React.FC = () => {
                       {financialStatements.notesData.payableAccounts.map(a => (
                         <tr key={a.id}>
                           <td className="p-2">{a.name} ({a.code})</td>
-                          <td className="p-2 text-left font-mono font-bold">{formatMoney(a.currentYear)}</td>
+                          <td className="p-2 text-left font-mono font-bold text-red-600">({formatMoney(Math.abs(a.currentYear))})</td>
                           <td className="p-2 text-left font-mono text-slate-500">{formatMoney(a.priorYear)}</td>
                         </tr>
                       ))}
                       <tr className="bg-slate-100 font-black">
                         <td className="p-2">إجمالي الموردين</td>
-                        <td className="p-2 text-left font-mono">{formatMoney(financialStatements.notesData.payableAccounts.reduce((s, a) => s + a.currentYear, 0))}</td>
+                        <td className="p-2 text-left font-mono text-red-600">({formatMoney(financialStatements.notesData.payableAccounts.reduce((s, a) => s + a.currentYear, 0))})</td>
                         <td className="p-2 text-left font-mono">{formatMoney(financialStatements.notesData.payableAccounts.reduce((s, a) => s + a.priorYear, 0))}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </div>
+
+            {/* إيضاح 8: تفاصيل حقوق الملكية والوسيط */}
+            <div className="space-y-3 pt-4 border-t border-slate-200">
+              <h4 className="text-base font-black text-slate-900 flex items-center gap-2">
+                <span className="bg-slate-900 text-white w-6 h-6 rounded-full inline-flex items-center justify-center text-xs">8</span>
+                تفاصيل حقوق الملكية والوسيط الافتتاحي (Equity & Suspense Details)
+              </h4>
+              <div className="overflow-x-auto">
+                <table className="w-full text-right text-xs border border-slate-200">
+                  <thead className="bg-slate-800 text-white font-bold">
+                    <tr>
+                      <th className="p-2.5">بند حقوق الملكية</th>
+                      <th className="p-2.5 text-center w-24">كود الحساب</th>
+                      <th className="p-2.5 text-left w-36">رصيد {reportYear}</th>
+                      <th className="p-2.5 text-left w-36">رصيد {priorYear}</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {financialStatements.notesData.capitalAccounts.map(a => (
+                      <tr key={a.id}>
+                        <td className="p-2 font-medium">{a.name}</td>
+                        <td className="p-2 text-center font-mono text-slate-500">{a.code}</td>
+                        <td className="p-2 text-left font-mono font-bold">{formatMoney(a.currentYear)}</td>
+                        <td className="p-2 text-left font-mono text-slate-500">{formatMoney(a.priorYear)}</td>
+                      </tr>
+                    ))}
+                    {financialStatements.notesData.reserveAccounts.map(a => (
+                      <tr key={a.id}>
+                        <td className="p-2 font-medium">{a.name}</td>
+                        <td className="p-2 text-center font-mono text-slate-500">{a.code}</td>
+                        <td className="p-2 text-left font-mono font-bold">{formatMoney(a.currentYear)}</td>
+                        <td className="p-2 text-left font-mono text-slate-500">{formatMoney(a.priorYear)}</td>
+                      </tr>
+                    ))}
+                    {financialStatements.notesData.retainedEarningsAccounts.map(a => (
+                      <tr key={a.id}>
+                        <td className="p-2 font-medium">{a.name}</td>
+                        <td className="p-2 text-center font-mono text-slate-500">{a.code}</td>
+                        <td className="p-2 text-left font-mono font-bold">{formatMoney(a.currentYear)}</td>
+                        <td className="p-2 text-left font-mono text-slate-500">{formatMoney(a.priorYear)}</td>
+                      </tr>
+                    ))}
+                    {financialStatements.notesData.relatedPartyAccounts.map(a => (
+                      <tr key={a.id}>
+                        <td className="p-2 font-medium">{a.name}</td>
+                        <td className="p-2 text-center font-mono text-slate-500">{a.code}</td>
+                        <td className="p-2 text-left font-mono font-bold">{formatMoney(a.currentYear)}</td>
+                        <td className="p-2 text-left font-mono text-slate-500">{formatMoney(a.priorYear)}</td>
+                      </tr>
+                    ))}
+                    {financialStatements.notesData.openingOrSuspenseAccounts.map(a => (
+                      <tr key={a.id} className="bg-amber-50/50">
+                        <td className="p-2 font-medium text-amber-900">{a.name} (حساب وسيط تسوية)</td>
+                        <td className="p-2 text-center font-mono text-amber-700">{a.code}</td>
+                        <td className="p-2 text-left font-mono font-bold text-amber-900">{formatMoney(a.currentYear)}</td>
+                        <td className="p-2 text-left font-mono text-slate-500">{formatMoney(a.priorYear)}</td>
+                      </tr>
+                    ))}
+                    <tr className="bg-emerald-50 font-bold text-emerald-950">
+                      <td className="p-2.5" colSpan={2}>يضاف: صافي ربح العام الحالي (من قائمة الدخل)</td>
+                      <td className="p-2.5 text-left font-mono font-bold text-emerald-700">{formatMoney(financialStatements.pnl.netIncome.current)}</td>
+                      <td className="p-2.5 text-left font-mono text-slate-500">{formatMoney(financialStatements.pnl.netIncome.prior)}</td>
+                    </tr>
+                    <tr className="bg-indigo-900 text-white font-black text-sm">
+                      <td className="p-3" colSpan={2}>إجمالي حقوق الملكية المطابق للمركز المالي</td>
+                      <td className="p-3 text-left font-mono font-black">{formatMoney(financialStatements.bs.totalEquity.current)}</td>
+                      <td className="p-3 text-left font-mono">{formatMoney(financialStatements.bs.totalEquity.prior)}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

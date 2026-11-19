@@ -201,6 +201,9 @@ const FinancialRatios = () => {
     const operatingExpenses = Math.max(0, totalExpenses - cogs);
     const netIncome = sales - totalExpenses;
 
+    // حقوق الملكية الختامية = حقوق الملكية الدفترية + صافي ربح الفترة الحالية (تطابقاً مع قائمة المركز المالي المعيارية)
+    const endingEquity = totalEquity + netIncome;
+
     // حساب عدد أيام الفترة الزمنية
     const sDate = new Date(startDate);
     const eDate = new Date(endDate);
@@ -219,7 +222,7 @@ const FinancialRatios = () => {
     const operatingProfitMargin = sales > 0 ? (grossProfit - operatingExpenses) / sales * 100 : 0;
     const netProfitMargin = sales > 0 ? (netIncome / sales) * 100 : 0;
     const roa = totalAssets > 0 ? (netIncome / totalAssets) * 100 : 0;
-    const roe = totalEquity > 0 ? (netIncome / totalEquity) * 100 : 0;
+    const roe = endingEquity > 0 ? (netIncome / endingEquity) * 100 : 0;
 
     // 3. نسب النشاط ودورة التشغيل (Activity & Operating Cycle)
     const inventoryTurnover = (cogs > 0 && inventory > 0) ? cogs / inventory : 0;
@@ -235,9 +238,9 @@ const FinancialRatios = () => {
     const assetTurnover = totalAssets > 0 ? sales / totalAssets : 0;
 
     // 4. نسب الرافعة المالية وهيكل التمويل (Leverage & Solvency)
-    const debtToEquity = totalEquity > 0 ? (totalLiabilities / totalEquity) : 0;
+    const debtToEquity = endingEquity > 0 ? (totalLiabilities / endingEquity) : 0;
     const debtToAssets = totalAssets > 0 ? (totalLiabilities / totalAssets) * 100 : 0;
-    const equityMultiplier = totalEquity > 0 ? (totalAssets / totalEquity) : 1;
+    const equityMultiplier = endingEquity > 0 ? (totalAssets / endingEquity) : 1;
 
     // 5. تحليل نقطة التعادل وهامش الأمان (Break-Even & Margin of Safety)
     const variableCosts = cogs;
@@ -273,7 +276,7 @@ const FinancialRatios = () => {
       accountsPayable,
       nonCurrentLiabilities,
       totalLiabilities,
-      totalEquity,
+      totalEquity: endingEquity,
       sales,
       cogs,
       grossProfit,

@@ -26,9 +26,10 @@ import {
   ArrowDownRight
 } from 'lucide-react';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId, isValidUUID } from '../../services/tenantContext';
 
 export const CFODashboard: React.FC = () => {
-  const { accounts, settings, organization, currentUser, currentSelectedOrgId, selectedFiscalYear } = useAccounting();
+  const { accounts, entries, settings, organization, currentUser, currentSelectedOrgId, selectedFiscalYear } = useAccounting();
   const { showToast } = useToast();
 
   const currentYear = selectedFiscalYear || new Date().getFullYear();
@@ -44,36 +45,95 @@ export const CFODashboard: React.FC = () => {
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || session?.user?.user_metadata?.org_id || (organization as any)?.id;
+      const rawOrgId = getActiveOrgIdSync(currentSelectedOrgId) || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id || (organization as any)?.id;
+      const userOrgId = isValidUUID(rawOrgId) ? rawOrgId : (await resolveActiveOrgId(currentSelectedOrgId));
 
       // 1. حركات السنة لبيان الدخل والمبيعات والتكلفة (بالتجزئة لمنع سقف 1000 سجل)
-      const periodData = await fetchCompleteDataset<any>(async (from, to) => {
+      let periodData = await fetchCompleteDataset<any>(async (from, to) => {
         let qPeriod = supabase
           .from('journal_lines')
           .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
           .eq('journal_entries.status', 'posted')
           .gte('journal_entries.transaction_date', startDate)
           .lte('journal_entries.transaction_date', endDate);
-        if (userOrgId) qPeriod = qPeriod.eq('journal_entries.organization_id', userOrgId);
+        if (isValidUUID(userOrgId)) qPeriod = qPeriod.eq('journal_entries.organization_id', userOrgId);
         return qPeriod.range(from, to);
       });
-      setLedgerLines(periodData || []);
 
       // 2. الأرصدة التراكمية حتى نهاية السنة لحسابات المركز المالي (بالتجزئة لمنع سقف 1000 سجل)
-      const cumData = await fetchCompleteDataset<any>(async (from, to) => {
+      let cumData = await fetchCompleteDataset<any>(async (from, to) => {
         let qCum = supabase
           .from('journal_lines')
           .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
           .eq('journal_entries.status', 'posted')
           .lte('journal_entries.transaction_date', endDate);
-        if (userOrgId) qCum = qCum.eq('journal_entries.organization_id', userOrgId);
+        if (isValidUUID(userOrgId)) qCum = qCum.eq('journal_entries.organization_id', userOrgId);
         return qCum.range(from, to);
       });
+
+      // 🛡️ احتراز إضافي: إذا عادت الاستعلامات فارغة وكان هناك قيود محملة في السياق، نستخدمها مباشرة
+      if ((!cumData || cumData.length === 0) && entries && entries.length > 0) {
+        const fallbackCum: Record<string, unknown>[] = [];
+        const fallbackPeriod: Record<string, unknown>[] = [];
+        entries.filter((e) => (e as unknown as Record<string, unknown>).status === 'posted').forEach((e) => {
+          const entryObj = e as unknown as Record<string, unknown>;
+          const tDate = String(entryObj.transaction_date || entryObj.date || '');
+          const eLines = (entryObj.journal_lines || entryObj.lines || []) as Record<string, unknown>[];
+          if (tDate <= endDate) {
+            eLines.forEach((l) => {
+              const lineObj = {
+                account_id: l.account_id || l.accountId,
+                debit: Number(l.debit) || 0,
+                credit: Number(l.credit) || 0,
+                journal_entries: { transaction_date: tDate, status: entryObj.status, reference: entryObj.reference }
+              };
+              fallbackCum.push(lineObj);
+              if (tDate >= startDate) {
+                fallbackPeriod.push(lineObj);
+              }
+            });
+          }
+        });
+        if (fallbackCum.length > 0) {
+          cumData = fallbackCum;
+          periodData = fallbackPeriod;
+        }
+      }
+
+      setLedgerLines(periodData || []);
       setCumulativeLines(cumData || []);
 
     } catch (err) {
       logger.error('Error fetching CFO dashboard data:', err);
-      showToast('خطأ أثناء جلب مؤشرات السيولة: ' + err.message, 'error');
+      // Fallback إلى entries في حالة الخطأ
+      if (entries && entries.length > 0) {
+        const fallbackCum: Record<string, unknown>[] = [];
+        const fallbackPeriod: Record<string, unknown>[] = [];
+        entries.filter((e) => (e as unknown as Record<string, unknown>).status === 'posted').forEach((e) => {
+          const entryObj = e as unknown as Record<string, unknown>;
+          const tDate = String(entryObj.transaction_date || entryObj.date || '');
+          const eLines = (entryObj.journal_lines || entryObj.lines || []) as Record<string, unknown>[];
+          if (tDate <= endDate) {
+            eLines.forEach((l) => {
+              const lineObj = {
+                account_id: l.account_id || l.accountId,
+                debit: Number(l.debit) || 0,
+                credit: Number(l.credit) || 0,
+                journal_entries: { transaction_date: tDate, status: entryObj.status, reference: entryObj.reference }
+              };
+              fallbackCum.push(lineObj);
+              if (tDate >= startDate) {
+                fallbackPeriod.push(lineObj);
+              }
+            });
+          }
+        });
+        setCumulativeLines(fallbackCum);
+        setLedgerLines(fallbackPeriod);
+      } else {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        showToast('خطأ أثناء جلب مؤشرات السيولة: ' + errMsg, 'error');
+      }
     } finally {
       setLoading(false);
     }
@@ -81,7 +141,7 @@ export const CFODashboard: React.FC = () => {
 
   useEffect(() => {
     fetchDashboardData();
-  }, [year, currentSelectedOrgId]);
+  }, [year, currentSelectedOrgId, accounts, entries]);
 
   // حساب المؤشرات والنسب التنفيذية
   const metrics = useMemo(() => {
@@ -115,48 +175,72 @@ export const CFODashboard: React.FC = () => {
 
     accounts.forEach(acc => {
       const code = String(acc.code || '').trim();
-      const name = String(acc.name || '').trim().toLowerCase();
+      const name = String(acc.name || '').trim();
       const type = (acc.type || '').toLowerCase();
 
       const bsVal = bsBalances[acc.id] || 0;
       const pnlVal = pnlBalances[acc.id] || 0;
 
-      // أصول متداولة
-      if (code.startsWith('12') || (code.startsWith('1') && !code.startsWith('11'))) {
-        if (name.includes('نقد') || name.includes('صندوق') || name.includes('بنك') || code.startsWith('121')) {
-          totalCash += bsVal;
-        } else if (name.includes('عميل') || name.includes('عملاء') || code.startsWith('122')) {
-          totalReceivables += bsVal;
-        } else if (name.includes('مخزون') || code.startsWith('123')) {
-          totalInventory += bsVal;
+      // 1. النقدية وما في حكمها
+      const isCash = (
+        code.startsWith('123') || code.startsWith('121') ||
+        name.includes('نقد') || name.includes('بنك') || name.includes('صندوق') ||
+        name.includes('خزينة') || name.includes('خزينه') || name.includes('كاش') ||
+        name.includes('فودافون') || name.includes('انستا') || name.includes('محفظة')
+      );
+
+      // 2. العملاء وأوراق القبض
+      const isReceivable = !isCash && (
+        code.startsWith('122') ||
+        name.includes('عميل') || name.includes('عملاء') || name.includes('مدين') ||
+        name.includes('أوراق قبض') || name.includes('سلف') || name.includes('عهد')
+      );
+
+      // 3. المخزون السلعي
+      const isInventory = !isCash && !isReceivable && (
+        code.startsWith('103') || code.startsWith('102') || code.startsWith('104') || code.startsWith('10') ||
+        name.includes('مخزون') || name.includes('بضاعة') || name.includes('خامات') || name.includes('منتج تام') || name.includes('إنتاج تحت التشغيل')
+      );
+
+      // 4. الموردون والدائنون التجاريون
+      const isTradePayable = (
+        code.startsWith('201') || code.startsWith('211') || code.startsWith('221') || code === '222' ||
+        name.includes('مورد') || name.includes('موردين') || name.includes('أوراق دفع') || name.includes('دائنون تجاريون')
+      );
+
+      // تصنيف الأصول
+      if (code.startsWith('1') || type.includes('asset') || type.includes('أصول')) {
+        const isNonCurrent = code.startsWith('11') || type.includes('fixed') || type.includes('non_current') || name.includes('أصول ثابتة');
+        if (!isNonCurrent) {
+          if (isCash) totalCash += bsVal;
+          else if (isReceivable) totalReceivables += bsVal;
+          else if (isInventory) totalInventory += bsVal;
+          else totalOtherCurrentAssets += bsVal;
         } else {
-          totalOtherCurrentAssets += bsVal;
+          const isContra = name.includes('مجمع') || name.includes('مخصص') || name.includes('إهلاك') || name.includes('اهلاك');
+          totalNonCurrentAssets += isContra ? -Math.abs(bsVal) : bsVal;
         }
-      } else if (code.startsWith('11')) {
-        // أصول غير متداولة
-        const isContra = code.startsWith('1119') || code.startsWith('1129') || name.includes('مجمع إهلاك');
-        totalNonCurrentAssets += isContra ? -Math.abs(bsVal) : bsVal;
       }
 
-      // التزامات متداولة
-      if (code.startsWith('21') || (code.startsWith('2') && !code.startsWith('22'))) {
+      // تصنيف الخصوم
+      if (code.startsWith('2') || type.includes('liability') || type.includes('خصوم') || type.includes('التزامات')) {
+        const isNonCurrentLiab = code.startsWith('22') && (name.includes('طويلة') || name.includes('قرض طويل'));
         const liabilityAmt = -bsVal; // دائن
-        if (name.includes('مورد') || code.startsWith('211')) {
-          totalPayables += liabilityAmt;
+        if (!isNonCurrentLiab) {
+          if (isTradePayable) totalPayables += liabilityAmt;
+          else totalOtherCurrentLiabilities += liabilityAmt;
         } else {
-          totalOtherCurrentLiabilities += liabilityAmt;
+          totalNonCurrentLiabilities += liabilityAmt;
         }
-      } else if (code.startsWith('22')) {
-        totalNonCurrentLiabilities += -bsVal;
       }
 
-      // إيرادات
-      if (code.startsWith('4') || type.includes('revenue')) {
+      // إيرادات النشاط
+      if (code.startsWith('4') || type.includes('revenue') || type.includes('income')) {
         totalRevenues += -pnlVal;
       }
 
       // تكلفة ومصروفات تشغيلية
-      if (code.startsWith('51') || code.startsWith('501') || name.includes('تكلفة')) {
+      if (code.startsWith('51') || code.startsWith('501') || name.includes('تكلفة المبيعات') || name.includes('تكلفة الإنتاج') || name.includes('تكلفة البضاعة')) {
         totalCogs += pnlVal;
       } else if (code.startsWith('52') || code.startsWith('53') || (code.startsWith('5') && !code.startsWith('55'))) {
         totalOperatingExpenses += pnlVal;
