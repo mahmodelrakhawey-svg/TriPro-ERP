@@ -6,7 +6,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { 
   ArrowRightLeft, Search, Eye, Loader2, Printer, Download, 
-  CheckCircle, Clock, X, Edit3, Package, FileSpreadsheet, Plus 
+  CheckCircle, Clock, X, Edit3, Package, FileSpreadsheet, Plus, Zap 
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { fetchCompleteDataset } from '../../services/balanceService';
@@ -187,12 +187,21 @@ const StockTransferList = () => {
             </h2>
             <p className="text-slate-500 text-sm">عرض وتعديل ومتابعة حركات النقل بين المستودعات</p>
         </div>
-        <button
-            onClick={() => navigate('/stock-transfer')}
-            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20"
-        >
-            <Plus size={16} /> تحويل مخزني جديد
-        </button>
+        <div className="flex items-center gap-2">
+            <button
+                onClick={() => navigate('/inventory/daily-transfers')}
+                className="flex items-center gap-2 px-3.5 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-xl text-xs font-bold transition-all shadow-sm"
+                title="تحليل سلوك ومعدل الصرف اليومي للأصناف بين المستودعات والتنبؤ بالاحتياج"
+            >
+                <Zap size={15} className="text-amber-600 animate-pulse" /> معدل الصرف والتحويل اليومي
+            </button>
+            <button
+                onClick={() => navigate('/stock-transfer')}
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-blue-500/20"
+            >
+                <Plus size={16} /> تحويل مخزني جديد
+            </button>
+        </div>
       </div>
 
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 print:hidden">

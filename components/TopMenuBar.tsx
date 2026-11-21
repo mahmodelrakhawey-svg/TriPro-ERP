@@ -8,7 +8,7 @@ import {
   Settings, LogOut, Smartphone, RotateCcw, ShieldCheck, 
   Layers, HardHat, Utensils, Scissors, Calendar, Clock, 
   Wallet, Banknote, Scale, Database, CreditCard, ChevronRight,
-  Sparkles, ExternalLink, Activity, Receipt
+  Sparkles, ExternalLink, Activity, Receipt, ArrowRightLeft
 } from 'lucide-react';
 
 interface MenuItem {
@@ -227,7 +227,8 @@ export const TopMenuBar: React.FC = () => {
         { label: 'تقرير حركة وتكلفة المبيعات', to: '/item-sales-analysis', icon: ShoppingCart },
         { label: 'تقرير حركة المشتريات والموردين', to: '/purchase-analysis', icon: Truck },
         { label: 'أعمار ديون العملاء (Aging of AR)', to: '/customer-aging', icon: Clock },
-        { label: 'حركة المخزون الشاملة والأصناف الراكدة', to: '/detailed-stock-movement', icon: Package }
+        { label: 'حركة المخزون الشاملة والأصناف الراكدة', to: '/detailed-stock-movement', icon: Package },
+        { label: 'معدل الصرف والتحويل اليومي للأصناف', to: '/inventory/daily-transfers', icon: ArrowRightLeft }
       ]
     },
     {

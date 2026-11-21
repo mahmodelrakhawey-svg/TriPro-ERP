@@ -246,6 +246,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { to: '/inventory/shelf-restock', label: 'تقرير إعادة التخزين بالرفوف', icon: MapPin, color: 'text-indigo-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/inventory/replenishment', label: 'إعادة الطلب والتخزين التنبؤي', icon: TrendingUp, color: 'text-amber-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/inventory/pda-stocktaking', label: 'الجرد السريع بالهاند هيلد (PDA)', icon: PackageCheck, color: 'text-purple-400', module: 'inventory', permission: 'inventory.manage' },
+    { to: '/inventory/daily-transfers', label: 'معدل الصرف والتحويل اليومي', icon: Zap, color: 'text-amber-400', module: 'inventory', permission: 'inventory.view' },
     { to: '/detailed-stock-movement', label: 'حركة المخزون التفصيلية', icon: List, color: 'text-purple-400', module: 'inventory', permission: 'inventory.view' },
 
     // التصنيع والإنتاج

@@ -103,6 +103,7 @@ const ItemMovementReport = lazy(() => import('./modules/inventory/ItemMovementRe
 const TopSellingReport = lazy(() => import('./modules/inventory/TopSellingReport'));
 const SlowMovingReport = lazy(() => import('./modules/inventory/SlowMovingReport'));
 const ItemProfitReport = lazy(() => import('./modules/inventory/ItemProfitReport'));
+const DailyTransferVelocityReport = lazy(() => import('./modules/inventory/DailyTransferVelocityReport'));
 
 // 💳 المالية والبنوك والمقبوضات (Finance & Banking - Lazy Loaded)
 const ReceiptVoucherForm = lazy(() => import('./modules/finance/components/ReceiptVoucherForm'));
@@ -771,6 +772,8 @@ const MainLayout = () => {
                 <Route path="/top-selling" element={<ModuleGuard module="inventory"><TopSellingReport /></ModuleGuard>} />
                 <Route path="/item-profit" element={<ModuleGuard module="inventory"><ItemProfitReport /></ModuleGuard>} />
                 <Route path="/detailed-stock-movement" element={<ModuleGuard module="inventory"><DetailedStockMovementReport /></ModuleGuard>} />
+                <Route path="/inventory/daily-transfers" element={<ModuleGuard module="inventory"><DailyTransferVelocityReport /></ModuleGuard>} />
+                <Route path="/daily-transfer-report" element={<Navigate to="/inventory/daily-transfers" replace />} />
 
                 <Route path="/construction/analytics" element={<ModuleGuard module="construction"><ConstructionDashboard /></ModuleGuard>} />
                 <Route path="/construction/labor-reports" element={<ModuleGuard module="construction"><LaborCostReport /></ModuleGuard>} />
