@@ -115,28 +115,33 @@ const TrialBalanceAdvanced = () => {
         return;
       }
 
-      // 🚀 الخطوة 1 (Dual-Engine Fast Path): استعلام دالة التجميع السريعة على مستوى PostgreSQL
+      // 🚀 الخطوة 1 (Dual-Engine Fast Path): استعلام دالة التجميع السريعة على مستوى PostgreSQL مع إعادة المحاولة التلقائية
       let rpcSuccess = false;
       const isUuid = (val: unknown): boolean => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
       const validOrgId = isUuid(userOrgId) ? userOrgId : null;
 
-      try {
-        const { data: rpcData, error: rpcErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
-          p_org_id: validOrgId,
-          p_start_date: startDate || '1970-01-01',
-          p_end_date: endDate || new Date().toISOString().split('T')[0]
-        });
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const { data: rpcData, error: rpcErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
+            p_org_id: validOrgId,
+            p_start_date: startDate || '1970-01-01',
+            p_end_date: endDate || new Date().toISOString().split('T')[0]
+          });
 
-        if (!rpcErr && Array.isArray(rpcData) && rpcData.length > 0) {
-          setRpcSummary(rpcData);
-          rpcSuccess = true;
-          // تصفير أسطر اليومية المحلية لتوفير الذاكرة والشبكة
-          setLedgerLines([]);
-        } else if (rpcErr) {
-          logger.warn('[TrialBalance] Server RPC warning, utilizing chunked engine:', rpcErr.message || rpcErr);
+          if (!rpcErr && Array.isArray(rpcData) && rpcData.length > 0) {
+            setRpcSummary(rpcData);
+            rpcSuccess = true;
+            // تصفير أسطر اليومية المحلية لتوفير الذاكرة والشبكة وحماية الميزان من الإنذارات الكاذبة
+            setLedgerLines([]);
+            break;
+          } else if (rpcErr) {
+            logger.warn(`[TrialBalance] Server RPC attempt ${attempt} warning:`, rpcErr.message || rpcErr);
+            if (attempt === 1) await new Promise(r => setTimeout(r, 250));
+          }
+        } catch (rpcEx) {
+          logger.warn(`[TrialBalance] Server RPC attempt ${attempt} unavailable:`, rpcEx);
+          if (attempt === 1) await new Promise(r => setTimeout(r, 250));
         }
-      } catch (rpcEx) {
-        logger.warn('[TrialBalance] Server RPC unavailable, falling back to chunked query:', rpcEx);
       }
 
       // 🛡️ الخطوة 2 (Graceful Degradation Fallback): جلب السطور مقسمة إذا لم تتوفر دالة الخادم
@@ -146,6 +151,7 @@ const TrialBalanceAdvanced = () => {
         const allLines: any[] = [];
         let from = 0;
         const CHUNK_SIZE = 1000;
+        let fetchCompleted = false;
 
         while (true) {
           const { data: chunk, error: chunkErr } = await supabase
@@ -154,11 +160,15 @@ const TrialBalanceAdvanced = () => {
             .eq('journal_entries.status', 'posted')
             .eq('journal_entries.organization_id', userOrgId)
             .lte('journal_entries.transaction_date', endDate)
+            .order('journal_entry_id', { ascending: true })
             .order('id', { ascending: true })
             .range(from, from + CHUNK_SIZE - 1);
 
           if (chunkErr) throw chunkErr;
-          if (!chunk || chunk.length === 0) break;
+          if (!chunk || chunk.length === 0) {
+            fetchCompleted = true;
+            break;
+          }
 
           for (const line of chunk) {
             const lineId = line.id || `${line.journal_entry_id}-${line.account_id}-${line.debit}-${line.credit}`;
@@ -168,24 +178,32 @@ const TrialBalanceAdvanced = () => {
             }
           }
 
-          if (chunk.length < CHUNK_SIZE) break;
+          if (chunk.length < CHUNK_SIZE) {
+            fetchCompleted = true;
+            break;
+          }
           from += CHUNK_SIZE;
         }
 
-        setLedgerLines(allLines);
+        if (fetchCompleted) {
+          setLedgerLines(allLines);
+        }
       }
-    } catch (err) {
+    } catch (err: unknown) {
       logger.error('Error fetching ledger:', err);
       // تمييز أخطاء الشبكة عن أخطاء البيانات
+      const errMsg = err instanceof Error ? err.message : String(err || '');
+      const errName = err instanceof Error ? err.name : '';
       if (
-        err?.message?.includes('Failed to fetch') ||
-        err?.message?.includes('ERR_CONNECTION') ||
-        err?.name === 'AbortError' ||
-        err?.message?.includes('network')
+        errMsg.includes('Failed to fetch') ||
+        errMsg.includes('ERR_CONNECTION') ||
+        errMsg.includes('timeout') ||
+        errName === 'AbortError' ||
+        errMsg.includes('network')
       ) {
-        toast.error('انقطع الاتصال بالخادم. يرجى التحقق من الإنترنت وإعادة المحاولة.');
+        toast.error('بطء أو انقطاع مؤقت في الاتصال بالإنترنت. يرجى الضغط على زر "تحديث" لإعادة المحاولة.');
       } else {
-        toast.error('فشل جلب البيانات: ' + err.message);
+        toast.error('فشل جلب البيانات: ' + errMsg);
       }
     } finally {
       setLoading(false);
@@ -223,6 +241,7 @@ const TrialBalanceAdvanced = () => {
             .eq('journal_entries.status', 'posted')
             .eq('journal_entries.organization_id', userOrgId)
             .lte('journal_entries.transaction_date', endDate)
+            .order('journal_entry_id', { ascending: true })
             .order('id', { ascending: true })
             .range(from, from + CHUNK_SIZE - 1);
 
@@ -239,8 +258,9 @@ const TrialBalanceAdvanced = () => {
           from += CHUNK_SIZE;
         }
         setLedgerLines(allLines);
-      } catch (err) {
-        toast.error('تعذر جلب تفاصيل الأسطر للتدقيق: ' + err.message);
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : String(err || '');
+        toast.error('تعذر جلب تفاصيل الأسطر للتدقيق: ' + errMsg);
       } finally {
         setLoading(false);
       }
