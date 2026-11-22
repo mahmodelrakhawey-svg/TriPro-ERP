@@ -23,6 +23,19 @@ import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 import { fetchCompleteDataset } from '../../services/balanceService';
 
+interface TrialBalanceRpcRow {
+  account_id?: string;
+  account_code?: string;
+  account_name?: string;
+  account_type?: string;
+  is_group?: boolean;
+  parent_id?: string | null;
+  opening_balance?: number | string | null;
+  period_debit?: number | string | null;
+  period_credit?: number | string | null;
+  closing_balance?: number | string | null;
+}
+
 interface EquityColumnValues {
   shareCapital: number;
   reserves: number;
@@ -46,6 +59,7 @@ const ChangesInEquityStatement: React.FC = () => {
   const [endDate, setEndDate] = useState(fiscalYearRange.endDate);
   const [showLogo, setShowLogo] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [rpcSummary, setRpcSummary] = useState<TrialBalanceRpcRow[] | null>(null);
   const [ledgerLines, setLedgerLines] = useState<any[]>([]);
 
   // مزامنة التواريخ مع السنة المالية المختارة
@@ -73,21 +87,52 @@ const ChangesInEquityStatement: React.FC = () => {
         throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
       }
 
-      const data = await fetchCompleteDataset<any>(async (from, to) => {
-        let query = supabase
-          .from('journal_lines')
-          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
-          .eq('journal_entries.status', 'posted')
-          .lte('journal_entries.transaction_date', endDate);
+      // 🚀 الخطوة 1 (Fast Path): استعلام دالة التجميع السريعة على السيرفر
+      let rpcSuccess = false;
+      try {
+        const isUuid = (val: unknown): boolean => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+        const validOrgId = isUuid(userOrgId) ? userOrgId : null;
+        const validStart = (typeof startDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(startDate)) ? startDate.slice(0, 10) : '1970-01-01';
+        const validEnd = (typeof endDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(endDate)) ? endDate.slice(0, 10) : new Date().toISOString().split('T')[0];
 
-        if (userOrgId) {
-          query = query.eq('journal_entries.organization_id', userOrgId);
+        const { data: summaryData, error: summaryErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
+          p_org_id: validOrgId,
+          p_start_date: validStart,
+          p_end_date: validEnd
+        });
+
+        if (!summaryErr && Array.isArray(summaryData) && summaryData.length > 0) {
+          setRpcSummary(summaryData);
+          setLedgerLines([]);
+          rpcSuccess = true;
+        } else if (summaryErr) {
+          logger.warn('[ChangesInEquity] Server RPC warning, falling back to chunked query:', summaryErr.message || summaryErr);
         }
+      } catch (rpcEx) {
+        logger.warn('[ChangesInEquity] Server RPC exception, falling back to chunked query:', rpcEx);
+      }
 
-        return query.range(from, to);
-      });
+      // 🛡️ الخطوة 2 (Fallback): جلب السطور مقسمة وبترتيب مفهرس لمنع Timeout
+      if (!rpcSuccess) {
+        setRpcSummary(null);
+        const data = await fetchCompleteDataset<any>(async (from, to) => {
+          let query = supabase
+            .from('journal_lines')
+            .select('id, journal_entry_id, account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
+            .eq('journal_entries.status', 'posted')
+            .lte('journal_entries.transaction_date', endDate)
+            .order('journal_entry_id', { ascending: true })
+            .order('id', { ascending: true });
 
-      setLedgerLines(data || []);
+          if (userOrgId) {
+            query = query.eq('journal_entries.organization_id', userOrgId);
+          }
+
+          return query.range(from, to);
+        });
+
+        setLedgerLines(data || []);
+      }
     } catch (err) {
       logger.error('Error fetching changes in equity data:', err);
       showToast('فشل جلب البيانات: ' + err.message, 'error');
@@ -153,7 +198,46 @@ const ChangesInEquityStatement: React.FC = () => {
     let periodPartnersMovement = 0;
     let periodNetIncome = 0; // صافي ربح الفترة من قائمة الدخل
 
-    if (currentUser?.role === 'demo') {
+    if (rpcSummary && rpcSummary.length > 0) {
+      rpcSummary.forEach((acc: TrialBalanceRpcRow) => {
+        const code = String(acc.account_code || '').trim();
+        const name = String(acc.account_name || '').trim().toLowerCase();
+        const type = String(acc.account_type || '').toLowerCase();
+        const openBal = Number(acc.opening_balance) || 0; // debit - credit
+        const perDebit = Number(acc.period_debit) || 0;
+        const perCredit = Number(acc.period_credit) || 0;
+        const perMovement = perCredit - perDebit; // credit - debit
+
+        // حسابات حقوق الملكية (كود 3)
+        if (code.startsWith('3') || type.includes('equity') || type.includes('ملكية')) {
+          if (isSuspenseOpeningAccount(code, name)) return;
+          const equityOpen = -openBal;
+
+          if (isCapitalAccount(code, name)) {
+            openingCapital += equityOpen;
+            periodCapitalMovement += perMovement;
+          } else if (isReservesAccount(code, name)) {
+            openingReserves += equityOpen;
+            periodReservesMovement += perMovement;
+          } else if (isRetainedEarningsAccount(code, name)) {
+            openingRetainedEarnings += equityOpen;
+            periodRetainedEarningsMovement += perMovement;
+          } else if (isPartnersAccount(code, name)) {
+            openingPartners += equityOpen;
+            periodPartnersMovement += perMovement;
+          } else {
+            openingRetainedEarnings += equityOpen;
+            periodRetainedEarningsMovement += perMovement;
+          }
+        } else if (code.startsWith('4') || type.includes('revenue') || type.includes('income')) {
+          // إيرادات (دائن - مدين)
+          periodNetIncome += (perCredit - perDebit);
+        } else if (code.startsWith('5') || type.includes('expense') || type.includes('cost')) {
+          // مصروفات (مدين - دائن)
+          periodNetIncome -= (perDebit - perCredit);
+        }
+      });
+    } else if (currentUser?.role === 'demo') {
       // في وضع التجربة
       accounts.forEach(acc => {
         const code = String(acc.code || '').trim();
@@ -336,7 +420,7 @@ const ChangesInEquityStatement: React.FC = () => {
       endingRetainedEarnings,
       endingPartners
     };
-  }, [accounts, ledgerLines, currentUser, startDate, endDate]);
+  }, [accounts, ledgerLines, rpcSummary, currentUser, startDate, endDate]);
 
   const handlePrint = () => {
     window.print();

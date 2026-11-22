@@ -72,7 +72,7 @@ const AnnualFinancialReport: React.FC = () => {
           .gte('journal_entries.transaction_date', currentStart)
           .lte('journal_entries.transaction_date', currentEnd);
         if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
-        return q.range(from, to);
+        return q.order('journal_entry_id', { ascending: true }).range(from, to);
       });
       setLedgerLinesCurrent(currData || []);
 
@@ -85,7 +85,7 @@ const AnnualFinancialReport: React.FC = () => {
           .gte('journal_entries.transaction_date', priorStart)
           .lte('journal_entries.transaction_date', priorEnd);
         if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
-        return q.range(from, to);
+        return q.order('journal_entry_id', { ascending: true }).range(from, to);
       });
       setLedgerLinesPrior(prData || []);
 
@@ -97,7 +97,7 @@ const AnnualFinancialReport: React.FC = () => {
           .eq('journal_entries.status', 'posted')
           .lte('journal_entries.transaction_date', currentEnd);
         if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
-        return q.range(from, to);
+        return q.order('journal_entry_id', { ascending: true }).range(from, to);
       });
       setCumulativeLinesCurrent(cumCurrData || []);
 
@@ -109,7 +109,7 @@ const AnnualFinancialReport: React.FC = () => {
           .eq('journal_entries.status', 'posted')
           .lte('journal_entries.transaction_date', priorEnd);
         if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
-        return q.range(from, to);
+        return q.order('journal_entry_id', { ascending: true }).range(from, to);
       });
       setCumulativeLinesPrior(cumPrData || []);
 

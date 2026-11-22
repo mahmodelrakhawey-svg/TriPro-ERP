@@ -1,7 +1,7 @@
 -- ==============================================================================
 -- 🛡️ TriPro ERP — Consolidated Pending Migrations Bundle
--- تاريخ التوليد: 2026-11-22T21:12:25.443Z
--- عدد الملفات المعلقة المجمعة: 134
+-- تاريخ التوليد: 2026-11-22T21:53:54.451Z
+-- عدد الملفات المعلقة المجمعة: 135
 -- ==============================================================================
 
 -- ==============================================================================
@@ -20,7 +20,7 @@ GRANT ALL ON public._schema_migrations TO service_role;
 
 
 -- ------------------------------------------------------------------------------
--- [1/134] الملف: 2026-09-07_fix_hims_dispense_prescription.sql
+-- [1/135] الملف: 2026-09-07_fix_hims_dispense_prescription.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- تاريخ التحديث: 2026-09-07
@@ -226,7 +226,7 @@ VALUES ('2026-09-07_fix_hims_dispense_prescription', '2026-09-07_fix_hims_dispen
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [2/134] الملف: 2026-09-10_add_supplier_to_products.sql
+-- [2/135] الملف: 2026-09-10_add_supplier_to_products.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- تاريخ التحديث: 2026-09-10
@@ -253,7 +253,7 @@ VALUES ('2026-09-10_add_supplier_to_products', '2026-09-10_add_supplier_to_produ
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [3/134] الملف: 2026-09-12_enterprise_pessimistic_stock_locking.sql
+-- [3/135] الملف: 2026-09-12_enterprise_pessimistic_stock_locking.sql
 -- ------------------------------------------------------------------------------
 -- =====================================================================
 -- 🛡️ TriPro-ERP: Enterprise Concurrency Hardening & Pessimistic Row Locking
@@ -699,7 +699,7 @@ VALUES ('2026-09-12_enterprise_pessimistic_stock_locking', '2026-09-12_enterpris
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [4/134] الملف: 2026-09-13_bakery_roles_and_permissions.sql
+-- [4/135] الملف: 2026-09-13_bakery_roles_and_permissions.sql
 -- ------------------------------------------------------------------------------
 -- =====================================================================
 -- 🍰 حزمة صلاحيات وأدوار حلواني ومصانع لينزا (Bakery & Confectionery Roles)
@@ -930,7 +930,7 @@ VALUES ('2026-09-13_bakery_roles_and_permissions', '2026-09-13_bakery_roles_and_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [5/134] الملف: 2026-09-13_cleanup_lenza_database_orphan_users.sql
+-- [5/135] الملف: 2026-09-13_cleanup_lenza_database_orphan_users.sql
 -- ------------------------------------------------------------------------------
 -- =====================================================================
 -- 🧹 تنظيف شامل لقاعدة بيانات لينزا وحذف المستخدمين والبيانات المعلقة (ديناميكي وآمن 100%)
@@ -1181,7 +1181,7 @@ VALUES ('2026-09-13_cleanup_lenza_database_orphan_users', '2026-09-13_cleanup_le
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [6/134] الملف: 2026-09-13_cleanup_notifications_bloat.sql
+-- [6/135] الملف: 2026-09-13_cleanup_notifications_bloat.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🚀 TriPro ERP - تنظيف وتفريغ جدول الإخطارات المتراكمة وتسريع الاستعلامات
@@ -1217,7 +1217,7 @@ VALUES ('2026-09-13_cleanup_notifications_bloat', '2026-09-13_cleanup_notificati
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [7/134] الملف: 2026-09-13_fix_fn_delete_organization_safe.sql
+-- [7/135] الملف: 2026-09-13_fix_fn_delete_organization_safe.sql
 -- ------------------------------------------------------------------------------
 -- =====================================================================
 -- 🛡️ حل جذري ونهائي لمشاكل حذف الشركات والمنظمات (Foreign Key & HTTP Errors)
@@ -1649,7 +1649,7 @@ VALUES ('2026-09-13_fix_fn_delete_organization_safe', '2026-09-13_fix_fn_delete_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [8/134] الملف: 2026-09-13_fix_unprotected_tables_and_views.sql
+-- [8/135] الملف: 2026-09-13_fix_unprotected_tables_and_views.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP - Universal Fix: Enable RLS on Unprotected Tables & Secure Views
@@ -1747,7 +1747,7 @@ VALUES ('2026-09-13_fix_unprotected_tables_and_views', '2026-09-13_fix_unprotect
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [9/134] الملف: 2026-09-13_fix_views_and_tables_security.sql
+-- [9/135] الملف: 2026-09-13_fix_views_and_tables_security.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP - Fix Unprotected Views & Tables
@@ -1844,7 +1844,7 @@ VALUES ('2026-09-13_fix_views_and_tables_security', '2026-09-13_fix_views_and_ta
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [10/134] الملف: 2026-09-13_import_factory_employees.sql
+-- [10/135] الملف: 2026-09-13_import_factory_employees.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🏭 TriPro ERP - استيراد طاقم عمال المصنع (181 موظفاً) - حلواني لينزا
@@ -2056,7 +2056,7 @@ VALUES ('2026-09-13_import_factory_employees', '2026-09-13_import_factory_employ
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [11/134] الملف: 2026-09-13_provision_hr_role.sql
+-- [11/135] الملف: 2026-09-13_provision_hr_role.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 👥 تثبيت وتفعيل دور وصلاحيات مسؤول الموارد البشرية (HR Specialist)
@@ -2117,7 +2117,7 @@ VALUES ('2026-09-13_provision_hr_role', '2026-09-13_provision_hr_role.sql', '486
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [12/134] الملف: 2026-09-13_security_hardening_rls_and_permissions.sql
+-- [12/135] الملف: 2026-09-13_security_hardening_rls_and_permissions.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP - Enterprise Security Hardening Migration
@@ -2255,7 +2255,7 @@ VALUES ('2026-09-13_security_hardening_rls_and_permissions', '2026-09-13_securit
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [13/134] الملف: 2026-09-13_support_intermediate_products.sql
+-- [13/135] الملف: 2026-09-13_support_intermediate_products.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🚀 TriPro ERP - دعم الأصناف الوسيطة ونصف المصنعة (INTERMEDIATE_PRODUCT) في التريجر وقاعدة البيانات
@@ -2359,7 +2359,7 @@ VALUES ('2026-09-13_support_intermediate_products', '2026-09-13_support_intermed
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [14/134] الملف: 2026-09-15_direct_user_permissions.sql
+-- [14/135] الملف: 2026-09-15_direct_user_permissions.sql
 -- ------------------------------------------------------------------------------
 -- ============================================================
 -- Migration: Direct User Permissions (RBAC Enhancement)
@@ -2489,7 +2489,7 @@ VALUES ('2026-09-15_direct_user_permissions', '2026-09-15_direct_user_permission
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [15/134] الملف: 2026-09-15_hr_supervisory_scope.sql
+-- [15/135] الملف: 2026-09-15_hr_supervisory_scope.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 👥 TriPro ERP - نظام عزل وتخصيص نطاق الإشراف لمسؤولي الموارد البشرية (HR Scope)
@@ -2578,7 +2578,7 @@ VALUES ('2026-09-15_hr_supervisory_scope', '2026-09-15_hr_supervisory_scope.sql'
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [16/134] الملف: 2026-09-16_cleanup_orphaned_organizations_data.sql
+-- [16/135] الملف: 2026-09-16_cleanup_orphaned_organizations_data.sql
 -- ------------------------------------------------------------------------------
 -- =====================================================================
 -- 🛡️ سكربت تنظيف شامل لبيانات ومخلفات الشركات المحذوفة في قاعدة الإنتاج
@@ -2952,7 +2952,7 @@ VALUES ('2026-09-16_cleanup_orphaned_organizations_data', '2026-09-16_cleanup_or
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [17/134] الملف: 2026-09-16_daily_backup_3am_keep_2_versions.sql
+-- [17/135] الملف: 2026-09-16_daily_backup_3am_keep_2_versions.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP - نظام النسخ الاحتياطي اليومي الآلي (Daily Automated Backup & Retention)
@@ -3174,7 +3174,7 @@ VALUES ('2026-09-16_daily_backup_3am_keep_2_versions', '2026-09-16_daily_backup_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [18/134] الملف: 2026-09-16_eta_einvoicing_enhancements.sql
+-- [18/135] الملف: 2026-09-16_eta_einvoicing_enhancements.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP - Egyptian Tax Authority (ETA) E-Invoicing & E-Receipt Enhancements
@@ -3219,7 +3219,7 @@ VALUES ('2026-09-16_eta_einvoicing_enhancements', '2026-09-16_eta_einvoicing_enh
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [19/134] الملف: 2026-09-16_fix_effective_permissions_view_security.sql
+-- [19/135] الملف: 2026-09-16_fix_effective_permissions_view_security.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP - تحصين وتأمين رؤية الصلاحيات effective_permissions_view وكافة الرؤى
@@ -3285,7 +3285,7 @@ VALUES ('2026-09-16_fix_effective_permissions_view_security', '2026-09-16_fix_ef
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [20/134] الملف: 2026-09-16_offline_pos_sync_and_conflict_engine.sql
+-- [20/135] الملف: 2026-09-16_offline_pos_sync_and_conflict_engine.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP - محرك مزامنة مبيعات الأوفلاين وفض نزاعات المخزون
@@ -3660,7 +3660,7 @@ VALUES ('2026-09-16_offline_pos_sync_and_conflict_engine', '2026-09-16_offline_p
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [21/134] الملف: 2026-09-16_offsite_s3_backup.sql
+-- [21/135] الملف: 2026-09-16_offsite_s3_backup.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP - Off-Site S3 / Cloudflare R2 Remote Backup Configuration
@@ -3682,7 +3682,7 @@ VALUES ('2026-09-16_offsite_s3_backup', '2026-09-16_offsite_s3_backup.sql', 'cf2
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [22/134] الملف: 2026-09-17_fix_customer_and_supplier_balances_rpc.sql
+-- [22/135] الملف: 2026-09-17_fix_customer_and_supplier_balances_rpc.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP - إصلاح دوال أرصدة وأعمار ديون العملاء والموردين
@@ -4400,7 +4400,7 @@ VALUES ('2026-09-17_fix_customer_and_supplier_balances_rpc', '2026-09-17_fix_cus
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [23/134] الملف: 2026-09-17_fix_offline_pos_sync_uuid_safety.sql
+-- [23/135] الملف: 2026-09-17_fix_offline_pos_sync_uuid_safety.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP — تصحيح أمان معرفات UUID وجدول نقاط البيع في مزامنة الأوفلاين
@@ -4817,7 +4817,7 @@ VALUES ('2026-09-17_fix_offline_pos_sync_uuid_safety', '2026-09-17_fix_offline_p
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [24/134] الملف: 2026-09-20_deduplicate_supplier_opening_balances.sql
+-- [24/135] الملف: 2026-09-20_deduplicate_supplier_opening_balances.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP - إزالة القيود الافتتاحية المكررة وضبط مطابقة الأستاذ العام 100%
@@ -4978,7 +4978,7 @@ VALUES ('2026-09-20_deduplicate_supplier_opening_balances', '2026-09-20_deduplic
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [25/134] الملف: 2026-09-20_fix_ashraf_saafan_balance.sql
+-- [25/135] الملف: 2026-09-20_fix_ashraf_saafan_balance.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP - تثبيت المورد أشرف سعفan (كود 91) وضبط المطابقة 100%
@@ -5053,7 +5053,7 @@ VALUES ('2026-09-20_fix_ashraf_saafan_balance', '2026-09-20_fix_ashraf_saafan_ba
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [26/134] الملف: 2026-09-20_import_supplier_opening_balances.sql
+-- [26/135] الملف: 2026-09-20_import_supplier_opening_balances.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP - استيراد وتثبيت الأرصدة الافتتاحية للموردين (50 مورداً)
@@ -5430,7 +5430,7 @@ VALUES ('2026-09-20_import_supplier_opening_balances', '2026-09-20_import_suppli
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [27/134] الملف: 2026-09-21_fix_table_permissions_and_rls.sql
+-- [27/135] الملف: 2026-09-21_fix_table_permissions_and_rls.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP - Fix Table Permissions & Row Level Security (RLS)
@@ -5543,7 +5543,7 @@ VALUES ('2026-09-21_fix_table_permissions_and_rls', '2026-09-21_fix_table_permis
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [28/134] الملف: 2026-09-22_fix_start_pos_shift_overload.sql
+-- [28/135] الملف: 2026-09-22_fix_start_pos_shift_overload.sql
 -- ------------------------------------------------------------------------------
 -- ======================================================================================
 -- 🛠️ Migration: Fix start_pos_shift Function Overload Ambiguity & Multi-Tenant Support
@@ -5696,7 +5696,7 @@ VALUES ('2026-09-22_fix_start_pos_shift_overload', '2026-09-22_fix_start_pos_shi
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [29/134] الملف: 2026-09-22_include_journal_entries_in_supplier_balances.sql
+-- [29/135] الملف: 2026-09-22_include_journal_entries_in_supplier_balances.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP - تحديث محرك أرصدة الموردين ليشمل قيود اليومية اليدوية والافتتاحية
@@ -6227,7 +6227,7 @@ VALUES ('2026-09-22_include_journal_entries_in_supplier_balances', '2026-09-22_i
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [30/134] الملف: 2026-09-23_add_plan_to_organizations.sql
+-- [30/135] الملف: 2026-09-23_add_plan_to_organizations.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- Migration: 2026-09-23_add_plan_to_organizations.sql
@@ -6257,7 +6257,7 @@ VALUES ('2026-09-23_add_plan_to_organizations', '2026-09-23_add_plan_to_organiza
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [31/134] الملف: 2026-09-23_deduplicate_sphynx_and_moghrebel_opening_balances.sql
+-- [31/135] الملف: 2026-09-23_deduplicate_sphynx_and_moghrebel_opening_balances.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP - إزالة القيود الافتتاحية المكررة وضبط مطابقة الأستاذ العام 100%
@@ -6384,7 +6384,7 @@ VALUES ('2026-09-23_deduplicate_sphynx_and_moghrebel_opening_balances', '2026-09
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [32/134] الملف: 2026-09-23_fix_supplier_exact_name_matching.sql
+-- [32/135] الملف: 2026-09-23_fix_supplier_exact_name_matching.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP - تصحيح مطابقة أسماء الموردين في دالة الأرصدة السريعة لمنع الازدواج
@@ -6694,7 +6694,7 @@ VALUES ('2026-09-23_fix_supplier_exact_name_matching', '2026-09-23_fix_supplier_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [33/134] الملف: 2026-09-23_provision_new_org_complete.sql
+-- [33/135] الملف: 2026-09-23_provision_new_org_complete.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- Migration: 2026-09-23_provision_new_org_complete.sql
@@ -6980,7 +6980,7 @@ VALUES ('2026-09-23_provision_new_org_complete', '2026-09-23_provision_new_org_c
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [34/134] الملف: 2026-09-24_purchase_invoice_discounts_and_attachments.sql
+-- [34/135] الملف: 2026-09-24_purchase_invoice_discounts_and_attachments.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🧾 TriPro ERP - Purchase Invoices: Item & Invoice Discounts & Attachments Support
@@ -7305,7 +7305,7 @@ VALUES ('2026-09-24_purchase_invoice_discounts_and_attachments', '2026-09-24_pur
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [35/134] الملف: 2026-09-26_fix_lenza_auto_backup_timeout_and_cron.sql
+-- [35/135] الملف: 2026-09-26_fix_lenza_auto_backup_timeout_and_cron.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP - إصلاح وحل مشكلة النسخ الاحتياطي التلقائي لقاعدة لينزا
@@ -7537,7 +7537,7 @@ VALUES ('2026-09-26_fix_lenza_auto_backup_timeout_and_cron', '2026-09-26_fix_len
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [36/134] الملف: 2026-09-26_payroll_accrual_and_disbursement_rpcs.sql
+-- [36/135] الملف: 2026-09-26_payroll_accrual_and_disbursement_rpcs.sql
 -- ------------------------------------------------------------------------------
 -- ================================================================
 -- Migration: Add Payroll Accrual & Disbursement Support
@@ -7953,7 +7953,7 @@ VALUES ('2026-09-26_payroll_accrual_and_disbursement_rpcs', '2026-09-26_payroll_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [37/134] الملف: 2026-09-27_dashboard_and_mobile_access_control.sql
+-- [37/135] الملف: 2026-09-27_dashboard_and_mobile_access_control.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 📊 & 📱 TriPro ERP - نظام التحكم في ظهور لوحة القيادة وتطبيق الموبايل
@@ -8145,7 +8145,7 @@ VALUES ('2026-09-27_dashboard_and_mobile_access_control', '2026-09-27_dashboard_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [38/134] الملف: 2026-09-29_detect_unbalanced_journal_entries.sql
+-- [38/135] الملف: 2026-09-29_detect_unbalanced_journal_entries.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- تاريخ التحديث: 2026-09-29
@@ -8200,7 +8200,7 @@ VALUES ('2026-09-29_detect_unbalanced_journal_entries', '2026-09-29_detect_unbal
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [39/134] الملف: 2026-09-30_critical_security_fixes.sql
+-- [39/135] الملف: 2026-09-30_critical_security_fixes.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- إصلاحات أمنية وهندسية حرجة — TriPro ERP
@@ -8656,7 +8656,7 @@ VALUES ('2026-09-30_critical_security_fixes', '2026-09-30_critical_security_fixe
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [40/134] الملف: 2026-09-30_database_balance_guard_and_fiscal_period_lock.sql
+-- [40/135] الملف: 2026-09-30_database_balance_guard_and_fiscal_period_lock.sql
 -- ------------------------------------------------------------------------------
 -- ========================================================================================
 -- TriPro ERP — صمام أمان توازن القيود وقفل الفترات المالية المحاسبية
@@ -9074,7 +9074,7 @@ VALUES ('2026-09-30_database_balance_guard_and_fiscal_period_lock', '2026-09-30_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [41/134] الملف: 2026-09-30_document_immutability_guard.sql
+-- [41/135] الملف: 2026-09-30_document_immutability_guard.sql
 -- ------------------------------------------------------------------------------
 -- ============================================================================
 -- TriPro ERP — Document Immutability & Audit Safeguard
@@ -9263,7 +9263,7 @@ VALUES ('2026-09-30_document_immutability_guard', '2026-09-30_document_immutabil
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [42/134] الملف: 2026-09-30_final_rls_lockdown.sql
+-- [42/135] الملف: 2026-09-30_final_rls_lockdown.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- الإغلاق الأمني الشامل والنهائي لعزل البيانات (Final RLS Lockdown)
@@ -9448,7 +9448,7 @@ VALUES ('2026-09-30_final_rls_lockdown', '2026-09-30_final_rls_lockdown.sql', 'e
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [43/134] الملف: 2026-09-30_financial_reports_server_side_rpcs.sql
+-- [43/135] الملف: 2026-09-30_financial_reports_server_side_rpcs.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP — Financial Reports Server-Side Aggregation RPCs
@@ -9586,7 +9586,7 @@ VALUES ('2026-09-30_financial_reports_server_side_rpcs', '2026-09-30_financial_r
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [44/134] الملف: 2026-09-30_MASTER_CONSOLIDATED_SYSTEM_HARDENING.sql
+-- [44/135] الملف: 2026-09-30_MASTER_CONSOLIDATED_SYSTEM_HARDENING.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🚀 TriPro ERP — التحديث الشامل الموحد لحماية وتسريع النظام (Master Consolidated Migration)
@@ -11817,7 +11817,7 @@ VALUES ('2026-09-30_MASTER_CONSOLIDATED_SYSTEM_HARDENING', '2026-09-30_MASTER_CO
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [45/134] الملف: 2026-09-30_performance_indexes_and_income_statement_rpc.sql
+-- [45/135] الملف: 2026-09-30_performance_indexes_and_income_statement_rpc.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP — Database Performance Indexes & Income Statement Summary RPC
@@ -11915,7 +11915,7 @@ VALUES ('2026-09-30_performance_indexes_and_income_statement_rpc', '2026-09-30_p
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [46/134] الملف: 2026-09-30_phase1_audit_and_security_shield.sql
+-- [46/135] الملف: 2026-09-30_phase1_audit_and_security_shield.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- المرحلة الأولى: درع الأمان والتدقيق الشامل وتسريع المخزون
@@ -12199,7 +12199,7 @@ VALUES ('2026-09-30_phase1_audit_and_security_shield', '2026-09-30_phase1_audit_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [47/134] الملف: 2026-09-30_phase1_stock_engine_acceleration.sql
+-- [47/135] الملف: 2026-09-30_phase1_stock_engine_acceleration.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- تسريع محرك حركة ورصيد المخزون (Server-Side Stock Movements Acceleration RPC)
@@ -12429,7 +12429,7 @@ VALUES ('2026-09-30_phase1_stock_engine_acceleration', '2026-09-30_phase1_stock_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [48/134] الملف: 2026-09-30_phase2_performance_indexes.sql
+-- [48/135] الملف: 2026-09-30_phase2_performance_indexes.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP — تسريع فهارس العمليات ومحرك فحص الأركان المالية الأربعة
@@ -12651,7 +12651,7 @@ VALUES ('2026-09-30_phase2_performance_indexes', '2026-09-30_phase2_performance_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [49/134] الملف: 2026-10-02_midnight_audit_and_trial_balance_rpcs.sql
+-- [49/135] الملف: 2026-10-02_midnight_audit_and_trial_balance_rpcs.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP — Server-Side Financial Audit & Trial Balance RPCs
@@ -13357,7 +13357,7 @@ VALUES ('2026-10-02_midnight_audit_and_trial_balance_rpcs', '2026-10-02_midnight
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [50/134] الملف: 2026-10-02_phase3_atomic_invoicing_and_depreciation_rpcs.sql
+-- [50/135] الملف: 2026-10-02_phase3_atomic_invoicing_and_depreciation_rpcs.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP — Phase 3: Server-Authoritative Atomic Invoicing & Depreciation RPCs
@@ -13573,7 +13573,7 @@ VALUES ('2026-10-02_phase3_atomic_invoicing_and_depreciation_rpcs', '2026-10-02_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [51/134] الملف: 2026-10-03_add_shift_id_to_employees.sql
+-- [51/135] الملف: 2026-10-03_add_shift_id_to_employees.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- Migration: Add shift_id to employees table (ربط الموظف بالوردية)
@@ -13610,7 +13610,7 @@ VALUES ('2026-10-03_add_shift_id_to_employees', '2026-10-03_add_shift_id_to_empl
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [52/134] الملف: 2026-10-03_allow_negative_stock_lenza_and_user_exception.sql
+-- [52/135] الملف: 2026-10-03_allow_negative_stock_lenza_and_user_exception.sql
 -- ------------------------------------------------------------------------------
 -- =====================================================================
 -- 🛡️ TriPro-ERP: السماح بالبيع بالسالب لشركة لينزا والمستخدمين المصرح لهم
@@ -13891,7 +13891,7 @@ VALUES ('2026-10-03_allow_negative_stock_lenza_and_user_exception', '2026-10-03_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [53/134] الملف: 2026-10-03_fix_purchase_invoice_rounding_balance_guard.sql
+-- [53/135] الملف: 2026-10-03_fix_purchase_invoice_rounding_balance_guard.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- Migration: Fix Purchase Invoice Balance Guard Rounding & Auto-Balancing (Safe Version)
@@ -14234,7 +14234,7 @@ VALUES ('2026-10-03_fix_purchase_invoice_rounding_balance_guard', '2026-10-03_fi
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [54/134] الملف: 2026-10-04_fix1_revoke_anon_and_accounting_periods_rls.sql
+-- [54/135] الملف: 2026-10-04_fix1_revoke_anon_and_accounting_periods_rls.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- MIGRATION FILE: 2026-10-04_fix1_revoke_anon_and_accounting_periods_rls.sql
@@ -14586,7 +14586,7 @@ VALUES ('2026-10-04_fix1_revoke_anon_and_accounting_periods_rls', '2026-10-04_fi
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [55/134] الملف: 2026-10-04_fix2_balance_guard_trigger_and_immutability.sql
+-- [55/135] الملف: 2026-10-04_fix2_balance_guard_trigger_and_immutability.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- ملف هجرة قاعدة البيانات | Database Migration File
@@ -14968,7 +14968,7 @@ VALUES ('2026-10-04_fix2_balance_guard_trigger_and_immutability', '2026-10-04_fi
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [56/134] الملف: 2026-10-04_fix3_remove_hardcoded_lenza_and_clean_approve_invoice.sql
+-- [56/135] الملف: 2026-10-04_fix3_remove_hardcoded_lenza_and_clean_approve_invoice.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- ملف الترحيل / Migration File
@@ -15327,7 +15327,7 @@ VALUES ('2026-10-04_fix3_remove_hardcoded_lenza_and_clean_approve_invoice', '202
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [57/134] الملف: 2026-10-04_fix4_public_menu_rls_and_rate_limit_store.sql
+-- [57/135] الملف: 2026-10-04_fix4_public_menu_rls_and_rate_limit_store.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- FILE: 2026-10-04_fix4_public_menu_rls_and_rate_limit_store.sql
@@ -15596,7 +15596,7 @@ VALUES ('2026-10-04_fix4_public_menu_rls_and_rate_limit_store', '2026-10-04_fix4
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [58/134] الملف: 2026-10-04_fix5_materialized_view_trial_balance_and_audit_log.sql
+-- [58/135] الملف: 2026-10-04_fix5_materialized_view_trial_balance_and_audit_log.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- FILE: 2026-10-04_fix5_materialized_view_trial_balance_and_audit_log.sql
@@ -15915,7 +15915,7 @@ VALUES ('2026-10-04_fix5_materialized_view_trial_balance_and_audit_log', '2026-1
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [59/134] الملف: 2026-10-04_fix6_fx_revaluation_and_year_end_closing.sql
+-- [59/135] الملف: 2026-10-04_fix6_fx_revaluation_and_year_end_closing.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- Migration  : 2026-10-04_fix6_fx_revaluation_and_year_end_closing.sql
@@ -16347,7 +16347,7 @@ VALUES ('2026-10-04_fix6_fx_revaluation_and_year_end_closing', '2026-10-04_fix6_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [60/134] الملف: 2026-10-08_add_salary_compatibility_to_employees.sql
+-- [60/135] الملف: 2026-10-08_add_salary_compatibility_to_employees.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- ملف هجرة قاعدة البيانات | Database Migration File
@@ -16400,7 +16400,7 @@ VALUES ('2026-10-08_add_salary_compatibility_to_employees', '2026-10-08_add_sala
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [61/134] الملف: 2026-10-08_add_update_employee_advance_rpc.sql
+-- [61/135] الملف: 2026-10-08_add_update_employee_advance_rpc.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🚀 تحديث: إضافة إجراء تعديل سلفة الموظف ومزامنة القيد المحاسبي
@@ -16528,7 +16528,7 @@ VALUES ('2026-10-08_add_update_employee_advance_rpc', '2026-10-08_add_update_emp
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [62/134] الملف: 2026-10-08_fix_sales_invoice_discount_balance_guard.sql
+-- [62/135] الملف: 2026-10-08_fix_sales_invoice_discount_balance_guard.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- ملف هجرة قاعدة البيانات | Database Migration File
@@ -16983,7 +16983,7 @@ VALUES ('2026-10-08_fix_sales_invoice_discount_balance_guard', '2026-10-08_fix_s
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [63/134] الملف: 2026-10-09_dashboard_view_mode_per_user.sql
+-- [63/135] الملف: 2026-10-09_dashboard_view_mode_per_user.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🧭 TriPro ERP - نظام تحديد وتخصيص وضع لوحة القيادة لكل مستخدم
@@ -17024,7 +17024,7 @@ VALUES ('2026-10-09_dashboard_view_mode_per_user', '2026-10-09_dashboard_view_mo
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [64/134] الملف: 2026-10-10_secure_lenza_departed_employees_and_sessions.sql
+-- [64/135] الملف: 2026-10-10_secure_lenza_departed_employees_and_sessions.sql
 -- ------------------------------------------------------------------------------
 -- =====================================================================
 -- 🛡️ إجراءات تأمين شركة لينزا بعد مغادرة الموظفين (Departed Employees Security Guard)
@@ -17125,7 +17125,7 @@ VALUES ('2026-10-10_secure_lenza_departed_employees_and_sessions', '2026-10-10_s
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [65/134] الملف: 2026-10-10_unified_stock_ledger_engine.sql
+-- [65/135] الملف: 2026-10-10_unified_stock_ledger_engine.sql
 -- ------------------------------------------------------------------------------
 -- =====================================================================
 -- 📦 محرك دفتر الأستاذ المخزني الموحد (Unified Single Stock Ledger Engine)
@@ -17443,7 +17443,7 @@ VALUES ('2026-10-10_unified_stock_ledger_engine', '2026-10-10_unified_stock_ledg
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [66/134] الملف: 2026-10-11_fix_payroll_advance_deduction_date_filter.sql
+-- [66/135] الملف: 2026-10-11_fix_payroll_advance_deduction_date_filter.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🚀 تحديث: إصلاح حصر سلف مسير الرواتب ومنع خصم سلف الأشهر اللاحقة
@@ -17770,7 +17770,7 @@ VALUES ('2026-10-11_fix_payroll_advance_deduction_date_filter', '2026-10-11_fix_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [67/134] الملف: 2026-10-12_add_granular_reports_permissions.sql
+-- [67/135] الملف: 2026-10-12_add_granular_reports_permissions.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP Migration: Granular Financial Reports Permissions
@@ -17851,7 +17851,7 @@ VALUES ('2026-10-12_add_granular_reports_permissions', '2026-10-12_add_granular_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [68/134] الملف: 2026-10-13_add_deleted_at_and_date_sync_to_vouchers.sql
+-- [68/135] الملف: 2026-10-13_add_deleted_at_and_date_sync_to_vouchers.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP — Migration: Add deleted_at & date columns to vouchers & cheques
@@ -17927,7 +17927,7 @@ VALUES ('2026-10-13_add_deleted_at_and_date_sync_to_vouchers', '2026-10-13_add_d
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [69/134] الملف: 2026-10-13_add_missing_columns_to_suppliers_and_products.sql
+-- [69/135] الملف: 2026-10-13_add_missing_columns_to_suppliers_and_products.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP — Migration: Add missing audit & metadata columns to suppliers and products
@@ -17963,7 +17963,7 @@ VALUES ('2026-10-13_add_missing_columns_to_suppliers_and_products', '2026-10-13_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [70/134] الملف: 2026-10-13_standardize_audit_columns_across_all_tables.sql
+-- [70/135] الملف: 2026-10-13_standardize_audit_columns_across_all_tables.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP — Migration: Standardize audit & tracking columns across all core tables
@@ -18042,7 +18042,7 @@ VALUES ('2026-10-13_standardize_audit_columns_across_all_tables', '2026-10-13_st
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [71/134] الملف: 2026-10-14_add_allowed_treasury_ids_to_profiles.sql
+-- [71/135] الملف: 2026-10-14_add_allowed_treasury_ids_to_profiles.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP Migration: User Allowed Treasuries / Cash Safe Scope
@@ -18092,7 +18092,7 @@ VALUES ('2026-10-14_add_allowed_treasury_ids_to_profiles', '2026-10-14_add_allow
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [72/134] الملف: 2026-10-14_enterprise_auto_reconcile_and_integrity_guard.sql
+-- [72/135] الملف: 2026-10-14_enterprise_auto_reconcile_and_integrity_guard.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- TriPro ERP — Enterprise Financial Integrity & Auto-Reconciliation Engine
@@ -18908,7 +18908,7 @@ VALUES ('2026-10-14_enterprise_auto_reconcile_and_integrity_guard', '2026-10-14_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [73/134] الملف: 2026-10-14_fix_supplier_subledger_13600_and_prevent_duplicates.sql
+-- [73/135] الملف: 2026-10-14_fix_supplier_subledger_13600_and_prevent_duplicates.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- TriPro ERP — Database Migration
@@ -19043,7 +19043,7 @@ VALUES ('2026-10-14_fix_supplier_subledger_13600_and_prevent_duplicates', '2026-
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [74/134] الملف: 2026-10-14_fix_unpost_sales_and_purchase_invoices.sql
+-- [74/135] الملف: 2026-10-14_fix_unpost_sales_and_purchase_invoices.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- TriPro ERP — Database Migration
@@ -19476,7 +19476,7 @@ VALUES ('2026-10-14_fix_unpost_sales_and_purchase_invoices', '2026-10-14_fix_unp
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [75/134] الملف: 2026-10-14_fix_voucher_approval_and_sync_exp_923100.sql
+-- [75/135] الملف: 2026-10-14_fix_voucher_approval_and_sync_exp_923100.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- TriPro ERP — Database Migration
@@ -19753,7 +19753,7 @@ VALUES ('2026-10-14_fix_voucher_approval_and_sync_exp_923100', '2026-10-14_fix_v
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [76/134] الملف: 2026-10-15_final_vulnerability_patch.sql
+-- [76/135] الملف: 2026-10-15_final_vulnerability_patch.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- MIGRATION FILE: 2026-10-15_final_vulnerability_patch.sql
@@ -20698,7 +20698,7 @@ VALUES ('2026-10-15_final_vulnerability_patch', '2026-10-15_final_vulnerability_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [77/134] الملف: 2026-10-15_ultimate_security_shield.sql
+-- [77/135] الملف: 2026-10-15_ultimate_security_shield.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- MIGRATION FILE: 2026-10-15_ultimate_security_shield.sql
@@ -21369,7 +21369,7 @@ VALUES ('2026-10-15_ultimate_security_shield', '2026-10-15_ultimate_security_shi
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [78/134] الملف: 2026-10-16_add_pricing_tier_to_customers.sql
+-- [78/135] الملف: 2026-10-16_add_pricing_tier_to_customers.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🏷️ TriPro ERP - ربط كارت العميل بمستوى وفئة التسعير الافتراضية
@@ -21599,7 +21599,7 @@ VALUES ('2026-10-16_add_pricing_tier_to_customers', '2026-10-16_add_pricing_tier
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [79/134] الملف: 2026-10-17_fix_approve_receipt_voucher_rpc.sql
+-- [79/135] الملف: 2026-10-17_fix_approve_receipt_voucher_rpc.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- TriPro ERP — Database Migration
@@ -21899,7 +21899,7 @@ VALUES ('2026-10-17_fix_approve_receipt_voucher_rpc', '2026-10-17_fix_approve_re
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [80/134] الملف: 2026-10-18_optimize_recalculate_system_balances_no_timeout.sql
+-- [80/135] الملف: 2026-10-18_optimize_recalculate_system_balances_no_timeout.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🚀 TriPro-ERP: تسريع وحل مشكلة مهلة التنفيذ (Statement Timeout) في إعادة احتساب الأرصدة
@@ -22003,7 +22003,7 @@ VALUES ('2026-10-18_optimize_recalculate_system_balances_no_timeout', '2026-10-1
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [81/134] الملف: 2026-10-18_restore_complete_5_pillar_audit_shield.sql
+-- [81/135] الملف: 2026-10-18_restore_complete_5_pillar_audit_shield.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro-ERP: استعادة وتأمين درع النزاهة والتدقيق المالي الشامل (5 أركان)
@@ -22407,7 +22407,7 @@ VALUES ('2026-10-18_restore_complete_5_pillar_audit_shield', '2026-10-18_restore
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [82/134] الملف: 2026-10-19_phase2_security_hardening_rls.sql
+-- [82/135] الملف: 2026-10-19_phase2_security_hardening_rls.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- MIGRATION FILE: 2026-10-19_phase2_security_hardening_rls.sql
@@ -23006,7 +23006,7 @@ VALUES ('2026-10-19_phase2_security_hardening_rls', '2026-10-19_phase2_security_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [83/134] الملف: 2026-10-21_enterprise_pos_dual_cashier_shift_closing.sql
+-- [83/135] الملف: 2026-10-21_enterprise_pos_dual_cashier_shift_closing.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- Migration: Enterprise POS Dual-Cashier Shift Closing & Cash Tray Lifecycle
@@ -24089,7 +24089,7 @@ VALUES ('2026-10-21_enterprise_pos_dual_cashier_shift_closing', '2026-10-21_ente
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [84/134] الملف: 2026-10-21_fix_sales_invoice_approve_42703.sql
+-- [84/135] الملف: 2026-10-21_fix_sales_invoice_approve_42703.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- 🚑 إصلاح خطأ 42703: column "account_id" does not exist
@@ -24685,7 +24685,7 @@ VALUES ('2026-10-21_fix_sales_invoice_approve_42703', '2026-10-21_fix_sales_invo
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [85/134] الملف: 2026-10-21_fix_unpost_and_post_purchase_invoice_immutability.sql
+-- [85/135] الملف: 2026-10-21_fix_unpost_and_post_purchase_invoice_immutability.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- Migration: Fix Unpost and Post Purchase & Sales Invoice Immutability Protection
@@ -25910,7 +25910,7 @@ VALUES ('2026-10-21_fix_unpost_and_post_purchase_invoice_immutability', '2026-10
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [86/134] الملف: 2026-10-21_sync_general_db_with_lenza_master.sql
+-- [86/135] الملف: 2026-10-21_sync_general_db_with_lenza_master.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP - Master Synchronization Script
@@ -27949,7 +27949,7 @@ VALUES ('2026-10-21_sync_general_db_with_lenza_master', '2026-10-21_sync_general
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [87/134] الملف: 2026-10-22_add_payment_method_to_orders.sql
+-- [87/135] الملف: 2026-10-22_add_payment_method_to_orders.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- إضافة عمود payment_method إلى جدول orders إذا لم يكن موجوداً
@@ -27975,7 +27975,7 @@ VALUES ('2026-10-22_add_payment_method_to_orders', '2026-10-22_add_payment_metho
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [88/134] الملف: 2026-10-22_enhance_employee_advances_management.sql
+-- [88/135] الملف: 2026-10-22_enhance_employee_advances_management.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🚀 تحديث: تحصين إدارة سلف الموظفين، إضافة إجراء الحذف، وإنشاء القيود المفقودة تلقائياً عند التعديل
@@ -28228,7 +28228,7 @@ VALUES ('2026-10-22_enhance_employee_advances_management', '2026-10-22_enhance_e
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [89/134] الملف: 2026-10-22_FINAL_STABILITY_PATCH.sql
+-- [89/135] الملف: 2026-10-22_FINAL_STABILITY_PATCH.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ سكريبت الاستقرار الشامل والنهائي • TriPro ERP Final Stability Patch
@@ -28532,7 +28532,7 @@ VALUES ('2026-10-22_FINAL_STABILITY_PATCH', '2026-10-22_FINAL_STABILITY_PATCH.sq
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [90/134] الملف: 2026-10-22_fix_invoice_trigger_and_orders_columns.sql
+-- [90/135] الملف: 2026-10-22_fix_invoice_trigger_and_orders_columns.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- إصلاح خطأ: record "new" has no field "type" عند حفظ فاتورة المبيعات
@@ -28643,7 +28643,7 @@ VALUES ('2026-10-22_fix_invoice_trigger_and_orders_columns', '2026-10-22_fix_inv
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [91/134] الملف: 2026-10-22_fix_shift_closing_journal_and_account_resolution.sql
+-- [91/135] الملف: 2026-10-22_fix_shift_closing_journal_and_account_resolution.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP — SQL Update: Fix Shift Closing Journal Entry & Account Resolution
@@ -29600,7 +29600,7 @@ VALUES ('2026-10-22_fix_shift_closing_journal_and_account_resolution', '2026-10-
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [92/134] الملف: 2026-10-22_pos_advance_deposits_and_refunds_multichannel.sql
+-- [92/135] الملف: 2026-10-22_pos_advance_deposits_and_refunds_multichannel.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🌟 TriPro ERP — الشامل لإصلاح إغلاق ورديات الكاشير والحجوزات والردود متعددة القنوات
@@ -30686,7 +30686,7 @@ VALUES ('2026-10-22_pos_advance_deposits_and_refunds_multichannel', '2026-10-22_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [93/134] الملف: 2026-10-23_add_is_base_column_to_uoms.sql
+-- [93/135] الملف: 2026-10-23_add_is_base_column_to_uoms.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🌟 TriPro ERP — إضافة عمود is_base لجدول وحدات القياس uoms
@@ -30702,7 +30702,7 @@ VALUES ('2026-10-23_add_is_base_column_to_uoms', '2026-10-23_add_is_base_column_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [94/134] الملف: 2026-10-23_add_updated_at_to_invoices_and_purchase_invoices.sql
+-- [94/135] الملف: 2026-10-23_add_updated_at_to_invoices_and_purchase_invoices.sql
 -- ------------------------------------------------------------------------------
 -- ========================================================================================
 -- TriPro ERP — Add updated_at Column to Invoices, Purchase Invoices & Vouchers
@@ -30760,7 +30760,7 @@ VALUES ('2026-10-23_add_updated_at_to_invoices_and_purchase_invoices', '2026-10-
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [95/134] الملف: 2026-10-23_fix_cash_deficit_surplus_accounts_and_shift_resolution.sql
+-- [95/135] الملف: 2026-10-23_fix_cash_deficit_surplus_accounts_and_shift_resolution.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🌟 TriPro ERP — معالجة جذرية وشاملة لعجز وفائض النقدية وإغلاق الوردية
@@ -31279,7 +31279,7 @@ VALUES ('2026-10-23_fix_cash_deficit_surplus_accounts_and_shift_resolution', '20
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [96/134] الملف: 2026-10-23_fix_customer_advances_mapping.sql
+-- [96/135] الملف: 2026-10-23_fix_customer_advances_mapping.sql
 -- ------------------------------------------------------------------------------
 BEGIN;
 
@@ -31633,7 +31633,7 @@ VALUES ('2026-10-23_fix_customer_advances_mapping', '2026-10-23_fix_customer_adv
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [97/134] الملف: 2026-10-23_fix_pos_deposit_refund_display_and_robust_aggregation.sql
+-- [97/135] الملف: 2026-10-23_fix_pos_deposit_refund_display_and_robust_aggregation.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🌟 TriPro ERP — تأكيد ظهور العربون ورد العربون وحركات الدرج في تقرير إغلاق الوردية (Z-Report)
@@ -32129,7 +32129,7 @@ VALUES ('2026-10-23_fix_pos_deposit_refund_display_and_robust_aggregation', '202
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [98/134] الملف: 2026-10-23_seed_standard_reports_permissions.sql
+-- [98/135] الملف: 2026-10-23_seed_standard_reports_permissions.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🌟 TriPro ERP — تأكيد وتثبيت صلاحيات التقارير القياسية في جدول الصلاحيات permissions
@@ -32163,7 +32163,7 @@ VALUES ('2026-10-23_seed_standard_reports_permissions', '2026-10-23_seed_standar
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [99/134] الملف: 2026-10-24_fix_shift_closing_journal_and_repost.sql
+-- [99/135] الملف: 2026-10-24_fix_shift_closing_journal_and_repost.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🌟 TriPro ERP — معالجة قيود إغلاق الورديات وترحيل الورديات المعلقة آلياً
@@ -33219,7 +33219,7 @@ VALUES ('2026-10-24_fix_shift_closing_journal_and_repost', '2026-10-24_fix_shift
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [100/134] الملف: 2026-10-28_dynamic_approval_workflows_engine.sql
+-- [100/135] الملف: 2026-10-28_dynamic_approval_workflows_engine.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro-ERP: محرك مسارات الموافقات والاعتمادات الديناميكي (Dynamic Approval Workflows Engine)
@@ -33478,7 +33478,7 @@ VALUES ('2026-10-28_dynamic_approval_workflows_engine', '2026-10-28_dynamic_appr
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [101/134] الملف: 2026-10-28_unify_manufactured_stock_recalculation.sql
+-- [101/135] الملف: 2026-10-28_unify_manufactured_stock_recalculation.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro-ERP: تحديث جذري وآمن لتوحيد محرك احتساب المخزون (Stock & Cost Reconcile)
@@ -33934,7 +33934,7 @@ VALUES ('2026-10-28_unify_manufactured_stock_recalculation', '2026-10-28_unify_m
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [102/134] الملف: 2026-10-29_fix_approval_workflows_permissions_and_rls.sql
+-- [102/135] الملف: 2026-10-29_fix_approval_workflows_permissions_and_rls.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro-ERP: إصلاح صلاحيات وسياسات RLS لمحرك مسارات الاعتماد (Approval Workflows)
@@ -34221,7 +34221,7 @@ VALUES ('2026-10-29_fix_approval_workflows_permissions_and_rls', '2026-10-29_fix
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [103/134] الملف: 2026-10-30_fix_approval_workflows_financial_integrity_and_sync.sql
+-- [103/135] الملف: 2026-10-30_fix_approval_workflows_financial_integrity_and_sync.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro-ERP: درع النزاهة المالية الشامل لمسارات الاعتماد وسندات الصرف واليومية العامة
@@ -34717,7 +34717,7 @@ VALUES ('2026-10-30_fix_approval_workflows_financial_integrity_and_sync', '2026-
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [104/134] الملف: 2026-10-31_fix_payroll_advance_deduction_and_restore_october.sql
+-- [104/135] الملف: 2026-10-31_fix_payroll_advance_deduction_and_restore_october.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🚀 تحديث عاجل وشامل: إصلاح خصم سلف مسير الرواتب واستعادة سلف أكتوبر 2026
@@ -35217,7 +35217,7 @@ VALUES ('2026-10-31_fix_payroll_advance_deduction_and_restore_october', '2026-10
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [105/134] الملف: 2026-11-01_admin_reset_user_password_rpc.sql
+-- [105/135] الملف: 2026-11-01_admin_reset_user_password_rpc.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro-ERP: دالة إعادة تعيين كلمة المرور للمستخدمين بواسطة المشرف (RPC آمن ومباشر)
@@ -35315,7 +35315,7 @@ VALUES ('2026-11-01_admin_reset_user_password_rpc', '2026-11-01_admin_reset_user
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [106/134] الملف: 2026-11-06_production_order_cost_snapshot_and_server_time.sql
+-- [106/135] الملف: 2026-11-06_production_order_cost_snapshot_and_server_time.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro ERP Migration: Production Cost Snapshotting & Server-Time Sync
@@ -35460,7 +35460,7 @@ VALUES ('2026-11-06_production_order_cost_snapshot_and_server_time', '2026-11-06
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [107/134] الملف: 2026-11-09_production_security_hardening_lenza_safe.sql
+-- [107/135] الملف: 2026-11-09_production_security_hardening_lenza_safe.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- MIGRATION FILE: 2026-11-09_production_security_hardening_lenza_safe.sql
@@ -35723,7 +35723,7 @@ VALUES ('2026-11-09_production_security_hardening_lenza_safe', '2026-11-09_produ
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [108/134] الملف: 2026-11-09_production_security_hardening_phase2_lenza_safe.sql
+-- [108/135] الملف: 2026-11-09_production_security_hardening_phase2_lenza_safe.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- MIGRATION FILE: 2026-11-09_production_security_hardening_phase2_lenza_safe.sql
@@ -37237,7 +37237,7 @@ VALUES ('2026-11-09_production_security_hardening_phase2_lenza_safe', '2026-11-0
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [109/134] الملف: 2026-11-10_fix_admin_reset_user_password_tenant_isolation.sql
+-- [109/135] الملف: 2026-11-10_fix_admin_reset_user_password_tenant_isolation.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro-ERP: تحصين أمان دالة إعادة تعيين كلمات المرور وعزل المنشآت الصارم (SEC-PWD-01)
@@ -37336,7 +37336,7 @@ VALUES ('2026-11-10_fix_admin_reset_user_password_tenant_isolation', '2026-11-10
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [110/134] الملف: 2026-11-10_fix_payroll_accrual_timeout_and_performance.sql
+-- [110/135] الملف: 2026-11-10_fix_payroll_accrual_timeout_and_performance.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro-ERP: تسريع وحل مشكلة مهلة التنفيذ (Timeout) في استحقاق الرواتب
@@ -37650,7 +37650,7 @@ VALUES ('2026-11-10_fix_payroll_accrual_timeout_and_performance', '2026-11-10_fi
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [111/134] الملف: 2026-11-10_storage_security_and_tenant_isolation.sql
+-- [111/135] الملف: 2026-11-10_storage_security_and_tenant_isolation.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- TriPro-ERP: تحصين أمان ملفات ومرفقات التخزين السحابي (Supabase Storage Hardening)
@@ -37722,7 +37722,7 @@ VALUES ('2026-11-10_storage_security_and_tenant_isolation', '2026-11-10_storage_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [112/134] الملف: 2026-11-11_secure_mv_trial_balance.sql
+-- [112/135] الملف: 2026-11-11_secure_mv_trial_balance.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- FILE: 2026-11-11_secure_mv_trial_balance.sql
@@ -37926,7 +37926,7 @@ VALUES ('2026-11-11_secure_mv_trial_balance', '2026-11-11_secure_mv_trial_balanc
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [113/134] الملف: 2026-11-14_definitive_eiffel_supplier_balance_fix.sql
+-- [113/135] الملف: 2026-11-14_definitive_eiffel_supplier_balance_fix.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🚀 TriPro ERP — الحل النهائي الشامل لتطابق رصيد المورد "برج إيفل" (905 ج.م)
@@ -38459,7 +38459,7 @@ VALUES ('2026-11-14_definitive_eiffel_supplier_balance_fix', '2026-11-14_definit
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [114/134] الملف: 2026-11-14_FINAL_CONSOLIDATED_GENERAL_DB_PATCH.sql
+-- [114/135] الملف: 2026-11-14_FINAL_CONSOLIDATED_GENERAL_DB_PATCH.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP — التحديث الشامل النهائي للقاعدة العامة (General Database / Master)
@@ -39221,7 +39221,7 @@ VALUES ('2026-11-14_FINAL_CONSOLIDATED_GENERAL_DB_PATCH', '2026-11-14_FINAL_CONS
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [115/134] الملف: 2026-11-14_fix_advance_445716_and_update_advance_rpc.sql
+-- [115/135] الملف: 2026-11-14_fix_advance_445716_and_update_advance_rpc.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🚀 تحديث: معالجة وتصحيح قيد سلفة الموظف ADV-445716 وإزالة التكرار وتحديث دالة update_employee_advance
@@ -39485,7 +39485,7 @@ VALUES ('2026-11-14_fix_advance_445716_and_update_advance_rpc', '2026-11-14_fix_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [116/134] الملف: 2026-11-14_fix_purchase_return_immutability_and_supplier_discrepancy.sql
+-- [116/135] الملف: 2026-11-14_fix_purchase_return_immutability_and_supplier_discrepancy.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP — حماية مرتجعات المشتريات ومعالجة فروقات أرصدة الموردين
@@ -40242,7 +40242,7 @@ VALUES ('2026-11-14_fix_purchase_return_immutability_and_supplier_discrepancy', 
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [117/134] الملف: 2026-11-14_general_db_purchase_return_immutability_and_supplier_balances.sql
+-- [117/135] الملف: 2026-11-14_general_db_purchase_return_immutability_and_supplier_balances.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP — تحديث القاعدة العامة (General Database / Production Master)
@@ -40936,7 +40936,7 @@ VALUES ('2026-11-14_general_db_purchase_return_immutability_and_supplier_balance
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [118/134] الملف: 2026-11-14_investigate_and_fix_300k_shield_variance.sql
+-- [118/135] الملف: 2026-11-14_investigate_and_fix_300k_shield_variance.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🔍 TriPro ERP — تشخيص وحل فارق الـ 300,000 ج.م في درع النزاهة (Midnight Audit Shield)
@@ -41101,7 +41101,7 @@ VALUES ('2026-11-14_investigate_and_fix_300k_shield_variance', '2026-11-14_inves
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [119/134] الملف: 2026-11-14_lenza_clean_duplicate_905_and_sync_shield.sql
+-- [119/135] الملف: 2026-11-14_lenza_clean_duplicate_905_and_sync_shield.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🚀 TriPro ERP — معالجة فورية فائقة السرعة (No Timeout)
@@ -41283,7 +41283,7 @@ VALUES ('2026-11-14_lenza_clean_duplicate_905_and_sync_shield', '2026-11-14_lenz
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [120/134] الملف: 2026-11-14_permanent_supplier_audit_shield_sync.sql
+-- [120/135] الملف: 2026-11-14_permanent_supplier_audit_shield_sync.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP — الحل الجذري والدائم لمطابقة درع النزاهة المالية وأرصدة الموردين
@@ -41793,7 +41793,7 @@ VALUES ('2026-11-14_permanent_supplier_audit_shield_sync', '2026-11-14_permanent
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [121/134] الملف: 2026-11-14_restore_and_sync_all_supplier_balances_exact.sql
+-- [121/135] الملف: 2026-11-14_restore_and_sync_all_supplier_balances_exact.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🚀 TriPro ERP — استعادة ومزامنة أرصدة الموردين مع الأستاذ العام وتصفير فارق درع النزاهة
@@ -41885,7 +41885,7 @@ VALUES ('2026-11-14_restore_and_sync_all_supplier_balances_exact', '2026-11-14_r
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [122/134] الملف: 2026-11-14_restore_fast_midnight_audit_shield_and_zero_variance.sql
+-- [122/135] الملف: 2026-11-14_restore_fast_midnight_audit_shield_and_zero_variance.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP — استعادة كفاءة درع النزاهة المالية وتصفير كافة الملاحظات الرقابية 100%
@@ -42071,7 +42071,7 @@ VALUES ('2026-11-14_restore_fast_midnight_audit_shield_and_zero_variance', '2026
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [123/134] الملف: 2026-11-14_sales_returns_immutability_and_unpost_guard.sql
+-- [123/135] الملف: 2026-11-14_sales_returns_immutability_and_unpost_guard.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP — حصانة مرتجعات المبيعات والتحصين الرقابي الشامل
@@ -42555,7 +42555,7 @@ VALUES ('2026-11-14_sales_returns_immutability_and_unpost_guard', '2026-11-14_sa
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [124/134] الملف: 2026-11-14_security_hardening_tenant_isolation_and_returns.sql
+-- [124/135] الملف: 2026-11-14_security_hardening_tenant_isolation_and_returns.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP — تحصين عزل المنشآت وحصانة المرتجعات ومنع تصعيد الصلاحيات (SEC-RETURN-TENANT-01)
@@ -43051,7 +43051,7 @@ VALUES ('2026-11-14_security_hardening_tenant_isolation_and_returns', '2026-11-1
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [125/134] الملف: 2026-11-15_CONSOLIDATED_PATCH_FOR_LENZA_AND_GENERAL.sql
+-- [125/135] الملف: 2026-11-15_CONSOLIDATED_PATCH_FOR_LENZA_AND_GENERAL.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP — الباتش الرقابي والمحاسبي الموحد والشامل (2026-11-15)
@@ -43827,7 +43827,7 @@ VALUES ('2026-11-15_CONSOLIDATED_PATCH_FOR_LENZA_AND_GENERAL', '2026-11-15_CONSO
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [126/134] الملف: 2026-11-16_fix_update_employee_advance_column_date_error.sql
+-- [126/135] الملف: 2026-11-16_fix_update_employee_advance_column_date_error.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🚀 TriPro ERP — Fix Employee Advance Update RPC (Remove nonexistent 'date' column)
@@ -44033,7 +44033,7 @@ VALUES ('2026-11-16_fix_update_employee_advance_column_date_error', '2026-11-16_
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [127/134] الملف: 2026-11-18_rpc_delete_inventory_count.sql
+-- [127/135] الملف: 2026-11-18_rpc_delete_inventory_count.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP — دالة حذف وإلغاء ترحيل الجرد المخزني بأمان تام (Delete & Unpost Inventory Count)
@@ -44123,7 +44123,7 @@ VALUES ('2026-11-18_rpc_delete_inventory_count', '2026-11-18_rpc_delete_inventor
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [128/134] الملف: 2026-11-18_rpc_reverse_inventory_count.sql
+-- [128/135] الملف: 2026-11-18_rpc_reverse_inventory_count.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🔄 دالة السيرفر الفورية لعكس كشف الجرد واستعادة الأصناف دفعة واحدة
@@ -44286,7 +44286,7 @@ VALUES ('2026-11-18_rpc_reverse_inventory_count', '2026-11-18_rpc_reverse_invent
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [129/134] الملف: 2026-11-20_prevent_duplicate_journal_entries_and_harden_vouchers.sql
+-- [129/135] الملف: 2026-11-20_prevent_duplicate_journal_entries_and_harden_vouchers.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP — Migration: 2026-11-20
@@ -44627,7 +44627,7 @@ VALUES ('2026-11-20_prevent_duplicate_journal_entries_and_harden_vouchers', '202
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [130/134] الملف: 2026-11-22_atomic_create_employee_advance_with_duplicate_guard.sql
+-- [130/135] الملف: 2026-11-22_atomic_create_employee_advance_with_duplicate_guard.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP — Migration: 2026-11-22
@@ -44812,7 +44812,110 @@ VALUES ('2026-11-22_atomic_create_employee_advance_with_duplicate_guard', '2026-
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [131/134] الملف: 2026-11-22_security_fix_anon_permissions_and_rls_policies.sql
+-- [131/135] الملف: 2026-11-22_fix_trial_balance_rpc_overload_and_timeout.sql
+-- ------------------------------------------------------------------------------
+-- ==============================================================================
+-- 🛡️ TriPro ERP — Migration: 2026-11-22
+-- إزالة تعارض الدالة المكررة get_trial_balance_summary_rpc لتفادي خطأ PGRST203 والـ 500 Timeout
+-- File: sql_updates/2026-11-22_fix_trial_balance_rpc_overload_and_timeout.sql
+-- ==============================================================================
+
+-- 1. إسقاط النسخة القديمة ذات المعاملات النصية المكررة (text, text, text)
+-- التي كانت تسبب تعارض PostgREST (PGRST203: Could not choose the best candidate function)
+DROP FUNCTION IF EXISTS public.get_trial_balance_summary_rpc(text, text, text);
+
+-- 2. تأكيد وتثبيت الدالة الأصلية المحصنة بعزل المنشآت (uuid, date, date)
+CREATE OR REPLACE FUNCTION public.get_trial_balance_summary_rpc(
+    p_org_id uuid DEFAULT NULL,
+    p_start_date date DEFAULT '1970-01-01',
+    p_end_date date DEFAULT CURRENT_DATE
+)
+RETURNS TABLE (
+    account_id uuid,
+    account_code text,
+    account_name text,
+    account_type text,
+    is_group boolean,
+    parent_id uuid,
+    opening_balance numeric,
+    period_debit numeric,
+    period_credit numeric,
+    closing_balance numeric
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_org_id uuid;
+BEGIN
+    -- 🛡️ فرض عزل المنشآت الصارم
+    v_org_id := public.validate_tenant_access(p_org_id);
+
+    RETURN QUERY
+    WITH tx AS (
+        SELECT 
+            jl.account_id,
+            jl.debit,
+            jl.credit,
+            je.transaction_date
+        FROM public.journal_lines jl
+        JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+        WHERE je.status = 'posted'
+          AND je.organization_id = v_org_id
+          AND je.transaction_date <= p_end_date
+    ),
+    acc_summary AS (
+        SELECT
+            COALESCE(a.id, tx.account_id) AS acc_id,
+            COALESCE(a.code, 'UNKNOWN') AS acc_code,
+            COALESCE(a.name, 'حساب محذوف / غير معرف') AS acc_name,
+            COALESCE(a.type, 'other') AS acc_type,
+            COALESCE(a.is_group, false) AS acc_is_group,
+            a.parent_id AS acc_parent_id,
+            COALESCE(SUM(CASE WHEN tx.transaction_date < p_start_date THEN tx.debit - tx.credit ELSE 0 END), 0)::numeric(19,4) AS open_bal,
+            COALESCE(SUM(CASE WHEN tx.transaction_date >= p_start_date AND tx.transaction_date <= p_end_date THEN tx.debit ELSE 0 END), 0)::numeric(19,4) AS per_debit,
+            COALESCE(SUM(CASE WHEN tx.transaction_date >= p_start_date AND tx.transaction_date <= p_end_date THEN tx.credit ELSE 0 END), 0)::numeric(19,4) AS per_credit,
+            COALESCE(SUM(tx.debit - tx.credit), 0)::numeric(19,4) AS close_bal
+        FROM
+            public.accounts a
+        FULL OUTER JOIN tx ON a.id = tx.account_id
+        WHERE
+            a.organization_id = v_org_id OR (a.organization_id IS NULL AND tx.account_id IS NOT NULL)
+        GROUP BY
+            COALESCE(a.id, tx.account_id),
+            a.code,
+            a.name,
+            a.type,
+            a.is_group,
+            a.parent_id
+    )
+    SELECT
+        acc_id AS account_id,
+        acc_code AS account_code,
+        acc_name AS account_name,
+        acc_type AS account_type,
+        acc_is_group AS is_group,
+        acc_parent_id AS parent_id,
+        open_bal AS opening_balance,
+        per_debit AS period_debit,
+        per_credit AS period_credit,
+        close_bal AS closing_balance
+    FROM acc_summary
+    ORDER BY acc_code;
+END;
+$$;
+
+-- 3. تأمين الصلاحيات: حظر anon ومنح authenticated و service_role
+REVOKE ALL ON FUNCTION public.get_trial_balance_summary_rpc(uuid, date, date) FROM anon, public;
+GRANT EXECUTE ON FUNCTION public.get_trial_balance_summary_rpc(uuid, date, date) TO authenticated, service_role;
+
+INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
+VALUES ('2026-11-22_fix_trial_balance_rpc_overload_and_timeout', '2026-11-22_fix_trial_balance_rpc_overload_and_timeout.sql', '07f826763a625f2d7d37c1d1d38fee8f285c5e764ad01cfd7c2210a408e24b8d', now())
+ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
+
+-- ------------------------------------------------------------------------------
+-- [132/135] الملف: 2026-11-22_security_fix_anon_permissions_and_rls_policies.sql
 -- ------------------------------------------------------------------------------
 -- =============================================================================
 -- 🛡️ TriPro ERP — Security Patch: 2026-11-22
@@ -45030,7 +45133,7 @@ VALUES ('2026-11-22_security_fix_anon_permissions_and_rls_policies', '2026-11-22
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [132/134] الملف: 2026-11-22_security_fix_company_settings_and_secrets.sql
+-- [133/135] الملف: 2026-11-22_security_fix_company_settings_and_secrets.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP — Security Patch: 2026-11-22 (Part 2 - Fortified & Resilient)
@@ -45191,7 +45294,7 @@ VALUES ('2026-11-22_security_fix_company_settings_and_secrets', '2026-11-22_secu
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [133/134] الملف: import_30_tortes_routings_and_bom.sql
+-- [134/135] الملف: import_30_tortes_routings_and_bom.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🎂 سكريبت إدخال وصفات ومسارات تصنيع 30 تورتة (مرحلة واحدة لكل تورتة)
@@ -49424,7 +49527,7 @@ VALUES ('import_30_tortes_routings_and_bom', 'import_30_tortes_routings_and_bom.
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
--- [134/134] الملف: route_finished_goods_to_10302.sql
+-- [135/135] الملف: route_finished_goods_to_10302.sql
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🍰 توجيه أصناف التورت والجاتوهات والشرقي إلى حساب مخزون الإنتاج التام (10302)

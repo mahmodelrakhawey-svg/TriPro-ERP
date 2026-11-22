@@ -155,6 +155,7 @@ const BalanceSheet: React.FC = () => {
             .eq('journal_entries.status', 'posted')
             .eq('journal_entries.organization_id', userOrgId)
             .lte('journal_entries.transaction_date', asOfDate)
+            .order('journal_entry_id', { ascending: true })
             .range(from, from + CHUNK_SIZE - 1);
 
           if (chunkErr) throw chunkErr;
@@ -178,6 +179,7 @@ const BalanceSheet: React.FC = () => {
               .eq('journal_entries.status', 'posted')
               .eq('journal_entries.organization_id', userOrgId)
               .lte('journal_entries.transaction_date', priorAsOfDate)
+              .order('journal_entry_id', { ascending: true })
               .range(priorFrom, priorFrom + CHUNK_SIZE - 1);
 
             if (priorErr) throw priorErr;
