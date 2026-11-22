@@ -440,7 +440,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     let localShift: Record<string, any> | null = null;
     try {
       localShift = secureStorage.getItem<any>('tripro_offline_current_shift');
-    } catch (e) {}
+    } catch (e) {
+      logger.warn('[AccountingContext] Failed to read offline shift from secureStorage:', e);
+    }
 
     if (!localShift) {
       localShift = {
@@ -454,7 +456,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       };
       try {
         secureStorage.setItem('tripro_offline_current_shift', localShift);
-      } catch (e) {}
+      } catch (e) {
+        logger.warn('[AccountingContext] Failed to save offline shift to secureStorage:', e);
+      }
     }
     setCurrentShift(localShift);
 
@@ -817,7 +821,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         let localShift = null;
         try {
           localShift = secureStorage.getItem<any>('tripro_offline_current_shift');
-        } catch (e) {}
+        } catch (e) {
+          logger.warn('[AccountingContext] Failed to read online fallback shift from secureStorage:', e);
+        }
         setCurrentShift(localShift || null);
       }
       setLastUpdated(new Date());
@@ -3109,7 +3115,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const orderId = 'ord-offline-' + Date.now();
       try {
         await offlineService.queueOrder({ ...payload, orderId, organization_id: targetOrgId });
-      } catch (e) {}
+      } catch (e) {
+        logger.warn('[AccountingContext] Failed to queue order offline (orderId:', orderId, '):', e);
+      }
       return orderId;
     }
   };
@@ -3297,7 +3305,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     if (!navigator.onLine || isDemo) return;
     try {
       await supabase.from('kitchen_orders').update({ status }).eq('id', id);
-    } catch (e) {}
+    } catch (e) {
+      logger.warn('[AccountingContext] Failed to update kitchen order status (id:', id, '):', e);
+    }
   };
 
   const startShift = async (amount: number) => { 
@@ -3318,7 +3328,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setCurrentShift(newShift);
       try {
         secureStorage.setItem('tripro_offline_current_shift', newShift);
-      } catch (e) {}
+      } catch (e) {
+        logger.warn('[AccountingContext] Failed to persist new offline shift (startShift):', e);
+      }
       showToast('تم بدء وردية الكاشير بنجاح (محلياً) ✅', 'success');
       return;
     }
@@ -3357,7 +3369,9 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       try {
         secureStorage.removeItem('tripro_offline_current_shift');
         localStorage.removeItem('tripro_offline_current_shift');
-      } catch (e) {}
+      } catch (e) {
+        logger.warn('[AccountingContext] Failed to clear offline shift from storage (closeCurrentShift):', e);
+      }
       showToast('تم إغلاق الوردية محلياً بنجاح 🔒', 'success');
       return;
     }

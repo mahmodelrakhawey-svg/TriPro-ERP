@@ -190,13 +190,9 @@ export default function AccountingDashboard() {
           e.status === 'posted' &&
           String(e.transaction_date || e.date || e.created_at || '').startsWith(String(selectedYear))
       );
-      // Debugging: Check filtered entries
-      // logger.log('Filtered yearEntries for', selectedYear, ':', yearEntries);
 
       yearEntries.forEach(entry => {
           const dateValue = entry.transaction_date || entry.date;
-          // Debugging: Check date value
-          // logger.log(`Processing entry ${entry.id}: dateValue=${dateValue}`);
           if (!dateValue) return;
           const date = new Date(dateValue);
           if (isNaN(date.getTime())) return;
