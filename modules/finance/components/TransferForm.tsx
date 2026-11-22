@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
 import { 
   ArrowRightLeft, Save, DollarSign, Loader2, Building2, 
-  History, Trash2, Edit, Search, Plus, AlertCircle, X, RefreshCw 
+  History, Trash2, Edit, Search, Plus, AlertCircle, X, RefreshCw,
+  Wallet 
 } from 'lucide-react';
 import { z } from 'zod';
 
@@ -11,6 +12,7 @@ const TransferForm = () => {
   const { addTransfer, updateTransfer, deleteTransfer, accounts, entries } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [activeTab, setActiveTab] = useState<'new' | 'history'>('new');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -35,6 +37,19 @@ const TransferForm = () => {
       a.name.includes('صندوق')
     )
   ), [accounts]);
+
+  // الحسابات المحددة حالياً في النموذج
+  const selectedSourceAccount = useMemo(() => {
+    return treasuryAccounts.find(a => a.id === formData.sourceAccountId);
+  }, [treasuryAccounts, formData.sourceAccountId]);
+
+  const selectedDestinationAccount = useMemo(() => {
+    return treasuryAccounts.find(a => a.id === formData.destinationAccountId);
+  }, [treasuryAccounts, formData.destinationAccountId]);
+
+  const sourceBalance = selectedSourceAccount ? Number(selectedSourceAccount.balance ?? 0) : null;
+  const transferAmount = Number(formData.amount) || 0;
+  const isExceedingBalance = sourceBalance !== null && transferAmount > 0 && transferAmount > sourceBalance;
 
   // فلترة وتحضير التحويلات المالية من قيود اليومية المتاحة في السياق
   const treasuryTransfers = useMemo(() => {
@@ -103,20 +118,28 @@ const TransferForm = () => {
   };
 
   const handleDelete = async (id: string) => {
+    if (isSubmittingRef.current || loading) return;
+    isSubmittingRef.current = true;
     setLoading(true);
     try {
       await deleteTransfer(id);
       showToast('تم التراجع عن التحويل المالي وحذف القيد بنجاح 🗑️', 'success');
       setDeleteConfirmId(null);
-    } catch (error) {
-      showToast('فشل التراجع عن التحويل: ' + error.message, 'error');
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : String(error);
+      showToast('فشل التراجع عن التحويل: ' + errMsg, 'error');
     } finally {
       setLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isSubmittingRef.current || loading) {
+      return;
+    }
 
     const transferSchema = z.object({
         sourceAccountId: z.string().min(1, 'الرجاء اختيار الحساب المصدر'),
@@ -140,6 +163,7 @@ const TransferForm = () => {
         return;
     }
     
+    isSubmittingRef.current = true;
     setLoading(true);
     try {
         if (editingId) {
@@ -152,10 +176,12 @@ const TransferForm = () => {
           showToast('تم التحويل المالي بنجاح ✅', 'success');
           resetForm();
         }
-    } catch (error) {
-        showToast('فشل العملية: ' + error.message, 'error');
+    } catch (error: unknown) {
+        const errMsg = error instanceof Error ? error.message : String(error);
+        showToast('فشل العملية: ' + errMsg, 'error');
     } finally {
         setLoading(false);
+        isSubmittingRef.current = false;
     }
   };
 
@@ -237,11 +263,26 @@ const TransferForm = () => {
                           value={formData.sourceAccountId} 
                           onChange={e => setFormData({...formData, sourceAccountId: e.target.value})}
                         >
-                            <option value="">-- اختر --</option>
-                            {treasuryAccounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.code})</option>)}
+                            <option value="">-- اختر الحساب المصدر --</option>
+                            {treasuryAccounts.map(a => (
+                              <option key={a.id} value={a.id}>
+                                {a.name} ({a.code}) {a.balance !== undefined ? `— [${Number(a.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م]` : ''}
+                              </option>
+                            ))}
                         </select>
                         <Building2 className="absolute left-3 top-3 text-slate-400 pointer-events-none" size={18} />
                       </div>
+                      {selectedSourceAccount && (
+                        <div className="mt-1.5 flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200">
+                          <span className="text-slate-500 font-medium flex items-center gap-1">
+                            <Wallet size={13} className="text-slate-400" />
+                            الرصيد الدفتري الحالي:
+                          </span>
+                          <span className={`font-mono font-bold ${Number(selectedSourceAccount.balance ?? 0) <= 0 ? 'text-amber-600' : 'text-emerald-700'}`}>
+                            {Number(selectedSourceAccount.balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م
+                          </span>
+                        </div>
+                      )}
                   </div>
                   <div>
                       <label className="block text-sm font-bold text-slate-700 mb-1">إلى حساب (المستلم)</label>
@@ -252,29 +293,57 @@ const TransferForm = () => {
                           value={formData.destinationAccountId} 
                           onChange={e => setFormData({...formData, destinationAccountId: e.target.value})}
                         >
-                            <option value="">-- اختر --</option>
-                            {treasuryAccounts.map(a => <option key={a.id} value={a.id}>{a.name} ({a.code})</option>)}
+                            <option value="">-- اختر الحساب المستلم --</option>
+                            {treasuryAccounts.map(a => (
+                              <option key={a.id} value={a.id}>
+                                {a.name} ({a.code}) {a.balance !== undefined ? `— [${Number(a.balance).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م]` : ''}
+                              </option>
+                            ))}
                         </select>
                         <Building2 className="absolute left-3 top-3 text-slate-400 pointer-events-none" size={18} />
                       </div>
+                      {selectedDestinationAccount && (
+                        <div className="mt-1.5 flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg bg-slate-50 border border-slate-200">
+                          <span className="text-slate-500 font-medium flex items-center gap-1">
+                            <Wallet size={13} className="text-slate-400" />
+                            الرصيد الدفتري الحالي:
+                          </span>
+                          <span className="font-mono font-bold text-blue-700">
+                            {Number(selectedDestinationAccount.balance ?? 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م
+                          </span>
+                        </div>
+                      )}
                   </div>
               </div>
 
               <div>
-                  <label className="block text-sm font-bold text-slate-700 mb-1">المبلغ</label>
+                  <label className="block text-sm font-bold text-slate-700 mb-1">المبلغ (ج.م)</label>
                   <div className="relative">
                       <input 
                         type="number" 
                         required 
                         min="0" 
                         step="0.01" 
-                        className="w-full border rounded-lg p-2.5 pl-10 font-bold text-lg outline-none focus:border-blue-500" 
+                        className={`w-full border rounded-lg p-2.5 pl-10 font-bold text-lg outline-none transition-colors ${
+                          isExceedingBalance ? 'border-amber-400 focus:border-amber-500 bg-amber-50/20' : 'focus:border-blue-500'
+                        }`} 
                         value={formData.amount} 
                         onChange={e => setFormData({...formData, amount: e.target.value})} 
                         placeholder="0.00" 
                       />
                       <DollarSign className="absolute left-3 top-3.5 text-slate-400" size={18} />
                   </div>
+                  {isExceedingBalance && selectedSourceAccount && (
+                    <div className="mt-2 flex items-start gap-2.5 p-3 bg-amber-50 border border-amber-200/80 rounded-xl text-amber-800 text-xs font-semibold animate-in fade-in">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="font-bold">تنبيه سيولة: </span>
+                        <span>
+                          المبلغ المطلوب تحويله ({transferAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م) يتجاوز الرصيد الدفتري الحالي المتوفر في {selectedSourceAccount.name} ({sourceBalance?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م).
+                        </span>
+                      </div>
+                    </div>
+                  )}
               </div>
 
               <div>

@@ -10,7 +10,7 @@
  * ==============================================================================
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAccounting } from '../AccountingContext';
 import { Cheque, PaymentVoucher } from '../../types';
 import type { UserProfile } from '../AccountingContext';
@@ -62,6 +62,7 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
 }) => {
   const [cheques, setCheques] = useState<Cheque[]>(initialCheques);
   const [vouchers, setVouchers] = useState<PaymentVoucher[]>(initialVouchers);
+  const lastTransferSubmissionRef = useRef<{ fingerprint: string; timestamp: number } | null>(null);
 
   const targetOrgId = orgId || currentUser?.organization_id || null;
 
@@ -403,17 +404,34 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
   const addTransfer = useCallback(async (transfer: Record<string, any>): Promise<void> => {
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const targetUserId = currentUser?.id;
+
+    const fromId = transfer.sourceAccountId || transfer.source_account_id || transfer.from_account_id;
+    const toId = transfer.destinationAccountId || transfer.destination_account_id || transfer.to_account_id;
+    const amount = Number(transfer.amount);
+    const date = transfer.date || transfer.transfer_date;
+    const fingerprint = `${effectiveOrg}-${fromId}-${toId}-${amount}-${date}`;
+    const now = Date.now();
+
+    if (lastTransferSubmissionRef.current && 
+        lastTransferSubmissionRef.current.fingerprint === fingerprint && 
+        now - lastTransferSubmissionRef.current.timestamp < 3500) {
+      logger.warn('[BankingContext.addTransfer] تم منع تكرار التحويل المالي خلال 3.5 ثوانٍ:', fingerprint);
+      return;
+    }
+    lastTransferSubmissionRef.current = { fingerprint, timestamp: now };
+
     try {
       const { error } = await supabase.rpc('add_treasury_transfer', {
-        p_from_account_id: transfer.sourceAccountId || transfer.source_account_id || transfer.from_account_id,
-        p_to_account_id: transfer.destinationAccountId || transfer.destination_account_id || transfer.to_account_id,
-        p_amount: transfer.amount,
-        p_transfer_date: transfer.date || transfer.transfer_date,
+        p_from_account_id: fromId,
+        p_to_account_id: toId,
+        p_amount: amount,
+        p_transfer_date: date,
         p_notes: transfer.description || transfer.notes || '',
         p_org_id: effectiveOrg,
         p_user_id: targetUserId
       });
       if (error) {
+        lastTransferSubmissionRef.current = null;
         const isFuncMissing = error.code === 'P0001' || error.message?.includes('function') || error.message?.includes('does not exist');
         if (isFuncMissing) {
           const { error: insErr } = await supabase.from('transfers').insert({ ...transfer, organization_id: effectiveOrg });
@@ -425,6 +443,7 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
       showToast?.('تم تسجيل التحويل المالي بنجاح ✅', 'success');
       logActivity?.('تحويل مالي', `تحويل بقيمة: ${transfer.amount || 0}`);
     } catch (e: unknown) {
+      lastTransferSubmissionRef.current = null;
       const errMsg = e instanceof Error ? e.message : String(e);
       showToast?.('فشل تسجيل التحويل المالي: ' + errMsg, 'error');
       throw e;

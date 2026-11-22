@@ -44,7 +44,8 @@ describe('🛡️ Enterprise Rapid Click & Double-Submit Protection (صماما�
       'modules/retail/components/POS/RetailPosScreen.tsx',
       'modules/hr/components/EmployeeAdvances.tsx',
       'modules/inventory/StockTransfer.tsx',
-      'modules/inventory/StockAdjustmentForm.tsx'
+      'modules/inventory/StockAdjustmentForm.tsx',
+      'modules/finance/components/TransferForm.tsx'
     ];
 
     for (const formRelPath of criticalForms) {
@@ -77,5 +78,29 @@ describe('🛡️ Enterprise Rapid Click & Double-Submit Protection (صماما�
     expect(content).not.toContain(".select('*, journal_lines(*)')");
     // يطلب الحقول المحددة بدقة
     expect(content).toContain('journal_lines(id, account_id, debit, credit');
+  });
+
+  it('يجب أن تحتوي شاشة تحويل النقدية على معاينة رصيد الخزينة المصدر وصمام منع التكرار', () => {
+    const transferFormPath = path.resolve(process.cwd(), 'modules/finance/components/TransferForm.tsx');
+    expect(fs.existsSync(transferFormPath)).toBe(true);
+    const content = fs.readFileSync(transferFormPath, 'utf-8');
+
+    // تحقق من وجود صمام منع النقر المزدوج
+    expect(content).toContain('isSubmittingRef');
+    // تحقق من وجود عرض الرصيد الدفتري الحالي
+    expect(content).toContain('selectedSourceAccount');
+    expect(content).toContain('الرصيد الدفتري الحالي');
+    // تحقق من وجود تنبيه تجاوز الرصيد المتاح
+    expect(content).toContain('isExceedingBalance');
+    expect(content).toContain('تنبيه سيولة');
+
+    // تحقق من وجود صمام الأمان على مستوى السياق AccountingContext & BankingContext
+    const accountingContextPath = path.resolve(process.cwd(), 'context/AccountingContext.tsx');
+    const accContent = fs.readFileSync(accountingContextPath, 'utf-8');
+    expect(accContent).toContain('lastTransferSubmissionRef');
+
+    const bankingContextPath = path.resolve(process.cwd(), 'context/domains/BankingContext.tsx');
+    const bnkContent = fs.readFileSync(bankingContextPath, 'utf-8');
+    expect(bnkContent).toContain('lastTransferSubmissionRef');
   });
 });

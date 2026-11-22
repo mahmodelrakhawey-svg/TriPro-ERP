@@ -387,6 +387,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [currentShift, setCurrentShift] = useState<any>(null);
   const [activityLog, setActivityLog] = useState<any[]>([]);
   const refreshDataPromiseRef = useRef<Promise<void> | null>(null);
+  const lastTransferSubmissionRef = useRef<{ fingerprint: string; timestamp: number } | null>(null);
 
   const logActivity = useCallback((action: string, details: string) => {
     const newLog = {
@@ -2486,16 +2487,36 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const addTransfer = async (transfer: Record<string, any>) => { 
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
     const targetUserId = currentUser?.id;
+
+    // 🛡️ صمام أمان لمنع التكرار اللحظي للتحويل المالي عند النقر المزدوج أو بطء الشبكة
+    const fromId = transfer.sourceAccountId || transfer.source_account_id || transfer.from_account_id;
+    const toId = transfer.destinationAccountId || transfer.destination_account_id || transfer.to_account_id;
+    const amount = Number(transfer.amount);
+    const date = transfer.date || transfer.transfer_date;
+    const fingerprint = `${targetOrgId}-${fromId}-${toId}-${amount}-${date}`;
+    const now = Date.now();
+
+    if (lastTransferSubmissionRef.current && 
+        lastTransferSubmissionRef.current.fingerprint === fingerprint && 
+        now - lastTransferSubmissionRef.current.timestamp < 3500) {
+      logger.warn('[addTransfer] تم حظر إرسال تحويل مالي مكرر متطابق خلال 3.5 ثوانٍ:', fingerprint);
+      return;
+    }
+    lastTransferSubmissionRef.current = { fingerprint, timestamp: now };
+
     const { error } = await supabase.rpc('add_treasury_transfer', {
-      p_from_account_id: transfer.sourceAccountId,
-      p_to_account_id: transfer.destinationAccountId,
-      p_amount: transfer.amount,
-      p_transfer_date: transfer.date,
-      p_notes: transfer.description || '',
+      p_from_account_id: fromId,
+      p_to_account_id: toId,
+      p_amount: amount,
+      p_transfer_date: date,
+      p_notes: transfer.description || transfer.notes || '',
       p_org_id: targetOrgId,
       p_user_id: targetUserId
     });
-    if (error) throw error;
+    if (error) {
+      lastTransferSubmissionRef.current = null;
+      throw error;
+    }
     await refreshData(); 
   };
 
