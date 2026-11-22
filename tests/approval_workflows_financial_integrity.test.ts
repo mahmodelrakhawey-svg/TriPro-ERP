@@ -97,4 +97,31 @@ describe('🛡️ Approval Workflows Financial Integrity and Statements Tests', 
     expect(processed[0].journal_entries.description).toBe('تاسيسات');
     expect(processed[0].balance).toBe(12000);
   });
+
+  it('يجب أن يدعم كشف حساب المورد الترتيب من التاريخ الأحدث إلى الأقدم مع بقاء الرصيد التراكمي منضبطاً', () => {
+    const rawTransactions = [
+      { id: '1', date: '2026-11-02', credit: 2000, debit: 0, ref: 'PINV-01' },
+      { id: '2', date: '2026-11-05', credit: 0, debit: 500, ref: 'PV-01' },
+      { id: '3', date: '2026-11-20', credit: 1500, debit: 0, ref: 'PINV-02' }
+    ];
+
+    // ترتيب زمني تصاعدي أولاً لاحتساب الرصيد التراكمي محاسبياً
+    const sortedAsc = [...rawTransactions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    let running = 1000; // رصيد افتتاحي
+    const withRunningBalance = sortedAsc.map(t => {
+      running += (t.credit - t.debit);
+      return { ...t, balance: running };
+    });
+
+    // الترتيب من الأحدث للأقدم
+    const newestFirst = [...withRunningBalance].reverse();
+
+    expect(newestFirst[0].date).toBe('2026-11-20');
+    expect(newestFirst[0].balance).toBe(4000);
+    expect(newestFirst[1].date).toBe('2026-11-05');
+    expect(newestFirst[1].balance).toBe(2500);
+    expect(newestFirst[2].date).toBe('2026-11-02');
+    expect(newestFirst[2].balance).toBe(3000);
+    expect(running).toBe(4000);
+  });
 });

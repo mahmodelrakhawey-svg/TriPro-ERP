@@ -4,7 +4,7 @@ import { useLocation } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
-import { Printer, FileText, Loader2, Search, Download, MessageCircle, ChevronLeft, ChevronRight, X, Eye, Share2 } from 'lucide-react';
+import { Printer, FileText, Loader2, Search, Download, MessageCircle, ChevronLeft, ChevronRight, X, Eye, Share2, ArrowUpDown } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import SupplierSearchSelect from '../../components/SupplierSearchSelect';
 import { PurchaseInvoicePrint } from './PurchaseInvoicePrint';
@@ -52,6 +52,8 @@ const SupplierStatement = () => {
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<number | 'all'>(50);
+  // 🔄 ترتيب الحركات: افتراضياً من التاريخ الأحدث إلى الأقدم بناءً على طلب إدارة الحسابات
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
   // حالة طباعة مستند مفرد (فاتورة أو سند)
   const [printingDocId, setPrintingDocId] = useState<string | null>(null);
@@ -384,15 +386,18 @@ const SupplierStatement = () => {
             }
         });
 
-        // حساب الرصيد التراكمي
+        // حساب الرصيد التراكمي زمنياً (لضمان صحة رصيد كل حركة بالمليم)
         let runningBal = openBal;
         const finalTrans = periodTrans.map(t => {
             runningBal += (t.credit - t.debit);
             return { ...t, balance: runningBal };
         });
 
+        // 🔄 ترتيب الحركات افتراضياً من التاريخ الأحدث إلى الأقدم (Newest to Oldest)
+        const newestFirstTrans = [...finalTrans].reverse();
+
         setOpeningBalance(openBal);
-        setTransactions(finalTrans);
+        setTransactions(newestFirstTrans);
         setClosingBalance(runningBal);
 
     } catch (error: unknown) {
@@ -599,10 +604,12 @@ const SupplierStatement = () => {
         ['كشف حساب مورد'],
         ['المورد:', selectedSupplier?.name],
         ['من تاريخ:', startDate, 'إلى تاريخ:', endDate],
+        ['الترتيب:', sortOrder === 'desc' ? 'من التاريخ الأحدث إلى الأقدم' : 'من التاريخ الأقدم إلى الأحدث'],
         [],
         ['التاريخ', 'المستند', 'البيان', 'مدين (سداد)', 'دائن (مشتريات)', 'الرصيد'],
-        ['-', '-', 'رصيد افتتاحي', '-', '-', openingBalance],
-        ...transactions.map(t => [t.date, t.reference, t.description, t.debit, t.credit, t.balance]),
+        ...(sortOrder === 'asc' ? [['-', '-', 'رصيد افتتاحي (ما قبل الفترة)', '-', '-', openingBalance]] : []),
+        ...sortedTransactions.map(t => [t.date, t.reference, t.description, t.debit, t.credit, t.balance]),
+        ...(sortOrder === 'desc' ? [['-', '-', 'رصيد افتتاحي (ما قبل الفترة)', '-', '-', openingBalance]] : []),
         [],
         ['الإجمالي', '', 'إجمالي الحركات', totalDebit, totalCredit, closingBalance]
     ];
@@ -632,17 +639,25 @@ const SupplierStatement = () => {
       window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
+  // 🔄 ترتيب الحركات المعروضة وفق خيار المستخدم (افتراضياً: من الأحدث للأقدم)
+  const sortedTransactions = useMemo(() => {
+    if (sortOrder === 'asc') {
+      return [...transactions].reverse();
+    }
+    return transactions;
+  }, [transactions, sortOrder]);
+
   // 📄 تصفية وتقطيع الحركات وفق ترقيم الصفحات
   const totalPages = useMemo(() => {
     if (pageSize === 'all') return 1;
-    return Math.max(1, Math.ceil(transactions.length / pageSize));
-  }, [transactions.length, pageSize]);
+    return Math.max(1, Math.ceil(sortedTransactions.length / pageSize));
+  }, [sortedTransactions.length, pageSize]);
 
   const displayedTransactions = useMemo(() => {
-    if (pageSize === 'all') return transactions;
+    if (pageSize === 'all') return sortedTransactions;
     const start = (currentPage - 1) * pageSize;
-    return transactions.slice(start, start + pageSize);
-  }, [transactions, currentPage, pageSize]);
+    return sortedTransactions.slice(start, start + pageSize);
+  }, [sortedTransactions, currentPage, pageSize]);
 
   return (
     <div className="space-y-6 animate-in fade-in">
@@ -844,8 +859,8 @@ const SupplierStatement = () => {
           </div>
       </div>
 
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 print:hidden grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="md:col-span-3">
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 print:hidden grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="md:col-span-4">
             <SupplierSearchSelect
               value={selectedSupplierId}
               onChange={(id) => setSelectedSupplierId(id)}
@@ -864,6 +879,18 @@ const SupplierStatement = () => {
             <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">إلى تاريخ</label>
             <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="w-full border rounded-lg p-2 bg-slate-50" />
           </div>
+          <div className="flex flex-col justify-end">
+            <label className="block text-xs font-bold text-slate-400 mb-1 uppercase">ترتيب الحركات</label>
+            <button
+              type="button"
+              onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+              className="w-full flex items-center justify-center gap-2 border border-slate-200 rounded-lg p-2 bg-slate-50 hover:bg-slate-100 text-xs font-bold text-slate-700 transition-all shadow-xs h-[42px]"
+              title="انقر لتبديل الترتيب بين الأحدث والأقدم"
+            >
+              <ArrowUpDown size={15} className="text-emerald-600 shrink-0" />
+              <span>{sortOrder === 'desc' ? 'من الأحدث للأقدم ⬇️' : 'من الأقدم للأحدث ⬆️'}</span>
+            </button>
+          </div>
       </div>
 
       {selectedSupplierId && (
@@ -878,6 +905,10 @@ const SupplierStatement = () => {
 
                   {/* بطاقات الإجماليات الملخصة في أعلى الكشف */}
                   <div className="flex items-center gap-3 flex-wrap">
+                      <div className="bg-slate-100 border border-slate-200 text-slate-700 px-4 py-2 rounded-xl text-center">
+                        <span className="text-[10px] font-bold block uppercase tracking-wider">رصيد افتتاحي</span>
+                        <span className="text-lg font-black font-mono" dir="ltr">{openingBalance.toLocaleString()}</span>
+                      </div>
                       <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-2 rounded-xl text-center">
                         <span className="text-[10px] font-bold block uppercase tracking-wider">إجمالي المدين (سداد)</span>
                         <span className="text-lg font-black font-mono" dir="ltr">{totalDebit.toLocaleString()}</span>
@@ -899,11 +930,13 @@ const SupplierStatement = () => {
                 <>
                   {/* 📱 عرض البطاقات المتجاوبة لشاشات الموبايل (Mobile Cards View) */}
                   <div className="md:hidden space-y-3 print:hidden">
-                    {/* بطاقة الرصيد الافتتاحي */}
-                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 flex justify-between items-center text-xs">
-                      <span className="font-bold text-slate-600">رصيد افتتاحي (ما قبل الفترة)</span>
-                      <span className="font-mono font-black text-slate-900" dir="ltr">{openingBalance.toLocaleString()} {settings.currency}</span>
-                    </div>
+                    {/* بطاقة الرصيد الافتتاحي في البداية عند الترتيب من الأقدم للأحدث */}
+                    {sortOrder === 'asc' && (
+                      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 flex justify-between items-center text-xs">
+                        <span className="font-bold text-slate-600">رصيد افتتاحي (ما قبل الفترة)</span>
+                        <span className="font-mono font-black text-slate-900" dir="ltr">{openingBalance.toLocaleString()} {settings.currency}</span>
+                      </div>
+                    )}
 
                     {displayedTransactions.map((t: Record<string, any>, idx) => {
                       const isInvoice = t.type === 'invoice';
@@ -973,6 +1006,14 @@ const SupplierStatement = () => {
                       );
                     })}
 
+                    {/* بطاقة الرصيد الافتتاحي في النهاية عند الترتيب من الأحدث للأقدم */}
+                    {sortOrder === 'desc' && (
+                      <div className="bg-slate-50 border border-slate-200 rounded-2xl p-3.5 flex justify-between items-center text-xs">
+                        <span className="font-bold text-slate-600">رصيد افتتاحي (ما قبل الفترة)</span>
+                        <span className="font-mono font-black text-slate-900" dir="ltr">{openingBalance.toLocaleString()} {settings.currency}</span>
+                      </div>
+                    )}
+
                     {displayedTransactions.length === 0 && (
                       <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-2xl border border-dashed border-slate-200 text-xs">
                         لا توجد حركات خلال هذه الفترة
@@ -985,7 +1026,19 @@ const SupplierStatement = () => {
                   <table className="w-full text-right text-sm">
                       <thead className="bg-slate-100 border-y border-slate-200 text-slate-500 font-black uppercase">
                           <tr>
-                              <th className="p-4">التاريخ</th>
+                              <th 
+                                className="p-4 cursor-pointer hover:bg-slate-200/70 transition-colors select-none group"
+                                onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                                title="انقر لتبديل الترتيب"
+                              >
+                                <div className="flex items-center gap-1.5">
+                                  <span>التاريخ</span>
+                                  <ArrowUpDown size={13} className="text-slate-400 group-hover:text-emerald-600 transition-colors" />
+                                  <span className="text-[10px] font-semibold text-emerald-600">
+                                    ({sortOrder === 'desc' ? 'الأحدث أولاً ⬇️' : 'الأقدم أولاً ⬆️'})
+                                  </span>
+                                </div>
+                              </th>
                               <th className="p-4">المستند</th>
                               <th className="p-4">البيان</th>
                               <th className="p-4 text-center">مدين (سداد)</th>
@@ -997,11 +1050,13 @@ const SupplierStatement = () => {
                       </thead>
                         {/* 🖥️ جدول العرض التفاعلي على الشاشة (يدعم ترقيم الصفحات وسرعة التصفح) */}
                         <tbody className="divide-y divide-slate-100 print:hidden">
-                            <tr className="bg-slate-50 font-bold text-slate-500">
-                                <td colSpan={6} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
-                                <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
-                                <td className="p-4 print:hidden"></td>
-                            </tr>
+                            {sortOrder === 'asc' && (currentPage === 1 || pageSize === 'all') && (
+                                <tr className="bg-slate-50 font-bold text-slate-500">
+                                    <td colSpan={6} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
+                                    <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
+                                    <td className="p-4 print:hidden"></td>
+                                </tr>
+                            )}
                             {displayedTransactions.map((t: Record<string, any>, idx) => (
                                 <tr key={t.id || idx} className="hover:bg-slate-50 transition-colors">
                                     <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
@@ -1030,6 +1085,13 @@ const SupplierStatement = () => {
                                     </td>
                                 </tr>
                             ))}
+                            {sortOrder === 'desc' && (currentPage === totalPages || pageSize === 'all') && (
+                                <tr className="bg-slate-50 font-bold text-slate-500 border-t border-slate-200">
+                                    <td colSpan={6} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
+                                    <td className="p-4 text-center font-mono font-black" dir="ltr">{openingBalance.toLocaleString()}</td>
+                                    <td className="p-4 print:hidden"></td>
+                                </tr>
+                            )}
                             {displayedTransactions.length === 0 && (
                                 <tr><td colSpan={8} className="p-8 text-center text-slate-400">لا توجد حركات خلال هذه الفترة</td></tr>
                             )}
@@ -1037,11 +1099,13 @@ const SupplierStatement = () => {
 
                         {/* 🖨️ جدول الطباعة الشامل لكافة الحركات بدون اقتطاع */}
                         <tbody className="divide-y divide-slate-100 hidden print:table-row-group">
-                            <tr className="bg-slate-50 font-bold text-slate-500">
-                                <td colSpan={6} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
-                                <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
-                            </tr>
-                            {transactions.map((t: Record<string, any>, idx) => (
+                            {sortOrder === 'asc' && (
+                                <tr className="bg-slate-50 font-bold text-slate-500">
+                                    <td colSpan={6} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
+                                    <td className="p-4 text-center font-mono" dir="ltr">{openingBalance.toLocaleString()}</td>
+                                </tr>
+                            )}
+                            {sortedTransactions.map((t: Record<string, any>, idx) => (
                                 <tr key={t.id || idx}>
                                     <td className="p-4 text-slate-500 whitespace-nowrap">{t.date}</td>
                                     <td className="p-4 font-mono font-bold text-emerald-600">
@@ -1054,6 +1118,12 @@ const SupplierStatement = () => {
                                     <td className="p-4 text-center font-mono font-black" dir="ltr">{t.balance.toLocaleString()}</td>
                                 </tr>
                             ))}
+                            {sortOrder === 'desc' && (
+                                <tr className="bg-slate-50 font-bold text-slate-500 border-t border-slate-200">
+                                    <td colSpan={6} className="p-4">رصيد افتتاحي (ما قبل الفترة)</td>
+                                    <td className="p-4 text-center font-mono font-black" dir="ltr">{openingBalance.toLocaleString()}</td>
+                                </tr>
+                            )}
                         </tbody>
 
                         {/* 🌟 خانة جمع المدين وخانة جمع الدائن في نهاية الكشف (تظهر في الشاشة والطباعة) */}
