@@ -22,6 +22,7 @@ import {
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 interface TrialBalanceRpcRow {
   account_id?: string;
@@ -79,9 +80,20 @@ const ChangesInEquityStatement: React.FC = () => {
     }
 
     try {
+      let userOrgId: string | undefined | null =
+        getActiveOrgIdSync(currentSelectedOrgId) ||
+        (currentUser as any)?.organization_id ||
+        (currentUser as any)?.org_id;
+
+      if (!userOrgId) {
+        userOrgId = await resolveActiveOrgId(currentSelectedOrgId);
+      }
+
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || session?.user?.user_metadata?.org_id;
-      const userRole = session?.user?.user_metadata?.role;
+      if (!userOrgId) {
+        userOrgId = session?.user?.user_metadata?.org_id;
+      }
+      const userRole = session?.user?.user_metadata?.role || (currentUser as any)?.role;
 
       if (!userOrgId && userRole !== 'super_admin') {
         throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
