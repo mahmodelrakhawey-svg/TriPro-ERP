@@ -144,6 +144,7 @@ const StockTransfer = () => {
   });
 
   const isMountedRef = useRef(false);
+  const isSubmittingRef = useRef(false);
   const [editingTransferId, setEditingTransferId] = useState<string | null>(null);
   const [editingTransferNumber, setEditingTransferNumber] = useState<string | null>(null);
   const [isLoadingTransfer, setIsLoadingTransfer] = useState(false);
@@ -930,6 +931,11 @@ const StockTransfer = () => {
     if (e) {
       e.preventDefault();
     }
+
+    // 🛡️ 1. صمام الأمان اللحظي المتزامن لمنع النقر المتعدد أو تكرار الإرسال
+    if (isSubmittingRef.current || loading) {
+      return;
+    }
     
     if (formData.fromWarehouseId === formData.toWarehouseId) {
       showToast('لا يمكن التحويل من وإلى نفس المستودع', 'error');
@@ -955,6 +961,27 @@ const StockTransfer = () => {
       return;
     }
 
+    // 🛡️ 2. درع فحص التكرار اللحظي (Anti-Duplicate Guard)
+    if (!editingTransferId) {
+      const transferFingerprint = `${formData.fromWarehouseId}_${formData.toWarehouseId}_${cleanItems.map(i => `${i.productId}:${i.quantity}`).sort().join(';')}`;
+      const lastTransfer = sessionStorage.getItem('tripro_last_stock_transfer');
+      if (lastTransfer) {
+        try {
+          const { fingerprint, timestamp } = JSON.parse(lastTransfer);
+          if (fingerprint === transferFingerprint && (Date.now() - timestamp < 120000)) {
+            const confirmDup = window.confirm(
+              '⚠️ تنبيه أمان لمنع التكرار:\n\nتم ترحيل تحويل مخزني متطابق لنفس الأصناف والمستودعات قبل لحظات!\n\nهل أنت متأكد تماماً من رغبتك في تكرار صرف نفس التحويل المخزني مرة أخرى؟'
+            );
+            if (!confirmDup) {
+              return;
+            }
+          }
+        } catch {
+          // ignore parsing error
+        }
+      }
+    }
+
     // إذا كانت هناك كميات متجاوزة للرصيد، تأكيد إضافي
     if (overStockCount > 0) {
       if (!window.confirm(`يوجد (${overStockCount}) صنف تتجاوز كميتها الرصيد المتاح بالمستودع المصدر. هل أنت متأكد من إتمام التحويل وترحيل الأرصدة بالسالب إن وُجد؟`)) {
@@ -962,6 +989,7 @@ const StockTransfer = () => {
       }
     }
 
+    isSubmittingRef.current = true;
     setLoading(true);
     try {
       const transferNumber = `TRN-${Date.now().toString().slice(-6)}`;
@@ -1051,6 +1079,12 @@ const StockTransfer = () => {
       const { error: itemsError } = await supabase.from('stock_transfer_items').insert(dbItems);
       if (itemsError) throw itemsError;
 
+      // تسجيل بصمة التحويل لمنع التكرار اللحظي
+      const transferFingerprint = `${formData.fromWarehouseId}_${formData.toWarehouseId}_${cleanItems.map(i => `${i.productId}:${i.quantity}`).sort().join(';')}`;
+      try {
+        sessionStorage.setItem('tripro_last_stock_transfer', JSON.stringify({ fingerprint: transferFingerprint, timestamp: Date.now() }));
+      } catch {}
+
       // 3. مسح المسودة المحلية بعد نجاح الحفظ
       clearStockTransferDraft();
 
@@ -1065,6 +1099,7 @@ const StockTransfer = () => {
       showToast(error.message || 'حدث خطأ أثناء معالجة التحويل المخزني', 'error');
     } finally {
       setLoading(false);
+      isSubmittingRef.current = false;
     }
   };
 

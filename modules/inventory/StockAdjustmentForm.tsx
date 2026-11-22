@@ -1,5 +1,5 @@
 import { logger } from '../../utils/logger';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
@@ -26,6 +26,7 @@ const StockAdjustmentForm = () => {
   const [reason, setReason] = useState('');
   const [items, setItems] = useState<AdjustmentItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProductId, setSelectedProductId] = useState('');
   const [isImporting, setIsImporting] = useState(false);
@@ -227,6 +228,11 @@ const StockAdjustmentForm = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 🛡️ 1. صمام الأمان الفوري المتزامن لمنع النقر المتعدد
+    if (isSubmittingRef.current || loading) {
+      return;
+    }
     
     const validationResult = createStockAdjustmentSchema.safeParse({ warehouseId, date, reason, items });
     if (!validationResult.success) {
@@ -234,6 +240,26 @@ const StockAdjustmentForm = () => {
         return;
     }
 
+    // 🛡️ 2. درع فحص التكرار اللحظي للتسويات المخزنية (Anti-Duplicate Guard)
+    const adjFingerprint = `${warehouseId}_${reason}_${items.map(i => `${i.productId}:${i.quantity}:${i.type}`).sort().join(';')}`;
+    const lastAdj = sessionStorage.getItem('tripro_last_stock_adj');
+    if (lastAdj) {
+      try {
+        const { fingerprint, timestamp } = JSON.parse(lastAdj);
+        if (fingerprint === adjFingerprint && (Date.now() - timestamp < 120000)) {
+          const confirmDup = window.confirm(
+            '⚠️ تنبيه أمان لمنع التكرار:\n\nتم حفظ وترحيل تسوية مخزنية متطابقة لنفس الأصناف والمستودع قبل لحظات!\n\nهل أنت متأكد تماماً من رغبتك في تكرار التسوية مرة أخرى؟'
+          );
+          if (!confirmDup) {
+            return;
+          }
+        }
+      } catch {
+        // ignore parsing error
+      }
+    }
+
+    isSubmittingRef.current = true;
     setLoading(true);
     try {
         const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
@@ -353,6 +379,11 @@ const StockAdjustmentForm = () => {
             }
         }
 
+        // تسجيل بصمة التسوية المخزنية لمنع التكرار اللحظي
+        try {
+          sessionStorage.setItem('tripro_last_stock_adj', JSON.stringify({ fingerprint: adjFingerprint, timestamp: Date.now() }));
+        } catch {}
+
         showToast('تم حفظ التسوية المخزنية بنجاح ✅', 'success');
         setItems([]);
         setReason('');
@@ -362,6 +393,7 @@ const StockAdjustmentForm = () => {
         showToast('حدث خطأ: ' + error.message, 'error');
     } finally {
         setLoading(false);
+        isSubmittingRef.current = false;
     }
   };
 
@@ -518,10 +550,19 @@ const StockAdjustmentForm = () => {
             <button 
                 type="submit" 
                 disabled={loading}
-                className="bg-amber-500 text-white px-8 py-3 rounded-xl font-bold hover:bg-amber-600 flex items-center gap-2 shadow-lg shadow-amber-200 transition-all"
+                className="bg-amber-500 text-white px-8 py-3 rounded-xl font-bold hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 shadow-lg shadow-amber-200 transition-all cursor-pointer"
             >
-                {loading ? <Loader2 className="animate-spin" /> : <Save size={20} />}
-                حفظ وترحيل التسوية
+                {loading ? (
+                  <>
+                    <Loader2 className="animate-spin" size={18} />
+                    <span>جاري ترحيل التسوية...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save size={20} />
+                    <span>حفظ وترحيل التسوية</span>
+                  </>
+                )}
             </button>
         </div>
       </form>

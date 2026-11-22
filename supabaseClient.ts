@@ -36,6 +36,46 @@ if (!supabaseUrl || !supabaseKey) {
 // ✅ كشف بيئة Electron لتعطيل الميزات غير المدعومة
 const isElectron = typeof navigator !== 'undefined' && navigator.userAgent.toLowerCase().includes('electron');
 
+// 🛡️ مهلة الاتصال الذكية للطلبات لحماية أجهزة المصانع والفروع من التعليق اللانهائي عند تذبذب الإنترنت
+const NETWORK_TIMEOUT_MS = 35000; // 35 ثانية كحد أقصى للعمليات الحساسة
+
+const resilientFetch: typeof fetch = async (input, init) => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort();
+  }, NETWORK_TIMEOUT_MS);
+
+  // ربط الـ signal الممرر مسبقاً إن وجد
+  if (init?.signal) {
+    if (init.signal.aborted) {
+      clearTimeout(timeoutId);
+      controller.abort();
+    } else {
+      init.signal.addEventListener('abort', () => {
+        clearTimeout(timeoutId);
+        controller.abort();
+      });
+    }
+  }
+
+  try {
+    const response = await fetch(input, {
+      ...init,
+      signal: controller.signal
+    });
+    return response;
+  } catch (error: any) {
+    if (error?.name === 'AbortError' && controller.signal.aborted && !init?.signal?.aborted) {
+      const timeoutError = new Error('انتهت مهلة استجابة الخادم بسبب بطء شبكة الإنترنت (35 ثانية). يرجى التحقق من جودة الاتصال والمحاولة مجدداً.');
+      timeoutError.name = 'TimeoutError';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
 export const supabase = createClient(supabaseUrl, supabaseKey, {
   auth: {
     persistSession: true,
@@ -49,6 +89,9 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
           return await fn();
         }
       : undefined,
+  },
+  global: {
+    fetch: resilientFetch
   }
 });
 

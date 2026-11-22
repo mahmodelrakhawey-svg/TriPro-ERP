@@ -175,7 +175,7 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
               ? fetchCompleteDataset<JournalEntryItem>(async (from, to) =>
                   supabase
                     .from('journal_entries')
-                    .select('*, journal_lines(*)')
+                    .select('id, reference, transaction_date, description, status, organization_id, related_document_id, related_document_type, journal_lines(id, account_id, debit, credit, description, cost_center_id)')
                     .eq('organization_id', effectiveOrg)
                     .gte('transaction_date', fiscalYearRange.startDate)
                     .lte('transaction_date', fiscalYearRange.endDate)

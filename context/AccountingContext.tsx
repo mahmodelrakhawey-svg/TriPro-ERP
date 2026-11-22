@@ -849,17 +849,22 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     const targetOrg = getEffectiveOrgId();
     if (!targetOrg || targetOrg === 'org-default-offline') return;
     try {
+      const userRole = (currentUser?.role || '').toLowerCase();
+      const isOperational = ['cashier', 'retail_cashier', 'restaurant_cashier', 'restaurant_waiter', 'restaurant_chef', 'restaurant_cook', 'restaurant_driver', 'storekeeper', 'worker', 'van_sales'].includes(userRole);
+
       const [accs, ents, ccs, budgetData] = await Promise.all([
         supabase.from('accounts').select('*').eq('organization_id', targetOrg).order('code'),
-        fetchCompleteDataset<JournalEntry>(async (from, to) =>
-          supabase.from('journal_entries')
-            .select('*, journal_lines(*)')
-            .eq('organization_id', targetOrg)
-            .gte('transaction_date', fiscalYearRange.startDate)
-            .lte('transaction_date', fiscalYearRange.endDate)
-            .order('transaction_date', { ascending: false })
-            .range(from, to)
-        ).then(data => ({ data, error: null })),
+        isOperational
+          ? Promise.resolve({ data: [] as JournalEntry[], error: null })
+          : fetchCompleteDataset<JournalEntry>(async (from, to) =>
+              supabase.from('journal_entries')
+                .select('id, reference, transaction_date, description, status, organization_id, related_document_id, related_document_type, journal_lines(id, account_id, debit, credit, description, cost_center_id)')
+                .eq('organization_id', targetOrg)
+                .gte('transaction_date', fiscalYearRange.startDate)
+                .lte('transaction_date', fiscalYearRange.endDate)
+                .order('transaction_date', { ascending: false })
+                .range(from, to)
+            ).then(data => ({ data, error: null })),
         supabase.from('cost_centers').select('*').eq('organization_id', targetOrg).order('name'),
         supabase.from('budgets').select('*').eq('organization_id', targetOrg)
       ]);

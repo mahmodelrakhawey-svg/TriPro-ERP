@@ -41,7 +41,10 @@ describe('🛡️ Enterprise Rapid Click & Double-Submit Protection (صماما�
       'modules/finance/components/ExpenseVoucherForm.tsx',
       'modules/sales/SalesInvoiceForm.tsx',
       'modules/purchases/PurchaseInvoiceForm.tsx',
-      'modules/retail/components/POS/RetailPosScreen.tsx'
+      'modules/retail/components/POS/RetailPosScreen.tsx',
+      'modules/hr/components/EmployeeAdvances.tsx',
+      'modules/inventory/StockTransfer.tsx',
+      'modules/inventory/StockAdjustmentForm.tsx'
     ];
 
     for (const formRelPath of criticalForms) {
@@ -52,5 +55,27 @@ describe('🛡️ Enterprise Rapid Click & Double-Submit Protection (صماما�
       const hasSubmittingRef = content.includes('isSubmittingRef');
       expect(hasSubmittingRef).toBe(true);
     }
+  });
+
+  it('يجب أن يحتوي عميل Supabase على مهلة اتصال ذكية لحماية المصانع من التعليق اللانهائي', () => {
+    const clientPath = path.resolve(process.cwd(), 'supabaseClient.ts');
+    expect(fs.existsSync(clientPath)).toBe(true);
+    const content = fs.readFileSync(clientPath, 'utf-8');
+
+    expect(content).toContain('NETWORK_TIMEOUT_MS');
+    expect(content).toContain('resilientFetch');
+    expect(content).toContain('AbortController');
+    expect(content).toContain('TimeoutError');
+  });
+
+  it('يجب أن تكون استعلامات دفتر الأستاذ العام مرشدة ولا تطلب كافة الحقول غير الضرورية (*)', () => {
+    const glPath = path.resolve(process.cwd(), 'context/domains/GeneralLedgerContext.tsx');
+    expect(fs.existsSync(glPath)).toBe(true);
+    const content = fs.readFileSync(glPath, 'utf-8');
+
+    // لا يطلب *, journal_lines(*)
+    expect(content).not.toContain(".select('*, journal_lines(*)')");
+    // يطلب الحقول المحددة بدقة
+    expect(content).toContain('journal_lines(id, account_id, debit, credit');
   });
 });
