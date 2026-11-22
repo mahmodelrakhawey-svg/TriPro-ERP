@@ -1,5 +1,5 @@
 import { logger } from '../../../utils/logger';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -23,6 +23,7 @@ const EmployeeAdvances = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'paid' | 'deducted'>('all');
   const [treasuryFilter, setTreasuryFilter] = useState<string>('all');
@@ -371,6 +372,11 @@ const EmployeeAdvances = () => {
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    // 🛡️ 1. صمام الأمان الفوري اللحظي لمنع النقر المزدوج أو إرسال طلبين متزامنين
+    if (isSubmittingRef.current || saving) {
+      return;
+    }
+
     if (!formData.employeeId) {
       showToast('يرجى اختيار الموظف أولاً', 'warning');
       return;
@@ -397,13 +403,38 @@ const EmployeeAdvances = () => {
       showToast(validationResult.error.issues[0].message, 'warning');
       return;
     }
-    
+
+    const employee = employees.find(e => e.id === formData.employeeId);
+    const empName = employee?.full_name || 'هذا الموظف';
+
+    // 🛡️ 2. درع فحص التكرار الذكي الاستباقي (Anti-Duplicate Guard)
+    let allowDuplicate = false;
+    if (!editingId) {
+      const isDuplicateToday = advances.some(a => 
+        a.employee_id === formData.employeeId &&
+        Number(a.amount) === Number(formData.amount) &&
+        (
+          a.advance_date === formData.date || 
+          a.request_date === formData.date || 
+          (a.created_at && a.created_at.startsWith(formData.date))
+        )
+      );
+
+      if (isDuplicateToday) {
+        const confirmMsg = `⚠️ تنبيه أمان لمنع التكرار:\n\nتم تسجيل سلفة بالفعل للموظف "${empName}" بقيمة (${Number(formData.amount).toLocaleString()} ج.م) بتاريخ اليوم (${formData.date})!\n\nهل أنت متأكد تماماً من رغبتك في صرف سلفة إضافية أخرى متطابقة لنفس الموظف؟`;
+        if (!window.confirm(confirmMsg)) {
+          return;
+        }
+        allowDuplicate = true;
+      }
+    }
+
+    isSubmittingRef.current = true;
     setSaving(true);
+
     try {
       const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
       if (!orgId && currentUser?.role !== 'super_admin') throw new Error('تعذر تحديد المنظمة.');
-
-      const employee = employees.find(e => e.id === formData.employeeId);
 
       if (editingId) {
         // --- 1. وضع التعديل (Edit Mode) عبر الإجراء المحاسبي المحمي بالكامل ---
@@ -423,44 +454,97 @@ const EmployeeAdvances = () => {
 
         showToast('تم تعديل بيانات السلفة وتحديث القيد المحاسبي بنجاح ✅', 'success');
       } else {
-        // --- 2. وضع الإضافة الجديد (Create Mode) ---
-        const reference = `ADV-${Date.now().toString().slice(-6)}`;
+        // --- 2. وضع الإضافة الجديد (Create Mode) عبر الإجراء الذري الموحد المحصن ضد انقطاع النت والتكرار ---
+        let createSuccess = false;
 
-        // 1. حفظ السلفة
-        const { error: advError } = await supabase.from('employee_advances').insert({
-          organization_id: orgId,
-          employee_id: formData.employeeId,
-          amount: formData.amount,
-          request_date: formData.date,
-          advance_date: formData.date,
-          status: 'paid', // نعتبرها مدفوعة فوراً للتبسيط
-          notes: formData.notes,
-          treasury_account_id: formData.treasuryId, // حفظ حساب الخزينة
-          reference: reference // حفظ المرجع
-        });
-
-        if (advError) throw advError;
-
-        // 2. إنشاء القيد المحاسبي
-        // من ح/ سلف العاملين (1223)
-        // إلى ح/ الخزينة أو البنك
-        const advancesAcc = getSystemAccount('EMPLOYEE_ADVANCES') || accounts.find(a => a.code === '1223');
-
-        if (advancesAcc) {
-          await addEntry({
-            date: formData.date,
-            description: `صرف سلفة للموظف ${employee?.full_name}`,
-            reference: reference,
-            status: 'posted',
-            lines: [
-              { account_id: advancesAcc.id, accountId: advancesAcc.id, debit: formData.amount, credit: 0, description: `سلفة موظف - ${employee?.full_name}` },
-              { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: `صرف نقدية لسلفة` }
-            ]
+        try {
+          const { data: rpcResult, error: rpcError } = await supabase.rpc('create_employee_advance', {
+            p_employee_id: formData.employeeId,
+            p_amount: formData.amount,
+            p_date: formData.date,
+            p_treasury_id: formData.treasuryId,
+            p_notes: formData.notes || '',
+            p_allow_duplicate: allowDuplicate
           });
-        } else {
-          showToast('تنبيه: تم حفظ السلفة ولكن لم يتم إنشاء القيد لعدم العثور على حساب "سلف الموظفين" (1223).', 'warning');
+
+          if (rpcError) {
+            // إذا كان الخطأ بسبب رصد تكرار من محرك قاعدة البيانات
+            if (rpcError.message?.includes('DUPLICATE_ADVANCE_DETECTED')) {
+              const reconfirm = window.confirm(
+                `⚠️ رصدت قاعدة البيانات سلفة مطابقة لنفس الموظف والمبلغ مسجلة مؤخراً!\n\nإذا كان الصرف متعمداً ومقصوداً، اضغط [موافق] لتأكيد صرف السلفة الإضافية، أو [إلغاء] لمنع الازدواجية.`
+              );
+              if (reconfirm) {
+                const { error: retryError } = await supabase.rpc('create_employee_advance', {
+                  p_employee_id: formData.employeeId,
+                  p_amount: formData.amount,
+                  p_date: formData.date,
+                  p_treasury_id: formData.treasuryId,
+                  p_notes: formData.notes || '',
+                  p_allow_duplicate: true
+                });
+                if (retryError) throw retryError;
+                createSuccess = true;
+              } else {
+                return;
+              }
+            } else if (rpcError.code === '42883' || rpcError.code === 'PGRST202') {
+              // الدالة غير موجودة في الـ DB بعد -> الانتقال للـ Fallback الآمن
+              logger.warn('create_employee_advance RPC not available, using fallback:', rpcError.message);
+              createSuccess = false;
+            } else {
+              throw rpcError;
+            }
+          } else {
+            createSuccess = true;
+          }
+        } catch (callErr: unknown) {
+          const msg = callErr instanceof Error ? callErr.message : String(callErr);
+          if (msg.includes('DUPLICATE_ADVANCE_DETECTED')) {
+            throw callErr;
+          }
+          const errObj = callErr as any;
+          if (errObj?.code === '42883' || errObj?.code === 'PGRST202') {
+            createSuccess = false;
+          } else {
+            throw callErr;
+          }
         }
-        
+
+        // مسار احتياطي آمن (Fallback) في حال عدم توفر دالة RPC
+        if (!createSuccess) {
+          const reference = `ADV-${Date.now().toString().slice(-6)}`;
+
+          // 1. حفظ السلفة
+          const { error: advError } = await supabase.from('employee_advances').insert({
+            organization_id: orgId,
+            employee_id: formData.employeeId,
+            amount: formData.amount,
+            request_date: formData.date,
+            advance_date: formData.date,
+            status: 'paid',
+            notes: formData.notes,
+            treasury_account_id: formData.treasuryId,
+            reference: reference
+          });
+
+          if (advError) throw advError;
+
+          // 2. إنشاء القيد المحاسبي
+          const advancesAcc = getSystemAccount('EMPLOYEE_ADVANCES') || accounts.find(a => a.code === '1223');
+          if (advancesAcc) {
+            await addEntry({
+              date: formData.date,
+              description: `صرف سلفة للموظف ${empName}`,
+              reference: reference,
+              status: 'posted',
+              lines: [
+                { account_id: advancesAcc.id, accountId: advancesAcc.id, debit: formData.amount, credit: 0, description: `سلفة موظف - ${empName}` },
+                { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: `صرف نقدية لسلفة` }
+              ]
+            });
+          }
+        }
+
         showToast('تم حفظ السلفة وترحيل القيد بنجاح ✅', 'success');
       }
 
@@ -477,11 +561,12 @@ const EmployeeAdvances = () => {
       if (refreshData) refreshData();
 
     } catch (error: unknown) {
-      logger.error(error);
+      logger.error('Error saving advance:', error);
       const msg = error instanceof Error ? error.message : String(error);
       showToast('حدث خطأ: ' + msg, 'error');
     } finally {
       setSaving(false);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -963,10 +1048,19 @@ const EmployeeAdvances = () => {
                 <button 
                   type="submit" 
                   disabled={saving} 
-                  className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 flex justify-center items-center gap-2 shadow-sm transition-all cursor-pointer"
+                  className="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex justify-center items-center gap-2 shadow-sm transition-all cursor-pointer"
                 >
-                  {saving ? <Loader2 className="animate-spin" size={18} /> : <CheckCircle size={18} />}
-                  <span>{editingId ? 'حفظ تعديلات السلفة' : 'حفظ وصرف السلفة'}</span>
+                  {saving ? (
+                    <>
+                      <Loader2 className="animate-spin" size={18} />
+                      <span>جاري الصرف والترحيل...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle size={18} />
+                      <span>{editingId ? 'حفظ تعديلات السلفة' : 'حفظ وصرف السلفة'}</span>
+                    </>
+                  )}
                 </button>
               </div>
 

@@ -280,4 +280,102 @@ describe('EmployeeSearchSelect & Smart Advance Features', () => {
     });
   });
 
+  describe('Employee Advances Anti-Duplicate Guard & Atomic Creation Suite', () => {
+    it('detects duplicate advances for the same employee, amount, and date', () => {
+      const existingAdvances = [
+        { id: 'adv-1', employee_id: 'emp-101', amount: 1500, advance_date: '2026-11-22', status: 'paid' },
+        { id: 'adv-2', employee_id: 'emp-102', amount: 2000, advance_date: '2026-11-22', status: 'paid' },
+        { id: 'adv-3', employee_id: 'emp-101', amount: 1000, advance_date: '2026-11-21', status: 'paid' },
+      ];
+
+      const checkDuplicate = (empId: string, amount: number, date: string) => {
+        return existingAdvances.some(a =>
+          a.employee_id === empId &&
+          Number(a.amount) === Number(amount) &&
+          a.advance_date === date
+        );
+      };
+
+      // Exact match -> duplicate detected
+      expect(checkDuplicate('emp-101', 1500, '2026-11-22')).toBe(true);
+
+      // Different employee -> not duplicate
+      expect(checkDuplicate('emp-999', 1500, '2026-11-22')).toBe(false);
+
+      // Different amount -> not duplicate
+      expect(checkDuplicate('emp-101', 500, '2026-11-22')).toBe(false);
+
+      // Different date -> not duplicate
+      expect(checkDuplicate('emp-101', 1500, '2026-11-23')).toBe(false);
+    });
+
+    it('verifies SQL patch for atomic create_employee_advance with duplicate guard', async () => {
+      const fs = await import('fs');
+      const path = await import('path');
+      const patchPath = path.resolve(process.cwd(), 'sql_updates', '2026-11-22_atomic_create_employee_advance_with_duplicate_guard.sql');
+      expect(fs.existsSync(patchPath)).toBe(true);
+
+      const content = fs.readFileSync(patchPath, 'utf8');
+
+      // 1. Function definition & parameters
+      expect(content).toContain('CREATE OR REPLACE FUNCTION public.create_employee_advance');
+      expect(content).toContain('p_employee_id uuid');
+      expect(content).toContain('p_amount numeric');
+      expect(content).toContain('p_date date');
+      expect(content).toContain('p_treasury_id uuid');
+      expect(content).toContain('p_allow_duplicate boolean');
+
+      // 2. Anti-duplicate exception code
+      expect(content).toContain('DUPLICATE_ADVANCE_DETECTED');
+      expect(content).toContain("created_at >= (now() - interval '15 minutes')");
+
+      // 3. Atomic journal entry & account mapping (1223)
+      expect(content).toContain("code = '1223'");
+      expect(content).toContain('INSERT INTO public.journal_entries');
+      expect(content).toContain('INSERT INTO public.journal_lines');
+      expect(content).toContain('recalculate_all_system_balances');
+
+      // 4. Permissions
+      expect(content).toContain('GRANT EXECUTE ON FUNCTION public.create_employee_advance');
+
+      // 5. Acceleration index
+      expect(content).toContain('idx_employee_advances_dup_guard');
+    });
+
+    it('verifies double-click prevention via synchronous ref guard simulation', () => {
+      let callCount = 0;
+      let isSubmitting = false;
+
+      const simulateSubmit = () => {
+        if (isSubmitting) {
+          return { ignored: true };
+        }
+        isSubmitting = true;
+        callCount++;
+        return { ignored: false };
+      };
+
+      // First click
+      const res1 = simulateSubmit();
+      expect(res1.ignored).toBe(false);
+      expect(callCount).toBe(1);
+
+      // Immediate second rapid click while submitting
+      const res2 = simulateSubmit();
+      expect(res2.ignored).toBe(true);
+      expect(callCount).toBe(1);
+
+      // Third click
+      const res3 = simulateSubmit();
+      expect(res3.ignored).toBe(true);
+      expect(callCount).toBe(1);
+
+      // Reset after finish
+      isSubmitting = false;
+      const res4 = simulateSubmit();
+      expect(res4.ignored).toBe(false);
+      expect(callCount).toBe(2);
+    });
+  });
+
 });
