@@ -354,17 +354,21 @@ export function isModuleAllowedForOrganization(
 ): boolean {
   if (!module) return true;
 
-  // 1. صلاحيات السوبر أدمن والمالك وحساب الديمو غير مقيدة
+  // 1. صلاحيات السوبر أدمن لمنصة TriPro فقط هي غير المقيدة عالمياً (Super Admin Only)
+  // بينما يخضع المالك (owner) والمدير (manager) وباقي أدوار المنشأة لحارس القطاعات الرأسية (Strict Vertical Gating)
   const role = String(userRole || '').toLowerCase();
-  if (role === 'super_admin' || role === 'owner' || role === 'demo') {
+  if (role === 'super_admin') {
     return true;
   }
 
-  // إذا لم يتم تحديد منظمة، نسمح افتراضياً
+  // إذا لم يتم تحديد منظمة، نسمح افتراضياً للتوافق التام
   if (!organization) return true;
 
   const rawMod = module.toLowerCase().trim();
   const normalizedModule = rawMod === 'mfg' ? 'manufacturing' : rawMod;
+
+  // قائمة القطاعات والصناعات التخصصية الرأسية (Strict Vertical Industries)
+  const isVerticalIndustry = ['hims', 'stadium', 'construction'].includes(normalizedModule);
 
   // 2. إذا تم تخصيص قائمة صريحة للموديولات (Explicit allowed_modules)
   const allowed = organization.allowed_modules;
@@ -385,7 +389,7 @@ export function isModuleAllowedForOrganization(
   }
 
   // 3. النواة الأساسية للنظام (Core ERP) متاحة لجميع الشركات والباقات دائماً
-  const coreModules = ['dashboard', 'mobile', 'accounting', 'treasury', 'sales', 'purchases', 'inventory', 'reports', 'settings', 'admin'];
+  const coreModules = ['dashboard', 'mobile', 'accounting', 'treasury', 'sales', 'purchases', 'inventory', 'reports', 'settings', 'admin', 'users', 'roles'];
   if (coreModules.includes(normalizedModule)) {
     return true;
   }
@@ -394,7 +398,6 @@ export function isModuleAllowedForOrganization(
   const plan = String(organization.plan || '').toLowerCase().trim();
   const activity = String(organization.activity_type || '').toLowerCase().trim();
 
-  if (!plan && !activity) return true;
   if (plan === 'enterprise' || activity === 'all' || activity === 'enterprise') return true;
 
   // تحديد الموديول المستهدف
@@ -435,6 +438,12 @@ export function isModuleAllowedForOrganization(
       if (isHims || isStadium || isConstruction) return false;
       return true;
     }
+  }
+
+  // 7. إذا لم يكن هناك باقة أو نشاط محدد (Backward Compatibility للشركات القائمة):
+  // القطاعات التخصصية الرأسية (المستشفيات، الملاعب، المقاولات) لا تظهر لغير باقتها
+  if (isVerticalIndustry) {
+    return false;
   }
 
   return true;

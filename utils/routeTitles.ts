@@ -385,6 +385,8 @@ export const ROUTE_TITLES: Record<string, string> = {
   '/permissions': 'مصفوفة الصلاحيات والأدوار المتقدمة',
   '/settings/security': 'مركز الأمان والمراقبة والنسخ الاحتياطي',
   '/security-logs': 'سجل الأمان ومحاولات الدخول والجلسات',
+  '/incident-monitor': 'لوحة مراقبة الحوادث الميدانية والأعطال (Incident Monitor Hub)',
+  '/telemetry-incidents': 'لوحة مراقبة الحوادث الميدانية والأعطال (Incident Monitor Hub)',
   '/settings/company': 'بيانات الشركة والترويسة والرقم الضريبي',
   '/settings/accounting': 'التوجيه المحاسبي وربط الحسابات التلقائي',
   '/settings/print': 'تنسيق قوالب وتصميمات الطباعة',

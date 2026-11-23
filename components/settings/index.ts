@@ -5,6 +5,7 @@ export { SystemMaintenanceTab } from './SystemMaintenanceTab';
 export { AccountMappingTab } from './AccountMappingTab';
 export { TerminalsSettingsTab } from './TerminalsSettingsTab';
 export { EtaIntegrationTab } from './EtaIntegrationTab';
+export { IndustryModulesTab } from './IndustryModulesTab';
 export { DemoModeTab } from './DemoModeTab';
 export { default as ArchiveManager } from './ArchiveManager';
 export { BackupRestoreManager } from './BackupRestoreManager';

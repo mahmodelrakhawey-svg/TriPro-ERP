@@ -20,6 +20,7 @@ import {
   Shield, 
   FileText,
   ShieldAlert,
+  AlertOctagon,
   Plus,
   RotateCcw,
   RotateCw,
@@ -154,10 +155,11 @@ const Sidebar: React.FC<SidebarProps> = ({
   }, [location.pathname]);
 
   const userRole = currentUser?.role;
-  const isSuperAdmin = userRole === 'super_admin' || userRole === 'owner';
+  const isSuperAdmin = userRole === 'super_admin';
   const allowedModules = (organization as any)?.allowed_modules || [];
 
   // دالة للتحقق مما إذا كان الموديول مسموحاً به لهذه الشركة (بناءً على الصلاحيات والباقة ونوع النشاط)
+  // حارس القطاعات الرأسية المشدد: المالك يخضع لقيود موديولات المنظمة
   const isModuleAllowed = (module: string) => {
     if (userRole === 'demo') return true;
     if (isSuperAdmin && !currentSelectedOrgId) return true;
@@ -448,6 +450,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { to: '/saas-admin', label: 'إدارة المنصة (SaaS)', icon: ShieldAlert, color: 'text-indigo-500', superAdminOnly: true },
     { to: '/admin/test-dashboard', label: 'مراقبة صحة النظام', icon: Activity, color: 'text-amber-400', superAdminOnly: true, permission: 'admin.logs' },
     { to: '/stress-test', label: 'اختبار كفاءة وتحمل النظام (Stress Test)', icon: Zap, color: 'text-amber-400', superAdminOnly: true, permission: 'admin.manage' },
+    { to: '/incident-monitor', label: 'لوحة مراقبة الحوادث والأعطال (Telemetry)', icon: AlertOctagon, color: 'text-rose-500', adminOnly: true, permission: 'admin.logs' },
     { to: '/security-logs', label: 'سجلات الأمان', icon: ScrollText, color: 'text-slate-400', adminOnly: true, permission: 'admin.logs' },
     { to: '/admin/audit-logs', label: 'سجل الرقابة والتدقيق (Audit Trail)', icon: ShieldCheck, color: 'text-emerald-400', adminOnly: true, permission: 'admin.logs' },
     { to: '/recycle-bin', label: 'سلة المحذوفات', icon: Trash2, color: 'text-slate-400', adminOnly: true, permission: 'admin.manage' },
@@ -459,8 +462,9 @@ const Sidebar: React.FC<SidebarProps> = ({
   // تصفية العناصر بناءً على الأدوار والموديولات المتاحة
   const filteredItems = React.useMemo(() => navItems.filter(item => {
     if (item.type === 'section') return true;
+    const isAdminRole = isSuperAdmin || (userRole as string) === 'admin' || (userRole as string) === 'manager' || (userRole as string) === 'owner';
     if (item.superAdminOnly && !isSuperAdmin) return false;
-    if (item.adminOnly && !isSuperAdmin && (userRole as string) !== 'admin' && (userRole as string) !== 'manager') return false;
+    if (item.adminOnly && !isAdminRole) return false;
     
     // 🛡️ فحص اشتراك المنشأة في الموديول على مستوى باقة الـ SaaS
     if (item.module && !isModuleAllowed(item.module)) return false;

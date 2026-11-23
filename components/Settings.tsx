@@ -7,7 +7,7 @@ import { useAccounting, SYSTEM_ACCOUNTS } from '../context/AccountingContext';
 import { useToast } from '../context/ToastContext';
 import { secureStorage } from '../utils/securityMiddleware';
 import * as XLSX from 'xlsx';
-import { Building2, CreditCard, ShieldCheck, Link as LinkIcon, Landmark, RotateCcw, MonitorSmartphone } from 'lucide-react';
+import { Building2, CreditCard, ShieldCheck, Link as LinkIcon, Landmark, RotateCcw, MonitorSmartphone, Boxes } from 'lucide-react';
 import { z } from 'zod';
 import { runRestaurantModuleTest } from '../modules/restaurant/utils/runRestaurantFlowTest';
 import { etaService } from '../services/etaService';
@@ -22,6 +22,7 @@ import {
   AccountMappingTab,
   TerminalsSettingsTab,
   EtaIntegrationTab,
+  IndustryModulesTab,
   DemoModeTab,
 } from './settings/index';
 
@@ -29,7 +30,7 @@ import {
 const Settings = () => {
   const { closeFinancialYear, exportData, currentUser, accounts, createMissingSystemAccounts, recalculateAllBalances, purgeDeletedRecords, refreshSaasSchema, warehouses, refreshData, currentSelectedOrgId, organization } = useAccounting();
   const currentUserRole = currentUser?.role || '';
-  const [activeTab, setActiveTab] = useState<'general' | 'financial' | 'system' | 'mapping' | 'terminals' | 'demo' | 'eta'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'financial' | 'system' | 'mapping' | 'terminals' | 'demo' | 'eta' | 'modules'>('general');
   const [terminalsList, setTerminalsList] = useState<any[]>([]);
   const [isTerminalsLoading, setIsTerminalsLoading] = useState(false);
   const [newTerminalData, setNewTerminalData] = useState({
@@ -1109,6 +1110,12 @@ const Settings = () => {
               >
                   <RotateCcw size={18} /> إدارة الديمو
               </button>
+              <button 
+                onClick={() => setActiveTab('modules')}
+                className={`flex-1 py-4 font-bold transition-colors flex items-center justify-center gap-2 ${activeTab === 'modules' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50' : 'text-slate-500 hover:bg-slate-50'}`}
+              >
+                  <Boxes size={18} /> موديولات النشاط
+              </button>
           </div>
 
           <div className="p-8">
@@ -1200,6 +1207,14 @@ const Settings = () => {
                   <DemoModeTab
                       handleResetDemoData={handleResetDemoData}
                       runRestaurantModuleTest={runRestaurantModuleTest}
+                  />
+              )}
+
+              {activeTab === 'modules' && (
+                  <IndustryModulesTab
+                      organization={organization}
+                      refreshData={refreshData}
+                      currentUser={currentUser}
                   />
               )}
           </div>

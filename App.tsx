@@ -188,6 +188,7 @@ const PerformanceComparisonReport = lazy(() => import('./modules/reports/Perform
 // 🛠️ مديول الإدارة وأدوات النظام (Admin Tools - Lazy Loaded)
 const RecycleBin = lazy(() => import('./modules/admin/RecycleBin'));
 const SaasAdmin = lazy(() => import('./modules/admin/SaaSAdmin'));
+const IncidentMonitorHub = lazy(() => import('./modules/admin/IncidentMonitorHub'));
 const DataMigrationCenter = lazy(() => import('./modules/admin/DataMigrationCenter'));
 const SystemStressTest = lazy(() => import('./modules/admin/SystemStressTest'));
 const MultiCurrencyStatement = lazy(() => import('./modules/reports/MultiCurrencyStatement'));
@@ -837,6 +838,8 @@ const MainLayout = () => {
                 <Route path="/stress-test" element={<SystemStressTest />} />
                 <Route path="/admin/test-dashboard" element={<ModuleGuard module="admin"><AdminTestDashboard /></ModuleGuard>} />
                 <Route path="/admin/audit-logs" element={<ModuleGuard module="admin"><AuditTrailViewer /></ModuleGuard>} />
+                <Route path="/incident-monitor" element={<ModuleGuard module="admin"><IncidentMonitorHub /></ModuleGuard>} />
+                <Route path="/telemetry-incidents" element={<Navigate to="/incident-monitor" replace />} />
                 <Route path="/saas-admin" element={currentUser?.role === 'super_admin' ? <SaasAdmin /> : <Navigate to="/" replace />} />
                 
                 {/* 🧭 توجيهات توافقية سريعة ومسارات بديلة (Compatibility Route Redirects) */}

@@ -219,7 +219,10 @@ export const ModuleGuard = ({
       )
     ) : true;
 
-    const isAllowed = isPrivileged || (isAllowedByOrg && hasPermission);
+    // 🛡️ تشديد حارس الصلاحيات للقطاعات الرأسية (Strict Vertical Gating)
+    // حسابات المالك والمدير لا تتجاوز حجب المنظمة (isAllowedByOrg) وفقط السوبر أدمن هو من يرى كل القطاعات
+    const isSuperAdminPlatform = role === 'super_admin';
+    const isAllowed = isSuperAdminPlatform || (isAllowedByOrg && (isPrivileged || hasPermission));
 
     if (!isAllowed) {
         return <Navigate to="/" replace />;

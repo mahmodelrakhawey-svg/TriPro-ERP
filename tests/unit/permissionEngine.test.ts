@@ -144,11 +144,14 @@ describe('🛡️ Permission Engine Tests', () => {
   });
 
   describe('6. Organization Module & Plan Gating (isModuleAllowedForOrganization)', () => {
-    it('always grants full access to super_admin, owner and demo roles', () => {
+    it('grants platform-level full access to super_admin while strictly gating owner to organization modules', () => {
       const basicOrg = { plan: 'basic' };
+      // super_admin always sees all modules
       expect(isModuleAllowedForOrganization('hims', basicOrg, 'super_admin')).toBe(true);
-      expect(isModuleAllowedForOrganization('stadium', basicOrg, 'owner')).toBe(true);
-      expect(isModuleAllowedForOrganization('construction', basicOrg, 'demo')).toBe(true);
+      // owner is strictly gated by organization vertical packaging
+      expect(isModuleAllowedForOrganization('stadium', basicOrg, 'owner')).toBe(false);
+      // owner sees stadium when enabled in allowed_modules
+      expect(isModuleAllowedForOrganization('stadium', { allowed_modules: ['stadium', 'accounting'] }, 'owner')).toBe(true);
     });
 
     it('always allows Core ERP modules regardless of plan', () => {
