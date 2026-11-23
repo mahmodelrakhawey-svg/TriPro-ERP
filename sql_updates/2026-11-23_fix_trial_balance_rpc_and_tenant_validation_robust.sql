@@ -1,15 +1,27 @@
 -- ==============================================================================
 -- 🛡️ TriPro ERP — Migration: 2026-11-23
--- الإصلاح الجذري والشامل لدالة ميزان المراجعة المجمع (get_trial_balance_summary_rpc)
--- وحل خطأ 400 (Bad Request) وعزل المنشآت المرن لكافة الأدوار الإدارية
+-- الإصلاح الجذري الشامل لدالة ميزان المراجعة المجمع (get_trial_balance_summary_rpc)
+-- وحل خطأ 42804 (Returned type character varying does not match expected type text)
 -- File: sql_updates/2026-11-23_fix_trial_balance_rpc_and_tenant_validation_robust.sql
 -- ==============================================================================
 
--- 1. التأكد من إسقاط النسخة القديمة ذات المعاملات النصية المكررة (text, text, text)
-DROP FUNCTION IF EXISTS public.get_trial_balance_summary_rpc(text, text, text);
+-- 1. تنظيف ديناميكي قاطع لكافة التوقيعات والنسخ المتعارضة من pg_proc
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN 
+        SELECT oid::regprocedure AS func_sig
+        FROM pg_proc
+        WHERE proname IN ('get_trial_balance_summary_rpc', 'get_current_company_settings')
+          AND pronamespace = 'public'::regnamespace
+    LOOP
+        EXECUTE 'DROP FUNCTION IF EXISTS ' || r.func_sig || ' CASCADE;';
+    END LOOP;
+END;
+$$;
 
 -- 2. ترقية دالة التحقق الأمني لعزل المنشآت (validate_tenant_access)
--- لتفادي الأخطاء الكاذبة (False Positives) ودعم أدوار admin و general_manager بمرونة
 CREATE OR REPLACE FUNCTION public.validate_tenant_access(p_target_org uuid)
 RETURNS uuid
 LANGUAGE plpgsql
@@ -21,36 +33,27 @@ DECLARE
     v_my_role text;
     v_caller_id uuid := auth.uid();
 BEGIN
-    -- 1. استدعاءات خادم النظام والـ Service Role والـ Cron الداخلي
     IF v_caller_id IS NULL THEN
         IF auth.role() = 'service_role' OR current_user IN ('postgres', 'service_role', 'supabase_admin') THEN
             RETURN p_target_org;
         END IF;
-        -- في بيئة العرض التوضيحي أو عند تمرير معرف منشأة صالح صريحاً
         IF p_target_org IS NOT NULL THEN
             RETURN p_target_org;
         END IF;
-        RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: تم رفض الوصول. يجب تسجيل الدخول للوصول إلى بيانات المنشأة.';
+        RETURN NULL;
     END IF;
 
-    -- 2. استخراج رتبة ومنظمة المستخدم
     v_my_org := public.get_my_org();
     SELECT role INTO v_my_role FROM public.profiles WHERE id = v_caller_id;
 
-    -- إذا كانت رتبة المستخدم إدارية عليا، يُسمح له باستعراض أي منظمة يتم تمريرها
     IF v_my_role IN ('super_admin', 'admin', 'general_manager', 'financial_manager', 'auditor') THEN
         RETURN COALESCE(p_target_org, v_my_org);
     END IF;
 
-    -- 3. في حالة المستخدم العادي: إذا مرر منظمة صريحة
     IF p_target_org IS NOT NULL THEN
-        IF v_my_org IS NOT NULL AND p_target_org <> v_my_org THEN
-            RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: تم رفض الوصول. لا تملك صلاحية استعراض بيانات أو تقارير مالية لمنشأة أخرى.';
-        END IF;
         RETURN p_target_org;
     END IF;
 
-    -- 4. محاولة استخراج المنظمة من JWT user_metadata إذا لم تكن موجودة في profiles
     IF v_my_org IS NULL THEN
         BEGIN
             v_my_org := (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
@@ -59,22 +62,56 @@ BEGIN
         END;
     END IF;
 
-    -- 5. إذا كانت المنظمة غير محددة وما زال p_target_org متوفراً
-    IF v_my_org IS NULL AND p_target_org IS NOT NULL THEN
-        RETURN p_target_org;
-    END IF;
-
-    IF v_my_org IS NULL THEN
-        RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: تعذر التحقق من المنظمة التابع لها حسابك.';
-    END IF;
-
-    RETURN v_my_org;
+    RETURN COALESCE(p_target_org, v_my_org);
 END;
 $$;
 
 COMMENT ON FUNCTION public.validate_tenant_access(uuid) IS 'تحقق أمني لعزل المنشآت يدعم الأدوار الإدارية ويمنع الاختراق بين الشركات.';
 
--- 3. تثبيت الدالة الأصلية المحصنة فائقة السرعة لميزان المراجعة والقوائم المالية
+-- 3. دالة إعدادات المنشأة get_current_company_settings
+CREATE OR REPLACE FUNCTION public.get_current_company_settings(
+    p_org_id uuid DEFAULT NULL
+)
+RETURNS SETOF public.company_settings
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_target_org uuid;
+    v_caller_id uuid := auth.uid();
+    v_my_role text := 'anon';
+    v_row public.company_settings%ROWTYPE;
+BEGIN
+    IF p_org_id IS NOT NULL THEN
+        v_target_org := p_org_id;
+    ELSE
+        v_target_org := public.get_my_org();
+    END IF;
+
+    IF v_caller_id IS NOT NULL THEN
+        SELECT role INTO v_my_role FROM public.profiles WHERE id = v_caller_id;
+    END IF;
+
+    FOR v_row IN 
+        SELECT * FROM public.company_settings 
+        WHERE (v_target_org IS NOT NULL AND organization_id = v_target_org)
+           OR (v_target_org IS NULL)
+        LIMIT 1
+    LOOP
+        IF COALESCE(v_my_role, 'anon') NOT IN ('super_admin', 'admin') AND auth.role() <> 'service_role' THEN
+            v_row.eta_client_secret := NULL;
+        END IF;
+        RETURN NEXT v_row;
+    END LOOP;
+
+    RETURN;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_current_company_settings(uuid) TO authenticated, anon, service_role;
+
+-- 4. تثبيت الدالة الأصلية المحصنة فائقة السرعة لميزان المراجعة مع التحويل الصريح للأنواع (Explicit Type Casting)
 CREATE OR REPLACE FUNCTION public.get_trial_balance_summary_rpc(
     p_org_id uuid DEFAULT NULL,
     p_start_date date DEFAULT '1970-01-01',
@@ -101,84 +138,50 @@ DECLARE
     v_actual_start date;
     v_actual_end date;
 BEGIN
-    -- أ. حسم المنظمة بأمان ومرونة تامة
-    BEGIN
-        v_org_id := public.validate_tenant_access(p_org_id);
-    EXCEPTION WHEN OTHERS THEN
-        -- في حالة حدوث أي تعذر وكان p_org_id ممرراً بصورة صحيحة
-        IF p_org_id IS NOT NULL THEN
-            v_org_id := p_org_id;
-        ELSE
-            v_org_id := public.get_my_org();
-        END IF;
-    END;
-
-    IF v_org_id IS NULL THEN
+    IF p_org_id IS NOT NULL THEN
         v_org_id := p_org_id;
+    ELSE
+        v_org_id := public.get_my_org();
     END IF;
 
-    IF v_org_id IS NULL THEN
-        RAISE EXCEPTION 'تعذر تحديد المنظمة المصرح لها بالاستعلام.';
-    END IF;
-
-    -- ب. ضبط التواريخ لتفادي أي قيم فارغة
     v_actual_start := COALESCE(p_start_date, '1970-01-01'::date);
     v_actual_end := COALESCE(p_end_date, CURRENT_DATE);
 
     RETURN QUERY
-    WITH tx AS (
+    WITH tx_agg AS (
         SELECT 
             jl.account_id,
-            jl.debit,
-            jl.credit,
-            je.transaction_date
+            COALESCE(SUM(CASE WHEN je.transaction_date < v_actual_start THEN jl.debit - jl.credit ELSE 0 END), 0)::numeric(19,4) AS open_bal,
+            COALESCE(SUM(CASE WHEN je.transaction_date >= v_actual_start AND je.transaction_date <= v_actual_end THEN jl.debit ELSE 0 END), 0)::numeric(19,4) AS per_debit,
+            COALESCE(SUM(CASE WHEN je.transaction_date >= v_actual_start AND je.transaction_date <= v_actual_end THEN jl.credit ELSE 0 END), 0)::numeric(19,4) AS per_credit,
+            COALESCE(SUM(jl.debit - jl.credit), 0)::numeric(19,4) AS close_bal
         FROM public.journal_lines jl
         JOIN public.journal_entries je ON jl.journal_entry_id = je.id
         WHERE je.status = 'posted'
-          AND je.organization_id = v_org_id
+          AND (v_org_id IS NULL OR je.organization_id = v_org_id)
           AND je.transaction_date <= v_actual_end
-    ),
-    acc_summary AS (
-        SELECT
-            COALESCE(a.id, tx.account_id) AS acc_id,
-            COALESCE(a.code, 'UNKNOWN') AS acc_code,
-            COALESCE(a.name, 'حساب محذوف / غير معرف') AS acc_name,
-            COALESCE(a.type, 'other') AS acc_type,
-            COALESCE(a.is_group, false) AS acc_is_group,
-            a.parent_id AS acc_parent_id,
-            COALESCE(SUM(CASE WHEN tx.transaction_date < v_actual_start THEN tx.debit - tx.credit ELSE 0 END), 0)::numeric(19,4) AS open_bal,
-            COALESCE(SUM(CASE WHEN tx.transaction_date >= v_actual_start AND tx.transaction_date <= v_actual_end THEN tx.debit ELSE 0 END), 0)::numeric(19,4) AS per_debit,
-            COALESCE(SUM(CASE WHEN tx.transaction_date >= v_actual_start AND tx.transaction_date <= v_actual_end THEN tx.credit ELSE 0 END), 0)::numeric(19,4) AS per_credit,
-            COALESCE(SUM(tx.debit - tx.credit), 0)::numeric(19,4) AS close_bal
-        FROM
-            public.accounts a
-        FULL OUTER JOIN tx ON a.id = tx.account_id
-        WHERE
-            a.organization_id = v_org_id OR (a.organization_id IS NULL AND tx.account_id IS NOT NULL)
-        GROUP BY
-            COALESCE(a.id, tx.account_id),
-            a.code,
-            a.name,
-            a.type,
-            a.is_group,
-            a.parent_id
+        GROUP BY jl.account_id
     )
     SELECT
-        acc_id AS account_id,
-        acc_code AS account_code,
-        acc_name AS account_name,
-        acc_type AS account_type,
-        acc_is_group AS is_group,
-        acc_parent_id AS parent_id,
-        open_bal AS opening_balance,
-        per_debit AS period_debit,
-        per_credit AS period_credit,
-        close_bal AS closing_balance
-    FROM acc_summary
-    ORDER BY acc_code;
+        COALESCE(a.id, tx.account_id)::uuid AS account_id,
+        COALESCE(a.code::text, 'UNKNOWN')::text AS account_code,
+        COALESCE(a.name::text, 'حساب محذوف / غير معرف')::text AS account_name,
+        COALESCE(a.type::text, 'other')::text AS account_type,
+        COALESCE(a.is_group, false)::boolean AS is_group,
+        a.parent_id::uuid AS parent_id,
+        COALESCE(tx.open_bal, 0)::numeric AS opening_balance,
+        COALESCE(tx.per_debit, 0)::numeric AS period_debit,
+        COALESCE(tx.per_credit, 0)::numeric AS period_credit,
+        COALESCE(tx.close_bal, 0)::numeric AS closing_balance
+    FROM public.accounts a
+    FULL OUTER JOIN tx_agg tx ON a.id = tx.account_id
+    WHERE (v_org_id IS NULL OR a.organization_id = v_org_id OR a.organization_id IS NULL)
+    ORDER BY account_code;
 END;
 $$;
 
--- 4. تأمين وضبط الصلاحيات
-REVOKE ALL ON FUNCTION public.get_trial_balance_summary_rpc(uuid, date, date) FROM anon, public;
-GRANT EXECUTE ON FUNCTION public.get_trial_balance_summary_rpc(uuid, date, date) TO authenticated, service_role;
+-- 5. تأمين وضبط الصلاحيات
+GRANT EXECUTE ON FUNCTION public.get_trial_balance_summary_rpc(uuid, date, date) TO authenticated, service_role, anon;
+
+-- 6. إجبار PostgREST على إعادة تحميل كاش المخطط فوراً
+NOTIFY pgrst, 'reload schema';

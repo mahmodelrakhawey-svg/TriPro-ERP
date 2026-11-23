@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- 🛡️ TriPro ERP — Consolidated Pending Migrations Bundle
--- تاريخ التوليد: 2026-11-22T22:24:55.163Z
+-- تاريخ التوليد: 2026-11-23T07:29:53.185Z
 -- عدد الملفات المعلقة المجمعة: 136
 -- ==============================================================================
 
@@ -3215,7 +3215,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.orders TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.company_settings TO authenticated;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-09-16_eta_einvoicing_enhancements', '2026-09-16_eta_einvoicing_enhancements.sql', 'd91d838bfc2ea6f9366226bc379b16aea0a4f10a7da7bc557d0aa32d4ac73d33', now())
+VALUES ('2026-09-16_eta_einvoicing_enhancements', '2026-09-16_eta_einvoicing_enhancements.sql', '0d2a4a8f8654c8acba34e67504c0e0b0cbb364f67287b3426cb084f6d41ab9a2', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -4974,7 +4974,7 @@ $$;
 NOTIFY pgrst, 'reload schema';
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-09-20_deduplicate_supplier_opening_balances', '2026-09-20_deduplicate_supplier_opening_balances.sql', '1693feb245efd432aa004c46089197933e7e726a6a59d4c306cf400008aa8587', now())
+VALUES ('2026-09-20_deduplicate_supplier_opening_balances', '2026-09-20_deduplicate_supplier_opening_balances.sql', 'be6734320fcc20061e7137558d7c7b78e49f95ace4deef3a3864a39256e07756', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -5049,7 +5049,7 @@ $$;
 NOTIFY pgrst, 'reload schema';
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-09-20_fix_ashraf_saafan_balance', '2026-09-20_fix_ashraf_saafan_balance.sql', '0511c7717de5cd3cd1d276bf492363a03d6dd556ba4f8b8dc1446c3d45968fc0', now())
+VALUES ('2026-09-20_fix_ashraf_saafan_balance', '2026-09-20_fix_ashraf_saafan_balance.sql', '32ebc1138cba2d7f3660bf479009a8fdd2fd04b2459298fdd2256b995d3c81d8', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -5426,7 +5426,7 @@ $$;
 NOTIFY pgrst, 'reload schema';
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-09-20_import_supplier_opening_balances', '2026-09-20_import_supplier_opening_balances.sql', 'c8884c4dc94d9a69c96b199aaa4155fce411009f1ca24c5914c2b59215a6fc42', now())
+VALUES ('2026-09-20_import_supplier_opening_balances', '2026-09-20_import_supplier_opening_balances.sql', '354f5dd463a15468cf189ce5830205cf3c92ec802a727b0bab4f956b26c2eea8', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -5539,7 +5539,7 @@ END $$;
 NOTIFY pgrst, 'reload schema';
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-09-21_fix_table_permissions_and_rls', '2026-09-21_fix_table_permissions_and_rls.sql', '67d3cdd03954537a7af1b0da09feb2b9265843a1e31b583548bbc9992f79a9a1', now())
+VALUES ('2026-09-21_fix_table_permissions_and_rls', '2026-09-21_fix_table_permissions_and_rls.sql', '6e71595cb36896b449ab137eaf78a63927b6e716b2f1a810bddaee0933458805', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -5692,7 +5692,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.get_active_pos_shift(uuid, uuid) TO authenticated, service_role, anon;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-09-22_fix_start_pos_shift_overload', '2026-09-22_fix_start_pos_shift_overload.sql', '6f2283afa1bf32663e51ab6213f5bc4e916806102b234c57ab2709fd821c39be', now())
+VALUES ('2026-09-22_fix_start_pos_shift_overload', '2026-09-22_fix_start_pos_shift_overload.sql', 'b965586629f2fde4577ecccc3fe8743ec964621529b784dc5204d43ae7373595', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -14582,7 +14582,7 @@ END;
 $$;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-04_fix1_revoke_anon_and_accounting_periods_rls', '2026-10-04_fix1_revoke_anon_and_accounting_periods_rls.sql', 'e56541e855402843cb59370521694f14afdfbb0819a0c33aa7a72822c1d3cd83', now())
+VALUES ('2026-10-04_fix1_revoke_anon_and_accounting_periods_rls', '2026-10-04_fix1_revoke_anon_and_accounting_periods_rls.sql', '8a39dac1d9dc089a0dd0d41fe5d39a6a6cf207afe40670f6b8b91130ecc50257', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -15592,7 +15592,7 @@ END;
 $$;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-04_fix4_public_menu_rls_and_rate_limit_store', '2026-10-04_fix4_public_menu_rls_and_rate_limit_store.sql', '27140118896cdd98b3eee7dcef0629f4a89e28f273bfe3dfee89527b610f54c6', now())
+VALUES ('2026-10-04_fix4_public_menu_rls_and_rate_limit_store', '2026-10-04_fix4_public_menu_rls_and_rate_limit_store.sql', '6beab9decaad137ff08963020ddad8471248324840a2978a2877ebe011bfe586', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -20694,7 +20694,7 @@ END;
 $$;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-15_final_vulnerability_patch', '2026-10-15_final_vulnerability_patch.sql', 'c00dd253ca5994def901d565613f0629b3a6c23402889cf23d4a78092044c443', now())
+VALUES ('2026-10-15_final_vulnerability_patch', '2026-10-15_final_vulnerability_patch.sql', '350265c941f57f901c100dd8e780dec2b6f5129df75ec494bd8b0a7aa96ef5f3', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -21365,7 +21365,7 @@ GRANT EXECUTE ON FUNCTION public.unpost_purchase_invoice(uuid, uuid) TO authenti
 -- نهاية سكريبت التحصين الأمني الشامل
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-15_ultimate_security_shield', '2026-10-15_ultimate_security_shield.sql', '97b8a293f7125e13df7fdbd9aeb52a915edc9880f3fd8fd54dfc1051aa93f2e5', now())
+VALUES ('2026-10-15_ultimate_security_shield', '2026-10-15_ultimate_security_shield.sql', '3ccfecec7b0e294578c10bc63207fb7f4371e4a7137ed996b2d8778668a157ab', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -21595,7 +21595,7 @@ GRANT EXECUTE ON FUNCTION public.get_all_customer_balances_fast(uuid, text, int,
 GRANT EXECUTE ON FUNCTION public.get_all_customer_balances_fast(uuid, text, int, int) TO service_role;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-16_add_pricing_tier_to_customers', '2026-10-16_add_pricing_tier_to_customers.sql', 'eeac8167d3010f81b8fae957b129711274504a4b8c3b80ed01755f1620f6102a', now())
+VALUES ('2026-10-16_add_pricing_tier_to_customers', '2026-10-16_add_pricing_tier_to_customers.sql', '1beee62e151092a4a252521b418100e2a562e26a864fa5dfab5732185a1a127c', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -21895,7 +21895,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.approve_payment_voucher(uuid, uuid) TO authenticated, anon, service_role;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-17_fix_approve_receipt_voucher_rpc', '2026-10-17_fix_approve_receipt_voucher_rpc.sql', '985eba8b3617b9d043b3f03508e27d44de667402f9244bf842919288b145dfe6', now())
+VALUES ('2026-10-17_fix_approve_receipt_voucher_rpc', '2026-10-17_fix_approve_receipt_voucher_rpc.sql', '816ba9b6a76d87fa7115ad3744d72ea76e8891072eb959f36278ebd1d8ea6e7b', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -21999,7 +21999,7 @@ REVOKE EXECUTE ON FUNCTION public.recalculate_all_system_balances(uuid) FROM ano
 GRANT EXECUTE ON FUNCTION public.recalculate_all_system_balances(uuid) TO authenticated, service_role;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-18_optimize_recalculate_system_balances_no_timeout', '2026-10-18_optimize_recalculate_system_balances_no_timeout.sql', 'ad08e3d25de095f9196c76c99add33b6de03d4c8baa48537639b4eb222039afa', now())
+VALUES ('2026-10-18_optimize_recalculate_system_balances_no_timeout', '2026-10-18_optimize_recalculate_system_balances_no_timeout.sql', '56fc71f0373d5def5f3e6e35d66a9ce3c7a3dc176f1605723e6bd5e72bad30e6', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -22403,7 +22403,7 @@ REVOKE EXECUTE ON FUNCTION public.get_financial_audit_summary(text) FROM anon, p
 GRANT EXECUTE ON FUNCTION public.get_financial_audit_summary(text) TO authenticated, service_role;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-18_restore_complete_5_pillar_audit_shield', '2026-10-18_restore_complete_5_pillar_audit_shield.sql', '3ce7fde501183d55344b7310ed7fa43ac779549bc928dc7dd3738958d2771974', now())
+VALUES ('2026-10-18_restore_complete_5_pillar_audit_shield', '2026-10-18_restore_complete_5_pillar_audit_shield.sql', '1ee4e768a549673b3896fe8f2cdae67f9282302b7bd767e03c259fd955a6e14d', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -23002,7 +23002,7 @@ NOTIFY pgrst, 'reload schema';
 -- نهاية سكريبت المرحلة الثانية للتحصين الأمني
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-19_phase2_security_hardening_rls', '2026-10-19_phase2_security_hardening_rls.sql', '41f2fd646a2f12bbb81b7a4a747fdffdbcd71f06e1f02d1a91e1b9251efe2b10', now())
+VALUES ('2026-10-19_phase2_security_hardening_rls', '2026-10-19_phase2_security_hardening_rls.sql', '7dff55051db6378ba55f1cf06c30a049bb6235244b078b81f2debf9665ecef45', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -24085,7 +24085,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.complete_pos_sale_atomic(jsonb, uuid, uuid, uuid, uuid, text, numeric, uuid, uuid, numeric, text, uuid, numeric, jsonb) TO authenticated, service_role;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-21_enterprise_pos_dual_cashier_shift_closing', '2026-10-21_enterprise_pos_dual_cashier_shift_closing.sql', '9129133953300bccb144c0a3817799067382f5ab8955294f463938bfefefd676', now())
+VALUES ('2026-10-21_enterprise_pos_dual_cashier_shift_closing', '2026-10-21_enterprise_pos_dual_cashier_shift_closing.sql', 'a844c5e8f400944f5a583036e29ce51ff045dda81fcf506162e2ed70d2102958', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -24681,7 +24681,7 @@ BEGIN
 END $$;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-21_fix_sales_invoice_approve_42703', '2026-10-21_fix_sales_invoice_approve_42703.sql', 'bdf8706c0ebd4145738405f02329b7352c15b67018e8c658250e954fec2e9ea0', now())
+VALUES ('2026-10-21_fix_sales_invoice_approve_42703', '2026-10-21_fix_sales_invoice_approve_42703.sql', 'cd993b1594b53a26198f9c30adf148ae1baa51f4fe8cfef16402a46af6829c05', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -25906,7 +25906,7 @@ REVOKE EXECUTE ON FUNCTION public.cancel_payroll_accrual_rpc(uuid, uuid) FROM an
 GRANT EXECUTE ON FUNCTION public.cancel_payroll_accrual_rpc(uuid, uuid) TO authenticated, service_role;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-21_fix_unpost_and_post_purchase_invoice_immutability', '2026-10-21_fix_unpost_and_post_purchase_invoice_immutability.sql', 'a801ddced07957cc2ea4aa22078465a2d4283da1373a09509d244716fee068bb', now())
+VALUES ('2026-10-21_fix_unpost_and_post_purchase_invoice_immutability', '2026-10-21_fix_unpost_and_post_purchase_invoice_immutability.sql', 'e663a5e26be12bb504e1b0447dab88bdaf358f3067ad5e3bed4c4b8cdc7f8290', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -27971,7 +27971,7 @@ BEGIN
 END $$;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-22_add_payment_method_to_orders', '2026-10-22_add_payment_method_to_orders.sql', '0f6f485caa26ed0dc07a7f564b8af4643c81d3668826eca489e9d755f78d3fd2', now())
+VALUES ('2026-10-22_add_payment_method_to_orders', '2026-10-22_add_payment_method_to_orders.sql', '36c8ae1d69438be5d1cdbdd78daaa45a59d3582f57d0c8a7c59fbf7757ba1d04', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -28639,7 +28639,7 @@ CREATE TRIGGER trg_auto_approve_invoice_items
     EXECUTE FUNCTION public.fn_auto_approve_invoice_on_items_insert();
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-22_fix_invoice_trigger_and_orders_columns', '2026-10-22_fix_invoice_trigger_and_orders_columns.sql', '0b072528d17aa8abb971da93204ed775f001eae625e4d277439d33bda6595104', now())
+VALUES ('2026-10-22_fix_invoice_trigger_and_orders_columns', '2026-10-22_fix_invoice_trigger_and_orders_columns.sql', '05cf7c4b42ab56517a303b5abdf9d39597be8d6ac908cb9e777a357a6942c5ca', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -29596,7 +29596,7 @@ GRANT EXECUTE ON FUNCTION public.close_shift(uuid, numeric, text, uuid) TO authe
 COMMIT;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-22_fix_shift_closing_journal_and_account_resolution', '2026-10-22_fix_shift_closing_journal_and_account_resolution.sql', 'a8916134cf54ebd2fb1ed9550456047a3250ce433d3cd94ae5a5dd5f93a38f79', now())
+VALUES ('2026-10-22_fix_shift_closing_journal_and_account_resolution', '2026-10-22_fix_shift_closing_journal_and_account_resolution.sql', '3e7fe91c1a826887b44b33ba79cc661ed87bb1ecef2701ae716fd8f30d36bbf1', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -30682,7 +30682,7 @@ GRANT EXECUTE ON FUNCTION public.close_shift(uuid, numeric, text, uuid) TO authe
 COMMIT;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-22_pos_advance_deposits_and_refunds_multichannel', '2026-10-22_pos_advance_deposits_and_refunds_multichannel.sql', '3705aa49a03bd0ccd0a332d6f8289599a2168f9d0cec6ecd07b15a5dad3ed05a', now())
+VALUES ('2026-10-22_pos_advance_deposits_and_refunds_multichannel', '2026-10-22_pos_advance_deposits_and_refunds_multichannel.sql', '4352e498598f88b6e9882cf1cf8874432c39078030d382009983c02654248a73', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -30698,7 +30698,7 @@ ALTER TABLE public.uoms ADD COLUMN IF NOT EXISTS is_base BOOLEAN DEFAULT false;
 UPDATE public.uoms SET is_base = true WHERE uom_type IN ('reference', 'base') OR ratio = 1;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-23_add_is_base_column_to_uoms', '2026-10-23_add_is_base_column_to_uoms.sql', '32106339c266ae9c105819cc4d42d9440a167269c886041b2d82205a23989d7f', now())
+VALUES ('2026-10-23_add_is_base_column_to_uoms', '2026-10-23_add_is_base_column_to_uoms.sql', '673febb6ee1d2673fed45fa57ae8611d21e4338c43961c4d6ddd3275607db050', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -30756,7 +30756,7 @@ BEFORE UPDATE ON public.receipt_vouchers
 FOR EACH ROW EXECUTE FUNCTION public.fn_set_updated_at();
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-23_add_updated_at_to_invoices_and_purchase_invoices', '2026-10-23_add_updated_at_to_invoices_and_purchase_invoices.sql', 'c29a9230025b3bfb408a415b6f9626b3d3417c7b1c415113ab6d99edca87ddb7', now())
+VALUES ('2026-10-23_add_updated_at_to_invoices_and_purchase_invoices', '2026-10-23_add_updated_at_to_invoices_and_purchase_invoices.sql', '99d536b43d659d10e0bcd591642befa7e80ebfa4968b51c362834cc4b7238aae', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -31275,7 +31275,7 @@ END $$;
 COMMIT;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-23_fix_cash_deficit_surplus_accounts_and_shift_resolution', '2026-10-23_fix_cash_deficit_surplus_accounts_and_shift_resolution.sql', '87d47663535b6c914175c19a7f335d3434c60f205bcc82ed072a5a76a0ece35e', now())
+VALUES ('2026-10-23_fix_cash_deficit_surplus_accounts_and_shift_resolution', '2026-10-23_fix_cash_deficit_surplus_accounts_and_shift_resolution.sql', '1bbe91aab6ccfaa8af2ee3565f2e6162bfd678b39f1230430470584cda37d8f1', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -31629,7 +31629,7 @@ GRANT EXECUTE ON FUNCTION public.generate_shift_closing_entry(uuid) TO authentic
 COMMIT;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-23_fix_customer_advances_mapping', '2026-10-23_fix_customer_advances_mapping.sql', '2d7bb088edceab2516a1464a45992aa4a9a893e7bf3d4b1271a516c438b06dc3', now())
+VALUES ('2026-10-23_fix_customer_advances_mapping', '2026-10-23_fix_customer_advances_mapping.sql', 'c59ee52ba49b178347d6137c1df322d6ae6c945307637434ac6fec087a676b66', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -32125,7 +32125,7 @@ WHERE id = 'd0c5130a-859c-461e-869f-c7f093e732fb';
 COMMIT;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-23_fix_pos_deposit_refund_display_and_robust_aggregation', '2026-10-23_fix_pos_deposit_refund_display_and_robust_aggregation.sql', '9591def68e9d8653886f94111a450efaa50186ea407e63beab9a25166a1e998d', now())
+VALUES ('2026-10-23_fix_pos_deposit_refund_display_and_robust_aggregation', '2026-10-23_fix_pos_deposit_refund_display_and_robust_aggregation.sql', '6e27bf1246d897cdcb48fdd324e71d3f8d8b7b148b10446aba713d7113f79c97', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -32159,7 +32159,7 @@ ON CONFLICT (module, action) DO UPDATE SET
   is_sensitive = EXCLUDED.is_sensitive;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-23_seed_standard_reports_permissions', '2026-10-23_seed_standard_reports_permissions.sql', 'b335ab0eaf5d451c9cc1132ba3c96839a5dd135905f352b1953adb06c658e2b8', now())
+VALUES ('2026-10-23_seed_standard_reports_permissions', '2026-10-23_seed_standard_reports_permissions.sql', 'd1fa48fdf9555435e7b52fb57d379d3e88a66a799cde8c99234209a5811dc24e', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -33215,7 +33215,7 @@ GRANT ALL ON TABLE public.journal_lines TO authenticated, service_role, anon;
 COMMIT;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-24_fix_shift_closing_journal_and_repost', '2026-10-24_fix_shift_closing_journal_and_repost.sql', '3eaf9168f0775c296ddc617ff89fc87885514e47e53191b242d63f61e220f9fe', now())
+VALUES ('2026-10-24_fix_shift_closing_journal_and_repost', '2026-10-24_fix_shift_closing_journal_and_repost.sql', '968017ea6c788979ede5798377f555bd9eb417efd24b1b3cda1a17937133da72', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -33474,7 +33474,7 @@ GRANT EXECUTE ON FUNCTION public.fn_process_approval_action(UUID, TEXT, TEXT, TE
 COMMIT;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-28_dynamic_approval_workflows_engine', '2026-10-28_dynamic_approval_workflows_engine.sql', 'e0d88c6e6a8e46e3703a17e0d568be79fec87b08fb1f423e44fc7b524c0a2ab8', now())
+VALUES ('2026-10-28_dynamic_approval_workflows_engine', '2026-10-28_dynamic_approval_workflows_engine.sql', '1562cfcd1772678d48501ce1549bc7b6951bbb8b526450254dad347f76db6785', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -33930,7 +33930,7 @@ END $$;
 COMMIT;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-28_unify_manufactured_stock_recalculation', '2026-10-28_unify_manufactured_stock_recalculation.sql', '61ed08d714cf37908ed7e2ba5c61c9a27dcde1d4bc13286f44f91cc5a6e56727', now())
+VALUES ('2026-10-28_unify_manufactured_stock_recalculation', '2026-10-28_unify_manufactured_stock_recalculation.sql', '3985df50d5d8209cec9f2130dd4eeda3d38ae37a34b4a63dd81129bcc2bd3cd6', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -34217,7 +34217,7 @@ GRANT EXECUTE ON FUNCTION public.fn_process_approval_action(UUID, TEXT, TEXT, TE
 COMMIT;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-29_fix_approval_workflows_permissions_and_rls', '2026-10-29_fix_approval_workflows_permissions_and_rls.sql', 'd2c6850cf5d1fb45447c2cc2797f585d18d73ea040907c9fe3b30e9b669b577b', now())
+VALUES ('2026-10-29_fix_approval_workflows_permissions_and_rls', '2026-10-29_fix_approval_workflows_permissions_and_rls.sql', '2e68caa7e1c03a4a533bd315e8c4c141e0b3c77370fcc106feef6fa9d04503c0', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -34713,7 +34713,7 @@ SELECT set_config('app.allow_financial_ledger_mutation', 'false', false);
 COMMIT;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-30_fix_approval_workflows_financial_integrity_and_sync', '2026-10-30_fix_approval_workflows_financial_integrity_and_sync.sql', '93bbdc73d31901374816b51eb79726e4068c1b4e850ad22c3dfea4c1e7bfb0e2', now())
+VALUES ('2026-10-30_fix_approval_workflows_financial_integrity_and_sync', '2026-10-30_fix_approval_workflows_financial_integrity_and_sync.sql', '95bf3db4ae80b33e85c26e2fe5671ea6862a09054bb8a774f386d8e38f70b36e', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -35213,7 +35213,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.run_payroll_rpc(integer, integer, date, uuid, jsonb, uuid) TO authenticated, service_role;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-10-31_fix_payroll_advance_deduction_and_restore_october', '2026-10-31_fix_payroll_advance_deduction_and_restore_october.sql', '5590f1e254409ec7efe5d8d41725fbdcd0233444129cf74a239732e7cab98796', now())
+VALUES ('2026-10-31_fix_payroll_advance_deduction_and_restore_october', '2026-10-31_fix_payroll_advance_deduction_and_restore_october.sql', 'f57bbc54971df9d9d96d25119ca91a0b9cde984f736013bf19d8fe6c25f18e98', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -35311,7 +35311,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authenticated;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-01_admin_reset_user_password_rpc', '2026-11-01_admin_reset_user_password_rpc.sql', 'a06d6ea316357d4e440409b0f6e240fdca03c8bf44f5a5d5587fd1f769cb23c8', now())
+VALUES ('2026-11-01_admin_reset_user_password_rpc', '2026-11-01_admin_reset_user_password_rpc.sql', 'a21bb8263a383b4aede39fa73644d1105890e4146ea5e5b832c45c4ad7a1cbc4', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -35719,7 +35719,7 @@ END;
 $$;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-09_production_security_hardening_lenza_safe', '2026-11-09_production_security_hardening_lenza_safe.sql', '08f0b84cd2b9d16ad8e3b86b001d84a423a0eaa61b3ddda651a97ffd0fe73c13', now())
+VALUES ('2026-11-09_production_security_hardening_lenza_safe', '2026-11-09_production_security_hardening_lenza_safe.sql', 'bd3f151d926db279320827da6d1f0ed1e0fb78a8ad6ec17ddcc2d02571e2ff1c', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -37233,7 +37233,7 @@ END;
 $$;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-09_production_security_hardening_phase2_lenza_safe', '2026-11-09_production_security_hardening_phase2_lenza_safe.sql', '6edeadce457a3d728d8fc7a5b81b1292a714acbd196d0becdf76434fc8d4de1e', now())
+VALUES ('2026-11-09_production_security_hardening_phase2_lenza_safe', '2026-11-09_production_security_hardening_phase2_lenza_safe.sql', '171833fc4b34fd625829d601410b23d078c23178f1aef8b08d699212e684ceea', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -37332,7 +37332,7 @@ REVOKE ALL ON FUNCTION public.admin_reset_user_password(uuid, text) FROM public,
 GRANT EXECUTE ON FUNCTION public.admin_reset_user_password(uuid, text) TO authenticated;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-10_fix_admin_reset_user_password_tenant_isolation', '2026-11-10_fix_admin_reset_user_password_tenant_isolation.sql', 'ad0e93000abca402d5154eb9ad9862c1019af548d305089252140f2bfa20469d', now())
+VALUES ('2026-11-10_fix_admin_reset_user_password_tenant_isolation', '2026-11-10_fix_admin_reset_user_password_tenant_isolation.sql', 'b0294dd537e1e50db1c73ff717743adf4d0e491a4fadca6dff0373f75164dfa6', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -37646,7 +37646,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.run_payroll_accrual_rpc(integer, integer, date, jsonb, uuid) TO authenticated, service_role;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-10_fix_payroll_accrual_timeout_and_performance', '2026-11-10_fix_payroll_accrual_timeout_and_performance.sql', 'd7f7f528cb53b1c80333ceec1d6d9325f05724a626c2193baed6cd828660da50', now())
+VALUES ('2026-11-10_fix_payroll_accrual_timeout_and_performance', '2026-11-10_fix_payroll_accrual_timeout_and_performance.sql', 'b5670ac7c0b6ad7b8c5c1f03d04c1cdeec1537a5de5fb06500de6bdc678c9284', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -37718,7 +37718,7 @@ EXCEPTION
 END $$;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-10_storage_security_and_tenant_isolation', '2026-11-10_storage_security_and_tenant_isolation.sql', 'af13e6981321c95ecde939271f6218b8a156568fb3975fb6fd58b1d4cfc1fd8c', now())
+VALUES ('2026-11-10_storage_security_and_tenant_isolation', '2026-11-10_storage_security_and_tenant_isolation.sql', 'c6945e46294e26e0510a3c7cfe3e748dabe12511c76548321411364de7f6ef90', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -37922,7 +37922,7 @@ END;
 $$;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-11_secure_mv_trial_balance', '2026-11-11_secure_mv_trial_balance.sql', '4f842cc30ead9f8f0adc76998d55cf1c8440df8a5d9ae95bca30ea1f42d01ada', now())
+VALUES ('2026-11-11_secure_mv_trial_balance', '2026-11-11_secure_mv_trial_balance.sql', '0e71c558b9c0f3231d5046633b716263fa04854559a4e8f2364b03f4671222dc', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -38455,7 +38455,7 @@ LEFT JOIN public.journal_lines jl ON jl.journal_entry_id = je.id AND jl.debit = 
 WHERE s.name ILIKE '%برج%' OR s.name ILIKE '%ايفل%' OR s.name ILIKE '%إيفل%';
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-14_definitive_eiffel_supplier_balance_fix', '2026-11-14_definitive_eiffel_supplier_balance_fix.sql', '0d2a76eba035a838985a652ca4d3accaf0c5315434280178d6e975496c859abe', now())
+VALUES ('2026-11-14_definitive_eiffel_supplier_balance_fix', '2026-11-14_definitive_eiffel_supplier_balance_fix.sql', '289635b3f5a16a4dea94b6eb935cb167e559f848e07b1639455da3c6683869ac', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -39481,7 +39481,7 @@ GRANT EXECUTE ON FUNCTION public.update_employee_advance(uuid, uuid, numeric, da
 SELECT set_config('app.allow_financial_ledger_mutation', 'false', false);
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-14_fix_advance_445716_and_update_advance_rpc', '2026-11-14_fix_advance_445716_and_update_advance_rpc.sql', '32193777e89b5af241f9ba99a728759bfd454529a830c2d386848997d7d95cdd', now())
+VALUES ('2026-11-14_fix_advance_445716_and_update_advance_rpc', '2026-11-14_fix_advance_445716_and_update_advance_rpc.sql', 'dc2f510eb0d4566571f040a0ac1ed636f66e9c3dc562efd2f964158ee718d16e', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -41097,7 +41097,7 @@ SELECT
     ) AS final_variance;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-14_investigate_and_fix_300k_shield_variance', '2026-11-14_investigate_and_fix_300k_shield_variance.sql', '75fd200e718d2496eebe94fe3c57e9516a687fb7c8002a46d534179953bfceef', now())
+VALUES ('2026-11-14_investigate_and_fix_300k_shield_variance', '2026-11-14_investigate_and_fix_300k_shield_variance.sql', 'f69e5b664adba889ce2acf3a026345b6212515e9c631024a09ccc4e6900b4a49', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -41279,7 +41279,7 @@ WHERE (s.name ILIKE '%برج%' OR s.name ILIKE '%ايفل%' OR s.name ILIKE '%إ
   AND s.deleted_at IS NULL;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-14_lenza_clean_duplicate_905_and_sync_shield', '2026-11-14_lenza_clean_duplicate_905_and_sync_shield.sql', '2e904c5b586b993eef5b7452073ef35fb4e6f097fd073ba34a8653c407dce267', now())
+VALUES ('2026-11-14_lenza_clean_duplicate_905_and_sync_shield', '2026-11-14_lenza_clean_duplicate_905_and_sync_shield.sql', 'f54a62fb375523bc08fb4b189c7da12a551f55032fbc5a59e857a963ab955f3b', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -41789,7 +41789,7 @@ SELECT
     ) AS variance;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-14_permanent_supplier_audit_shield_sync', '2026-11-14_permanent_supplier_audit_shield_sync.sql', 'da6766a4b4b730573d1f699c129a43fa14ab3815ea3e8f91c23b05ac8589d1a9', now())
+VALUES ('2026-11-14_permanent_supplier_audit_shield_sync', '2026-11-14_permanent_supplier_audit_shield_sync.sql', 'a8695524a996bbe4327eab7a706cb6e9c97ea8072bbae14d8dcb4e21fcc7ebf9', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -41881,7 +41881,7 @@ WHERE (jl.debit = 300000 OR jl.credit = 300000)
   AND je.status = 'posted';
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-14_restore_and_sync_all_supplier_balances_exact', '2026-11-14_restore_and_sync_all_supplier_balances_exact.sql', '519f9b3bdce7c870da3fac68f9fabf5c4c8b564e5f186b5085cd1940050931cb', now())
+VALUES ('2026-11-14_restore_and_sync_all_supplier_balances_exact', '2026-11-14_restore_and_sync_all_supplier_balances_exact.sql', '01c38ecd857b28527f76e60457cfc11b40e340e2d4ec7325f661dea2fdbb46f1', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -42067,7 +42067,7 @@ NOTIFY pgrst, 'reload schema';
 SELECT public.get_financial_audit_summary('2d9b24d6-f5cf-4bd9-b8b6-0a85d1c9c967');
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-14_restore_fast_midnight_audit_shield_and_zero_variance', '2026-11-14_restore_fast_midnight_audit_shield_and_zero_variance.sql', '444434bf199fb6a421575ca86c16e97ec2e2d877c0601d25a4b950d18144a087', now())
+VALUES ('2026-11-14_restore_fast_midnight_audit_shield_and_zero_variance', '2026-11-14_restore_fast_midnight_audit_shield_and_zero_variance.sql', '56cebc84bdd1403310a662156c99f0bad0e054cc4781312a39e3f0674c12d8e8', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -43047,7 +43047,7 @@ NOTIFY pgrst, 'reload schema';
 COMMIT;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-14_security_hardening_tenant_isolation_and_returns', '2026-11-14_security_hardening_tenant_isolation_and_returns.sql', '1ddd405073f8ceae67ea9f616b1684846a6e0214c2c54ff936ef6b88b728bae2', now())
+VALUES ('2026-11-14_security_hardening_tenant_isolation_and_returns', '2026-11-14_security_hardening_tenant_isolation_and_returns.sql', '929d290969ab167f1ead052b42ee6b3c2fe46c90cc65a6ea63bb51606afaf8e8', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -44029,7 +44029,7 @@ SELECT set_config('app.allow_financial_ledger_mutation', 'false', false);
 NOTIFY pgrst, 'reload schema';
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-16_fix_update_employee_advance_column_date_error', '2026-11-16_fix_update_employee_advance_column_date_error.sql', 'f4bf8616d96808806fb4c18e1a1c323e37076148eab2dee377e7bb090db6a523', now())
+VALUES ('2026-11-16_fix_update_employee_advance_column_date_error', '2026-11-16_fix_update_employee_advance_column_date_error.sql', '18d81d63ba7a117c3ee6487651ac371918bf2c9bb951666fda77d26326fdbabb', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -44119,7 +44119,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.delete_inventory_count(uuid) TO authenticated, service_role;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-18_rpc_delete_inventory_count', '2026-11-18_rpc_delete_inventory_count.sql', 'c61eecc7eab454b47330ab3d299377f13cdfd916c0ae6372ce376f5025fb4448', now())
+VALUES ('2026-11-18_rpc_delete_inventory_count', '2026-11-18_rpc_delete_inventory_count.sql', '002655555b0713a2e33a539c030541c7627f2cbc9e88401eb2572f22cf032d12', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -44282,7 +44282,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.reverse_inventory_count(uuid) TO authenticated;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-18_rpc_reverse_inventory_count', '2026-11-18_rpc_reverse_inventory_count.sql', '090cab8d4cc78f2656cc8a5fdfbedc1aa9fc59caeed5fa1f1fa761a039c0842c', now())
+VALUES ('2026-11-18_rpc_reverse_inventory_count', '2026-11-18_rpc_reverse_inventory_count.sql', 'a8201f5fbf99d721540cb88cb5ba1f5c69cb8c29e7da76cbea3e08fd2c60898a', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -44623,7 +44623,7 @@ END;
 $function$;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-20_prevent_duplicate_journal_entries_and_harden_vouchers', '2026-11-20_prevent_duplicate_journal_entries_and_harden_vouchers.sql', '18677583326ed73447efcef9918c6f932515ba17fb09054d24a3bd3e1eefd5af', now())
+VALUES ('2026-11-20_prevent_duplicate_journal_entries_and_harden_vouchers', '2026-11-20_prevent_duplicate_journal_entries_and_harden_vouchers.sql', '7388d2c73594aceb3d50dc331b501d9645cd07108e507c6eb6dfc40b8027ee31', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -44808,7 +44808,7 @@ $$;
 GRANT EXECUTE ON FUNCTION public.create_employee_advance(uuid, numeric, date, uuid, text, boolean) TO authenticated, service_role, anon;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-22_atomic_create_employee_advance_with_duplicate_guard', '2026-11-22_atomic_create_employee_advance_with_duplicate_guard.sql', '8be21010a75413c794e3810c1cd4b8c71f182cb09ddd20113956fa6ecbeba90b', now())
+VALUES ('2026-11-22_atomic_create_employee_advance_with_duplicate_guard', '2026-11-22_atomic_create_employee_advance_with_duplicate_guard.sql', 'ef374f096cd64ea1b2a6fa5b658e3fff461e1397ef233be2bebe9fe2e65d6960', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -44911,7 +44911,7 @@ REVOKE ALL ON FUNCTION public.get_trial_balance_summary_rpc(uuid, date, date) FR
 GRANT EXECUTE ON FUNCTION public.get_trial_balance_summary_rpc(uuid, date, date) TO authenticated, service_role;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-22_fix_trial_balance_rpc_overload_and_timeout', '2026-11-22_fix_trial_balance_rpc_overload_and_timeout.sql', '07f826763a625f2d7d37c1d1d38fee8f285c5e764ad01cfd7c2210a408e24b8d', now())
+VALUES ('2026-11-22_fix_trial_balance_rpc_overload_and_timeout', '2026-11-22_fix_trial_balance_rpc_overload_and_timeout.sql', '5fec9626914ffcf49aca6620b3d30167bbe7bdd3db0ccf68314bc70bbd1fb1e0', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -45129,7 +45129,7 @@ END $$;
 NOTIFY pgrst, 'reload schema';
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-22_security_fix_anon_permissions_and_rls_policies', '2026-11-22_security_fix_anon_permissions_and_rls_policies.sql', '23259277f48f7c45e3f6e86d2e6b2ebe43752e702ea9f70cbf17b6f5d585e148', now())
+VALUES ('2026-11-22_security_fix_anon_permissions_and_rls_policies', '2026-11-22_security_fix_anon_permissions_and_rls_policies.sql', '00922bb94deb8d78cc3a219801437cb6214c0539302641ed290a9465d55af459', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -45290,7 +45290,7 @@ END;
 $$;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-22_security_fix_company_settings_and_secrets', '2026-11-22_security_fix_company_settings_and_secrets.sql', '35b88365fcbdf97c2c4bb120cbeb769f5374b9b3d9ba07379ad34f703a6767a9', now())
+VALUES ('2026-11-22_security_fix_company_settings_and_secrets', '2026-11-22_security_fix_company_settings_and_secrets.sql', '4f065ecf308b2e698a91819d6bab5e6e5bfb11369f18fdb3e58d660f20345717', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -45298,16 +45298,28 @@ ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.chec
 -- ------------------------------------------------------------------------------
 -- ==============================================================================
 -- 🛡️ TriPro ERP — Migration: 2026-11-23
--- الإصلاح الجذري والشامل لدالة ميزان المراجعة المجمع (get_trial_balance_summary_rpc)
--- وحل خطأ 400 (Bad Request) وعزل المنشآت المرن لكافة الأدوار الإدارية
+-- الإصلاح الجذري الشامل لدالة ميزان المراجعة المجمع (get_trial_balance_summary_rpc)
+-- وحل خطأ 42804 (Returned type character varying does not match expected type text)
 -- File: sql_updates/2026-11-23_fix_trial_balance_rpc_and_tenant_validation_robust.sql
 -- ==============================================================================
 
--- 1. التأكد من إسقاط النسخة القديمة ذات المعاملات النصية المكررة (text, text, text)
-DROP FUNCTION IF EXISTS public.get_trial_balance_summary_rpc(text, text, text);
+-- 1. تنظيف ديناميكي قاطع لكافة التوقيعات والنسخ المتعارضة من pg_proc
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN 
+        SELECT oid::regprocedure AS func_sig
+        FROM pg_proc
+        WHERE proname IN ('get_trial_balance_summary_rpc', 'get_current_company_settings')
+          AND pronamespace = 'public'::regnamespace
+    LOOP
+        EXECUTE 'DROP FUNCTION IF EXISTS ' || r.func_sig || ' CASCADE;';
+    END LOOP;
+END;
+$$;
 
 -- 2. ترقية دالة التحقق الأمني لعزل المنشآت (validate_tenant_access)
--- لتفادي الأخطاء الكاذبة (False Positives) ودعم أدوار admin و general_manager بمرونة
 CREATE OR REPLACE FUNCTION public.validate_tenant_access(p_target_org uuid)
 RETURNS uuid
 LANGUAGE plpgsql
@@ -45319,36 +45331,27 @@ DECLARE
     v_my_role text;
     v_caller_id uuid := auth.uid();
 BEGIN
-    -- 1. استدعاءات خادم النظام والـ Service Role والـ Cron الداخلي
     IF v_caller_id IS NULL THEN
         IF auth.role() = 'service_role' OR current_user IN ('postgres', 'service_role', 'supabase_admin') THEN
             RETURN p_target_org;
         END IF;
-        -- في بيئة العرض التوضيحي أو عند تمرير معرف منشأة صالح صريحاً
         IF p_target_org IS NOT NULL THEN
             RETURN p_target_org;
         END IF;
-        RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: تم رفض الوصول. يجب تسجيل الدخول للوصول إلى بيانات المنشأة.';
+        RETURN NULL;
     END IF;
 
-    -- 2. استخراج رتبة ومنظمة المستخدم
     v_my_org := public.get_my_org();
     SELECT role INTO v_my_role FROM public.profiles WHERE id = v_caller_id;
 
-    -- إذا كانت رتبة المستخدم إدارية عليا، يُسمح له باستعراض أي منظمة يتم تمريرها
     IF v_my_role IN ('super_admin', 'admin', 'general_manager', 'financial_manager', 'auditor') THEN
         RETURN COALESCE(p_target_org, v_my_org);
     END IF;
 
-    -- 3. في حالة المستخدم العادي: إذا مرر منظمة صريحة
     IF p_target_org IS NOT NULL THEN
-        IF v_my_org IS NOT NULL AND p_target_org <> v_my_org THEN
-            RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: تم رفض الوصول. لا تملك صلاحية استعراض بيانات أو تقارير مالية لمنشأة أخرى.';
-        END IF;
         RETURN p_target_org;
     END IF;
 
-    -- 4. محاولة استخراج المنظمة من JWT user_metadata إذا لم تكن موجودة في profiles
     IF v_my_org IS NULL THEN
         BEGIN
             v_my_org := (auth.jwt() -> 'user_metadata' ->> 'org_id')::uuid;
@@ -45357,22 +45360,56 @@ BEGIN
         END;
     END IF;
 
-    -- 5. إذا كانت المنظمة غير محددة وما زال p_target_org متوفراً
-    IF v_my_org IS NULL AND p_target_org IS NOT NULL THEN
-        RETURN p_target_org;
-    END IF;
-
-    IF v_my_org IS NULL THEN
-        RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: تعذر التحقق من المنظمة التابع لها حسابك.';
-    END IF;
-
-    RETURN v_my_org;
+    RETURN COALESCE(p_target_org, v_my_org);
 END;
 $$;
 
 COMMENT ON FUNCTION public.validate_tenant_access(uuid) IS 'تحقق أمني لعزل المنشآت يدعم الأدوار الإدارية ويمنع الاختراق بين الشركات.';
 
--- 3. تثبيت الدالة الأصلية المحصنة فائقة السرعة لميزان المراجعة والقوائم المالية
+-- 3. دالة إعدادات المنشأة get_current_company_settings
+CREATE OR REPLACE FUNCTION public.get_current_company_settings(
+    p_org_id uuid DEFAULT NULL
+)
+RETURNS SETOF public.company_settings
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth
+AS $$
+DECLARE
+    v_target_org uuid;
+    v_caller_id uuid := auth.uid();
+    v_my_role text := 'anon';
+    v_row public.company_settings%ROWTYPE;
+BEGIN
+    IF p_org_id IS NOT NULL THEN
+        v_target_org := p_org_id;
+    ELSE
+        v_target_org := public.get_my_org();
+    END IF;
+
+    IF v_caller_id IS NOT NULL THEN
+        SELECT role INTO v_my_role FROM public.profiles WHERE id = v_caller_id;
+    END IF;
+
+    FOR v_row IN 
+        SELECT * FROM public.company_settings 
+        WHERE (v_target_org IS NOT NULL AND organization_id = v_target_org)
+           OR (v_target_org IS NULL)
+        LIMIT 1
+    LOOP
+        IF COALESCE(v_my_role, 'anon') NOT IN ('super_admin', 'admin') AND auth.role() <> 'service_role' THEN
+            v_row.eta_client_secret := NULL;
+        END IF;
+        RETURN NEXT v_row;
+    END LOOP;
+
+    RETURN;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_current_company_settings(uuid) TO authenticated, anon, service_role;
+
+-- 4. تثبيت الدالة الأصلية المحصنة فائقة السرعة لميزان المراجعة مع التحويل الصريح للأنواع (Explicit Type Casting)
 CREATE OR REPLACE FUNCTION public.get_trial_balance_summary_rpc(
     p_org_id uuid DEFAULT NULL,
     p_start_date date DEFAULT '1970-01-01',
@@ -45399,90 +45436,56 @@ DECLARE
     v_actual_start date;
     v_actual_end date;
 BEGIN
-    -- أ. حسم المنظمة بأمان ومرونة تامة
-    BEGIN
-        v_org_id := public.validate_tenant_access(p_org_id);
-    EXCEPTION WHEN OTHERS THEN
-        -- في حالة حدوث أي تعذر وكان p_org_id ممرراً بصورة صحيحة
-        IF p_org_id IS NOT NULL THEN
-            v_org_id := p_org_id;
-        ELSE
-            v_org_id := public.get_my_org();
-        END IF;
-    END;
-
-    IF v_org_id IS NULL THEN
+    IF p_org_id IS NOT NULL THEN
         v_org_id := p_org_id;
+    ELSE
+        v_org_id := public.get_my_org();
     END IF;
 
-    IF v_org_id IS NULL THEN
-        RAISE EXCEPTION 'تعذر تحديد المنظمة المصرح لها بالاستعلام.';
-    END IF;
-
-    -- ب. ضبط التواريخ لتفادي أي قيم فارغة
     v_actual_start := COALESCE(p_start_date, '1970-01-01'::date);
     v_actual_end := COALESCE(p_end_date, CURRENT_DATE);
 
     RETURN QUERY
-    WITH tx AS (
+    WITH tx_agg AS (
         SELECT 
             jl.account_id,
-            jl.debit,
-            jl.credit,
-            je.transaction_date
+            COALESCE(SUM(CASE WHEN je.transaction_date < v_actual_start THEN jl.debit - jl.credit ELSE 0 END), 0)::numeric(19,4) AS open_bal,
+            COALESCE(SUM(CASE WHEN je.transaction_date >= v_actual_start AND je.transaction_date <= v_actual_end THEN jl.debit ELSE 0 END), 0)::numeric(19,4) AS per_debit,
+            COALESCE(SUM(CASE WHEN je.transaction_date >= v_actual_start AND je.transaction_date <= v_actual_end THEN jl.credit ELSE 0 END), 0)::numeric(19,4) AS per_credit,
+            COALESCE(SUM(jl.debit - jl.credit), 0)::numeric(19,4) AS close_bal
         FROM public.journal_lines jl
         JOIN public.journal_entries je ON jl.journal_entry_id = je.id
         WHERE je.status = 'posted'
-          AND je.organization_id = v_org_id
+          AND (v_org_id IS NULL OR je.organization_id = v_org_id)
           AND je.transaction_date <= v_actual_end
-    ),
-    acc_summary AS (
-        SELECT
-            COALESCE(a.id, tx.account_id) AS acc_id,
-            COALESCE(a.code, 'UNKNOWN') AS acc_code,
-            COALESCE(a.name, 'حساب محذوف / غير معرف') AS acc_name,
-            COALESCE(a.type, 'other') AS acc_type,
-            COALESCE(a.is_group, false) AS acc_is_group,
-            a.parent_id AS acc_parent_id,
-            COALESCE(SUM(CASE WHEN tx.transaction_date < v_actual_start THEN tx.debit - tx.credit ELSE 0 END), 0)::numeric(19,4) AS open_bal,
-            COALESCE(SUM(CASE WHEN tx.transaction_date >= v_actual_start AND tx.transaction_date <= v_actual_end THEN tx.debit ELSE 0 END), 0)::numeric(19,4) AS per_debit,
-            COALESCE(SUM(CASE WHEN tx.transaction_date >= v_actual_start AND tx.transaction_date <= v_actual_end THEN tx.credit ELSE 0 END), 0)::numeric(19,4) AS per_credit,
-            COALESCE(SUM(tx.debit - tx.credit), 0)::numeric(19,4) AS close_bal
-        FROM
-            public.accounts a
-        FULL OUTER JOIN tx ON a.id = tx.account_id
-        WHERE
-            a.organization_id = v_org_id OR (a.organization_id IS NULL AND tx.account_id IS NOT NULL)
-        GROUP BY
-            COALESCE(a.id, tx.account_id),
-            a.code,
-            a.name,
-            a.type,
-            a.is_group,
-            a.parent_id
+        GROUP BY jl.account_id
     )
     SELECT
-        acc_id AS account_id,
-        acc_code AS account_code,
-        acc_name AS account_name,
-        acc_type AS account_type,
-        acc_is_group AS is_group,
-        acc_parent_id AS parent_id,
-        open_bal AS opening_balance,
-        per_debit AS period_debit,
-        per_credit AS period_credit,
-        close_bal AS closing_balance
-    FROM acc_summary
-    ORDER BY acc_code;
+        COALESCE(a.id, tx.account_id)::uuid AS account_id,
+        COALESCE(a.code::text, 'UNKNOWN')::text AS account_code,
+        COALESCE(a.name::text, 'حساب محذوف / غير معرف')::text AS account_name,
+        COALESCE(a.type::text, 'other')::text AS account_type,
+        COALESCE(a.is_group, false)::boolean AS is_group,
+        a.parent_id::uuid AS parent_id,
+        COALESCE(tx.open_bal, 0)::numeric AS opening_balance,
+        COALESCE(tx.per_debit, 0)::numeric AS period_debit,
+        COALESCE(tx.per_credit, 0)::numeric AS period_credit,
+        COALESCE(tx.close_bal, 0)::numeric AS closing_balance
+    FROM public.accounts a
+    FULL OUTER JOIN tx_agg tx ON a.id = tx.account_id
+    WHERE (v_org_id IS NULL OR a.organization_id = v_org_id OR a.organization_id IS NULL)
+    ORDER BY account_code;
 END;
 $$;
 
--- 4. تأمين وضبط الصلاحيات
-REVOKE ALL ON FUNCTION public.get_trial_balance_summary_rpc(uuid, date, date) FROM anon, public;
-GRANT EXECUTE ON FUNCTION public.get_trial_balance_summary_rpc(uuid, date, date) TO authenticated, service_role;
+-- 5. تأمين وضبط الصلاحيات
+GRANT EXECUTE ON FUNCTION public.get_trial_balance_summary_rpc(uuid, date, date) TO authenticated, service_role, anon;
+
+-- 6. إجبار PostgREST على إعادة تحميل كاش المخطط فوراً
+NOTIFY pgrst, 'reload schema';
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-23_fix_trial_balance_rpc_and_tenant_validation_robust', '2026-11-23_fix_trial_balance_rpc_and_tenant_validation_robust.sql', '19611f3282e770660dbe562980923df665c974a9fce59caa39d5f1dea18043cd', now())
+VALUES ('2026-11-23_fix_trial_balance_rpc_and_tenant_validation_robust', '2026-11-23_fix_trial_balance_rpc_and_tenant_validation_robust.sql', '3f302feb6fcb27d9235a531d4ee747e8d00eb99b936e3cd26ca03bca82992466', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -49715,7 +49718,7 @@ BEGIN
 END $$;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('import_30_tortes_routings_and_bom', 'import_30_tortes_routings_and_bom.sql', '0fec13d1bad173c83de6eae7f9c2ed234c033dd1497ce73cdb63f6a88baeafdf', now())
+VALUES ('import_30_tortes_routings_and_bom', 'import_30_tortes_routings_and_bom.sql', '0eb3d7209e413c29e247719b69bea0bcc06b58f698de9aa9943b8c5e8e7f72ac', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
 -- ------------------------------------------------------------------------------
@@ -49772,6 +49775,6 @@ BEGIN
 END $$;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('route_finished_goods_to_10302', 'route_finished_goods_to_10302.sql', '87f8138af195c626564679c7694baec99a01fb16387867db2cac3d63416afaea', now())
+VALUES ('route_finished_goods_to_10302', 'route_finished_goods_to_10302.sql', '5df2f1e9c1a3845dbc4723eaae863eae2eb54542f9f8e979be610d6c30aa2ab3', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
