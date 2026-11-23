@@ -531,6 +531,7 @@ class TelemetryService {
             });
             return true;
           }
+          return false;
         }
       }
 
@@ -557,8 +558,12 @@ class TelemetryService {
         return true;
       }
 
+      if (!config.url) {
+        return false;
+      }
+
       // إذا كان الإشعار لـ Slack أو Discord أو Webhook عام
-      let payloadBody: any;
+      let payloadBody: Record<string, unknown>;
       if (config.type === 'slack') {
         payloadBody = {
           text: `🚨 *[TriPro Incident]* ${incident.severity}: ${incident.module_name} - ${incident.error_message}`,
