@@ -174,6 +174,35 @@ describe('Enterprise Incident & Crash Telemetry Service (اختبار خدمة �
     vi.unstubAllGlobals();
   });
 
+  it('يجب إرسال تنبيهات الواتساب بنجاح عبر بوابة CallMeBot أو البوابات المباشرة', async () => {
+    const globalFetch = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', globalFetch);
+
+    telemetryService.setWebhookConfig({
+      enabled: true,
+      type: 'whatsapp',
+      whatsappProvider: 'callmebot',
+      whatsappPhoneNumber: '+201012345678',
+      whatsappApiKey: '987654'
+    });
+
+    const incident = {
+      severity: 'CRITICAL',
+      module_name: 'POS',
+      error_message: 'انهيار شاشة الكاشير'
+    };
+
+    const sent = await telemetryService.dispatchInstantAlert(incident, 'FP-WA-TEST-1');
+    expect(sent).toBe(true);
+    expect(globalFetch).toHaveBeenCalledTimes(1);
+    const calledUrl = globalFetch.mock.calls[0][0];
+    expect(calledUrl).toContain('callmebot.com');
+    expect(calledUrl).toContain('phone=201012345678');
+    expect(calledUrl).toContain('apikey=987654');
+
+    vi.unstubAllGlobals();
+  });
+
   it('يجب تحديث حالة الحادثة التشغيلية بنجاح عبر updateIncidentStatus', async () => {
     const success = await telemetryService.updateIncidentStatus('incident-1', 'resolved', 'تم إصلاح الإعدادات', 'admin-user-id');
     expect(success).toBe(true);

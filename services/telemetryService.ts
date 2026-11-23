@@ -65,9 +65,13 @@ const WEBHOOK_CONFIG_KEY = 'tripro_incident_webhook_config';
 
 export interface WebhookConfig {
   url?: string;
-  type?: 'generic' | 'telegram' | 'slack' | 'discord';
+  type?: 'generic' | 'telegram' | 'whatsapp' | 'slack' | 'discord';
   telegramChatId?: string;
   telegramBotToken?: string;
+  whatsappProvider?: 'callmebot' | 'ultramsg' | 'custom';
+  whatsappPhoneNumber?: string;
+  whatsappApiKey?: string;
+  whatsappInstanceId?: string;
   enabled?: boolean;
 }
 
@@ -451,7 +455,16 @@ class TelemetryService {
       this.alertThrottles.set(fingerprint, now);
 
       const config = this.getWebhookConfig();
-      if (!config || !config.enabled || !config.url) {
+      if (!config || !config.enabled) {
+        return false;
+      }
+
+      // التحقق من اكتمال المعطيات حسب النوع
+      if (config.type === 'telegram') {
+        if (!config.telegramBotToken || !config.telegramChatId) return false;
+      } else if (config.type === 'whatsapp') {
+        if (!config.whatsappPhoneNumber) return false;
+      } else if (!config.url) {
         return false;
       }
 
@@ -466,6 +479,60 @@ class TelemetryService {
         branch: incident.branch_name || 'Main',
         timestamp: new Date().toISOString()
       };
+
+      // إذا كان الإشعار لـ WhatsApp
+      if (config.type === 'whatsapp' && config.whatsappPhoneNumber) {
+        const cleanPhone = config.whatsappPhoneNumber.replace(/[^0-9]/g, '');
+        const waText = `🚨 *تنبيه خطأ حرج في منظومة TriPro ERP*\n\n` +
+          `• *الخطورة:* ${incident.severity}\n` +
+          `• *الموديول:* ${incident.module_name}\n` +
+          `• *الرسالة:* ${incident.error_message.slice(0, 180)}\n` +
+          `• *الشاشة:* ${incident.route_url || 'غير محدد'}\n` +
+          `• *المستخدم:* ${incident.user_name || 'غير معروف'}\n` +
+          `• *البصمة:* ${fingerprint}\n` +
+          `• *الوقت:* ${new Date().toLocaleTimeString('ar-EG')}`;
+
+        const provider = config.whatsappProvider || 'callmebot';
+
+        if (provider === 'callmebot') {
+          // CallMeBot API (مجاني)
+          const apikey = config.whatsappApiKey || '';
+          const callMeBotUrl = `https://api.callmebot.com/whatsapp.php?phone=${cleanPhone}&text=${encodeURIComponent(waText)}&apikey=${apikey}`;
+          await fetch(callMeBotUrl, { method: 'GET' });
+          return true;
+        } else if (provider === 'ultramsg') {
+          // UltraMsg API
+          const instance = config.whatsappInstanceId || '';
+          const token = config.whatsappApiKey || '';
+          await fetch(`https://api.ultramsg.com/${instance}/messages/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              token,
+              to: cleanPhone,
+              body: waText
+            })
+          });
+          return true;
+        } else {
+          // Custom WhatsApp Gateway / Webhook
+          const targetUrl = config.url || '';
+          if (targetUrl) {
+            await fetch(targetUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                phone: cleanPhone,
+                message: waText,
+                severity: incident.severity,
+                module: incident.module_name,
+                fingerprint
+              })
+            });
+            return true;
+          }
+        }
+      }
 
       // إذا كان الإشعار لـ Telegram Bot
       if (config.type === 'telegram' && config.telegramBotToken && config.telegramChatId) {

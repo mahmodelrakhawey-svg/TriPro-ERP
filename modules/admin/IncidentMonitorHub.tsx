@@ -37,10 +37,14 @@ export const IncidentMonitorHub: React.FC = () => {
   const [showWebhookModal, setShowWebhookModal] = useState(false);
   const [webhookConfig, setWebhookConfig] = useState<WebhookConfig>({
     enabled: false,
-    type: 'generic',
+    type: 'whatsapp',
     url: '',
     telegramBotToken: '',
-    telegramChatId: ''
+    telegramChatId: '',
+    whatsappProvider: 'callmebot',
+    whatsappPhoneNumber: '',
+    whatsappApiKey: '',
+    whatsappInstanceId: ''
   });
   const [testingWebhook, setTestingWebhook] = useState(false);
 
@@ -692,18 +696,100 @@ export const IncidentMonitorHub: React.FC = () => {
               <div>
                 <label className="text-xs font-bold text-slate-600 mb-1 block">نوع وسيلة التنبيه</label>
                 <select
-                  value={webhookConfig.type || 'generic'}
+                  value={webhookConfig.type || 'whatsapp'}
                   onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setWebhookConfig({ ...webhookConfig, type: e.target.value as WebhookConfig['type'] })}
                   className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
                 >
-                  <option value="generic">Custom Webhook (JSON POST)</option>
-                  <option value="telegram">Telegram Bot</option>
-                  <option value="slack">Slack Incoming Webhook</option>
-                  <option value="discord">Discord Webhook</option>
+                  <option value="whatsapp">📱 WhatsApp (رسائل واتساب مباشرة على هاتفك)</option>
+                  <option value="telegram">✈️ Telegram Bot (بوت تليجرام سريع)</option>
+                  <option value="generic">🔗 Custom Webhook (JSON POST)</option>
+                  <option value="slack">💬 Slack Incoming Webhook</option>
+                  <option value="discord">🎮 Discord Webhook</option>
                 </select>
               </div>
 
-              {webhookConfig.type === 'telegram' ? (
+              {webhookConfig.type === 'whatsapp' ? (
+                <>
+                  <div>
+                    <label className="text-xs font-bold text-slate-600 mb-1 block">بوابة إرسال واتساب (Provider)</label>
+                    <select
+                      value={webhookConfig.whatsappProvider || 'callmebot'}
+                      onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setWebhookConfig({ ...webhookConfig, whatsappProvider: e.target.value as any })}
+                      className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 bg-slate-50 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                    >
+                      <option value="callmebot">CallMeBot (مجاني 100% للأفراد)</option>
+                      <option value="ultramsg">UltraMsg (بوابة واتساب للأعمال والشركات)</option>
+                      <option value="custom">بوابة واتساب مخصصة (Custom Gateway / Evolution API)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-bold text-slate-600 mb-1 block">رقم هاتف الواتساب المستلم (مع كود الدولة)</label>
+                    <input
+                      type="text"
+                      placeholder="e.g. +201012345678 or 201012345678"
+                      value={webhookConfig.whatsappPhoneNumber || ''}
+                      onChange={(e) => setWebhookConfig({ ...webhookConfig, whatsappPhoneNumber: e.target.value })}
+                      className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                      dir="ltr"
+                    />
+                  </div>
+
+                  {webhookConfig.whatsappProvider === 'callmebot' ? (
+                    <div>
+                      <label className="text-xs font-bold text-slate-600 mb-1 block">مفتاح الـ API المجاني (CallMeBot API Key)</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 123456"
+                        value={webhookConfig.whatsappApiKey || ''}
+                        onChange={(e) => setWebhookConfig({ ...webhookConfig, whatsappApiKey: e.target.value })}
+                        className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        dir="ltr"
+                      />
+                      <p className="text-[11px] text-slate-500 mt-1.5 leading-relaxed">
+                        💡 <strong>طريقة الحصول على المفتاح مجاناً:</strong> أرسل رسالة نصية بالواتساب مكتوباً فيها: <code className="bg-slate-100 text-indigo-700 px-1 py-0.5 rounded font-mono font-bold select-all">I allow callmebot to send me messages</code> إلى الرقم: <a href="https://wa.me/34644442080" target="_blank" rel="noreferrer" className="text-indigo-600 font-bold underline dir-ltr">+34 644 44 20 80</a> وسيرد عليك البوت برقم الـ API Key فوراً!
+                      </p>
+                    </div>
+                  ) : webhookConfig.whatsappProvider === 'ultramsg' ? (
+                    <>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600 mb-1 block">UltraMsg Instance ID</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. instance12345"
+                          value={webhookConfig.whatsappInstanceId || ''}
+                          onChange={(e) => setWebhookConfig({ ...webhookConfig, whatsappInstanceId: e.target.value })}
+                          className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                          dir="ltr"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs font-bold text-slate-600 mb-1 block">UltraMsg Token</label>
+                        <input
+                          type="password"
+                          placeholder="e.g. your_token_here"
+                          value={webhookConfig.whatsappApiKey || ''}
+                          onChange={(e) => setWebhookConfig({ ...webhookConfig, whatsappApiKey: e.target.value })}
+                          className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                          dir="ltr"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <label className="text-xs font-bold text-slate-600 mb-1 block">رابط بوابة الواتساب (API Endpoint URL)</label>
+                      <input
+                        type="url"
+                        placeholder="https://api.your-whatsapp-gateway.com/send"
+                        value={webhookConfig.url || ''}
+                        onChange={(e) => setWebhookConfig({ ...webhookConfig, url: e.target.value })}
+                        className="w-full p-2.5 border border-slate-200 rounded-xl text-xs font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                        dir="ltr"
+                      />
+                    </div>
+                  )}
+                </>
+              ) : webhookConfig.type === 'telegram' ? (
                 <>
                   <div>
                     <label className="text-xs font-bold text-slate-600 mb-1 block">Telegram Bot Token</label>
@@ -750,7 +836,11 @@ export const IncidentMonitorHub: React.FC = () => {
             <div className="p-4 border-t border-slate-200 flex items-center justify-between bg-slate-50">
               <button
                 type="button"
-                disabled={testingWebhook || (!webhookConfig.url && (!webhookConfig.telegramBotToken || !webhookConfig.telegramChatId))}
+                disabled={testingWebhook || (
+                  webhookConfig.type === 'whatsapp' ? (!webhookConfig.whatsappPhoneNumber) :
+                  webhookConfig.type === 'telegram' ? (!webhookConfig.telegramBotToken || !webhookConfig.telegramChatId) :
+                  !webhookConfig.url
+                )}
                 onClick={handleTestWebhook}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold text-xs transition-colors disabled:opacity-40"
               >
