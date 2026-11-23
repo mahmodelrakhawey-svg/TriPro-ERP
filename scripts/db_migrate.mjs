@@ -18,9 +18,11 @@ import crypto from 'crypto';
 
 // 1. تحميل البيئة
 function loadEnv() {
-  const envPath = path.resolve(process.cwd(), '.env');
+  const envArgIdx = process.argv.indexOf('--env');
+  const targetEnvFile = envArgIdx !== -1 && process.argv[envArgIdx + 1] ? process.argv[envArgIdx + 1] : '.env';
+  const envPath = path.resolve(process.cwd(), targetEnvFile);
   if (!fs.existsSync(envPath)) {
-    console.error('❌ خطأ: ملف .env غير موجود!');
+    console.error(`❌ خطأ: ملف ${targetEnvFile} غير موجود!`);
     process.exit(1);
   }
   const content = fs.readFileSync(envPath, 'utf8');
@@ -34,15 +36,15 @@ function loadEnv() {
       }
     }
   });
-  return env;
+  return { env, envFile: targetEnvFile };
 }
 
-const env = loadEnv();
+const { env, envFile } = loadEnv();
 const supabaseUrl = env.VITE_SUPABASE_URL;
-const supabaseKey = env.VITE_SUPABASE_KEY || env.VITE_SUPABASE_ANON_KEY;
+const supabaseKey = env.SUPABASE_SERVICE_ROLE_KEY || env.VITE_SUPABASE_KEY || env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseKey) {
-  console.error('❌ خطأ: بيانات الاتصال بسوباباز مفقودة في ملف .env!');
+  console.error(`❌ خطأ: بيانات الاتصال بسوباباز مفقودة في ملف ${envFile}!`);
   process.exit(1);
 }
 
@@ -60,7 +62,7 @@ function getAllMigrationFiles() {
     return [];
   }
   const files = fs.readdirSync(updatesDir)
-    .filter(f => f.endsWith('.sql') && f !== 'pending_migration_bundle.sql')
+    .filter(f => f.endsWith('.sql') && !f.endsWith('_bundle.sql') && !f.startsWith('mark_all_'))
     .sort((a, b) => a.localeCompare(b));
 
   return files.map(file => {
@@ -90,6 +92,9 @@ async function getAppliedMigrations() {
         // الجدول غير موجود بعد
         return null;
       }
+      if (error.code === '42501') {
+        return 'PERMISSION_DENIED';
+      }
       throw error;
     }
     return data || [];
@@ -107,6 +112,14 @@ async function showStatus() {
 
   const applied = await getAppliedMigrations();
   const allFiles = getAllMigrationFiles();
+
+  if (applied === 'PERMISSION_DENIED') {
+    console.log('⚠️  تنبيه: الجدول موجود ولكن تنقصه صلاحية القراءة لدور anon.');
+    console.log('💡 قم بتشغيل الأمر التالي لمرة واحدة فقط في Supabase SQL Editor:');
+    console.log('   GRANT SELECT ON public._schema_migrations TO anon;\n');
+    console.log(`📁 إجمالي ملفات الـ SQL الموجودة في sql_updates: ${allFiles.length} ملف`);
+    return;
+  }
 
   if (applied === null) {
     console.log('⚠️  تنبيه: جدول تتبع الترحيلات (_schema_migrations) غير موجود بعد في قاعدة البيانات.');
