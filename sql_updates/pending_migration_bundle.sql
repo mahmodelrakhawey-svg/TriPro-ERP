@@ -1,6 +1,6 @@
 -- ==============================================================================
 -- 🛡️ TriPro ERP — Consolidated Pending Migrations Bundle
--- تاريخ التوليد: 2026-11-23T12:38:15.815Z
+-- تاريخ التوليد: 2026-11-23T12:47:31.945Z
 -- عدد الملفات المعلقة المجمعة: 1
 -- ==============================================================================
 
@@ -34,7 +34,7 @@ GRANT ALL ON public._schema_migrations TO service_role;
 --      - public.archived_stock_ledger (أرشيف حركات دفتر المخزون)
 --   2. إنشاء View موحد ذكي للاستعلام التاريخي دون أي انقطاع:
 --      - public.v_comprehensive_journal_ledger
---   3. بناء إجراء مخزن ذكي للأرشفة الآمنة بدون توقف (Zero-Downtime Safe RPC):
+--   3. بناء إجراء مخزن ذكي للأرشفة الآمنة بدون توقف (Zero-Downtime Safe Batch Archiving RPC):
 --      - public.archive_closed_fiscal_year_rpc
 -- ==============================================================================
 
@@ -71,11 +71,12 @@ CREATE TABLE IF NOT EXISTS public.archived_journal_entries (
     reference VARCHAR(100),
     description TEXT,
     status VARCHAR(50) DEFAULT 'posted',
+    is_posted BOOLEAN DEFAULT true,
     transaction_date DATE NOT NULL,
+    related_document_id UUID,
+    related_document_type VARCHAR(100),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     created_by UUID,
-    source VARCHAR(100),
-    source_id UUID,
     archived_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -95,8 +96,7 @@ CREATE TABLE IF NOT EXISTS public.archived_journal_lines (
     debit NUMERIC(19,4) NOT NULL DEFAULT 0,
     credit NUMERIC(19,4) NOT NULL DEFAULT 0,
     description TEXT,
-    cost_center_id UUID,
-    created_at TIMESTAMPTZ DEFAULT NOW()
+    cost_center_id UUID
 );
 
 CREATE INDEX IF NOT EXISTS idx_archived_jl_account 
@@ -190,7 +190,7 @@ SELECT
     jl.debit,
     jl.credit,
     jl.description AS line_description,
-    jl.created_at,
+    je.created_at,
     false AS is_archived,
     NULL::UUID AS archive_id
 FROM public.journal_lines jl
@@ -211,7 +211,7 @@ SELECT
     ajl.debit,
     ajl.credit,
     ajl.description AS line_description,
-    ajl.created_at,
+    aje.created_at,
     true AS is_archived,
     ajl.archive_id
 FROM public.archived_journal_lines ajl
@@ -338,8 +338,8 @@ BEGIN
         transaction_date,
         created_at,
         created_by,
-        source,
-        source_id
+        related_document_id,
+        related_document_type
     )
     SELECT 
         je.id,
@@ -351,8 +351,8 @@ BEGIN
         je.transaction_date,
         je.created_at,
         je.created_by,
-        je.source,
-        je.source_id
+        je.related_document_id,
+        je.related_document_type
     FROM public.journal_entries je
     WHERE je.organization_id = p_org_id
       AND je.transaction_date >= v_fy.start_date
@@ -370,8 +370,7 @@ BEGIN
         debit,
         credit,
         description,
-        cost_center_id,
-        created_at
+        cost_center_id
     )
     SELECT 
         jl.id,
@@ -382,8 +381,7 @@ BEGIN
         jl.debit,
         jl.credit,
         jl.description,
-        jl.cost_center_id,
-        jl.created_at
+        jl.cost_center_id
     FROM public.journal_lines jl
     JOIN public.journal_entries je ON jl.journal_entry_id = je.id
     WHERE je.organization_id = p_org_id
@@ -496,6 +494,6 @@ GRANT EXECUTE ON FUNCTION public.archive_closed_fiscal_year_rpc(UUID, UUID, TEXT
 TO authenticated, service_role;
 
 INSERT INTO public._schema_migrations (version, filename, checksum, applied_at)
-VALUES ('2026-11-23_annual_data_archiving_and_historical_ledger', '2026-11-23_annual_data_archiving_and_historical_ledger.sql', '583de05586702d1ac4a203189b33eaa47107744a1d1669d4ca189e51fbd4cfab', now())
+VALUES ('2026-11-23_annual_data_archiving_and_historical_ledger', '2026-11-23_annual_data_archiving_and_historical_ledger.sql', 'e320aa6f7304ab600f415d6a1a5ea626020c21475064874859cdebdee3050230', now())
 ON CONFLICT (version) DO UPDATE SET applied_at = now(), checksum = EXCLUDED.checksum;
 
