@@ -6,7 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { Users, Plus, Search, Edit2, Trash2, X, Phone, MapPin, FileText, CircleDollarSign, Loader2, Upload, Download, Wallet, TrendingUp, RefreshCw, Scale, Mail, FileSpreadsheet, ArrowUp, ArrowDown, Printer, ChevronRight, ChevronLeft, ShieldAlert } from 'lucide-react';
 import { useCustomers } from '../hooks/usePermissions';
 import { useQueryClient } from '@tanstack/react-query';
-import * as XLSX from 'xlsx';
+// xlsx loaded dynamically on demand
 import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import { createCustomerSchema } from '../../utils/validationSchemas';
 import { useNavigate } from 'react-router-dom';
@@ -301,7 +301,7 @@ const CustomerManager = () => {
     }
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (customers.length === 0) {
         showToast('لا يوجد عملاء لتصديرهم.', 'info');
         return;
@@ -329,16 +329,18 @@ const CustomerManager = () => {
         'إجمالي المبيعات': totalSales,
     } as any);
 
+    const XLSX = await import('xlsx');
     const ws = safeJsonToSheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "تقرير العملاء");
     XLSX.writeFile(wb, `Customers_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  const handleDownloadTemplate = () => {
+  const handleDownloadTemplate = async () => {
     const headers = [
       { 'اسم العميل': '', 'رقم الهاتف': '', 'البريد الإلكتروني': '', 'الرقم الضريبي': '', 'العنوان': '', 'حد الائتمان': '', 'الرصيد الافتتاحي': '' }
     ];
+    const XLSX = await import('xlsx');
     const ws = XLSX.utils.json_to_sheet(headers);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "نموذج العملاء");
@@ -357,6 +359,7 @@ const CustomerManager = () => {
     reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
+        const XLSX = await import('xlsx');
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];

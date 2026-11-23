@@ -13,8 +13,7 @@ import { etaService } from '../../services/etaService';
 import { SalesInvoicePrint } from './SalesInvoicePrint';
 import { useToast } from '../../context/ToastContext';
 import { logDocumentAction } from '../../services/auditService';
-import * as XLSX from 'xlsx';
-import { safeJsonToSheet } from '../../utils/excelSanitizer';
+import { exportJsonToExcel } from '../../utils/excelSanitizer';
 import { fetchCompleteDataset } from '../../services/balanceService';
 
 export const InvoiceList = () => {
@@ -620,10 +619,11 @@ export const InvoiceList = () => {
         'ملاحظات': inv.notes || ''
       }));
 
-      const ws = safeJsonToSheet(dataToExport);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'فواتير المبيعات');
-      XLSX.writeFile(wb, `سجل_فواتير_المبيعات_${new Date().toISOString().split('T')[0]}.xlsx`);
+      await exportJsonToExcel(
+        dataToExport,
+        `سجل_فواتير_المبيعات_${new Date().toISOString().split('T')[0]}`,
+        'فواتير المبيعات'
+      );
       showToast('تم تصدير سجل المبيعات إلى إكسيل بنجاح ✅', 'success');
     } catch (e) {
       showToast('فشل تصدير الإكسيل: ' + e.message, 'error');

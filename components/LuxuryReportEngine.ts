@@ -1,6 +1,4 @@
 import { logger } from '../utils/logger';
-import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
 
 /**
  * 🛡️ XSS Protection: تحييد الحروف الخاصة في HTML
@@ -416,7 +414,12 @@ export const LuxuryReportEngine = {
     document.body.appendChild(printContainer);
 
     try {
-      // 4. Render HTML to canvas
+      // 4. Render HTML to canvas (On-demand dynamic import to reduce initial bundle)
+      const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf')
+      ]);
+
       const canvas = await html2canvas(printContainer, {
         scale: 2, // Double quality for sharp and clear printable text
         useCORS: true,

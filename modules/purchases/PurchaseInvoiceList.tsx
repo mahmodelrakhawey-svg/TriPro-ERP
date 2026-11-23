@@ -10,8 +10,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import * as XLSX from 'xlsx';
-import { safeJsonToSheet } from '../../utils/excelSanitizer';
+import { exportJsonToExcel } from '../../utils/excelSanitizer';
 import { PurchaseInvoicePrint } from './PurchaseInvoicePrint';
 import SupplierInvoiceExcelImporter from './SupplierInvoiceExcelImporter';
 import { FileSpreadsheet } from 'lucide-react';
@@ -767,10 +766,11 @@ export const PurchaseInvoiceList = () => {
         };
       });
 
-      const ws = safeJsonToSheet(dataToExport);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, 'فواتير المشتريات');
-      XLSX.writeFile(wb, `سجل_فواتير_المشتريات_${new Date().toISOString().split('T')[0]}.xlsx`);
+      await exportJsonToExcel(
+        dataToExport,
+        `سجل_فواتير_المشتريات_${new Date().toISOString().split('T')[0]}`,
+        'فواتير المشتريات'
+      );
       showToast('تم تصدير سجل المشتريات إلى إكسيل بنجاح ✅', 'success');
     } catch (err) {
       logger.error(err);

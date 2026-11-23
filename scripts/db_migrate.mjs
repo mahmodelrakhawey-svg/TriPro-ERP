@@ -181,11 +181,13 @@ GRANT ALL ON public._schema_migrations TO service_role;
 // أمر تجميع الملفات المعلقة في ملف واحد
 async function createBundle() {
   const applied = await getAppliedMigrations();
+  if (!Array.isArray(applied)) {
+    console.error('❌ تعذر قراءة الترحيلات المطبقة من قاعدة البيانات. يرجى التحقق من جدول _schema_migrations وصلاحيات الاتصال.');
+    return;
+  }
   const allFiles = getAllMigrationFiles();
   const appliedMap = new Map();
-  if (applied) {
-    applied.forEach(m => appliedMap.set(m.version || m.filename, m));
-  }
+  applied.forEach(m => appliedMap.set(m.version || m.filename, m));
 
   const pendingFiles = allFiles.filter(f => !appliedMap.has(f.version) && !appliedMap.has(f.filename));
 

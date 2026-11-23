@@ -4,7 +4,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { useQueryClient } from '@tanstack/react-query';
-import * as XLSX from 'xlsx';
+// xlsx loaded dynamically on demand
 import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import { Truck, Plus, Search, Edit2, Trash2, X, Phone, Mail, Loader2, Upload, Download, RefreshCw, Scale, FileSpreadsheet, ArrowUp, ArrowDown, Printer, ChevronRight, ChevronLeft, ShieldAlert } from 'lucide-react'; // Removed z import
 import { createSupplierSchema, updateSupplierSchema } from '../../utils/validationSchemas';
@@ -554,7 +554,7 @@ const SupplierManager = () => {
     }
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (suppliers.length === 0) {
         showToast('لا يوجد موردين لتصديرهم.', 'info');
         return;
@@ -573,13 +573,15 @@ const SupplierManager = () => {
     const totalPurchases = dataToExport.reduce((sum, item) => sum + item['إجمالي المشتريات'], 0);
     dataToExport.push({} as any); 
     dataToExport.push({ 'الاسم': 'الإجمالي:', 'الرصيد الحالي': totalBalance, 'إجمالي المشتريات': totalPurchases } as any);
+    const XLSX = await import('xlsx');
     const ws = safeJsonToSheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "تقرير الموردين");
     XLSX.writeFile(wb, `Suppliers_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  const handleDownloadTemplate = () => {
+  const handleDownloadTemplate = async () => {
+    const XLSX = await import('xlsx');
     const headers = [{ 'اسم المورد': '', 'رقم الهاتف': '', 'البريد الإلكتروني': '', 'الرقم الضريبي': '', 'العنوان': '', 'حد الائتمان': '', 'الرصيد الافتتاحي': '' }];
     const ws = XLSX.utils.json_to_sheet(headers);
     const wb = XLSX.utils.book_new();
@@ -601,6 +603,7 @@ const SupplierManager = () => {
         const userOrgId = session?.user?.user_metadata?.org_id;
         if (!userOrgId) throw new Error('تعذر تحديد المنظمة');
 
+        const XLSX = await import('xlsx');
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];

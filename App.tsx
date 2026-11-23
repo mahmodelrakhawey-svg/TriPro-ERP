@@ -23,6 +23,7 @@ import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import NotFound from './components/NotFound';
 import CommandPalette from './components/CommandPalette';
+import { prefetchCriticalDailyRoutes } from './utils/routePrefetcher';
 
 // 📱 تطبيق الموبايل الميداني التقدمي (Mobile PWA Companion)
 const MobileApp = lazy(() => import('./modules/mobile/MobileApp'));
@@ -993,6 +994,13 @@ const AppContent = () => {
       window.removeEventListener('error', handleWindowError);
     };
   }, []);
+
+  // 🚀 جلب استباقي للشاشات اليومية الأكثر استخداماً في الخلفية
+  useEffect(() => {
+    if (currentUser) {
+      prefetchCriticalDailyRoutes();
+    }
+  }, [currentUser]);
 
   // Check for maintenance mode
   const isMaintenanceMode = import.meta.env.VITE_MAINTENANCE_MODE === 'true';

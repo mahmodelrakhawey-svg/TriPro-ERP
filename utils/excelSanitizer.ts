@@ -36,3 +36,21 @@ export function safeJsonToSheet<T extends Record<string, any>>(
 ): XLSX.WorkSheet {
   return XLSX.utils.json_to_sheet(sanitizeExcelRows(data), opts);
 }
+
+/**
+ * ⚡ دالة تصدير إكسيل سريعة ومحمية تدعم التحميل الكسول (Dynamic On-Demand Import)
+ * لا تقوم بتحميل مكتبة xlsx إلى المتصفح إلا لحظة النقر على زر التصدير
+ */
+export async function exportJsonToExcel<T extends Record<string, any>>(
+  data: T[],
+  fileName: string,
+  sheetName: string = 'Sheet1'
+): Promise<void> {
+  const XLSX = await import('xlsx');
+  const sanitized = sanitizeExcelRows(data);
+  const ws = XLSX.utils.json_to_sheet(sanitized);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  const fullName = fileName.endsWith('.xlsx') ? fileName : `${fileName}.xlsx`;
+  XLSX.writeFile(wb, fullName);
+}

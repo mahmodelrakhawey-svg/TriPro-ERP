@@ -1,5 +1,5 @@
 import { logger } from '../../../../utils/logger';
-import * as XLSX from 'xlsx';
+// xlsx loaded dynamically on demand
 import { fetchCompleteDataset } from '../../../../services/balanceService';
 import { supabase } from '../../../../supabaseClient';
 import { JournalEntry } from '../../../../types';
@@ -128,6 +128,7 @@ export const exportJournalToExcel = async ({
         return;
       }
 
+      const XLSX = await import('xlsx');
       const ws = XLSX.utils.json_to_sheet(flatData);
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "دفتر اليومية");
@@ -243,6 +244,7 @@ export const exportJournalToExcel = async ({
       }
     });
 
+    const XLSX = await import('xlsx');
     const ws = XLSX.utils.json_to_sheet(flatData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "دفتر اليومية");

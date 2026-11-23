@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useAccounting } from '../context/AccountingContext';
 import { getRouteTitle } from '../utils/routeTitles';
 import { isModuleAllowedForOrganization } from '../utils/permissionEngine';
+import { prefetchRoute } from '../utils/routePrefetcher';
 import { 
   GitCommit,
   Activity, 
@@ -751,6 +752,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                 <Link
                   key={item.path}
                   to={item.path}
+                  onMouseEnter={() => prefetchRoute(item.path)}
                   className={`flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-bold truncate transition-all ${
                     isActive 
                       ? 'bg-blue-600 text-white shadow-2xs' 
@@ -802,6 +804,7 @@ const Sidebar: React.FC<SidebarProps> = ({
                           <li key={child.to}>
                             <Link 
                               to={child.to} 
+                              onMouseEnter={() => prefetchRoute(child.to)} 
                               className={`flex items-center gap-3 p-2 rounded-lg transition-all font-bold text-xs ${
                                 isActive 
                                   ? 'bg-blue-600 text-white shadow-xs' 
@@ -826,6 +829,7 @@ const Sidebar: React.FC<SidebarProps> = ({
               <li key={item.to}>
                 <Link 
                   to={item.to} 
+                  onMouseEnter={() => prefetchRoute(item.to)} 
                   className={`flex items-center gap-3 p-2.5 rounded-xl transition-all font-bold group ${
                     isActive 
                       ? 'bg-blue-600 text-white shadow-sm' 
