@@ -95,10 +95,12 @@ async function getAppliedMigrations() {
       if (error.code === '42501') {
         return 'PERMISSION_DENIED';
       }
-      throw error;
+      console.error('⚠️ استجابة غير متوقعة من سوباباز:', error.message || error.code || error);
+      return null;
     }
     return data || [];
   } catch (err) {
+    console.error('⚠️ خطأ في الاتصال بالخادم:', err.message || err);
     return null;
   }
 }
