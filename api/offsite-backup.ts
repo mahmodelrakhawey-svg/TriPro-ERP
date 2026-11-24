@@ -8,7 +8,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!orig) return true;
     if (/^https?:\/\/localhost(:\d+)?$/.test(orig)) return true;
     if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(orig)) return true;
-    if (/^https?:\/\/([a-zA-Z0-9-]+\.)*vercel\.app$/.test(orig)) return true;
+    if (/^https?:\/\/tripro-erp(-[a-zA-Z0-9-]+)?\.vercel\.app$/.test(orig)) return true;
     if (process.env.APP_URL && orig === process.env.APP_URL) return true;
     return false;
   };

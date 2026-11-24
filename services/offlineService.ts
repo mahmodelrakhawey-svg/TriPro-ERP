@@ -833,11 +833,15 @@ export const offlineService = {
   /**
    * Processes all queues (POS and HIMS) when connectivity is restored.
    */
+  _isProcessingQueue: false,
+
   async processQueue(): Promise<void> {
-    if (!navigator.onLine) {
+    if (!navigator.onLine || this._isProcessingQueue) {
       return;
     }
 
+    this._isProcessingQueue = true;
+    try {
     // 1. Sync POS Orders (Atomic Offline Batch Sync with Conflict Resolution)
     const pendingOrders = await db.queuedOrders.where('status').anyOf('pending', 'failed').limit(20).toArray();
     if (pendingOrders.length > 0) {
@@ -1219,6 +1223,9 @@ export const offlineService = {
           await db.queuedRadiologyOrders.update(order.id, { status: 'failed', error: error.message });
         }
       }
+    }
+    } finally {
+      this._isProcessingQueue = false;
     }
   },
 

@@ -5,16 +5,26 @@ import { supabase } from '../../../../supabaseClient';
 import { JournalEntry } from '../../../../types';
 import { getEntrySource } from './journalSourceClassifier';
 
+const escapeHtml = (unsafe: unknown): string =>
+  String(unsafe ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
 export const printJournalEntry = (entry: JournalEntry) => {
   const printWindow = window.open('', '_blank');
   if (printWindow) {
     const dateStr = entry.date || (entry as any).transaction_date || (entry as any).created_at;
     const formattedDate = dateStr ? new Date(dateStr).toLocaleDateString('ar-EG') : 'تاريخ غير متوفر';
+    const safeRef = escapeHtml(entry.reference || entry.id.slice(0, 8));
+    const safeDesc = escapeHtml(entry.description);
 
     printWindow.document.write(`
       <html dir="rtl">
         <head>
-          <title>سند قيد رقم ${entry.reference || entry.id.slice(0, 8)}</title>
+          <title>سند قيد رقم ${safeRef}</title>
           <style>
             body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 20px; }
             .header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #eee; padding-bottom: 20px; }
@@ -31,15 +41,15 @@ export const printJournalEntry = (entry: JournalEntry) => {
         <body>
           <div class="header">
             <div class="title">سند قيد يومية</div>
-            <div>رقم القيد: ${entry.reference || entry.id.slice(0, 8)}</div>
+            <div>رقم القيد: ${safeRef}</div>
           </div>
           
           <div class="meta">
-            <div><strong>التاريخ:</strong> ${formattedDate}</div>
+            <div><strong>التاريخ:</strong> ${escapeHtml(formattedDate)}</div>
             <div><strong>الحالة:</strong> ${entry.status === 'posted' ? 'مرحّل' : 'مسودة'}</div>
           </div>
           
-          <div style="margin-bottom: 20px;"><strong>البيان:</strong> ${entry.description}</div>
+          <div style="margin-bottom: 20px;"><strong>البيان:</strong> ${safeDesc}</div>
 
           <table>
             <thead>
