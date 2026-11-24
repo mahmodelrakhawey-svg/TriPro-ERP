@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Search, History, Package, Settings, Clock, AlertCircle, List, ArrowRight, Printer, Play } from 'lucide-react';
 import { useToast } from '@/context/ToastContext';
+import { escapeHtml } from '@/utils/htmlSanitizer';
 
 interface GenealogyData {
   product_info: {
@@ -160,7 +161,7 @@ const GenealogyViewer = () => {
         printWindow.document.write(`
             <html dir="rtl">
             <head>
-                <title>طباعة سيريال - ${serial_number}</title>
+                <title>طباعة سيريال - ${escapeHtml(serial_number)}</title>
                 <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
                 <style>
                     body { font-family: 'Tajawal', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
@@ -205,10 +206,10 @@ const GenealogyViewer = () => {
     if (printWindow) {
         const labelsHtml = foundSerials.map(sn => `
             <div class="label">
-                <div class="title">${sn.product_name || 'منتج أمر إنتاج'}</div>
-                <div class="serial-barcode">*${sn.serial_number}*</div>
-                <div class="serial-text">${sn.serial_number}</div>
-                <div style="font-size: 10px; margin-top: 5px;">رقم الدفعة: ${sn.batch_number || '-'}</div>
+                <div class="title">${escapeHtml(sn.product_name || 'منتج أمر إنتاج')}</div>
+                <div class="serial-barcode">*${escapeHtml(sn.serial_number)}*</div>
+                <div class="serial-text">${escapeHtml(sn.serial_number)}</div>
+                <div style="font-size: 10px; margin-top: 5px;">رقم الدفعة: ${escapeHtml(sn.batch_number || '-')}</div>
             </div>
         `).join('<div style="page-break-after: always;"></div>');
 
