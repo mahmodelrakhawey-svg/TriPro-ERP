@@ -404,18 +404,20 @@ GRANT EXECUTE ON FUNCTION public.get_current_company_settings(uuid) TO authentic
 
 CREATE OR REPLACE FUNCTION public.get_trial_balance_summary_rpc(
     p_org_id uuid DEFAULT NULL,
-    p_start_date date DEFAULT NULL,
-    p_end_date date DEFAULT NULL
+    p_start_date date DEFAULT '1970-01-01',
+    p_end_date date DEFAULT CURRENT_DATE
 )
 RETURNS TABLE (
     account_id uuid,
-    code text,
-    name text,
-    type text,
-    opening_debit numeric,
-    opening_credit numeric,
+    account_code text,
+    account_name text,
+    account_type text,
+    is_group boolean,
+    parent_id uuid,
+    opening_balance numeric,
     period_debit numeric,
-    period_credit numeric
+    period_credit numeric,
+    closing_balance numeric
 )
 LANGUAGE plpgsql
 SECURITY DEFINER
@@ -423,44 +425,47 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_org_id uuid;
+    v_actual_start date;
+    v_actual_end date;
 BEGIN
     v_org_id := public.validate_tenant_access(p_org_id);
     IF v_org_id IS NULL THEN
         RAISE EXCEPTION 'TRIPRO_SECURITY_ALERT: معرف المنشأة مطلوب.';
     END IF;
 
+    v_actual_start := COALESCE(p_start_date, '1970-01-01'::date);
+    v_actual_end := COALESCE(p_end_date, CURRENT_DATE);
+
     RETURN QUERY
-    SELECT 
-        a.id AS account_id,
-        a.code::text AS code,
-        a.name::text AS name,
-        a.type::text AS type,
-        COALESCE(SUM(CASE 
-            WHEN (p_start_date IS NOT NULL AND je.transaction_date < p_start_date) THEN jl.debit 
-            ELSE 0 
-        END), 0)::numeric AS opening_debit,
-        COALESCE(SUM(CASE 
-            WHEN (p_start_date IS NOT NULL AND je.transaction_date < p_start_date) THEN jl.credit 
-            ELSE 0 
-        END), 0)::numeric AS opening_credit,
-        COALESCE(SUM(CASE 
-            WHEN (p_start_date IS NULL OR je.transaction_date >= p_start_date)
-             AND (p_end_date IS NULL OR je.transaction_date <= p_end_date) THEN jl.debit 
-            ELSE 0 
-        END), 0)::numeric AS period_debit,
-        COALESCE(SUM(CASE 
-            WHEN (p_start_date IS NULL OR je.transaction_date >= p_start_date)
-             AND (p_end_date IS NULL OR je.transaction_date <= p_end_date) THEN jl.credit 
-            ELSE 0 
-        END), 0)::numeric AS period_credit
+    WITH tx_agg AS (
+        SELECT 
+            jl.account_id,
+            COALESCE(SUM(CASE WHEN je.transaction_date < v_actual_start THEN jl.debit - jl.credit ELSE 0 END), 0)::numeric(19,4) AS open_bal,
+            COALESCE(SUM(CASE WHEN je.transaction_date >= v_actual_start AND je.transaction_date <= v_actual_end THEN jl.debit ELSE 0 END), 0)::numeric(19,4) AS per_debit,
+            COALESCE(SUM(CASE WHEN je.transaction_date >= v_actual_start AND je.transaction_date <= v_actual_end THEN jl.credit ELSE 0 END), 0)::numeric(19,4) AS per_credit,
+            COALESCE(SUM(jl.debit - jl.credit), 0)::numeric(19,4) AS close_bal
+        FROM public.journal_lines jl
+        JOIN public.journal_entries je ON jl.journal_entry_id = je.id
+        WHERE je.status = 'posted'
+          AND je.organization_id = v_org_id
+          AND je.transaction_date <= v_actual_end
+        GROUP BY jl.account_id
+    )
+    SELECT
+        COALESCE(a.id, tx.account_id)::uuid AS account_id,
+        COALESCE(a.code::text, 'UNKNOWN')::text AS account_code,
+        COALESCE(a.name::text, 'حساب محذوف / غير معرف')::text AS account_name,
+        COALESCE(a.type::text, 'other')::text AS account_type,
+        COALESCE(a.is_group, false)::boolean AS is_group,
+        a.parent_id::uuid AS parent_id,
+        COALESCE(tx.open_bal, 0)::numeric AS opening_balance,
+        COALESCE(tx.per_debit, 0)::numeric AS period_debit,
+        COALESCE(tx.per_credit, 0)::numeric AS period_credit,
+        COALESCE(tx.close_bal, 0)::numeric AS closing_balance
     FROM public.accounts a
-    LEFT JOIN public.journal_lines jl ON jl.account_id = a.id
-    LEFT JOIN public.journal_entries je ON jl.journal_entry_id = je.id
-        AND je.status = 'posted'
-        AND je.organization_id = v_org_id
+    FULL OUTER JOIN tx_agg tx ON a.id = tx.account_id
     WHERE a.organization_id = v_org_id
-    GROUP BY a.id, a.code, a.name, a.type
-    ORDER BY a.code;
+    ORDER BY account_code;
 END;
 $$;
 
