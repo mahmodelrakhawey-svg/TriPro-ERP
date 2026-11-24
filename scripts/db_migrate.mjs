@@ -174,9 +174,25 @@ CREATE TABLE IF NOT EXISTS public._schema_migrations (
     applied_at timestamptz DEFAULT now()
 );
 
--- تأمين الصلاحيات
-GRANT SELECT ON public._schema_migrations TO authenticated;
+-- تأمين الصلاحيات وتفعيل درع RLS لمنع ثغرات الوصول غير المصرح به
+ALTER TABLE public._schema_migrations ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public._schema_migrations FROM anon;
+REVOKE ALL ON public._schema_migrations FROM public;
+
+GRANT SELECT ON public._schema_migrations TO anon, authenticated;
 GRANT ALL ON public._schema_migrations TO service_role;
+
+DROP POLICY IF EXISTS "schema_migrations_read_policy" ON public._schema_migrations;
+CREATE POLICY "schema_migrations_read_policy" ON public._schema_migrations
+    FOR SELECT TO anon, authenticated
+    USING (true);
+
+DROP POLICY IF EXISTS "schema_migrations_write_policy" ON public._schema_migrations;
+CREATE POLICY "schema_migrations_write_policy" ON public._schema_migrations
+    FOR ALL TO service_role
+    USING (true)
+    WITH CHECK (true);
 `;
 }
 
