@@ -29,7 +29,8 @@
     "health-check": "node scripts/system_health_check.mjs",
     "db:migrate": "node scripts/db_migrate.mjs",
     "db:status": "node scripts/db_migrate.mjs --status",
-    "db:bundle": "node scripts/db_migrate.mjs --bundle"
+    "db:bundle": "node scripts/db_migrate.mjs --bundle",
+    "db:verify": "node scripts/verify_schema_sync.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.3",
