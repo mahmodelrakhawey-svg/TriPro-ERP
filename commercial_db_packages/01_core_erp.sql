@@ -4538,13 +4538,13 @@ END; $$;
 
 -- 🛠️ دالة التحويل المالي بين الخزائن (Treasury Transfer)
 CREATE OR REPLACE FUNCTION public.add_treasury_transfer(
-  p_from_account_id uuid,
-  p_to_account_id uuid,
-  p_amount numeric,
-  p_transfer_date date,
-  p_notes text,
-  p_org_id uuid,
-  p_user_id uuid
+  p_from_account_id  uuid,
+  p_to_account_id    uuid,
+  p_amount           numeric,
+  p_transfer_date    date,
+  p_notes            text,
+  p_org_id           uuid,
+  p_user_id          uuid
 )
 RETURNS uuid
 LANGUAGE plpgsql
@@ -4552,25 +4552,33 @@ SECURITY DEFINER
 AS $$
 DECLARE
   v_entry_id uuid;
+  v_ref      text;
 BEGIN
-  -- 1. إنشاء رأس القيد المحاسبي
+  -- 1. توليد مرجع فريد بدقة الثواني
+  v_ref := 'TRF-' || TO_CHAR(NOW(), 'YYMMDD-HH24MISS') || '-' || LPAD(FLOOR(RANDOM() * 1000)::text, 3, '0');
+
+  -- 2. إنشاء رأس القيد بحالة draft أولاً لمنع استثارة أي triggers قبل اكتمال الأسطر
   INSERT INTO public.journal_entries (
     transaction_date,
     description,
     status,
+    is_posted,
     organization_id,
     user_id,
-    reference
+    reference,
+    related_document_type
   ) VALUES (
     p_transfer_date,
     p_notes,
-    'posted',
+    'draft',
+    false,
     p_org_id,
     p_user_id,
-    'TRF-' || TO_CHAR(NOW(), 'YYMMDD-HH24MI')
+    v_ref,
+    'treasury_transfer'
   ) RETURNING id INTO v_entry_id;
 
-  -- 2. سطر القيد المدين (الخزينة المستلمة تزيد)
+  -- 3. سطر القيد المدين (الخزينة المستلمة تزيد)
   INSERT INTO public.journal_lines (
     journal_entry_id,
     account_id,
@@ -4583,11 +4591,11 @@ BEGIN
     p_to_account_id,
     p_amount,
     0,
-    'تحويل وارد: ' || p_notes,
+    'تحويل وارد: ' || COALESCE(p_notes, ''),
     p_org_id
   );
 
-  -- 3. سطر القيد الدائن (الخزينة المحولة تنقص)
+  -- 4. سطر القيد الدائن (الخزينة المحولة تنقص)
   INSERT INTO public.journal_lines (
     journal_entry_id,
     account_id,
@@ -4600,9 +4608,20 @@ BEGIN
     p_from_account_id,
     0,
     p_amount,
-    'تحويل صادر: ' || p_notes,
+    'تحويل صادر: ' || COALESCE(p_notes, ''),
     p_org_id
   );
+
+  -- 5. ترحيل القيد بعد اكتمال أسطره
+  UPDATE public.journal_entries
+  SET status    = 'posted',
+      is_posted = true
+  WHERE id = v_entry_id;
+
+  -- 6. تحديث الأرصدة
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'recalculate_all_system_balances' AND pronamespace = 'public'::regnamespace) THEN
+    PERFORM public.recalculate_all_system_balances(p_org_id);
+  END IF;
 
   RETURN v_entry_id;
 END;

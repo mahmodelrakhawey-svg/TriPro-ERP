@@ -260,7 +260,7 @@ BEGIN
 END;
 $function$;
 
--- 5. تحديث دالة تحويل النقدية add_treasury_transfer لضمان فرادة المرجع وترحيله فوراً
+-- 5. تحديث دالة تحويل النقدية add_treasury_transfer لضمان فرادة المرجع وتجنب تكرار الأسطر
 CREATE OR REPLACE FUNCTION public.add_treasury_transfer(p_from_account_id uuid, p_to_account_id uuid, p_amount numeric, p_transfer_date date, p_notes text, p_org_id uuid, p_user_id uuid)
  RETURNS uuid
  LANGUAGE plpgsql
@@ -273,7 +273,7 @@ BEGIN
   -- توليد مرجع فريد تماماً متضمناً الثواني وكود عشوائي لمنع أي تكرار
   v_ref := 'TRF-' || TO_CHAR(NOW(), 'YYMMDD-HH24MISS') || '-' || LPAD(FLOOR(RANDOM() * 1000)::text, 3, '0');
 
-  -- 1. إنشاء رأس القيد المحاسبي مع تفعيل الترحيل تلقائياً
+  -- 1. إنشاء رأس القيد كمسودة draft أولاً لمنع استثارة أي triggers قبل اكتمال الأسطر
   INSERT INTO public.journal_entries (
     transaction_date,
     description,
@@ -286,8 +286,8 @@ BEGIN
   ) VALUES (
     p_transfer_date,
     p_notes,
-    'posted',
-    true,
+    'draft',
+    false,
     p_org_id,
     p_user_id,
     v_ref,
@@ -327,6 +327,17 @@ BEGIN
     'تحويل صادر: ' || COALESCE(p_notes, ''),
     p_org_id
   );
+
+  -- 4. ترحيل القيد بعد اكتمال أسطره
+  UPDATE public.journal_entries
+  SET status    = 'posted',
+      is_posted = true
+  WHERE id = v_entry_id;
+
+  -- 5. تحديث الأرصدة
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'recalculate_all_system_balances' AND pronamespace = 'public'::regnamespace) THEN
+    PERFORM public.recalculate_all_system_balances(p_org_id);
+  END IF;
 
   RETURN v_entry_id;
 END;

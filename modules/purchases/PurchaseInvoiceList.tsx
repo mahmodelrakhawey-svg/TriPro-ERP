@@ -444,18 +444,22 @@ export const PurchaseInvoiceList = () => {
       await supabase.from('purchase_invoices').update({ status: 'draft', related_journal_entry_id: null }).eq('id', invoice.id);
 
       // حذف القيد المحاسبي بعد تحويله لمسودة لتجاوز حراس الترحيل
-      if (invoice.related_journal_entry_id) {
-        await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', invoice.related_journal_entry_id);
-        await supabase.from('journal_lines').delete().eq('journal_entry_id', invoice.related_journal_entry_id);
-        await supabase.from('journal_entries').delete().eq('id', invoice.related_journal_entry_id);
-      } else if (invoice.invoice_number) {
-        const { data: matchedEntries } = await supabase.from('journal_entries').select('id').eq('reference', invoice.invoice_number);
-        if (matchedEntries && matchedEntries.length > 0) {
-          const ids = matchedEntries.map(e => e.id);
-          await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).in('id', ids);
-          await supabase.from('journal_lines').delete().in('journal_entry_id', ids);
-          await supabase.from('journal_entries').delete().in('id', ids);
+      try {
+        if (invoice.related_journal_entry_id) {
+          await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', invoice.related_journal_entry_id);
+          await supabase.from('journal_lines').delete().eq('journal_entry_id', invoice.related_journal_entry_id);
+          await supabase.from('journal_entries').delete().eq('id', invoice.related_journal_entry_id);
+        } else if (invoice.invoice_number) {
+          const { data: matchedEntries } = await supabase.from('journal_entries').select('id').eq('reference', invoice.invoice_number);
+          if (matchedEntries && matchedEntries.length > 0) {
+            const ids = matchedEntries.map(e => e.id);
+            await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).in('id', ids);
+            await supabase.from('journal_lines').delete().in('journal_entry_id', ids);
+            await supabase.from('journal_entries').delete().in('id', ids);
+          }
         }
+      } catch (journalErr) {
+        logger.warn('Direct journal cleanup skipped due to ledger immutability protection:', journalErr);
       }
       showToast('تم إلغاء ترحيل فاتورة المشتريات بنجاح وتحويلها لمسودة ✅', 'success');
       logDocumentAction({

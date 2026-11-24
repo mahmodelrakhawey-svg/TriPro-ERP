@@ -26,7 +26,8 @@ interface ArchiveRecord {
 
 interface ClosedFiscalYear {
   id: string;
-  name: string;
+  name?: string;
+  year?: number;
   start_date: string;
   end_date: string;
   is_closed: boolean;
@@ -70,20 +71,34 @@ const ArchiveManager: React.FC<ArchiveManagerProps> = ({
       if (archData) setArchives(archData);
 
       // 2. السنوات المالية المقفلة التي لم تُؤرشف بعد
-      const { data: fyData } = await supabase
+      const { data: fyData, error: fyError } = await supabase
         .from('fiscal_years')
-        .select('id, name, start_date, end_date, is_closed')
+        .select('*')
         .eq('organization_id', orgId)
         .eq('is_closed', true)
         .order('start_date', { ascending: false });
 
-      if (fyData) {
+      if (fyError) {
+        logger.warn('Fiscal years query warning:', fyError.message);
+      }
+
+      if (fyData && fyData.length > 0) {
         const archivedYearIds = new Set((archData || []).map(a => a.fiscal_year_id));
-        const availableYears = fyData.filter(y => !archivedYearIds.has(y.id));
+        const formattedYears = fyData.map((y: Record<string, unknown>) => ({
+          ...y,
+          id: String(y.id || ''),
+          start_date: String(y.start_date || ''),
+          end_date: String(y.end_date || ''),
+          is_closed: Boolean(y.is_closed),
+          name: String(y.name || (y.year ? `السنة المالية ${y.year}` : `السنة (${y.start_date} - ${y.end_date})`)),
+        })) as ClosedFiscalYear[];
+        const availableYears = formattedYears.filter(y => !archivedYearIds.has(y.id));
         setClosedYears(availableYears);
         if (availableYears.length > 0) {
           setSelectedYearId(availableYears[0].id);
         }
+      } else {
+        setClosedYears([]);
       }
     } catch (err) {
       logger.error('Failed to load archive data:', err);
