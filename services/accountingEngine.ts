@@ -224,7 +224,7 @@ class UnifiedAccountingEngine {
         logger.warn('[AccountingEngine] Atomic RPC error:', rpcError.message);
         import('./telemetryService')
           .then(({ telemetryService }) =>
-            telemetryService.captureError(new Error(`create_journal_entry_atomic failed: ${rpcError.message}`), {
+            telemetryService.captureException(new Error(`create_journal_entry_atomic failed: ${rpcError.message}`), {
               moduleName: 'AccountingEngine',
               severity: 'WARNING',
               metadata: { code: rpcError.code, organizationId, reference: entryRef }
