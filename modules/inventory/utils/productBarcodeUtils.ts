@@ -1,12 +1,21 @@
 import type { Item } from '../ProductManager';
 
+const escapeHtml = (unsafe: unknown): string =>
+  String(unsafe ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+
 export const printOfferBarcode = (item: Item) => {
   const printWindow = window.open('', '', 'width=600,height=400');
   if (printWindow) {
+    const safeName = escapeHtml(item.name);
     printWindow.document.write(`
       <html dir="rtl">
       <head>
-        <title>باركود العرض - ${item.name}</title>
+        <title>باركود العرض - ${safeName}</title>
         <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
         <style>
           body { font-family: 'Tajawal', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f0f0; }
@@ -58,10 +67,11 @@ export const printOfferBarcode = (item: Item) => {
 export const printBarcode = (item: Item) => {
   const printWindow = window.open('', '', 'width=800,height=600');
   if (printWindow) {
+    const safeName = escapeHtml(item.name);
     printWindow.document.write(`
       <html dir="rtl">
       <head>
-        <title>طباعة باركود - ${item.name}</title>
+        <title>طباعة باركود - ${safeName}</title>
         <link href="https://fonts.googleapis.com/css2?family=Libre+Barcode+39+Text&family=Tajawal:wght@400;700;900&display=swap" rel="stylesheet">
         <style>
           body { font-family: 'Tajawal', sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f0f0; }

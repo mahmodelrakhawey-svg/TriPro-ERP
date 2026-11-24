@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
@@ -17,6 +17,7 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
   const { showToast } = useToast();
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [order, setOrder] = useState<any>(null);
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'WALLET' | 'INSTAPAY'>('CASH');
   
@@ -91,6 +92,8 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
   };
 
   const handleProcessPayment = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitting(true);
     try {
       // 1. تحديد حساب التحصيل (خزينة أو بنك)
@@ -144,6 +147,7 @@ export const PaymentModal: React.FC<Props> = ({ orderId, onClose, onSuccess }) =
     } catch (error) {
       showToast(error.message || 'حدث خطأ أثناء المعالجة', 'error');
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };

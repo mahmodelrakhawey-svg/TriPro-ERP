@@ -4,13 +4,28 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 // 🛡️ ترويسات CORS للسماح بالطلبات من المتصفح (Localhost أو نطاق الإنتاج)
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-demo-reset-key',
 }
 
 serve(async (req) => {
   // 1. التعامل مع طلب Preflight الخاص بالمتصفح
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
+  }
+
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 405,
+    })
+  }
+
+  const resetSecret = Deno.env.get('DEMO_RESET_SECRET')
+  if (resetSecret && req.headers.get('x-demo-reset-key') !== resetSecret) {
+    return new Response(JSON.stringify({ error: 'Unauthorized demo reset' }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 401,
+    })
   }
 
   try {

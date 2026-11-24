@@ -53,7 +53,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('is_active')
+    .select('is_active, organization_id')
     .eq('id', user.id)
     .maybeSingle();
 
@@ -62,7 +62,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { action = 'submit', document, settings = {}, uuid } = req.body || {};
+    const { action = 'submit', document, settings: clientSettings = {}, uuid } = req.body || {};
+    let resolvedSettings = { ...clientSettings };
+
+    // Prefer server-side ETA credentials via service_role to avoid trusting client-sent secrets
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (serviceRoleKey && profile?.organization_id) {
+      const adminClient = createClient(supabaseUrl, serviceRoleKey);
+      const { data: dbSettings } = await adminClient
+        .from('company_settings')
+        .select('eta_client_id, eta_client_secret, eta_environment')
+        .eq('organization_id', profile.organization_id)
+        .maybeSingle();
+      if (dbSettings) {
+        resolvedSettings = {
+          ...resolvedSettings,
+          eta_client_id: dbSettings.eta_client_id || resolvedSettings.eta_client_id,
+          eta_client_secret: dbSettings.eta_client_secret || resolvedSettings.eta_client_secret,
+          eta_environment: dbSettings.eta_environment || resolvedSettings.eta_environment,
+        };
+      }
+    }
+
+    const settings = resolvedSettings;
     const env = settings.eta_environment || 'sandbox';
     const isSandbox = env === 'sandbox';
 
@@ -76,8 +98,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 2. Status inquiry action
     if (action === 'status') {
-      if (!uuid) {
-        return res.status(400).json({ error: 'UUID is required for status inquiry.' });
+      if (!uuid || typeof uuid !== 'string' || !/^[a-zA-Z0-9_-]{8,64}$/.test(uuid)) {
+        return res.status(400).json({ error: 'Valid UUID is required for status inquiry.' });
       }
 
       // If credentials provided, fetch real token and query ETA
