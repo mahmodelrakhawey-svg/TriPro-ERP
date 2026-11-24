@@ -84,6 +84,7 @@ const PosScreen = () => {
   const [isMergeModalOpen, setIsMergeModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [editingTable, setEditingTable] = useState<RestaurantTable | null>(null);
   const [orderToPrint, setOrderToPrint] = useState<ActiveOrder | null>(null);
   const [openExternalOrders, setOpenExternalOrders] = useState<any[]>([]);
@@ -693,6 +694,8 @@ const PosScreen = () => {
         selectedModifiers: item.selectedModifiers,
       }));
 
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     let orderPayload: Record<string, any> | null = null;
     try {
@@ -831,7 +834,9 @@ const PosScreen = () => {
       
       setOrderToPrint(orderToFinalize);
       setLastOrder(orderToFinalize);
-      setIsSubmitting(true); // تعطيل الأزرار لمنع النقرات المزدوجة
+      if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+    setIsSubmitting(true); // تعطيل الأزرار لمنع النقرات المزدوجة
       try {
       // تحديد حساب الخزينة
       const cashAccount = accounts.find(a => a.code === SYSTEM_ACCOUNTS.CASH);
@@ -943,6 +948,7 @@ const PosScreen = () => {
       } catch (e) {
           showToast('فشل إتمام الدفع: ' + e.message, 'error');
       } finally {
+          isSubmittingRef.current = false;
           setIsSubmitting(false);
       }
 
@@ -1110,7 +1116,9 @@ const PosScreen = () => {
     }
 
     try {
-      setIsSubmitting(true);
+      if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
 
       const subtotal = activeOrder.items.reduce((sum, item) => sum + (item.unitPrice * item.quantity), 0);
       const discountAmount = activeOrder.discount?.type === 'fixed' 
@@ -1156,6 +1164,7 @@ const PosScreen = () => {
       logger.error(error);
       showToast('حدث خطأ أثناء تسجيل الدفع الآجل: ' + error.message, 'error');
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };

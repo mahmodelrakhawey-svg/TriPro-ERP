@@ -9,6 +9,7 @@ import * as XLSX from 'xlsx';
 import { createStockAdjustmentSchema } from '../../utils/validationSchemas';
 import ProductSearchSelect from '../../components/ProductSearchSelect';
 import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
+import { escapeHtml } from '../../utils/htmlSanitizer';
 
 interface AdjustmentItem {
   productId: string;
@@ -218,7 +219,7 @@ const StockAdjustmentForm = () => {
             <div class="no-print" style="margin-bottom: 20px; text-align: center;">
                 <button onclick="window.print()" style="background: #2563eb; color: white; border: none; padding: 10px 20px; border-radius: 6px; font-family: inherit; font-weight: bold; cursor: pointer;">🖨️ طباعة الملصقات (${itemsWithDetails.length})</button>
             </div>
-            <div class="grid">${itemsWithDetails.map(item => `<div class="label"><div class="title">${item.name}</div><div class="barcode">*${item.sku}*</div><div class="sku">${item.sku}</div><div class="price">${item.price.toLocaleString()}</div>${item.expiry ? `<div class="expiry">Exp: ${item.expiry}</div>` : ''}</div>`).join('')}</div>
+            <div class="grid">${itemsWithDetails.map(item => `<div class="label"><div class="title">${escapeHtml(item.name)}</div><div class="barcode">*${escapeHtml(item.sku)}*</div><div class="sku">${escapeHtml(item.sku)}</div><div class="price">${item.price.toLocaleString()}</div>${item.expiry ? `<div class="expiry">Exp: ${escapeHtml(item.expiry)}</div>` : ''}</div>`).join('')}</div>
         </body>
         </html>
       `);

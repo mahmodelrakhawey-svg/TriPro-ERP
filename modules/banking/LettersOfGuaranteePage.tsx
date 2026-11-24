@@ -3,6 +3,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { escapeHtml } from '../../utils/htmlSanitizer';
 import { 
   Landmark, Plus, Edit, Trash2, Calendar, Search, Filter, 
   ArrowUpRight, RefreshCw, AlertTriangle, FileText, CheckCircle, Ban, 
@@ -624,7 +625,7 @@ export default function LettersOfGuaranteePage() {
             </div>
             <div style="grid-column: span 2">
               <div class="label">الملاحظات</div>
-              <div class="value" style="white-space: pre-line">${lg.notes || 'لا يوجد'}</div>
+              <div class="value" style="white-space: pre-line">${escapeHtml(lg.notes || 'لا يوجد')}</div>
             </div>
           </div>
         </body>

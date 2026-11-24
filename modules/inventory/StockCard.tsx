@@ -11,6 +11,7 @@ import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { stockCardProductUpdateSchema, stockCardOpeningBalanceUpdateSchema } from '../../utils/validationSchemas';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { escapeHtml } from '../../utils/htmlSanitizer';
 
 interface Product {
   id: string;
@@ -762,12 +763,12 @@ const StockCard = () => {
         if (printWindow) {
             printWindow.document.write(`
                 <html dir="rtl">
-                <head><title>طباعة باركود - ${selectedProduct.name}</title></head>
+                <head><title>طباعة باركود - ${escapeHtml(selectedProduct.name)}</title></head>
                 <body style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; font-family: sans-serif;">
                     <div style="border: 1px solid #000; padding: 20px; text-align: center; border-radius: 8px; width: 300px;">
-                        <h2 style="margin: 0 0 10px 0; font-size: 18px;">${selectedProduct.name}</h2>
-                        <div style="font-family: 'Libre Barcode 39', sans-serif; font-size: 40px; margin: 10px 0;">*${selectedProduct.sku || '0000'}*</div>
-                        <p style="margin: 5px 0 0 0; font-weight: bold; font-family: monospace; font-size: 16px;">${selectedProduct.sku || 'No SKU'}</p>
+                        <h2 style="margin: 0 0 10px 0; font-size: 18px;">${escapeHtml(selectedProduct.name)}</h2>
+                        <div style="font-family: 'Libre Barcode 39', sans-serif; font-size: 40px; margin: 10px 0;">*${escapeHtml(selectedProduct.sku || '0000')}*</div>
+                        <p style="margin: 5px 0 0 0; font-weight: bold; font-family: monospace; font-size: 16px;">${escapeHtml(selectedProduct.sku || 'No SKU')}</p>
                         <p style="margin: 10px 0 0 0; font-size: 20px; font-weight: bold;">${(selectedProduct.sales_price || 0).toLocaleString()} ج.م</p>
                     </div>
                     <script>window.onload = function() { window.print(); }</script>

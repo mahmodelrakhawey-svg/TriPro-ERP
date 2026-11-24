@@ -221,7 +221,27 @@ class UnifiedAccountingEngine {
       // إذا فشل RPC (ربما لأنه لم يُطبَّق بعد على قاعدة البيانات)
       // نسقط إلى المسار الاحتياطي الكلاسيكي مع تسجيل التحذير
       if (rpcError) {
-        logger.warn('[AccountingEngine] Atomic RPC unavailable, using fallback:', rpcError.message);
+        logger.warn('[AccountingEngine] Atomic RPC error:', rpcError.message);
+        import('./telemetryService')
+          .then(({ telemetryService }) =>
+            telemetryService.captureError(new Error(`create_journal_entry_atomic failed: ${rpcError.message}`), {
+              moduleName: 'AccountingEngine',
+              severity: 'WARNING',
+              metadata: { code: rpcError.code, organizationId, reference: entryRef }
+            })
+          )
+          .catch(() => {});
+
+        // Reject security/permission or validation errors immediately instead of bypassing via fallback
+        const msg = String(rpcError.message || '');
+        if (rpcError.code === '42501' || msg.includes('TRIPRO_') || msg.includes('مقفل') || msg.includes('غير متزن')) {
+          return {
+            success: false,
+            totalDebit,
+            totalCredit,
+            error: rpcError.message
+          };
+        }
       } else if (rpcResult && !rpcResult.success) {
         // الـ RPC موجود ورفض العملية (خطأ منطقي مثل فترة مقفلة أو عدم التوازن)
         return {
