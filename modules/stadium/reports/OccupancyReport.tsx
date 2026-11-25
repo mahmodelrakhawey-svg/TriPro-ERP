@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
 import toast from 'react-hot-toast';
-import { format, startOfMonth, endOfMonth, differenceInDays } from 'date-fns';
+import dayjs from 'dayjs';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import { calculateOccupancyRate } from '../stadiumHelpers';
 import { FACILITY_TYPE_LABELS } from '../stadium.types';
@@ -26,8 +26,8 @@ const OccupancyReport: React.FC = () => {
   const { currentUser } = useAccounting();
   const orgId = (currentUser as any)?.organization_id;
 
-  const [dateFrom, setDateFrom] = useState(format(startOfMonth(new Date()), 'yyyy-MM-dd'));
-  const [dateTo, setDateTo] = useState(format(endOfMonth(new Date()), 'yyyy-MM-dd'));
+  const [dateFrom, setDateFrom] = useState(dayjs().startOf('month').format('YYYY-MM-DD'));
+  const [dateTo, setDateTo] = useState(dayjs().endOf('month').format('YYYY-MM-DD'));
   
   const [stats, setStats] = useState<FacilityStats[]>([]);
   const [loading, setLoading] = useState(false);
@@ -73,7 +73,7 @@ const OccupancyReport: React.FC = () => {
 
       if (bookError) throw bookError;
 
-      const daysInRange = Math.max(1, differenceInDays(new Date(dateTo), new Date(dateFrom)) + 1);
+      const daysInRange = Math.max(1, dayjs(dateTo).diff(dayjs(dateFrom), 'day') + 1);
 
       // دالة تحديد وقت الذروة: 16:00 - 22:00
       const isPeak = (startTime: string) => {

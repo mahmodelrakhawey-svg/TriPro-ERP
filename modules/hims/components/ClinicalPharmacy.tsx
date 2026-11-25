@@ -4,7 +4,7 @@ import { MedicineBoxOutlined, WarningOutlined, CheckCircleOutlined, BarcodeOutli
 import { supabase } from '@/supabaseClient';
 import { useToastNotification } from '@/utils/toastUtils';
 import { useAccounting } from '@/context/AccountingContext';
-import { format } from 'date-fns';
+import dayjs from 'dayjs';
 
 const { Text, Title } = Typography;
 
@@ -118,7 +118,7 @@ export default function ClinicalPharmacy() {
   };
 
   const columns = [
-    { title: 'التاريخ', dataIndex: 'created_at', render: (date) => format(new Date(date), 'yyyy-MM-dd HH:mm') },
+    { title: 'التاريخ', dataIndex: 'created_at', render: (date) => dayjs(date).format('YYYY-MM-DD HH:mm') },
     { title: 'المريض', render: (_, r) => r.patient?.hims_patients?.full_name },
     { title: 'الطبيب المعالج', render: (_, r) => r.doctor?.profile_id?.full_name },
     { title: 'التشخيص', dataIndex: 'diagnosis', ellipsis: true },

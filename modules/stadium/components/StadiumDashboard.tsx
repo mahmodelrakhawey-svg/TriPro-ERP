@@ -4,8 +4,8 @@ import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
 import { Trophy, Users, Calendar, TrendingUp, Building2, Dumbbell, AlertTriangle, Activity } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
-import { format, subMonths, startOfMonth, endOfMonth, addDays, startOfDay, endOfDay } from 'date-fns';
-import { ar } from 'date-fns/locale';
+import dayjs from 'dayjs';
+import 'dayjs/locale/ar';
 import { formatCurrency } from '../stadiumHelpers';
 import toast from 'react-hot-toast';
 import { StadiumMember, StadiumRentalContract } from '../stadium.types';
@@ -41,12 +41,12 @@ export default function StadiumDashboard() {
     try {
       setLoading(true);
       
-      const today = new Date();
-      const startOfTodayStr = startOfDay(today).toISOString();
-      const endOfTodayStr = endOfDay(today).toISOString();
+      const today = dayjs();
+      const startOfTodayStr = today.startOf('day').toISOString();
+      const endOfTodayStr = today.endOf('day').toISOString();
       
-      const startOfThisMonthStr = startOfMonth(today).toISOString();
-      const endOfThisMonthStr = endOfMonth(today).toISOString();
+      const startOfThisMonthStr = today.startOf('month').toISOString();
+      const endOfThisMonthStr = today.endOf('month').toISOString();
 
       // KPIs Fetch
       const [
@@ -119,9 +119,9 @@ export default function StadiumDashboard() {
       // Monthly Revenue for last 6 months
       const sixMonthsData: any[] = [];
       for (let i = 5; i >= 0; i--) {
-        const d = subMonths(today, i);
-        const sMonth = startOfMonth(d).toISOString();
-        const eMonth = endOfMonth(d).toISOString();
+        const d = today.subtract(i, 'month');
+        const sMonth = d.startOf('month').toISOString();
+        const eMonth = d.endOf('month').toISOString();
 
         const [
           { data: sub }, { data: bking }, { data: rnt }, { data: prg }
@@ -138,14 +138,14 @@ export default function StadiumDashboard() {
           (prg?.reduce((sum, item) => sum + (item.amount_paid || 0), 0) || 0);
 
         sixMonthsData.push({
-          month: format(d, 'MMM yyyy', { locale: ar }),
+          month: d.locale('ar').format('MMM YYYY'),
           الإيرادات: mthTotal
         });
       }
       setMonthlyRevenueData(sixMonthsData);
 
       // Alerts
-      const nextWeek = addDays(today, 7).toISOString();
+      const nextWeek = today.add(7, 'day').toISOString();
       const { data: expMembers } = await supabase.from('stadium_members')
         .select('*')
         .eq('organization_id', orgId)
@@ -291,7 +291,7 @@ export default function StadiumDashboard() {
                     <p className="text-xs text-gray-500">{member.phone || 'بدون هاتف'}</p>
                   </div>
                   <div className="text-left">
-                    <p className="text-sm font-bold text-red-600">{member.end_date ? format(new Date(member.end_date), 'yyyy-MM-dd') : ''}</p>
+                    <p className="text-sm font-bold text-red-600">{member.end_date ? dayjs(member.end_date).format('YYYY-MM-DD') : ''}</p>
                     <p className="text-xs text-gray-500">تاريخ الانتهاء</p>
                   </div>
                 </div>
@@ -320,7 +320,7 @@ export default function StadiumDashboard() {
                     <p className="text-xs text-gray-500">رقم العقد: {contract.id.slice(0, 8)}</p>
                   </div>
                   <div className="text-left">
-                    <p className="text-sm font-bold text-orange-600">{contract.next_due_date ? format(new Date(contract.next_due_date), 'yyyy-MM-dd') : ''}</p>
+                    <p className="text-sm font-bold text-orange-600">{contract.next_due_date ? dayjs(contract.next_due_date).format('YYYY-MM-DD') : ''}</p>
                     <p className="text-xs text-gray-500">تاريخ الاستحقاق</p>
                   </div>
                 </div>

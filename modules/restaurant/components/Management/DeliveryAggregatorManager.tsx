@@ -29,8 +29,11 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { ar } from 'date-fns/locale';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import 'dayjs/locale/ar';
+dayjs.extend(relativeTime);
+dayjs.locale('ar');
 import { secureStorage } from '../../../../utils/securityMiddleware';
 
 const LOCAL_AGGREGATOR_ACCOUNTS_MAP_KEY = 'tripro_aggregator_accounts_map_v1';
@@ -398,7 +401,7 @@ export const DeliveryAggregatorManager: React.FC = () => {
                   </div>
 
                   <span className="text-[11px] text-slate-400 font-mono">
-                    {formatDistanceToNow(new Date(ord.created_at), { addSuffix: true, locale: ar })}
+                    {dayjs(ord.created_at).fromNow()}
                   </span>
                 </div>
 

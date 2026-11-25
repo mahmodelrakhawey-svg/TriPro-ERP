@@ -5,8 +5,11 @@ import { supabase } from '../../../../supabaseClient';
 import { useToast } from '../../../../context/ToastContext';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { Utensils, Clock, Check, ChefHat, Layers, Filter, Flame, Timer, AlertTriangle } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { ar } from 'date-fns/locale';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import 'dayjs/locale/ar';
+dayjs.extend(relativeTime);
+dayjs.locale('ar');
 import { KitchenStation, kitchenStationService } from '../../../../services/kitchenStationService';
 import { cookPacingService } from '../../../../services/cookPacingService';
 import { secureStorage } from '../../../../utils/securityMiddleware';
@@ -35,11 +38,11 @@ type KitchenOrderTicket = {
 
 // --- المكونات الفرعية ---
 const TimeAgo = ({ date }: { date: string }) => {
-  const [time, setTime] = useState(() => formatDistanceToNow(new Date(date), { addSuffix: true, locale: ar }));
+  const [time, setTime] = useState(() => dayjs(date).fromNow());
 
   useEffect(() => {
     const interval = setInterval(() => {
-      setTime(formatDistanceToNow(new Date(date), { addSuffix: true, locale: ar }));
+      setTime(dayjs(date).fromNow());
     }, 10000); // Update every 10 seconds
     return () => clearInterval(interval);
   }, [date]);

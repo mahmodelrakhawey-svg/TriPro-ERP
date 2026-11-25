@@ -16,7 +16,35 @@ export default defineConfig(({ mode }) => {
           },
         },
       },
-      plugins: [react()],
+      plugins: [
+        react(),
+        {
+          name: 'security-headers',
+          configureServer(server) {
+            server.middlewares.use((_req, res, next) => {
+              res.setHeader(
+                'Content-Security-Policy',
+                [
+                  "default-src 'self'",
+                  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+                  "style-src 'self' 'unsafe-inline'",
+                  "img-src 'self' data: blob: https:",
+                  "font-src 'self' data:",
+                  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://generativelanguage.googleapis.com",
+                  "frame-src 'none'",
+                  "object-src 'none'",
+                  "base-uri 'self'",
+                  "form-action 'self'"
+                ].join('; ')
+              );
+              res.setHeader('X-Content-Type-Options', 'nosniff');
+              res.setHeader('X-Frame-Options', 'DENY');
+              res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+              next();
+            });
+          },
+        },
+      ],
       define: {
         // حماية المفاتيح السرية: لا يتم حرق مفتاح GEMINI_API_KEY السيرفري داخل كود الواجهة الأمامية في بيئة الإنتاج
         'process.env.API_KEY': JSON.stringify(mode === 'development' ? env.GEMINI_API_KEY : ''),

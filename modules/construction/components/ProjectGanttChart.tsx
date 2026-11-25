@@ -1,6 +1,17 @@
 import React from 'react';
-import { format, differenceInDays, addDays, startOfMonth, endOfMonth, eachDayOfInterval, isToday, isPast } from 'date-fns';
-import { ar } from 'date-fns/locale';
+import dayjs from 'dayjs';
+import 'dayjs/locale/ar';
+
+const eachDayOfInterval = ({ start, end }: { start: Date; end: Date }): Date[] => {
+  const days: Date[] = [];
+  let current = dayjs(start);
+  const last = dayjs(end);
+  while (current.isBefore(last) || current.isSame(last, 'day')) {
+    days.push(current.toDate());
+    current = current.add(1, 'day');
+  }
+  return days;
+};
 
 interface Milestone {
   id: string;
@@ -24,17 +35,17 @@ const ProjectGanttChart: React.FC<Props> = ({ milestones, onMilestoneClick }) =>
   const endDates = milestones.map(m => new Date(m.expected_end_date));
   
   const minDate = new Date(Math.min(...startDates.map(d => d.getTime())));
-  const chartStartDate = startOfMonth(minDate);
+  const chartStartDate = dayjs(minDate).startOf('month').toDate();
   
   const maxDate = new Date(Math.max(...endDates.map(d => d.getTime())));
-  const chartEndDate = endOfMonth(addDays(maxDate, 7)); // إضافة أسبوع إضافي للرؤية
+  const chartEndDate = dayjs(maxDate).add(7, 'day').endOf('month').toDate(); // إضافة أسبوع إضافي للرؤية
 
-  const totalDays = differenceInDays(chartEndDate, chartStartDate);
+  const totalDays = dayjs(chartEndDate).diff(dayjs(chartStartDate), 'day');
   const days = eachDayOfInterval({ start: chartStartDate, end: chartEndDate });
 
   // حساب موقع خط "اليوم"
   const today = new Date();
-  const todayOffset = differenceInDays(today, chartStartDate);
+  const todayOffset = dayjs(today).diff(dayjs(chartStartDate), 'day');
 
   const getStatusColor = (status: Milestone['status']) => {
     switch (status) {
@@ -56,15 +67,15 @@ const ProjectGanttChart: React.FC<Props> = ({ milestones, onMilestoneClick }) =>
               <div className="flex flex-1">
                 {days.map((day, idx) => {
                   const isFirstDayOfMonth = day.getDate() === 1;
-                  const isCurrentDay = isToday(day);
+                  const isCurrentDay = dayjs(day).isSame(dayjs(), 'day');
                   return (
                     <div key={idx} className={`flex-shrink-0 w-8 text-center border-l border-slate-100 py-2 ${isFirstDayOfMonth ? 'bg-orange-50' : ''} ${isCurrentDay ? 'bg-blue-50/50 ring-1 ring-blue-200 z-10' : ''}`}>
                       {isFirstDayOfMonth && (
                         <div className="absolute top-0 text-[10px] font-bold text-orange-600 -mt-1 whitespace-nowrap">
-                          {format(day, 'MMMM', { locale: ar })}
+                          {dayjs(day).locale('ar').format('MMMM')}
                         </div>
                       )}
-                      <span className={`text-[10px] font-bold ${isCurrentDay ? 'text-blue-600' : 'text-slate-400'}`}>{format(day, 'd')}</span>
+                      <span className={`text-[10px] font-bold ${isCurrentDay ? 'text-blue-600' : 'text-slate-400'}`}>{dayjs(day).format('D')}</span>
                     </div>
                   );
                 })}
@@ -77,11 +88,11 @@ const ProjectGanttChart: React.FC<Props> = ({ milestones, onMilestoneClick }) =>
                 const mStart = new Date(milestone.expected_start_date);
                 const mEnd = new Date(milestone.expected_end_date);
                 
-                const startOffset = differenceInDays(mStart, chartStartDate);
-                const duration = differenceInDays(mEnd, mStart) + 1;
+                const startOffset = dayjs(mStart).diff(dayjs(chartStartDate), 'day');
+                const duration = dayjs(mEnd).diff(dayjs(mStart), 'day') + 1;
                 
                 // تنبيه تأخير: إذا انتهى التاريخ ولم تكتمل المهمة
-                const isOverdue = isPast(mEnd) && milestone.status !== 'completed';
+                const isOverdue = dayjs(mEnd).isBefore(dayjs()) && milestone.status !== 'completed';
                 
                 return (
                   <div key={milestone.id} className="flex group hover:bg-slate-50/50 transition-colors">

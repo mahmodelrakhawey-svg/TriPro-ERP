@@ -4,7 +4,7 @@ import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
 import toast from 'react-hot-toast';
 import { TrendingUp, BarChart3, Award, DollarSign, Download } from 'lucide-react';
-import { format, startOfYear, endOfYear } from 'date-fns';
+import dayjs from 'dayjs';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Legend } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -25,8 +25,8 @@ const ProgramProfitReport: React.FC = () => {
   const { currentUser } = useAccounting();
   const orgId = (currentUser as any)?.organization_id;
 
-  const [dateFrom, setDateFrom] = useState(format(startOfYear(new Date()), 'yyyy-MM-dd'));
-  const [dateTo, setDateTo] = useState(format(endOfYear(new Date()), 'yyyy-MM-dd'));
+  const [dateFrom, setDateFrom] = useState(dayjs().startOf('year').format('YYYY-MM-DD'));
+  const [dateTo, setDateTo] = useState(dayjs().endOf('year').format('YYYY-MM-DD'));
   
   const [stats, setStats] = useState<ProgramProfit[]>([]);
   const [loading, setLoading] = useState(false);
@@ -162,7 +162,7 @@ const ProgramProfitReport: React.FC = () => {
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "ربحية البرامج");
-    XLSX.writeFile(wb, `Program_Profitability_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+    XLSX.writeFile(wb, `Program_Profitability_${dayjs().format('YYYYMMDD')}.xlsx`);
   };
 
   const getMarginColor = (margin: number) => {

@@ -28,8 +28,11 @@ import {
   Coffee,
   Leaf
 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { ar } from 'date-fns/locale';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import 'dayjs/locale/ar';
+dayjs.extend(relativeTime);
+dayjs.locale('ar');
 
 export const ExpoScreen: React.FC = () => {
   const { currentUser, products, restaurantTables } = useAccounting();
@@ -439,7 +442,7 @@ export const ExpoScreen: React.FC = () => {
                 <div className="p-3 bg-slate-900/60 border-t border-slate-700 flex justify-between items-center">
                   <span className="text-[11px] text-slate-400 flex items-center gap-1 font-mono">
                     <Clock className="w-3.5 h-3.5" />
-                    {formatDistanceToNow(new Date(ticket.created_at), { addSuffix: true, locale: ar })}
+                    {dayjs(ticket.created_at).fromNow()}
                   </span>
 
                   <button

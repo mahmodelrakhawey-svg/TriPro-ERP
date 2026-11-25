@@ -9,7 +9,7 @@ import {
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
-import { addDays, addMonths, addWeeks, isBefore, parseISO, startOfDay } from 'date-fns';
+import dayjs from 'dayjs';
 
 // Types
 import { StadiumRentalContract, StadiumRentalPayment, StadiumFacility } from '../stadium.types';
@@ -120,7 +120,7 @@ const RentalManager: React.FC = () => {
   };
 
   const fetchAlerts = async () => {
-    const targetDate = addDays(new Date(), 7).toISOString();
+    const targetDate = dayjs().add(7, 'day').toISOString();
     const { data, error } = await supabase
       .from('stadium_rental_contracts')
       .select('*, facility:stadium_facilities(*)')
@@ -135,11 +135,11 @@ const RentalManager: React.FC = () => {
   };
 
   const onSubmitContract = async (data: ContractFormValues) => {
-    let nextDueDate = parseISO(data.start_date);
+    let nextDueDate = dayjs(data.start_date);
     if (data.billing_cycle === 'monthly') {
-      nextDueDate = addMonths(nextDueDate, 1);
+      nextDueDate = nextDueDate.add(1, 'month');
     } else {
-      nextDueDate = addWeeks(nextDueDate, 1);
+      nextDueDate = nextDueDate.add(1, 'week');
     }
 
     const newContract = {
@@ -225,11 +225,11 @@ const RentalManager: React.FC = () => {
       return;
     }
 
-    let newNextDueDate = parseISO(paymentModalContract.next_due_date || new Date().toISOString());
+    let newNextDueDate = dayjs(paymentModalContract.next_due_date || new Date().toISOString());
     if (paymentModalContract.billing_cycle === 'monthly') {
-      newNextDueDate = addMonths(newNextDueDate, 1);
+      newNextDueDate = newNextDueDate.add(1, 'month');
     } else {
-      newNextDueDate = addWeeks(newNextDueDate, 1);
+      newNextDueDate = newNextDueDate.add(1, 'week');
     }
 
     const { error: updateError } = await supabase

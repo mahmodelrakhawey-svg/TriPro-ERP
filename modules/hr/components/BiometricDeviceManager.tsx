@@ -28,8 +28,11 @@ import {
   Info,
   ShieldCheck
 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { ar } from 'date-fns/locale';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import 'dayjs/locale/ar';
+dayjs.extend(relativeTime);
+dayjs.locale('ar');
 
 export const BiometricDeviceManager: React.FC = () => {
   const { currentSelectedOrgId, currentUser, employees } = useAccounting();
@@ -213,7 +216,7 @@ export const BiometricDeviceManager: React.FC = () => {
               <div className="flex justify-between text-[11px]">
                 <span className="text-slate-400">آخر مزامنة:</span>
                 <span className="text-slate-600">
-                  {dev.last_sync_at ? formatDistanceToNow(new Date(dev.last_sync_at), { addSuffix: true, locale: ar }) : 'لم تتم بعد'}
+                  {dev.last_sync_at ? dayjs(dev.last_sync_at).fromNow() : 'لم تتم بعد'}
                 </span>
               </div>
             </div>

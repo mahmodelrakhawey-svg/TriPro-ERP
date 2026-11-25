@@ -5,7 +5,7 @@ import { fetchCompleteDataset } from '@/services/balanceService';
 import { useAccounting } from '@/context/AccountingContext';
 import toast from 'react-hot-toast';
 import { BarChart3, Download, Filter, TrendingUp } from 'lucide-react';
-import { format, subDays } from 'date-fns';
+import dayjs from 'dayjs';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -22,8 +22,8 @@ const StadiumRevenueReport: React.FC = () => {
   const { currentUser } = useAccounting();
   const orgId = (currentUser as any)?.organization_id;
 
-  const [dateFrom, setDateFrom] = useState(format(subDays(new Date(), 30), 'yyyy-MM-dd'));
-  const [dateTo, setDateTo] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [dateFrom, setDateFrom] = useState(dayjs().subtract(30, 'day').format('YYYY-MM-DD'));
+  const [dateTo, setDateTo] = useState(dayjs().format('YYYY-MM-DD'));
   const [typeFilter, setTypeFilter] = useState<string>('all');
   
   const [data, setData] = useState<RevenueRecord[]>([]);
@@ -170,7 +170,7 @@ const StadiumRevenueReport: React.FC = () => {
 
   // Group by date for chart
   const chartData = filteredData.reduce((acc: any[], curr) => {
-    const dateStr = format(new Date(curr.date), 'MM/dd');
+    const dateStr = dayjs(curr.date).format('MM/DD');
     const existing = acc.find(item => item.date === dateStr);
     if (existing) {
       existing.amount += curr.amount;
@@ -182,7 +182,7 @@ const StadiumRevenueReport: React.FC = () => {
 
   const handleExport = () => {
     const exportData = filteredData.map(item => ({
-      'التاريخ': format(new Date(item.date), 'yyyy/MM/dd HH:mm'),
+      'التاريخ': dayjs(item.date).format('YYYY/MM/DD HH:mm'),
       'النوع': item.type === 'subscription' ? 'اشتراك' : item.type === 'booking' ? 'حجز' : item.type === 'rental' ? 'إيجار' : 'برنامج',
       'الوصف': item.description,
       'المبلغ (ج.م)': item.amount,
@@ -192,7 +192,7 @@ const StadiumRevenueReport: React.FC = () => {
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "الإيرادات");
-    XLSX.writeFile(wb, `تقرير_إيرادات_الاستاد_${format(new Date(), 'yyyyMMdd')}.xlsx`);
+    XLSX.writeFile(wb, `تقرير_إيرادات_الاستاد_${dayjs().format('YYYYMMDD')}.xlsx`);
   };
 
   return (
@@ -307,7 +307,7 @@ const StadiumRevenueReport: React.FC = () => {
                 currentData.map((row) => (
                   <tr key={row.id} className="hover:bg-gray-50/50 dark:hover:bg-gray-750 transition">
                     <td className="px-6 py-4 text-xs text-gray-600 dark:text-gray-400 font-mono">
-                      {format(new Date(row.date), 'yyyy/MM/dd HH:mm')}
+                      {dayjs(row.date).format('YYYY/MM/DD HH:mm')}
                     </td>
                     <td className="px-6 py-4">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${

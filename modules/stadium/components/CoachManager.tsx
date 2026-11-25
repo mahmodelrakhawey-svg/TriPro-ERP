@@ -7,7 +7,7 @@ import { Users, Award, DollarSign, Plus, Percent, Edit, Trash, X, History, Credi
 import { StadiumCoach, StadiumCoachPayment, StadiumTrainingProgram } from '../stadium.types';
 
 import { uploadStadiumImage, createCoachPaymentJournalEntry, getTreasuryAccounts, TreasuryAccountOption } from '../stadiumHelpers';
-import { format } from 'date-fns';
+import dayjs from 'dayjs';
 
 const CoachManager: React.FC = () => {
   const { currentUser } = useAccounting();
@@ -47,8 +47,8 @@ const CoachManager: React.FC = () => {
   const [paymentData, setPaymentData] = useState({
     program_id: '',
     treasury_account_id: '',
-    period_from: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'),
-    period_to: format(new Date(), 'yyyy-MM-dd'),
+    period_from: dayjs().startOf('month').format('YYYY-MM-DD'),
+    period_to: dayjs().format('YYYY-MM-DD'),
     gross_revenue: 0,
     commission_rate: 0,
     total_entitled: 0,
@@ -197,8 +197,8 @@ const CoachManager: React.FC = () => {
     setPaymentData({
       program_id: defaultProgId,
       treasury_account_id: treasuryAccounts[0]?.id || '',
-      period_from: format(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 'yyyy-MM-dd'),
-      period_to: format(new Date(), 'yyyy-MM-dd'),
+      period_from: dayjs().startOf('month').format('YYYY-MM-DD'),
+      period_to: dayjs().format('YYYY-MM-DD'),
       gross_revenue: 0,
       commission_rate: displayRate,
       total_entitled: 0,
@@ -677,13 +677,13 @@ const CoachManager: React.FC = () => {
                             {(payment as any).stadium_training_programs?.name || 'برنامج غير معروف'}
                           </h4>
                           <div className="text-sm text-gray-500 mt-1">
-                            الفترة: {format(new Date(payment.period_from), 'yyyy/MM/dd')} إلى {format(new Date(payment.period_to), 'yyyy/MM/dd')}
+                            الفترة: {dayjs(payment.period_from).format('YYYY/MM/DD')} إلى {dayjs(payment.period_to).format('YYYY/MM/DD')}
                           </div>
                         </div>
                         <div className="text-left">
                           <div className="text-lg font-bold text-green-600">{Number(payment.amount_paid).toFixed(2)} ج.م</div>
 
-                          <div className="text-xs text-gray-500">{format(new Date(payment.payment_date), 'yyyy/MM/dd HH:mm')}</div>
+                          <div className="text-xs text-gray-500">{dayjs(payment.payment_date).format('YYYY/MM/DD HH:mm')}</div>
                         </div>
                       </div>
                       <div className="flex gap-4 text-sm mt-3 pt-3 border-t border-gray-200">

@@ -33,8 +33,11 @@ import {
   Check,
   X
 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
-import { ar } from 'date-fns/locale';
+import dayjs from 'dayjs';
+import relativeTime from 'dayjs/plugin/relativeTime';
+import 'dayjs/locale/ar';
+dayjs.extend(relativeTime);
+dayjs.locale('ar');
 
 export const DriverDispatchManager: React.FC = () => {
   const { currentUser, accounts } = useAccounting();
@@ -530,7 +533,7 @@ export const DriverDispatchManager: React.FC = () => {
 
                     <td className="p-3.5 text-center text-slate-400 text-[11px] font-mono">
                       {delv.dispatched_at
-                        ? formatDistanceToNow(new Date(delv.dispatched_at), { addSuffix: true, locale: ar })
+                        ? dayjs(delv.dispatched_at).fromNow()
                         : '-'}
                     </td>
 

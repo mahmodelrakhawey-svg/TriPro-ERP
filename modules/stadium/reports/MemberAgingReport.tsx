@@ -4,7 +4,7 @@ import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
 import toast from 'react-hot-toast';
 import { AlertTriangle, Clock, Users, RefreshCw } from 'lucide-react';
-import { addDays, differenceInDays, format } from 'date-fns';
+import dayjs from 'dayjs';
 
 interface AgingMember {
   id: string;
@@ -51,21 +51,21 @@ const MemberAgingReport: React.FC = () => {
         `)
         .eq('organization_id', orgId);
 
-      const today = new Date();
+      const today = dayjs();
       
       if (activeTab === '7days') {
         query = query.eq('status', 'active')
                      .not('end_date', 'is', null)
-                     .lte('end_date', format(addDays(today, 7), 'yyyy-MM-dd'))
-                     .gte('end_date', format(today, 'yyyy-MM-dd'));
+                     .lte('end_date', today.add(7, 'day').format('YYYY-MM-DD'))
+                     .gte('end_date', today.format('YYYY-MM-DD'));
       } else if (activeTab === '30days') {
         query = query.eq('status', 'active')
                      .not('end_date', 'is', null)
-                     .lte('end_date', format(addDays(today, 30), 'yyyy-MM-dd'))
-                     .gt('end_date', format(addDays(today, 7), 'yyyy-MM-dd'));
+                     .lte('end_date', today.add(30, 'day').format('YYYY-MM-DD'))
+                     .gt('end_date', today.add(7, 'day').format('YYYY-MM-DD'));
       } else if (activeTab === 'expired') {
         query = query.not('end_date', 'is', null)
-                     .lt('end_date', format(today, 'yyyy-MM-dd'));
+                     .lt('end_date', today.format('YYYY-MM-DD'));
       } else if (activeTab === 'suspended') {
         query = query.eq('status', 'suspended');
       }
@@ -74,7 +74,7 @@ const MemberAgingReport: React.FC = () => {
       if (error) throw error;
 
       const formatted = (results || []).map(r => {
-        const diff = r.end_date ? differenceInDays(new Date(r.end_date), today) : 0;
+        const diff = r.end_date ? dayjs(r.end_date).diff(today, 'day') : 0;
         return {
           id: r.id,
           member_id: r.id,
@@ -180,7 +180,7 @@ const MemberAgingReport: React.FC = () => {
                       {row.membership_type === 'monthly' ? 'شهري' : row.membership_type === 'quarterly' ? 'ربع سنوي' : 'سنوي'}
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900" dir="ltr">
-                      {format(new Date(row.end_date), 'yyyy/MM/dd')}
+                      {dayjs(row.end_date).format('YYYY/MM/DD')}
                     </td>
                     <td className="px-6 py-4">
                       {activeTab === 'suspended' ? (
