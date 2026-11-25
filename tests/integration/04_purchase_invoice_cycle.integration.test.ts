@@ -217,7 +217,7 @@ describe('🛒 [Integration] Purchase Invoice Full Cycle — قاعدة بيان
   runIf('4. جميع المخازن في قاعدة البيانات لها IDs بصيغة UUID صحيحة', async () => {
     const { data: warehouses, error } = await adminClient.client
       .from('warehouses')
-      .select('id, name, code')
+      .select('id, name')
       .eq('organization_id', adminClient.orgId!)
       .limit(20);
 

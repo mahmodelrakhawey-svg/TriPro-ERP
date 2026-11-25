@@ -45,10 +45,10 @@ describe('📊 [Integration] Accounting Integrity — قاعدة بيانات ح
   runIf('1. جميع قيود اليومية المرحّلة متوازنة (مدين = دائن) بدون استثناء', async () => {
     const { data: entries, error } = await adminClient.client
       .from('journal_entries')
-      .select('id, entry_number, total_debit, total_credit, status, date')
+      .select('id, reference, status, transaction_date, journal_lines(debit, credit)')
       .eq('organization_id', adminClient.orgId!)
       .eq('status', 'posted')
-      .order('date', { ascending: false })
+      .order('transaction_date', { ascending: false })
       .limit(200);
 
     expect(error).toBeNull();
@@ -58,16 +58,20 @@ describe('📊 [Integration] Accounting Integrity — قاعدة بيانات ح
       return;
     }
 
-    const unbalancedEntries = entries.filter(entry => {
-      const debit = Number(entry.total_debit ?? 0);
-      const credit = Number(entry.total_credit ?? 0);
+    const unbalancedEntries = entries.filter((entry: Record<string, any>) => {
+      const lines = (entry.journal_lines || []) as Array<{ debit: number; credit: number }>;
+      const debit = lines.reduce((s, l) => s + Number(l.debit ?? 0), 0);
+      const credit = lines.reduce((s, l) => s + Number(l.credit ?? 0), 0);
       return Math.abs(debit - credit) > 0.01; // تسامح مع كسور التقريب
     });
 
     if (unbalancedEntries.length > 0) {
       console.error(`   ❌ قيود غير متوازنة (${unbalancedEntries.length}):`);
-      unbalancedEntries.slice(0, 5).forEach(e => {
-        console.error(`      ${e.entry_number} | مدين: ${e.total_debit} | دائن: ${e.total_credit} | فرق: ${Math.abs(e.total_debit - e.total_credit)}`);
+      unbalancedEntries.slice(0, 5).forEach((e: Record<string, any>) => {
+        const lines = (e.journal_lines || []) as Array<{ debit: number; credit: number }>;
+        const debit = lines.reduce((s, l) => s + Number(l.debit ?? 0), 0);
+        const credit = lines.reduce((s, l) => s + Number(l.credit ?? 0), 0);
+        console.error(`      ${e.reference || e.id} | مدين: ${debit} | دائن: ${credit} | فرق: ${Math.abs(debit - credit)}`);
       });
     }
 
@@ -162,7 +166,7 @@ describe('📊 [Integration] Accounting Integrity — قاعدة بيانات ح
       .from('suppliers')
       .select('id, name, balance')
       .eq('organization_id', adminClient.orgId!)
-      .eq('is_active', true)
+      .is('deleted_at', null)
       .limit(100);
 
     expect(error).toBeNull();
@@ -184,7 +188,7 @@ describe('📊 [Integration] Accounting Integrity — قاعدة بيانات ح
   runIf('5. جميع الفواتير المرحّلة لها invoice_number غير فارغ', async () => {
     const { data: invoices, error } = await adminClient.client
       .from('invoices')
-      .select('id, invoice_number, status, date')
+      .select('id, invoice_number, status, invoice_date')
       .eq('organization_id', adminClient.orgId!)
       .eq('status', 'posted')
       .or('invoice_number.is.null,invoice_number.eq.')
@@ -194,7 +198,7 @@ describe('📊 [Integration] Accounting Integrity — قاعدة بيانات ح
 
     if (invoices && invoices.length > 0) {
       console.error(`   ❌ فواتير مرحّلة بدون رقم (${invoices.length}):`);
-      invoices.forEach(inv => console.error(`      ID: ${inv.id} | Date: ${inv.date}`));
+      invoices.forEach(inv => console.error(`      ID: ${inv.id} | Date: ${inv.invoice_date}`));
     }
 
     expect(invoices?.length ?? 0).toBe(0);
