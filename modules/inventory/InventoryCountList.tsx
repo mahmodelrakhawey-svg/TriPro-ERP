@@ -604,7 +604,7 @@ const InventoryCountList = () => {
     // استعلام خفيف وسريع بدون Join لتجنب بطء الشبكة ومهلة الـ 503
     const { data, error } = await supabase
       .from('inventory_count_items')
-      .select('*')
+      .select('id, inventory_count_id, product_id, system_quantity, counted_quantity, difference, organization_id')
       .eq('inventory_count_id', count.id);
 
     if (error) {
@@ -614,7 +614,7 @@ const InventoryCountList = () => {
     } else {
         const enriched = (data || []).map(ci => ({
           ...ci,
-          products: ci.products || products?.find((p: Product) => p.id === ci.product_id) || {}
+          products: products?.find((p: Product) => p.id === ci.product_id) || {}
         }));
         setCountItems(enriched);
     }
@@ -629,7 +629,7 @@ const InventoryCountList = () => {
 
     const { data, error } = await supabase
       .from('inventory_count_items')
-      .select('*')
+      .select('id, inventory_count_id, product_id, system_quantity, counted_quantity, difference, organization_id')
       .eq('inventory_count_id', count.id);
 
     if (error) {
@@ -639,7 +639,7 @@ const InventoryCountList = () => {
     } else {
       const enriched = (data || []).map(ci => ({
         ...ci,
-        products: ci.products || products?.find((p: Product) => p.id === ci.product_id) || {}
+        products: products?.find((p: Product) => p.id === ci.product_id) || {}
       }));
       setEditItems(enriched);
     }
@@ -680,17 +680,20 @@ const InventoryCountList = () => {
             .not('id', 'in', `(${keptIds.join(',')})`);
         }
 
-        // تحديث كل سطر بالكميات والفرق الجديد
-        for (const item of updatedItems) {
-          if (item.id) {
-            await supabase
+        // تحديث كل سطر بالكميات والفرق الجديد بالتوازي
+        const itemUpdates = updatedItems
+          .filter(item => item.id)
+          .map(item =>
+            supabase
               .from('inventory_count_items')
               .update({
                 counted_quantity: Number(item.counted_quantity || 0),
                 difference: Number(item.difference || 0),
               })
-              .eq('id', item.id);
-          }
+              .eq('id', item.id)
+          );
+        if (itemUpdates.length > 0) {
+          await Promise.all(itemUpdates);
         }
       }
 
@@ -741,7 +744,12 @@ const InventoryCountList = () => {
           return;
         }
 
-        // 2. المسار البديل في حال لم تكن الدالة منشورة بعد على السيرفر
+        // منع التراجع غير الآمن في حال أخطاء الصلاحيات أو الفترات المقفلة
+        if (rpcErr.code !== 'PGRST202') {
+          throw rpcErr;
+        }
+
+        // 2. المسار البديل فقط في حال عدم توفر الدالة على السيرفر (PGRST202)
         const adjNumber = `ADJ-CNT-${count.count_number}`;
 
         const { data: adjs } = await supabase

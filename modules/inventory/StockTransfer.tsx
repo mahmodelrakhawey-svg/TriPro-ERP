@@ -179,7 +179,7 @@ const StockTransfer = () => {
     const fetchUoms = async () => {
       try {
         const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
-        let query = supabase.from('uoms').select('*');
+        let query = supabase.from('uoms').select('id, name, code, ratio, uom_type, category_id, organization_id');
         if (orgId) {
           query = query.eq('organization_id', orgId);
         }

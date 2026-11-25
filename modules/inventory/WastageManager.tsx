@@ -1,5 +1,6 @@
 import { logger } from '../../utils/logger';
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -7,9 +8,10 @@ import { Trash2, Save, Plus, Search, Loader2, AlertCircle, Package } from 'lucid
 import ProductSearchSelect from '../../components/ProductSearchSelect';
 
 const WastageManager = () => {
-  const { warehouses, products, recalculateStock, addEntry, accounts, getSystemAccount, settings, currentUser } = useAccounting();
+  const { warehouses, products, recalculateStock, addEntry, accounts, getSystemAccount, settings, currentUser, currentSelectedOrgId } = useAccounting() as any;
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [warehouseId, setWarehouseId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [notes, setNotes] = useState('');
@@ -44,14 +46,17 @@ const WastageManager = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
     if (!warehouseId || items.length === 0) {
       showToast('يرجى اختيار المستودع وإضافة أصناف', 'warning');
       return;
     }
 
+    isSubmittingRef.current = true;
     setLoading(true);
     try {
-        const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+        const userOrgId = getActiveOrgIdSync(currentSelectedOrgId || currentUser?.organization_id) || await resolveActiveOrgId(currentSelectedOrgId || currentUser?.organization_id);
+        if (!userOrgId) throw new Error('تعذر تحديد المنشأة النشطة. يرجى إعادة تسجيل الدخول.');
         const adjustmentNumber = `WST-${Date.now().toString().slice(-6)}`;
 
         // 1. إنشاء رأس الحركة كـ "تسوية مخزنية" بنوع هالك
@@ -111,6 +116,7 @@ const WastageManager = () => {
         logger.error(error);
         showToast('حدث خطأ أثناء معالجة الهالك: ' + error.message, 'error');
     } finally {
+        isSubmittingRef.current = false;
         setLoading(false);
     }
   };

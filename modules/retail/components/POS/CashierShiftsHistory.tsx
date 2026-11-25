@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../../../../supabaseClient';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
+import { escapeHtml } from '../../../../utils/htmlSanitizer';
 import {
   Clock,
   Printer,
@@ -514,7 +515,7 @@ export default function CashierShiftsHistory() {
           <span>الفارق (عجز / زيادة):</span>
           <span>${diff > 0 ? `+${diff.toFixed(2)} (فائض)` : diff < 0 ? `${diff.toFixed(2)} (عجز)` : '0.00 (متطابق ✔️)'} ${currencySymbol}</span>
         </div>
-        ${shift.notes ? `<div class="divider"></div><div style="font-size: 11px;"><strong>ملاحظات:</strong> ${shift.notes}</div>` : ''}
+        ${shift.notes ? `<div class="divider"></div><div style="font-size: 11px;"><strong>ملاحظات:</strong> ${escapeHtml(shift.notes)}</div>` : ''}
 
         <div class="signature-box">
           <div class="text-center">
@@ -724,13 +725,13 @@ export default function CashierShiftsHistory() {
             ${orders.map((o, idx) => `
               <tr>
                 <td>${idx + 1}</td>
-                <td class="font-bold">${o.order_number}</td>
+                <td class="font-bold">${escapeHtml(o.order_number)}</td>
                 <td>${new Date(o.created_at).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</td>
-                <td class="text-right">${o.customer_name}</td>
-                <td><span class="badge" style="background:#e0f2fe; color:#0369a1;">${o.payment_method}</span></td>
+                <td class="text-right">${escapeHtml(o.customer_name)}</td>
+                <td><span class="badge" style="background:#e0f2fe; color:#0369a1;">${escapeHtml(o.payment_method)}</span></td>
                 <td>${o.total_discount ? o.total_discount.toFixed(2) : '0.00'}</td>
-                <td class="font-bold text-left">${o.grand_total.toFixed(2)} ${currencySymbol}</td>
-                <td>${o.status === 'PAID' || o.status === 'COMPLETED' ? 'مسدد ✔️' : o.status}</td>
+                <td class="font-bold text-left">${o.grand_total.toFixed(2)} ${escapeHtml(currencySymbol)}</td>
+                <td>${o.status === 'PAID' || o.status === 'COMPLETED' ? 'مسدد ✔️' : escapeHtml(o.status)}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -843,12 +844,12 @@ export default function CashierShiftsHistory() {
                 <tr>
                   <td>${idx + 1}</td>
                   <td>${new Date(t.created_at).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' })}</td>
-                  <td><span class="badge" style="background:${bg}">${typeName}</span></td>
-                  <td>${method}</td>
-                  <td class="text-right font-bold">${t.custodian_or_payer_name || t.reason || '—'}</td>
-                  <td dir="ltr">${t.customer_phone || '—'}</td>
+                  <td><span class="badge" style="background:${bg}">${escapeHtml(typeName)}</span></td>
+                  <td>${escapeHtml(method)}</td>
+                  <td class="text-right font-bold">${escapeHtml(t.custodian_or_payer_name || t.reason || '—')}</td>
+                  <td dir="ltr">${escapeHtml(t.customer_phone || '—')}</td>
                   <td>${t.delivery_date ? new Date(t.delivery_date).toLocaleDateString('ar-EG') : '—'}</td>
-                  <td class="text-right">${t.booking_notes || t.reason || '—'}</td>
+                  <td class="text-right">${escapeHtml(t.booking_notes || t.reason || '—')}</td>
                   <td class="font-bold text-left" style="color:${isDepIn ? '#16a34a' : isRefund ? '#ea580c' : '#dc2626'}">
                     ${isDepIn ? '+' : '-'}${Number(t.amount).toFixed(2)} ${currencySymbol}
                   </td>

@@ -46,7 +46,7 @@ const ItemMovementReport = () => {
   // جلب وحدات القياس للتحويل بين الوحدات الأساسية وحركات الأصناف
   useEffect(() => {
     const fetchUoms = async () => {
-      const { data } = await supabase.from('uoms').select('*');
+      const { data } = await supabase.from('uoms').select('id, name, code, ratio, uom_type, category_id, organization_id');
       if (data) setUoms(data);
     };
     fetchUoms();

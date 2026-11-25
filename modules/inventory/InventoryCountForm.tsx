@@ -213,6 +213,7 @@ const InventoryCountForm = () => {
 
   const itemInputRefs = useRef<{ [key: string]: HTMLInputElement | null }>({});
   const isMountedRef = useRef(false);
+  const isSubmittingRef = useRef(false);
   const orgId = currentSelectedOrgId || (settings as any)?.organization_id || (currentUser as any)?.organization_id;
   const currency = getCurrencySymbol(settings?.currency) || 'ج.م';
 
@@ -557,6 +558,7 @@ const InventoryCountForm = () => {
   };
 
   const handleSaveCount = async (isFinal: boolean = false) => {
+    if (isSubmittingRef.current) return;
     if (items.length === 0) {
       showToast('لا توجد أصناف في كشف الجرد للحفظ', 'warning');
       return;
@@ -568,6 +570,7 @@ const InventoryCountForm = () => {
       return;
     }
 
+    isSubmittingRef.current = true;
     setSaving(true);
     try {
       let countDocId = editingCountId;
@@ -582,7 +585,8 @@ const InventoryCountForm = () => {
             status: 'draft',
             notes: `جرد مخزني فعلي (${items.length} صنف) - معدل`,
           })
-          .eq('id', editingCountId);
+          .eq('id', editingCountId)
+          .eq('organization_id', orgId);
         if (updateError) throw updateError;
 
         // حذف الأسطر القديمة وإعادة إدراج الأسطر المحدثة
@@ -656,6 +660,7 @@ const InventoryCountForm = () => {
       logger.error('Error saving count:', error);
       showToast('حدث خطأ أثناء الحفظ: ' + (errObj?.message || ''), 'error');
     } finally {
+      isSubmittingRef.current = false;
       setSaving(false);
     }
   };

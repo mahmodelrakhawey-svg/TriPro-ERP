@@ -35,6 +35,7 @@ export default function MobilePdaStocktaking() {
   const [allProducts, setAllProducts] = useState<any[]>([]);
 
   const barcodeInputRef = useRef<HTMLInputElement>(null);
+  const isSubmittingRef = useRef(false);
 
   useEffect(() => {
     if (warehouses && warehouses.length > 0 && !selectedWarehouseId) {
@@ -177,11 +178,13 @@ export default function MobilePdaStocktaking() {
   };
 
   const handleSaveInventoryCount = async () => {
+    if (isSubmittingRef.current) return;
     if (countedItems.length === 0) {
       showToast('لم تقم بمسح أي أصناف بعد!', 'error');
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsSubmitting(true);
     try {
       const countNumber = `PDA-CNT-${Date.now().toString().slice(-6)}`;
@@ -246,13 +249,11 @@ export default function MobilePdaStocktaking() {
 
         if (itemsErr) throw itemsErr;
 
-        // ج) تحديث الرصيد الفعلي للمنتجات في كروت الأصناف
+        // ج) تحديث الرصيد الفعلي للمنتجات في كروت الأصناف بالتوازي
         if (recalculateStock) {
-          for (const it of varianceItems) {
-            try {
-              await recalculateStock(it.id);
-            } catch (e) {}
-          }
+          await Promise.all(
+            varianceItems.map(it => Promise.resolve(recalculateStock(it.id)).catch(() => {}))
+          );
         }
 
         // د) توليد القيد المحاسبي المتزن تلقائياً
@@ -312,6 +313,7 @@ export default function MobilePdaStocktaking() {
     } catch (err) {
       showToast('خطأ أثناء حفظ الجرد: ' + err.message, 'error');
     } finally {
+      isSubmittingRef.current = false;
       setIsSubmitting(false);
     }
   };

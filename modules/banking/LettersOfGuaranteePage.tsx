@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
 import { escapeHtml } from '../../utils/htmlSanitizer';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { 
   Landmark, Plus, Edit, Trash2, Calendar, Search, Filter, 
   ArrowUpRight, RefreshCw, AlertTriangle, FileText, CheckCircle, Ban, 
@@ -165,8 +166,7 @@ export default function LettersOfGuaranteePage() {
         return;
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
       if (!userOrgId) {
         setLoading(false);
         return;
@@ -230,8 +230,7 @@ export default function LettersOfGuaranteePage() {
     }
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
       if (!userOrgId && currentUser?.role !== 'demo') {
         throw new Error('لم يتم تحديد المؤسسة.');

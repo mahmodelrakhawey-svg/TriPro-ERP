@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../../../context/ToastContext';
 import { supabase } from '../../../../supabaseClient';
+import { escapeHtml } from '../../../../utils/htmlSanitizer';
 
 export type CashDropPayoutType = 
   | 'EXPENSE' 
@@ -195,7 +196,7 @@ export default function CashDropModal({
         <html dir="rtl">
         <head>
           <meta charset="utf-8">
-          <title>${actionTitle}</title>
+          <title>${escapeHtml(actionTitle)}</title>
           <style>
             body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; font-size: 13px; margin: 12px; color: #111; line-height: 1.4; }
             .header { text-align: center; border-bottom: 2px dashed #333; padding-bottom: 8px; margin-bottom: 10px; }
@@ -210,17 +211,17 @@ export default function CashDropModal({
         </head>
         <body onload="window.print(); window.close();">
           <div class="header">
-            <h3>${orgName || 'حلواني لينزا • TriPro POS'}</h3>
-            <div class="badge">${actionTitle}</div>
+            <h3>${escapeHtml(orgName || 'حلواني لينزا • TriPro POS')}</h3>
+            <div class="badge">${escapeHtml(actionTitle)}</div>
             <div style="font-size: 11px; color: #555;">التاريخ: ${new Date().toLocaleDateString('ar-EG')} | الوقت: ${new Date().toLocaleTimeString('ar-EG')}</div>
           </div>
-          <div class="row"><span>طريقة الدفع/التحصيل:</span><strong>${methodName}</strong></div>
-          ${client ? `<div class="row"><span>الاسم / العميل:</span><strong>${client}</strong></div>` : ''}
-          ${phone ? `<div class="row"><span>رقم الهاتف:</span><strong>${phone}</strong></div>` : ''}
-          ${dateStr ? `<div class="row"><span>موعد استلام الأوردر:</span><strong>${dateStr}</strong></div>` : ''}
-          ${desc ? `<div class="row"><span>البيان / الملاحظات:</span><span>${desc}</span></div>` : ''}
+          <div class="row"><span>طريقة الدفع/التحصيل:</span><strong>${escapeHtml(methodName)}</strong></div>
+          ${client ? `<div class="row"><span>الاسم / العميل:</span><strong>${escapeHtml(client)}</strong></div>` : ''}
+          ${phone ? `<div class="row"><span>رقم الهاتف:</span><strong>${escapeHtml(phone)}</strong></div>` : ''}
+          ${dateStr ? `<div class="row"><span>موعد استلام الأوردر:</span><strong>${escapeHtml(dateStr)}</strong></div>` : ''}
+          ${desc ? `<div class="row"><span>البيان / الملاحظات:</span><span>${escapeHtml(desc)}</span></div>` : ''}
           <div class="amount-card">المبلغ: ${amt.toFixed(2)} ج.م</div>
-          <div class="row"><span>الكاشير المسؤول:</span><span>${cashierName}</span></div>
+          <div class="row"><span>الكاشير المسؤول:</span><span>${escapeHtml(cashierName)}</span></div>
           <div class="signature">
             <span>توقيع المستلم: .....................</span>
             <span>توقيع الكاشير: .....................</span>

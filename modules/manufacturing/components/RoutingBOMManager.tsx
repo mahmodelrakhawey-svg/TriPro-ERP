@@ -323,7 +323,7 @@ const RoutingBOMManager = () => {
   useEffect(() => {
     const fetchSystemUoms = async () => {
       try {
-        let q = supabase.from('uoms').select('*');
+        let q = supabase.from('uoms').select('id, name, code, ratio, uom_type, category_id, organization_id');
         if (orgId) q = q.eq('organization_id', orgId);
         const { data } = await q;
         if (data) setSystemUoms(data);

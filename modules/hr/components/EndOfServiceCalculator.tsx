@@ -1,5 +1,5 @@
 import { logger } from '../../../utils/logger';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { fetchCompleteDataset } from '../../../services/balanceService';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -40,6 +40,7 @@ interface SettlementRecord {
 export default function EndOfServiceCalculator() {
   const { organization, currentSelectedOrgId, currentUser, employees: contextEmployees } = useAccounting();
   const { showToast } = useToast();
+  const isSubmittingRef = useRef(false);
 
   const [employeesList, setEmployeesList] = useState<{ id: string; name: string; basic_salary?: number; hire_date?: string }[]>([]);
   const [settlements, setSettlements] = useState<SettlementRecord[]>([]);
@@ -221,11 +222,13 @@ export default function EndOfServiceCalculator() {
   // Save Settlement
   const handleSaveSettlement = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
     if (!formEmpId || !formNumber) {
       showToast('يرجى اختيار الموظف ورقم المخالصة', 'warning');
       return;
     }
 
+    isSubmittingRef.current = true;
     try {
       const payload = {
         organization_id: orgId,
@@ -256,7 +259,7 @@ export default function EndOfServiceCalculator() {
       // تحديث حالة الموظف فوراً في جدول الموظفين (مستقيل في حالة الاستقالة، أو منتهي الخدمات)
       const newStatus = formTerminationType === 'RESIGNATION' ? 'resigned' : 'terminated';
       try {
-        await supabase.from('employees').update({ status: newStatus }).eq('id', formEmpId);
+        await supabase.from('employees').update({ status: newStatus }).eq('id', formEmpId).eq('organization_id', orgId);
       } catch (empErr) {
         logger.warn('Could not update employee status upon settlement save:', empErr);
       }
@@ -266,6 +269,8 @@ export default function EndOfServiceCalculator() {
       fetchData();
     } catch (err) {
       showToast('فشل حفظ المخالصة: ' + err.message, 'error');
+    } finally {
+      isSubmittingRef.current = false;
     }
   };
 
@@ -273,7 +278,7 @@ export default function EndOfServiceCalculator() {
   const handleDelete = async (id: string) => {
     if (!window.confirm('هل أنت متأكد من حذف هذه المخالصة؟')) return;
     try {
-      const { error } = await supabase.from('hr_end_of_service_settlements').delete().eq('id', id);
+      const { error } = await supabase.from('hr_end_of_service_settlements').delete().eq('id', id).eq('organization_id', orgId);
       if (error) throw error;
       showToast('تم حذف المخالصة', 'success');
       fetchData();

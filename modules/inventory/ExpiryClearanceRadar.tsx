@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { 
   AlertTriangle, 
   Clock, 
@@ -41,9 +42,10 @@ interface ExpiringProduct {
 }
 
 export default function ExpiryClearanceRadar() {
-  const { currentUser, settings } = useAccounting();
+  const { currentUser, currentSelectedOrgId, settings } = useAccounting() as any;
   const { showToast } = useToast();
   const currencySymbol = settings?.currency || 'ج.م';
+  const isApplyingOfferRef = useRef(false);
 
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<ExpiringProduct[]>([]);
@@ -61,13 +63,12 @@ export default function ExpiryClearanceRadar() {
   const fetchExpiryData = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync(currentSelectedOrgId || currentUser?.organization_id) || await resolveActiveOrgId(currentSelectedOrgId || currentUser?.organization_id);
       if (!userOrgId) return;
 
       const { data, error } = await supabase
         .from('products')
-        .select('*')
+        .select('id, name, sku, category, stock, unit, sales_price, purchase_price, expiry_date, offer_price, offer_start_date, offer_end_date')
         .eq('organization_id', userOrgId)
         .eq('is_active', true)
         .not('expiry_date', 'is', null)
@@ -160,9 +161,13 @@ export default function ExpiryClearanceRadar() {
 
   // Submit Clearance Offer to Product
   const handleApplyOffer = async () => {
-    if (!selectedItem) return;
+    if (!selectedItem || isApplyingOfferRef.current) return;
+    isApplyingOfferRef.current = true;
     setIsApplyingOffer(true);
     try {
+      const userOrgId = getActiveOrgIdSync(currentSelectedOrgId || currentUser?.organization_id) || await resolveActiveOrgId(currentSelectedOrgId || currentUser?.organization_id);
+      if (!userOrgId) throw new Error('تعذر تحديد المنشأة النشطة');
+
       const todayStr = new Date().toISOString().split('T')[0];
       const endDate = new Date();
       endDate.setDate(endDate.getDate() + offerDays);
@@ -175,7 +180,8 @@ export default function ExpiryClearanceRadar() {
           offer_start_date: todayStr,
           offer_end_date: endDateStr
         })
-        .eq('id', selectedItem.id);
+        .eq('id', selectedItem.id)
+        .eq('organization_id', userOrgId);
 
       if (error) throw error;
 
@@ -185,6 +191,7 @@ export default function ExpiryClearanceRadar() {
     } catch (err) {
       showToast('فشل تطبيق العرض: ' + err.message, 'error');
     } finally {
+      isApplyingOfferRef.current = false;
       setIsApplyingOffer(false);
     }
   };

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { db } from '../../../services/offlineService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { 
   Barcode, 
   Sparkles, 
@@ -155,10 +156,10 @@ export default function PriceCheckerKiosk() {
 
       // 2. If not found in local cache, query Supabase
       if (!matched) {
-        const { data: { session } } = await supabase.auth.getSession();
-        const userOrgId = session?.user?.user_metadata?.org_id;
+        const userOrgId = getActiveOrgIdSync(organization?.id) || await resolveActiveOrgId(organization?.id);
+        const productCols = 'id, name, sku, barcode, barcode2, sales_price, offer_price, offer_start_date, offer_end_date, image_url, unit, unit_barcodes, category, organization_id';
 
-        let query = supabase.from('products').select('*');
+        let query = supabase.from('products').select(productCols);
         if (userOrgId) query = query.eq('organization_id', userOrgId);
 
         if (scaleInfo) {
@@ -172,7 +173,7 @@ export default function PriceCheckerKiosk() {
           matched = remoteData;
         } else {
           // Search unit_barcodes online
-          let uomQuery = supabase.from('products').select('*').not('unit_barcodes', 'is', null);
+          let uomQuery = supabase.from('products').select(productCols).not('unit_barcodes', 'is', null);
           if (userOrgId) uomQuery = uomQuery.eq('organization_id', userOrgId);
           const { data: uomProds } = await uomQuery;
           if (uomProds && uomProds.length > 0) {

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { safeJsonToSheet } from '../../../utils/excelSanitizer';
 import { fetchCompleteDataset } from '../../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -32,8 +33,7 @@ const PayrollReport = () => {
   const fetchPayrollData = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync(organization?.id || (currentUser as any)?.organization_id) || await resolveActiveOrgId(organization?.id || (currentUser as any)?.organization_id);
 
       if (!userOrgId) {
         showToast('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.', 'error');
@@ -44,7 +44,7 @@ const PayrollReport = () => {
       // 1. جلب بيانات المسير الرئيسي للشهر والسنة المحددين
       const { data: payrollsList, error: payrollError } = await supabase
         .from('payrolls')
-        .select('*')
+        .select('id, payroll_month, payroll_year, status, total_gross_salary, total_net_salary, total_additions, total_deductions, organization_id, created_at')
         .eq('organization_id', userOrgId)
         .eq('payroll_month', selectedMonth)
         .eq('payroll_year', selectedYear);

@@ -4,6 +4,7 @@ import { useAccounting as useOrg } from '@/context/AccountingContext';
 import { useToast } from '@/context/ToastContext';
 import { Play, CheckCircle, Barcode, Loader2, Factory, AlertTriangle, X, Printer, Paperclip, Download, RefreshCw, PackagePlus } from 'lucide-react';
 import { ByProductModal } from './ByProductModal';
+import { escapeHtml } from '@/utils/htmlSanitizer';
 
 interface ShopFloorTask {
   progress_id: string;
@@ -29,6 +30,7 @@ const ShopFloorManager = () => {
   const [tasks, setTasks] = useState<ShopFloorTask[]>([]);
   const [loading, setLoading] = useState(true);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isProcessingRef = useRef(false);
   const [taskAttachments, setTaskAttachments] = useState<Record<string, any[]>>({});
   const [scanValue, setScanValue] = useState('');
   const [processing, setProcessing] = useState(false);
@@ -108,21 +110,26 @@ const ShopFloorManager = () => {
   }, [orgId]);
 
   const executeProcess = async (barcode: string) => {
-    if (!barcode) return;
+    if (!barcode || isProcessingRef.current) return;
 
+    isProcessingRef.current = true;
     setProcessing(true);
-    showToast('جاري معالجة العملية...', 'info');
-    const { data, error } = await supabase.rpc('mfg_process_scan', { p_barcode: barcode });
-    if (error) {
-      showToast(error.message, 'error');
-    } else if (data.success) {
-      showToast(data.message, 'success');
-      setScanValue('');
-      fetchTasks();
-    } else {
-      showToast(data.message, 'warning');
+    try {
+      showToast('جاري معالجة العملية...', 'info');
+      const { data, error } = await supabase.rpc('mfg_process_scan', { p_barcode: barcode });
+      if (error) {
+        showToast(error.message, 'error');
+      } else if (data.success) {
+        showToast(data.message, 'success');
+        setScanValue('');
+        fetchTasks();
+      } else {
+        showToast(data.message, 'warning');
+      }
+    } finally {
+      isProcessingRef.current = false;
+      setProcessing(false);
     }
-    setProcessing(false);
   };
 
   const handleScan = async (e: React.FormEvent) => {
@@ -131,50 +138,60 @@ const ShopFloorManager = () => {
   };
 
   const handleRecordScrap = async () => {
-    if (!scrapModalTask || !selectedMaterialId || !scrapQty) return;
+    if (!scrapModalTask || !selectedMaterialId || !scrapQty || isProcessingRef.current) return;
     
+    isProcessingRef.current = true;
     setProcessing(true);
-    const { error } = await supabase.rpc('mfg_record_scrap_advanced', {
-      p_progress_id: scrapModalTask.progress_id,
-      p_material_id: selectedMaterialId,
-      p_qty: parseFloat(scrapQty),
-      p_is_abnormal: scrapIsAbnormal,
-      p_salvage_value: 0,
-      p_reason: scrapReason
-    });
+    try {
+      const { error } = await supabase.rpc('mfg_record_scrap_advanced', {
+        p_progress_id: scrapModalTask.progress_id,
+        p_material_id: selectedMaterialId,
+        p_qty: parseFloat(scrapQty),
+        p_is_abnormal: scrapIsAbnormal,
+        p_salvage_value: 0,
+        p_reason: scrapReason
+      });
 
-    if (error) {
-      showToast(error.message, 'error');
-    } else {
-      showToast('تم تسجيل التالف وتحديث المخزون وقيود الخسارة', 'success');
-      setScrapModalTask(null);
-      setScrapQty('');
-      setScrapReason('');
-      setScrapIsAbnormal(false);
-      fetchTasks();
-      refreshData();
+      if (error) {
+        showToast(error.message, 'error');
+      } else {
+        showToast('تم تسجيل التالف وتحديث المخزون وقيود الخسارة', 'success');
+        setScrapModalTask(null);
+        setScrapQty('');
+        setScrapReason('');
+        setScrapIsAbnormal(false);
+        fetchTasks();
+        refreshData();
+      }
+    } finally {
+      isProcessingRef.current = false;
+      setProcessing(false);
     }
-    setProcessing(false);
   };
 
   const handleCompleteStep = async () => {
-    if (!completeModalTask || !completeQty) return;
+    if (!completeModalTask || !completeQty || isProcessingRef.current) return;
+    isProcessingRef.current = true;
     setProcessing(true);
-    const { error } = await supabase.rpc('mfg_complete_step', {
-      p_progress_id: completeModalTask.progress_id,
-      p_qty: parseFloat(completeQty)
-    });
+    try {
+      const { error } = await supabase.rpc('mfg_complete_step', {
+        p_progress_id: completeModalTask.progress_id,
+        p_qty: parseFloat(completeQty)
+      });
 
-    if (error) {
-      showToast('خطأ في إكمال الخطوة: ' + error.message, 'error');
-    } else {
-      showToast('تم إكمال المرحلة وتحديث الكميات والتكاليف بنجاح ✅', 'success');
-      setCompleteModalTask(null);
-      setCompleteQty('');
-      fetchTasks();
-      refreshData();
+      if (error) {
+        showToast('خطأ في إكمال الخطوة: ' + error.message, 'error');
+      } else {
+        showToast('تم إكمال المرحلة وتحديث الكميات والتكاليف بنجاح ✅', 'success');
+        setCompleteModalTask(null);
+        setCompleteQty('');
+        fetchTasks();
+        refreshData();
+      }
+    } finally {
+      isProcessingRef.current = false;
+      setProcessing(false);
     }
-    setProcessing(false);
   };
 
   // دالة طباعة ملصق المرحلة (بطاقة التشغيل)
@@ -185,7 +202,7 @@ const ShopFloorManager = () => {
     printWindow.document.write(`
       <html dir="rtl">
         <head>
-          <title>بطاقة تشغيل - ${task.order_number}</title>
+          <title>بطاقة تشغيل - ${escapeHtml(task.order_number)}</title>
           <style>
             @media print { body { margin: 0; } }
             body { font-family: 'Segoe UI', Tahoma, sans-serif; padding: 10px; text-align: center; width: 80mm; border: 1px solid #ddd; border-radius: 8px; margin: auto; }
@@ -199,22 +216,22 @@ const ShopFloorManager = () => {
         </head>
         <body onload="window.print(); window.close();">
           <div class="title">بطاقة تشغيل باركود ذكية</div>
-          <div class="item"><b>رقم الطلب:</b> ${task.order_number}</div>
-          <div class="item"><b>المنتج:</b> ${task.product_name}</div>
-          <div class="item"><b>المرحلة:</b> ${task.operation_name}</div>
+          <div class="item"><b>رقم الطلب:</b> ${escapeHtml(task.order_number)}</div>
+          <div class="item"><b>المنتج:</b> ${escapeHtml(task.product_name)}</div>
+          <div class="item"><b>المرحلة:</b> ${escapeHtml(task.operation_name)}</div>
           
           <!-- باركود بدء العمل -->
           <div class="barcode-section">
             <div class="barcode-title">📥 1. امسح لبدء المرحلة (Start)</div>
-            <div class="barcode-placeholder">START-${task.progress_id}</div>
-            <span class="uuid">START-${task.progress_id}</span>
+            <div class="barcode-placeholder">START-${escapeHtml(task.progress_id)}</div>
+            <span class="uuid">START-${escapeHtml(task.progress_id)}</span>
           </div>
 
           <!-- باركود إنهاء العمل -->
           <div class="barcode-section">
             <div class="barcode-title">✅ 2. امسح لإنهاء المرحلة (Complete)</div>
-            <div class="barcode-placeholder">DONE-${task.progress_id}</div>
-            <span class="uuid">DONE-${task.progress_id}</span>
+            <div class="barcode-placeholder">DONE-${escapeHtml(task.progress_id)}</div>
+            <span class="uuid">DONE-${escapeHtml(task.progress_id)}</span>
           </div>
         </body>
       </html>

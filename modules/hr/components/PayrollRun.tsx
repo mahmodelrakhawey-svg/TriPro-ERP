@@ -6,6 +6,7 @@ import { useAccounting, SYSTEM_ACCOUNTS } from '../../../context/AccountingConte
 import { useToast } from '../../../context/ToastContext';
 import { hrEnterpriseService } from '../../../services/hrEnterpriseService';
 import { fetchCompleteDataset } from '../../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { PayslipModal, PayslipData } from './PayslipModal';
 import { BulkPayslipsModal } from './BulkPayslipsModal';
 import {
@@ -97,6 +98,7 @@ const PayrollRun = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [tableMode, setTableMode] = useState<'detailed' | 'summary'>('detailed');
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const isPayrollActionRef = React.useRef(false);
   const [importingExcel, setImportingExcel] = useState(false);
 
   // Function to calculate last day of a month
@@ -128,12 +130,12 @@ const PayrollRun = () => {
   // جلب الخزائن والبنوك المتاحة
   useEffect(() => {
     const fetchTreasuries = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id || currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(currentSelectedOrgId || (currentUser as any)?.organization_id) || await resolveActiveOrgId(currentSelectedOrgId || (currentUser as any)?.organization_id);
       
       let query = supabase
         .from('accounts')
         .select('id, name, code')
+        .eq('is_group', false)
         .ilike('type', '%asset%')
         .or('code.like.123%,code.like.101%,name.ilike.%صندوق%,name.ilike.%خزينة%,name.ilike.%بنك%');
       
@@ -883,11 +885,14 @@ const PayrollRun = () => {
       `- الحساب الدائن: (2251) رواتب وأجور مستحقة\n\n` +
       `💡 ملاحظة: يثبت هذا القيد مصروف الرواتب بنهاية الشهر دون خصم أي نقدية من الخزينة حتى تاريخ الصرف الفعلي.\n\nهل تريد المتابعة؟`;
 
+    if (isPayrollActionRef.current) return;
     if (!window.confirm(confirmMsg)) return;
 
+    isPayrollActionRef.current = true;
     setSavingAccrual(true);
     try {
-      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const orgId = getActiveOrgIdSync(currentSelectedOrgId || (currentUser as any)?.organization_id) || await resolveActiveOrgId(currentSelectedOrgId || (currentUser as any)?.organization_id);
+      if (!orgId) throw new Error('تعذر تحديد المنشأة النشطة');
       await runPayrollAccrual(
         selectedMonth,
         selectedYear,
@@ -902,13 +907,14 @@ const PayrollRun = () => {
       logger.error(error);
       showToast('فشل ترحيل قيد الاستحقاق: ' + error.message, 'error');
     } finally {
+      isPayrollActionRef.current = false;
       setSavingAccrual(false);
     }
   };
 
   // إلغاء قيد الاستحقاق وإعادة تعيين السلف لتصبح قائمة
   const handleCancelAccrual = async () => {
-    if (!existingPayroll || existingPayroll.status !== 'accrued') return;
+    if (isPayrollActionRef.current || !existingPayroll || existingPayroll.status !== 'accrued') return;
 
     const confirmMsg = `هل أنت متأكد من إلغاء قيد استحقاق رواتب شهر ${selectedMonth}/${selectedYear}؟\n\n` +
       `سيترتب على ذلك:\n` +
@@ -919,9 +925,11 @@ const PayrollRun = () => {
 
     if (!window.confirm(confirmMsg)) return;
 
+    isPayrollActionRef.current = true;
     setCancellingAccrual(true);
     try {
-      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const orgId = getActiveOrgIdSync(currentSelectedOrgId || (currentUser as any)?.organization_id) || await resolveActiveOrgId(currentSelectedOrgId || (currentUser as any)?.organization_id);
+      if (!orgId) throw new Error('تعذر تحديد المنشأة النشطة');
       await cancelPayrollAccrual(existingPayroll.id, orgId);
       showToast('تم إلغاء قيد الاستحقاق وإعادة جميع السلف كـ [قائمة] بنجاح 🔄✅', 'success');
       setPayrollData([]);
@@ -931,6 +939,7 @@ const PayrollRun = () => {
       const errMsg = err instanceof Error ? err.message : String(err);
       showToast('فشل إلغاء قيد الاستحقاق: ' + errMsg, 'error');
     } finally {
+      isPayrollActionRef.current = false;
       setCancellingAccrual(false);
     }
   };
@@ -964,11 +973,14 @@ const PayrollRun = () => {
       `- القيد المحاسبي: من حـ/ 2251 (رواتب مستحقة) إلى حـ/ ${treasuryName}\n\n` +
       `هل تريد إتمام الصرف الآن؟`;
 
+    if (isPayrollActionRef.current) return;
     if (!window.confirm(confirmMsg)) return;
 
+    isPayrollActionRef.current = true;
     setSavingPayment(true);
     try {
-      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const orgId = getActiveOrgIdSync(currentSelectedOrgId || (currentUser as any)?.organization_id) || await resolveActiveOrgId(currentSelectedOrgId || (currentUser as any)?.organization_id);
+      if (!orgId) throw new Error('تعذر تحديد المنشأة النشطة');
 
       // إذا لم يكن المسير مستحقاً بعد، يتم ترحيل قيد الاستحقاق أولاً
       if (!existingPayroll || existingPayroll.status !== 'accrued') {
@@ -990,6 +1002,7 @@ const PayrollRun = () => {
       logger.error(error);
       showToast('فشل صرف الرواتب: ' + error.message, 'error');
     } finally {
+      isPayrollActionRef.current = false;
       setSavingPayment(false);
     }
   };
@@ -1026,11 +1039,14 @@ const PayrollRun = () => {
     const treasuryObj = treasuryAccounts.find(t => t.id === treasuryId);
     const treasuryName = treasuryObj ? `${treasuryObj.name} (${treasuryObj.code || ''})` : 'الخزينة المحددة';
 
+    if (isPayrollActionRef.current) return;
     if (!window.confirm(`هل أنت متأكد من صرف مسير الرواتب مباشرة وخصم (${totals.net.toLocaleString()} ج.م) فورياً من ${treasuryName}؟`)) return;
 
+    isPayrollActionRef.current = true;
     setSavingPayment(true);
     try {
-      const orgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const orgId = getActiveOrgIdSync(currentSelectedOrgId || (currentUser as any)?.organization_id) || await resolveActiveOrgId(currentSelectedOrgId || (currentUser as any)?.organization_id);
+      if (!orgId) throw new Error('تعذر تحديد المنشأة النشطة');
 
       await runPayrollFromContext(
         selectedMonth,
@@ -1047,6 +1063,7 @@ const PayrollRun = () => {
       logger.error(error);
       showToast('فشل تنفيذ المسير: ' + error.message, 'error');
     } finally {
+      isPayrollActionRef.current = false;
       setSavingPayment(false);
     }
   };

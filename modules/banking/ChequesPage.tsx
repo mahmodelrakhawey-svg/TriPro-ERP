@@ -9,6 +9,7 @@ import { ChequePrint } from './ChequePrint';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 export const ChequesPage = () => {
   const { addCheque, updateCheque, deleteCheque, updateChequeStatus, currentUser, addEntry, getSystemAccount, selectedFiscalYear } = useAccounting();
@@ -24,6 +25,7 @@ export const ChequesPage = () => {
   const [showAttachmentsModal, setShowAttachmentsModal] = useState(false);
   const [currentAttachments, setCurrentAttachments] = useState<any[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isSubmittingRef = useRef(false);
   
   // Modal States
   const [showAddModal, setShowModal] = useState(false);
@@ -101,8 +103,7 @@ export const ChequesPage = () => {
         return;
     }
 
-    const { data: { session } } = await supabase.auth.getSession();
-    const userOrgId = session?.user?.user_metadata?.org_id;
+    const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
     if (!userOrgId) {
         setLoading(false);
@@ -176,9 +177,10 @@ export const ChequesPage = () => {
         return;
     }
 
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const userOrgId = session?.user?.user_metadata?.org_id;
+        const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
         if (!userOrgId) throw new Error('تعذر تحديد المنظمة');
 
         const partyList = activeTab === 'outgoing' ? suppliers : customers;
@@ -226,6 +228,8 @@ export const ChequesPage = () => {
 
     } catch (err) {
         showToast('خطأ: ' + err.message, 'error');
+    } finally {
+        isSubmittingRef.current = false;
     }
   };
 
@@ -261,8 +265,9 @@ export const ChequesPage = () => {
   };
 
   const handleCashCheque = async () => {
-      if (!selectedCheque || !selectedBankId) return;
+      if (!selectedCheque || !selectedBankId || isSubmittingRef.current) return;
 
+      isSubmittingRef.current = true;
       try {
         // تحديد الحالة المناسبة (صرف للصادر / تحصيل للوارد)
         const newStatus = activeTab === 'outgoing' ? 'cashed' : 'collected';
@@ -277,12 +282,14 @@ export const ChequesPage = () => {
         fetchData(); // تحديث القائمة المحلية
       } catch (err) {
         showToast('خطأ أثناء معالجة الشيك: ' + (err.message || err.details || err), 'error');
+      } finally {
+        isSubmittingRef.current = false;
       }
   };
 
   const handleTransferCheque = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    const userOrgId = session?.user?.user_metadata?.org_id;
+    if (isSubmittingRef.current) return;
+    const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
     if (!userOrgId) throw new Error('تعذر تحديد المنظمة');
 
     if (!selectedCheque || !transferData.date || !transferData.ourBankId) {
@@ -290,6 +297,7 @@ export const ChequesPage = () => {
         return;
     }
 
+    isSubmittingRef.current = true;
     try {
         // 1. تحديث حالة الشيك وبيانات التحويل
         const newStatus = selectedCheque.type === 'incoming' ? 'collected' : 'cashed';
@@ -342,6 +350,8 @@ export const ChequesPage = () => {
 
     } catch (error) {
         showToast('حدث خطأ: ' + error.message, 'error');
+    } finally {
+        isSubmittingRef.current = false;
     }
   };
 

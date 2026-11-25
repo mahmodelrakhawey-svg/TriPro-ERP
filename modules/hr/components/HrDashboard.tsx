@@ -46,8 +46,8 @@ export const HrDashboard: React.FC = () => {
       const todayStr = new Date().toISOString().split('T')[0];
 
       const [attRes, advRes, devRes, penRes, logs] = await Promise.all([
-        supabase.from('hr_attendance_logs').select('*').eq('organization_id', orgId).eq('log_date', todayStr),
-        supabase.from('employee_advances').select('*').eq('organization_id', orgId).eq('status', 'paid').is('payroll_item_id', null),
+        supabase.from('hr_attendance_logs').select('id, status, log_date').eq('organization_id', orgId).eq('log_date', todayStr),
+        supabase.from('employee_advances').select('id, amount, status, payroll_item_id').eq('organization_id', orgId).eq('status', 'paid').is('payroll_item_id', null),
         hrEnterpriseService.getDevices(orgId),
         hrEnterpriseService.getPenaltiesRewards(orgId),
         hrEnterpriseService.getRawLogs(orgId)

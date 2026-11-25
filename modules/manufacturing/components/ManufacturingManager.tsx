@@ -1,5 +1,6 @@
 ﻿﻿import { logger } from '../../../utils/logger';
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { useAccounting } from '../../../context/AccountingContext';
 import { supabase } from '../../../supabaseClient';
 import { Hammer, Save, Loader2, Package, AlertTriangle, CheckCircle } from 'lucide-react';
@@ -8,7 +9,8 @@ import { z } from 'zod';
 import ProductSearchSelect from '../../../components/ProductSearchSelect';
 
 const ManufacturingManager = () => {
-  const { products, warehouses, produceItem } = useAccounting();
+  const { products, warehouses, produceItem, currentUser, currentSelectedOrgId } = useAccounting() as any;
+  const isSubmittingRef = useRef(false);
   const { showToast } = useToast();
   const [formData, setFormData] = useState({
     productId: '',
@@ -47,6 +49,7 @@ const ManufacturingManager = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
     
     const manufacturingSchema = z.object({
         productId: z.string().min(1, 'الرجاء اختيار المنتج التام'),
@@ -61,12 +64,14 @@ const ManufacturingManager = () => {
         return;
     }
 
+    isSubmittingRef.current = true;
     setLoading(true);
     setSuccessMsg('');
 
     try {
         const { data: { session } } = await supabase.auth.getSession();
-        const userOrgId = session?.user?.user_metadata?.org_id;
+        const userOrgId = getActiveOrgIdSync(currentSelectedOrgId || currentUser?.organization_id) || await resolveActiveOrgId(currentSelectedOrgId || currentUser?.organization_id);
+        if (!userOrgId) throw new Error('تعذر تحديد المنشأة النشطة. يرجى إعادة تسجيل الدخول.');
 
         // 1. إنشاء أمر تشغيل "مكتمل" في الخلفية لتوثيق العملية
         // هذا ضروري لضمان دقة "إعادة احتساب المخزون" مستقبلاً
@@ -108,6 +113,7 @@ const ManufacturingManager = () => {
         logger.error(error);
         showToast('فشل عملية التصنيع: ' + error.message, 'error');
     } finally {
+        isSubmittingRef.current = false;
         setLoading(false);
     }
   };

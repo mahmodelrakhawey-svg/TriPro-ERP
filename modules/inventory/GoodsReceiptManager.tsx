@@ -61,6 +61,7 @@ export default function GoodsReceiptManager() {
   // Scanner & Live Input
   const [barcodeInput, setBarcodeInput] = useState('');
   const barcodeRef = useRef<HTMLInputElement>(null);
+  const isSubmittingRef = useRef(false);
 
   // Search by name & item entry
   const [entryMode, setEntryMode] = useState<'search' | 'scanner'>('search');
@@ -106,31 +107,31 @@ export default function GoodsReceiptManager() {
     if (!orgId) return;
     setIsLoading(true);
     try {
-      // 1. Fetch GRNs
-      const { data: grns, error: grnErr } = await supabase
-        .from('goods_receipt_notes')
-        .select('*')
-        .eq('organization_id', orgId)
-        .order('created_at', { ascending: false });
+      const [grnRes, poRes] = await Promise.all([
+        supabase
+          .from('goods_receipt_notes')
+          .select('id, grn_number, purchase_order_id, vendor_id, warehouse_id, vendor_invoice_number, receipt_date, status, received_by, notes, created_at')
+          .eq('organization_id', orgId)
+          .order('created_at', { ascending: false })
+          .limit(200),
+        supabase
+          .from('purchase_orders')
+          .select('id, po_number, supplier_id, vendor_id, warehouse_id, status, created_at')
+          .eq('organization_id', orgId)
+          .in('status', ['posted', 'sent', 'partial_received', 'approved', 'OPEN'])
+          .order('created_at', { ascending: false })
+          .limit(200)
+      ]);
 
-      if (grnErr) throw grnErr;
+      if (grnRes.error) throw grnRes.error;
 
-      const formattedGrns = (grns || []).map(g => ({
+      const formattedGrns = (grnRes.data || []).map(g => ({
         ...g,
         vendor_name: suppliers.find(s => s.id === g.vendor_id)?.name || 'مورد غير معروف',
         warehouse_name: warehouses.find(w => w.id === g.warehouse_id)?.name || 'مستودع غير معروف'
       }));
       setGrnList(formattedGrns);
-
-      // 2. Fetch Purchase Orders
-      const { data: pos } = await supabase
-        .from('purchase_orders')
-        .select('*')
-        .eq('organization_id', orgId)
-        .in('status', ['posted', 'sent', 'partial_received', 'approved', 'OPEN'])
-        .order('created_at', { ascending: false });
-
-      setPurchaseOrders(pos || []);
+      setPurchaseOrders(poRes.data || []);
     } catch (err) {
       logger.error(err);
       showToast('خطأ أثناء جلب أذون الاستلام', 'error');
@@ -173,7 +174,7 @@ export default function GoodsReceiptManager() {
       try {
         const { data: poItems, error } = await supabase
           .from('purchase_order_items')
-          .select('*')
+          .select('id, product_id, item_name, uom_id, quantity, unit_price, price, cost')
           .eq('purchase_order_id', poId);
 
         if (error) throw error;
@@ -325,6 +326,7 @@ export default function GoodsReceiptManager() {
 
   // 💾 Save & Approve GRN
   const handleSaveGrn = async (status: 'APPROVED' | 'DRAFT') => {
+    if (isSubmittingRef.current) return;
     if (!headerForm.warehouse_id) {
       showToast('يرجى اختيار المستودع', 'error');
       return;
@@ -338,6 +340,7 @@ export default function GoodsReceiptManager() {
       return;
     }
 
+    isSubmittingRef.current = true;
     setIsLoading(true);
     try {
       // 1. Insert GRN Header
@@ -383,18 +386,17 @@ export default function GoodsReceiptManager() {
 
       // 3. If Approved, recalculate stock for received products
       if (status === 'APPROVED') {
-        for (const it of items) {
-          try {
-            await recalculateStock(it.product_id);
-          } catch (e) {}
-        }
+        await Promise.all(
+          items.map(it => Promise.resolve(recalculateStock(it.product_id)).catch(() => {}))
+        );
 
         // Update PO Status
         if (selectedPoId) {
           await supabase
             .from('purchase_orders')
             .update({ status: 'received' })
-            .eq('id', selectedPoId);
+            .eq('id', selectedPoId)
+            .eq('organization_id', orgId);
         }
       }
 
@@ -418,6 +420,7 @@ export default function GoodsReceiptManager() {
       logger.error(err);
       showToast(err.message || 'فشل حفظ إذن الاستلام', 'error');
     } finally {
+      isSubmittingRef.current = false;
       setIsLoading(false);
     }
   };
@@ -427,7 +430,7 @@ export default function GoodsReceiptManager() {
     try {
       const { data: grnItems } = await supabase
         .from('goods_receipt_items')
-        .select('*')
+        .select('id, grn_id, product_id, uom_id, ordered_quantity, received_quantity, rejected_quantity, unit_cost, barcode_scanned, batch_number, expiry_date, rejection_reason')
         .eq('grn_id', grn.id);
 
       const mapped: GRNItem[] = (grnItems || []).map(gi => {

@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { 
   Landmark, Plus, Edit, Trash2, Calendar, Search, Filter, 
   ArrowUpRight, RefreshCw, AlertTriangle, FileText, CheckCircle, Ban, 
@@ -147,8 +148,7 @@ export default function LettersOfCreditPage() {
         return;
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
       if (!userOrgId) {
         setLoading(false);
         return;
@@ -217,7 +217,7 @@ export default function LettersOfCreditPage() {
     if (currentUser?.role === 'demo') return;
     try {
       const { data, error } = await supabase.from('lc_expenses')
-        .select('*')
+        .select('id, lc_id, expense_type, amount, expense_date, description, payment_account_id, organization_id, created_at')
         .eq('lc_id', lcId)
         .order('expense_date', { ascending: true });
       if (error) throw error;
@@ -235,8 +235,7 @@ export default function LettersOfCreditPage() {
     }
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
       if (!userOrgId && currentUser?.role !== 'demo') {
         throw new Error('لم يتم تحديد المؤسسة.');
@@ -339,8 +338,7 @@ export default function LettersOfCreditPage() {
     }
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
       if (currentUser?.role === 'demo') {
         const newExp = {

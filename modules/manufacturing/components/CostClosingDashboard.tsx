@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
 import { useAccounting } from '../../../context/AccountingContext';
@@ -31,6 +31,7 @@ export const CostClosingDashboard: React.FC = () => {
   const { showToast } = useToast();
   const { organization } = useAccounting();
   const [loading, setLoading] = useState(false);
+  const isActionRunningRef = useRef(false);
   const [period, setPeriod] = useState({
     month: new Date().getMonth() + 1,
     year: new Date().getFullYear()
@@ -65,43 +66,56 @@ export const CostClosingDashboard: React.FC = () => {
       const startDate = `${period.year}-${period.month.toString().padStart(2, '0')}-01`;
       const endDate = new Date(period.year, period.month, 0).toISOString().split('T')[0];
 
-      // 1. جلب إجمالي قيمة الـ WIP من رؤية المصالحة
-      const { data: wipData } = await supabase
-        .from('v_mfg_cost_reconciliation_report')
-        .select('cost_assigned_to_wip')
-        .eq('organization_id', organization.id);
-      
+      // تشغيل كافة استعلامات لوحة إقفال التكاليف بالتوازي لتسريع التحميل
+      const [wipRes, ovhRes, trendRes, currentVarRes, prevVarRes, lastSnapRes] = await Promise.all([
+        supabase
+          .from('v_mfg_cost_reconciliation_report')
+          .select('cost_assigned_to_wip')
+          .eq('organization_id', organization.id),
+        supabase
+          .from('journal_lines_view')
+          .select('balance')
+          .eq('organization_id', organization.id)
+          .like('account_code', '514%')
+          .gte('transaction_date', startDate)
+          .lte('transaction_date', endDate),
+        supabase
+          .from('v_mfg_cost_trends')
+          .select('*')
+          .eq('organization_id', organization.id)
+          .eq('month_period', periodName)
+          .order('avg_actual_unit_cost', { ascending: false })
+          .limit(5),
+        supabase
+          .from('v_mfg_cost_trends')
+          .select('variance_pct')
+          .eq('organization_id', organization.id)
+          .eq('month_period', periodName),
+        supabase
+          .from('v_mfg_cost_trends')
+          .select('variance_pct')
+          .eq('organization_id', organization.id)
+          .eq('month_period', prevPeriodName),
+        supabase
+          .from('mfg_period_cost_snapshots')
+          .select('period_name')
+          .eq('organization_id', organization.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      ]);
+
+      const wipData = wipRes.data;
+      const ovhData = ovhRes.data;
+      const trendData = trendRes.data;
+      const currentVar = currentVarRes.data;
+      const prevVar = prevVarRes.data;
+      const lastSnap = lastSnapRes.data;
+
       const totalWip = (wipData || []).reduce((sum, item) => sum + (item.cost_assigned_to_wip || 0), 0);
-
-      // 2. جلب المصاريف غير المباشرة من الأستاذ العام (أكواد تبدأ بـ 514)
-      const { data: ovhData } = await supabase
-        .from('journal_lines_view')
-        .select('balance')
-        .eq('organization_id', organization.id)
-        .like('account_code', '514%')
-        .gte('transaction_date', startDate)
-        .lte('transaction_date', endDate);
-
       const totalOvh = (ovhData || []).reduce((sum, item) => sum + (item.balance || 0), 0);
-
-      // 3. جلب بيانات الرسم البياني (أفضل 5 منتجات من حيث الانحراف أو الحجم)
-      const { data: trendData } = await supabase
-        .from('v_mfg_cost_trends')
-        .select('*')
-        .eq('organization_id', organization.id)
-        .eq('month_period', periodName)
-        .order('avg_actual_unit_cost', { ascending: false })
-        .limit(5);
-
-      // 4. جلب ومقارنة انحراف المصنع الإجمالي
-      const { data: currentVar } = await supabase.from('v_mfg_cost_trends').select('variance_pct').eq('organization_id', organization.id).eq('month_period', periodName);
-      const { data: prevVar } = await supabase.from('v_mfg_cost_trends').select('variance_pct').eq('organization_id', organization.id).eq('month_period', prevPeriodName);
-
       const avgCurrent = currentVar?.length ? currentVar.reduce((s, i) => s + i.variance_pct, 0) / currentVar.length : 0;
       const avgPrev = prevVar?.length ? prevVar.reduce((s, i) => s + i.variance_pct, 0) / prevVar.length : 0;
-
-      // جلب آخر فترة مغلقة فعلياً من قاعدة البيانات
-      const { data: lastSnap } = await supabase.from('mfg_period_cost_snapshots').select('period_name').eq('organization_id', organization.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
 
       setStats({
         totalWipValue: totalWip,
@@ -144,6 +158,8 @@ export const CostClosingDashboard: React.FC = () => {
 
   // تنفيذ دالة توزيع الأعباء
   const handleAllocateOverhead = async () => {
+    if (isActionRunningRef.current) return;
+    isActionRunningRef.current = true;
     setLoading(true);
     try {
       const startDate = `${period.year}-${period.month.toString().padStart(2, '0')}-01`;
@@ -162,14 +178,17 @@ export const CostClosingDashboard: React.FC = () => {
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
+      isActionRunningRef.current = false;
       setLoading(false);
     }
   };
 
   // تنفيذ إغلاق الفترة وترحيل الأرصدة
   const handleClosePeriod = async () => {
+    if (isActionRunningRef.current) return;
     if (!window.confirm('هل أنت متأكد من إغلاق الفترة؟ سيتم ترحيل أرصدة WIP وإنشاء قيد تصفية الأعباء المعلقة إلى المنتج التام تلقائياً.')) return;
     
+    isActionRunningRef.current = true;
     setLoading(true);
     try {
       const periodName = `${period.year}-${period.month.toString().padStart(2, '0')}`;
@@ -186,15 +205,18 @@ export const CostClosingDashboard: React.FC = () => {
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
+      isActionRunningRef.current = false;
       setLoading(false);
     }
   };
 
   // تنفيذ التراجع عن الإغلاق
   const handleUndoClose = async () => {
+    if (isActionRunningRef.current) return;
     const periodName = `${period.year}-${period.month.toString().padStart(2, '0')}`;
     if (!window.confirm(`هل أنت متأكد من فتح الفترة ${periodName} مرة أخرى؟ سيتم حذف سجلات التكاليف التاريخية لهذه الفترة.`)) return;
 
+    isActionRunningRef.current = true;
     setLoading(true);
     try {
       const { error } = await supabase.rpc('mfg_undo_costing_period_close', { p_period_name: periodName });
@@ -204,6 +226,7 @@ export const CostClosingDashboard: React.FC = () => {
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
+      isActionRunningRef.current = false;
       setLoading(false);
     }
   };

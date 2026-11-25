@@ -57,17 +57,19 @@ export default function ShelfRestockReport() {
           .range(from, to)
       );
 
-      // 2. جلب مواقع وخانات الرفوف (WMS Bins)
-      const { data: binsData } = await supabase
-        .from('warehouse_bins')
-        .select('id, bin_code, bin_name, zone_name, aisle, rack, shelf, warehouse_id')
-        .eq('organization_id', orgId);
-
-      // 3. جلب تسكينات الأصناف على الرفوف (Bin Allocations)
-      const { data: allocsData } = await supabase
-        .from('bin_stock_allocations')
-        .select('*')
-        .eq('organization_id', orgId);
+      // 2 & 3. جلب مواقع وخانات الرفوف وتسكينات الأصناف بالتوازي
+      const [binsRes, allocsRes] = await Promise.all([
+        supabase
+          .from('warehouse_bins')
+          .select('id, bin_code, bin_name, zone_name, aisle, rack, shelf, warehouse_id')
+          .eq('organization_id', orgId),
+        supabase
+          .from('bin_stock_allocations')
+          .select('id, product_id, bin_id, quantity, organization_id')
+          .eq('organization_id', orgId)
+      ]);
+      const binsData = binsRes.data;
+      const allocsData = allocsRes.data;
 
       const prodsMap = new Map<string, any>((prodsData || []).map(p => [p.id, p]));
       const binsMap = new Map<string, any>((binsData || []).map(b => [b.id, b]));

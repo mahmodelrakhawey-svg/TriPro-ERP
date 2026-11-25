@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Lock, Loader2, CreditCard, Banknote, Smartphone, Zap, CheckCircle2, AlertTriangle, FileSpreadsheet, ArrowDownCircle, ArrowUpCircle, Printer } from 'lucide-react';
 import type { ShiftSummaryData } from '../../../../types';
 import { toastNotify } from '../../../../context/ToastContext';
+import { escapeHtml } from '../../../../utils/htmlSanitizer';
 
 export interface ShiftReconciliationPayload {
   card_slip_total: number;
@@ -189,7 +190,7 @@ export const RetailPosShiftCloseModal: React.FC<RetailPosShiftCloseModalProps> =
           <span>الفارق (عجز / زيادة):</span>
           <span>${cashDiff > 0 ? `+${cashDiff.toFixed(2)} (فائض)` : cashDiff < 0 ? `${cashDiff.toFixed(2)} (عجز)` : '0.00 (متطابق ✔️)'} ${currencySymbol}</span>
         </div>
-        ${closingNotes ? `<div class="divider"></div><div style="font-size: 11px;"><strong>ملاحظات:</strong> ${closingNotes}</div>` : ''}
+        ${closingNotes ? `<div class="divider"></div><div style="font-size: 11px;"><strong>ملاحظات:</strong> ${escapeHtml(closingNotes)}</div>` : ''}
         
         <div class="signature-box">
           <div class="text-center">
