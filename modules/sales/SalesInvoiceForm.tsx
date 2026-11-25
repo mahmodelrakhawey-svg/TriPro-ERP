@@ -833,91 +833,10 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       const { data: { session } } = await supabase.auth.getSession();
       const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
 
-      // 🛡️ 1. محاولة التنفيذ الذري أولاً عبر RPC
-      try {
-        await unpostSalesInvoice(editingId, userOrgId);
-        setFormData(prev => ({ ...prev, status: 'draft' }));
-        await fetchCustomerBalance();
-        logDocumentAction({
-          documentType: 'sales_invoice',
-          documentId: String(editingId),
-          action: 'unposted',
-          details: {
-            invoice_number: formData.invoiceNumber,
-            total_amount: totalAmount,
-            note: `إلغاء ترحيل فاتورة المبيعات رقم ${formData.invoiceNumber} وتحويلها لمسودة`
-          },
-          userId: currentUser?.id,
-          userName: currentUser?.full_name || 'مستخدم',
-          organizationId: userOrgId
-        });
-        showToast('تم إلغاء ترحيل الفاتورة بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
-        return;
-      } catch (rpcErr: unknown) {
-        const errObj = rpcErr as { message?: string; code?: string } | null;
-        if (errObj?.message?.includes('TRIPRO_SECURITY_ALERT') || errObj?.code === 'P0001' || errObj?.message?.includes('محصنة')) {
-          showToast('فشل إلغاء اعتماد الفاتورة: ' + (errObj?.message || 'خطأ في التحقق الأمني'), 'error');
-          return;
-        }
-        logger.warn('Atomic unpost RPC unavailable or failed, attempting client fallback:', rpcErr);
-      }
-
-      // 1. جلب بيانات الفاتورة والأصناف
-      const { data: inv, error: invFetchErr } = await supabase.from('invoices').select('*, invoice_items(*)').eq('id', editingId).single();
-      if (invFetchErr) throw invFetchErr;
-
-      if (inv && (inv.status === 'posted' || inv.status === 'paid')) {
-        // 2. عكس حركة المخزون (إعادة البضاعة للمخزن)
-        for (const item of (inv.invoice_items || [])) {
-          if (item.product_id && item.quantity) {
-            const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', item.product_id).single();
-            if (prod) {
-              const newStock = (Number(prod.stock) || 0) + Number(item.quantity);
-              let newWStock = prod.warehouse_stock || {};
-              if (inv.warehouse_id && newWStock[inv.warehouse_id] !== undefined) {
-                newWStock[inv.warehouse_id] = (Number(newWStock[inv.warehouse_id]) || 0) + Number(item.quantity);
-              }
-              await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', item.product_id);
-            }
-          }
-        }
-
-      }
-
-      // 3. تحويل حالة الفاتورة إلى draft وتصفير القيد المرتبط أولاً
-      const { error: updateErr } = await supabase.from('invoices').update({
-        status: 'draft',
-        related_journal_entry_id: null
-      }).eq('id', editingId);
-
-      if (updateErr) throw updateErr;
-
-      // 4. حذف القيد المحاسبي المرتبط بعد تحويله لمسودة لتجاوز حراس الترحيل
-      if (inv && (inv.status === 'posted' || inv.status === 'paid')) {
-        if (inv.related_journal_entry_id) {
-          await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', inv.related_journal_entry_id);
-          await supabase.from('journal_lines').delete().eq('journal_entry_id', inv.related_journal_entry_id);
-          await supabase.from('journal_entries').delete().eq('id', inv.related_journal_entry_id);
-        } else if (inv.invoice_number) {
-          const { data: matchedEntries } = await supabase.from('journal_entries').select('id').eq('reference', inv.invoice_number);
-          if (matchedEntries && matchedEntries.length > 0) {
-            const ids = matchedEntries.map(e => e.id);
-            await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).in('id', ids);
-            await supabase.from('journal_lines').delete().in('journal_entry_id', ids);
-            await supabase.from('journal_entries').delete().in('id', ids);
-          }
-        }
-      }
-
-      // 5. تحديث واجهة المستخدم
-      setFormData(prev => ({
-        ...prev,
-        status: 'draft'
-      }));
-
-      // تحديث رصيد العميل فوراً
+      // 🛡️ التنفيذ الذري الحصري عبر دالة السيرفر (بدون مسار احتياطي يمسح ربط القيد ويترك قيوداً يتيمة)
+      await unpostSalesInvoice(editingId, userOrgId);
+      setFormData(prev => ({ ...prev, status: 'draft' }));
       await fetchCustomerBalance();
-
       logDocumentAction({
         documentType: 'sales_invoice',
         documentId: String(editingId),
@@ -928,15 +847,15 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           note: `إلغاء ترحيل فاتورة المبيعات رقم ${formData.invoiceNumber} وتحويلها لمسودة`
         },
         userId: currentUser?.id,
-        userName: (currentUser as any)?.name || (currentUser as any)?.email,
+        userName: currentUser?.full_name || 'مستخدم',
         organizationId: userOrgId
       });
-
       showToast('تم إلغاء ترحيل الفاتورة بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
 
-    } catch (err) {
+    } catch (err: unknown) {
       logger.error('Error unposting sales invoice:', err);
-      showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
+      const errMsg = err instanceof Error ? err.message : (err as { message?: string })?.message || 'خطأ غير متوقع';
+      showToast('فشل إلغاء ترحيل الفاتورة: ' + errMsg, 'error');
     } finally {
       setSaving(false);
     }

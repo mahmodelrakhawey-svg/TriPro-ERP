@@ -1558,73 +1558,9 @@ const PurchaseInvoiceForm = () => {
       const { data: { session } } = await supabase.auth.getSession();
       const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
 
-      // 🛡️ 1. محاولة التنفيذ الذري أولاً عبر دالة السيرفر
-      try {
-        await unpostPurchaseInvoice(editingId, userOrgId);
-        setFormData(prev => ({ ...prev, status: 'draft' }));
-        logDocumentAction({
-          documentType: 'purchase_invoice',
-          documentId: String(editingId),
-          action: 'unposted',
-          details: {
-            invoice_number: formData.invoiceNumber,
-            total_amount: invoiceCalculation.totalAmount,
-            note: `إلغاء ترحيل فاتورة المشتريات رقم ${formData.invoiceNumber} وتحويلها لمسودة`
-          },
-          userId: currentUser?.id,
-          userName: currentUser?.full_name || 'مستخدم',
-          organizationId: userOrgId
-        });
-        showToast('تم إلغاء ترحيل فاتورة المشتريات بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
-        return;
-      } catch (rpcErr: unknown) {
-        const errObj = rpcErr as { message?: string; code?: string } | null;
-        if (errObj?.message?.includes('TRIPRO_SECURITY_ALERT') || errObj?.code === 'P0001' || errObj?.message?.includes('محصنة')) {
-          showToast('فشل إلغاء اعتماد الفاتورة: ' + (errObj.message || 'خطأ في التحقق الأمني'), 'error');
-          return;
-        }
-        logger.warn('Atomic unpost RPC unavailable, attempting client fallback:', rpcErr);
-      }
-
-      // Fallback
-      const { data: oldInv } = await supabase.from('purchase_invoices').select('*, purchase_invoice_items(*)').eq('id', editingId).single();
-      if (oldInv && (oldInv.status === 'posted' || oldInv.status === 'paid')) {
-        for (const oldItem of (oldInv.purchase_invoice_items || [])) {
-          if (oldItem.product_id && oldItem.quantity) {
-            const { data: prod } = await supabase.from('products').select('stock, warehouse_stock').eq('id', oldItem.product_id).single();
-            if (prod) {
-              const newStock = Math.max(0, (Number(prod.stock) || 0) - Number(oldItem.quantity));
-              let newWStock = prod.warehouse_stock || {};
-              if (oldInv.warehouse_id && newWStock[oldInv.warehouse_id] !== undefined) {
-                newWStock[oldInv.warehouse_id] = Math.max(0, (Number(newWStock[oldInv.warehouse_id]) || 0) - Number(oldItem.quantity));
-              }
-              await supabase.from('products').update({ stock: newStock, warehouse_stock: newWStock }).eq('id', oldItem.product_id);
-            }
-          }
-        }
-
-      }
-
-      await supabase.from('purchase_invoices').update({ status: 'draft', related_journal_entry_id: null }).eq('id', editingId);
-
-      if (oldInv && (oldInv.status === 'posted' || oldInv.status === 'paid')) {
-        if (oldInv.related_journal_entry_id) {
-          await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).eq('id', oldInv.related_journal_entry_id);
-          await supabase.from('journal_lines').delete().eq('journal_entry_id', oldInv.related_journal_entry_id);
-          await supabase.from('journal_entries').delete().eq('id', oldInv.related_journal_entry_id);
-        } else if (oldInv.invoice_number) {
-          const { data: matchedEntries } = await supabase.from('journal_entries').select('id').eq('reference', oldInv.invoice_number);
-          if (matchedEntries && matchedEntries.length > 0) {
-            const ids = matchedEntries.map(e => e.id);
-            await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).in('id', ids);
-            await supabase.from('journal_lines').delete().in('journal_entry_id', ids);
-            await supabase.from('journal_entries').delete().in('id', ids);
-          }
-        }
-      }
-
+      // 🛡️ التنفيذ الذري الحصري عبر دالة السيرفر (بدون مسار احتياطي يمسح ربط القيد ويترك قيوداً يتيمة)
+      await unpostPurchaseInvoice(editingId, userOrgId);
       setFormData(prev => ({ ...prev, status: 'draft' }));
-
       logDocumentAction({
         documentType: 'purchase_invoice',
         documentId: String(editingId),
@@ -1635,15 +1571,15 @@ const PurchaseInvoiceForm = () => {
           note: `إلغاء ترحيل فاتورة المشتريات رقم ${formData.invoiceNumber} وتحويلها لمسودة`
         },
         userId: currentUser?.id,
-        userName: (currentUser as any)?.name || (currentUser as any)?.email,
+        userName: currentUser?.full_name || 'مستخدم',
         organizationId: userOrgId
       });
-
       showToast('تم إلغاء ترحيل فاتورة المشتريات بنجاح وتحويلها لمسودة جاهزة للتعديل ✅', 'success');
 
-    } catch (err) {
+    } catch (err: unknown) {
       logger.error('Error unposting purchase invoice:', err);
-      showToast('فشل إلغاء ترحيل الفاتورة: ' + err.message, 'error');
+      const errMsg = err instanceof Error ? err.message : (err as { message?: string })?.message || 'خطأ غير متوقع';
+      showToast('فشل إلغاء ترحيل الفاتورة: ' + errMsg, 'error');
     } finally {
       setSaving(false);
     }

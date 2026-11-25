@@ -82,18 +82,19 @@ const EmployeeAdvances = () => {
         setEmployees(filtered);
       }
 
-      // 3. جلب حسابات الخزينة والبنوك
+      // 3. جلب حسابات الخزينة والبنوك (استبعاد الحسابات الرئيسية والتجميعية لمنع الترحيل الخاطئ)
       const { data: accData } = await supabase
         .from('accounts')
-        .select('id, name, code')
+        .select('id, name, code, is_group')
         .eq('organization_id', userOrgId);
       
       if (accData) {
-        const treasuries = accData.filter(a => 
+        const leafAccounts = accData.filter(a => !a.is_group && a.code !== '123' && a.code !== '12' && a.code !== '1');
+        const treasuries = leafAccounts.filter(a => 
           (a.code && (a.code.startsWith('123') || a.code.startsWith('101') || a.code.startsWith('121'))) ||
           (a.name && (a.name.includes('صندوق') || a.name.includes('خزينة') || a.name.includes('خزينه') || a.name.includes('بنك') || a.name.includes('عهدة')))
         );
-        const finalTreasuries = treasuries.length > 0 ? treasuries : accData;
+        const finalTreasuries = treasuries.length > 0 ? treasuries : leafAccounts;
         setTreasuryAccounts(finalTreasuries);
         // تعيين الخزينة الافتراضية إذا لم تكن محددة
         if (finalTreasuries.length > 0 && !formData.treasuryId) {

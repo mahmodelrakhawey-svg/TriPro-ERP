@@ -466,6 +466,7 @@ const PaymentVoucherForm = () => {
         if (isEditing && currentVoucherId) {
           if (!isAdmin && !can('treasury', 'update') && !can('treasury', 'manage')) {
               showToast('ليس لديك صلاحية تعديل سندات الصرف', 'error');
+              isSubmittingRef.current = false;
               setLoading(false);
               return;
           }
@@ -490,17 +491,18 @@ const PaymentVoucherForm = () => {
 
           if (vErr) throw vErr;
 
-          // 🚀 الحل الجذري: استدعاء الدالة المحاسبية الموحدة لإعادة ترحيل القيد بشكل صحيح ومتوازن
+          // 🚀 الحل الجذري: استدعاء الدالة المحاسبية الموحدة لإعادة ترحيل القيد بشكل صحيح ومتوازن (بدون إنشاء قيد مكرر في حالة الفشل)
           const supplierAcc = getSystemAccount('SUPPLIERS');
           if (supplierAcc) {
-              try {
-                  const { error: rpcErr } = await supabase.rpc('approve_payment_voucher', { 
-                      p_voucher_id: currentVoucherId, 
-                      p_debit_account_id: supplierAcc.id 
-                  });
-                  if (rpcErr) throw rpcErr;
-              } catch (editRpcErr) {
-                  logger.warn("RPC approve_payment_voucher failed during edit, falling back to manual entry:", editRpcErr);
+              const { error: rpcErr } = await supabase.rpc('approve_payment_voucher', { 
+                  p_voucher_id: currentVoucherId, 
+                  p_debit_account_id: supplierAcc.id 
+              });
+              if (rpcErr) {
+                  if (voucherData?.related_journal_entry_id) {
+                      throw new Error('تعذر تحديث القيد المحاسبي للسند عبر الخادم: ' + rpcErr.message);
+                  }
+                  logger.warn("RPC approve_payment_voucher failed on unlinked voucher, creating entry:", rpcErr);
                   await addEntry({
                       date: formData.date,
                       reference: formData.voucherNumber || `PV-${Date.now().toString().slice(-6)}`,
@@ -517,6 +519,7 @@ const PaymentVoucherForm = () => {
           showToast('تم تعديل سند الصرف بنجاح ✅', 'success');
           
           // 🚀 إصلاح: التوقف هنا بعد التعديل لمنع تكرار السند
+          isSubmittingRef.current = false;
           setLoading(false);
           navigate('/payment-vouchers-list');
           return;
@@ -525,6 +528,7 @@ const PaymentVoucherForm = () => {
 
         if (!isAdmin && !can('treasury', 'create') && !can('treasury', 'payment_create')) {
             showToast('ليس لديك صلاحية إنشاء سندات صرف', 'error');
+            isSubmittingRef.current = false;
             setLoading(false);
             return;
         }
@@ -534,12 +538,13 @@ const PaymentVoucherForm = () => {
 
         if (!supplierAcc) {
             showToast('لم يتم العثور على حساب "الموردين" (201) في الدليل المحاسبي.', 'error');
+            isSubmittingRef.current = false;
             setLoading(false);
             return;
         }
 
-        // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
-        const orgId = (currentUser as any)?.organization_id || 
+        // جلب معرف المنظمة النشطة مع صمام أمان
+        const orgId = organization?.id || (currentUser as any)?.organization_id || 
                      (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
 
         // 1. حفظ سند الصرف في قاعدة البيانات

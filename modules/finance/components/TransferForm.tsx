@@ -162,6 +162,22 @@ const TransferForm = () => {
         showToast(validationResult.error.issues[0].message, 'warning');
         return;
     }
+
+    // 🛡️ درع فحص التكرار الاستباقي للتحويلات المتطابقة في نفس اليوم
+    if (!editingId) {
+      const duplicateSameDay = treasuryTransfers.some(t =>
+        t.sourceAccountId === formData.sourceAccountId &&
+        t.destinationAccountId === formData.destinationAccountId &&
+        Number(t.amount) === Number(formData.amount) &&
+        t.date === formData.date
+      );
+      if (duplicateSameDay) {
+        const confirmed = window.confirm(
+          `⚠️ تنبيه منع التكرار:\n\nيوجد تحويل مالي مسجل بالفعل اليوم (${formData.date}) من نفس الحساب المصدر إلى نفس الحساب المستلم وبنفس المبلغ (${Number(formData.amount).toLocaleString()} ج.م).\n\nهل تريد تأكيد تنفيذ تحويل إضافي متطابق؟`
+        );
+        if (!confirmed) return;
+      }
+    }
     
     isSubmittingRef.current = true;
     setLoading(true);

@@ -4,6 +4,7 @@ import { useAccounting } from '../../context/AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { 
   BookOpen, 
   Printer, 
@@ -48,6 +49,9 @@ const AnnualFinancialReport: React.FC = () => {
   const [ledgerLinesPrior, setLedgerLinesPrior] = useState<any[]>([]);
   const [cumulativeLinesCurrent, setCumulativeLinesCurrent] = useState<any[]>([]);
   const [cumulativeLinesPrior, setCumulativeLinesPrior] = useState<any[]>([]);
+  const [rpcTrialBalance, setRpcTrialBalance] = useState<any[] | null>(null);
+  const [rpcPnlCurrent, setRpcPnlCurrent] = useState<any[] | null>(null);
+  const [rpcPnlPrior, setRpcPnlPrior] = useState<any[] | null>(null);
   const [dbAssets, setDbAssets] = useState<any[]>([]);
 
   const priorYear = reportYear - 1;
@@ -56,62 +60,113 @@ const AnnualFinancialReport: React.FC = () => {
   const priorStart = `${priorYear}-01-01`;
   const priorEnd = `${priorYear}-12-31`;
 
-  // جلب البيانات المالية الشاملة للسنتين الحالية والسابقة
+  // جلب البيانات المالية الشاملة للسنتين الحالية والسابقة عبر محرك الخادم الموحد (RPC)
   const loadFinancialData = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || session?.user?.user_metadata?.org_id || (organization as any)?.id;
+      let userOrgId: string | undefined | null =
+        getActiveOrgIdSync(currentSelectedOrgId) ||
+        (currentUser as any)?.organization_id ||
+        (currentUser as any)?.user_metadata?.org_id ||
+        (organization as any)?.id;
 
-      // 1. حركات السنة الحالية (مقسمة بدفعات لضمان جلب كافة القيود وتجاوز سقف 1000)
-      const currData = await fetchCompleteDataset(async (from, to) => {
-        let q = supabase
-          .from('journal_lines')
-          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
-          .eq('journal_entries.status', 'posted')
-          .gte('journal_entries.transaction_date', currentStart)
-          .lte('journal_entries.transaction_date', currentEnd);
-        if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
-        return q.order('journal_entry_id', { ascending: true }).range(from, to);
-      });
-      setLedgerLinesCurrent(currData || []);
+      if (!userOrgId) {
+        userOrgId = await resolveActiveOrgId(currentSelectedOrgId);
+      }
 
-      // 2. حركات السنة السابقة
-      const prData = await fetchCompleteDataset(async (from, to) => {
-        let q = supabase
-          .from('journal_lines')
-          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
-          .eq('journal_entries.status', 'posted')
-          .gte('journal_entries.transaction_date', priorStart)
-          .lte('journal_entries.transaction_date', priorEnd);
-        if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
-        return q.order('journal_entry_id', { ascending: true }).range(from, to);
-      });
-      setLedgerLinesPrior(prData || []);
+      const isUuid = (val: unknown): boolean =>
+        typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+      const validOrgId = isUuid(userOrgId) ? userOrgId : null;
 
-      // 3. الأرصدة التراكمية حتى نهاية السنة الحالية (للمركز المالي)
-      const cumCurrData = await fetchCompleteDataset(async (from, to) => {
-        let q = supabase
-          .from('journal_lines')
-          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
-          .eq('journal_entries.status', 'posted')
-          .lte('journal_entries.transaction_date', currentEnd);
-        if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
-        return q.order('journal_entry_id', { ascending: true }).range(from, to);
-      });
-      setCumulativeLinesCurrent(cumCurrData || []);
+      let rpcSuccess = false;
+      try {
+        const [tbRes, pnlCurRes, pnlPrRes] = await Promise.all([
+          supabase.rpc('get_trial_balance_summary_rpc', {
+            p_org_id: validOrgId,
+            p_start_date: currentStart,
+            p_end_date: currentEnd
+          }),
+          supabase.rpc('get_income_statement_summary_rpc', {
+            p_org_id: validOrgId,
+            p_start_date: currentStart,
+            p_end_date: currentEnd
+          }),
+          supabase.rpc('get_income_statement_summary_rpc', {
+            p_org_id: validOrgId,
+            p_start_date: priorStart,
+            p_end_date: priorEnd
+          })
+        ]);
 
-      // 4. الأرصدة التراكمية حتى نهاية السنة السابقة
-      const cumPrData = await fetchCompleteDataset(async (from, to) => {
-        let q = supabase
-          .from('journal_lines')
-          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
-          .eq('journal_entries.status', 'posted')
-          .lte('journal_entries.transaction_date', priorEnd);
-        if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
-        return q.order('journal_entry_id', { ascending: true }).range(from, to);
-      });
-      setCumulativeLinesPrior(cumPrData || []);
+        if (!tbRes.error && Array.isArray(tbRes.data) && !pnlCurRes.error && Array.isArray(pnlCurRes.data)) {
+          setRpcTrialBalance(tbRes.data);
+          setRpcPnlCurrent(pnlCurRes.data);
+          setRpcPnlPrior(!pnlPrRes.error && Array.isArray(pnlPrRes.data) ? pnlPrRes.data : []);
+          setLedgerLinesCurrent([]);
+          setLedgerLinesPrior([]);
+          setCumulativeLinesCurrent([]);
+          setCumulativeLinesPrior([]);
+          rpcSuccess = true;
+        }
+      } catch (rpcErr) {
+        logger.warn('[AnnualFinancialReport] RPC failed, falling back to deterministic chunked queries:', rpcErr);
+      }
+
+      if (!rpcSuccess) {
+        setRpcTrialBalance(null);
+        setRpcPnlCurrent(null);
+        setRpcPnlPrior(null);
+
+        // 1. حركات السنة الحالية (مرتبة بالمفتاح الأساسي id لمنع إسقاط أي سطر أثناء التجزئة)
+        const currData = await fetchCompleteDataset(async (from, to) => {
+          let q = supabase
+            .from('journal_lines')
+            .select('id, account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
+            .eq('journal_entries.status', 'posted')
+            .gte('journal_entries.transaction_date', currentStart)
+            .lte('journal_entries.transaction_date', currentEnd);
+          if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
+          return q.order('id', { ascending: true }).range(from, to);
+        });
+        setLedgerLinesCurrent(currData || []);
+
+        // 2. حركات السنة السابقة
+        const prData = await fetchCompleteDataset(async (from, to) => {
+          let q = supabase
+            .from('journal_lines')
+            .select('id, account_id, debit, credit, journal_entries!inner(transaction_date, status, reference, organization_id)')
+            .eq('journal_entries.status', 'posted')
+            .gte('journal_entries.transaction_date', priorStart)
+            .lte('journal_entries.transaction_date', priorEnd);
+          if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
+          return q.order('id', { ascending: true }).range(from, to);
+        });
+        setLedgerLinesPrior(prData || []);
+
+        // 3. الأرصدة التراكمية حتى نهاية السنة الحالية (للمركز المالي)
+        const cumCurrData = await fetchCompleteDataset(async (from, to) => {
+          let q = supabase
+            .from('journal_lines')
+            .select('id, account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+            .eq('journal_entries.status', 'posted')
+            .lte('journal_entries.transaction_date', currentEnd);
+          if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
+          return q.order('id', { ascending: true }).range(from, to);
+        });
+        setCumulativeLinesCurrent(cumCurrData || []);
+
+        // 4. الأرصدة التراكمية حتى نهاية السنة السابقة
+        const cumPrData = await fetchCompleteDataset(async (from, to) => {
+          let q = supabase
+            .from('journal_lines')
+            .select('id, account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+            .eq('journal_entries.status', 'posted')
+            .lte('journal_entries.transaction_date', priorEnd);
+          if (userOrgId) q = q.eq('journal_entries.organization_id', userOrgId);
+          return q.order('id', { ascending: true }).range(from, to);
+        });
+        setCumulativeLinesPrior(cumPrData || []);
+      }
 
       // 5. سجل الأصول الثابتة
       let qAssets = supabase.from('assets').select('*');
@@ -121,7 +176,8 @@ const AnnualFinancialReport: React.FC = () => {
 
     } catch (err) {
       logger.error('Error fetching annual report data:', err);
-      showToast('خطأ أثناء جلب بيانات التقرير السنوي: ' + err.message, 'error');
+      const message = err instanceof Error ? err.message : String(err);
+      showToast('خطأ أثناء جلب بيانات التقرير السنوي: ' + message, 'error');
     } finally {
       setLoading(false);
     }
@@ -135,27 +191,74 @@ const AnnualFinancialReport: React.FC = () => {
   const financialStatements = useMemo(() => {
     const pnlCurBalances: Record<string, number> = {};
     const pnlPriorBalances: Record<string, number> = {};
-
-    ledgerLinesCurrent.forEach(line => {
-      if (line.journal_entries?.reference?.startsWith('CLOSE-')) return;
-      pnlCurBalances[line.account_id] = (pnlCurBalances[line.account_id] || 0) + (Number(line.debit) || 0) - (Number(line.credit) || 0);
-    });
-
-    ledgerLinesPrior.forEach(line => {
-      if (line.journal_entries?.reference?.startsWith('CLOSE-')) return;
-      pnlPriorBalances[line.account_id] = (pnlPriorBalances[line.account_id] || 0) + (Number(line.debit) || 0) - (Number(line.credit) || 0);
-    });
-
     const bsCurBalances: Record<string, number> = {};
     const bsPriorBalances: Record<string, number> = {};
 
-    cumulativeLinesCurrent.forEach(line => {
-      bsCurBalances[line.account_id] = (bsCurBalances[line.account_id] || 0) + (Number(line.debit) || 0) - (Number(line.credit) || 0);
-    });
+    if (rpcPnlCurrent && rpcPnlCurrent.length > 0) {
+      rpcPnlCurrent.forEach((row: Record<string, any>) => {
+        pnlCurBalances[row.account_id] = Number(row.net_movement) || 0;
+      });
+    } else {
+      ledgerLinesCurrent.forEach(line => {
+        if (line.journal_entries?.reference?.startsWith('CLOSE-')) return;
+        pnlCurBalances[line.account_id] = (pnlCurBalances[line.account_id] || 0) + (Number(line.debit) || 0) - (Number(line.credit) || 0);
+      });
+    }
 
-    cumulativeLinesPrior.forEach(line => {
-      bsPriorBalances[line.account_id] = (bsPriorBalances[line.account_id] || 0) + (Number(line.debit) || 0) - (Number(line.credit) || 0);
-    });
+    if (rpcPnlPrior && rpcPnlPrior.length > 0) {
+      rpcPnlPrior.forEach((row: Record<string, any>) => {
+        pnlPriorBalances[row.account_id] = Number(row.net_movement) || 0;
+      });
+    } else {
+      ledgerLinesPrior.forEach(line => {
+        if (line.journal_entries?.reference?.startsWith('CLOSE-')) return;
+        pnlPriorBalances[line.account_id] = (pnlPriorBalances[line.account_id] || 0) + (Number(line.debit) || 0) - (Number(line.credit) || 0);
+      });
+    }
+
+    let priorUnclosedPnlSum = 0;
+    const accountMap = new Map<string, any>();
+    accounts.forEach(acc => accountMap.set(acc.id, acc));
+
+    if (rpcTrialBalance && rpcTrialBalance.length > 0) {
+      rpcTrialBalance.forEach((row: Record<string, any>) => {
+        const accId = row.account_id;
+        bsCurBalances[accId] = Number(row.closing_balance) || 0;
+        bsPriorBalances[accId] = Number(row.opening_balance) || 0;
+
+        const acc = accountMap.get(accId);
+        if (acc) {
+          const code = String(acc.code || '').trim();
+          const type = (acc.type || '').toLowerCase();
+          const isPnl = !code.startsWith('1') && !code.startsWith('2') && !code.startsWith('3') && (
+            code.startsWith('4') || code.startsWith('5') || type.includes('revenue') || type.includes('income') || type.includes('expense') || type.includes('cost')
+          );
+          if (isPnl) {
+            // أي أرباح أو خسائر غير مقفلة من سنوات سابقة (opening_balance لحسابات الدخل)
+            priorUnclosedPnlSum += -(Number(row.opening_balance) || 0);
+          }
+        }
+      });
+    } else {
+      cumulativeLinesCurrent.forEach(line => {
+        bsCurBalances[line.account_id] = (bsCurBalances[line.account_id] || 0) + (Number(line.debit) || 0) - (Number(line.credit) || 0);
+      });
+
+      cumulativeLinesPrior.forEach(line => {
+        bsPriorBalances[line.account_id] = (bsPriorBalances[line.account_id] || 0) + (Number(line.debit) || 0) - (Number(line.credit) || 0);
+        const acc = accountMap.get(line.account_id);
+        if (acc) {
+          const code = String(acc.code || '').trim();
+          const type = (acc.type || '').toLowerCase();
+          const isPnl = !code.startsWith('1') && !code.startsWith('2') && !code.startsWith('3') && (
+            code.startsWith('4') || code.startsWith('5') || type.includes('revenue') || type.includes('income') || type.includes('expense') || type.includes('cost')
+          );
+          if (isPnl) {
+            priorUnclosedPnlSum += -((Number(line.debit) || 0) - (Number(line.credit) || 0));
+          }
+        }
+      });
+    }
 
     const isFinanceAccount = (code: string, name: string) => {
       return (
@@ -347,10 +450,10 @@ const AnnualFinancialReport: React.FC = () => {
             capitalAccounts.push(item);
           } else if (code.startsWith('32') || name.includes('احتياط')) {
             reserveAccounts.push(item);
+          } else if (code.startsWith('34') || name.includes('جاري') || name.includes('جارى') || name.includes('شريك') || name.includes('مساهم')) {
+            relatedPartyAccounts.push(item);
           } else if (code.startsWith('33') || name.includes('مبقاة') || name.includes('مرحلة') || name.includes('مدورة') || name.includes('أرباح سنوات')) {
             retainedEarningsAccounts.push(item);
-          } else if (code.startsWith('34') || name.includes('جاري') || name.includes('شريك') || name.includes('مساهم')) {
-            relatedPartyAccounts.push(item);
           } else if (code === '3999' || name.includes('وسيط') || name.includes('افتتاحي')) {
             openingOrSuspenseAccounts.push(item);
           }
@@ -427,8 +530,8 @@ const AnnualFinancialReport: React.FC = () => {
 
     const baseEquity = sumLines(equityAccounts);
     const totalEquity = {
-      current: baseEquity.current + netIncome.current,
-      prior: baseEquity.prior + netIncome.prior
+      current: baseEquity.current + netIncome.current + priorUnclosedPnlSum,
+      prior: baseEquity.prior + priorUnclosedPnlSum
     };
 
     // إهلاك الأصول الثابتة من قائمة الدخل
@@ -438,12 +541,24 @@ const AnnualFinancialReport: React.FC = () => {
 
     const deltaAR = (sumLines(receivableAccounts).current - sumLines(receivableAccounts).prior);
     const deltaInv = (sumLines(inventoryAccounts).current - sumLines(inventoryAccounts).prior);
+    const deltaOtherCA = (sumLines(otherCurrentAssets).current - sumLines(otherCurrentAssets).prior);
     const deltaAP = (sumLines(payableAccounts).current - sumLines(payableAccounts).prior);
+    const deltaOtherCL = (sumLines(otherCurrentLiabilities).current - sumLines(otherCurrentLiabilities).prior);
 
     // التدفق النقدي التشغيلي وفق معيار IAS 7 بالطريقة غير المباشرة:
     const operatingCashFlow = {
-      current: netIncome.current + (depreciationExpense || 0) - deltaAR - deltaInv + deltaAP,
+      current: netIncome.current + (depreciationExpense || 0) - deltaAR - deltaInv - deltaOtherCA + deltaAP + deltaOtherCL,
       prior: netIncome.prior
+    };
+
+    const investingCashFlow = {
+      current: -(totalNonCurrentAssets.current - totalNonCurrentAssets.prior + (depreciationExpense || 0)),
+      prior: 0
+    };
+
+    const financingCashFlow = {
+      current: (totalNonCurrentLiabilities.current - totalNonCurrentLiabilities.prior) + (baseEquity.current - baseEquity.prior),
+      prior: 0
     };
 
     const totalCashEnding = sumLines(cashAccounts);
@@ -476,15 +591,20 @@ const AnnualFinancialReport: React.FC = () => {
         capitalEmployed,
         nonCurrentLiabilities, totalNonCurrentLiabilities,
         netAssets,
-        equityAccounts, totalEquity
+        equityAccounts, totalEquity,
+        priorUnclosedPnlSum
       },
       cashFlow: {
         operatingCashFlow,
+        investingCashFlow,
+        financingCashFlow,
         totalCashEnding,
         depreciationExpense,
         deltaAR,
         deltaInv,
-        deltaAP
+        deltaOtherCA,
+        deltaAP,
+        deltaOtherCL
       },
       notesData: {
         cashAccounts,
@@ -500,7 +620,7 @@ const AnnualFinancialReport: React.FC = () => {
         openingOrSuspenseAccounts
       }
     };
-  }, [accounts, ledgerLinesCurrent, ledgerLinesPrior, cumulativeLinesCurrent, cumulativeLinesPrior]);
+  }, [accounts, rpcTrialBalance, rpcPnlCurrent, rpcPnlPrior, ledgerLinesCurrent, ledgerLinesPrior, cumulativeLinesCurrent, cumulativeLinesPrior]);
 
   // تصدير كتاب مالي كامل إلى Excel متعدد الأوراق
   const handleExportExcelBook = () => {
@@ -1116,13 +1236,11 @@ const AnnualFinancialReport: React.FC = () => {
 
                     const capCur = financialStatements.notesData.capitalAccounts.reduce((s, a) => s + a.currentYear, 0);
                     const resCur = financialStatements.notesData.reserveAccounts.reduce((s, a) => s + a.currentYear, 0);
-                    const retCur = financialStatements.notesData.retainedEarningsAccounts.reduce((s, a) => s + a.currentYear, 0);
+                    const retCur = financialStatements.notesData.retainedEarningsAccounts.reduce((s, a) => s + a.currentYear, 0) + (financialStatements.bs.priorUnclosedPnlSum || 0);
                     const partCur = financialStatements.notesData.relatedPartyAccounts.reduce((s, a) => s + a.currentYear, 0) +
                                     financialStatements.notesData.openingOrSuspenseAccounts.reduce((s, a) => s + a.currentYear, 0);
 
                     const netInc = financialStatements.pnl.netIncome.current;
-                    const transferReserve = netInc > 0 ? Number((netInc * 0.1).toFixed(2)) : 0;
-                    const retainedProfitShare = netInc - transferReserve;
 
                     return (
                       <>
@@ -1130,7 +1248,7 @@ const AnnualFinancialReport: React.FC = () => {
                           <td className="p-3">الرصيد كما في 1 يناير {reportYear} (افتتاحي)</td>
                           <td className="p-3 text-left font-mono">{formatMoney(capPrior)}</td>
                           <td className="p-3 text-left font-mono">{formatMoney(resPrior)}</td>
-                          <td className="p-3 text-left font-mono">{formatMoney(retPrior)}</td>
+                          <td className="p-3 text-left font-mono">{formatMoney(retPrior + (financialStatements.bs.priorUnclosedPnlSum || 0))}</td>
                           <td className="p-3 text-left font-mono">{formatMoney(partPrior)}</td>
                           <td className="p-3 text-left font-mono font-black bg-slate-100">{formatMoney(financialStatements.bs.totalEquity.prior)}</td>
                         </tr>
@@ -1142,31 +1260,21 @@ const AnnualFinancialReport: React.FC = () => {
                           <td className="p-3 text-left font-mono">-</td>
                           <td className="p-3 text-left font-mono font-bold text-emerald-700 bg-emerald-50">{formatMoney(netInc)}</td>
                         </tr>
-                        {transferReserve > 0 && (
-                          <tr>
-                            <td className="p-3 pr-6 font-medium">التحويل إلى الاحتياطي القانوني والنظامي (10%)</td>
-                            <td className="p-3 text-left font-mono">-</td>
-                            <td className="p-3 text-left font-mono text-emerald-700">{formatMoney(transferReserve)}</td>
-                            <td className="p-3 text-left font-mono text-red-600">({formatMoney(transferReserve)})</td>
-                            <td className="p-3 text-left font-mono">-</td>
-                            <td className="p-3 text-left font-mono bg-slate-50">0.00</td>
-                          </tr>
-                        )}
                         {Math.abs(partCur - partPrior) > 0.01 && (
                           <tr>
                             <td className="p-3 pr-6 font-medium">حركات جاري الشركاء والوسيط الافتتاحي</td>
                             <td className="p-3 text-left font-mono">-</td>
                             <td className="p-3 text-left font-mono">-</td>
                             <td className="p-3 text-left font-mono">-</td>
-                            <td className="p-3 text-left font-mono">{formatMoney(partCur - partPrior)}</td>
-                            <td className="p-3 text-left font-mono bg-slate-50">{formatMoney(partCur - partPrior)}</td>
+                            <td className={`p-3 text-left font-mono ${(partCur - partPrior) < 0 ? 'text-red-600' : ''}`}>{formatMoney(partCur - partPrior)}</td>
+                            <td className={`p-3 text-left font-mono bg-slate-50 ${(partCur - partPrior) < 0 ? 'text-red-600' : ''}`}>{formatMoney(partCur - partPrior)}</td>
                           </tr>
                         )}
                         <tr className="bg-indigo-900 text-white font-black text-sm">
                           <td className="p-3.5">الرصيد كما في 31 ديسمبر {reportYear} (ختامي)</td>
                           <td className="p-3.5 text-left font-mono">{formatMoney(capCur)}</td>
-                          <td className="p-3.5 text-left font-mono">{formatMoney(resCur + transferReserve)}</td>
-                          <td className="p-3.5 text-left font-mono">{formatMoney(retCur + retainedProfitShare)}</td>
+                          <td className="p-3.5 text-left font-mono">{formatMoney(resCur)}</td>
+                          <td className="p-3.5 text-left font-mono">{formatMoney(retCur + netInc)}</td>
                           <td className="p-3.5 text-left font-mono">{formatMoney(partCur)}</td>
                           <td className="p-3.5 text-left font-mono font-black bg-indigo-950">{formatMoney(financialStatements.bs.totalEquity.current)}</td>
                         </tr>
@@ -1229,6 +1337,15 @@ const AnnualFinancialReport: React.FC = () => {
                     </td>
                     <td className="p-2.5 text-left font-mono">0.00</td>
                   </tr>
+                  {Math.abs(financialStatements.cashFlow.deltaOtherCA) > 0.01 && (
+                    <tr>
+                      <td className="p-2.5 pr-6 font-medium">(الزيادة)/النقص في الأرصدة المدينة الأخرى</td>
+                      <td className={`p-2.5 text-left font-mono ${-financialStatements.cashFlow.deltaOtherCA < 0 ? 'text-red-600' : ''}`}>
+                        {-financialStatements.cashFlow.deltaOtherCA < 0 ? `(${formatMoney(Math.abs(financialStatements.cashFlow.deltaOtherCA))})` : formatMoney(-financialStatements.cashFlow.deltaOtherCA)}
+                      </td>
+                      <td className="p-2.5 text-left font-mono">0.00</td>
+                    </tr>
+                  )}
                   <tr>
                     <td className="p-2.5 pr-6 font-medium">الزيادة/(النقص) في الموردين والدائنين</td>
                     <td className={`p-2.5 text-left font-mono ${financialStatements.cashFlow.deltaAP < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
@@ -1236,6 +1353,15 @@ const AnnualFinancialReport: React.FC = () => {
                     </td>
                     <td className="p-2.5 text-left font-mono">0.00</td>
                   </tr>
+                  {Math.abs(financialStatements.cashFlow.deltaOtherCL) > 0.01 && (
+                    <tr>
+                      <td className="p-2.5 pr-6 font-medium">الزيادة/(النقص) في الأرصدة الدائنة والالتزامات الأخرى</td>
+                      <td className={`p-2.5 text-left font-mono ${financialStatements.cashFlow.deltaOtherCL < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                        {financialStatements.cashFlow.deltaOtherCL < 0 ? `(${formatMoney(Math.abs(financialStatements.cashFlow.deltaOtherCL))})` : formatMoney(financialStatements.cashFlow.deltaOtherCL)}
+                      </td>
+                      <td className="p-2.5 text-left font-mono">0.00</td>
+                    </tr>
+                  )}
                   <tr className="bg-slate-100 font-bold">
                     <td className="p-3">صافي التدفق النقدي من الأنشطة التشغيلية</td>
                     <td className="p-3 text-left font-mono font-bold text-indigo-800">{formatMoney(financialStatements.cashFlow.operatingCashFlow.current)}</td>
@@ -1246,13 +1372,17 @@ const AnnualFinancialReport: React.FC = () => {
                     <td colSpan={3} className="p-2.5">التدفقات النقدية من الأنشطة الاستثمارية</td>
                   </tr>
                   <tr>
-                    <td className="p-2.5 pr-6 font-medium">المدفوعات النقدية لشراء أصول ثابتة ومعدات</td>
-                    <td className="p-2.5 text-left font-mono text-red-600">(0.00)</td>
-                    <td className="p-2.5 text-left font-mono">(0.00)</td>
+                    <td className="p-2.5 pr-6 font-medium">المدفوعات/(المتحصلات) النقدية للأصول الثابتة والمعدات</td>
+                    <td className={`p-2.5 text-left font-mono ${financialStatements.cashFlow.investingCashFlow.current < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                      {financialStatements.cashFlow.investingCashFlow.current < 0 ? `(${formatMoney(Math.abs(financialStatements.cashFlow.investingCashFlow.current))})` : formatMoney(financialStatements.cashFlow.investingCashFlow.current)}
+                    </td>
+                    <td className="p-2.5 text-left font-mono">0.00</td>
                   </tr>
                   <tr className="bg-slate-100 font-bold">
                     <td className="p-3">صافي التدفق النقدي من الأنشطة الاستثمارية</td>
-                    <td className="p-3 text-left font-mono font-bold">0.00</td>
+                    <td className={`p-3 text-left font-mono font-bold ${financialStatements.cashFlow.investingCashFlow.current < 0 ? 'text-red-600' : 'text-indigo-800'}`}>
+                      {financialStatements.cashFlow.investingCashFlow.current < 0 ? `(${formatMoney(Math.abs(financialStatements.cashFlow.investingCashFlow.current))})` : formatMoney(financialStatements.cashFlow.investingCashFlow.current)}
+                    </td>
                     <td className="p-3 text-left font-mono">0.00</td>
                   </tr>
 
@@ -1260,13 +1390,17 @@ const AnnualFinancialReport: React.FC = () => {
                     <td colSpan={3} className="p-2.5">التدفقات النقدية من الأنشطة التمويلية</td>
                   </tr>
                   <tr>
-                    <td className="p-2.5 pr-6 font-medium">المقبوضات من رأس المال وتسهيلات الشركاء</td>
-                    <td className="p-2.5 text-left font-mono">0.00</td>
+                    <td className="p-2.5 pr-6 font-medium">حركات رأس المال وجاري الشركاء والتمويل</td>
+                    <td className={`p-2.5 text-left font-mono ${financialStatements.cashFlow.financingCashFlow.current < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
+                      {financialStatements.cashFlow.financingCashFlow.current < 0 ? `(${formatMoney(Math.abs(financialStatements.cashFlow.financingCashFlow.current))})` : formatMoney(financialStatements.cashFlow.financingCashFlow.current)}
+                    </td>
                     <td className="p-2.5 text-left font-mono">0.00</td>
                   </tr>
                   <tr className="bg-slate-100 font-bold">
                     <td className="p-3">صافي التدفق النقدي من الأنشطة التمويلية</td>
-                    <td className="p-3 text-left font-mono font-bold">0.00</td>
+                    <td className={`p-3 text-left font-mono font-bold ${financialStatements.cashFlow.financingCashFlow.current < 0 ? 'text-red-600' : 'text-indigo-800'}`}>
+                      {financialStatements.cashFlow.financingCashFlow.current < 0 ? `(${formatMoney(Math.abs(financialStatements.cashFlow.financingCashFlow.current))})` : formatMoney(financialStatements.cashFlow.financingCashFlow.current)}
+                    </td>
                     <td className="p-3 text-left font-mono">0.00</td>
                   </tr>
 
@@ -1279,12 +1413,12 @@ const AnnualFinancialReport: React.FC = () => {
               </table>
             </div>
 
-            <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl text-xs space-y-1">
-              <p className="font-bold text-amber-900 flex items-center gap-1.5">
-                <Info size={14} /> إفصاح إلزامي: المعاملات الاستثمارية والتمويلية غير النقدية (IAS 7 الفقرة 43):
+            <div className="bg-emerald-50 border border-emerald-200 p-4 rounded-2xl text-xs space-y-1">
+              <p className="font-bold text-emerald-900 flex items-center gap-1.5">
+                <Info size={14} /> مطابقة التدفقات النقدية (IAS 7):
               </p>
-              <p className="text-amber-800 leading-relaxed">
-                تم شراء أصول ثابتة بقيمة 100,000.00 جنيه خلال العام تم تمويلها مباشرة عبر حساب الرصيد الافتتاحي المقابل، وتم استبعادها من التدفق النقدي لعدم وجود حركة نقدية مباشرة عليها.
+              <p className="text-emerald-800 leading-relaxed">
+                صافي التغير في النقدية خلال العام ({formatMoney(financialStatements.cashFlow.operatingCashFlow.current + financialStatements.cashFlow.investingCashFlow.current + financialStatements.cashFlow.financingCashFlow.current)}) + رصيد أول المدة ({formatMoney(financialStatements.cashFlow.totalCashEnding.prior)}) يطابق رصيد النقدية وما في حكمها في نهاية العام ({formatMoney(financialStatements.cashFlow.totalCashEnding.current)}).
               </p>
             </div>
           </div>
