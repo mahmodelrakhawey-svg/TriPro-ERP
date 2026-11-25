@@ -14,7 +14,7 @@
 | **الأمان وعزل المنشآت (RLS & RPCs)** | 6.0 / 10 | **9.2 / 10** | صفر أخطاء في Supabase Advisors، وصفر تسريبات `anon` على الجداول والدوال الحساسة. |
 | **النزاهة المحاسبية (Financial Guard)** | 7.5 / 10 | **9.0 / 10** | منع إدراج سطور على قيود مرحّلة، ومنع التراجع المباشر من `posted` إلى `draft`. |
 | **التزامن والأوفلاين (POS & Sync)** | 7.0 / 10 | **8.7 / 10** | قفل `_isProcessingQueue`، قيد فريد لـ `offline_ref_id`، وأقفال `useRef` لمنع النقر المزدوج. |
-| **الاختبارات وأتمتة الفحص (CI/CD)** | 8.5 / 10 | **9.2 / 10** | 604 اختباراً ناجحاً، `npm run db:verify` للبيئتين، وGitHub Actions للترحيلات. |
+| **الاختبارات وأتمتة الفحص (CI/CD)** | 8.5 / 10 | **9.4 / 10** | 617 اختباراً ناجحاً (107 ملفات)، `npm run db:verify` للبيئتين، وGitHub Actions للترحيلات. |
 | **هيكلة الكود (Modularization)** | 7.0 / 10 | **7.3 / 10** | تم عزل أدوات التعقيم والتحقق مع الإبقاء الواعي على استقرار `AccountingContext.tsx` لحماية لينزا. |
 
 ---
@@ -40,8 +40,9 @@
      - منع `INSERT` لقيد يومية بحالة `posted` مباشرة بدون مسودة وأسطر (`trg_guard_journal_insert_posted`).
      - منع تخفيض حالة `invoices`, `sales_returns`, `purchase_returns` من `posted` إلى `draft`/`cancelled` بتحديث مباشر.
      - إضافة الفهرس الفريد `idx_orders_org_offline_ref_unique` على `(organization_id, offline_ref_id)`.
-5. **معالجة فجوات المخطط في القاعدة العامة:**
+5. **معالجة فجوات المخطط في القاعدة العامة وحراس الدوال السيادية:**
    - [`sql_updates/2026-11-24_fix_general_db_schema_gaps_and_settings.sql`](sql_updates/2026-11-24_fix_general_db_schema_gaps_and_settings.sql): معالجة أخطاء `406` في `get_current_company_settings` (بالإنشاء التلقائي لسجل المنشأة عند غيابه) وأخطاء `400` في `products` و`security_logs`.
+   - [`sql_updates/2026-11-25_fix_journal_guards_for_security_definer_rpcs.sql`](sql_updates/2026-11-25_fix_journal_guards_for_security_definer_rpcs.sql): السماح لدوال الخادم (`SECURITY DEFINER`) بإدراج القيود وسطورها مع استمرار المنع الصارم للمتصفح (`authenticated` / `anon`).
 
 ### ب. إصلاحات التطبيق، الواجهة الأمامية، والـ CI/CD
 1. **منع التزامن وتكرار الإرسال:**
@@ -57,6 +58,11 @@
 4. **أدوات الأتمتة والتحقق:**
    - [`.github/workflows/supabase-migrations.yml`](.github/workflows/supabase-migrations.yml): فحص آلي للترحيلات والأمان عبر GitHub Actions.
    - [`scripts/verify_schema_sync.mjs`](scripts/verify_schema_sync.mjs) (`npm run db:verify`): أداة فحص تطابق الترحيلات وانعدام التسريبات بين البيئتين.
+5. **تحديثات الضبط المالي والأداء (`2026-11-25`):**
+   - [`modules/accounting/AnnualFinancialReport.tsx`](modules/accounting/AnnualFinancialReport.tsx): مواءمة التقرير السنوي الموحد مع دوال الخادم الموحدة (`get_trial_balance_summary_rpc` و`get_income_statement_summary_rpc`) وإزالة فارق التوازن وإصلاح تبويب جاري الشركاء والتدفقات النقدية.
+   - [`modules/sales/SalesInvoiceForm.tsx`](modules/sales/SalesInvoiceForm.tsx)، [`modules/sales/InvoiceList.tsx`](modules/sales/InvoiceList.tsx)، [`modules/purchases/PurchaseInvoiceForm.tsx`](modules/purchases/PurchaseInvoiceForm.tsx)، [`modules/purchases/PurchaseInvoiceList.tsx`](modules/purchases/PurchaseInvoiceList.tsx): إزالة مسارات الـ Fallback غير الآمنة عند إلغاء الترحيل لمنع بقاء قيود يتيمة في الأستاذ العام.
+   - [`modules/finance/components/PaymentVoucherForm.tsx`](modules/finance/components/PaymentVoucherForm.tsx): تسريع حساب رصيد المورد عبر `fetchAllSupplierBalances` مع الإبقاء على البديل التفصيلي، ومنع تكرار القيد عند فشل RPC التعديل.
+   - [`modules/finance/components/TransferForm.tsx`](modules/finance/components/TransferForm.tsx) و[`modules/hr/components/EmployeeAdvances.tsx`](modules/hr/components/EmployeeAdvances.tsx): استبعاد الحسابات التجميعية (`is_group` / `123`)، وتوحيد `resolveActiveOrgId`، وإضافة درع منع التكرار اليومي في التحويلات.
 
 ---
 
@@ -64,7 +70,7 @@
 - **`npm run db:verify`:**
   - `Lenza Production`: **146 / 146** ترحيل مطبق (المعلق: 0) — **0 تسريبات (`anon`)**.
   - `General Production`: **146 / 146** ترحيل مطبق (المعلق: 0) — **0 تسريبات (`anon`)**.
-- **`npm test`:** **104 / 104** ملف اختبار، **604 / 604** اختباراً ناجحاً.
+- **`npm test`:** **107 / 107** ملف اختبار، **617 / 617** اختباراً ناجحاً.
 - **`npm run build`:** فحص الأمان (**0 مشاكل**) + `tsc` (**0 أخطاء**) + `vite build` ناجح.
 
 ---

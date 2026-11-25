@@ -12,9 +12,10 @@ import {
 import { createEmployeeAdvanceSchema } from '../../../utils/validationSchemas';
 import EmployeeSearchSelect, { EmployeeOption } from '../../../components/EmployeeSearchSelect';
 import { fetchCompleteDataset } from '../../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 
 const EmployeeAdvances = () => {
-  const { addEntry, getSystemAccount, accounts, currentUser, refreshData } = useAccounting();
+  const { addEntry, getSystemAccount, accounts, currentUser, currentSelectedOrgId, organization, refreshData } = useAccounting();
   const { showToast } = useToast();
   const [advances, setAdvances] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
@@ -48,7 +49,15 @@ const EmployeeAdvances = () => {
     setLoading(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      let userOrgId =
+        getActiveOrgIdSync(currentSelectedOrgId) ||
+        (currentUser as any)?.organization_id ||
+        (organization as any)?.id ||
+        session?.user?.user_metadata?.org_id;
+
+      if (!userOrgId) {
+        userOrgId = await resolveActiveOrgId(currentSelectedOrgId);
+      }
 
       if (!userOrgId) return;
 
@@ -434,7 +443,12 @@ const EmployeeAdvances = () => {
     setSaving(true);
 
     try {
-      const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const orgId =
+        getActiveOrgIdSync(currentSelectedOrgId) ||
+        (currentUser as any)?.organization_id ||
+        (organization as any)?.id ||
+        (currentUser as any)?.user_metadata?.org_id ||
+        (await resolveActiveOrgId(currentSelectedOrgId));
       if (!orgId && currentUser?.role !== 'super_admin') throw new Error('تعذر تحديد المنظمة.');
 
       if (editingId) {

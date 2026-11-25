@@ -12,6 +12,7 @@ import DocumentAuditTimeline from '../../../components/DocumentAuditTimeline';
 import { logDocumentAction } from '../../../services/auditService';
 import SupplierSearchSelect from '../../../components/SupplierSearchSelect';
 import { ApprovalWorkflowService } from '../../../services/approvalWorkflowService';
+import { fetchAllSupplierBalances } from '../../../services/balanceService';
 
 const PaymentVoucherForm = () => {
   const navigate = useNavigate();
@@ -154,7 +155,18 @@ const PaymentVoucherForm = () => {
           return;
       }
 
-      // 🛡️ الحل الشامل والموحد: حساب الرصيد الفعلي للمورد مباشرة ليتطابق 100% مع كشف الحساب والأستاذ العام
+      // 🚀 المسار السريع (Fast Path < 20ms): جلب رصيد المورد من المحرك الموحد المخزن مؤقتاً بدلاً من 8 استعلامات متكررة
+      try {
+          const fastBalances = await fetchAllSupplierBalances(userOrgId);
+          if (fastBalances && fastBalances.has(supplier.id)) {
+              setDynamicBalance(fastBalances.get(supplier.id) ?? 0);
+              return;
+          }
+      } catch (fastErr) {
+          logger.warn('Fast supplier balance lookup failed, falling back to detailed query:', fastErr);
+      }
+
+      // 🛡️ الحل الشامل والموحد (Fallback): حساب الرصيد الفعلي للمورد مباشرة ليتطابق 100% مع كشف الحساب والأستاذ العام
       const [
           pinvRes, payRes, pretRes, dnRes, chqRes, subRes, rebRes, manualJRes
       ] = await Promise.all([
