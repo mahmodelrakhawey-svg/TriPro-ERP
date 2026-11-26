@@ -701,8 +701,7 @@ const ProductManager = () => {
         await supabase
           .from('item_categories')
           .update({ 
-            default_inventory_account_id: finishedGoodsAcc,
-            updated_at: new Date().toISOString()
+            default_inventory_account_id: finishedGoodsAcc
           })
           .eq('organization_id', orgId)
           .in('name', finishedCatNames);

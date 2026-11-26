@@ -23,6 +23,19 @@ const LEGACY_ALLOWLIST = new Set([
   'security_logs:module',
   'project_progress_billings:customer_id',
   'invoice_items:line_no',
+  'invoice_items:description',
+  'invoice_items:discount',
+  'invoice_items:custom_fields',
+  'invoice_items:created_by',
+]);
+
+// Legacy optional tables cleaned up during org purge / old migrations
+const LEGACY_OPTIONAL_TABLES = new Set([
+  'recipe_items',
+  'combo_items',
+  'mfg_order_steps',
+  'transfers',
+  'audit_logs',
 ]);
 
 if (!fs.existsSync(SCHEMA_FILE)) {
@@ -129,6 +142,98 @@ function extractQueryChain(content, startIdx) {
   return slice;
 }
 
+/**
+ * Extracts top-level property keys from an inline JS object literal body `{ ... }`.
+ * Handles `key: value`, `'key': value`, shorthand `key`, and skips `...spread`.
+ */
+function extractObjectLiteralKeys(objBody) {
+  const keys = [];
+  let current = '';
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inBacktick = false;
+
+  const pushToken = (tok) => {
+    const trimmed = tok.trim();
+    if (!trimmed || trimmed.startsWith('...')) return;
+    // key: value
+    const colonMatch = trimmed.match(/^['"]?([a-zA-Z_][a-zA-Z0-9_]*)['"]?\s*:/);
+    if (colonMatch) {
+      keys.push(colonMatch[1].toLowerCase());
+      return;
+    }
+    // shorthand property: { id, name }
+    const shorthandMatch = trimmed.match(/^([a-zA-Z_][a-zA-Z0-9_]*)$/);
+    if (shorthandMatch) {
+      keys.push(shorthandMatch[1].toLowerCase());
+    }
+  };
+
+  for (let i = 0; i < objBody.length; i++) {
+    const ch = objBody[i];
+    const prev = i > 0 ? objBody[i - 1] : '';
+    if (prev === '\\') {
+      current += ch;
+      continue;
+    }
+    if (!inDouble && !inBacktick && ch === "'") inSingle = !inSingle;
+    else if (!inSingle && !inBacktick && ch === '"') inDouble = !inDouble;
+    else if (!inSingle && !inDouble && ch === '`') inBacktick = !inBacktick;
+    else if (!inSingle && !inDouble && !inBacktick) {
+      if (ch === '{' || ch === '[' || ch === '(') depth++;
+      else if ((ch === '}' || ch === ']' || ch === ')') && depth > 0) depth--;
+      else if (ch === ',' && depth === 0) {
+        pushToken(current);
+        current = '';
+        continue;
+      }
+    }
+    current += ch;
+  }
+  pushToken(current);
+  return keys;
+}
+
+/**
+ * Extracts balanced `{ ... }` blocks from `.insert(...)`, `.update(...)`, `.upsert(...)`
+ * when passed an inline object literal or array of object literals.
+ */
+function extractMutationPayloads(chain) {
+  const results = [];
+  const mutRegex = /\.(insert|update|upsert)\(\s*(\[?\s*\{)/g;
+  let m;
+  while ((m = mutRegex.exec(chain)) !== null) {
+    const method = m[1];
+    const braceStart = chain.indexOf('{', m.index + m[1].length);
+    if (braceStart === -1) continue;
+    let idx = braceStart + 1;
+    let depth = 1;
+    let inSingle = false;
+    let inDouble = false;
+    let inBacktick = false;
+    while (idx < chain.length && depth > 0) {
+      const ch = chain[idx];
+      const prev = chain[idx - 1];
+      if (prev !== '\\') {
+        if (!inDouble && !inBacktick && ch === "'") inSingle = !inSingle;
+        else if (!inSingle && !inBacktick && ch === '"') inDouble = !inDouble;
+        else if (!inSingle && !inDouble && ch === '`') inBacktick = !inBacktick;
+        else if (!inSingle && !inDouble && !inBacktick) {
+          if (ch === '{') depth++;
+          else if (ch === '}') depth--;
+        }
+      }
+      idx++;
+    }
+    if (depth === 0) {
+      const body = chain.slice(braceStart + 1, idx - 1);
+      results.push({ method, keys: extractObjectLiteralKeys(body) });
+    }
+  }
+  return results;
+}
+
 export function runSchemaGuard() {
   const files = [];
   for (const dir of SCAN_DIRS) {
@@ -144,16 +249,30 @@ export function runSchemaGuard() {
     fromRegex.lastIndex = 0;
 
     while ((match = fromRegex.exec(content)) !== null) {
-      const table = match[1].toLowerCase();
-      const allowedCols = schemaMap.get(table);
-      if (!allowedCols || allowedCols.size <= 2) continue; // Unknown/stub table not in snapshot
+      const prefix = content.slice(Math.max(0, match.index - 40), match.index);
+      if (/storage\s*$/s.test(prefix)) continue; // Ignore supabase.storage.from('bucket')
 
+      const table = match[1].toLowerCase();
       const chain = extractQueryChain(content, match.index);
       const lineStart = content.lastIndexOf('\n', match.index) + 1;
       const lineEnd = content.indexOf('\n', match.index);
       const lineText = content.slice(lineStart, lineEnd === -1 ? content.length : lineEnd);
       if (chain.includes('schema-guard-ignore') || lineText.includes('schema-guard-ignore')) continue;
       const baseLine = getLineNumber(content, match.index);
+
+      const allowedCols = schemaMap.get(table);
+      if (!allowedCols) {
+        if (LEGACY_OPTIONAL_TABLES.has(table)) continue;
+        violations.push({
+          file: path.relative(ROOT, file),
+          line: baseLine,
+          table,
+          column: '*',
+          context: `.from('${table}') — unknown table`,
+        });
+        continue;
+      }
+      if (allowedCols.size <= 2) continue; // Stub table
 
       // 1. Check .select('...')
       const selectRegex = /\.select\(\s*(['"`])([\s\S]*?)\1/g;
@@ -194,6 +313,21 @@ export function runSchemaGuard() {
             column: col,
             context: `.${method}('${col}', ...)`,
           });
+        }
+      }
+
+      // 3. Check inline .insert({...}), .update({...}), .upsert({...}) keys
+      for (const { method, keys } of extractMutationPayloads(chain)) {
+        for (const col of keys) {
+          if (!allowedCols.has(col) && !LEGACY_ALLOWLIST.has(`${table}:${col}`)) {
+            violations.push({
+              file: path.relative(ROOT, file),
+              line: baseLine,
+              table,
+              column: col,
+              context: `.${method}({ ${col}: ... })`,
+            });
+          }
         }
       }
     }

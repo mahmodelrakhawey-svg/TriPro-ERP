@@ -192,7 +192,6 @@ const FiscalYearClosing: React.FC = () => {
         .insert({
           organization_id: userOrgId,
           reference: `DEP-${year}`,
-          entry_type: 'depreciation',
           transaction_date: closingDate,
           description: `إثبات قسط الإهلاك السنوي للأصول الثابتة عن السنة المالية ${year}`,
           status: 'posted'

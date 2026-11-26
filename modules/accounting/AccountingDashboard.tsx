@@ -439,7 +439,7 @@ export default function AccountingDashboard() {
           // 4.5. تصفير الأرصدة الافتتاحية والحالية للعملاء والموردين ومخزون الأصناف
           await supabase.from('customers').update({ balance: 0, opening_balance: 0 }).eq('organization_id', orgId);
           await supabase.from('suppliers').update({ balance: 0, opening_balance: 0 }).eq('organization_id', orgId);
-          await supabase.from('products').update({ stock: 0, current_stock: 0 }).eq('organization_id', orgId);
+          await supabase.from('products').update({ stock: 0 }).eq('organization_id', orgId);
           
           // 5. تصفير حالة طاولات المطعم (جعلها متاحة)
           await supabase.from('restaurant_tables').update({ status: 'AVAILABLE' }).neq('id', '00000000-0000-0000-0000-000000000000');

@@ -256,7 +256,6 @@ export const MemberManager: React.FC = () => {
       end_date: endDate,
       amount_paid: amount,
       payment_method: data.payment_method || 'cash',
-      status: 'active',
       journal_entry_id: jeResult.success ? jeResult.journalEntryId : null,
     }]);
 

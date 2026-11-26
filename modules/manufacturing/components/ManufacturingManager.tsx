@@ -82,7 +82,6 @@ const ManufacturingManager = () => {
             product_id: formData.productId,
             warehouse_id: formData.warehouseId,
             quantity: formData.quantity,
-            start_date: formData.date,
             end_date: formData.date,
             status: 'completed', // مكتمل مباشرة
             notes: formData.notes || 'تصنيع مباشر'

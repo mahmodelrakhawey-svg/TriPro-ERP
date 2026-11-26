@@ -672,7 +672,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
         await supabase.from('receipt_vouchers').insert({
           organization_id: userOrgId,
           voucher_number: entryToFix.ref || `RV-FIX-${Date.now().toString().slice(-6)}`,
-          voucher_date: entryToFix.date,
+          receipt_date: entryToFix.date,
           amount: entryToFix.credit || entryToFix.debit,
           customer_id: newCust.id,
           treasury_account_id: fixFormData.treasuryAccountId || treasuryAccounts[0]?.id,
@@ -719,7 +719,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           const { error } = await supabase.from('receipt_vouchers').insert({
             organization_id:      userOrgId,
             voucher_number:       entryToFix.ref || `RV-FIX-${Date.now().toString().slice(-6)}`,
-            voucher_date:         entryToFix.date,
+            receipt_date:         entryToFix.date,
             amount,
             customer_id:          fixFormData.customerId,
             treasury_account_id:  fixFormData.treasuryAccountId,

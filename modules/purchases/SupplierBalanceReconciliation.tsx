@@ -851,7 +851,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           const { error } = await supabase.from('debit_notes').insert({
             organization_id:          userOrgId,
             debit_note_number:        entryToFix.ref || `DN-FIX-${Date.now().toString().slice(-6)}`,
-            debit_note_date:          entryToFix.date || new Date().toISOString().split('T')[0],
+            note_date:                entryToFix.date || new Date().toISOString().split('T')[0],
             supplier_id:              fixFormData.supplierId,
             total_amount:             amount,
             status:                   'posted',

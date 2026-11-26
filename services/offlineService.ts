@@ -499,7 +499,8 @@ export const offlineService = {
               status: 'posted',
               is_posted: true,
               organization_id: targetOrg,
-              reference_id: ord.id
+              related_document_id: ord.id,
+              related_document_type: 'pos_order'
             })
             .select('id')
             .single();

@@ -522,10 +522,10 @@ const DataMigrationCenter = () => {
           name,
           purchase_date: purchaseDate,
           purchase_cost: purchaseCost,
-          accumulated_depreciation: accumDep,
+          current_value: Math.max(0, purchaseCost - accumDep),
           asset_account_id: assetAcc.id,
-          depreciation_account_id: depAcc.id,
-          custom_fields: { serial_number: serialNumber, department: department },
+          accumulated_depreciation_account_id: depAcc.id,
+          serial_number: serialNumber || null,
           organization_id: orgId
       });
 
@@ -556,7 +556,6 @@ const DataMigrationCenter = () => {
       
       const { data: entry } = await supabase.from('journal_entries').insert({
           transaction_date: new Date().toISOString().split('T')[0],
-          transaction_id: ref,
           reference: ref,
           description: description.substring(0, 255),
           status: 'posted',
