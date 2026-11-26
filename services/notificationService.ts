@@ -316,19 +316,25 @@ class NotificationService {
       const createdAt = new Date().toISOString();
 
       const normalized = entries
-        .map(e => ({
-          user_id: this.sanitizeUuid(e.userId),
-          organization_id: this.sanitizeUuid(e.orgId),
-          title: e.title,
-          message: e.message,
-          type: e.type,
-          priority: e.priority || 'medium',
-          is_read: false,
-          related_id: this.sanitizeUuid(e.relatedId),
-          action_url: e.actionUrl,
-          created_at: createdAt,
-          expires_at: e.expiresAt,
-        }))
+        .map(e => {
+          const validUserId = this.sanitizeUuid(e.userId);
+          const validOrgId = this.sanitizeUuid(e.orgId);
+          const validRelatedId = this.sanitizeUuid(e.relatedId);
+          const row: Record<string, any> = {
+            user_id: validUserId,
+            organization_id: validOrgId,
+            title: e.title,
+            message: e.message,
+            type: e.type,
+            priority: e.priority || 'medium',
+            is_read: false,
+            created_at: createdAt,
+          };
+          if (validRelatedId) row.related_id = validRelatedId;
+          if (e.actionUrl) row.action_url = e.actionUrl;
+          if (e.expiresAt) row.expires_at = e.expiresAt;
+          return row;
+        })
         .filter(e => Boolean(e.user_id) && (!this.rlsBlockedCrossUser || e.user_id === authCtx.userId));
 
       if (normalized.length === 0) return;

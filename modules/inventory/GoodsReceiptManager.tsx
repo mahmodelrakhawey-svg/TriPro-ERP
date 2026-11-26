@@ -116,7 +116,7 @@ export default function GoodsReceiptManager() {
           .limit(200),
         supabase
           .from('purchase_orders')
-          .select('id, po_number, supplier_id, vendor_id, warehouse_id, status, created_at')
+          .select('id, po_number, supplier_id, warehouse_id, status, created_at')
           .eq('organization_id', orgId)
           .in('status', ['posted', 'sent', 'partial_received', 'approved', 'OPEN'])
           .order('created_at', { ascending: false })
@@ -166,7 +166,7 @@ export default function GoodsReceiptManager() {
     if (po) {
       setHeaderForm(prev => ({
         ...prev,
-        vendor_id: po.supplier_id || po.vendor_id || prev.vendor_id,
+        vendor_id: po.supplier_id || prev.vendor_id,
         warehouse_id: po.warehouse_id || prev.warehouse_id
       }));
 
@@ -174,7 +174,7 @@ export default function GoodsReceiptManager() {
       try {
         const { data: poItems, error } = await supabase
           .from('purchase_order_items')
-          .select('id, product_id, item_name, uom_id, quantity, unit_price, price, cost')
+          .select('id, product_id, uom_id, quantity, unit_price, total')
           .eq('purchase_order_id', poId);
 
         if (error) throw error;
@@ -183,7 +183,7 @@ export default function GoodsReceiptManager() {
           const prod = products.find(p => p.id === pi.product_id);
           return {
             product_id: pi.product_id,
-            product_name: prod?.name || pi.item_name || 'صنف',
+            product_name: prod?.name || 'صنف',
             barcode: prod?.barcode || prod?.sku || '',
             uom_id: pi.uom_id || prod?.base_uom_id || undefined,
             uom_name: prod?.unit || 'قطعة',

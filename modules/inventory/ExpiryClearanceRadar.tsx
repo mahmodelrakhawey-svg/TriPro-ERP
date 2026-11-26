@@ -42,7 +42,7 @@ interface ExpiringProduct {
 }
 
 export default function ExpiryClearanceRadar() {
-  const { currentUser, currentSelectedOrgId, settings } = useAccounting() as any;
+  const { currentUser, currentSelectedOrgId, settings, categories } = useAccounting() as any;
   const { showToast } = useToast();
   const currencySymbol = settings?.currency || 'ج.م';
   const isApplyingOfferRef = useRef(false);
@@ -68,7 +68,7 @@ export default function ExpiryClearanceRadar() {
 
       const { data, error } = await supabase
         .from('products')
-        .select('id, name, sku, category, stock, unit, sales_price, purchase_price, expiry_date, offer_price, offer_start_date, offer_end_date')
+        .select('id, name, sku, category_id, stock, unit, sales_price, purchase_price, weighted_average_cost, expiry_date, offer_price, offer_start_date, offer_end_date')
         .eq('organization_id', userOrgId)
         .eq('is_active', true)
         .not('expiry_date', 'is', null)
@@ -94,11 +94,13 @@ export default function ExpiryClearanceRadar() {
         const cost = Number(p.weighted_average_cost || p.purchase_price || 0);
         const lossValue = stock > 0 ? stock * cost : 0;
 
+        const categoryName = categories?.find((c: any) => c.id === p.category_id)?.name || 'عام';
+
         return {
           id: p.id,
           name: p.name,
           sku: p.sku || '-',
-          category: p.category || 'عام',
+          category: categoryName,
           stock,
           unit: p.unit || 'قطعة',
           sales_price: Number(p.sales_price || 0),
