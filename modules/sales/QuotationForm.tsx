@@ -14,6 +14,7 @@ import { createQuotationSchema } from '../../utils/validationSchemas';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { QuotationPrint } from './QuotationPrint';
 import { ProductStockViewer } from '../../components/ProductStockViewer';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotationId?: string, onSaveSuccess?: () => void }) => {
   const { products, customers, currentUser, settings, warehouses } = useAccounting();
@@ -68,8 +69,7 @@ const QuotationForm = ({ quotationId: propQuotationId, onSaveSuccess }: { quotat
   // جلب كافة معرفات عروض الأسعار للتنقل
   const fetchQuoteIds = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
       if (!userOrgId) return;
 
       const { data, error } = await supabase

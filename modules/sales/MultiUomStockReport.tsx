@@ -4,6 +4,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { Layers, Search, Warehouse, Package, Download, Loader2, Filter, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import ReportHeader from '../../components/ReportHeader';
@@ -19,8 +20,7 @@ const MultiUomStockReport = () => {
   const fetchReport = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync() || await resolveActiveOrgId();
       if (!userOrgId) {
         setLoading(false);
         return;

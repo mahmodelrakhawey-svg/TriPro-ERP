@@ -4,6 +4,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { 
   FilePlus, Search, Plus, Trash2, Edit, Printer, Download, 
   MessageCircle, Loader2, CheckCircle2, ChevronLeft, ChevronRight, 
@@ -51,8 +52,7 @@ export const DebitNoteList = () => {
   const fetchNotes = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
       if (!userOrgId) {
         setLoading(false);
         return;
@@ -126,8 +126,7 @@ export const DebitNoteList = () => {
 
     setDeletingId(note.id);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
       await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', note.debit_note_number);
       const { error: delErr } = await supabase.from('debit_notes').delete().eq('id', note.id).eq('organization_id', userOrgId);

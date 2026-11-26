@@ -312,11 +312,11 @@ const AssetManager = () => {
       const orphanedIds = orphanedEntries.map(e => e.id);
 
       // إلغاء الترحيل أولاً لتخطي مشغل حماية القيود المرحلة
-      await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).in('id', orphanedIds);
+      await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).in('id', orphanedIds).eq('organization_id', orgId);
       // حذف أسطر القيود
       await supabase.from('journal_lines').delete().in('journal_entry_id', orphanedIds);
       // حذف رؤوس القيود
-      await supabase.from('journal_entries').delete().in('id', orphanedIds);
+      await supabase.from('journal_entries').delete().in('id', orphanedIds).eq('organization_id', orgId);
 
       try {
         await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });

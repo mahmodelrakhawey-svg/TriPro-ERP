@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import * as XLSX from 'xlsx';
 import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import { PurchaseOrderPrint } from './PurchaseOrderPrint';

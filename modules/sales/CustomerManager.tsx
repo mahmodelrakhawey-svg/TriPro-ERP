@@ -11,6 +11,7 @@ import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import { createCustomerSchema } from '../../utils/validationSchemas';
 import { useNavigate } from 'react-router-dom';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 type Customer = {
   id: string;

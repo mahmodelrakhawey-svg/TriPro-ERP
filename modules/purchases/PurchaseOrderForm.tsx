@@ -13,6 +13,7 @@ import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { PurchaseOrderPrint } from './PurchaseOrderPrint';
 import SupplierSearchSelect from '../../components/SupplierSearchSelect';
 import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const PurchaseOrderForm = () => {
   const { suppliers, products, warehouses, currentUser, settings, convertPoToInvoice, currentSelectedOrgId } = useAccounting();
@@ -58,8 +59,8 @@ const PurchaseOrderForm = () => {
   // جلب كافة معرفات أوامر الشراء للتنقل
   const fetchOrderIds = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       if (!userOrgId) return;
 
       const { data, error } = await supabase

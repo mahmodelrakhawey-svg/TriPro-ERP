@@ -4,6 +4,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { 
   FileMinus, Search, Plus, Trash2, Edit, Printer, Download, 
   MessageCircle, Loader2, CheckCircle2, ChevronLeft, ChevronRight, 
@@ -51,8 +52,7 @@ export const CreditNoteList = () => {
   const fetchNotes = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
       if (!userOrgId) {
         setLoading(false);
         return;
@@ -126,11 +126,10 @@ export const CreditNoteList = () => {
 
     setDeletingId(note.id);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
       await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', note.credit_note_number);
-      const { error: delErr } = await supabase.from('credit_notes').delete().eq('id', note.id);
+      const { error: delErr } = await supabase.from('credit_notes').delete().eq('id', note.id).eq('organization_id', userOrgId);
       if (delErr) throw delErr;
 
       showToast('تم حذف الإشعار الدائن وعكس القيد بنجاح ✅', 'success');

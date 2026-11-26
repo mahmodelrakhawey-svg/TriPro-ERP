@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { createDebitNoteSchema } from '../../utils/validationSchemas';
 import { DebitNotePrint } from './DebitNotePrint';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const DebitNoteForm = () => {
   const { settings, suppliers, currentUser } = useAccounting();
@@ -48,8 +49,7 @@ const DebitNoteForm = () => {
   // جلب كافة معرفات الإشعارات المدينة للتنقل
   const fetchNoteIds = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
       if (!userOrgId) return;
 
       const { data, error } = await supabase
@@ -188,8 +188,7 @@ const DebitNoteForm = () => {
     
     setSaving(true);
 
-    const { data: { session } } = await supabase.auth.getSession();
-    const userOrgId = session?.user?.user_metadata?.org_id;
+    const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
     if (!userOrgId) throw new Error("تعذر تحديد المنظمة.");
 
@@ -264,8 +263,7 @@ const DebitNoteForm = () => {
 
     setDeleting(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
       await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', formData.noteNumber);
       const { error: delErr } = await supabase.from('debit_notes').delete().eq('id', editingId).eq('organization_id', userOrgId);

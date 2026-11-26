@@ -11,6 +11,7 @@ import { createSupplierSchema, updateSupplierSchema } from '../../utils/validati
 import { useNavigate } from 'react-router-dom';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
 import { fetchAllSupplierBalances, fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 
 type Supplier = {
@@ -56,8 +57,7 @@ const SupplierManager = () => {
     
     const fetchSuppliers = async () => {
         setIsServerLoading(true);
-        const { data: sessionData } = await supabase.auth.getSession();
-        const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
+        const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
         if (!userOrgId) {
             setIsServerLoading(false);
@@ -161,8 +161,7 @@ const SupplierManager = () => {
     
     setStatsLoading(true);
     try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
+        const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
         if (!userOrgId) throw new Error('Org ID missing');
 
@@ -599,8 +598,7 @@ const SupplierManager = () => {
     reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result;
-        const { data: { session } } = await supabase.auth.getSession();
-        const userOrgId = session?.user?.user_metadata?.org_id;
+        const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
         if (!userOrgId) throw new Error('تعذر تحديد المنظمة');
 
         const XLSX = await import('xlsx');
@@ -627,7 +625,7 @@ const SupplierManager = () => {
               const date = new Date().toISOString().split('T')[0];
               const ref = `OB-SUP-${newSupplier.id.slice(0, 6)}`;
               if (isCredit) {
-                await supabase.from('purchase_invoices').insert({ organization_id: userOrgId, invoice_number: ref, supplier_id: newSupplier.id, invoice_date: date, total_amount: amount, subtotal: amount, status: 'posted', notes: 'رصيد افتتاحي', created_by: session.user.id });
+                await supabase.from('purchase_invoices').insert({ organization_id: userOrgId, invoice_number: ref, supplier_id: newSupplier.id, invoice_date: date, total_amount: amount, subtotal: amount, status: 'posted', notes: 'رصيد افتتاحي', created_by: (currentUser as any)?.id });
               } else {
                 await supabase.from('debit_notes').insert({ organization_id: userOrgId, debit_note_number: ref, supplier_id: newSupplier.id, note_date: date, total_amount: amount, amount_before_tax: amount, status: 'posted', notes: 'رصيد افتتاحي' });
               }

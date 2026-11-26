@@ -18,6 +18,7 @@ import { logDocumentAction } from '../../services/auditService';
 import { fetchCompleteDataset } from '../../services/balanceService';
 import { SupplierFilterCombobox, matchSupplierSmart } from '../../components/SupplierFilterCombobox';
 import { HighlightedText } from '../../components/SupplierSearchSelect';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 export const PurchaseInvoiceList = () => {
   const navigate = useNavigate();
@@ -141,13 +142,14 @@ export const PurchaseInvoiceList = () => {
   const fetchInvoices = async (forceSummary: boolean = false) => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || currentUser?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       if (!userOrgId) {
         setLoading(false);
         return;
       }
 
+      if (!userOrgId) return;
       const searchCondition = await buildSearchOrCondition(debouncedSearch, userOrgId);
 
       // 1. استعلام خفيف للصفحة الحالية فقط دون جلب عناصر الفواتير الثقيلة
@@ -347,8 +349,8 @@ export const PurchaseInvoiceList = () => {
     const inv = invoices.find(i => i.id === id);
     if (!window.confirm(`هل أنت متأكد من ترحيل فاتورة المشتريات رقم (${inv?.invoice_number || ''})؟ سيتم إنشاء القيد المحاسبي وتحديث أرصدة المخزون.`)) return;
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || currentUser?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       await approvePurchaseInvoice(id);
       logDocumentAction({
         documentType: 'purchase_invoice',
@@ -384,11 +386,11 @@ export const PurchaseInvoiceList = () => {
 
     setDeletingId(invoice.id);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || currentUser?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // 🛡️ التنفيذ الذري الحصري عبر دالة السيرفر (بدون مسار احتياطي يمسح ربط القيد ويترك قيوداً يتيمة)
-      await unpostPurchaseInvoice(invoice.id, userOrgId);
+      await unpostPurchaseInvoice(invoice.id, userOrgId || undefined);
       showToast('تم إلغاء ترحيل فاتورة المشتريات بنجاح وتحويلها لمسودة ✅', 'success');
       logDocumentAction({
         documentType: 'purchase_invoice',
@@ -427,12 +429,12 @@ export const PurchaseInvoiceList = () => {
 
     setDeletingId(invoice.id);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || currentUser?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // 🛡️ 1. محاولة الحذف الذري الشامل أولاً عبر دالة السيرفر
       try {
-        await deletePurchaseInvoice(invoice.id, userOrgId);
+        await deletePurchaseInvoice(invoice.id, userOrgId || undefined);
         showToast('تم حذف مسودة فاتورة المشتريات بنجاح ✅', 'success');
         logDocumentAction({
           documentType: 'purchase_invoice',
@@ -454,7 +456,9 @@ export const PurchaseInvoiceList = () => {
       }
 
       await supabase.from('purchase_invoice_items').delete().eq('purchase_invoice_id', invoice.id);
-      const { error: delErr } = await supabase.from('purchase_invoices').delete().eq('id', invoice.id);
+      let delInvQuery = supabase.from('purchase_invoices').delete().eq('id', invoice.id);
+      if (userOrgId) delInvQuery = delInvQuery.eq('organization_id', userOrgId);
+      const { error: delErr } = await delInvQuery;
       if (delErr) throw delErr;
 
       showToast('تم حذف مسودة فاتورة المشتريات بنجاح ✅', 'success');
@@ -596,9 +600,10 @@ export const PurchaseInvoiceList = () => {
   const exportToExcel = async () => {
     try {
       showToast('جاري تجهيز ملف الإكسيل لكافة الفواتير المطابقة...', 'info');
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || currentUser?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
+      if (!userOrgId) return;
       const searchCondition = await buildSearchOrCondition(debouncedSearch, userOrgId);
 
       let expQuery = supabase

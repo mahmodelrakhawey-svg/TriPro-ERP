@@ -4,6 +4,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { 
   RotateCcw, Search, Plus, Trash2, Edit, Printer, Download, 
   MessageCircle, Loader2, Filter, AlertCircle, ChevronLeft, 
@@ -53,8 +54,7 @@ export const SalesReturnsList: React.FC = () => {
   const fetchReturns = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
       if (!userOrgId) {
         setLoading(false);

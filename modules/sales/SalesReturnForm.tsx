@@ -11,6 +11,7 @@ import { useToast } from '../../context/ToastContext';
 import { z } from 'zod';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { SalesReturnPrint } from './SalesReturnPrint';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const SalesReturnForm = () => {
   const { customers, products, currentUser, warehouses, settings } = useAccounting();
@@ -55,8 +56,7 @@ const SalesReturnForm = () => {
   // 1. جلب كافة معرفات المرتجعات للتنقل بينها
   const fetchReturnIds = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
       if (!userOrgId) return;
 
       const { data, error } = await supabase

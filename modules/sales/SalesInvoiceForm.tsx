@@ -18,6 +18,7 @@ import { useToast } from '../../context/ToastContext';
 import { handleError, AppError } from '../../utils/errorHandler';
 const CustomerStatement = lazy(() => import('./CustomerStatement'));
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { createInvoiceSchema, createCustomerSchema } from '../../utils/validationSchemas';
 import { etaService } from '../../services/etaService';
 import { secureStorage } from '../../utils/securityMiddleware';
@@ -371,8 +372,8 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
       }
       
       try {
-          const { data: { session } } = await supabase.auth.getSession();
-          const userOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id || (settings as any)?.organization_id;
+          const explicitOrgId = (currentUser as any)?.organization_id || (settings as any)?.organization_id;
+          const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
           if (!userOrgId) {
               setCustomerBalance(0);
@@ -553,8 +554,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   // جلب كافة معرفات فواتير المبيعات للتنقل
   const fetchInvoiceIds = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
       if (!userOrgId) return;
 
       let query = supabase
@@ -830,11 +830,11 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
     setSaving(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // 🛡️ التنفيذ الذري الحصري عبر دالة السيرفر (بدون مسار احتياطي يمسح ربط القيد ويترك قيوداً يتيمة)
-      await unpostSalesInvoice(editingId, userOrgId);
+      await unpostSalesInvoice(editingId, userOrgId || undefined);
       setFormData(prev => ({ ...prev, status: 'draft' }));
       await fetchCustomerBalance();
       logDocumentAction({
@@ -876,12 +876,12 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
     setDeleting(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // 🛡️ 1. محاولة الحذف الذري الشامل عبر دالة السيرفر
       try {
-        await deleteSalesInvoice(editingId, userOrgId);
+        await deleteSalesInvoice(editingId, userOrgId || undefined);
         showToast('تم حذف مسودة فاتورة المبيعات بنجاح ✅', 'success');
         logDocumentAction({
           documentType: 'sales_invoice',

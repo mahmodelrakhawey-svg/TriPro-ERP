@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const SalesReports = () => {
   const { invoices, salespeople, customers, settings, warehouses, recalculateStock, currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
@@ -67,8 +68,7 @@ const SalesReports = () => {
 
     setLoading(true);
     try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const userOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+        const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
         if (!userOrgId) {
             setLoading(false);

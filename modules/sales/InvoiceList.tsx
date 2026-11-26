@@ -15,6 +15,7 @@ import { useToast } from '../../context/ToastContext';
 import { logDocumentAction } from '../../services/auditService';
 import { exportJsonToExcel } from '../../utils/excelSanitizer';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 export const InvoiceList = () => {
   const { 
@@ -86,8 +87,8 @@ export const InvoiceList = () => {
   const fetchInvoices = async (forceSummary: boolean = false) => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       if (!userOrgId) {
         setLoading(false);
         return;
@@ -259,8 +260,8 @@ export const InvoiceList = () => {
     }
 
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       const success = await approveInvoice(invoice.id, userOrgId, invoice.warehouse_id);
       if (success) {
         showToast('تم ترحيل الفاتورة بنجاح وتوليد القيد المحاسبي ✅', 'success');
@@ -300,8 +301,8 @@ export const InvoiceList = () => {
 
     setDeletingId(invoice.id);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // 🛡️ التنفيذ الذري الحصري عبر دالة السيرفر (بدون مسار احتياطي يمسح ربط القيد ويترك قيوداً يتيمة)
       await unpostSalesInvoice(invoice.id, userOrgId);
@@ -343,8 +344,8 @@ export const InvoiceList = () => {
 
     setDeletingId(invoice.id);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // 🛡️ 1. محاولة الحذف الذري الشامل عبر السيرفر
       try {
@@ -488,8 +489,8 @@ export const InvoiceList = () => {
   const exportToExcel = async () => {
     try {
       showToast('جاري تجهيز ملف الإكسيل لكافة الفواتير المطابقة...', 'info');
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       let expQuery = supabase
         .from('invoices')

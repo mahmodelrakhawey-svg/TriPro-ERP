@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { createCreditNoteSchema } from '../../utils/validationSchemas';
 import { CreditNotePrint } from './CreditNotePrint';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const CreditNoteForm = () => {
   const { settings, customers, currentUser } = useAccounting();
@@ -48,8 +49,7 @@ const CreditNoteForm = () => {
   // جلب كافة معرفات الإشعارات الدائنة للتنقل
   const fetchNoteIds = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
       if (!userOrgId) return;
 
       const { data, error } = await supabase
@@ -188,8 +188,7 @@ const CreditNoteForm = () => {
     
     setSaving(true);
 
-    const { data: { session } } = await supabase.auth.getSession();
-    const userOrgId = session?.user?.user_metadata?.org_id;
+    const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
     if (!userOrgId) throw new Error("تعذر تحديد المنظمة.");
 
@@ -264,12 +263,11 @@ const CreditNoteForm = () => {
 
     setDeleting(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
       // حذف القيد المحاسبي المرتبط
       await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', formData.noteNumber);
-      const { error: delErr } = await supabase.from('credit_notes').delete().eq('id', editingId);
+      const { error: delErr } = await supabase.from('credit_notes').delete().eq('id', editingId).eq('organization_id', userOrgId);
       if (delErr) throw delErr;
 
       showToast('تم حذف الإشعار الدائن وعكس القيد بنجاح ✅', 'success');

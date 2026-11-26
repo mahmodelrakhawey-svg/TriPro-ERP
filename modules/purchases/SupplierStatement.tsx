@@ -9,6 +9,7 @@ import * as XLSX from 'xlsx';
 import SupplierSearchSelect from '../../components/SupplierSearchSelect';
 import { PurchaseInvoicePrint } from './PurchaseInvoicePrint';
 import { PaymentVoucherPrint } from '../finance/reports/PaymentVoucherPrint';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 // 🚀 أداة استعلام تجلب جميع السجلات بأمان متجاوزة سقف الـ 1000 في Supabase عبر التجزئة التتابعية
 async function fetchCompleteDataset<T>(
@@ -99,8 +100,7 @@ const SupplierStatement = () => {
     }
 
     try {
-        const { data: sessionData } = await supabase.auth.getSession();
-        const userOrgId = sessionData?.session?.user?.user_metadata?.org_id;
+        const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
         if (!userOrgId) return;
 

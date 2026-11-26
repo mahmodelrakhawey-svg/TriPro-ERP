@@ -18,6 +18,7 @@ import InvoiceOCRScannerModal from '../../components/InvoiceOCRScannerModal';
 import DocumentAuditTimeline from '../../components/DocumentAuditTimeline';
 import { logDocumentAction } from '../../services/auditService';
 import { getNextDocumentNumber } from '../../services/sequenceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import SupplierSearchSelect from '../../components/SupplierSearchSelect';
 import { calculatePurchaseInvoiceTotals } from './purchaseInvoiceUtils';
 import PurchaseInvoiceAttachments, { PurchaseAttachmentItem } from './components/PurchaseInvoiceAttachments';
@@ -148,8 +149,8 @@ const PurchaseInvoiceForm = () => {
   // جلب كافة معرفات فواتير المشتريات للتنقل
   const fetchInvoiceIds = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || currentUser?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       if (!userOrgId) return;
 
       const { data, error } = await supabase
@@ -1555,11 +1556,11 @@ const PurchaseInvoiceForm = () => {
 
     setSaving(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || currentUser?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // 🛡️ التنفيذ الذري الحصري عبر دالة السيرفر (بدون مسار احتياطي يمسح ربط القيد ويترك قيوداً يتيمة)
-      await unpostPurchaseInvoice(editingId, userOrgId);
+      await unpostPurchaseInvoice(editingId, userOrgId || undefined);
       setFormData(prev => ({ ...prev, status: 'draft' }));
       logDocumentAction({
         documentType: 'purchase_invoice',
@@ -1600,12 +1601,12 @@ const PurchaseInvoiceForm = () => {
 
     setDeleting(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || currentUser?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // 🛡️ 1. محاولة الحذف الذري الشامل أولاً عبر دالة السيرفر
       try {
-        await deletePurchaseInvoice(editingId, userOrgId);
+        await deletePurchaseInvoice(editingId, userOrgId || undefined);
         showToast('تم حذف مسودة فاتورة المشتريات بنجاح ✅', 'success');
         logDocumentAction({
           documentType: 'purchase_invoice',
@@ -1636,7 +1637,9 @@ const PurchaseInvoiceForm = () => {
       }
 
       await supabase.from('purchase_invoice_items').delete().eq('purchase_invoice_id', editingId);
-      const { error: delErr } = await supabase.from('purchase_invoices').delete().eq('id', editingId);
+      let delInvQuery = supabase.from('purchase_invoices').delete().eq('id', editingId);
+      if (userOrgId) delInvQuery = delInvQuery.eq('organization_id', userOrgId);
+      const { error: delErr } = await delInvQuery;
       if (delErr) throw delErr;
 
       showToast('تم حذف مسودة فاتورة المشتريات بنجاح ✅', 'success');

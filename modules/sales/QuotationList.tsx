@@ -4,6 +4,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { 
   FileText, Search, Plus, Trash2, Edit, Printer, Download, 
   MessageCircle, Loader2, ArrowRightLeft, CheckCircle2, Clock, 

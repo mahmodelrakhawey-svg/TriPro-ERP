@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 export const SupplierBalanceReconciliation: React.FC = () => {
   const { accounts, suppliers, getSystemAccount, settings, currentUser, currentSelectedOrgId, organization } = useAccounting();
@@ -54,8 +55,8 @@ export const SupplierBalanceReconciliation: React.FC = () => {
   const fetchReconciliation = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       // ============================================================
       // الجزء الأول: رصيد الأستاذ العام (GL) لحساب الموردين
       // ============================================================
@@ -245,7 +246,7 @@ export const SupplierBalanceReconciliation: React.FC = () => {
           if (userOrgId) q = q.eq('organization_id', userOrgId);
           return q.range(from, to);
         }),
-        SubledgerRegistry.fetchSupplierDocs(userOrgId, allowedModules)
+        SubledgerRegistry.fetchSupplierDocs(userOrgId || undefined, allowedModules)
       ]);
 
       const invRes = { data: piData };
@@ -713,8 +714,8 @@ export const SupplierBalanceReconciliation: React.FC = () => {
   const handleDeleteEntry = async (entryId: string) => {
     if (!window.confirm('هل أنت متأكد من حذف هذا القيد؟ لا يمكن التراجع عن هذا الإجراء.')) return;
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // 🛡️ فك ترحيل القيد أولاً وتحويله إلى مسودة لتخطي مشغل الحصانة المحاسبية
       try {
@@ -768,8 +769,8 @@ export const SupplierBalanceReconciliation: React.FC = () => {
     if (!nameToCreate?.trim() || !entryToFix) return;
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // 1. إنشاء المورد الجديد
       const { data: newSupp, error: suppErr } = await supabase

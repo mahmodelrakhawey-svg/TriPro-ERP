@@ -8,6 +8,7 @@ import ReportHeader from '../../components/ReportHeader';
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer, BarChart, Bar, XAxis } from 'recharts';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const OfferBeneficiariesReport = () => {
   const { customers, products, settings, selectedFiscalYear, fiscalYearRange, currentUser } = useAccounting();
@@ -31,8 +32,7 @@ const OfferBeneficiariesReport = () => {
   const fetchReportData = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
       if (!userOrgId) {
         setLoading(false);

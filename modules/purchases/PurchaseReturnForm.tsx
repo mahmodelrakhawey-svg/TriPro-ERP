@@ -14,6 +14,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { PurchaseReturnPrint } from './PurchaseReturnPrint';
 import ProductSearchSelect from '../../components/ProductSearchSelect';
 import SupplierSearchSelect from '../../components/SupplierSearchSelect';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const PurchaseReturnForm = () => {
   const { 
@@ -65,8 +66,8 @@ const PurchaseReturnForm = () => {
   // جلب كافة معرفات مرتجعات المشتريات للتنقل
   const fetchReturnIds = async () => {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const explicitOrgId = (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       if (!userOrgId) return;
 
       const { data, error } = await supabase
@@ -395,8 +396,8 @@ const PurchaseReturnForm = () => {
 
     setSaving(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const metadataOrgId = session?.user?.user_metadata?.org_id;
+      const explicitOrgId = (currentUser as any)?.organization_id;
+      const metadataOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       const profileOrgId = (currentUser as any)?.organization_id;
       const targetOrgId = formData.originalInvoiceOrgId || metadataOrgId || profileOrgId;
 

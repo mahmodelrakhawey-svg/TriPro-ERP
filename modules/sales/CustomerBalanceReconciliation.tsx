@@ -11,6 +11,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import * as XLSX from 'xlsx';
 
 export const CustomerBalanceReconciliation: React.FC = () => {
@@ -53,8 +54,8 @@ export const CustomerBalanceReconciliation: React.FC = () => {
   const fetchReconciliation = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (organization as any)?.id || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       // ============================================================
       // الجزء الأول: رصيد الأستاذ العام (GL)
       // نأخذ فقط حساب العملاء المحدد (وليس كل الحسابات الفرعية)
@@ -219,7 +220,7 @@ export const CustomerBalanceReconciliation: React.FC = () => {
           if (userOrgId) q = q.eq('organization_id', userOrgId);
           return q.range(from, to);
         }),
-        SubledgerRegistry.fetchCustomerDocs(userOrgId, allowedModules)
+        SubledgerRegistry.fetchCustomerDocs(userOrgId || undefined, allowedModules)
       ]);
 
       const invRes = { data: invData };
@@ -639,8 +640,8 @@ export const CustomerBalanceReconciliation: React.FC = () => {
     if (!nameToCreate?.trim() || !entryToFix) return;
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id;
+      const explicitOrgId = (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // 1. إنشاء العميل الجديد
       const { data: newCust, error: custErr } = await supabase

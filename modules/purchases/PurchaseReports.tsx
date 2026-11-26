@@ -6,6 +6,7 @@ import { supabase } from '../../supabaseClient';
 import { BarChart3, Filter, Download, Users, Package, UserCheck, Loader2, ShoppingCart, Wallet } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const PurchaseReports = () => {
   const { currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
@@ -45,8 +46,7 @@ const PurchaseReports = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
       if (!userOrgId) throw new Error('تعذر تحديد المنظمة');
 
