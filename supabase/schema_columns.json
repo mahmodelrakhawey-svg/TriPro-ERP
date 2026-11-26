@@ -210,7 +210,9 @@
     "purchase_date",
     "salvage_value",
     "serial_number",
-    "useful_life"
+    "status",
+    "useful_life",
+    "useful_life_years"
   ],
   "bank_reconciliations": [
     "account_id",
@@ -229,16 +231,13 @@
     "updated_at"
   ],
   "bill_of_materials": [
-    "created_at",
     "id",
-    "notes",
     "organization_id",
     "product_id",
     "quantity_required",
     "raw_material_id",
     "shrinkage_pct",
-    "uom_id",
-    "updated_at"
+    "uom_id"
   ],
   "bin_stock_allocations": [
     "batch_number",
@@ -387,6 +386,7 @@
   ],
   "cheques": [
     "amount",
+    "attachments",
     "bank_name",
     "cheque_number",
     "created_at",
@@ -408,12 +408,6 @@
     "type",
     "updated_by"
   ],
-  "combo_items": [
-    "included_product_id",
-    "offer_id",
-    "product_id",
-    "quantity"
-  ],
   "company_settings": [
     "account_mappings",
     "activity_type",
@@ -424,6 +418,8 @@
     "currency",
     "decimal_places",
     "default_treasury_id",
+    "default_warehouse_id",
+    "enable_service_charge",
     "enable_tax",
     "eta_activity_code",
     "eta_client_id",
@@ -443,12 +439,7 @@
     "prevent_price_modification",
     "production_warehouse_id",
     "raw_material_warehouse_id",
-    "s3_access_key",
-    "s3_bucket",
-    "s3_endpoint",
-    "s3_is_active",
-    "s3_region",
-    "s3_secret_key",
+    "service_charge_rate",
     "tax_number",
     "updated_at",
     "vat_rate"
@@ -490,6 +481,7 @@
     "is_active",
     "name",
     "national_id",
+    "notes",
     "opening_balance",
     "organization_id",
     "phone",
@@ -535,6 +527,15 @@
     "order_id",
     "organization_id"
   ],
+  "document_sequences": [
+    "current_number",
+    "document_type",
+    "id",
+    "organization_id",
+    "padding",
+    "prefix",
+    "updated_at"
+  ],
   "driver_deliveries": [
     "cod_amount",
     "created_at",
@@ -569,6 +570,14 @@
     "total_cash_received",
     "total_cod_expected",
     "total_orders_count"
+  ],
+  "effective_permissions_view": [
+    "action",
+    "module",
+    "role_name",
+    "source",
+    "user_id",
+    "user_name"
   ],
   "employee_advances": [
     "advance_date",
@@ -745,7 +754,6 @@
     "related_journal_entry_id",
     "tax_amount",
     "total_amount",
-    "user_id",
     "visit_id"
   ],
   "hims_billing_items": [
@@ -760,6 +768,7 @@
     "quantity",
     "related_service_id",
     "total_price",
+    "unit_cost",
     "unit_price",
     "uom_id",
     "warehouse_id"
@@ -795,21 +804,10 @@
     "urgency",
     "visit_id"
   ],
-  "hims_blood_transfusions": [
-    "bag_id",
-    "created_at",
-    "doctor_id",
-    "id",
-    "notes",
-    "organization_id",
-    "transfusion_date",
-    "visit_id"
-  ],
   "hims_clinical_notes": [
     "assessment",
     "created_at",
     "doctor_id",
-    "icd10_code_id",
     "id",
     "objective",
     "organization_id",
@@ -950,6 +948,7 @@
     "id",
     "medications",
     "organization_id",
+    "status",
     "visit_id"
   ],
   "hims_radiology_orders": [
@@ -965,7 +964,7 @@
   ],
   "hims_radiology_types": [
     "code",
-    "description",
+    "created_at",
     "id",
     "name",
     "organization_id",
@@ -976,6 +975,7 @@
     "default_insurance_account",
     "default_pharmacy_warehouse",
     "default_revenue_account",
+    "id",
     "organization_id"
   ],
   "hims_staff_roster": [
@@ -1179,15 +1179,6 @@
     "status",
     "warehouse_id"
   ],
-  "inventory_transactions": [
-    "created_at",
-    "id",
-    "ingredient_id",
-    "notes",
-    "order_item_id",
-    "quantity_change",
-    "transaction_type"
-  ],
   "invitations": [
     "accepted_at",
     "created_at",
@@ -1199,13 +1190,10 @@
   ],
   "invoice_items": [
     "cost",
-    "custom_fields",
-    "discount",
     "id",
     "invoice_id",
     "modifiers",
     "organization_id",
-    "price",
     "product_id",
     "quantity",
     "tax_rate",
@@ -1214,13 +1202,12 @@
     "uom_id"
   ],
   "invoices": [
-    "approver_id",
+    "_deprecated_created_by",
     "cost_center_id",
     "created_at",
     "created_by",
     "currency",
     "customer_id",
-    "deleted_at",
     "discount_amount",
     "due_date",
     "eta_error",
@@ -1235,8 +1222,8 @@
     "notes",
     "organization_id",
     "paid_amount",
+    "promo_discount",
     "quotation_id",
-    "reference",
     "related_journal_entry_id",
     "salesperson_id",
     "status",
@@ -1255,6 +1242,7 @@
     "default_cogs_account_id",
     "default_inventory_account_id",
     "default_sales_account_id",
+    "deleted_at",
     "description",
     "display_order",
     "id",
@@ -1274,6 +1262,7 @@
   ],
   "journal_entries": [
     "created_at",
+    "created_by",
     "description",
     "id",
     "is_posted",
@@ -1283,7 +1272,6 @@
     "related_document_type",
     "status",
     "transaction_date",
-    "updated_at",
     "updated_by",
     "user_id"
   ],
@@ -1296,6 +1284,25 @@
     "id",
     "journal_entry_id",
     "organization_id"
+  ],
+  "journal_lines_view": [
+    "account_code",
+    "account_id",
+    "account_name",
+    "account_type",
+    "balance",
+    "credit",
+    "debit",
+    "entry_description",
+    "id",
+    "journal_entry_id",
+    "line_description",
+    "organization_id",
+    "reference",
+    "related_document_id",
+    "related_document_type",
+    "status",
+    "transaction_date"
   ],
   "kitchen_orders": [
     "created_at",
@@ -1475,7 +1482,9 @@
     "quality_percentage",
     "rejected_units",
     "shift_name",
-    "total_produced_units"
+    "total_produced_units",
+    "updated_at",
+    "work_center_id"
   ],
   "mfg_maintenance_orders": [
     "assigned_technician",
@@ -1493,7 +1502,8 @@
     "scheduled_date",
     "spare_parts_used",
     "status",
-    "total_cost"
+    "total_cost",
+    "updated_at"
   ],
   "mfg_material_request_items": [
     "created_at",
@@ -1560,8 +1570,6 @@
     "quantity_to_produce",
     "start_date",
     "status",
-    "total_cost_snapshot",
-    "unit_cost_snapshot",
     "warehouse_id",
     "work_center_id"
   ],
@@ -1644,6 +1652,7 @@
     "is_bottleneck",
     "notes",
     "organization_id",
+    "updated_at",
     "work_center_name"
   ],
   "mfg_work_centers": [
@@ -1666,8 +1675,7 @@
     "name",
     "organization_id",
     "product_id",
-    "selection_type",
-    "updated_at"
+    "selection_type"
   ],
   "modifiers": [
     "cost",
@@ -1679,8 +1687,14 @@
     "modifier_group_id",
     "name",
     "organization_id",
-    "price",
-    "updated_at"
+    "unit_price"
+  ],
+  "monthly_sales_dashboard": [
+    "amount",
+    "id",
+    "organization_id",
+    "sales_type",
+    "transaction_date"
   ],
   "notification_audit_log": [
     "action",
@@ -1720,16 +1734,6 @@
     "title",
     "type",
     "user_id"
-  ],
-  "offers": [
-    "config",
-    "created_at",
-    "end_date",
-    "id",
-    "is_active",
-    "name",
-    "start_date",
-    "type"
   ],
   "offline_auth_tokens": [
     "created_at",
@@ -1785,8 +1789,6 @@
     "name",
     "order_item_id",
     "organization_id",
-    "price_at_order",
-    "quantity",
     "unit_price"
   ],
   "order_items": [
@@ -1809,11 +1811,6 @@
     "created_at",
     "customer_id",
     "delivery_fee",
-    "eta_error",
-    "eta_qr_code",
-    "eta_status",
-    "eta_submission_id",
-    "eta_uuid",
     "grand_total",
     "id",
     "is_offline",
@@ -1836,7 +1833,6 @@
     "total_amount",
     "total_discount",
     "total_tax",
-    "updated_at",
     "user_id",
     "warehouse_id"
   ],
@@ -1905,6 +1901,7 @@
     "amount",
     "cost_center_id",
     "created_at",
+    "created_by",
     "currency",
     "date",
     "deleted_at",
@@ -1914,6 +1911,7 @@
     "organization_id",
     "payment_date",
     "payment_method",
+    "recipient_name",
     "related_journal_entry_id",
     "status",
     "supplier_id",
@@ -1938,7 +1936,6 @@
     "status",
     "sub_method",
     "transaction_id",
-    "transaction_ref",
     "updated_at"
   ],
   "payroll_items": [
@@ -1983,9 +1980,12 @@
   ],
   "permissions": [
     "action",
+    "category",
     "description",
     "id",
-    "module"
+    "is_sensitive",
+    "module",
+    "organization_id"
   ],
   "pos_drawer_transactions": [
     "account_id",
@@ -2040,6 +2040,11 @@
     "product_id",
     "quantity",
     "warehouse_id"
+  ],
+  "product_categories": [
+    "id",
+    "name",
+    "organization_id"
   ],
   "product_channel_prices": [
     "channel_code",
@@ -2148,8 +2153,16 @@
     "file_url",
     "id",
     "organization_id",
-    "project_id",
-    "sub_billing_id"
+    "project_id"
+  ],
+  "project_billing_attachments": [
+    "billing_id",
+    "created_at",
+    "file_name",
+    "file_type",
+    "file_url",
+    "id",
+    "organization_id"
   ],
   "project_boq": [
     "created_at",
@@ -2225,7 +2238,28 @@
     "workforce"
   ],
   "project_daily_reports": [
-    "organization_id"
+    "created_at",
+    "equipment_status",
+    "id",
+    "manpower_count",
+    "organization_id",
+    "project_id",
+    "report_date",
+    "reported_by",
+    "site_images",
+    "weather_condition",
+    "work_description"
+  ],
+  "project_inspections": [
+    "boq_item_id",
+    "created_at",
+    "id",
+    "inspection_date",
+    "location_in_site",
+    "organization_id",
+    "project_id",
+    "status",
+    "technical_notes"
   ],
   "project_inspection_requests": [
     "attachments",
@@ -2249,17 +2283,6 @@
     "updated_at",
     "wir_number"
   ],
-  "project_inspections": [
-    "boq_item_id",
-    "created_at",
-    "id",
-    "inspection_date",
-    "location_in_site",
-    "organization_id",
-    "project_id",
-    "status",
-    "technical_notes"
-  ],
   "project_material_issue_items": [
     "boq_item_id",
     "id",
@@ -2275,6 +2298,7 @@
     "id",
     "issue_date",
     "issue_number",
+    "notes",
     "organization_id",
     "project_id",
     "related_journal_entry_id",
@@ -2354,9 +2378,11 @@
     "notes",
     "organization_id",
     "project_id",
+    "reference_number",
     "related_journal_entry_id",
     "release_date",
     "release_type",
+    "status",
     "subcontractor_id"
   ],
   "project_rfis": [
@@ -2463,7 +2489,6 @@
     "expiry_date",
     "id",
     "organization_id",
-    "price",
     "product_id",
     "purchase_invoice_id",
     "quantity",
@@ -2490,9 +2515,9 @@
     "invoice_number",
     "items_discount_amount",
     "notes",
-    "order_type",
     "organization_id",
     "paid_amount",
+    "purchase_order_id",
     "reference",
     "related_journal_entry_id",
     "status",
@@ -2513,7 +2538,9 @@
     "product_id",
     "purchase_order_id",
     "quantity",
+    "tax_percent",
     "total",
+    "total_price",
     "unit_price",
     "uom_id"
   ],
@@ -2541,7 +2568,6 @@
   "purchase_return_items": [
     "id",
     "organization_id",
-    "price",
     "product_id",
     "purchase_return_id",
     "quantity",
@@ -2551,6 +2577,7 @@
   ],
   "purchase_returns": [
     "created_at",
+    "created_by",
     "id",
     "notes",
     "organization_id",
@@ -2562,6 +2589,7 @@
     "supplier_id",
     "tax_amount",
     "total_amount",
+    "user_id",
     "warehouse_id"
   ],
   "purchase_rfq_items": [
@@ -2635,7 +2663,9 @@
   ],
   "receipt_vouchers": [
     "amount",
+    "cost_center_id",
     "created_at",
+    "created_by",
     "currency",
     "customer_id",
     "date",
@@ -2646,7 +2676,6 @@
     "organization_id",
     "payment_method",
     "receipt_date",
-    "recipient_name",
     "related_journal_entry_id",
     "status",
     "treasury_account_id",
@@ -2739,8 +2768,7 @@
     "reservation_info",
     "section",
     "session_start",
-    "status",
-    "updated_at"
+    "status"
   ],
   "retail_coupons": [
     "code",
@@ -2813,6 +2841,7 @@
   ],
   "sales_order_items": [
     "id",
+    "order_id",
     "organization_id",
     "product_id",
     "quantity",
@@ -2839,11 +2868,11 @@
   "sales_return_items": [
     "id",
     "organization_id",
-    "price",
     "product_id",
     "quantity",
     "sales_return_id",
     "total",
+    "unit_price",
     "uom_id"
   ],
   "sales_returns": [
@@ -2866,6 +2895,12 @@
     "user_id",
     "warehouse_id"
   ],
+  "salespeople": [
+    "id",
+    "name",
+    "organization_id",
+    "role"
+  ],
   "security_audit_logs": [
     "action",
     "changes",
@@ -2885,9 +2920,12 @@
     "description",
     "event_type",
     "id",
+    "ip_address",
     "metadata",
+    "module",
     "organization_id",
     "performed_by",
+    "severity",
     "target_user_id"
   ],
   "shifts": [
@@ -3228,6 +3266,7 @@
     "adjustment_date",
     "adjustment_number",
     "created_at",
+    "created_by",
     "id",
     "notes",
     "organization_id",
@@ -3275,6 +3314,7 @@
   "stock_transfers": [
     "carrier_name",
     "created_at",
+    "created_by",
     "dispatched_at",
     "driver_name",
     "driver_phone",
@@ -3428,6 +3468,16 @@
     "table_id",
     "user_id"
   ],
+  "terminals": [
+    "cash_account_id",
+    "created_at",
+    "id",
+    "name",
+    "organization_id",
+    "status",
+    "updated_at",
+    "warehouse_id"
+  ],
   "tips_distribution_records": [
     "created_at",
     "distribution_details",
@@ -3464,6 +3514,489 @@
     "id",
     "permission_id",
     "user_id"
+  ],
+  "v_bi_product_profitability": [
+    "category_name",
+    "gross_sales",
+    "margin_percentage",
+    "net_profit",
+    "organization_id",
+    "product_id",
+    "product_name",
+    "total_cost_of_sales",
+    "total_units_sold"
+  ],
+  "v_comprehensive_journal_ledger": [
+    "account_id",
+    "archive_id",
+    "created_at",
+    "credit",
+    "debit",
+    "entry_description",
+    "entry_id",
+    "is_archived",
+    "line_description",
+    "line_id",
+    "organization_id",
+    "reference",
+    "status",
+    "transaction_date"
+  ],
+  "v_global_system_health": [
+    "active_users",
+    "last_check_at",
+    "negative_stock_items",
+    "organization_id",
+    "orphaned_ledger_lines",
+    "reliability_score",
+    "total_financial_transactions",
+    "total_sales_documents",
+    "unbalanced_vouchers_count"
+  ],
+  "v_hims_accounting_reconciliation": [
+    "invoice_total",
+    "ledger_revenue_actual",
+    "net_revenue_expected",
+    "organization_id",
+    "patient_name",
+    "reconciliation_status",
+    "vat_amount_invoice",
+    "vat_amount_ledger",
+    "visit_id"
+  ],
+  "v_hims_bed_utilization": [
+    "avg_stay_days",
+    "occupancy_rate",
+    "occupied_now",
+    "organization_id",
+    "total_beds",
+    "ward_name"
+  ],
+  "v_hims_blood_bank_inventory": [
+    "available_units",
+    "blood_type",
+    "expired_units",
+    "expiring_soon",
+    "organization_id"
+  ],
+  "v_hims_dept_profitability": [
+    "department_name",
+    "organization_id",
+    "total_revenue",
+    "visit_count"
+  ],
+  "v_hims_doctor_profitability": [
+    "doctor_id",
+    "doctor_name",
+    "insurance_receivables",
+    "organization_id",
+    "patient_collections",
+    "specialization",
+    "total_revenue",
+    "total_visits"
+  ],
+  "v_hims_doctor_worklist": [
+    "current_temp",
+    "doctor_id",
+    "patient_name",
+    "status",
+    "triage_level",
+    "visit_id"
+  ],
+  "v_hims_emergency_triage_monitor": [
+    "alert_status",
+    "check_in_time",
+    "chief_complaint",
+    "id",
+    "organization_id",
+    "patient_name",
+    "triage_level",
+    "wait_time_minutes"
+  ],
+  "v_hims_executive_dashboard": [
+    "critical_alerts",
+    "current_waiting_patients",
+    "daily_revenue",
+    "entity_name",
+    "occupancy_pct",
+    "organization_id",
+    "system_integrity"
+  ],
+  "v_hims_icd10_search": [
+    "code",
+    "description_ar",
+    "description_en",
+    "display_name",
+    "id"
+  ],
+  "v_hims_marketing_metrics": [
+    "avg_emergency_turnaround_mins",
+    "financial_integration_accuracy",
+    "organization_id",
+    "pharmacy_dispenses",
+    "successful_medical_journeys",
+    "tests_processed",
+    "total_patient_records"
+  ],
+  "v_hims_medication_burn_rate": [
+    "current_inventory",
+    "daily_burn_rate",
+    "estimated_days_until_stockout",
+    "medication_name",
+    "organization_id"
+  ],
+  "v_hims_overdue_nurse_tasks": [
+    "bed_number",
+    "delay_minutes",
+    "description",
+    "due_at",
+    "organization_id",
+    "patient_name",
+    "task_id",
+    "task_type",
+    "visit_id",
+    "visit_type",
+    "ward_name"
+  ],
+  "v_hims_patient_full_statement": [
+    "amount",
+    "details",
+    "organization_id",
+    "patient_id",
+    "trans_date",
+    "trans_type",
+    "visit_id"
+  ],
+  "v_hims_patient_medical_timeline": [
+    "created_at",
+    "description",
+    "event_type",
+    "organization_id",
+    "patient_id"
+  ],
+  "v_hims_patient_vitals_history": [
+    "heart_rate",
+    "organization_id",
+    "patient_id",
+    "record_date",
+    "temperature"
+  ],
+  "v_hims_performance_bi": [
+    "avg_visit_duration_mins",
+    "cash_collected",
+    "insurance_receivables",
+    "organization_id",
+    "specialization",
+    "total_revenue",
+    "total_visits",
+    "visit_type"
+  ],
+  "v_hims_revenue_breakdown": [
+    "bed_revenue",
+    "consultation_revenue",
+    "laboratory_revenue",
+    "month",
+    "organization_id",
+    "pharmacy_revenue",
+    "total_gross_revenue"
+  ],
+  "v_hims_strategic_kpis": [
+    "active_patients",
+    "avg_revenue_per_patient",
+    "bed_occupancy",
+    "critical_lab_alerts_today",
+    "hospital_name",
+    "insurance_pending_cash",
+    "operational_success_rate",
+    "organization_id"
+  ],
+  "v_inventory_multi_uom": [
+    "alternative_stock",
+    "alternative_uom_name",
+    "base_stock",
+    "base_uom_name",
+    "organization_id",
+    "product_id",
+    "product_name"
+  ],
+  "v_mfg_actual_labor_costs": [
+    "actual_hours_worked",
+    "actual_labor_cost",
+    "employee_actual_rate",
+    "employee_id",
+    "employee_name",
+    "production_order_id",
+    "progress_id"
+  ],
+  "v_mfg_available_serials": [
+    "batch_number",
+    "id",
+    "order_number",
+    "organization_id",
+    "product_code",
+    "product_name",
+    "production_date",
+    "serial_number",
+    "serial_status"
+  ],
+  "v_mfg_bom_variance": [
+    "actual_quantity",
+    "material_name",
+    "order_number",
+    "organization_id",
+    "product_name",
+    "standard_quantity",
+    "variance_percentage",
+    "variance_qty"
+  ],
+  "v_mfg_cost_reconciliation_report": [
+    "actual_unit_cost",
+    "cost_assigned_to_abnormal_scrap",
+    "cost_assigned_to_finished_goods",
+    "cost_assigned_to_wip",
+    "cost_per_conversion_eq",
+    "cost_per_material_eq",
+    "order_id",
+    "order_number",
+    "organization_id",
+    "product_name",
+    "total_accounted_for",
+    "total_to_account_for"
+  ],
+  "v_mfg_cost_trends": [
+    "avg_actual_unit_cost",
+    "avg_standard_unit_cost",
+    "month_period",
+    "organization_id",
+    "total_actual_cost",
+    "variance_pct"
+  ],
+  "v_mfg_dashboard": [
+    "batch_number",
+    "can_finalize",
+    "completed_steps",
+    "completion_percentage",
+    "created_at",
+    "current_labor_cost",
+    "end_date",
+    "order_id",
+    "order_number",
+    "organization_id",
+    "product_name",
+    "qc_passed_steps",
+    "quantity_to_produce",
+    "requires_serial",
+    "start_date",
+    "status",
+    "total_serials_generated",
+    "total_steps",
+    "variance_amount",
+    "variance_percentage"
+  ],
+  "v_mfg_efficiency_variance_analytics": [
+    "actual_minutes",
+    "allowed_minutes",
+    "efficiency_percentage",
+    "order_number",
+    "organization_id",
+    "produced_qty",
+    "production_date",
+    "step_name",
+    "time_variance_mins",
+    "worker_name"
+  ],
+  "v_mfg_equivalent_units": [
+    "order_id",
+    "order_number",
+    "organization_id",
+    "total_conversion_eq_units",
+    "total_material_eq_units"
+  ],
+  "v_mfg_labor_variances": [
+    "labor_cost_actual",
+    "labor_cost_standard",
+    "labor_variance",
+    "operation_name",
+    "order_number",
+    "organization_id",
+    "produced_qty",
+    "work_center"
+  ],
+  "v_mfg_material_variance": [
+    "actual_quantity",
+    "material_name",
+    "order_number",
+    "organization_id",
+    "product_name",
+    "standard_quantity",
+    "variance_percentage",
+    "variance_qty"
+  ],
+  "v_mfg_material_variances": [
+    "finished_product",
+    "order_number",
+    "organization_id",
+    "production_date",
+    "qty_actual",
+    "qty_planned",
+    "raw_material",
+    "variance_percentage",
+    "variance_qty"
+  ],
+  "v_mfg_order_profitability": [
+    "actual_labor",
+    "actual_material",
+    "estimated_cost",
+    "margin_percentage",
+    "net_profit",
+    "order_id",
+    "order_number",
+    "organization_id",
+    "product_name",
+    "qty",
+    "sales_value",
+    "status",
+    "total_actual_cost"
+  ],
+  "v_mfg_production_quantity_report": [
+    "abnormal_scrap",
+    "normal_scrap",
+    "order_id",
+    "order_number",
+    "organization_id",
+    "units_completed",
+    "units_in_wip",
+    "units_started"
+  ],
+  "v_mfg_serials_master_tracker": [
+    "batch_number",
+    "order_number",
+    "organization_id",
+    "product_name",
+    "product_sku",
+    "production_date",
+    "serial_number",
+    "serial_status"
+  ],
+  "v_mfg_step_variance": [
+    "actual_quantity",
+    "material_name",
+    "operation_name",
+    "order_number",
+    "organization_id",
+    "standard_quantity",
+    "variance_qty"
+  ],
+  "v_mfg_total_cost_summary": [
+    "month",
+    "organization_id",
+    "total_orders",
+    "total_qty_produced"
+  ],
+  "v_mfg_unit_cost_anatomy": [
+    "labor_unit_cost",
+    "material_unit_cost",
+    "order_id",
+    "order_number",
+    "organization_id",
+    "overhead_unit_cost",
+    "product_name",
+    "standard_unit_cost",
+    "total_actual_unit_cost"
+  ],
+  "v_mfg_wip_monthly_summary": [
+    "month",
+    "monthly_labor_cost",
+    "monthly_material_cost",
+    "organization_id",
+    "product_name",
+    "total_monthly_wip_value",
+    "work_center_name"
+  ],
+  "v_mfg_wip_valuation": [
+    "order_number",
+    "organization_id",
+    "product_name",
+    "production_order_id",
+    "quantity_to_produce",
+    "status",
+    "total_labor_cost_incurred",
+    "total_material_cost_incurred",
+    "total_wip_value"
+  ],
+  "v_mfg_work_center_efficiency": [
+    "efficiency_percentage",
+    "organization_id",
+    "tasks_completed",
+    "total_actual_minutes",
+    "total_standard_minutes",
+    "work_center_id",
+    "work_center_name"
+  ],
+  "v_project_labor_variance": [
+    "actual_labor_spent",
+    "labor_variance",
+    "organization_id",
+    "planned_labor_budget",
+    "project_id",
+    "project_name"
+  ],
+  "v_project_performance_dashboard": [
+    "cost_status",
+    "cpi",
+    "metrics",
+    "organization_id",
+    "project_id",
+    "project_name",
+    "schedule_status",
+    "spi",
+    "status"
+  ],
+  "v_project_profitability": [
+    "budget_variance",
+    "contract_value",
+    "financial_completion_pct",
+    "material_costs",
+    "net_profit",
+    "organization_id",
+    "project_id",
+    "project_name",
+    "status",
+    "total_actual_costs",
+    "total_budget_planned",
+    "total_revenue"
+  ],
+  "v_project_quantity_variance": [
+    "actual_issued_qty",
+    "consumption_pct",
+    "material_name",
+    "organization_id",
+    "planned_qty",
+    "project_name",
+    "unit",
+    "variance_qty"
+  ],
+  "v_project_site_attendance": [
+    "attendance_date",
+    "employee_id",
+    "employee_name",
+    "hours_worked",
+    "id",
+    "organization_id",
+    "project_id",
+    "project_name",
+    "status",
+    "total_day_cost"
+  ],
+  "v_subcontractor_performance": [
+    "avg_quality",
+    "avg_timeliness",
+    "name",
+    "organization_id",
+    "specialty",
+    "subcontractor_id",
+    "total_billings",
+    "total_work_value"
   ],
   "vendor_contracts": [
     "contract_number",
@@ -3544,6 +4077,107 @@
     "updated_at",
     "vendor_id"
   ],
+  "view_restaurant_basket_analysis": [
+    "organization_id",
+    "pair_count",
+    "product_a",
+    "product_b",
+    "sale_date"
+  ],
+  "view_restaurant_daily_summary": [
+    "organization_id",
+    "sale_date",
+    "total_cogs",
+    "total_revenue",
+    "total_tax"
+  ],
+  "view_restaurant_hourly_sales": [
+    "organization_id",
+    "sale_date",
+    "sale_hour",
+    "total_orders",
+    "total_revenue"
+  ],
+  "view_restaurant_ingredient_variance": [
+    "ingredient_id",
+    "ingredient_name",
+    "organization_id",
+    "sale_date",
+    "theoretical_qty",
+    "unit_cost",
+    "uom_name"
+  ],
+  "view_restaurant_loyalty_analytics": [
+    "avg_check",
+    "customer_id",
+    "customer_name",
+    "last_visit",
+    "organization_id",
+    "sale_date",
+    "total_spent",
+    "total_visits"
+  ],
+  "view_restaurant_menu_engineering": [
+    "category",
+    "organization_id",
+    "product_id",
+    "product_name",
+    "sale_date",
+    "selling_price",
+    "total_cost",
+    "total_revenue",
+    "total_sold",
+    "unit_cost",
+    "unit_profit"
+  ],
+  "view_restaurant_payment_methods": [
+    "organization_id",
+    "payment_method",
+    "sale_date",
+    "total_amount",
+    "transaction_count"
+  ],
+  "view_restaurant_sales_by_item": [
+    "category",
+    "organization_id",
+    "product_id",
+    "product_name",
+    "sale_date",
+    "total_quantity",
+    "total_sales"
+  ],
+  "view_restaurant_sales_prediction": [
+    "organization_id",
+    "sale_date",
+    "total_sales"
+  ],
+  "view_restaurant_staff_performance": [
+    "organization_id",
+    "sale_date",
+    "staff_id",
+    "staff_name",
+    "total_orders",
+    "total_sales"
+  ],
+  "vouchers": [
+    "amount",
+    "date",
+    "id",
+    "notes",
+    "organization_id",
+    "type"
+  ],
+  "vw_inventory_wastage_analysis": [
+    "actual_wac",
+    "avg_purchase_price",
+    "cost_increase_per_unit",
+    "current_stock",
+    "organization_id",
+    "product_id",
+    "product_name",
+    "total_wastage_impact_value",
+    "total_wasted_qty"
+  ],
   "waiter_call_requests": [
     "completed_at",
     "created_at",
@@ -3592,13 +4226,32 @@
     "type",
     "updated_by"
   ],
+  "whatsapp_notification_queue": [
+    "created_at",
+    "error_log",
+    "id",
+    "message_body",
+    "organization_id",
+    "phone_number",
+    "processed_at",
+    "retry_count",
+    "status"
+  ],
   "work_order_costs": [
-    "organization_id"
+    "amount",
+    "cost_type",
+    "created_at",
+    "description",
+    "id",
+    "organization_id",
+    "work_order_id"
   ],
   "work_orders": [
     "created_at",
+    "created_by",
     "end_date",
     "id",
+    "notes",
     "order_number",
     "organization_id",
     "product_id",

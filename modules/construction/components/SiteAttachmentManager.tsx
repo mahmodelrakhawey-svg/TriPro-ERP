@@ -43,12 +43,11 @@ const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose 
     }
     let query = supabase
       .from('project_attachments')
-      .select('id, file_name, file_url, file_type, created_at, billing_id, sub_billing_id')
+      .select('id, file_name, file_url, file_type, created_at, billing_id')
       .eq('project_id', projectId)
       .eq('organization_id', orgId);
-    // 🏗️ التحقق بذكاء: هل هو مستخلص عميل أم مقاول باطن؟
     if (billingId) {
-      query = query.or(`billing_id.eq.${billingId},sub_billing_id.eq.${billingId}`);
+      query = query.eq('billing_id', billingId);
     }
     else query = query.is('billing_id', null);
 
