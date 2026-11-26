@@ -189,7 +189,7 @@ export class RecurringInvoiceService {
         if (validCustId) query = query.eq('customer_id', validCustId);
       }
 
-      const { data: subs, error: subErr } = await query;
+      const { data: subs, error: subErr } = await query.limit(300);
       if (subErr) {
         throw subErr;
       }
@@ -198,36 +198,32 @@ export class RecurringInvoiceService {
         return this.getLocalSubs(orgId);
       }
 
-      // جلب العملاء والبنود لربطهم محلياً
+      // جلب العملاء والبنود بالتوازي لربطهم محلياً
       const subIds = subs.map(s => s.id).filter(Boolean);
       const customerIds = Array.from(new Set(subs.map(s => s.customer_id).filter(Boolean)));
 
       let customersMap: Record<string, { id: string; name: string; phone?: string }> = {};
-      if (customerIds.length > 0) {
-        try {
-          const { data: custs } = await supabase.from('customers').select('id, name, phone').in('id', customerIds);
-          if (custs) {
-            custs.forEach(c => { customersMap[c.id] = c; });
-          }
-        } catch {
-          // ignore
-        }
-      }
-
       let itemsMap: Record<string, RecurringInvoiceItem[]> = {};
-      if (subIds.length > 0) {
-        try {
-          const { data: allItems } = await supabase.from('recurring_invoice_items').select('*').in('recurring_invoice_id', subIds);
-          if (allItems) {
-            allItems.forEach(it => {
-              if (!itemsMap[it.recurring_invoice_id]) itemsMap[it.recurring_invoice_id] = [];
-              itemsMap[it.recurring_invoice_id].push(it);
-            });
-          }
-        } catch {
-          // ignore
-        }
-      }
+
+      await Promise.all([
+        customerIds.length > 0
+          ? Promise.resolve(supabase.from('customers').select('id, name, phone').in('id', customerIds))
+              .then(({ data: custs }) => {
+                (custs || []).forEach(c => { customersMap[c.id] = c; });
+              })
+              .catch(() => {})
+          : Promise.resolve(),
+        subIds.length > 0
+          ? Promise.resolve(supabase.from('recurring_invoice_items').select('*').in('recurring_invoice_id', subIds))
+              .then(({ data: allItems }) => {
+                (allItems || []).forEach(it => {
+                  if (!itemsMap[it.recurring_invoice_id]) itemsMap[it.recurring_invoice_id] = [];
+                  itemsMap[it.recurring_invoice_id].push(it);
+                });
+              })
+              .catch(() => {})
+          : Promise.resolve()
+      ]);
 
       return subs.map(s => ({
         ...s,
@@ -264,28 +260,29 @@ export class RecurringInvoiceService {
         throw subError || new Error('Not found');
       }
 
-      if (subscription.customer_id) {
-        try {
-          const { data: cust } = await supabase.from('customers').select('id, name, phone').eq('id', subscription.customer_id).maybeSingle();
-          if (cust) subscription.customers = cust;
-        } catch {}
-      }
+      let logsList: RecurringInvoiceLog[] = [];
+      await Promise.all([
+        subscription.customer_id
+          ? Promise.resolve(supabase.from('customers').select('id, name, phone').eq('id', subscription.customer_id).maybeSingle())
+              .then(({ data: cust }) => { if (cust) subscription.customers = cust; })
+              .catch(() => {})
+          : Promise.resolve(),
+        Promise.resolve(supabase.from('recurring_invoice_items').select('*').eq('recurring_invoice_id', validId))
+          .then(({ data: items }) => { subscription.items = items || []; })
+          .catch(() => {}),
+        Promise.resolve(
+          supabase
+            .from('recurring_invoice_logs')
+            .select('*')
+            .eq('recurring_invoice_id', validId)
+            .order('run_date', { ascending: false })
+            .limit(200)
+        )
+          .then(({ data: logs }) => { logsList = logs || []; })
+          .catch(() => {})
+      ]);
 
-      try {
-        const { data: items } = await supabase.from('recurring_invoice_items').select('*').eq('recurring_invoice_id', validId);
-        subscription.items = items || [];
-      } catch {}
-
-      try {
-        const { data: logs } = await supabase
-          .from('recurring_invoice_logs')
-          .select('*')
-          .eq('recurring_invoice_id', validId)
-          .order('run_date', { ascending: false });
-        return { subscription, logs: logs || [] };
-      } catch {
-        return { subscription, logs: [] };
-      }
+      return { subscription, logs: logsList };
     } catch (err) {
       const allSubs = this.getLocalSubs('');
       const found = allSubs.find(s => s.id === id) || null;
@@ -606,12 +603,14 @@ export class RecurringInvoiceService {
 
         if (!error && data) {
           const currentSub = data as Record<string, any>;
-          if (currentSub.customer_id) {
-            const { data: cust } = await supabase.from('customers').select('id, name, phone, email').eq('id', currentSub.customer_id).maybeSingle();
-            if (cust) currentSub.customers = cust;
-          }
-          const { data: items } = await supabase.from('recurring_invoice_items').select('*').eq('recurring_invoice_id', validSubId);
-          currentSub.items = items || [];
+          await Promise.all([
+            currentSub.customer_id
+              ? Promise.resolve(supabase.from('customers').select('id, name, phone, email').eq('id', currentSub.customer_id).maybeSingle())
+                  .then(({ data: cust }) => { if (cust) currentSub.customers = cust; })
+              : Promise.resolve(),
+            Promise.resolve(supabase.from('recurring_invoice_items').select('*').eq('recurring_invoice_id', validSubId))
+              .then(({ data: items }) => { currentSub.items = items || []; })
+          ]);
           sub = currentSub;
         }
       }

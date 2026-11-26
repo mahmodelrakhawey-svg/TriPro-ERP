@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import UserPermissionsEditor, { STANDARD_REPORTS_PERMISSIONS } from './UserPermissionsEditor';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 // Types
 type Role = {
@@ -414,26 +415,26 @@ const PermissionsManager = () => {
           return;
         }
 
-        // Fetch Roles
-        const { data: rolesData, error: rolesError } = await supabase
-          .from('roles')
-          .select('*')
-          .eq('organization_id', orgId)
-          .neq('name', 'super_admin')
-          .order('name');
+        // Fetch Roles & Permissions in parallel
+        const [rolesRes, permsRes] = await Promise.all([
+          supabase
+            .from('roles')
+            .select('id, name, description, is_system, organization_id')
+            .eq('organization_id', orgId)
+            .neq('name', 'super_admin')
+            .order('name'),
+          supabase
+            .from('permissions')
+            .select('id, module, action, description, is_sensitive, category')
+            .order('module')
+        ]);
 
-        if (rolesError) throw rolesError;
-        setRoles(rolesData || []);
+        if (rolesRes.error) throw rolesRes.error;
+        if (permsRes.error) throw permsRes.error;
 
-        // Fetch Permissions
-        let { data: permsData, error: permsError } = await supabase
-          .from('permissions')
-          .select('*')
-          .order('module');
-
-        if (permsError) throw permsError;
-        
-        let permsList: Permission[] = permsData || [];
+        const rolesData = rolesRes.data || [];
+        setRoles(rolesData);
+        let permsList: Permission[] = permsRes.data || [];
         const existingReportKeys = new Set(
           permsList.filter(p => p.module === 'reports').map(p => p.action)
         );
@@ -451,10 +452,9 @@ const PermissionsManager = () => {
           }));
           permsList = [...permsList, ...fallbackItems];
         }
-        permsData = permsList;
         
         // فرز الصلاحيات حسب الموديول ثم وضع الحساسة بالأعلى ثم حسب الوصف
-        const sortedPerms = (permsData || []).sort((a, b) => {
+        const sortedPerms = permsList.sort((a, b) => {
           if (a.module !== b.module) return a.module.localeCompare(b.module);
           if (Boolean(a.is_sensitive) !== Boolean(b.is_sensitive)) {
             return a.is_sensitive ? -1 : 1;
@@ -637,7 +637,7 @@ const PermissionsManager = () => {
 
   // 🍽️ One-Click Restaurant Roles & Permissions Provisioner
   const handleInstallRestaurantRoles = async () => {
-    const orgId = currentUser?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    const orgId = getActiveOrgIdSync(currentUser?.organization_id) || await resolveActiveOrgId(currentUser?.organization_id);
     if (!orgId) {
       showToast('لم يتم العثور على معرّف المنظمة', 'error');
       return;
@@ -649,8 +649,11 @@ const PermissionsManager = () => {
 
     setInstallingRestaurantRoles(true);
     try {
-      // 1. Fetch fresh permissions from DB
-      const { data: freshPerms } = await supabase.from('permissions').select('*');
+      // 1. Fetch fresh permissions & existing roles in parallel
+      const [{ data: freshPerms }, { data: existingRoles }] = await Promise.all([
+        supabase.from('permissions').select('id, module, action, description, is_sensitive, category'),
+        supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId)
+      ]);
       const allPerms: Permission[] = freshPerms || permissions;
       if (freshPerms) setPermissions(freshPerms);
 
@@ -664,7 +667,6 @@ const PermissionsManager = () => {
         { key: 'restaurant_driver', name: 'restaurant_driver', desc: 'كابتن التوصيل - استلام الطلبات، تفاصيل العملاء، وتوريد النقدية COD' }
       ];
 
-      const { data: existingRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
       const rolesList = existingRoles || [];
 
       for (const rDef of targetRoles) {
@@ -695,7 +697,7 @@ const PermissionsManager = () => {
       }
 
       // Reload updated roles list
-      const { data: updatedRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
+      const { data: updatedRoles } = await supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId);
       if (updatedRoles && updatedRoles.length > 0) {
         setRoles(updatedRoles);
         const mgr = updatedRoles.find(r => r.name === 'restaurant_manager');
@@ -716,7 +718,7 @@ const PermissionsManager = () => {
 
   // 🛒 One-Click Retail & Supermarket Roles Provisioner
   const handleInstallRetailRoles = async () => {
-    const orgId = currentUser?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    const orgId = getActiveOrgIdSync(currentUser?.organization_id) || await resolveActiveOrgId(currentUser?.organization_id);
     if (!orgId) {
       showToast('لم يتم العثور على معرّف المنظمة', 'error');
       return;
@@ -728,8 +730,11 @@ const PermissionsManager = () => {
 
     setInstallingRetailRoles(true);
     try {
-      // 1. Fetch fresh permissions from DB
-      const { data: freshPerms } = await supabase.from('permissions').select('*');
+      // 1. Fetch fresh permissions & existing roles in parallel
+      const [{ data: freshPerms }, { data: existingRoles }] = await Promise.all([
+        supabase.from('permissions').select('id, module, action, description, is_sensitive, category'),
+        supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId)
+      ]);
       const allPerms: Permission[] = freshPerms || permissions;
       if (freshPerms) setPermissions(freshPerms);
 
@@ -740,7 +745,6 @@ const PermissionsManager = () => {
         { key: 'sales', name: 'sales', desc: 'مسؤول ومندوب المبيعات - الفواتير، عروض الأسعار، وكشوف الحسابات' }
       ];
 
-      const { data: existingRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
       const rolesList = existingRoles || [];
 
       for (const rDef of targetRoles) {
@@ -771,7 +775,7 @@ const PermissionsManager = () => {
       }
 
       // Reload updated roles list
-      const { data: updatedRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
+      const { data: updatedRoles } = await supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId);
       if (updatedRoles && updatedRoles.length > 0) {
         setRoles(updatedRoles);
         const sup = updatedRoles.find(r => r.name === 'pos_supervisor');
@@ -792,7 +796,7 @@ const PermissionsManager = () => {
 
   // 🍰 One-Click Bakery & Confectionery Roles Provisioner (حلواني ومصانع لينزا)
   const handleInstallBakeryRoles = async () => {
-    const orgId = currentUser?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    const orgId = getActiveOrgIdSync(currentUser?.organization_id) || await resolveActiveOrgId(currentUser?.organization_id);
     if (!orgId) {
       showToast('لم يتم العثور على معرّف المنظمة', 'error');
       return;
@@ -804,8 +808,11 @@ const PermissionsManager = () => {
 
     setInstallingBakeryRoles(true);
     try {
-      // 1. Fetch fresh permissions from DB
-      const { data: freshPerms } = await supabase.from('permissions').select('*');
+      // 1. Fetch fresh permissions & existing roles in parallel
+      const [{ data: freshPerms }, { data: existingRoles }] = await Promise.all([
+        supabase.from('permissions').select('id, module, action, description, is_sensitive, category'),
+        supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId)
+      ]);
       const allPerms: Permission[] = freshPerms || permissions;
       if (freshPerms) setPermissions(freshPerms);
 
@@ -820,7 +827,6 @@ const PermissionsManager = () => {
         { key: 'bakery_cfo', name: 'bakery_cfo', desc: 'المدير المالي والمشرف العام - رقابة شاملة على الحسابات، موازين المراجعة، والاعتمادات' }
       ];
 
-      const { data: existingRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
       const rolesList = existingRoles || [];
 
       for (const rDef of targetRoles) {
@@ -851,7 +857,7 @@ const PermissionsManager = () => {
       }
 
       // Reload updated roles list
-      const { data: updatedRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
+      const { data: updatedRoles } = await supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId);
       if (updatedRoles && updatedRoles.length > 0) {
         setRoles(updatedRoles);
         const targetSelection = updatedRoles.find(r => r.name === 'bakery_production') || updatedRoles.find(r => r.name === 'bakery_cfo');
@@ -872,7 +878,7 @@ const PermissionsManager = () => {
 
   // 👥 One-Click HR Role Provisioner (إنشاء وتفعيل دور الموارد البشرية)
   const handleInstallHrRole = async () => {
-    const orgId = currentUser?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    const orgId = getActiveOrgIdSync(currentUser?.organization_id) || await resolveActiveOrgId(currentUser?.organization_id);
     if (!orgId) {
       showToast('لم يتم العثور على معرّف المنظمة', 'error');
       return;
@@ -884,8 +890,11 @@ const PermissionsManager = () => {
 
     setInstallingHrRole(true);
     try {
-      // 1. Fetch fresh permissions from DB
-      const { data: freshPerms } = await supabase.from('permissions').select('*');
+      // 1. Fetch fresh permissions & existing roles in parallel
+      const [{ data: freshPerms }, { data: existingRoles }] = await Promise.all([
+        supabase.from('permissions').select('id, module, action, description, is_sensitive, category'),
+        supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId)
+      ]);
       const allPerms: Permission[] = freshPerms || permissions;
       if (freshPerms) setPermissions(freshPerms);
 
@@ -896,7 +905,6 @@ const PermissionsManager = () => {
         desc: 'مسؤول موارد بشرية ورواتب (HR Specialist) - إدارة الموظفين، مسير الرواتب، السلف والعهد، الحضور والغياب، وأجهزة البصمة'
       };
 
-      const { data: existingRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
       const rolesList = existingRoles || [];
 
       let roleObj = rolesList.find(r => r.name === hrRoleDef.key);
@@ -923,7 +931,7 @@ const PermissionsManager = () => {
       }
 
       // 4. Reload updated roles list
-      const { data: updatedRoles } = await supabase.from('roles').select('*').eq('organization_id', orgId);
+      const { data: updatedRoles } = await supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId);
       if (updatedRoles && updatedRoles.length > 0) {
         setRoles(updatedRoles);
         const targetSelection = updatedRoles.find(r => r.name === 'hr_officer') || updatedRoles.find(r => r.id === roleObj?.id);
