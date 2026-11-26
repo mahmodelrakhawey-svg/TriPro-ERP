@@ -69,3 +69,13 @@ FROM (
 - `npx tsc --noEmit`: **0 أخطاء**.
 - `npx vitest run tests/schema_column_guard.test.ts`: **ناجح 100%**.
 - `npm run build`: **ناجح بالكامل**.
+
+---
+
+## 6. تحديث الحماية الموسّعة واختبارات المتصفح (Commit: `373875b`)
+1. **حارس دوال `supabase.rpc` (`supabase/schema_rpcs.json`):**
+   - تم استخراج **399 دالة RPC** وباراميتراتها عبر `scripts/generate-schema-snapshot.mjs` (دون المساس بملف `schema_columns.json` الحي).
+   - تم توسيع `scripts/verify-code-schema.mjs` لفحص كل استدعاء `.rpc('fn_name', { ... })` والتحقق من اسم الدالة وأسماء الباراميترات قبل الـ `commit` والـ `build`.
+2. **توسيع اختبارات المتصفح الشاملة (`e2e/submodules-smoke.spec.ts`):**
+   - إضافة فحص Smoke E2E يغطي **13 شاشة فرعية** (المخازن، التصنيع، البنوك، الرواتب، المقاولات، المستشفيات، الصلاحيات) في وضع الاختبار المعزول (`--mode test`) والمحمي بصمام أمان لينزا (`Circuit Breaker`).
+
