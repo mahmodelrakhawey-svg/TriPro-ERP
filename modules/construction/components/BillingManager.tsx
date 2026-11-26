@@ -1,8 +1,9 @@
 import { logger } from '../../../utils/logger';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { ArrowRight, Plus, FileCheck, DollarSign, Percent, ShieldCheck, Paperclip, Calendar, Clock as ClockIcon, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import SiteAttachmentManager from './SiteAttachmentManager';
 
@@ -52,22 +53,31 @@ const BillingManager: React.FC<Props> = ({ projectId, onBack }) => {
     retention_release_date: '',
   });
   const { showToast } = useToast();
+  const isSubmittingRef = useRef(false);
+
+  const getOrgId = async () =>
+    getActiveOrgIdSync(organization?.id) || await resolveActiveOrgId(organization?.id);
 
   useEffect(() => {
-    if (organization?.id) {
-      fetchBillings();
-      fetchBOQItems();
-    }
+    const loadAll = async () => {
+      const orgId = await getOrgId();
+      if (!orgId) return;
+      await Promise.all([fetchBillings(orgId), fetchBOQItems(orgId)]);
+    };
+    loadAll();
   }, [projectId, organization?.id]);
 
   // جلب بنود المقايسة
-  const fetchBOQItems = async () => {
+  const fetchBOQItems = async (resolvedOrgId?: string) => {
     try {
+      const orgId = resolvedOrgId || await getOrgId();
+      if (!orgId) return;
       const { data, error } = await supabase
         .from('project_boq')
-        .select('*')
+        .select('id, item_code, description, unit, estimated_quantity, unit_price, total_price')
         .eq('project_id', projectId)
-        .eq('organization_id', organization?.id);
+        .eq('organization_id', orgId)
+        .limit(500);
       
       if (error) throw error;
       setBoqItems(data || []);
@@ -123,15 +133,17 @@ const BillingManager: React.FC<Props> = ({ projectId, onBack }) => {
     setNewBilling(prev => ({ ...prev, vat_amount: vat, wht_amount: wht }));
   }, [newBilling.gross_amount, newBilling.retention_amount, newBilling.advance_deduction, newBilling.vat_rate, newBilling.wht_rate]);
 
-  const fetchBillings = async () => {
-    if (!organization?.id) return;
+  const fetchBillings = async (resolvedOrgId?: string) => {
+    const orgId = resolvedOrgId || await getOrgId();
+    if (!orgId) return;
 
     const { data, error } = await supabase
       .from('project_progress_billings')
-      .select('*')
+      .select('id, billing_number, billing_date, completion_percentage, gross_amount, retention_amount, advance_deduction, vat_rate, vat_amount, wht_rate, wht_amount, net_amount, retention_release_date, status, items_progress')
       .eq('project_id', projectId)
-      .eq('organization_id', organization.id)
-      .order('billing_date', { ascending: false });
+      .eq('organization_id', orgId)
+      .order('billing_date', { ascending: false })
+      .limit(200);
     
     if (error) showToast(error.message, 'error');
     else setBillings(data || []);
@@ -140,8 +152,14 @@ const BillingManager: React.FC<Props> = ({ projectId, onBack }) => {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!organization?.id) return;
+    if (isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) {
+      showToast('تعذر تحديد المنشأة النشطة', 'error');
+      return;
+    }
     
+    isSubmittingRef.current = true;
     try {
       setLoading(true);
       
@@ -150,7 +168,7 @@ const BillingManager: React.FC<Props> = ({ projectId, onBack }) => {
         ...newBilling,
         retention_release_date: newBilling.retention_release_date || null,
         project_id: projectId,
-        organization_id: organization.id,
+        organization_id: orgId,
         status: 'draft',
         items_progress: boqItemProgress
       });
@@ -171,7 +189,7 @@ const BillingManager: React.FC<Props> = ({ projectId, onBack }) => {
             wht_amount: newBilling.wht_amount,
             retention_release_date: newBilling.retention_release_date || null,
             project_id: projectId,
-            organization_id: organization.id,
+            organization_id: orgId,
             status: 'draft'
           });
           if (fallbackError) throw fallbackError;
@@ -183,15 +201,18 @@ const BillingManager: React.FC<Props> = ({ projectId, onBack }) => {
         showToast('تم إنشاء المستخلص بنجاح ✅', 'success');
       }
       setIsCreating(false);
-      fetchBillings();
+      fetchBillings(orgId);
     } catch (error) {
       showToast(error.message, 'error');
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
 
   const approveBilling = async (id: string) => {
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     try {
       setLoading(true);
       const { error } = await supabase.rpc('fn_approve_project_billing', { p_billing_id: id });
@@ -201,6 +222,7 @@ const BillingManager: React.FC<Props> = ({ projectId, onBack }) => {
     } catch (error) {
       showToast(error.message, 'error');
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };

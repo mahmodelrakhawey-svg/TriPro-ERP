@@ -1,15 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Table, Button, Modal, Form, Select, Input, Tag, Card, Typography, Popconfirm, InputNumber, Space } from 'antd';
 import { UserOutlined, PlusOutlined, DeleteOutlined, MedicineBoxOutlined, EditOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '@/context/AccountingContext';
 import { useToast } from '@/context/ToastContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 
 const { Title, Text } = Typography;
 
 const DoctorManager: React.FC = () => {
     const { organization, currentUser } = useAccounting();
     const { showToast } = useToast();
+    const isSubmittingRef = useRef(false);
     const [loading, setLoading] = useState(false);
     const [doctors, setDoctors] = useState<any[]>([]);
     const [staffList, setStaffList] = useState<any[]>([]);
@@ -17,7 +19,10 @@ const DoctorManager: React.FC = () => {
     const [editingDoctor, setEditingDoctor] = useState<any | null>(null);
     const [form] = Form.useForm();
 
-    const orgId = organization?.id || currentUser?.organization_id;
+    const orgId = getActiveOrgIdSync(organization?.id || currentUser?.organization_id);
+
+    const getOrgId = async () =>
+        orgId || await resolveActiveOrgId(organization?.id || currentUser?.organization_id);
 
     const fetchData = async () => {
         if (!orgId) return;
@@ -59,6 +64,10 @@ const DoctorManager: React.FC = () => {
     }, [orgId]);
 
     const handleSaveDoctor = async (values: Record<string, any>) => {
+        if (isSubmittingRef.current) return;
+        const resolvedOrgId = await getOrgId();
+        if (!resolvedOrgId) return;
+        isSubmittingRef.current = true;
         setLoading(true);
         try {
             if (editingDoctor) {
@@ -70,14 +79,15 @@ const DoctorManager: React.FC = () => {
                         consultation_fee: values.consultation_fee || 0,
                         is_active: values.is_active
                     })
-                    .eq('id', editingDoctor.id);
+                    .eq('id', editingDoctor.id)
+                    .eq('organization_id', resolvedOrgId);
 
                 if (error) throw error;
                 showToast('تم تحديث بيانات الطبيب بنجاح ✅', 'success');
             } else {
                 // إضافة طبيب جديد
                 const { error } = await supabase.from('hims_doctors').insert([{
-                    organization_id: orgId,
+                    organization_id: resolvedOrgId,
                     profile_id: values.employee_id,
                     specialization: values.specialization,
                     consultation_fee: values.consultation_fee || 0,
@@ -95,6 +105,7 @@ const DoctorManager: React.FC = () => {
         } catch (error) {
             showToast(error.message || 'حدث خطأ أثناء حفظ البيانات', 'error');
         } finally {
+            isSubmittingRef.current = false;
             setLoading(false);
         }
     };
@@ -131,7 +142,9 @@ const DoctorManager: React.FC = () => {
                         onClick={() => handleOpenEdit(record)} 
                     />
                     <Popconfirm title="هل تريد إلغاء تسجيل هذا الطبيب؟" onConfirm={async () => {
-                        await supabase.from('hims_doctors').delete().eq('id', record.id);
+                        const resolvedOrgId = await getOrgId();
+                        if (!resolvedOrgId) return;
+                        await supabase.from('hims_doctors').delete().eq('id', record.id).eq('organization_id', resolvedOrgId);
                         fetchData();
                     }}>
                         <Button type="text" danger icon={<DeleteOutlined />} />

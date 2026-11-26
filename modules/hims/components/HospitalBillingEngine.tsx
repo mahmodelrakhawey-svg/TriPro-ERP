@@ -1,14 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Button, Card, Descriptions, Divider, Statistic, message, Tag, Space, Table, InputNumber, Tooltip, Checkbox, Select, Alert } from 'antd';
 import { DollarOutlined, AuditOutlined, PrinterOutlined, ClockCircleOutlined, SolutionOutlined, SafetyCertificateOutlined, InfoCircleOutlined, LockOutlined } from '@ant-design/icons';
 import { useAccounting } from '@/context/AccountingContext';
 import { useAuth } from '@/context/AuthContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import dayjs from 'dayjs';
 import { LuxuryReportEngine } from '../../../components/LuxuryReportEngine';
 
 export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }) => {
   const [loading, setLoading] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [bill, setBill] = useState<any>(null);
   const [billItems, setBillItems] = useState<any[]>([]);
   const { settings } = useAccounting();
@@ -108,7 +110,7 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
   };
 
   const postToGL = async () => {
-    if (!bill) return;
+    if (!bill || isSubmittingRef.current) return;
 
     const treasuryId = settings?.defaultTreasuryId ?? settings?.default_treasury_id;
 
@@ -129,37 +131,43 @@ export const HospitalBillingEngine: React.FC<{ visitId: string }> = ({ visitId }
       return message.error('يرجى تحديد مبلغ مقدم أكبر من الصفر ⚠️');
     }
 
+    isSubmittingRef.current = true;
     setLoading(true);
+    try {
+      const orgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
+      // 1. تحديث بيانات شركة التأمين ونسبة التحمل بالخلفية لترحيلها محاسبياً بشكل سليم
+      let updateQuery = supabase.from('hims_billing').update({
+        insurance_provider_id: isInsuranceMode ? selectedInsurance : null,
+        insurance_covered_amount: isInsuranceMode ? insuranceAmount : 0
+      }).eq('id', bill.id);
+      if (orgId) updateQuery = updateQuery.eq('organization_id', orgId);
+      const { error: updateErr } = await updateQuery;
 
-    // 1. تحديث بيانات شركة التأمين ونسبة التحمل بالخلفية لترحيلها محاسبياً بشكل سليم
-    const { error: updateErr } = await supabase.from('hims_billing').update({
-      insurance_provider_id: isInsuranceMode ? selectedInsurance : null,
-      insurance_covered_amount: isInsuranceMode ? insuranceAmount : 0
-    }).eq('id', bill.id);
+      if (updateErr) {
+        return message.error('فشل تحديث بيانات التأمين في الفاتورة: ' + updateErr.message);
+      }
 
-    if (updateErr) {
+      // 2. ترحيل المعاملة وإنشاء قيود المحاسبة لدفتر الأستاذ العام
+      const { error } = await supabase.rpc('hims_finalize_billing', {
+        p_billing_id: bill.id,
+        p_cash_acc: treasuryId,
+        p_custom_amount: isDepositMode ? depositAmount : null
+      });
+
+      if (error) message.error(error.message);
+      else {
+        message.success(isDepositMode ? 'تم تسجيل دفعة المقدم وترحيل القيد بنجاح ✅' : 'تم تحصيل الفاتورة وترحيل القيود للأستاذ العام بنجاح ✅');
+        setIsDepositMode(false);
+        setDepositAmount(0);
+        setIsInsuranceMode(false);
+        setSelectedInsurance(null);
+        setInsuranceAmount(0);
+        calculateBill();
+      }
+    } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
-      return message.error('فشل تحديث بيانات التأمين في الفاتورة: ' + updateErr.message);
     }
-
-    // 2. ترحيل المعاملة وإنشاء قيود المحاسبة لدفتر الأستاذ العام
-    const { error } = await supabase.rpc('hims_finalize_billing', {
-      p_billing_id: bill.id,
-      p_cash_acc: treasuryId,
-      p_custom_amount: isDepositMode ? depositAmount : null
-    });
-
-    if (error) message.error(error.message);
-    else {
-      message.success(isDepositMode ? 'تم تسجيل دفعة المقدم وترحيل القيد بنجاح ✅' : 'تم تحصيل الفاتورة وترحيل القيود للأستاذ العام بنجاح ✅');
-      setIsDepositMode(false);
-      setDepositAmount(0);
-      setIsInsuranceMode(false);
-      setSelectedInsurance(null);
-      setInsuranceAmount(0);
-      calculateBill();
-    }
-    setLoading(false);
   };
 
   // حسابات محرك التعاقدات اللحظية (مع التقريب لمنع مشاكل الفاصلة العائمة)

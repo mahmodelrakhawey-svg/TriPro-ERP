@@ -1,13 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Table, Button, Modal, Form, Input, InputNumber, Tabs, Card, Typography, Space, Popconfirm, message } from 'antd';
 import { PlusOutlined, ExperimentOutlined, CameraOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 
 const { Title } = Typography;
 
 export const HIMSServicesManager: React.FC = () => {
   const { currentUser } = useAuth();
+  const isSubmittingRef = useRef(false);
   const [labTests, setLabTests] = useState<any[]>([]);
   const [radTypes, setRadTypes] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -17,8 +19,9 @@ export const HIMSServicesManager: React.FC = () => {
   const [form] = Form.useForm();
 
   const fetchOrgId = async () => {
+    const active = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
+    if (active) return active;
     if (!currentUser) return null;
-    if ((currentUser as any).organization_id) return (currentUser as any).organization_id;
     const { data } = await supabase.from('profiles').select('organization_id').eq('id', currentUser.id).single();
     return data?.organization_id;
   };
@@ -28,8 +31,8 @@ export const HIMSServicesManager: React.FC = () => {
     if (!orgId) return;
     setLoading(true);
     const [labRes, radRes] = await Promise.all([
-      supabase.from('hims_lab_tests').select('*').eq('organization_id', orgId).order('test_name'),
-      supabase.from('hims_radiology_types').select('*').eq('organization_id', orgId).order('name')
+      supabase.from('hims_lab_tests').select('id, test_name, price, normal_range, unit').eq('organization_id', orgId).order('test_name').limit(300),
+      supabase.from('hims_radiology_types').select('id, name, price, category').eq('organization_id', orgId).order('name').limit(300)
     ]);
     setLabTests(labRes.data || []);
     setRadTypes(radRes.data || []);
@@ -39,16 +42,18 @@ export const HIMSServicesManager: React.FC = () => {
   useEffect(() => { fetchData(); }, [currentUser]);
 
   const handleSave = async (values: Record<string, any>) => {
+    if (isSubmittingRef.current) return;
     const orgId = await fetchOrgId();
     if (!orgId) return message.error("لم يتم العثور على معرف المؤسسة");
 
+    isSubmittingRef.current = true;
     setLoading(true);
     const table = activeTab === 'lab' ? 'hims_lab_tests' : 'hims_radiology_types';
     const payload = { ...values, organization_id: orgId };
 
     try {
       if (editingItem) {
-        const { error } = await supabase.from(table).update(payload).eq('id', editingItem.id);
+        const { error } = await supabase.from(table).update(payload).eq('id', editingItem.id).eq('organization_id', orgId);
         if (error) throw error;
         message.success("تم التحديث بنجاح");
       } else {
@@ -63,15 +68,24 @@ export const HIMSServicesManager: React.FC = () => {
     } catch (err) {
       message.error("فشل الحفظ: " + err.message);
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
 
   const handleDelete = async (id: string, type: 'lab' | 'rad') => {
-    const table = type === 'lab' ? 'hims_lab_tests' : 'hims_radiology_types';
-    const { error } = await supabase.from(table).delete().eq('id', id);
-    if (error) message.error("فشل الحذف");
-    else { message.success("تم الحذف"); fetchData(); }
+    if (isSubmittingRef.current) return;
+    const orgId = await fetchOrgId();
+    if (!orgId) return;
+    isSubmittingRef.current = true;
+    try {
+      const table = type === 'lab' ? 'hims_lab_tests' : 'hims_radiology_types';
+      const { error } = await supabase.from(table).delete().eq('id', id).eq('organization_id', orgId);
+      if (error) message.error("فشل الحذف");
+      else { message.success("تم الحذف"); fetchData(); }
+    } finally {
+      isSubmittingRef.current = false;
+    }
   };
 
   const labColumns = [

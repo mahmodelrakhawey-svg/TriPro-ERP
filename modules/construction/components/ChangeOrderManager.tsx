@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
+import { useAccounting } from '../../../context/AccountingContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { ArrowRight, Plus, FileEdit, CheckCircle, AlertCircle, TrendingUp } from 'lucide-react';
 import ProjectChangeOrderForm from './ProjectChangeOrderForm';
 
@@ -14,25 +16,47 @@ interface ChangeOrder {
 }
 
 const ChangeOrderManager = ({ projectId, projectName, onBack }: { projectId: string, projectName: string, onBack: () => void }) => {
+  const { organization } = useAccounting();
   const [orders, setOrders] = useState<ChangeOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const { showToast } = useToast();
+  const isSubmittingRef = useRef(false);
 
-  useEffect(() => { fetchOrders(); }, []);
+  const getOrgId = async () =>
+    getActiveOrgIdSync(organization?.id) || await resolveActiveOrgId(organization?.id);
+
+  useEffect(() => { fetchOrders(); }, [projectId, organization?.id]);
 
   const fetchOrders = async () => {
-    const { data } = await supabase.from('project_change_orders').select('*').eq('project_id', projectId).order('created_at', { ascending: false });
+    const orgId = await getOrgId();
+    if (!orgId) {
+      setLoading(false);
+      return;
+    }
+    const { data } = await supabase
+      .from('project_change_orders')
+      .select('id, order_number, description, amount_change, status, created_at')
+      .eq('project_id', projectId)
+      .eq('organization_id', orgId)
+      .order('created_at', { ascending: false })
+      .limit(200);
     setOrders(data || []);
     setLoading(false);
   };
 
   const approveOrder = async (id: string) => {
-    const { error } = await supabase.rpc('fn_approve_change_order', { p_order_id: id });
-    if (error) showToast(error.message, 'error');
-    else {
-      showToast('تم اعتماد أمر التغيير وتحديث ميزانية المشروع ✅', 'success');
-      fetchOrders();
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+    try {
+      const { error } = await supabase.rpc('fn_approve_change_order', { p_order_id: id });
+      if (error) showToast(error.message, 'error');
+      else {
+        showToast('تم اعتماد أمر التغيير وتحديث ميزانية المشروع ✅', 'success');
+        fetchOrders();
+      }
+    } finally {
+      isSubmittingRef.current = false;
     }
   };
 

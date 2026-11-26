@@ -176,11 +176,13 @@ export default function PriceEscalationCalculator() {
 
   // Update Status
   const handleUpdateStatus = async (id: string, newStatus: EscalationClaim['status']) => {
+    if (!orgId) return;
     try {
       const { error } = await supabase
         .from('project_price_escalations')
         .update({ status: newStatus })
-        .eq('id', id);
+        .eq('id', id)
+        .eq('organization_id', orgId);
       if (error) throw error;
       showToast('تم تحديث حالة المطالبة بنجاح ✅', 'success');
       fetchData();
@@ -192,8 +194,9 @@ export default function PriceEscalationCalculator() {
   // Delete Claim
   const handleDelete = async (id: string) => {
     if (!window.confirm('هل أنت متأكد من حذف هذه المطالبة؟')) return;
+    if (!orgId) return;
     try {
-      const { error } = await supabase.from('project_price_escalations').delete().eq('id', id);
+      const { error } = await supabase.from('project_price_escalations').delete().eq('id', id).eq('organization_id', orgId);
       if (error) throw error;
       showToast('تم حذف المطالبة', 'success');
       fetchData();

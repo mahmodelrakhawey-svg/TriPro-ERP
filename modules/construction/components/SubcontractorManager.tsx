@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
 import { useAccounting } from '../../../context/AccountingContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { Plus, Users, Phone, Briefcase, ArrowRight, Trash2, Edit, History, Coins, CreditCard } from 'lucide-react';
 import SubcontractorForm from './SubcontractorForm';
 
@@ -28,17 +29,25 @@ const SubcontractorManager: React.FC<Props> = ({ onBack, onViewContracts, onView
   const [showForm, setShowForm] = useState(false);
   const [editingSubcontractor, setEditingSubcontractor] = useState<Subcontractor | null>(null);
   const { showToast } = useToast();
+  const isSubmittingRef = useRef(false);
+
+  const getOrgId = async () =>
+    getActiveOrgIdSync(organization?.id) || await resolveActiveOrgId(organization?.id);
 
   useEffect(() => {
-    if (organization?.id) fetchSubcontractors();
+    fetchSubcontractors();
   }, [organization?.id]);
 
   const fetchSubcontractors = async () => {
     try {
+      const orgId = await getOrgId();
+      if (!orgId) return;
       const { data, error } = await supabase
         .from('subcontractors')
-        .select('*').eq('organization_id', organization?.id)
-        .order('name', { ascending: true });
+        .select('id, name, phone, specialty, supplier_id')
+        .eq('organization_id', orgId)
+        .order('name', { ascending: true })
+        .limit(200);
 
       if (error) throw error;
       setSubcontractors(data || []);
@@ -51,15 +60,20 @@ const SubcontractorManager: React.FC<Props> = ({ onBack, onViewContracts, onView
 
   const deleteSubcontractor = async (id: string) => {
     if (!window.confirm('هل أنت متأكد من حذف هذا المقاول؟ سيؤدي ذلك لحذف جميع عقوده المرتبطة.')) return;
+    if (isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
+    isSubmittingRef.current = true;
     try {
       setLoading(true);
-      const { error } = await supabase.from('subcontractors').delete().eq('id', id);
+      const { error } = await supabase.from('subcontractors').delete().eq('id', id).eq('organization_id', orgId);
       if (error) throw error;
       showToast('تم حذف المقاول بنجاح 🗑️', 'success');
       fetchSubcontractors();
     } catch (error) {
       showToast(error.message, 'error');
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };

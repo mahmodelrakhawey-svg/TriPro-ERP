@@ -2,6 +2,7 @@ import { logger } from '../../../../utils/logger';
 import React, { useState } from 'react';
 import { useAccounting } from '../../../../context/AccountingContext';
 import { useToast } from '../../../../context/ToastContext';
+import { escapeHtml } from '../../../../utils/htmlSanitizer';
 import {
   CashierShift,
   CashDenominationBreakdown,
@@ -232,7 +233,7 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
           <div style="font-size: 11px; margin-top: 3px;">TriPro ERP — نقاط البيع</div>
         </div>
         <div class="divider"></div>
-        <div class="flex"><span>الكاشير:</span><span>${cashierName}</span></div>
+        <div class="flex"><span>الكاشير:</span><span>${escapeHtml(cashierName)}</span></div>
         <div class="flex"><span>تاريخ الطباعة:</span><span>${new Date().toLocaleDateString('ar-EG')} ${new Date().toLocaleTimeString('ar-EG')}</span></div>
         <div class="flex"><span>حركات البيع:</span><span>${shiftSummary?.order_count || 0} حركة</span></div>
         <div class="divider"></div>
@@ -276,7 +277,7 @@ export const BlindShiftCloseModal: React.FC<BlindShiftCloseModalProps> = ({
           <span>الفارق (عجز / زيادة):</span>
           <span>${difference > 0 ? `+${difference.toFixed(2)} (فائض)` : difference < 0 ? `${difference.toFixed(2)} (عجز)` : '0.00 (متطابق ✔️)'} ج.م</span>
         </div>
-        ${closingNotes ? `<div class="divider"></div><div style="font-size: 11px;"><strong>ملاحظات:</strong> ${closingNotes}</div>` : ''}
+        ${closingNotes ? `<div class="divider"></div><div style="font-size: 11px;"><strong>ملاحظات:</strong> ${escapeHtml(closingNotes)}</div>` : ''}
         
         <div class="signature-box">
           <div class="text-center">

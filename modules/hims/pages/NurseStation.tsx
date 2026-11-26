@@ -1,21 +1,28 @@
 import { logger } from '../../../utils/logger';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/supabaseClient';
 import { Card, Tag, Row, Col, Progress, Badge, Tooltip, Empty, Modal, Form, Input, message, Button, Tabs, Typography } from 'antd';
 import { HeartOutlined, MedicineBoxOutlined, UserOutlined, CheckCircleOutlined, ClockCircleOutlined, FormOutlined, AlertOutlined, DesktopOutlined } from '@ant-design/icons';
 import { useAuth } from '@/context/AuthContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 
 const VitalsModal: React.FC<{ visible: boolean; visitId: string; onCancel: () => void; onSuccess: () => void }> = ({ visible, visitId, onCancel, onSuccess }) => {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   const handleSave = async (values: Record<string, any>) => {
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setLoading(true);
     try {
-      const { error } = await supabase
+      const orgId = getActiveOrgIdSync() || await resolveActiveOrgId();
+      let updateQuery = supabase
         .from('hims_visits')
         .update({ vital_signs: values })
         .eq('id', visitId);
+      if (orgId) updateQuery = updateQuery.eq('organization_id', orgId);
+      const { error } = await updateQuery;
 
       // 🛡️ كان الخطأ يُبتلع صامتاً — خطير طبياً!
       if (error) {
@@ -31,6 +38,7 @@ const VitalsModal: React.FC<{ visible: boolean; visitId: string; onCancel: () =>
       logger.error('[NurseStation] Unexpected vitals error:', err);
       message.error('حدث خطأ غير متوقع: ' + (err?.message || ''));
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
@@ -107,6 +115,7 @@ const MedicationMARModal: React.FC<{ visible: boolean; visitId: string; onCancel
 
 export const NurseStation: React.FC = () => {
   const { currentUser } = useAuth();
+  const isTaskSubmittingRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [beds, setBeds] = useState<any[]>([]);
   const [pendingTasks, setPendingTasks] = useState<any[]>([]);
@@ -135,23 +144,32 @@ export const NurseStation: React.FC = () => {
   };
 
   const completeTask = async (taskId: string) => {
+    if (isTaskSubmittingRef.current) return;
+    isTaskSubmittingRef.current = true;
     setLoading(true);
-    const { error } = await supabase
-      .from('hims_nurse_tasks')
-      .update({ 
-        status: 'completed', 
-        completed_at: new Date().toISOString(),
-        completed_by: currentUser?.id 
-      })
-      .eq('id', taskId);
-      
-    if (error) {
-      message.error('فشل إكمال المهمة: ' + error.message);
-    } else {
-      message.success('تم تنفيذ وإغلاق المهمة الطبية بنجاح ✅');
-      fetchTasks();
+    try {
+      const orgId = getActiveOrgIdSync(currentUser?.organization_id) || await resolveActiveOrgId(currentUser?.organization_id);
+      let updateQuery = supabase
+        .from('hims_nurse_tasks')
+        .update({ 
+          status: 'completed', 
+          completed_at: new Date().toISOString(),
+          completed_by: currentUser?.id 
+        })
+        .eq('id', taskId);
+      if (orgId) updateQuery = updateQuery.eq('organization_id', orgId);
+      const { error } = await updateQuery;
+        
+      if (error) {
+        message.error('فشل إكمال المهمة: ' + error.message);
+      } else {
+        message.success('تم تنفيذ وإغلاق المهمة الطبية بنجاح ✅');
+        fetchTasks();
+      }
+    } finally {
+      isTaskSubmittingRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {

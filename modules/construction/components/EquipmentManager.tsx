@@ -1,12 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { Truck, Plus, CheckCircle2, AlertTriangle, Clock, Wrench, Settings, Save, X, Loader2 } from 'lucide-react';
 
 const EquipmentManager: React.FC<{ projectId: string, projectName: string, onBack: () => void }> = ({ projectId, projectName, onBack }) => {
   const { organization } = useAccounting();
   const { showToast } = useToast();
+  const isSubmittingRef = useRef(false);
   const [equipment, setEquipment] = useState<any[]>([]);
   const [assets, setAssets] = useState<any[]>([]); // جلب الأصول المتاحة لربطها
   const [logs, setLogs] = useState<any[]>([]);
@@ -16,26 +18,38 @@ const EquipmentManager: React.FC<{ projectId: string, projectName: string, onBac
   const [newLog, setNewLog] = useState({ equipment_id: '', hours: 0, date: new Date().toISOString().split('T')[0] });
   const [newEquip, setNewEquip] = useState({ name: '', asset_id: '', hourly_cost: 0 });
 
+  const getOrgId = async () =>
+    getActiveOrgIdSync(organization?.id) || await resolveActiveOrgId(organization?.id);
+
   useEffect(() => {
     fetchData();
-  }, [projectId]);
+  }, [projectId, organization?.id]);
 
   const fetchData = async () => {
-    const { data: eq } = await supabase.from('equipment').select('*').eq('organization_id', organization?.id);
-    setEquipment(eq || []);
+    const orgId = await getOrgId();
+    if (!orgId) return;
 
-    // جلب الأصول الثابتة التي لم تسجل بعد كمعدات
-    const { data: ast } = await supabase.from('assets').select('id, name').eq('organization_id', organization?.id);
-    setAssets(ast || []);
+    const [eqRes, astRes, lgRes] = await Promise.all([
+      supabase.from('equipment').select('id, name, asset_id, hourly_operating_cost, status').eq('organization_id', orgId).limit(200),
+      supabase.from('assets').select('id, name').eq('organization_id', orgId).limit(200),
+      supabase.from('equipment_usage_logs')
+        .select('id, equipment_id, usage_date, hours_used, cost_per_hour, status, equipment(name)')
+        .eq('project_id', projectId)
+        .eq('organization_id', orgId)
+        .order('usage_date', { ascending: false })
+        .limit(200),
+    ]);
 
-    const { data: lg } = await supabase.from('equipment_usage_logs')
-      .select('*, equipment(name)')
-      .eq('project_id', projectId)
-      .order('usage_date', { ascending: false });
-    setLogs(lg || []);
+    setEquipment(eqRes.data || []);
+    setAssets(astRes.data || []);
+    setLogs(lgRes.data || []);
   };
 
   const handleAddLog = async () => {
+    if (isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
+    isSubmittingRef.current = true;
     try {
       const eq = equipment.find(e => e.id === newLog.equipment_id);
       const { error } = await supabase.from('equipment_usage_logs').insert({
@@ -44,22 +58,27 @@ const EquipmentManager: React.FC<{ projectId: string, projectName: string, onBac
         usage_date: newLog.date,
         hours_used: newLog.hours,
         cost_per_hour: eq?.hourly_operating_cost || 0,
-        organization_id: organization?.id
+        organization_id: orgId
       });
       if (error) throw error;
       showToast('تم تسجيل ساعات العمل بنجاح', 'success');
       setShowLogForm(false);
       fetchData();
     } catch (e) { showToast(e.message, 'error'); }
+    finally { isSubmittingRef.current = false; }
   };
 
   // 🏗️ دالة تعريف معدة جديدة (ربط الأصل بمعدات التشغيل)
   const handleDefineEquipment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
+    isSubmittingRef.current = true;
     setDefining(true);
     try {
       const { error } = await supabase.from('equipment').insert({
-        organization_id: organization?.id,
+        organization_id: orgId,
         name: newEquip.name,
         asset_id: newEquip.asset_id || null,
         hourly_operating_cost: newEquip.hourly_cost,
@@ -71,13 +90,19 @@ const EquipmentManager: React.FC<{ projectId: string, projectName: string, onBac
       setNewEquip({ name: '', asset_id: '', hourly_cost: 0 });
       fetchData();
     } catch (e) { showToast(e.message, 'error'); }
-    finally { setDefining(false); }
+    finally { isSubmittingRef.current = false; setDefining(false); }
   };
 
   const approveLog = async (logId: string) => {
-    const { error } = await supabase.rpc('fn_approve_equipment_usage', { p_usage_log_id: logId });
-    if (error) showToast(error.message, 'error');
-    else { showToast('تم ترحيل تكلفة المعدة للمحاسبة', 'success'); fetchData(); }
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
+    try {
+      const { error } = await supabase.rpc('fn_approve_equipment_usage', { p_usage_log_id: logId });
+      if (error) throw error;
+      showToast('تم ترحيل تكلفة المعدة للمحاسبة', 'success');
+      fetchData();
+    } catch (e) { showToast(e.message, 'error'); }
+    finally { isSubmittingRef.current = false; }
   };
 
   return (

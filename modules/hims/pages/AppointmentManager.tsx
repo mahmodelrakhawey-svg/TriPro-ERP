@@ -1,16 +1,18 @@
 import { logger } from '../../../utils/logger';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Table, Tag, Button, Card, Typography, message, Space, Modal, Form, Select, DatePicker, TimePicker, Input, Row, Col, Statistic } from 'antd';
 import { CalendarOutlined, ClockCircleOutlined, UserAddOutlined, CheckCircleOutlined, CloseCircleOutlined, UserOutlined, MedicineBoxOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
 import { offlineService, db } from '../../../services/offlineService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import dayjs from 'dayjs';
 
 const { Title, Text } = Typography;
 
 export const AppointmentManager: React.FC = () => {
   const { currentUser } = useAuth();
+  const isSubmittingRef = useRef(false);
   const [appointments, setAppointments] = useState<any[]>([]);
   const [patients, setPatients] = useState<any[]>([]);
   const [doctors, setDoctors] = useState<any[]>([]);
@@ -82,6 +84,7 @@ export const AppointmentManager: React.FC = () => {
     } catch (err) {
       message.error('خطأ في تحميل المواعيد: ' + err.message);
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
@@ -200,22 +203,28 @@ export const AppointmentManager: React.FC = () => {
   };
 
   const updateStatus = async (id: string, status: string) => {
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setLoading(true);
     try {
+      const resolvedOrgId = getActiveOrgIdSync(orgId) || await resolveActiveOrgId(orgId);
       // 1. جلب بيانات الموعد أولاً
-      const { data: appointment, error: fetchErr } = await supabase
+      let fetchQuery = supabase
         .from('hims_appointments')
-        .select('*')
-        .eq('id', id)
-        .single();
+        .select('id, patient_id, doctor_id, priority, notes, organization_id')
+        .eq('id', id);
+      if (resolvedOrgId) fetchQuery = fetchQuery.eq('organization_id', resolvedOrgId);
+      const { data: appointment, error: fetchErr } = await fetchQuery.single();
 
       if (fetchErr || !appointment) throw new Error('لم يتم العثور على بيانات الموعد');
 
       // 2. تحديث حالة الموعد
-      const { error: updateErr } = await supabase
+      let updateQuery = supabase
         .from('hims_appointments')
         .update({ status })
         .eq('id', id);
+      if (resolvedOrgId) updateQuery = updateQuery.eq('organization_id', resolvedOrgId);
+      const { error: updateErr } = await updateQuery;
 
       if (updateErr) throw updateErr;
 
@@ -259,6 +268,7 @@ export const AppointmentManager: React.FC = () => {
     } catch (err) {
       message.error('خطأ في معالجة الطلب: ' + err.message);
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };

@@ -324,8 +324,9 @@ export const DisbursementManager: React.FC = () => {
 
   const handleDeleteDraft = async (id: string) => {
     if (!window.confirm('هل أنت متأكد من حذف مسودة طلب الصرف؟')) return;
+    if (!orgId) return;
     try {
-      const { error } = await supabase.from('stadium_disbursements').delete().eq('id', id);
+      const { error } = await supabase.from('stadium_disbursements').delete().eq('id', id).eq('organization_id', orgId);
       if (error) throw error;
       toast.success('تم حذف المسودة بنجاح');
       fetchDisbursements();

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
 import { useAccounting } from '../../../context/AccountingContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { ArrowRight, Plus, Wallet, Receipt, CheckCircle, Clock, X, Save, User, Loader2, DollarSign, Download, ArrowUpCircle } from 'lucide-react';
 
 interface Custody {
@@ -37,6 +38,10 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
   const [isAddingExpense, setIsAddingExpense] = useState(false);
   const [isToppingUp, setIsToppingUp] = useState(false);
   const { showToast } = useToast();
+  const isSubmittingRef = useRef(false);
+
+  const getOrgId = async () =>
+    getActiveOrgIdSync(organization?.id) || await resolveActiveOrgId(organization?.id);
 
   const [newExpense, setNewExpense] = useState({
     amount: 0,
@@ -87,22 +92,38 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
   }, {} as Record<string, number>);
 
   const fetchCustodies = async () => {
+    const orgId = await getOrgId();
+    if (!orgId) return;
     const { data } = await supabase
         .from('project_custodies')
-        .select('*, employees(full_name)')
+        .select('id, custody_name, total_advanced, current_balance, status, employee_id, employees(full_name)')
         .eq('project_id', projectId)
-        .eq('organization_id', organization?.id);
-    if (data) setCustodies(data.map(d => ({ ...d, employee_name: d.employees?.full_name })));
+        .eq('organization_id', orgId)
+        .limit(200);
+    if (data) setCustodies(data.map((d) => {
+      const emp = Array.isArray(d.employees) ? d.employees[0] : d.employees;
+      return { ...d, employee_name: (emp as { full_name?: string } | null | undefined)?.full_name };
+    }));
     setLoading(false);
   };
 
   const fetchExpenses = async (custodyId: string) => {
-    const { data } = await supabase.from('project_custody_expenses').select('*').eq('custody_id', custodyId).order('expense_date', { ascending: false });
+    const orgId = await getOrgId();
+    if (!orgId) return;
+    const { data } = await supabase
+      .from('project_custody_expenses')
+      .select('id, amount, description, category, expense_date, status')
+      .eq('custody_id', custodyId)
+      .eq('organization_id', orgId)
+      .order('expense_date', { ascending: false })
+      .limit(300);
     if (data) setExpenses(data);
     setSelectedCustody(custodyId);
   };
 
   const approveExpense = async (id: string) => {
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     try {
       const { error } = await supabase.rpc('fn_approve_custody_expense', { p_expense_id: id });
       if (error) throw error;
@@ -111,18 +132,23 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
       fetchCustodies();
     } catch (error) {
       showToast(error.message, 'error');
+    } finally {
+      isSubmittingRef.current = false;
     }
   };
 
   const handleCreateExpense = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!organization?.id || !selectedCustody) return;
+    if (isSubmittingRef.current || !selectedCustody) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
     
+    isSubmittingRef.current = true;
     setLoading(true);
     try {
       const { error } = await supabase.from('project_custody_expenses').insert([{
         custody_id: selectedCustody,
-        organization_id: organization.id,
+        organization_id: orgId,
         amount: newExpense.amount,
         description: newExpense.description,
         category: newExpense.category,
@@ -138,17 +164,21 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
     } catch (error) {
       showToast(error.message, 'error');
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
 
   const handleCreateCustody = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!organization?.id) return;
+    if (isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
     if (newCustody.total_advanced > 0 && !newCustody.source_account_id) {
       return showToast('يرجى تحديد حساب الخزينة أو البنك الذي تم صرف العهدة منه', 'warning');
     }
     
+    isSubmittingRef.current = true;
     setLoading(true);
     try {
       // 1. محاولة استدعاء الدالة المحاسبية المعتمدة في قاعدة البيانات
@@ -166,7 +196,7 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
         // 2. Fallback: إنشاء العهدة مع قيد الصرف المالي المباشر
         const { data: custodyData, error: insertError } = await supabase.from('project_custodies').insert([{
           project_id: projectId,
-          organization_id: organization.id,
+          organization_id: orgId,
           custody_name: newCustody.custody_name,
           employee_id: newCustody.employee_id,
           total_advanced: newCustody.total_advanced,
@@ -188,7 +218,7 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
               reference: `CUST-ADV-${Date.now().toString().slice(-6)}`,
               status: 'posted',
               is_posted: true,
-              organization_id: organization.id,
+              organization_id: orgId,
               related_document_id: custodyData.id,
               related_document_type: 'custody_advance'
             }]).select().single();
@@ -201,7 +231,7 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
                   debit: newCustody.total_advanced,
                   credit: 0,
                   description: `صرف عهدة للموظف ${emp?.full_name || ''}`,
-                  organization_id: organization.id
+                  organization_id: orgId
                 },
                 {
                   journal_entry_id: je.id,
@@ -209,7 +239,7 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
                   debit: 0,
                   credit: newCustody.total_advanced,
                   description: `خروج نقدية لصرف عهدة ${newCustody.custody_name}`,
-                  organization_id: organization.id
+                  organization_id: orgId
                 }
               ]);
             }
@@ -224,17 +254,21 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
     } catch (error) {
       showToast(error.message, 'error');
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
 
   const handleTopUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedCustody || topUpData.amount <= 0) return;
+    if (isSubmittingRef.current || !selectedCustody || topUpData.amount <= 0) return;
     if (!topUpData.source_account_id) {
       return showToast('يرجى تحديد حساب الخزينة أو البنك الذي تم صرف التغذية منه', 'warning');
     }
+    const orgId = await getOrgId();
+    if (!orgId) return;
 
+    isSubmittingRef.current = true;
     setLoading(true);
     try {
       const { error: rpcError } = await supabase.rpc('fn_top_up_custody', { 
@@ -256,7 +290,7 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
             reference: `CUST-TOP-${Date.now().toString().slice(-6)}`,
             status: 'posted',
             is_posted: true,
-            organization_id: organization.id,
+            organization_id: orgId,
             related_document_id: selectedCustody,
             related_document_type: 'custody_topup'
           }]).select().single();
@@ -269,7 +303,7 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
                 debit: topUpData.amount,
                 credit: 0,
                 description: `تغذية عهدة ${custody.custody_name}`,
-                organization_id: organization.id
+                organization_id: orgId
               },
               {
                 journal_entry_id: je.id,
@@ -277,7 +311,7 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
                 debit: 0,
                 credit: topUpData.amount,
                 description: `خروج نقدية لتغذية عهدة ${custody.custody_name}`,
-                organization_id: organization.id
+                organization_id: orgId
               }
             ]);
           }
@@ -285,7 +319,7 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
           await supabase.from('project_custodies').update({
             total_advanced: (custody.total_advanced || 0) + topUpData.amount,
             current_balance: (custody.current_balance || 0) + topUpData.amount
-          }).eq('id', selectedCustody);
+          }).eq('id', selectedCustody).eq('organization_id', orgId);
         }
       }
 
@@ -296,6 +330,7 @@ const CustodyManager: React.FC<Props> = ({ projectId, onBack }) => {
     } catch (error) {
       showToast(error.message, 'error');
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };

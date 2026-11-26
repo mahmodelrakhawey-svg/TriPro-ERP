@@ -5,6 +5,7 @@ import { CameraOutlined, FileImageOutlined, SendOutlined, CheckCircleOutlined, F
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '../../../services/offlineService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { PACSViewerModal } from '../components/PACSViewerModal';
 
 const { Title, Text } = Typography;
@@ -487,11 +488,14 @@ export const RadiologyDashboard: React.FC = () => {
         order={pacsOrder}
         onSaveReport={async (findings, impressions) => {
           if (!pacsOrder?.id) return;
+          const orgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
           const fullText = `${findings}\n\n${impressions}`;
-          const { error } = await supabase
+          let updateQuery = supabase
             .from('hims_radiology_orders')
             .update({ report_text: fullText, status: 'completed' })
             .eq('id', pacsOrder.id);
+          if (orgId) updateQuery = updateQuery.eq('organization_id', orgId);
+          const { error } = await updateQuery;
           if (error) throw error;
           fetchOrders();
         }}

@@ -268,7 +268,7 @@ const DebitNoteForm = () => {
       const userOrgId = session?.user?.user_metadata?.org_id;
 
       await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', formData.noteNumber);
-      const { error: delErr } = await supabase.from('debit_notes').delete().eq('id', editingId);
+      const { error: delErr } = await supabase.from('debit_notes').delete().eq('id', editingId).eq('organization_id', userOrgId);
       if (delErr) throw delErr;
 
       showToast('تم حذف الإشعار المدين وعكس القيد بنجاح ✅', 'success');

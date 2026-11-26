@@ -242,8 +242,9 @@ export default function SiteDailyLogsManager() {
   // Delete Log
   const handleDeleteLog = async (id: string) => {
     if (!window.confirm('هل أنت متأكد من حذف هذا السجل اليومي للموقع؟')) return;
+    if (!orgId) return;
     try {
-      const { error } = await supabase.from('project_daily_logs').delete().eq('id', id);
+      const { error } = await supabase.from('project_daily_logs').delete().eq('id', id).eq('organization_id', orgId);
       if (error) throw error;
       showToast('تم حذف السجل بنجاح', 'success');
       fetchDailyLogs();

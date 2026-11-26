@@ -1,11 +1,13 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { Card, Row, Col, Table, Tag, Button, message, Typography, Badge, Space, Modal, Form, Input, InputNumber, Select } from 'antd';
 import { CheckCircleOutlined, ToolOutlined, ClearOutlined, HomeOutlined, PlusOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { useAuth } from '@/context/AuthContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 
 export const WardBedManager: React.FC = () => {
   const { currentUser } = useAuth();
+  const isSubmittingRef = useRef(false);
   const [beds, setBeds] = useState<any[]>([]);
   const [wards, setWards] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -26,18 +28,23 @@ export const WardBedManager: React.FC = () => {
   const [wardEditForm] = Form.useForm();
   const [bedEditForm] = Form.useForm();
 
-  const fetchBedsStatus = async () => {
-    if (!currentUser?.organization_id) return;
+  const getOrgId = async () =>
+    getActiveOrgIdSync(currentUser?.organization_id) || await resolveActiveOrgId(currentUser?.organization_id);
+
+  const fetchBedsStatus = async (resolvedOrgId?: string) => {
+    const orgId = resolvedOrgId || await getOrgId();
+    if (!orgId) return;
     setLoading(true);
     const { data, error } = await supabase
       .from('hims_beds')
-      .select('*, ward:ward_id(name, floor)')
-      .eq('organization_id', currentUser.organization_id)
-      .order('bed_number', { ascending: true });
+      .select('id, bed_number, status, daily_rate, ward_id, ward:ward_id(name, floor)')
+      .eq('organization_id', orgId)
+      .order('bed_number', { ascending: true })
+      .limit(300);
 
     if (error) message.error('فشل جلب حالة الأسرة');
     else {
-      let bedList = data || [];
+      let bedList: any[] = data || [];
       if (bedList.length === 0) {
         bedList = [
           { id: 'b-101', bed_number: 'A-101', status: 'available', daily_rate: 350, ward: { name: 'جناح الباطنة (العام)', floor: 'الطابق الأول' } },
@@ -55,135 +62,190 @@ export const WardBedManager: React.FC = () => {
     setLoading(false);
   };
 
-  const fetchWards = async () => {
-    if (!currentUser?.organization_id) return;
+  const fetchWards = async (resolvedOrgId?: string) => {
+    const orgId = resolvedOrgId || await getOrgId();
+    if (!orgId) return;
     const { data } = await supabase
       .from('hims_wards')
-      .select('*')
-      .eq('organization_id', currentUser.organization_id)
-      .order('name', { ascending: true });
+      .select('id, name, floor, ward_type')
+      .eq('organization_id', orgId)
+      .order('name', { ascending: true })
+      .limit(100);
     setWards(data || []);
   };
 
-  useEffect(() => { 
-    fetchBedsStatus(); 
-    fetchWards();
+  useEffect(() => {
+    const loadAll = async () => {
+      const orgId = await getOrgId();
+      if (!orgId) return;
+      await Promise.all([fetchBedsStatus(orgId), fetchWards(orgId)]);
+    };
+    loadAll();
   }, [currentUser]);
 
   const handleMarkReady = async (bedId: string) => {
+    if (isSubmittingRef.current) return;
+    isSubmittingRef.current = true;
     setLoading(true);
-    // 🧼 استدعاء محرك كفاءة تشغيل الأسرة في SQL
-    const { error } = await supabase.rpc('hims_mark_bed_ready', {
-      p_bed_id: bedId
-    });
+    try {
+      // 🧼 استدعاء محرك كفاءة تشغيل الأسرة في SQL
+      const { error } = await supabase.rpc('hims_mark_bed_ready', {
+        p_bed_id: bedId
+      });
 
-    if (error) {
-      message.error('فشل تحديث حالة السرير: ' + error.message);
-    } else {
-      message.success('تم تأكيد جاهزية السرير ✅ هو الآن متاح للاستقبال.');
-      fetchBedsStatus();
+      if (error) {
+        message.error('فشل تحديث حالة السرير: ' + error.message);
+      } else {
+        message.success('تم تأكيد جاهزية السرير ✅ هو الآن متاح للاستقبال.');
+        fetchBedsStatus();
+      }
+    } finally {
+      isSubmittingRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleCreateWard = async (values: Record<string, any>) => {
+    if (isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
+    isSubmittingRef.current = true;
     setLoading(true);
-    const { error } = await supabase.from('hims_wards').insert([{
-      ...values,
-      organization_id: currentUser?.organization_id
-    }]);
+    try {
+      const { error } = await supabase.from('hims_wards').insert([{
+        ...values,
+        organization_id: orgId
+      }]);
 
-    if (error) {
-      message.error('فشل إضافة الجناح: ' + error.message);
-    } else {
-      message.success('تم إضافة الجناح بنجاح ✅');
-      setIsWardModalVisible(false);
-      wardForm.resetFields();
-      fetchWards();
+      if (error) {
+        message.error('فشل إضافة الجناح: ' + error.message);
+      } else {
+        message.success('تم إضافة الجناح بنجاح ✅');
+        setIsWardModalVisible(false);
+        wardForm.resetFields();
+        fetchWards(orgId);
+      }
+    } finally {
+      isSubmittingRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleCreateBed = async (values: Record<string, any>) => {
+    if (isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
+    isSubmittingRef.current = true;
     setLoading(true);
-    const { error } = await supabase.from('hims_beds').insert([{
-      ...values,
-      organization_id: currentUser?.organization_id,
-      status: 'available'
-    }]);
+    try {
+      const { error } = await supabase.from('hims_beds').insert([{
+        ...values,
+        organization_id: orgId,
+        status: 'available'
+      }]);
 
-    if (error) {
-      message.error('فشل إضافة السرير: ' + error.message);
-    } else {
-      message.success('تم إضافة السرير بنجاح ✅');
-      setIsBedModalVisible(false);
-      bedForm.resetFields();
-      fetchBedsStatus();
+      if (error) {
+        message.error('فشل إضافة السرير: ' + error.message);
+      } else {
+        message.success('تم إضافة السرير بنجاح ✅');
+        setIsBedModalVisible(false);
+        bedForm.resetFields();
+        fetchBedsStatus(orgId);
+      }
+    } finally {
+      isSubmittingRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleDeleteWard = async (wardId: string) => {
+    if (isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
+    isSubmittingRef.current = true;
     setLoading(true);
-    const { error } = await supabase.from('hims_wards').delete().eq('id', wardId);
-    if (error) message.error('فشل حذف الجناح: ' + error.message);
-    else {
-      message.success('تم حذف الجناح بنجاح ✅');
-      fetchWards();
-      fetchBedsStatus();
+    try {
+      const { error } = await supabase.from('hims_wards').delete().eq('id', wardId).eq('organization_id', orgId);
+      if (error) message.error('فشل حذف الجناح: ' + error.message);
+      else {
+        message.success('تم حذف الجناح بنجاح ✅');
+        await Promise.all([fetchWards(orgId), fetchBedsStatus(orgId)]);
+      }
+    } finally {
+      isSubmittingRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleDeleteBed = async (bedId: string) => {
+    if (isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
+    isSubmittingRef.current = true;
     setLoading(true);
-    const { error } = await supabase.from('hims_beds').delete().eq('id', bedId);
-    if (error) message.error('فشل حذف السرير: ' + error.message);
-    else {
-      message.success('تم حذف السرير بنجاح ✅');
-      fetchBedsStatus();
+    try {
+      const { error } = await supabase.from('hims_beds').delete().eq('id', bedId).eq('organization_id', orgId);
+      if (error) message.error('فشل حذف السرير: ' + error.message);
+      else {
+        message.success('تم حذف السرير بنجاح ✅');
+        fetchBedsStatus(orgId);
+      }
+    } finally {
+      isSubmittingRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleUpdateWard = async (values: Record<string, any>) => {
-    if (!editingWard?.id) return;
+    if (!editingWard?.id || isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
+    isSubmittingRef.current = true;
     setLoading(true);
-    const { error } = await supabase.from('hims_wards').update({
-      name: values.name,
-      floor: values.floor,
-      ward_type: values.ward_type
-    }).eq('id', editingWard.id);
+    try {
+      const { error } = await supabase.from('hims_wards').update({
+        name: values.name,
+        floor: values.floor,
+        ward_type: values.ward_type
+      }).eq('id', editingWard.id).eq('organization_id', orgId);
 
-    if (error) message.error('فشل تعديل الجناح: ' + error.message);
-    else {
-      message.success('تم تعديل الجناح بنجاح ✅');
-      setIsWardEditModalVisible(false);
-      setEditingWard(null);
-      fetchWards();
-      fetchBedsStatus();
+      if (error) message.error('فشل تعديل الجناح: ' + error.message);
+      else {
+        message.success('تم تعديل الجناح بنجاح ✅');
+        setIsWardEditModalVisible(false);
+        setEditingWard(null);
+        await Promise.all([fetchWards(orgId), fetchBedsStatus(orgId)]);
+      }
+    } finally {
+      isSubmittingRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleUpdateBed = async (values: Record<string, any>) => {
-    if (!editingBed?.id) return;
+    if (!editingBed?.id || isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
+    isSubmittingRef.current = true;
     setLoading(true);
-    const { error } = await supabase.from('hims_beds').update({
-      ward_id: values.ward_id,
-      bed_number: values.bed_number,
-      daily_rate: values.daily_rate
-    }).eq('id', editingBed.id);
+    try {
+      const { error } = await supabase.from('hims_beds').update({
+        ward_id: values.ward_id,
+        bed_number: values.bed_number,
+        daily_rate: values.daily_rate
+      }).eq('id', editingBed.id).eq('organization_id', orgId);
 
-    if (error) message.error('فشل تعديل السرير: ' + error.message);
-    else {
-      message.success('تم تعديل السرير بنجاح ✅');
-      setIsBedEditModalVisible(false);
-      setEditingBed(null);
-      fetchBedsStatus();
-      fetchWards();
+      if (error) message.error('فشل تعديل السرير: ' + error.message);
+      else {
+        message.success('تم تعديل السرير بنجاح ✅');
+        setIsBedEditModalVisible(false);
+        setEditingBed(null);
+        await Promise.all([fetchBedsStatus(orgId), fetchWards(orgId)]);
+      }
+    } finally {
+      isSubmittingRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const columns = [
@@ -329,7 +391,7 @@ export const WardBedManager: React.FC = () => {
         <Space>
           <Button onClick={() => setIsWardModalVisible(true)} icon={<PlusOutlined />} className="bg-indigo-50 text-indigo-700 border-indigo-200">إضافة جناح</Button>
           <Button onClick={() => setIsBedModalVisible(true)} type="primary" icon={<PlusOutlined />} className="bg-indigo-600">إضافة سرير</Button>
-          <Button onClick={fetchBedsStatus} icon={<ClearOutlined />}>تحديث الحالة</Button>
+          <Button onClick={() => fetchBedsStatus()} icon={<ClearOutlined />}>تحديث الحالة</Button>
         </Space>
       </div>
 

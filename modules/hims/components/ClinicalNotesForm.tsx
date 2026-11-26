@@ -1,14 +1,16 @@
 import { logger } from '../../../utils/logger';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Card, Form, Input, Button, message, Spin } from 'antd';
 import { SaveOutlined } from '@ant-design/icons';
 import { supabase } from '@/supabaseClient';
 import { offlineService } from '../../../services/offlineService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 
 const { TextArea } = Input;
 
 export const ClinicalNotesForm: React.FC<{ visitId: string }> = ({ visitId }) => {
   const [loading, setLoading] = useState(false);
+  const isSubmittingRef = useRef(false);
   const [noteId, setNoteId] = useState<string | null>(null);
   const [subjective, setSubjective] = useState('');
   const [objective, setObjective] = useState('');
@@ -31,11 +33,13 @@ export const ClinicalNotesForm: React.FC<{ visitId: string }> = ({ visitId }) =>
 
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const orgId = getActiveOrgIdSync() || await resolveActiveOrgId();
+      let query = supabase
         .from('hims_clinical_notes')
-        .select('*')
-        .eq('visit_id', visitId)
-        .maybeSingle();
+        .select('id, subjective, objective, assessment, plan')
+        .eq('visit_id', visitId);
+      if (orgId) query = query.eq('organization_id', orgId);
+      const { data, error } = await query.maybeSingle();
 
       if (error) throw error;
 
@@ -55,6 +59,7 @@ export const ClinicalNotesForm: React.FC<{ visitId: string }> = ({ visitId }) =>
     } catch (e) {
       logger.error("Error fetching clinical note:", e.message);
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
@@ -64,15 +69,18 @@ export const ClinicalNotesForm: React.FC<{ visitId: string }> = ({ visitId }) =>
   }, [visitId]);
 
   const handleSave = async () => {
+    if (isSubmittingRef.current) return;
     if (!visitId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(visitId)) {
       message.error('يرجى تحديد زيارة طبية صالحة أولاً');
       return;
     }
+    isSubmittingRef.current = true;
     setLoading(true);
     try {
+      const orgId = getActiveOrgIdSync() || await resolveActiveOrgId();
       if (noteId) {
         // تحديث الملاحظة الحالية
-        const { error } = await supabase
+        let updateQuery = supabase
           .from('hims_clinical_notes')
           .update({
             subjective,
@@ -81,17 +89,17 @@ export const ClinicalNotesForm: React.FC<{ visitId: string }> = ({ visitId }) =>
             plan
           })
           .eq('id', noteId);
+        if (orgId) updateQuery = updateQuery.eq('organization_id', orgId);
+        const { error } = await updateQuery;
 
         if (error) throw error;
         message.success('تم تحديث الملاحظات الطبية (SOAP) بنجاح ✅');
       } else {
         if (!navigator.onLine) {
           let docId: string | null | undefined = null;
-          let orgId: string | null | undefined = null;
           try {
-            const { data: { session } } = await supabase.auth.getSession();
-            docId = session?.user?.id;
-            orgId = session?.user?.user_metadata?.org_id;
+            const { data: { user } } = await supabase.auth.getUser();
+            docId = user?.id;
           } catch (e) {}
 
           const notePayload = {
@@ -142,6 +150,7 @@ export const ClinicalNotesForm: React.FC<{ visitId: string }> = ({ visitId }) =>
     } catch (e) {
       message.error('فشل في حفظ الملاحظات: ' + e.message);
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };

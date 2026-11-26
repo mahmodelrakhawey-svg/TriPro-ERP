@@ -130,8 +130,9 @@ export default function FacilityManager() {
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('هل أنت متأكد من حذف هذا المرفق؟')) return;
+    if (!orgId) return;
     try {
-      const { error } = await supabase.from('stadium_facilities').delete().eq('id', id);
+      const { error } = await supabase.from('stadium_facilities').delete().eq('id', id).eq('organization_id', orgId);
       if (error) throw error;
       toast.success('تم حذف المرفق بنجاح');
       fetchFacilities();
@@ -177,7 +178,7 @@ export default function FacilityManager() {
       };
 
       if (editingFacility) {
-        const { error } = await supabase.from('stadium_facilities').update(payload).eq('id', editingFacility.id);
+        const { error } = await supabase.from('stadium_facilities').update(payload).eq('id', editingFacility.id).eq('organization_id', orgId);
         if (error) throw error;
         toast.success('تم تحديث المرفق بنجاح');
       } else {

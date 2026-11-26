@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
+import { useAccounting } from '../../../context/AccountingContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { FileText, Upload, Trash2, Download, Paperclip, Loader2, X, Image as ImageIcon } from 'lucide-react';
 
 interface Attachment {
@@ -20,31 +22,48 @@ interface Props {
 }
 
 const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose }) => {
+  const { organization } = useAccounting();
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const { showToast } = useToast();
+  const isSubmittingRef = useRef(false);
 
-  useEffect(() => { fetchAttachments(); }, [projectId, billingId]);
+  const getOrgId = async () =>
+    getActiveOrgIdSync(organization?.id) || await resolveActiveOrgId(organization?.id);
+
+  useEffect(() => { fetchAttachments(); }, [projectId, billingId, organization?.id]);
 
   const fetchAttachments = async () => {
     setLoading(true);
-    let query = supabase.from('project_attachments').select('*').eq('project_id', projectId);
+    const orgId = await getOrgId();
+    if (!orgId) {
+      setLoading(false);
+      return;
+    }
+    let query = supabase
+      .from('project_attachments')
+      .select('id, file_name, file_url, file_type, created_at, billing_id, sub_billing_id')
+      .eq('project_id', projectId)
+      .eq('organization_id', orgId);
     // 🏗️ التحقق بذكاء: هل هو مستخلص عميل أم مقاول باطن؟
     if (billingId) {
       query = query.or(`billing_id.eq.${billingId},sub_billing_id.eq.${billingId}`);
     }
     else query = query.is('billing_id', null);
 
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const { data, error } = await query.order('created_at', { ascending: false }).limit(200);
     if (!error) setAttachments(data || []);
     setLoading(false);
   };
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
 
+    isSubmittingRef.current = true;
     setUploading(true);
     try {
       const fileExt = file.name.split('.').pop();
@@ -58,6 +77,7 @@ const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose 
 
       // 🏗️ تحديد العمود الصحيح للحفظ
       const insertData: Record<string, any> = {
+        organization_id: orgId,
         project_id: projectId,
         file_name: file.name,
         file_url: publicUrl,
@@ -78,18 +98,23 @@ const SiteAttachmentManager: React.FC<Props> = ({ projectId, billingId, onClose 
     } catch (err) {
       showToast(err.message, 'error');
     } finally {
+      isSubmittingRef.current = false;
       setUploading(false);
     }
   };
 
   const deleteAttachment = async (id: string, url: string) => {
-    if (!window.confirm('هل تريد حذف هذا المستند؟')) return;
+    if (!window.confirm('هل تريد حذف هذا المستند؟') || isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
+    isSubmittingRef.current = true;
     try {
-      const { error } = await supabase.from('project_attachments').delete().eq('id', id);
+      const { error } = await supabase.from('project_attachments').delete().eq('id', id).eq('organization_id', orgId);
       if (error) throw error;
       setAttachments(attachments.filter(a => a.id !== id));
       showToast('تم الحذف بنجاح', 'success');
     } catch (err) { showToast(err.message, 'error'); }
+    finally { isSubmittingRef.current = false; }
   };
 
   return (

@@ -883,7 +883,8 @@ export default function MaterialWasteAnalytics() {
                           <button
                             onClick={async () => {
                               if (!window.confirm('هل تريد حذف سجل الفحص؟')) return;
-                              await supabase.from('project_material_waste_analysis').delete().eq('id', r.id);
+                              if (!orgId) return;
+                              await supabase.from('project_material_waste_analysis').delete().eq('id', r.id).eq('organization_id', orgId);
                               fetchData();
                             }}
                             className="p-1.5 hover:bg-slate-800 text-rose-400 hover:text-rose-300 rounded-lg transition-all"

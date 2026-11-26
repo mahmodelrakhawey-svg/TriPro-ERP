@@ -168,7 +168,8 @@ export const StadiumBudgetManager: React.FC = () => {
         const { error } = await supabase
           .from('stadium_budgets')
           .update(payload)
-          .eq('id', editingBudget.id);
+          .eq('id', editingBudget.id)
+          .eq('organization_id', orgId);
         if (error) throw error;
         toast.success('تم تحديث مخصص البند بنجاح');
       } else {
@@ -214,7 +215,8 @@ export const StadiumBudgetManager: React.FC = () => {
 
   const handleDelete = async (id: string) => {
     if (!window.confirm('هل أنت متأكد من حذف هذا البند من الموازنة؟')) return;
-    const { error } = await supabase.from('stadium_budgets').delete().eq('id', id);
+    if (!orgId) return;
+    const { error } = await supabase.from('stadium_budgets').delete().eq('id', id).eq('organization_id', orgId);
     if (!error) {
       toast.success('تم الحذف بنجاح');
       fetchBudgetsAndSpent();

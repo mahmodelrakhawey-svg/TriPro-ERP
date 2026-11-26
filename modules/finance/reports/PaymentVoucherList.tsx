@@ -20,6 +20,7 @@ import { safeJsonToSheet } from '../../../utils/excelSanitizer';
 import { PaymentVoucherPrint } from './PaymentVoucherPrint';
 import { usePagination } from '../../../components/usePagination';
 import { fetchCompleteDataset } from '../../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 
 // Interface for Payment Voucher
 interface PaymentVoucher {
@@ -662,17 +663,22 @@ const PaymentVoucherList = () => {
     }
 
     try {
+        const orgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
         if (voucher.related_journal_entry_id) {
-            await supabase
+            let jeDel = supabase
                 .from('journal_entries')
                 .delete()
                 .eq('id', voucher.related_journal_entry_id);
+            if (orgId) jeDel = jeDel.eq('organization_id', orgId);
+            await jeDel;
         }
 
-        const { error } = await supabase
+        let vDel = supabase
             .from('payment_vouchers')
             .delete()
             .eq('id', voucher.id);
+        if (orgId) vDel = vDel.eq('organization_id', orgId);
+        const { error } = await vDel;
 
         if (error) throw error;
 

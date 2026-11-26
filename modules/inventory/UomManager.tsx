@@ -80,7 +80,7 @@ export default function UomManager() {
   const fetchUoms = async (categoryId: string) => {
     const { data, error } = await supabase
       .from('uoms')
-      .select('id, name, code, ratio, uom_type, category_id, is_active, organization_id')
+      .select('id, name, ratio, uom_type, category_id, organization_id')
       .eq('category_id', categoryId)
       .order('ratio', { ascending: true });
     

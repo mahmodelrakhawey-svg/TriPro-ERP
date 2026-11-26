@@ -1,8 +1,9 @@
 import { logger } from '../../../utils/logger';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { UserPlus, Search, FileText, Activity, CreditCard, Calendar, Filter, Plus, Edit2, Trash2, Camera, Loader2, X, Key } from 'lucide-react';
 import { supabase } from '@/supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { scanNationalID } from '@/services/geminiService';
 import { offlineService, db } from '../../../services/offlineService';
 import { useToast } from '../../../context/ToastContext';
@@ -26,6 +27,7 @@ type Patient = {
 const PatientManager = () => {
   const { organization, currentUser } = useAccounting();
   const { showToast } = useToast();
+  const isSubmittingRef = useRef(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isVisitModalOpen, setIsVisitModalOpen] = useState(false);
@@ -175,7 +177,10 @@ const PatientManager = () => {
       }
 
       if (editingId) {
-        const { error } = await supabase.from('hims_patients').update(patientData).eq('id', editingId);
+        const orgId = getActiveOrgIdSync(organization?.id || currentUser?.organization_id) || await resolveActiveOrgId(organization?.id || currentUser?.organization_id);
+        let updateQuery = supabase.from('hims_patients').update(patientData).eq('id', editingId);
+        if (orgId) updateQuery = updateQuery.eq('organization_id', orgId);
+        const { error } = await updateQuery;
         if (error) throw error;
         showToast('تم تحديث بيانات المريض بنجاح', 'success');
       } else {
@@ -373,12 +378,21 @@ const PatientManager = () => {
                 </button>
                 <button 
                   onClick={async () => {
+                    if (isSubmittingRef.current) return;
                     if (window.confirm('هل أنت متأكد من حذف بيانات هذا المريض نهائياً؟')) {
-                      const { error } = await supabase.from('hims_patients').delete().eq('id', patient.id);
-                      if (error) showToast(error.message, 'error');
-                      else {
-                        showToast('تم حذف المريض بنجاح', 'success');
-                        refresh();
+                      isSubmittingRef.current = true;
+                      try {
+                        const orgId = getActiveOrgIdSync(organization?.id || currentUser?.organization_id) || await resolveActiveOrgId(organization?.id || currentUser?.organization_id);
+                        let delQuery = supabase.from('hims_patients').delete().eq('id', patient.id);
+                        if (orgId) delQuery = delQuery.eq('organization_id', orgId);
+                        const { error } = await delQuery;
+                        if (error) showToast(error.message, 'error');
+                        else {
+                          showToast('تم حذف المريض بنجاح', 'success');
+                          refresh();
+                        }
+                      } finally {
+                        isSubmittingRef.current = false;
                       }
                     }
                   }}

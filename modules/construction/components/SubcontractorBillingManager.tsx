@@ -1,8 +1,9 @@
 import { logger } from '../../../utils/logger';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { ArrowRight, Plus, FileText, CheckCircle2, ShieldAlert, Receipt, Star, Clock as ClockIcon, X, Save, Loader2, Calendar, Target, TrendingUp, Wallet, Paperclip, ChevronDown, ChevronUp, Percent } from 'lucide-react';
 import SiteAttachmentManager from './SiteAttachmentManager';
 
@@ -58,20 +59,28 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
   });
   const [scores, setScores] = useState({ quality: 5, timeliness: 5 });
   const { showToast } = useToast();
+  const isSubmittingRef = useRef(false);
+
+  const getOrgId = async () =>
+    getActiveOrgIdSync(organization?.id) || await resolveActiveOrgId(organization?.id);
 
   useEffect(() => {
-    if (organization?.id) {
-      fetchBillings();
-      fetchContract();
-      fetchContractItems();
-    }
+    const loadAll = async () => {
+      const orgId = await getOrgId();
+      if (!orgId) return;
+      await Promise.all([fetchBillings(orgId), fetchContract(orgId), fetchContractItems(orgId)]);
+    };
+    loadAll();
   }, [contractId, organization?.id]);
 
-  const fetchContract = async () => {
+  const fetchContract = async (resolvedOrgId?: string) => {
+    const orgId = resolvedOrgId || await getOrgId();
+    if (!orgId) return;
     const { data } = await supabase
       .from('subcontractor_contracts')
-      .select('*')
+      .select('id, contract_number, total_value, retention_percentage, advance_payment_balance, status')
       .eq('id', contractId)
+      .eq('organization_id', orgId)
       .single();
     
     if (data) {
@@ -87,13 +96,16 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
     }
   };
 
-  const fetchContractItems = async () => {
+  const fetchContractItems = async (resolvedOrgId?: string) => {
     try {
+      const orgId = resolvedOrgId || await getOrgId();
+      if (!orgId) return;
       const { data, error } = await supabase
         .from('subcontractor_contract_items')
-        .select('*')
+        .select('id, description, unit, quantity, unit_price, total_price')
         .eq('contract_id', contractId)
-        .eq('organization_id', organization?.id);
+        .eq('organization_id', orgId)
+        .limit(500);
       
       if (error) throw error;
       setContractItems(data || []);
@@ -153,15 +165,17 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
     }
   }, [newBilling.gross_amount, newBilling.vat_rate, newBilling.wht_rate, contractDetails]);
 
-  const fetchBillings = async () => {
-    if (!organization?.id) return;
+  const fetchBillings = async (resolvedOrgId?: string) => {
+    const orgId = resolvedOrgId || await getOrgId();
+    if (!orgId) return;
 
     const { data, error } = await supabase
       .from('subcontractor_billings')
-      .select('*')
+      .select('id, billing_number, billing_date, gross_amount, retention_amount, advance_deduction, vat_rate, vat_amount, wht_rate, wht_amount, net_amount, status, items_progress')
       .eq('contract_id', contractId)
-      .eq('organization_id', organization.id)
-      .order('billing_date', { ascending: false });
+      .eq('organization_id', orgId)
+      .order('billing_date', { ascending: false })
+      .limit(200);
     
     if (error) showToast(error.message, 'error');
     else setBillings(data || []);
@@ -170,13 +184,20 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
 
   const handleCreateBilling = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) {
+      showToast('تعذر تحديد المنشأة النشطة', 'error');
+      return;
+    }
+    isSubmittingRef.current = true;
     setLoading(true);
     try {
       const { error } = await supabase.from('subcontractor_billings').insert([{
         ...newBilling,
         retention_release_date: newBilling.retention_release_date || null,
         contract_id: contractId,
-        organization_id: organization?.id,
+        organization_id: orgId,
         status: 'draft',
         items_progress: subItemProgress
       }]);
@@ -195,7 +216,7 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
             wht_rate: newBilling.wht_rate,
             wht_amount: newBilling.wht_amount,
             contract_id: contractId,
-            organization_id: organization?.id,
+            organization_id: orgId,
             status: 'draft'
           }]);
           if (fallbackError) throw fallbackError;
@@ -207,21 +228,29 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
         showToast('تم حفظ مستخلص المقاول كمسودة ✅', 'success');
       }
       setIsCreating(false);
-      fetchBillings();
+      fetchBillings(orgId);
     } catch (error) {
       showToast(error.message, 'error');
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };
 
   const confirmApproval = async () => {
-    if (!showApprovalDialog) return;
+    if (!showApprovalDialog || isSubmittingRef.current) return;
+    const orgId = await getOrgId();
+    if (!orgId) {
+      showToast('تعذر تحديد المنشأة النشطة', 'error');
+      return;
+    }
+    isSubmittingRef.current = true;
     try {
       setLoading(true);
       const { error } = await supabase.from('subcontractor_billings')
         .update({ status: 'approved', quality_score: scores.quality, timeliness_score: scores.timeliness })
-        .eq('id', showApprovalDialog);
+        .eq('id', showApprovalDialog)
+        .eq('organization_id', orgId);
 
       const { error: accError } = await supabase.rpc('fn_approve_sub_billing', { p_billing_id: showApprovalDialog });
       
@@ -229,10 +258,11 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
 
       showToast('تم اعتماد مستخلص المقاول وترحيله للتكاليف بنجاح ✅', 'success');
       setShowApprovalDialog(null);
-      fetchBillings();
+      fetchBillings(orgId);
     } catch (error) {
       showToast(error.message, 'error');
     } finally {
+      isSubmittingRef.current = false;
       setLoading(false);
     }
   };

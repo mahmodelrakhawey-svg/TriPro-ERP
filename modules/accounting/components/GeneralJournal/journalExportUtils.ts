@@ -1,17 +1,11 @@
 import { logger } from '../../../../utils/logger';
 // xlsx loaded dynamically on demand
 import { fetchCompleteDataset } from '../../../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../../services/tenantContext';
 import { supabase } from '../../../../supabaseClient';
 import { JournalEntry } from '../../../../types';
 import { getEntrySource } from './journalSourceClassifier';
-
-const escapeHtml = (unsafe: unknown): string =>
-  String(unsafe ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+import { escapeHtml } from '../../../../utils/htmlSanitizer';
 
 export const printJournalEntry = (entry: JournalEntry) => {
   const printWindow = window.open('', '_blank');
@@ -63,8 +57,8 @@ export const printJournalEntry = (entry: JournalEntry) => {
             <tbody>
               ${(entry.lines || []).map((line: Record<string, any>) => `
                 <tr>
-                  <td>${line.accountName || '-'}</td>
-                  <td>${line.accountCode || '-'}</td>
+                  <td>${escapeHtml(line.accountName || '-')}</td>
+                  <td>${escapeHtml(line.accountCode || '-')}</td>
                   <td>${line.debit > 0 ? line.debit.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'}</td>
                   <td>${line.credit > 0 ? line.credit.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '-'}</td>
                 </tr>
@@ -147,7 +141,7 @@ export const exportJournalToExcel = async ({
       return;
     }
 
-    const orgId = currentUser?.organization_id || currentUser?.user_metadata?.org_id;
+    const orgId = getActiveOrgIdSync(currentUser?.organization_id) || await resolveActiveOrgId(currentUser?.organization_id);
     let query = supabase
       .from('journal_entries')
       .select(`
