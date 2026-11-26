@@ -564,6 +564,33 @@ const ProductManager = () => {
     }).length;
   }, [contextProducts, categories, getSystemAccount, settings]);
 
+  const batchUpdateProductsInventoryAccount = async (candidateIds: string[], accountId: string): Promise<number> => {
+    const chunkSize = 50;
+    const chunks: string[][] = [];
+    for (let i = 0; i < candidateIds.length; i += chunkSize) {
+      chunks.push(candidateIds.slice(i, i + chunkSize));
+    }
+    const CONCURRENCY = 4;
+    const now = new Date().toISOString();
+    let updatedTotal = 0;
+    for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+      const batch = chunks.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        batch.map((chunk) =>
+          supabase
+            .from('products')
+            .update({ inventory_account_id: accountId, updated_at: now })
+            .in('id', chunk)
+        )
+      );
+      for (let j = 0; j < results.length; j++) {
+        if (results[j].error) throw results[j].error;
+        updatedTotal += batch[j].length;
+      }
+    }
+    return updatedTotal;
+  };
+
   // 🔄 توجيه حسابات أصناف المواد الخام آلياً لحساب مخزون المواد الخام مع الحفاظ التام على التعديلات اليدوية
   const handleSyncRawMaterialAccounts = async () => {
     const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || settings?.account_mappings?.INVENTORY_RAW_MATERIALS || '00bc8443-0ace-40ba-82c1-ce97f6a02e15';
@@ -600,22 +627,7 @@ const ProductManager = () => {
     setIsSyncingRawAccounts(true);
     try {
       const candidateIds = candidates.map(p => p.id);
-      let updatedTotal = 0;
-      const chunkSize = 50;
-
-      for (let i = 0; i < candidateIds.length; i += chunkSize) {
-        const chunk = candidateIds.slice(i, i + chunkSize);
-        const { error: upErr } = await supabase
-          .from('products')
-          .update({ 
-            inventory_account_id: rawMaterialAcc,
-            updated_at: new Date().toISOString()
-          })
-          .in('id', chunk);
-
-        if (upErr) throw upErr;
-        updatedTotal += chunk.length;
-      }
+      const updatedTotal = await batchUpdateProductsInventoryAccount(candidateIds, rawMaterialAcc);
 
       // تحديث التصنيفات الافتراضية للخامات لترتبط مستقبلاً بمخزون المواد الخام
       const orgId = targetOrgId || (currentUser as any)?.organization_id;
@@ -678,22 +690,7 @@ const ProductManager = () => {
     setIsSyncingFinishedGoodsAccounts(true);
     try {
       const candidateIds = candidates.map(p => p.id);
-      let updatedTotal = 0;
-      const chunkSize = 50;
-
-      for (let i = 0; i < candidateIds.length; i += chunkSize) {
-        const chunk = candidateIds.slice(i, i + chunkSize);
-        const { error: upErr } = await supabase
-          .from('products')
-          .update({ 
-            inventory_account_id: finishedGoodsAcc,
-            updated_at: new Date().toISOString()
-          })
-          .in('id', chunk);
-
-        if (upErr) throw upErr;
-        updatedTotal += chunk.length;
-      }
+      const updatedTotal = await batchUpdateProductsInventoryAccount(candidateIds, finishedGoodsAcc);
 
       // تحديث التصنيفات الافتراضية للإنتاج التام لترتبط مستقبلاً بمخزون الإنتاج التام 10302
       const orgId = targetOrgId || (currentUser as any)?.organization_id;

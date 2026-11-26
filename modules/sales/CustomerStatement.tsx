@@ -11,19 +11,26 @@ import { SalesInvoicePrint } from './SalesInvoicePrint';
 import { SalesReturnPrint } from './SalesReturnPrint';
 import { ReceiptVoucherPrint } from '../finance/reports/ReceiptVoucherPrint';
 
-// 🚀 دالة مساعدة لتجزئة استعلامات المعرفات في Supabase لتجنب تجاوز الحد الأقصى لطول الرابط (HTTP 414 URI Too Long)
+// 🚀 دالة مساعدة لتجزئة استعلامات المعرفات في Supabase وتنفيذها بتوازي محكوم لتجنب HTTP 414 وتسريع كشف الحساب
 async function fetchInChunks<T>(
   items: string[],
   chunkSize: number,
   fetcher: (chunk: string[]) => Promise<T[]>
 ): Promise<T[]> {
   if (!items || items.length === 0) return [];
-  const results: T[] = [];
+  const chunks: string[][] = [];
   for (let i = 0; i < items.length; i += chunkSize) {
-    const chunk = items.slice(i, i + chunkSize);
-    const res = await fetcher(chunk);
-    if (res && res.length > 0) {
-      results.push(...res);
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  const results: T[] = [];
+  const CONCURRENCY = 5;
+  for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+    const batch = chunks.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(batch.map((chunk) => fetcher(chunk)));
+    for (const res of batchResults) {
+      if (res && res.length > 0) {
+        results.push(...res);
+      }
     }
   }
   return results;

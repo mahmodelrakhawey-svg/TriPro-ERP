@@ -53,23 +53,23 @@ export const FiscalPeriodManager: React.FC<{ onBack?: () => void }> = ({ onBack 
         p_year: selectedYear
       });
 
-      // 2. جلب الفترات للعام المحدد
-      const { data, error } = await supabase
-        .from('accounting_periods')
-        .select('*')
-        .eq('organization_id', orgId)
-        .eq('fiscal_year', selectedYear)
-        .order('period_number', { ascending: true });
+      // 2 & 3. جلب الفترات للعام المحدد وإحصائيات القيود بالتوازي
+      const [{ data, error }, { data: entries }] = await Promise.all([
+        supabase
+          .from('accounting_periods')
+          .select('*')
+          .eq('organization_id', orgId)
+          .eq('fiscal_year', selectedYear)
+          .order('period_number', { ascending: true }),
+        supabase
+          .from('journal_entries')
+          .select('id, transaction_date, journal_lines(debit)')
+          .eq('organization_id', orgId)
+          .gte('transaction_date', `${selectedYear}-01-01`)
+          .lte('transaction_date', `${selectedYear}-12-31`),
+      ]);
 
       if (error) throw error;
-
-      // 3. جلب إحصائيات القيود لكل فترة
-      const { data: entries } = await supabase
-        .from('journal_entries')
-        .select('id, transaction_date, journal_lines(debit)')
-        .eq('organization_id', orgId)
-        .gte('transaction_date', `${selectedYear}-01-01`)
-        .lte('transaction_date', `${selectedYear}-12-31`);
 
       const enrichedPeriods = (data || []).map((p: Record<string, any>) => {
         const periodEntries = (entries || []).filter(e => 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { logger } from '../../../utils/logger';
+import { uploadVoucherAttachments } from '../../../services/voucherAttachmentService';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useAuth } from '../../../context/AuthContext';
@@ -582,30 +583,11 @@ const PaymentVoucherForm = () => {
             throw voucherError;
         }
 
-        // 1.5. رفع المرفقات (إذا وجدت)
+        // 1.5. رفع المرفقات بالتوازي (إذا وجدت)
         if (attachments.length > 0 && voucherData) {
-            for (const file of attachments) {
-                const fileExt = file.name.split('.').pop();
-                const fileName = `${voucherData.id}-${Date.now()}-${Math.random()}.${fileExt}`;
-                const filePath = `vouchers/${fileName}`;
-
-                const { error: uploadError } = await supabase.storage
-                    .from('documents') // اسم الـ Bucket
-                    .upload(filePath, file);
-
-                if (uploadError) {
-                    logger.error('Upload failed:', uploadError);
-                    showToast(`تم حفظ السند ولكن فشل رفع المرفق: ${file.name}. السبب: ${uploadError.message}`, 'warning');
-                } else {
-                    // حفظ بيانات المرفق في الجدول الجديد
-                    await supabase.from('payment_voucher_attachments').insert({
-                        voucher_id: voucherData.id,
-                        file_path: filePath,
-                        file_name: file.name,
-                        file_type: file.type,
-                        file_size: file.size
-                    });
-                }
+            const { failedFiles } = await uploadVoucherAttachments(voucherData.id, attachments, 'payment_voucher_attachments');
+            for (const failed of failedFiles) {
+                showToast(`تم حفظ السند ولكن فشل رفع المرفق: ${failed.name}. السبب: ${failed.error}`, 'warning');
             }
         }
 

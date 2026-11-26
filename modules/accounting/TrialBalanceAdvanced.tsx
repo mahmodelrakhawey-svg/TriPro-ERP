@@ -147,47 +147,8 @@ const TrialBalanceAdvanced = () => {
       // 🛡️ الخطوة 2 (Graceful Degradation Fallback): جلب السطور مقسمة إذا لم تتوفر دالة الخادم
       if (!rpcSuccess) {
         setRpcSummary(null);
-        const seenLineIds = new Set<string>();
-        const allLines: any[] = [];
-        let from = 0;
-        const CHUNK_SIZE = 1000;
-        let fetchCompleted = false;
-
-        while (true) {
-          const { data: chunk, error: chunkErr } = await supabase
-            .from('journal_lines')
-            .select('id, journal_entry_id, account_id, debit, credit, description, journal_entries!inner(id, reference, description, transaction_date, status, organization_id)')
-            .eq('journal_entries.status', 'posted')
-            .eq('journal_entries.organization_id', userOrgId)
-            .lte('journal_entries.transaction_date', endDate)
-            .order('journal_entry_id', { ascending: true })
-            .order('id', { ascending: true })
-            .range(from, from + CHUNK_SIZE - 1);
-
-          if (chunkErr) throw chunkErr;
-          if (!chunk || chunk.length === 0) {
-            fetchCompleted = true;
-            break;
-          }
-
-          for (const line of chunk) {
-            const lineId = line.id || `${line.journal_entry_id}-${line.account_id}-${line.debit}-${line.credit}`;
-            if (!seenLineIds.has(lineId)) {
-              seenLineIds.add(lineId);
-              allLines.push(line);
-            }
-          }
-
-          if (chunk.length < CHUNK_SIZE) {
-            fetchCompleted = true;
-            break;
-          }
-          from += CHUNK_SIZE;
-        }
-
-        if (fetchCompleted) {
-          setLedgerLines(allLines);
-        }
+        const allLines = await fetchPostedJournalLines(userOrgId);
+        setLedgerLines(allLines);
       }
     } catch (err: unknown) {
       logger.error('Error fetching ledger:', err);
@@ -210,6 +171,38 @@ const TrialBalanceAdvanced = () => {
     }
   };
 
+  // دالة موحدة لجلب أسطر القيود المرحّلة على دفعات بدون تكرار
+  const fetchPostedJournalLines = async (userOrgId: string) => {
+    const seenLineIds = new Set<string>();
+    const allLines: any[] = [];
+    let from = 0;
+    const CHUNK_SIZE = 1000;
+    while (true) {
+      const { data: chunk, error: chunkErr } = await supabase
+        .from('journal_lines')
+        .select('id, journal_entry_id, account_id, debit, credit, description, journal_entries!inner(id, reference, description, transaction_date, status, organization_id)')
+        .eq('journal_entries.status', 'posted')
+        .eq('journal_entries.organization_id', userOrgId)
+        .lte('journal_entries.transaction_date', endDate)
+        .order('journal_entry_id', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, from + CHUNK_SIZE - 1);
+
+      if (chunkErr) throw chunkErr;
+      if (!chunk || chunk.length === 0) break;
+      for (const line of chunk) {
+        const lineId = line.id || `${line.journal_entry_id}-${line.account_id}-${line.debit}-${line.credit}`;
+        if (!seenLineIds.has(lineId)) {
+          seenLineIds.add(lineId);
+          allLines.push(line);
+        }
+      }
+      if (chunk.length < CHUNK_SIZE) break;
+      from += CHUNK_SIZE;
+    }
+    return allLines;
+  };
+
   // دالة لجلب تفاصيل الأسطر للتدقيق في حال وجود عدم اتزان
   const handleOpenUnbalancedAudit = async () => {
     if (ledgerLines.length === 0) {
@@ -230,33 +223,7 @@ const TrialBalanceAdvanced = () => {
           return;
         }
 
-        const seenLineIds = new Set<string>();
-        const allLines: any[] = [];
-        let from = 0;
-        const CHUNK_SIZE = 1000;
-        while (true) {
-          const { data: chunk, error: chunkErr } = await supabase
-            .from('journal_lines')
-            .select('id, journal_entry_id, account_id, debit, credit, description, journal_entries!inner(id, reference, description, transaction_date, status, organization_id)')
-            .eq('journal_entries.status', 'posted')
-            .eq('journal_entries.organization_id', userOrgId)
-            .lte('journal_entries.transaction_date', endDate)
-            .order('journal_entry_id', { ascending: true })
-            .order('id', { ascending: true })
-            .range(from, from + CHUNK_SIZE - 1);
-
-          if (chunkErr) throw chunkErr;
-          if (!chunk || chunk.length === 0) break;
-          for (const line of chunk) {
-            const lineId = line.id || `${line.journal_entry_id}-${line.account_id}-${line.debit}-${line.credit}`;
-            if (!seenLineIds.has(lineId)) {
-              seenLineIds.add(lineId);
-              allLines.push(line);
-            }
-          }
-          if (chunk.length < CHUNK_SIZE) break;
-          from += CHUNK_SIZE;
-        }
+        const allLines = await fetchPostedJournalLines(userOrgId);
         setLedgerLines(allLines);
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err || '');

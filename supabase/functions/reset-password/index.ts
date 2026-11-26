@@ -1,14 +1,31 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 
-// 🛡️ ترويسات CORS للسماح بالطلبات من المتصفح (Localhost أو نطاق الإنتاج)
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+// 🛡️ ترويسات CORS الآمنة (تسمح بالطلبات من بيئات التطوير المحلية ونطاقات الإنتاج المعتمدة)
+const isAllowedOrigin = (orig?: string | null): boolean => {
+  if (!orig) return false
+  if (/^https?:\/\/localhost(:\d+)?$/.test(orig)) return true
+  if (/^https?:\/\/127\.0\.0\.1(:\d+)?$/.test(orig)) return true
+  if (/^https?:\/\/tri-?pro-erp(-[a-zA-Z0-9-]+)?\.vercel\.app$/.test(orig)) return true
+  const appUrl = Deno.env.get('APP_URL')
+  if (appUrl && orig === appUrl) return true
+  return false
+}
+
+const getCorsHeaders = (req: Request) => {
+  const origin = req.headers.get('origin')
+  const allowedOrigin = isAllowedOrigin(origin) ? origin! : (Deno.env.get('APP_URL') || 'https://tri-pro-erp-lenza.vercel.app')
+  return {
+    'Access-Control-Allow-Origin': allowedOrigin,
+    'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Vary': 'Origin',
+  }
 }
 
 serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req)
+
   // 1. التعامل مع طلب Preflight الخاص بالمتصفح
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders, status: 200 })
@@ -47,15 +64,22 @@ serve(async (req) => {
       })
     }
 
-    // جلب دور وصلاحية المستخدم المتصل من profiles
+    // جلب دور وصلاحية وحالة نشاط المستخدم المتصل من profiles
     const { data: callerProfile, error: profileError } = await supabaseClient
       .from('profiles')
-      .select('role, organization_id')
+      .select('role, organization_id, is_active')
       .eq('id', callerUser.id)
       .single()
 
     if (profileError || !callerProfile) {
       return new Response(JSON.stringify({ error: 'Forbidden: User profile not found' }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 403,
+      })
+    }
+
+    if (callerProfile.is_active === false) {
+      return new Response(JSON.stringify({ error: 'Forbidden: Deactivated account' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 403,
       })

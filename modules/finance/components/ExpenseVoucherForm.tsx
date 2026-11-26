@@ -1,4 +1,5 @@
 import { logger } from '../../../utils/logger';
+import { uploadVoucherAttachments } from '../../../services/voucherAttachmentService';
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -336,23 +337,9 @@ const ExpenseVoucherForm = () => {
 
             if (voucherError) throw voucherError;
 
-            // 2. Upload Attachments
+            // 2. Upload Attachments in parallel
             if (attachments.length > 0 && voucherData) {
-                for (const file of attachments) {
-                    const fileExt = file.name.split('.').pop();
-                    const fileName = `${voucherData.id}-${Date.now()}-${Math.random()}.${fileExt}`;
-                    const filePath = `vouchers/${fileName}`;
-                    const { error: uploadError } = await supabase.storage.from('documents').upload(filePath, file);
-                    if (!uploadError) {
-                        await supabase.from('payment_voucher_attachments').insert({
-                            voucher_id: voucherData.id,
-                            file_path: filePath,
-                            file_name: file.name,
-                            file_type: file.type,
-                            file_size: file.size
-                        });
-                    }
-                }
+                await uploadVoucherAttachments(voucherData.id, attachments, 'payment_voucher_attachments');
             }
 
             // 3. Create Journal Entry (Using RPC or Manual)

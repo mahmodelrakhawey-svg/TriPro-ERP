@@ -70,39 +70,65 @@ const BatchOrderManager = () => {
     );
   };
 
-  // ميزة التحقق من النقص قبل الدمج
+  // ميزة التحقق من النقص قبل الدمج (استعلامات مجمّعة ومتوازية)
   const checkAvailability = async () => {
     if (selectedIds.length === 0) return true;
     setProcessing(true);
-    
-    let allShortages: Shortage[] = [];
-    
-    for (const id of selectedIds) {
-      // محاولة جلب الأصناف من الفواتير
-      let { data: items } = await supabase.from('invoice_items').select('product_id, quantity').eq('invoice_id', id);
-      
-      // إذا لم يجد شيئاً، يبحث في أوامر البيع
-      if (!items || items.length === 0) {
-        const { data: soItems } = await supabase.from('sales_order_items').select('product_id, quantity').eq('sales_order_id', id);
-        items = soItems;
+
+    try {
+      const [{ data: invItems }, { data: soItems }] = await Promise.all([
+        supabase.from('invoice_items').select('invoice_id, product_id, quantity').in('invoice_id', selectedIds),
+        supabase.from('sales_order_items').select('sales_order_id, product_id, quantity').in('sales_order_id', selectedIds),
+      ]);
+
+      const invByOrder = new Map<string, Array<{ product_id: string; quantity: number }>>();
+      for (const row of invItems || []) {
+        const list = invByOrder.get(row.invoice_id) || [];
+        list.push({ product_id: row.product_id, quantity: row.quantity });
+        invByOrder.set(row.invoice_id, list);
       }
-      
-      if (items) {
-        for (const item of items) {
-          const { data: shortageData } = await supabase.rpc('mfg_check_stock_availability', {
-            p_product_id: item.product_id,
-            p_quantity: item.quantity
-          });
-          if (shortageData && shortageData.length > 0) {
-            allShortages = [...allShortages, ...shortageData];
+
+      const soByOrder = new Map<string, Array<{ product_id: string; quantity: number }>>();
+      for (const row of soItems || []) {
+        const list = soByOrder.get(row.sales_order_id) || [];
+        list.push({ product_id: row.product_id, quantity: row.quantity });
+        soByOrder.set(row.sales_order_id, list);
+      }
+
+      const itemsToCheck: Array<{ product_id: string; quantity: number }> = [];
+      for (const id of selectedIds) {
+        const matched = invByOrder.get(id);
+        if (matched && matched.length > 0) {
+          itemsToCheck.push(...matched);
+        } else {
+          const fallbackSo = soByOrder.get(id);
+          if (fallbackSo && fallbackSo.length > 0) {
+            itemsToCheck.push(...fallbackSo);
           }
         }
       }
-    }
 
-    setShortages(allShortages);
-    setProcessing(false);
-    return allShortages.length === 0;
+      const shortageResults = await Promise.all(
+        itemsToCheck.map((item) =>
+          supabase.rpc('mfg_check_stock_availability', {
+            p_product_id: item.product_id,
+            p_quantity: item.quantity,
+          })
+        )
+      );
+
+      const allShortages: Shortage[] = [];
+      for (const res of shortageResults) {
+        if (res.data && res.data.length > 0) {
+          allShortages.push(...res.data);
+        }
+      }
+
+      setShortages(allShortages);
+      return allShortages.length === 0;
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const handleReschedule = () => {
