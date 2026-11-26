@@ -107,7 +107,7 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     }
 
     try {
-      const [invData, custRes, spRes] = await Promise.all([
+      const [invData, spRes] = await Promise.all([
         isOperationalRole
           ? Promise.resolve([] as SalesInvoice[])
           : queryClient.fetchQuery({
@@ -131,12 +131,6 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
               staleTime: STALE_TIMES.TRANSACTIONS,
             }),
         supabase
-          .from('customers')
-          .select('*')
-          .eq('organization_id', targetOrgId)
-          .is('deleted_at', null)
-          .order('name'),
-        supabase
           .from('profiles')
           .select('id, full_name')
           .eq('organization_id', targetOrgId)
@@ -144,9 +138,6 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
       ]);
 
       setInvoices(invData || []);
-      if (!custRes.error) {
-        setCustomers((custRes.data as Customer[]) || []);
-      }
       if (!spRes.error) {
         const mappedSalespeople: Salesperson[] = (spRes.data || []).map((p: { id: string; full_name?: string }) => ({
           id: p.id,

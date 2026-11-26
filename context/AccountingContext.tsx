@@ -28,7 +28,7 @@ export interface UserProfile {
 
 
 import { offlineService, isValidUUID } from '../services/offlineService';
-import { setActiveOrgId, getActiveOrgIdSync } from '../services/tenantContext';
+import { setActiveOrgId, getActiveOrgIdSync, resolveActiveOrgId } from '../services/tenantContext';
 import { ApprovalWorkflowService } from '../services/approvalWorkflowService';
 import { closeFinancialYearEngine, reopenFinancialYearEngine } from '../services/financialYearService';
 import { deleteOrganizationSafe } from '../services/organizationService';
@@ -738,34 +738,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       setAssets(assetData?.data || []);
       setBudgets(budgetData?.data || []);
 
-      const { data: vchrs } = await supabase
-        .from('payment_vouchers')
-        .select('*')
-        .eq('organization_id', fetchOrgId)
-        .is('deleted_at', null)
-        .order('payment_date', { ascending: false })
-        .limit(200);
-      interface RawVoucherRow {
-        payment_date?: string | null;
-        date?: string | null;
-        created_at?: string | null;
-        notes?: string | null;
-        description?: string | null;
-        supplier_id?: string | null;
-        party_id?: string | null;
-        [key: string]: unknown;
-      }
-      const mappedVchrs = (vchrs || []).map((row: RawVoucherRow) => ({
-        ...row,
-        date: (row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : '')) as string,
-        payment_date: (row.payment_date || row.date || (row.created_at ? row.created_at.split('T')[0] : '')) as string,
-        description: (row.notes || row.description || '') as string,
-        notes: (row.notes || row.description || '') as string,
-        type: 'payment',
-        subType: row.supplier_id ? 'supplier' : 'account',
-        party_id: (row.supplier_id || row.party_id) as string,
-      }));
-      setVouchers(mappedVchrs);
+      // السندات تُجلب مركزياً عبر BankingProvider لتفادي التكرار في التهيئة
+      setVouchers([]);
       setCostCenters(ccs.data || []);
 
       // 🛡️ عزل نطاق الإشراف للموارد البشرية والرواتب (HR Supervisory Scope)
@@ -1418,7 +1392,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await refreshProductsAndInventory(); 
   };
   const cancelStockTransfer = async (id: string) => { 
-    await supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id); 
+    const targetOrgId = getActiveOrgIdSync(currentSelectedOrgId || currentUser?.organization_id) || await resolveActiveOrgId(currentSelectedOrgId || currentUser?.organization_id);
+    let cancelQuery = supabase.from('stock_transfers').update({ status: 'cancelled' }).eq('id', id);
+    if (targetOrgId) cancelQuery = cancelQuery.eq('organization_id', targetOrgId);
+    await cancelQuery;
     showToast('تم إلغاء طلب التحويل', 'info'); 
     await refreshProductsAndInventory(); 
   };
@@ -1904,8 +1881,8 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
   const addPaymentVoucher = async (data: DynamicParam) => { 
-    const { data: { session } } = await supabase.auth.getSession();
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || session?.user?.user_metadata?.org_id || (currentUser as any)?.user_metadata?.org_id;
+    const explicitOrgId = currentSelectedOrgId || currentUser?.organization_id;
+    const targetOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
     const supplierId = data.partyId || data.supplierId || data.supplier_id;
     const treasuryId = data.treasuryAccountId || data.treasury_account_id || data.treasuryId;
     const amount = Number(data.amount) || 0;

@@ -3,6 +3,7 @@ import { supabase } from '@/supabaseClient';
 import { Table, Button, Card, Tag, Select, message, Row, Col, Statistic } from 'antd';
 import { LoginOutlined, BankOutlined } from '@ant-design/icons';
 import { useAccounting } from '@/context/AccountingContext';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 
 export const AdmissionManager: React.FC = () => {
   const { organization } = useAccounting();
@@ -11,44 +12,57 @@ export const AdmissionManager: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [selectedBeds, setSelectedBeds] = useState<Record<string, string>>({});
 
-  const fetchData = async () => {
-    if (!organization?.id) return;
+  const fetchData = async (resolvedOrgId?: string) => {
+    const orgId = resolvedOrgId || getActiveOrgIdSync(organization?.id) || await resolveActiveOrgId(organization?.id);
+    if (!orgId) return;
     setLoading(true);
     // جلب الحالات التي تحتاج تنويم ولم تُسكن بعد
-    const { data: visits } = await supabase
-      .from('hims_visits')
-      .select('*, hims_patients(full_name)')
-      .eq('organization_id', organization.id)
-      .eq('visit_type', 'inpatient')
-      .eq('status', 'triaged');
+    const [visitsRes, bedsRes] = await Promise.all([
+      supabase
+        .from('hims_visits')
+        .select('id, visit_date, chief_complaint, patient_id, hims_patients(full_name)')
+        .eq('organization_id', orgId)
+        .eq('visit_type', 'inpatient')
+        .eq('status', 'triaged')
+        .limit(200),
+      supabase
+        .from('hims_beds')
+        .select('id, bed_number, daily_rate, ward_id, hims_wards(name)')
+        .eq('organization_id', orgId)
+        .eq('status', 'available')
+        .limit(200)
+    ]);
 
-    // جلب الأسرة المتاحة
-    const { data: beds } = await supabase
-      .from('hims_beds')
-      .select('*, hims_wards(name)')
-      .eq('organization_id', organization.id)
-      .eq('status', 'available');
-
-    setPendingVisits(visits || []);
-    setAvailableBeds(beds || []);
+    setPendingVisits(visitsRes.data || []);
+    setAvailableBeds(bedsRes.data || []);
     setLoading(false);
   };
 
-  useEffect(() => { 
-    fetchData(); 
+  useEffect(() => {
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let isMounted = true;
 
-    // 📡 تفعيل المراقبة اللحظية لضمان تحديث قائمة الأسرة والزيارات فوراً
-    const channel = supabase.channel('hims-admission-sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'hims_beds' }, () => {
-        fetchData();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'hims_visits' }, () => {
-        fetchData();
-      })
-      .subscribe();
+    const init = async () => {
+      const orgId = getActiveOrgIdSync(organization?.id) || await resolveActiveOrgId(organization?.id);
+      if (!orgId || !isMounted) return;
+      await fetchData(orgId);
+
+      // 📡 تفعيل المراقبة اللحظية المعزولة بالمنشأة لضمان تحديث قائمة الأسرة والزيارات فوراً
+      channel = supabase.channel(`hims-admission-sync-${orgId}`)
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'hims_beds', filter: `organization_id=eq.${orgId}` }, () => {
+          fetchData(orgId);
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'hims_visits', filter: `organization_id=eq.${orgId}` }, () => {
+          fetchData(orgId);
+        })
+        .subscribe();
+    };
+
+    init();
 
     return () => {
-      supabase.removeChannel(channel);
+      isMounted = false;
+      if (channel) supabase.removeChannel(channel);
     };
   }, [organization?.id]);
 

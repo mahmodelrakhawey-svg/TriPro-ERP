@@ -295,6 +295,96 @@ class NotificationService {
   }
 
   /**
+   * إنشاء مجموعة إشعارات دفعة واحدة لمنع الحلقات المتتابعة (N+1)
+   */
+  static async createNotificationsBatch(
+    entries: Array<{
+      userId: string;
+      orgId: string;
+      title: string;
+      message: string;
+      type: NotificationType;
+      priority?: NotificationPriority;
+      relatedId?: string;
+      actionUrl?: string;
+      expiresAt?: string;
+    }>
+  ): Promise<void> {
+    if (!entries || entries.length === 0) return;
+    try {
+      const authCtx = await this.getCurrentAuthUserContext();
+      const createdAt = new Date().toISOString();
+
+      const normalized = entries
+        .map(e => ({
+          user_id: this.sanitizeUuid(e.userId),
+          organization_id: this.sanitizeUuid(e.orgId),
+          title: e.title,
+          message: e.message,
+          type: e.type,
+          priority: e.priority || 'medium',
+          is_read: false,
+          related_id: this.sanitizeUuid(e.relatedId),
+          action_url: e.actionUrl,
+          created_at: createdAt,
+          expires_at: e.expiresAt,
+        }))
+        .filter(e => Boolean(e.user_id) && (!this.rlsBlockedCrossUser || e.user_id === authCtx.userId));
+
+      if (normalized.length === 0) return;
+
+      // فحص الإشعارات غير المقروءة الموجودة مسبقاً باستعلام واحد لمنع التكرار
+      const relatedIds = Array.from(new Set(normalized.map(e => e.related_id).filter((id): id is string => Boolean(id))));
+      const types = Array.from(new Set(normalized.map(e => e.type)));
+      const existingKeys = new Set<string>();
+
+      if (relatedIds.length > 0 && normalized[0].organization_id) {
+        let exQuery = supabase
+          .from('notifications')
+          .select('user_id, type, related_id')
+          .eq('organization_id', normalized[0].organization_id)
+          .eq('is_read', false)
+          .in('type', types)
+          .in('related_id', relatedIds);
+
+        if (!this.isOrgWideActor(authCtx.role) && authCtx.userId) {
+          exQuery = exQuery.eq('user_id', authCtx.userId);
+        }
+
+        const { data: existingRows } = await exQuery.limit(500);
+        (existingRows || []).forEach(r => {
+          if (r.user_id && r.type && r.related_id) {
+            existingKeys.add(`${r.user_id}:${r.type}:${r.related_id}`);
+          }
+        });
+      }
+
+      const toInsert = normalized.filter(e => {
+        if (!e.related_id) return true;
+        return !existingKeys.has(`${e.user_id}:${e.type}:${e.related_id}`);
+      });
+
+      if (toInsert.length === 0) return;
+
+      const { error } = await supabase.from('notifications').insert(toInsert);
+      if (error) {
+        const msg = (error.message || '').toLowerCase();
+        if (error.code === '42501' || msg.includes('row-level security') || msg.includes('policy')) {
+          this.rlsBlockedCrossUser = true;
+          const selfRows = toInsert.filter(r => r.user_id === authCtx.userId);
+          if (selfRows.length > 0) {
+            await supabase.from('notifications').insert(selfRows);
+          }
+        } else {
+          logger.warn('Notice creating batch notifications:', error.message);
+        }
+      }
+    } catch (err) {
+      logger.warn('Batch notification creation notice:', err);
+    }
+  }
+
+  /**
    * جلب الإخطارات غير المقروءة للمستخدم
    */
   static async getUnreadNotifications(userId: string, orgId: string): Promise<Notification[]> {
@@ -522,22 +612,22 @@ class NotificationService {
         })
         .slice(0, 20);
 
-      for (const item of neededAlerts) {
+      const batchEntries = neededAlerts.flatMap(item => {
         const minLevel = item.min_stock_level || 5;
-        for (const targetUserId of targetUserIds) {
-          if (this.rlsBlockedCrossUser && targetUserId !== authCtx.userId) continue;
-          await this.createNotification(
-            targetUserId,
+        return targetUserIds
+          .filter(targetUserId => !this.rlsBlockedCrossUser || targetUserId === authCtx.userId)
+          .map(targetUserId => ({
+            userId: targetUserId,
             orgId,
-            `مخزون منخفض: ${item.name}`,
-            `المخزون الحالي: ${item.stock} والحد الأدنى: ${minLevel}`,
-            'low_inventory',
-            'medium',
-            item.id,
-            `/products`
-          );
-        }
-      }
+            title: `مخزون منخفض: ${item.name}`,
+            message: `المخزون الحالي: ${item.stock} والحد الأدنى: ${minLevel}`,
+            type: 'low_inventory' as NotificationType,
+            priority: 'medium' as NotificationPriority,
+            relatedId: item.id,
+            actionUrl: `/products`
+          }));
+      });
+      await this.createNotificationsBatch(batchEntries);
     } catch (err) {
       logger.error('Error checking low inventory:', err);
     }
@@ -615,22 +705,22 @@ class NotificationService {
         .eq('status', 'draft')
         .lt('invoice_date', new Date(Date.now() - 86400000).toISOString().split('T')[0]);
 
-      if (pendingInvoices) {
-        for (const invoice of pendingInvoices) {
-          for (const targetUserId of targetUserIds) {
-            if (this.rlsBlockedCrossUser && targetUserId !== authCtx.userId) continue;
-            await this.createNotification(
-              targetUserId,
+      if (pendingInvoices && pendingInvoices.length > 0) {
+        const batchEntries = pendingInvoices.flatMap(invoice =>
+          targetUserIds
+            .filter(targetUserId => !this.rlsBlockedCrossUser || targetUserId === authCtx.userId)
+            .map(targetUserId => ({
+              userId: targetUserId,
               orgId,
-              `مسودة فاتورة معلقة: ${invoice.invoice_number}`,
-              `الفاتورة لا تزال مسودة منذ أكثر من 24 ساعة`,
-              'pending_approval',
-              'medium',
-              invoice.id,
-              `/sales-invoice?id=${invoice.id}`
-            );
-          }
-        }
+              title: `مسودة فاتورة معلقة: ${invoice.invoice_number}`,
+              message: `الفاتورة لا تزال مسودة منذ أكثر من 24 ساعة`,
+              type: 'pending_approval' as NotificationType,
+              priority: 'medium' as NotificationPriority,
+              relatedId: invoice.id,
+              actionUrl: `/sales-invoice?id=${invoice.id}`
+            }))
+        );
+        await this.createNotificationsBatch(batchEntries);
       }
     } catch (err) {
       logger.error('Error checking pending approvals:', err);
@@ -714,47 +804,55 @@ class NotificationService {
       nextWeek.setDate(nextWeek.getDate() + 7);
       const nextWeekStr = nextWeek.toISOString().split('T')[0];
 
-      // 1. فحص محتجزات العملاء
-      const { data: customerRetentions } = await supabase
-        .from('project_progress_billings')
-        .select('id, billing_number, retention_release_date, project_id')
-        .eq('organization_id', orgId)
-        .lte('retention_release_date', nextWeekStr)
-        .gt('retention_amount', 0)
-        .eq('status', 'approved');
+      // 1 & 2. فحص محتجزات العملاء ومقاولي الباطن بالتوازي
+      const [{ data: customerRetentions }, { data: subRetentions }] = await Promise.all([
+        supabase
+          .from('project_progress_billings')
+          .select('id, billing_number, retention_release_date, project_id')
+          .eq('organization_id', orgId)
+          .lte('retention_release_date', nextWeekStr)
+          .gt('retention_amount', 0)
+          .eq('status', 'approved'),
+        supabase
+          .from('subcontractor_billings')
+          .select('id, billing_number, retention_release_date')
+          .eq('organization_id', orgId)
+          .lte('retention_release_date', nextWeekStr)
+          .gt('retention_amount', 0)
+          .eq('status', 'approved')
+      ]);
 
-      // 2. فحص محتجزات مقاولي الباطن
-      const { data: subRetentions } = await supabase
-        .from('subcontractor_billings')
-        .select('id, billing_number, retention_release_date')
-        .eq('organization_id', orgId)
-        .lte('retention_release_date', nextWeekStr)
-        .gt('retention_amount', 0)
-        .eq('status', 'approved');
-
-      // إرسال تنبيهات للعملاء
-      for (const item of (customerRetentions || [])) {
-        for (const targetUserId of targetUserIds) {
-          if (this.rlsBlockedCrossUser && targetUserId !== authCtx.userId) continue;
-          await this.createNotification(
-            targetUserId, orgId, 'موعد استرداد تأمين',
-            `المستخلص رقم ${item.billing_number} حان موعد فك محتجز الضمان الخاص به بتاريخ ${item.retention_release_date}`,
-            'retention_release_alert', 'high', item.id, `/construction`
-          );
-        }
-      }
-
-      // إرسال تنبيهات للمقاولين
-      for (const item of (subRetentions || [])) {
-        for (const targetUserId of targetUserIds) {
-          if (this.rlsBlockedCrossUser && targetUserId !== authCtx.userId) continue;
-          await this.createNotification(
-            targetUserId, orgId, 'استحقاق رد تأمين مقاول',
-            `المستخلص رقم ${item.billing_number} يستحق رد محتجز الضمان للمقاول بتاريخ ${item.retention_release_date}`,
-            'retention_release_alert', 'medium', item.id, `/subcontractors`
-          );
-        }
-      }
+      const retentionBatch = [
+        ...(customerRetentions || []).flatMap(item =>
+          targetUserIds
+            .filter(targetUserId => !this.rlsBlockedCrossUser || targetUserId === authCtx.userId)
+            .map(targetUserId => ({
+              userId: targetUserId,
+              orgId,
+              title: 'موعد استرداد تأمين',
+              message: `المستخلص رقم ${item.billing_number} حان موعد فك محتجز الضمان الخاص به بتاريخ ${item.retention_release_date}`,
+              type: 'retention_release_alert' as NotificationType,
+              priority: 'high' as NotificationPriority,
+              relatedId: item.id,
+              actionUrl: `/construction`
+            }))
+        ),
+        ...(subRetentions || []).flatMap(item =>
+          targetUserIds
+            .filter(targetUserId => !this.rlsBlockedCrossUser || targetUserId === authCtx.userId)
+            .map(targetUserId => ({
+              userId: targetUserId,
+              orgId,
+              title: 'استحقاق رد تأمين مقاول',
+              message: `المستخلص رقم ${item.billing_number} يستحق رد محتجز الضمان للمقاول بتاريخ ${item.retention_release_date}`,
+              type: 'retention_release_alert' as NotificationType,
+              priority: 'medium' as NotificationPriority,
+              relatedId: item.id,
+              actionUrl: `/subcontractors`
+            }))
+        )
+      ];
+      await this.createNotificationsBatch(retentionBatch);
     } catch (err) {
       logger.error('Error checking retention releases:', err);
     }
