@@ -50,4 +50,18 @@ describe('🛡️ Security & Performance Regression Guards', () => {
     expect(read('modules/finance/components/ReceiptVoucherForm.tsx')).toContain('uploadVoucherAttachments');
     expect(read('modules/finance/components/ExpenseVoucherForm.tsx')).toContain('uploadVoucherAttachments');
   });
+
+  it('construction reports and daily image uploads run independent queries in parallel', () => {
+    expect(read('modules/construction/components/ProjectComprehensiveReport.tsx')).toContain('await Promise.all([');
+    expect(read('modules/construction/components/ConstructionDashboard.tsx')).toContain('await Promise.all([');
+    expect(read('modules/construction/components/DailyReportForm.tsx')).toContain('await Promise.all(');
+  });
+
+  it('Batch 5 & 6 trim select(*) in heavy reports and parallelize StadiumDashboard & AttendanceManager', () => {
+    expect(read('modules/inventory/WastageReport.tsx')).not.toContain(".select('*')");
+    expect(read('modules/construction/components/MaterialWasteAnalytics.tsx')).toContain('await Promise.all([');
+    expect(read('modules/construction/components/MaterialWasteAnalytics.tsx')).not.toContain(".select('*')");
+    expect(read('modules/stadium/components/StadiumDashboard.tsx')).toContain('monthOffsets.map');
+    expect(read('modules/hr/components/AttendanceManager.tsx')).toContain('UPDATE_CONCURRENCY');
+  });
 });

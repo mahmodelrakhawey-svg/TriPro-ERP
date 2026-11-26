@@ -116,47 +116,49 @@ export default function StadiumDashboard() {
         { name: 'البرامج', value: progsRev }
       ].filter(item => item.value > 0));
 
-      // Monthly Revenue for last 6 months
-      const sixMonthsData: any[] = [];
-      for (let i = 5; i >= 0; i--) {
-        const d = today.subtract(i, 'month');
-        const sMonth = d.startOf('month').toISOString();
-        const eMonth = d.endOf('month').toISOString();
-
-        const [
-          { data: sub }, { data: bking }, { data: rnt }, { data: prg }
-        ] = await Promise.all([
-          supabase.from('stadium_subscriptions').select('amount_paid').eq('organization_id', orgId).gte('payment_date', sMonth).lte('payment_date', eMonth),
-          supabase.from('stadium_bookings').select('total_amount').eq('organization_id', orgId).gte('created_at', sMonth).lte('created_at', eMonth).in('status', ['confirmed', 'paid']),
-          supabase.from('stadium_rental_payments').select('amount_paid').eq('organization_id', orgId).gte('payment_date', sMonth).lte('payment_date', eMonth),
-          supabase.from('stadium_program_enrollments').select('amount_paid').eq('organization_id', orgId).gte('enrollment_date', sMonth).lte('enrollment_date', eMonth)
-        ]);
-        const mthTotal = 
-          (sub?.reduce((sum, item) => sum + (item.amount_paid || 0), 0) || 0) +
-          (bking?.reduce((sum, item) => sum + (item.total_amount || 0), 0) || 0) +
-          (rnt?.reduce((sum, item) => sum + (item.amount_paid || 0), 0) || 0) +
-          (prg?.reduce((sum, item) => sum + (item.amount_paid || 0), 0) || 0);
-
-        sixMonthsData.push({
-          month: d.locale('ar').format('MMM YYYY'),
-          الإيرادات: mthTotal
-        });
-      }
-      setMonthlyRevenueData(sixMonthsData);
-
-      // Alerts
+      // Monthly Revenue for last 6 months & Alerts in parallel
       const nextWeek = today.add(7, 'day').toISOString();
-      const { data: expMembers } = await supabase.from('stadium_members')
-        .select('*')
-        .eq('organization_id', orgId)
-        .eq('status', 'active')
-        .lte('end_date', nextWeek);
-      
-      const { data: overContracts } = await supabase.from('stadium_rental_contracts')
-        .select('*')
-        .eq('organization_id', orgId)
-        .eq('status', 'active')
-        .lt('next_due_date', startOfTodayStr);
+      const monthOffsets = [5, 4, 3, 2, 1, 0];
+
+      const [sixMonthsData, { data: expMembers }, { data: overContracts }] = await Promise.all([
+        Promise.all(
+          monthOffsets.map(async (i) => {
+            const d = today.subtract(i, 'month');
+            const sMonth = d.startOf('month').toISOString();
+            const eMonth = d.endOf('month').toISOString();
+
+            const [
+              { data: sub }, { data: bking }, { data: rnt }, { data: prg }
+            ] = await Promise.all([
+              supabase.from('stadium_subscriptions').select('amount_paid').eq('organization_id', orgId).gte('payment_date', sMonth).lte('payment_date', eMonth),
+              supabase.from('stadium_bookings').select('total_amount').eq('organization_id', orgId).gte('created_at', sMonth).lte('created_at', eMonth).in('status', ['confirmed', 'paid']),
+              supabase.from('stadium_rental_payments').select('amount_paid').eq('organization_id', orgId).gte('payment_date', sMonth).lte('payment_date', eMonth),
+              supabase.from('stadium_program_enrollments').select('amount_paid').eq('organization_id', orgId).gte('enrollment_date', sMonth).lte('enrollment_date', eMonth)
+            ]);
+            const mthTotal =
+              (sub?.reduce((sum, item) => sum + (item.amount_paid || 0), 0) || 0) +
+              (bking?.reduce((sum, item) => sum + (item.total_amount || 0), 0) || 0) +
+              (rnt?.reduce((sum, item) => sum + (item.amount_paid || 0), 0) || 0) +
+              (prg?.reduce((sum, item) => sum + (item.amount_paid || 0), 0) || 0);
+
+            return {
+              month: d.locale('ar').format('MMM YYYY'),
+              الإيرادات: mthTotal
+            };
+          })
+        ),
+        supabase.from('stadium_members')
+          .select('*')
+          .eq('organization_id', orgId)
+          .eq('status', 'active')
+          .lte('end_date', nextWeek),
+        supabase.from('stadium_rental_contracts')
+          .select('*')
+          .eq('organization_id', orgId)
+          .eq('status', 'active')
+          .lt('next_due_date', startOfTodayStr),
+      ]);
+      setMonthlyRevenueData(sixMonthsData);
 
       setExpiringMembers(expMembers || []);
       setOverdueContracts(overContracts || []);

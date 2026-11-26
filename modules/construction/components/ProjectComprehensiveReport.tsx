@@ -30,51 +30,50 @@ const ProjectComprehensiveReport: React.FC<ProjectComprehensiveReportProps> = ({
   const fetchReportData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch Project Details
-      const { data: projectDetails, error: projectError } = await supabase
-        .from('projects')
-        .select('*, customers(name)')
-        .eq('id', projectId)
-        .single();
+      // 1..6. جلب تفاصيل المشروع، الربحية، EVM، المراحل، التقارير اليومية، ومقاولي الباطن بالتوازي
+      const [
+        { data: projectDetails, error: projectError },
+        { data: profitability, error: profitabilityError },
+        { data: evmMetrics, error: evmError },
+        { data: milestones, error: milestonesError },
+        { data: dailyReports, error: dailyReportsError },
+        { data: contractSubs },
+      ] = await Promise.all([
+        supabase
+          .from('projects')
+          .select('*, customers(name)')
+          .eq('id', projectId)
+          .single(),
+        supabase
+          .from('v_project_profitability')
+          .select('*')
+          .eq('project_id', projectId)
+          .single(),
+        supabase.rpc('get_project_evm_metrics', { p_project_id: projectId }),
+        supabase
+          .from('project_milestones')
+          .select('*')
+          .eq('project_id', projectId)
+          .order('expected_start_date', { ascending: true }),
+        supabase
+          .from('project_daily_reports')
+          .select('report_date, work_description, site_images')
+          .eq('project_id', projectId)
+          .not('site_images', 'is', null)
+          .order('report_date', { ascending: false })
+          .limit(3),
+        supabase
+          .from('subcontractor_contracts')
+          .select('subcontractor_id')
+          .eq('project_id', projectId),
+      ]);
+
       if (projectError) throw projectError;
-
-      // 2. Fetch Financial Summary (Profitability)
-      const { data: profitability, error: profitabilityError } = await supabase
-        .from('v_project_profitability')
-        .select('*')
-        .eq('project_id', projectId)
-        .single();
       if (profitabilityError) logger.error("Error fetching profitability:", profitabilityError);
-
-      // 3. Fetch EVM Metrics
-      const { data: evmMetrics, error: evmError } = await supabase.rpc('get_project_evm_metrics', { p_project_id: projectId });
       if (evmError) logger.error("Error fetching EVM metrics:", evmError);
-
-      // 4. Fetch Milestones
-      const { data: milestones, error: milestonesError } = await supabase
-        .from('project_milestones')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('expected_start_date', { ascending: true });
       if (milestonesError) logger.error("Error fetching milestones:", milestonesError);
-
-      // 5. Fetch Latest Daily Reports (e.g., last 3 with images)
-      const { data: dailyReports, error: dailyReportsError } = await supabase
-        .from('project_daily_reports')
-        .select('report_date, work_description, site_images')
-        .eq('project_id', projectId)
-        .not('site_images', 'is', null)
-        .order('report_date', { ascending: false })
-        .limit(3);
       if (dailyReportsError) logger.error("Error fetching daily reports:", dailyReportsError);
 
-      // 6. Fetch Subcontractor Performance (for this project's subcontractors)
-      // جلب معرفات مقاولي الباطن المرتبطين بالمشروع أولاً
-      const { data: contractSubs } = await supabase
-        .from('subcontractor_contracts')
-        .select('subcontractor_id')
-        .eq('project_id', projectId);
-      
       const subIds = contractSubs?.map(c => c.subcontractor_id) || [];
 
       let subPerformance: any[] = [];

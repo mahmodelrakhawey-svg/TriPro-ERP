@@ -33,7 +33,7 @@ const WastageReport = () => {
             // 1. محاولة الاستعلام من الفيو أولاً إن وجدت مع عزل الشركة (Multi-Tenant Isolation)
             let viewQuery = supabase
                 .from('vw_inventory_wastage_analysis')
-                .select('*');
+                .select('product_id, product_name, avg_purchase_price, actual_wac, cost_increase_per_unit, current_stock, total_wasted_qty, total_wastage_impact_value, organization_id');
 
             if (orgId && currentUser?.role !== 'super_admin' && currentUser?.role !== 'demo') {
                 viewQuery = viewQuery.eq('organization_id', orgId);

@@ -101,38 +101,42 @@ export default function MaterialWasteAnalytics() {
     if (!orgId) return;
     setIsLoading(true);
     try {
-      // 1. Fetch Projects
-      const { data: pData } = await supabase.from('projects').select('id, name').eq('organization_id', orgId);
-      const currentProjects = pData || [];
-      setProjectsList(currentProjects);
-
-      // 2. Fetch Manual Waste Records
-      let query = supabase
+      // 1..3. جلب المشاريع، سجلات الهالك، المقايسة، وصرف المواد بالتوازي
+      let wasteQuery = supabase
         .from('project_material_waste_analysis')
-        .select('*')
+        .select('id, project_id, material_name, unit, theoretical_quantity, actual_issued_quantity, allowed_waste_percentage, unit_cost, analysis_date, notes, created_at')
         .eq('organization_id', orgId)
         .order('created_at', { ascending: false });
 
       if (selectedProjectId !== 'ALL') {
-        query = query.eq('project_id', selectedProjectId);
+        wasteQuery = wasteQuery.eq('project_id', selectedProjectId);
       }
 
-      const { data: wasteData } = await query;
+      const [
+        { data: pData },
+        { data: wasteData },
+        { data: boqData },
+        { data: issueItemsData },
+      ] = await Promise.all([
+        supabase.from('projects').select('id, name').eq('organization_id', orgId),
+        wasteQuery,
+        supabase
+          .from('project_boq')
+          .select('id, project_id, item_name, unit, estimated_quantity, unit_price, material_cost_per_unit')
+          .eq('organization_id', orgId),
+        supabase
+          .from('project_material_issue_items')
+          .select('boq_item_id, quantity, unit_cost, product_id, products(name, sku)')
+          .eq('organization_id', orgId),
+      ]);
+
+      const currentProjects = pData || [];
+      setProjectsList(currentProjects);
+
       setWasteRecords((wasteData || []).map((d: Record<string, any>) => ({
         ...d,
         project_name: currentProjects.find(p => p.id === d.project_id)?.name || 'مشروع عام'
       })) as WasteRecord[]);
-
-      // 3. Fetch BOQ Items, Issued Materials & Billings for Automated Reconciliation
-      const { data: boqData } = await supabase
-        .from('project_boq')
-        .select('id, project_id, item_name, unit, estimated_quantity, unit_price, material_cost_per_unit')
-        .eq('organization_id', orgId);
-
-      const { data: issueItemsData } = await supabase
-        .from('project_material_issue_items')
-        .select('boq_item_id, quantity, unit_cost, product_id, products(name, sku)')
-        .eq('organization_id', orgId);
 
       // Safe Billings Query
       let billingsData: any[] = [];

@@ -73,15 +73,22 @@ const ConstructionDashboard = () => {
         return;
       }
 
-      // جلب المشاريع مع مؤشرات الأداء من الرؤية التي أنشأناها
-      const { data, error } = await supabase
-        .from('v_project_performance_dashboard')
-        .select('*')
-        .eq('organization_id', orgId);
+      // جلب المشاريع وانحرافات المواد بالتوازي
+      const [{ data, error }, { data: varianceData }] = await Promise.all([
+        supabase
+          .from('v_project_performance_dashboard')
+          .select('*')
+          .eq('organization_id', orgId),
+        supabase
+          .from('v_project_quantity_variance')
+          .select('*')
+          .eq('organization_id', orgId),
+      ]);
 
       if (error) throw error;
+      setMaterialVariances(varianceData || []);
 
-      // جلب التوقعات المالية لكل مشروع
+      // جلب التوقعات المالية لكل مشروع بالتوازي
       const projectsWithForecasts = await Promise.all((data || []).map(async (p: Record<string, any>) => {
         // 🛡️ صمام أمان: التأكد من أن project_id صالح قبل استدعاء RPC
         if (!p.project_id || typeof p.project_id !== 'string' || p.project_id.length !== 36) {
@@ -89,16 +96,21 @@ const ConstructionDashboard = () => {
           return { ...p, forecast: null, health: 0, sCurve: [], cashFlow: null } as unknown as ProjectPerformance;
         }
 
-        const { data: forecast, error: forecastError } = await supabase.rpc('mfg_predict_project_completion_cost', { p_project_id: p.project_id });
+        const [
+          { data: forecast, error: forecastError },
+          { data: health, error: healthError },
+          { data: sCurve, error: sCurveError },
+          { data: cashFlow, error: cashFlowError },
+        ] = await Promise.all([
+          supabase.rpc('mfg_predict_project_completion_cost', { p_project_id: p.project_id }),
+          supabase.rpc('get_project_health_score', { p_project_id: p.project_id }),
+          supabase.rpc('get_project_s_curve_data', { p_project_id: p.project_id }),
+          supabase.rpc('get_project_cash_flow_projection', { p_project_id: p.project_id }),
+        ]);
+
         if (forecastError) logger.error(`Error fetching forecast for ${p.project_name}:`, forecastError);
-
-        const { data: health, error: healthError } = await supabase.rpc('get_project_health_score', { p_project_id: p.project_id });
         if (healthError) logger.error(`Error fetching health for ${p.project_name}:`, healthError);
-
-        const { data: sCurve, error: sCurveError } = await supabase.rpc('get_project_s_curve_data', { p_project_id: p.project_id });
         if (sCurveError) logger.error(`Error fetching S-Curve for ${p.project_name}:`, sCurveError);
-
-        const { data: cashFlow, error: cashFlowError } = await supabase.rpc('get_project_cash_flow_projection', { p_project_id: p.project_id });
         if (cashFlowError) logger.error(`Error fetching cash flow for ${p.project_name}:`, cashFlowError);
 
         return {
@@ -111,13 +123,6 @@ const ConstructionDashboard = () => {
       }));
 
       setProjects(projectsWithForecasts);
-
-      // جلب انحرافات المواد لكافة المشاريع التابعة لهذه المنشأة فقط
-      const { data: varianceData } = await supabase
-        .from('v_project_quantity_variance')
-        .select('*')
-        .eq('organization_id', orgId);
-      setMaterialVariances(varianceData || []);
 
     } catch (err) {
       showToast('فشل تحميل تحليلات المقاولات: ' + err.message, 'error');

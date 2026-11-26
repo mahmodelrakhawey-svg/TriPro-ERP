@@ -619,12 +619,20 @@ export default function AttendanceManager() {
           if (insErr) throw insErr;
         }
 
-        for (const upd of toUpdate) {
-          const { error: updErr } = await supabase
-            .from('hr_attendance_logs')
-            .update(upd.payload)
-            .eq('id', upd.id);
-          if (updErr) throw updErr;
+        const UPDATE_CONCURRENCY = 5;
+        for (let i = 0; i < toUpdate.length; i += UPDATE_CONCURRENCY) {
+          const batch = toUpdate.slice(i, i + UPDATE_CONCURRENCY);
+          const results = await Promise.all(
+            batch.map((upd) =>
+              supabase
+                .from('hr_attendance_logs')
+                .update(upd.payload)
+                .eq('id', upd.id)
+            )
+          );
+          for (const res of results) {
+            if (res.error) throw res.error;
+          }
         }
 
         const totalProcessed = toInsert.length + toUpdate.length;

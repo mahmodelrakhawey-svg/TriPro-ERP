@@ -43,22 +43,22 @@ const DailyReportForm: React.FC<DailyReportFormProps> = ({ projectId, projectNam
 
     setUploading(true);
     try {
-      const newUrls: string[] = [];
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i];
-        const fileExt = file.name.split('.').pop();
-        const fileName = `${projectId}/${Date.now()}-${Math.random()}.${fileExt}`;
-        const filePath = `construction/reports/${fileName}`;
+      const newUrls = await Promise.all(
+        Array.from(files).map(async (file) => {
+          const fileExt = file.name.split('.').pop();
+          const fileName = `${projectId}/${Date.now()}-${Math.random()}.${fileExt}`;
+          const filePath = `construction/reports/${fileName}`;
 
-        const { error: uploadError } = await supabase.storage
-          .from('project-assets')
-          .upload(filePath, file);
+          const { error: uploadError } = await supabase.storage
+            .from('project-assets')
+            .upload(filePath, file);
 
-        if (uploadError) throw uploadError;
+          if (uploadError) throw uploadError;
 
-        const { data: { publicUrl } } = supabase.storage.from('project-assets').getPublicUrl(filePath);
-        newUrls.push(publicUrl);
-      }
+          const { data: { publicUrl } } = supabase.storage.from('project-assets').getPublicUrl(filePath);
+          return publicUrl;
+        })
+      );
       setImageUrls(prev => [...prev, ...newUrls]);
       showToast('تم رفع الصور بنجاح', 'success');
     } catch (error) {

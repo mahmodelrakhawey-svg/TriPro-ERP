@@ -920,7 +920,7 @@ const StockCard = () => {
       try {
           const { data, error } = await supabase
               .from('security_logs')
-              .select('*')
+              .select('id, created_at, description, event_type, performed_by, metadata')
               .eq('metadata->>productId', selectedProductId)
               .order('created_at', { ascending: false });
               
