@@ -15,6 +15,7 @@ import path from 'path';
 
 const ROOT = process.cwd();
 const SCHEMA_FILE = path.join(ROOT, 'supabase', 'schema_columns.json');
+const RPC_FILE = path.join(ROOT, 'supabase', 'schema_rpcs.json');
 const SCAN_DIRS = ['modules', 'services', 'context', 'components', 'utils'];
 
 // Pre-existing legacy queries predating the schema guard (do not add new entries here)
@@ -27,6 +28,8 @@ const LEGACY_ALLOWLIST = new Set([
   'invoice_items:discount',
   'invoice_items:custom_fields',
   'invoice_items:created_by',
+  'rpc:create_public_order:p_is_paid',
+  'rpc:create_public_order:p_payment_method',
 ]);
 
 // Legacy optional tables cleaned up during org purge / old migrations
@@ -38,6 +41,27 @@ const LEGACY_OPTIONAL_TABLES = new Set([
   'audit_logs',
 ]);
 
+// Pre-existing RPCs defined outside commercial_db_packages/sql_updates
+const LEGACY_OPTIONAL_RPCS = new Set([
+  'refresh_saas_schema',
+  'get_expected_raw_material_consumption',
+  'copy_modifiers_to_product',
+  'save_sales_invoice_draft',
+  'hims_transfer_patient',
+  'get_next_document_number',
+  'get_financial_summary',
+  'get_account_balance_in_period',
+  'clear_all_transactions',
+  'empty_recycle_bin',
+  'mfg_create_order_direct',
+  'delete_sales_invoice',
+  'delete_purchase_invoice',
+  'check_subscription_status',
+  'convert_quotation_to_so',
+  'export_organization_data_json',
+  'reset_demo_data',
+]);
+
 if (!fs.existsSync(SCHEMA_FILE)) {
   console.error(`❌ Schema snapshot not found: ${SCHEMA_FILE}`);
   process.exit(1);
@@ -47,6 +71,14 @@ const rawSchema = JSON.parse(fs.readFileSync(SCHEMA_FILE, 'utf8'));
 const schemaMap = new Map();
 for (const [table, cols] of Object.entries(rawSchema)) {
   schemaMap.set(table.toLowerCase(), new Set(cols.map((c) => c.toLowerCase())));
+}
+
+const rpcMap = new Map();
+if (fs.existsSync(RPC_FILE)) {
+  const rawRpcs = JSON.parse(fs.readFileSync(RPC_FILE, 'utf8'));
+  for (const [fn, params] of Object.entries(rawRpcs)) {
+    rpcMap.set(fn.toLowerCase(), new Set(params.map((p) => p.toLowerCase())));
+  }
 }
 
 function walkFiles(dir, out = []) {
@@ -327,6 +359,68 @@ export function runSchemaGuard() {
               column: col,
               context: `.${method}({ ${col}: ... })`,
             });
+          }
+        }
+      }
+    }
+
+    // 4. Check .rpc('fn_name', { param: ... })
+    if (rpcMap.size > 0) {
+      const rpcRegex = /\.rpc\(\s*['"]([a-zA-Z0-9_]+)['"]\s*(?:,\s*\{)?/g;
+      let rpcMatch;
+      while ((rpcMatch = rpcRegex.exec(content)) !== null) {
+        const fnName = rpcMatch[1].toLowerCase();
+        const lineStart = content.lastIndexOf('\n', rpcMatch.index) + 1;
+        const lineEnd = content.indexOf('\n', rpcMatch.index);
+        const lineText = content.slice(lineStart, lineEnd === -1 ? content.length : lineEnd);
+        if (lineText.includes('schema-guard-ignore')) continue;
+        const baseLine = getLineNumber(content, rpcMatch.index);
+        const allowedParams = rpcMap.get(fnName);
+        if (!allowedParams) {
+          if (LEGACY_OPTIONAL_RPCS.has(fnName)) continue;
+          violations.push({
+            file: path.relative(ROOT, file),
+            line: baseLine,
+            table: `rpc:${fnName}`,
+            column: '*',
+            context: `.rpc('${fnName}') — unknown RPC function`,
+          });
+          continue;
+        }
+        if (rpcMatch[0].endsWith('{')) {
+          const braceStart = rpcMatch.index + rpcMatch[0].length - 1;
+          let idx = braceStart + 1;
+          let depth = 1;
+          let inSingle = false;
+          let inDouble = false;
+          let inBacktick = false;
+          while (idx < content.length && depth > 0) {
+            const ch = content[idx];
+            const prev = content[idx - 1];
+            if (prev !== '\\') {
+              if (!inDouble && !inBacktick && ch === "'") inSingle = !inSingle;
+              else if (!inSingle && !inBacktick && ch === '"') inDouble = !inDouble;
+              else if (!inSingle && !inDouble && ch === '`') inBacktick = !inBacktick;
+              else if (!inSingle && !inDouble && !inBacktick) {
+                if (ch === '{') depth++;
+                else if (ch === '}') depth--;
+              }
+            }
+            idx++;
+          }
+          if (depth === 0) {
+            const body = content.slice(braceStart + 1, idx - 1);
+            for (const param of extractObjectLiteralKeys(body)) {
+              if (!allowedParams.has(param) && !LEGACY_ALLOWLIST.has(`rpc:${fnName}:${param}`)) {
+                violations.push({
+                  file: path.relative(ROOT, file),
+                  line: baseLine,
+                  table: `rpc:${fnName}`,
+                  column: param,
+                  context: `.rpc('${fnName}', { ${param}: ... })`,
+                });
+              }
+            }
           }
         }
       }

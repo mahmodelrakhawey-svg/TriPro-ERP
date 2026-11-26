@@ -1,0 +1,1389 @@
+{
+  "add_journal_entry": [
+    "attachments",
+    "date",
+    "description",
+    "lines",
+    "p_org_id",
+    "reference",
+    "status"
+  ],
+  "add_opening_balance": [
+    "p_amount",
+    "p_date",
+    "p_id",
+    "p_name",
+    "p_type"
+  ],
+  "add_product_with_opening_balance": [
+    "p_cogs_account_id",
+    "p_inventory_account_id",
+    "p_item_type",
+    "p_name",
+    "p_org_id",
+    "p_purchase_price",
+    "p_sales_account_id",
+    "p_sales_price",
+    "p_sku",
+    "p_stock",
+    "p_unit"
+  ],
+  "add_treasury_transfer": [
+    "p_amount",
+    "p_from_account_id",
+    "p_notes",
+    "p_org_id",
+    "p_to_account_id",
+    "p_transfer_date",
+    "p_user_id"
+  ],
+  "adjust_product_stock": [
+    "p_product_id",
+    "p_quantity"
+  ],
+  "admin_reset_user_password": [
+    "p_new_password",
+    "p_user_id"
+  ],
+  "analyze_wastage_reasons": [
+    "p_end_date",
+    "p_org_id",
+    "p_start_date"
+  ],
+  "approve_credit_note": [
+    "p_note_id"
+  ],
+  "approve_debit_note": [
+    "p_note_id"
+  ],
+  "approve_invoice": [
+    "p_invoice_id",
+    "p_org_id",
+    "p_skip_recalc",
+    "p_warehouse_id"
+  ],
+  "approve_payment_voucher": [
+    "p_debit_account_id",
+    "p_voucher_id"
+  ],
+  "approve_purchase_invoice": [
+    "p_invoice_id",
+    "p_org_id",
+    "p_skip_recalc",
+    "p_warehouse_id"
+  ],
+  "approve_purchase_return": [
+    "p_return_id"
+  ],
+  "approve_receipt_voucher": [
+    "p_credit_account_id",
+    "p_voucher_id"
+  ],
+  "approve_sales_return": [
+    "p_return_id"
+  ],
+  "approve_stock_transfer": [
+    "p_transfer_id"
+  ],
+  "archive_closed_fiscal_year_rpc": [
+    "p_fiscal_year_id",
+    "p_notes",
+    "p_org_id"
+  ],
+  "auto_reconcile_all_vouchers_with_gl": [
+    "p_org_id"
+  ],
+  "backfill_stock_ledger": [
+    "p_org_id"
+  ],
+  "calculate_sales_commission": [
+    "p_commission_rate",
+    "p_end_date",
+    "p_salesperson_id",
+    "p_start_date"
+  ],
+  "cancel_payroll_accrual_rpc": [
+    "p_org_id",
+    "p_payroll_id"
+  ],
+  "cancel_reservation": [
+    "p_table_id"
+  ],
+  "cancel_stock_transfer": [
+    "p_transfer_id"
+  ],
+  "cash_or_collect_cheque": [
+    "p_action_date",
+    "p_bank_account_id",
+    "p_cheque_id",
+    "p_status",
+    "p_user_id"
+  ],
+  "check_account_is_not_group": [],
+  "check_company_launch_readiness": [
+    "p_org_id"
+  ],
+  "check_file_extension_safe": [
+    "filename"
+  ],
+  "check_rate_limit": [
+    "p_key",
+    "p_max_attempts",
+    "p_window_minutes"
+  ],
+  "check_stadium_booking_overlap": [],
+  "check_user_limit": [],
+  "clean_construction_simulation_data": [
+    "p_org_id"
+  ],
+  "clean_load_test_data": [
+    "p_org_id"
+  ],
+  "clean_old_organization_backups": [
+    "p_org_id"
+  ],
+  "cleanup_orphaned_backups": [],
+  "cleanup_rate_limits": [],
+  "cleanup_storage_orphans_trigger": [],
+  "clear_demo_data": [
+    "p_org_id"
+  ],
+  "clone_organization_template": [
+    "p_options",
+    "p_source_org_id",
+    "p_target_org_id"
+  ],
+  "close_financial_year": [
+    "p_closing_date",
+    "p_org_id",
+    "p_year"
+  ],
+  "close_shift": [
+    "p_actual_cash",
+    "p_notes",
+    "p_org_id",
+    "p_reconciliation",
+    "p_shift_id"
+  ],
+  "close_table_session": [
+    "p_session_id"
+  ],
+  "complete_pos_sale_atomic": [
+    "p_cash_account_id",
+    "p_customer_id",
+    "p_items",
+    "p_notes",
+    "p_org_id",
+    "p_payment_amount",
+    "p_payment_method",
+    "p_payments",
+    "p_shift_id",
+    "p_tax",
+    "p_terminal_id",
+    "p_total_discount",
+    "p_user_id",
+    "p_warehouse_id"
+  ],
+  "complete_restaurant_order": [
+    "p_amount",
+    "p_cash_account_id",
+    "p_order_id",
+    "p_org_id",
+    "p_payment_method",
+    "p_warehouse_id"
+  ],
+  "convert_po_to_invoice": [
+    "p_org_id",
+    "p_po_id",
+    "p_warehouse_id"
+  ],
+  "convert_so_to_invoice": [
+    "p_so_id",
+    "p_warehouse_id"
+  ],
+  "create_employee_advance": [
+    "p_allow_duplicate",
+    "p_amount",
+    "p_date",
+    "p_employee_id",
+    "p_notes",
+    "p_treasury_id"
+  ],
+  "create_journal_entry": [
+    "description",
+    "entries",
+    "entry_date",
+    "org_id",
+    "reference",
+    "status"
+  ],
+  "create_journal_entry_atomic": [
+    "p_cost_center_id",
+    "p_description",
+    "p_lines",
+    "p_organization_id",
+    "p_reference",
+    "p_related_doc_id",
+    "p_related_doc_type",
+    "p_status",
+    "p_transaction_date"
+  ],
+  "create_missing_system_accounts": [
+    "p_org_id"
+  ],
+  "create_new_client_v2": [
+    "p_activity_type",
+    "p_admin_id",
+    "p_email",
+    "p_name",
+    "p_vat_number"
+  ],
+  "create_notification_from_sql": [
+    "p_action_url",
+    "p_message",
+    "p_org_id",
+    "p_priority",
+    "p_related_id",
+    "p_title",
+    "p_type",
+    "p_user_id"
+  ],
+  "create_organization_backup": [
+    "p_notes",
+    "p_org_id"
+  ],
+  "create_public_order": [
+    "p_items",
+    "p_org_id",
+    "p_qr_key"
+  ],
+  "create_restaurant_order": [
+    "p_customer_id",
+    "p_delivery_info",
+    "p_items",
+    "p_notes",
+    "p_order_type",
+    "p_org_id",
+    "p_session_id",
+    "p_user_id",
+    "p_warehouse_id"
+  ],
+  "delete_employee_advance": [
+    "p_advance_id"
+  ],
+  "delete_inventory_count": [
+    "p_count_id"
+  ],
+  "delete_journal_entry_safe": [
+    "p_entry_id",
+    "p_org_id"
+  ],
+  "delete_purchase_return": [
+    "p_org_id",
+    "p_return_id"
+  ],
+  "delete_sales_return": [
+    "p_org_id",
+    "p_return_id"
+  ],
+  "delete_stress_test_data": [
+    "p_org_id"
+  ],
+  "delete_treasury_transfer": [
+    "p_journal_entry_id"
+  ],
+  "delete_unit_test_data": [
+    "p_org_id"
+  ],
+  "fix_negative_stock_for_demo": [],
+  "fix_returns_schema": [],
+  "fix_unbalanced_journal_entry": [
+    "p_je_id"
+  ],
+  "fn_approve_change_order": [
+    "p_order_id"
+  ],
+  "fn_approve_custody_expense": [
+    "p_expense_id"
+  ],
+  "fn_approve_equipment_usage": [
+    "p_usage_log_id"
+  ],
+  "fn_approve_material_issue": [
+    "p_issue_id"
+  ],
+  "fn_approve_project_billing": [
+    "p_billing_id"
+  ],
+  "fn_approve_sub_billing": [
+    "p_billing_id"
+  ],
+  "fn_assign_cashier_to_qr_order": [],
+  "fn_audit_deletions": [],
+  "fn_audit_journal_status": [],
+  "fn_audit_log_change": [],
+  "fn_audit_sensitive_invoice_changes": [],
+  "fn_auto_approve_invoice_on_insert": [],
+  "fn_auto_approve_invoice_on_items_insert": [],
+  "fn_check_approval_requirement": [
+    "p_amount",
+    "p_doc_id",
+    "p_doc_ref",
+    "p_doc_type",
+    "p_org_id",
+    "p_requester_name"
+  ],
+  "fn_check_closed_year": [],
+  "fn_check_cpi_threshold": [
+    "p_org_id",
+    "p_threshold"
+  ],
+  "fn_check_fiscal_period_lock": [],
+  "fn_close_project": [
+    "p_project_id"
+  ],
+  "fn_construction_check_retention_releases": [
+    "p_org_id"
+  ],
+  "fn_construction_link_custody_to_payroll": [
+    "p_custody_id"
+  ],
+  "fn_create_and_disburse_custody": [
+    "p_amount",
+    "p_custody_name",
+    "p_employee_id",
+    "p_notes",
+    "p_project_id",
+    "p_source_account_id"
+  ],
+  "fn_create_project_account": [],
+  "fn_delete_organization_safe": [
+    "p_org_id"
+  ],
+  "fn_disburse_subcontractor_advance": [
+    "p_amount",
+    "p_contract_id",
+    "p_date",
+    "p_notes",
+    "p_source_account_id"
+  ],
+  "fn_enforce_journal_balance_on_post": [],
+  "fn_ensure_document_warehouse": [],
+  "fn_ensure_kitchen_order_org": [],
+  "fn_ensure_order_org_on_update": [],
+  "fn_ensure_order_warehouse": [],
+  "fn_ensure_product_accounts": [],
+  "fn_ensure_warehouse": [],
+  "fn_force_org_id_on_insert": [],
+  "fn_force_org_id_universal": [],
+  "fn_get_or_create_cheque_account": [
+    "p_account_role",
+    "p_fallback_bank_id",
+    "p_org_id"
+  ],
+  "fn_get_subcontractor_statement": [
+    "p_organization_id",
+    "p_subcontractor_id"
+  ],
+  "fn_guard_journal_balance": [],
+  "fn_guard_journal_entry_approval": [],
+  "fn_guard_journal_entry_balance": [],
+  "fn_guard_journal_entry_immutability": [],
+  "fn_guard_journal_insert_posted": [],
+  "fn_guard_journal_lines_balance": [],
+  "fn_guard_journal_lines_immutability": [],
+  "fn_guard_posted_invoice_items_immutability": [],
+  "fn_guard_posted_purchase_invoice_immutability": [],
+  "fn_guard_posted_purchase_items_immutability": [],
+  "fn_guard_posted_purchase_return_immutability": [],
+  "fn_guard_posted_purchase_return_items_immutability": [],
+  "fn_guard_posted_sales_invoice_immutability": [],
+  "fn_guard_posted_status_downgrade": [],
+  "fn_guard_profile_role_tampering": [],
+  "fn_guard_purchase_return_items_immutability": [],
+  "fn_guard_purchase_returns_immutability": [],
+  "fn_guard_sales_return_items_immutability": [],
+  "fn_guard_sales_returns_immutability": [],
+  "fn_hims_assign_queue_number": [],
+  "fn_hims_audit_medical_record": [],
+  "fn_hims_audit_prescription_change": [],
+  "fn_hims_check_allergy_before_prescription": [],
+  "fn_hims_check_appointment_conflict": [],
+  "fn_hims_check_drug_interactions": [],
+  "fn_hims_check_surgery_conflict": [],
+  "fn_hims_on_patient_insert": [],
+  "fn_hims_schedule_whatsapp_reminders": [],
+  "fn_hims_send_discharge_whatsapp": [],
+  "fn_hims_vitals_safety_guard": [],
+  "fn_mfg_auto_create_material_request": [],
+  "fn_post_site_labor_cost": [
+    "p_attendance_date",
+    "p_project_id"
+  ],
+  "fn_prevent_duplicate_voucher_reference": [],
+  "fn_prevent_entries_in_locked_periods": [],
+  "fn_prevent_journal_lines_in_locked_periods": [],
+  "fn_prevent_rogue_warehouse_duplicates": [],
+  "fn_process_approval_action": [
+    "p_action",
+    "p_approver_name",
+    "p_notes",
+    "p_request_id"
+  ],
+  "fn_protect_accounts_with_entries": [],
+  "fn_protect_customers_with_transactions": [],
+  "fn_protect_posted_invoice": [],
+  "fn_protect_posted_journal_lines": [],
+  "fn_protect_suppliers_with_transactions": [],
+  "fn_protect_system_accounts": [],
+  "fn_release_retention": [
+    "p_amount",
+    "p_notes",
+    "p_project_id",
+    "p_source_account_id",
+    "p_subcontractor_id",
+    "p_type"
+  ],
+  "fn_set_updated_at": [],
+  "fn_sync_customer_opening_balance": [],
+  "fn_sync_delete_item_category": [],
+  "fn_sync_delete_menu_category": [],
+  "fn_sync_employee_names": [],
+  "fn_sync_item_to_menu_category": [],
+  "fn_sync_menu_to_item_category": [],
+  "fn_sync_payment_voucher_journal": [],
+  "fn_sync_quotation_status_from_invoice": [],
+  "fn_sync_receipt_voucher_journal": [],
+  "fn_sync_subcontractor_to_supplier": [],
+  "fn_sync_supplier_opening_balance": [],
+  "fn_sync_user_id_compatibility": [],
+  "fn_sync_voucher_dates": [],
+  "fn_top_up_custody": [
+    "p_amount",
+    "p_custody_id",
+    "p_source_account_id"
+  ],
+  "fn_validate_journal_entry_balance": [],
+  "force_grant_admin_access": [
+    "p_org_id",
+    "p_user_id"
+  ],
+  "force_provision_admin": [
+    "p_email",
+    "p_full_name",
+    "p_org_id"
+  ],
+  "generate_shift_closing_entry": [
+    "p_org_id",
+    "p_shift_id"
+  ],
+  "get_account_balance_at_date": [
+    "p_account_id",
+    "p_date",
+    "p_org_id"
+  ],
+  "get_account_opening_balance_rpc": [
+    "p_account_ids",
+    "p_org_id",
+    "p_start_date"
+  ],
+  "get_active_pos_shift": [
+    "p_terminal_id",
+    "p_user_id"
+  ],
+  "get_active_shift": [
+    "p_org_id",
+    "p_user_id"
+  ],
+  "get_admin_platform_metrics": [],
+  "get_admin_test_summary": [
+    "p_limit"
+  ],
+  "get_all_account_balances": [
+    "p_org_id"
+  ],
+  "get_all_customer_balances_fast": [
+    "p_limit",
+    "p_offset",
+    "p_org_id",
+    "p_search"
+  ],
+  "get_all_supplier_balances_fast": [
+    "p_limit",
+    "p_offset",
+    "p_org_id",
+    "p_search"
+  ],
+  "get_audit_logs_rpc": [
+    "p_limit",
+    "p_offset",
+    "p_table_name"
+  ],
+  "get_current_company_settings": [
+    "p_org_id"
+  ],
+  "get_customer_aging_ledger": [
+    "p_org_id"
+  ],
+  "get_customer_balance": [
+    "p_customer_id",
+    "p_org_id"
+  ],
+  "get_dashboard_stats": [
+    "p_org_id"
+  ],
+  "get_financial_audit_summary": [
+    "p_org_id"
+  ],
+  "get_hims_executive_stats": [
+    "p_org_id"
+  ],
+  "get_historical_ratios": [
+    "p_org_id"
+  ],
+  "get_income_statement_summary_rpc": [
+    "p_end_date",
+    "p_org_id",
+    "p_start_date"
+  ],
+  "get_manufacturing_analysis": [
+    "p_end_date",
+    "p_org_id",
+    "p_start_date"
+  ],
+  "get_monthly_shift_report": [
+    "p_month",
+    "p_org_id",
+    "p_year"
+  ],
+  "get_my_org": [],
+  "get_my_role": [],
+  "get_open_table_order": [
+    "p_table_id"
+  ],
+  "get_or_create_qr_for_table": [
+    "p_table_id"
+  ],
+  "get_over_limit_customers": [
+    "p_org_id"
+  ],
+  "get_patient_discharge_summary": [
+    "p_visit_id"
+  ],
+  "get_pending_payment_orders": [
+    "p_org_id"
+  ],
+  "get_product_recipe_cost": [
+    "p_org_id",
+    "p_product_id"
+  ],
+  "get_product_stock_movements_from_ledger_rpc": [
+    "p_end_date",
+    "p_org_id",
+    "p_product_id",
+    "p_start_date",
+    "p_warehouse_id"
+  ],
+  "get_product_stock_movements_rpc": [
+    "p_end_date",
+    "p_org_id",
+    "p_product_id",
+    "p_start_date",
+    "p_warehouse_id"
+  ],
+  "get_products_without_bom": [
+    "p_org_id"
+  ],
+  "get_project_boq_remaining_qty": [
+    "p_boq_item_id"
+  ],
+  "get_project_cash_flow_projection": [
+    "p_project_id"
+  ],
+  "get_project_evm_metrics": [
+    "p_project_id"
+  ],
+  "get_project_health_score": [
+    "p_project_id"
+  ],
+  "get_project_liquidity_warning": [
+    "p_project_id"
+  ],
+  "get_project_risk_signals": [
+    "p_project_id"
+  ],
+  "get_project_s_curve_data": [
+    "p_project_id"
+  ],
+  "get_restaurant_sales_report": [
+    "p_end_date",
+    "p_org_id",
+    "p_start_date"
+  ],
+  "get_safe_company_settings": [
+    "p_org_id"
+  ],
+  "get_sales_by_user_report": [
+    "p_end_date",
+    "p_org_id",
+    "p_start_date"
+  ],
+  "get_server_time": [],
+  "get_shift_summary": [
+    "p_shift_id"
+  ],
+  "get_subcontractor_payment_order": [
+    "p_billing_id"
+  ],
+  "get_supplier_aging_ledger": [
+    "p_org_id"
+  ],
+  "get_supplier_balance": [
+    "p_org_id",
+    "p_supplier_id"
+  ],
+  "get_trial_balance_mv": [
+    "p_org_id"
+  ],
+  "get_trial_balance_rpc": [
+    "p_end_date",
+    "p_org_id",
+    "p_start_date"
+  ],
+  "get_trial_balance_summary_rpc": [
+    "p_end_date",
+    "p_org_id",
+    "p_start_date"
+  ],
+  "get_unbalanced_journal_entries": [
+    "p_org_id",
+    "p_status"
+  ],
+  "get_upcoming_retention_releases": [
+    "p_org_id"
+  ],
+  "handle_new_user": [],
+  "heal_erroneous_advances_rpc": [
+    "p_org_id",
+    "p_target_date"
+  ],
+  "hims_add_billing_item": [
+    "p_desc",
+    "p_price",
+    "p_product_id",
+    "p_qty",
+    "p_type",
+    "p_uom_id",
+    "p_visit_id",
+    "p_warehouse_id"
+  ],
+  "hims_admit_patient": [
+    "p_bed_id",
+    "p_visit_id"
+  ],
+  "hims_apply_daily_bed_charges": [
+    "p_org_id"
+  ],
+  "hims_bill_surgical_consumables": [
+    "p_product_id",
+    "p_qty",
+    "p_visit_id"
+  ],
+  "hims_calculate_stay_cost": [
+    "p_visit_id"
+  ],
+  "hims_clean_simulation_data": [
+    "p_org_id"
+  ],
+  "hims_complete_lab_with_inventory": [
+    "p_consumables",
+    "p_is_critical",
+    "p_order_id",
+    "p_result"
+  ],
+  "hims_complete_radiology": [
+    "p_images",
+    "p_order_id",
+    "p_report"
+  ],
+  "hims_complete_surgery_and_consume": [
+    "p_consumables",
+    "p_surgery_id",
+    "p_surgery_price",
+    "p_warehouse_id"
+  ],
+  "hims_create_insurance_batch": [
+    "p_batch_ref",
+    "p_insurance_provider_id"
+  ],
+  "hims_create_routine_clinical_tasks": [
+    "p_visit_id"
+  ],
+  "hims_dispense_prescription": [
+    "p_prescription_id",
+    "p_warehouse_id"
+  ],
+  "hims_finalize_billing": [
+    "p_billing_id",
+    "p_cash_acc",
+    "p_custom_amount"
+  ],
+  "hims_fulfill_blood_request": [
+    "p_bag_id",
+    "p_request_id"
+  ],
+  "hims_generate_demo_data": [
+    "p_org_id"
+  ],
+  "hims_generate_premium_demo": [
+    "p_org_id"
+  ],
+  "hims_get_active_emergency_alerts": [
+    "p_org_id"
+  ],
+  "hims_get_cashflow_projection": [
+    "p_org_id"
+  ],
+  "hims_get_current_on_duty": [
+    "p_dept_id"
+  ],
+  "hims_get_document_qr_data": [
+    "p_doc_id",
+    "p_type"
+  ],
+  "hims_get_luxury_invoice_data": [
+    "p_visit_id"
+  ],
+  "hims_get_public_visit_portal_data": [
+    "p_visit_id"
+  ],
+  "hims_log_medication_administration": [
+    "p_batch",
+    "p_dosage",
+    "p_drug_name",
+    "p_visit_id"
+  ],
+  "hims_mark_bed_ready": [
+    "p_bed_id"
+  ],
+  "hims_prepare_invoice": [
+    "p_visit_id"
+  ],
+  "hims_process_discharge": [
+    "p_override_pwd",
+    "p_visit_id"
+  ],
+  "hims_process_donation": [
+    "p_bag_code",
+    "p_donor_id",
+    "p_expiry"
+  ],
+  "hims_register_donor": [
+    "p_blood_type",
+    "p_name",
+    "p_national_id",
+    "p_phone"
+  ],
+  "hims_request_blood": [
+    "p_blood_type",
+    "p_units",
+    "p_urgency",
+    "p_visit_id"
+  ],
+  "hims_settle_insurance_claim": [
+    "p_bank_acc_id",
+    "p_claim_id",
+    "p_received_amount"
+  ],
+  "hims_update_specimen_status": [
+    "p_specimen_id",
+    "p_status"
+  ],
+  "increment_coupon_usage": [
+    "p_coupon_id"
+  ],
+  "initialize_egyptian_coa": [
+    "p_activity_type",
+    "p_admin_id",
+    "p_org_id"
+  ],
+  "initialize_fiscal_year_periods": [
+    "p_org_id",
+    "p_year"
+  ],
+  "initialize_hospital_data": [
+    "p_org_id"
+  ],
+  "is_admin": [],
+  "is_super_admin": [],
+  "log_security_event": [
+    "p_action",
+    "p_changes",
+    "p_error_message",
+    "p_resource",
+    "p_resource_id",
+    "p_status"
+  ],
+  "merge_table_sessions": [
+    "p_source_session_id",
+    "p_target_session_id"
+  ],
+  "mfg_allocate_actual_overhead": [
+    "p_description",
+    "p_period_end",
+    "p_period_start"
+  ],
+  "mfg_auto_post_wip_progress": [
+    "p_org_id"
+  ],
+  "mfg_calculate_order_cost_reconciliation": [
+    "p_order_id"
+  ],
+  "mfg_calculate_production_variance": [
+    "p_order_id"
+  ],
+  "mfg_calculate_raw_material_turnover": [
+    "p_end_date",
+    "p_org_id",
+    "p_start_date"
+  ],
+  "mfg_calculate_standard_cost": [
+    "p_org_id",
+    "p_product_id"
+  ],
+  "mfg_check_active_cost_overruns": [
+    "p_threshold_pct"
+  ],
+  "mfg_check_cost_overrun_alerts": [
+    "p_threshold_percentage"
+  ],
+  "mfg_check_efficiency_alerts": [
+    "p_threshold"
+  ],
+  "mfg_check_missing_serials_alerts": [],
+  "mfg_check_production_readiness": [
+    "p_product_id"
+  ],
+  "mfg_check_stock_availability": [
+    "p_product_id",
+    "p_quantity"
+  ],
+  "mfg_check_variance_alerts": [
+    "p_threshold"
+  ],
+  "mfg_close_costing_period": [
+    "p_period_name"
+  ],
+  "mfg_complete_step": [
+    "p_progress_id",
+    "p_qty"
+  ],
+  "mfg_config_step_parameters": [
+    "p_inspection_point",
+    "p_material_point",
+    "p_step_id"
+  ],
+  "mfg_create_material_request": [
+    "p_production_order_id"
+  ],
+  "mfg_create_orders_from_sales": [
+    "p_sales_order_id"
+  ],
+  "mfg_deduct_stock_from_order": [
+    "p_order_id"
+  ],
+  "mfg_finalize_order": [
+    "p_final_status",
+    "p_order_id",
+    "p_qc_notes",
+    "p_skip_recalc"
+  ],
+  "mfg_generate_batch_serials": [
+    "p_order_id"
+  ],
+  "mfg_get_pending_invoices": [
+    "p_org_id"
+  ],
+  "mfg_get_product_genealogy": [
+    "p_serial_number"
+  ],
+  "mfg_get_production_order_details_by_number": [
+    "p_order_number"
+  ],
+  "mfg_get_serials_by_order": [
+    "p_order_number"
+  ],
+  "mfg_get_shop_floor_tasks": [
+    "p_work_center_id"
+  ],
+  "mfg_get_stage_cost_ledger": [
+    "p_order_id"
+  ],
+  "mfg_get_stage_variance_report": [
+    "p_order_id"
+  ],
+  "mfg_issue_material_request": [
+    "p_request_id"
+  ],
+  "mfg_merge_sales_orders": [
+    "p_invoice_ids"
+  ],
+  "mfg_post_period_cost_adjustment": [
+    "p_period_name"
+  ],
+  "mfg_post_wip_gl_settlement": [
+    "p_order_id"
+  ],
+  "mfg_predict_project_completion_cost": [
+    "p_project_id"
+  ],
+  "mfg_process_scan": [
+    "p_barcode"
+  ],
+  "mfg_record_byproduct": [
+    "p_market_value",
+    "p_product_id",
+    "p_progress_id",
+    "p_qty",
+    "p_warehouse_id"
+  ],
+  "mfg_record_qc_inspection": [
+    "p_defect_type",
+    "p_notes",
+    "p_notes_client",
+    "p_progress_id",
+    "p_progress_id_client",
+    "p_status",
+    "p_status_client"
+  ],
+  "mfg_record_scrap": [
+    "p_material_id",
+    "p_progress_id",
+    "p_qty",
+    "p_reason"
+  ],
+  "mfg_record_scrap_advanced": [
+    "p_is_abnormal",
+    "p_material_id",
+    "p_progress_id",
+    "p_qty",
+    "p_reason",
+    "p_salvage_value"
+  ],
+  "mfg_reserve_stock_for_order": [
+    "p_order_id"
+  ],
+  "mfg_start_production_order": [
+    "p_order_id"
+  ],
+  "mfg_start_production_orders_batch": [
+    "p_order_ids"
+  ],
+  "mfg_start_step": [
+    "p_employee_id",
+    "p_progress_id"
+  ],
+  "mfg_sync_actual_labor_costs": [
+    "p_order_id"
+  ],
+  "mfg_test_full_cycle": [],
+  "mfg_test_pos_integration": [],
+  "mfg_undo_costing_period_close": [
+    "p_period_name"
+  ],
+  "mfg_update_product_standard_cost": [
+    "p_product_id"
+  ],
+  "mfg_update_progress_completion": [
+    "p_conversion_pct",
+    "p_material_pct",
+    "p_progress_id"
+  ],
+  "mfg_update_selling_price_from_cost": [
+    "p_order_id"
+  ],
+  "open_table_session": [
+    "p_table_id",
+    "p_user_id"
+  ],
+  "pay_accrued_payroll_rpc": [
+    "p_month",
+    "p_org_id",
+    "p_payment_date",
+    "p_payroll_id",
+    "p_treasury_acc",
+    "p_year"
+  ],
+  "post_cheque_journal_entry": [
+    "p_cheque_id"
+  ],
+  "post_inventory_count": [
+    "p_count_id"
+  ],
+  "post_order_journal_entry": [
+    "p_order_id"
+  ],
+  "post_purchase_invoice": [
+    "p_invoice_id",
+    "p_org_id",
+    "p_warehouse_id"
+  ],
+  "post_sales_invoice": [
+    "p_invoice_id",
+    "p_org_id",
+    "p_warehouse_id"
+  ],
+  "prevent_system_account_deletion": [],
+  "process_split_payment": [
+    "p_amount",
+    "p_cash_account_id",
+    "p_items",
+    "p_order_id",
+    "p_org_id",
+    "p_payment_method"
+  ],
+  "process_wastage": [
+    "p_date",
+    "p_items",
+    "p_notes",
+    "p_user_id",
+    "p_warehouse_id"
+  ],
+  "provision_new_org_complete": [
+    "p_activity_type",
+    "p_allowed_modules",
+    "p_company_name",
+    "p_currency",
+    "p_email",
+    "p_max_users",
+    "p_plan",
+    "p_subscription_expiry",
+    "p_vat_rate"
+  ],
+  "purge_deleted_records": [],
+  "recalculate_all_balances": [
+    "p_org_id"
+  ],
+  "recalculate_all_products_wac": [
+    "p_org_id"
+  ],
+  "recalculate_all_system_balances": [
+    "p_org_id"
+  ],
+  "recalculate_product_stock": [
+    "p_org_id",
+    "p_product_id"
+  ],
+  "recalculate_product_wac": [
+    "p_org_id",
+    "p_product_id"
+  ],
+  "recalculate_stock_rpc": [
+    "p_org_id",
+    "p_product_id"
+  ],
+  "recalculate_supplier_balances": [
+    "p_org_id"
+  ],
+  "record_pos_drawer_transaction": [
+    "p_account_id",
+    "p_amount",
+    "p_booking_notes",
+    "p_custodian_name",
+    "p_customer_phone",
+    "p_delivery_date",
+    "p_org_id",
+    "p_payment_method",
+    "p_reason",
+    "p_ref_number",
+    "p_shift_id",
+    "p_transaction_type",
+    "p_type"
+  ],
+  "record_wastage": [
+    "p_date",
+    "p_items",
+    "p_notes",
+    "p_org_id",
+    "p_user_id",
+    "p_warehouse_id"
+  ],
+  "refresh_trial_balance_mv": [],
+  "reject_incoming_cheque": [
+    "p_cheque_id",
+    "p_rejection_reason",
+    "p_user_id"
+  ],
+  "reject_outgoing_cheque": [
+    "p_cheque_id",
+    "p_rejection_reason",
+    "p_user_id"
+  ],
+  "reopen_financial_year": [
+    "p_org_id",
+    "p_year"
+  ],
+  "repair_all_admin_permissions": [],
+  "repair_orphaned_journal_lines": [
+    "p_org_id"
+  ],
+  "repair_purchase_return_discrepancies": [
+    "p_org_id"
+  ],
+  "report_telemetry_incident": [
+    "p_branch_name",
+    "p_component_stack",
+    "p_device_info",
+    "p_error_fingerprint",
+    "p_error_message",
+    "p_error_stack",
+    "p_metadata",
+    "p_module_name",
+    "p_organization_id",
+    "p_route_url",
+    "p_severity",
+    "p_user_id",
+    "p_user_name"
+  ],
+  "repost_all_unposted_shifts": [
+    "p_org_id"
+  ],
+  "repost_unposted_shift": [
+    "p_shift_id"
+  ],
+  "reserve_table": [
+    "p_arrival_time",
+    "p_customer_name",
+    "p_table_id"
+  ],
+  "resolve_leaf_account": [
+    "p_account_id"
+  ],
+  "resolve_mfg_applied_overhead_account": [
+    "p_org_id"
+  ],
+  "resolve_mfg_wip_account": [
+    "p_org_id"
+  ],
+  "restore_organization_backup": [
+    "p_backup_data",
+    "p_org_id"
+  ],
+  "restore_organization_from_backup": [
+    "p_backup_id"
+  ],
+  "revalue_product_cost": [
+    "p_new_cost",
+    "p_notes",
+    "p_org_id",
+    "p_product_id",
+    "p_revaluation_date"
+  ],
+  "reverse_inventory_count": [
+    "p_count_id"
+  ],
+  "run_daily_backups_all_orgs": [],
+  "run_fx_revaluation": [
+    "p_org_id",
+    "p_rates",
+    "p_revaluation_date"
+  ],
+  "run_global_system_repair": [
+    "p_org_id"
+  ],
+  "run_monthly_depreciation": [
+    "p_amount",
+    "p_asset_id",
+    "p_date",
+    "p_org_id"
+  ],
+  "run_payroll_accrual_rpc": [
+    "p_date",
+    "p_items",
+    "p_month",
+    "p_org_id",
+    "p_year"
+  ],
+  "run_payroll_rpc": [
+    "p_date",
+    "p_items",
+    "p_month",
+    "p_org_id",
+    "p_treasury_acc",
+    "p_year"
+  ],
+  "run_period_depreciation": [
+    "p_date",
+    "p_org_id"
+  ],
+  "run_year_end_closing": [
+    "p_closing_year",
+    "p_org_id",
+    "p_retained_acc_id"
+  ],
+  "safe_cast_uuid": [
+    "p_val"
+  ],
+  "safe_delete_account": [
+    "p_account_id",
+    "p_org_id"
+  ],
+  "save_and_post_purchase_invoice_atomic": [
+    "p_invoice",
+    "p_items",
+    "p_warehouse_id"
+  ],
+  "save_and_post_sales_invoice_atomic": [
+    "p_invoice",
+    "p_items",
+    "p_warehouse_id"
+  ],
+  "save_purchase_invoice_draft": [
+    "p_invoice",
+    "p_items"
+  ],
+  "set_emergency_mode": [
+    "p_enable"
+  ],
+  "set_financial_mutation_scope": [
+    "p_enable"
+  ],
+  "settle_online_payment": [
+    "p_link_id",
+    "p_notes",
+    "p_transaction_id"
+  ],
+  "simulate_construction_project_lifecycle": [
+    "p_org_id"
+  ],
+  "simulate_full_mfg_cycle": [
+    "p_org_id"
+  ],
+  "simulate_hims_complex_settlement": [
+    "p_org_id"
+  ],
+  "simulate_hims_insurance_workflow": [
+    "p_org_id"
+  ],
+  "simulate_hims_month_operations": [
+    "p_org_id"
+  ],
+  "simulate_load_test": [
+    "p_num_mfg_orders",
+    "p_num_sales_invoices",
+    "p_org_id",
+    "p_user_id"
+  ],
+  "simulate_mfg_overhead_flow": [
+    "p_org_id"
+  ],
+  "start_pos_shift": [
+    "p_opening_balance",
+    "p_org_id",
+    "p_resume_existing",
+    "p_terminal_id",
+    "p_treasury_account_id",
+    "p_user_id"
+  ],
+  "sync_customer_balance_trigger": [],
+  "sync_offline_pos_order": [
+    "p_order"
+  ],
+  "sync_offline_pos_orders_batch": [
+    "p_orders"
+  ],
+  "sync_order_grand_total": [],
+  "sync_partner_balance_trigger": [],
+  "sync_role_permissions": [
+    "p_permission_ids",
+    "p_role_id"
+  ],
+  "sync_user_permissions": [
+    "p_permission_ids",
+    "p_user_id"
+  ],
+  "test_full_backup_restore_cycle": [],
+  "test_restaurant_shift_lifecycle": [],
+  "test_saas_isolation": [],
+  "test_wac_logic": [],
+  "transfer_table_session": [
+    "p_session_id",
+    "p_target_table_id"
+  ],
+  "trg_hims_on_admission_tasks": [],
+  "trg_hims_on_lab_order_created": [],
+  "trg_post_cheque_journal_entry": [],
+  "trigger_handle_stock_on_order": [],
+  "unit_test_hims_full_lifecycle": [],
+  "unpost_purchase_invoice": [
+    "p_invoice_id",
+    "p_org_id"
+  ],
+  "unpost_purchase_return": [
+    "p_org_id",
+    "p_return_id"
+  ],
+  "unpost_sales_invoice": [
+    "p_invoice_id",
+    "p_org_id"
+  ],
+  "unpost_sales_return": [
+    "p_org_id",
+    "p_return_id"
+  ],
+  "uom_convert": [
+    "p_from_uom_id",
+    "p_qty",
+    "p_to_uom_id"
+  ],
+  "update_employee_advance": [
+    "p_advance_id",
+    "p_amount",
+    "p_credit_account_id",
+    "p_date",
+    "p_debit_account_id",
+    "p_disbursement_date",
+    "p_employee_id",
+    "p_installment_months",
+    "p_notes",
+    "p_request_date",
+    "p_treasury_id"
+  ],
+  "update_item_cost_and_qty": [
+    "p_item_id",
+    "p_lc_id",
+    "p_qty",
+    "p_unit_cost",
+    "p_warehouse_id"
+  ],
+  "update_program_enrolled_count": [],
+  "update_single_supplier_balance": [
+    "p_org_id",
+    "p_supplier_id"
+  ],
+  "update_treasury_transfer": [
+    "p_amount",
+    "p_from_account_id",
+    "p_journal_entry_id",
+    "p_notes",
+    "p_to_account_id",
+    "p_transfer_date"
+  ],
+  "upload_backup_to_s3": [
+    "p_org_id"
+  ],
+  "upsert_offline_auth_token": [
+    "p_org_id",
+    "p_password_hash"
+  ],
+  "validate_backup_integrity": [
+    "p_backup_data",
+    "p_org_id"
+  ],
+  "validate_tenant_access": [
+    "p_target_org"
+  ],
+  "verify_backup_comprehensiveness": [
+    "p_backup_id"
+  ]
+}
