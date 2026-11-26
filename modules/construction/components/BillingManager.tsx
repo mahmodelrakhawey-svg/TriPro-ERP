@@ -74,7 +74,7 @@ const BillingManager: React.FC<Props> = ({ projectId, onBack }) => {
       if (!orgId) return;
       const { data, error } = await supabase
         .from('project_boq')
-        .select('id, item_code, description, unit, estimated_quantity, unit_price, total_price')
+        .select('id, item_name, unit, estimated_quantity, unit_price, total_price')
         .eq('project_id', projectId)
         .eq('organization_id', orgId)
         .limit(500);

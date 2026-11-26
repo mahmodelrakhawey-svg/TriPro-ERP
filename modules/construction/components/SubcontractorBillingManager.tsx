@@ -78,7 +78,7 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
     if (!orgId) return;
     const { data } = await supabase
       .from('subcontractor_contracts')
-      .select('id, contract_number, total_value, retention_percentage, advance_payment_balance, status')
+      .select('id, contract_name, total_value, retention_percentage, advance_payment_balance, status')
       .eq('id', contractId)
       .eq('organization_id', orgId)
       .single();
@@ -102,7 +102,7 @@ const SubcontractorBillingManager: React.FC<Props> = ({ contractId, onBack }) =>
       if (!orgId) return;
       const { data, error } = await supabase
         .from('subcontractor_contract_items')
-        .select('id, description, unit, quantity, unit_price, total_price')
+        .select('id, item_name, unit, quantity, unit_price, total_price')
         .eq('contract_id', contractId)
         .eq('organization_id', orgId)
         .limit(500);

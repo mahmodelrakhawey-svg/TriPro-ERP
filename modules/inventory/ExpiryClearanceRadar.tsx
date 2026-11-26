@@ -94,7 +94,7 @@ export default function ExpiryClearanceRadar() {
         const cost = Number(p.weighted_average_cost || p.purchase_price || 0);
         const lossValue = stock > 0 ? stock * cost : 0;
 
-        const categoryName = categories?.find((c: any) => c.id === p.category_id)?.name || 'عام';
+        const categoryName = categories?.find((c: { id: string; name?: string }) => c.id === p.category_id)?.name || 'عام';
 
         return {
           id: p.id,

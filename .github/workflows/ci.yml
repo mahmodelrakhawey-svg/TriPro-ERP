@@ -40,6 +40,9 @@ jobs:
       - name: Run TriPro Custom Security Scan
         run: npm run security-audit
 
+      - name: Run Supabase Schema Column Guard
+        run: npm run schema-guard
+
       - name: Run Test Suite
         run: npm run test -- --run
 

@@ -6,7 +6,9 @@
   "main": "desktop/main.cjs",
   "scripts": {
     "dev": "vite",
-    "build": "npm run security-audit && tsc && vite build",
+    "build": "npm run security-audit && npm run schema-guard && tsc && vite build",
+    "schema-guard": "node scripts/verify-code-schema.mjs",
+    "schema-snapshot": "node scripts/generate-schema-snapshot.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",

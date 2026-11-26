@@ -209,7 +209,7 @@ export const NewButcheringOrderModal: React.FC<NewButcheringOrderModalProps> = (
           .from('purchase_invoice_items')
           .select('unit_price')
           .eq('product_id', productId)
-          .order('created_at', { ascending: false })
+          .order('id', { ascending: false })
           .limit(1)
           .maybeSingle();
 

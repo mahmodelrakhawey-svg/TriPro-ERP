@@ -32,7 +32,7 @@ export const HIMSServicesManager: React.FC = () => {
     setLoading(true);
     const [labRes, radRes] = await Promise.all([
       supabase.from('hims_lab_tests').select('id, test_name, price, normal_range, unit').eq('organization_id', orgId).order('test_name').limit(300),
-      supabase.from('hims_radiology_types').select('id, name, price, category').eq('organization_id', orgId).order('name').limit(300)
+      supabase.from('hims_radiology_types').select('id, name, price, code, description').eq('organization_id', orgId).order('name').limit(300)
     ]);
     setLabTests(labRes.data || []);
     setRadTypes(radRes.data || []);

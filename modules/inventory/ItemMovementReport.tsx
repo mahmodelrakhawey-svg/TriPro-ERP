@@ -157,7 +157,7 @@ const ItemMovementReport = () => {
       // 2.1 جلب حركات توريد الاعتمادات المستندية (LC Receipts) - وارد
       let lcQuery = supabase
         .from('lc_receipt_items')
-        .select('quantity, uom_id, receipt_date, notes, created_at, warehouse_id, letters_of_credit!inner(id, lc_number, status)')
+        .select('quantity, receipt_date, notes, created_at, warehouse_id, letters_of_credit!inner(id, lc_number, status)')
         .eq('product_id', selectedProductId)
         .eq('organization_id', userOrgId);
 

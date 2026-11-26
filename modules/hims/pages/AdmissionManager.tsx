@@ -20,7 +20,7 @@ export const AdmissionManager: React.FC = () => {
     const [visitsRes, bedsRes] = await Promise.all([
       supabase
         .from('hims_visits')
-        .select('id, visit_date, chief_complaint, patient_id, hims_patients(full_name)')
+        .select('id, admission_date, created_at, chief_complaint, patient_id, hims_patients(full_name)')
         .eq('organization_id', orgId)
         .eq('visit_type', 'inpatient')
         .eq('status', 'triaged')

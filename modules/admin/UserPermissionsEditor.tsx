@@ -13,7 +13,7 @@ import { useToast } from '../../context/ToastContext';
 type ProfileUser = {
   id: string;
   full_name: string | null;
-  email: string | null;
+  email?: string | null;
   role: string | null;
   role_id: string | null;
   is_active: boolean | null;
@@ -120,7 +120,7 @@ const UserPermissionsEditor: React.FC = () => {
           // محاولة جلب المستخدمين بفلترة المنظمة إذا وجدت، وإلا جلب الكل (خصوصاً للسوبر أدمن)
           let query = supabase
             .from('profiles')
-            .select('id, full_name, email, role, role_id, is_active, organization_id')
+            .select('id, full_name, role, role_id, is_active, organization_id')
             .order('full_name');
 
           if (effectiveOrgId && effectiveOrgId !== 'null' && authUser?.role !== 'super_admin') {
@@ -135,7 +135,7 @@ const UserPermissionsEditor: React.FC = () => {
             // Fallback: جلب كافة المستخدمين
             const { data: allUsers } = await supabase
               .from('profiles')
-              .select('id, full_name, email, role, role_id, is_active, organization_id')
+              .select('id, full_name, role, role_id, is_active, organization_id')
               .order('full_name');
             users = allUsers || [];
           }

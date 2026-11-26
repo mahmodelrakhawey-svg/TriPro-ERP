@@ -230,7 +230,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
             // جلب تفاصيل السند للحصول على الخزينة المحددة بدقة
             const { data: rvData } = await supabase
               .from('receipt_vouchers')
-              .select('id, voucher_number, receipt_date, amount, notes, payment_method, treasury_account_id, cost_center_id')
+              .select('id, voucher_number, receipt_date, amount, notes, payment_method, treasury_account_id')
               .eq('id', voucherId)
               .maybeSingle();
 
@@ -272,7 +272,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
                   debit: 0,
                   credit: voucherAmount,
                   description: fullDesc,
-                  costCenterId: rvData?.cost_center_id || null
+                  costCenterId: null
                 }
               ]
             });

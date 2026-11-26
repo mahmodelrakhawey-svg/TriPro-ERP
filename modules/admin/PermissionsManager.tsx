@@ -419,13 +419,13 @@ const PermissionsManager = () => {
         const [rolesRes, permsRes] = await Promise.all([
           supabase
             .from('roles')
-            .select('id, name, description, is_system, organization_id')
+            .select('id, name, description, organization_id')
             .eq('organization_id', orgId)
             .neq('name', 'super_admin')
             .order('name'),
           supabase
             .from('permissions')
-            .select('id, module, action, description, is_sensitive, category')
+            .select('id, module, action, description')
             .order('module')
         ]);
 
@@ -651,8 +651,8 @@ const PermissionsManager = () => {
     try {
       // 1. Fetch fresh permissions & existing roles in parallel
       const [{ data: freshPerms }, { data: existingRoles }] = await Promise.all([
-        supabase.from('permissions').select('id, module, action, description, is_sensitive, category'),
-        supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId)
+        supabase.from('permissions').select('id, module, action, description'),
+        supabase.from('roles').select('id, name, description, organization_id').eq('organization_id', orgId)
       ]);
       const allPerms: Permission[] = freshPerms || permissions;
       if (freshPerms) setPermissions(freshPerms);
@@ -697,7 +697,7 @@ const PermissionsManager = () => {
       }
 
       // Reload updated roles list
-      const { data: updatedRoles } = await supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId);
+      const { data: updatedRoles } = await supabase.from('roles').select('id, name, description, organization_id').eq('organization_id', orgId);
       if (updatedRoles && updatedRoles.length > 0) {
         setRoles(updatedRoles);
         const mgr = updatedRoles.find(r => r.name === 'restaurant_manager');
@@ -732,8 +732,8 @@ const PermissionsManager = () => {
     try {
       // 1. Fetch fresh permissions & existing roles in parallel
       const [{ data: freshPerms }, { data: existingRoles }] = await Promise.all([
-        supabase.from('permissions').select('id, module, action, description, is_sensitive, category'),
-        supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId)
+        supabase.from('permissions').select('id, module, action, description'),
+        supabase.from('roles').select('id, name, description, organization_id').eq('organization_id', orgId)
       ]);
       const allPerms: Permission[] = freshPerms || permissions;
       if (freshPerms) setPermissions(freshPerms);
@@ -775,7 +775,7 @@ const PermissionsManager = () => {
       }
 
       // Reload updated roles list
-      const { data: updatedRoles } = await supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId);
+      const { data: updatedRoles } = await supabase.from('roles').select('id, name, description, organization_id').eq('organization_id', orgId);
       if (updatedRoles && updatedRoles.length > 0) {
         setRoles(updatedRoles);
         const sup = updatedRoles.find(r => r.name === 'pos_supervisor');
@@ -810,8 +810,8 @@ const PermissionsManager = () => {
     try {
       // 1. Fetch fresh permissions & existing roles in parallel
       const [{ data: freshPerms }, { data: existingRoles }] = await Promise.all([
-        supabase.from('permissions').select('id, module, action, description, is_sensitive, category'),
-        supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId)
+        supabase.from('permissions').select('id, module, action, description'),
+        supabase.from('roles').select('id, name, description, organization_id').eq('organization_id', orgId)
       ]);
       const allPerms: Permission[] = freshPerms || permissions;
       if (freshPerms) setPermissions(freshPerms);
@@ -857,7 +857,7 @@ const PermissionsManager = () => {
       }
 
       // Reload updated roles list
-      const { data: updatedRoles } = await supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId);
+      const { data: updatedRoles } = await supabase.from('roles').select('id, name, description, organization_id').eq('organization_id', orgId);
       if (updatedRoles && updatedRoles.length > 0) {
         setRoles(updatedRoles);
         const targetSelection = updatedRoles.find(r => r.name === 'bakery_production') || updatedRoles.find(r => r.name === 'bakery_cfo');
@@ -892,8 +892,8 @@ const PermissionsManager = () => {
     try {
       // 1. Fetch fresh permissions & existing roles in parallel
       const [{ data: freshPerms }, { data: existingRoles }] = await Promise.all([
-        supabase.from('permissions').select('id, module, action, description, is_sensitive, category'),
-        supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId)
+        supabase.from('permissions').select('id, module, action, description'),
+        supabase.from('roles').select('id, name, description, organization_id').eq('organization_id', orgId)
       ]);
       const allPerms: Permission[] = freshPerms || permissions;
       if (freshPerms) setPermissions(freshPerms);
@@ -931,7 +931,7 @@ const PermissionsManager = () => {
       }
 
       // 4. Reload updated roles list
-      const { data: updatedRoles } = await supabase.from('roles').select('id, name, description, is_system, organization_id').eq('organization_id', orgId);
+      const { data: updatedRoles } = await supabase.from('roles').select('id, name, description, organization_id').eq('organization_id', orgId);
       if (updatedRoles && updatedRoles.length > 0) {
         setRoles(updatedRoles);
         const targetSelection = updatedRoles.find(r => r.name === 'hr_officer') || updatedRoles.find(r => r.id === roleObj?.id);

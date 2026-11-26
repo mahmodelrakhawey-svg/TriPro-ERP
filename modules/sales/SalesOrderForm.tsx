@@ -301,7 +301,7 @@ export const SalesOrderForm = () => {
   const deleteSoItems = async (orderId: string) => {
     let delRes = await supabase.from('sales_order_items').delete().eq('sales_order_id', orderId);
     if (delRes.error && delRes.error.message?.includes('sales_order_id')) {
-      delRes = await supabase.from('sales_order_items').delete().eq('order_id', orderId);
+      delRes = await supabase.from('sales_order_items').delete().eq('order_id', orderId); // schema-guard-ignore
     }
     return delRes.error;
   };

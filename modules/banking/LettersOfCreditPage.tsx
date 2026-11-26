@@ -217,7 +217,7 @@ export default function LettersOfCreditPage() {
     if (currentUser?.role === 'demo') return;
     try {
       const { data, error } = await supabase.from('lc_expenses')
-        .select('id, lc_id, expense_type, amount, expense_date, description, payment_account_id, organization_id, created_at')
+        .select('id, lc_id, expense_type, amount, expense_date, invoice_ref, notes, journal_entry_id, organization_id, created_at')
         .eq('lc_id', lcId)
         .order('expense_date', { ascending: true });
       if (error) throw error;
