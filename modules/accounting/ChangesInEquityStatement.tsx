@@ -89,11 +89,7 @@ const ChangesInEquityStatement: React.FC = () => {
         userOrgId = await resolveActiveOrgId(currentSelectedOrgId);
       }
 
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!userOrgId) {
-        userOrgId = session?.user?.user_metadata?.org_id;
-      }
-      const userRole = session?.user?.user_metadata?.role || (currentUser as any)?.role;
+      const userRole = (currentUser as any)?.role;
 
       if (!userOrgId && userRole !== 'super_admin') {
         throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');

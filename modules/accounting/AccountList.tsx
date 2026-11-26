@@ -8,6 +8,7 @@ import { safeJsonToSheet } from '../../utils/excelSanitizer';
 import AddAccountModal from './AddAccountModal';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../supabaseClient';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const AccountList = () => {
   const { accounts, deleteAccount, refreshData, isLoading, can, currentUser } = useAccounting();
@@ -207,8 +208,7 @@ const AccountList = () => {
 
     try {
       // جلب معرف المنظمة الحالي
-      const { data: sessionData } = await supabase.auth.getSession();
-      const orgId = sessionData?.session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+      const orgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
       if (!orgId) throw new Error('تعذر تحديد معرف المنظمة');
       
@@ -233,8 +233,7 @@ const AccountList = () => {
     showToast('جاري تشغيل عملية الإصلاح الشامل...', 'info');
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const orgId = sessionData?.session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+      const orgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
       if (!orgId) throw new Error('تعذر تحديد معرف المنظمة');
       
@@ -398,8 +397,7 @@ const AccountList = () => {
                 if (window.confirm(`هل أنت متأكد من إعادة فتح السنة المالية ${year}؟\nسيتم حذف قيد الإقفال والسماح بالتعديلات.`)) {
                   showToast('جاري فتح السنة المالية...', 'info');
                   try {
-                    const { data: sessionData } = await supabase.auth.getSession();
-                    const orgId = sessionData?.session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+                    const orgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
                     const { data, error } = await supabase.rpc('reopen_financial_year', { p_year: parseInt(year), p_org_id: orgId });
                     if (error) throw error;
                     showToast(data, 'success');

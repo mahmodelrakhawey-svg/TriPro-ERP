@@ -44,9 +44,8 @@ export const CFODashboard: React.FC = () => {
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const rawOrgId = getActiveOrgIdSync(currentSelectedOrgId) || (currentUser as any)?.organization_id || session?.user?.user_metadata?.org_id || (organization as any)?.id;
-      const userOrgId = isValidUUID(rawOrgId) ? rawOrgId : (await resolveActiveOrgId(currentSelectedOrgId));
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (organization as any)?.id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // 1. حركات السنة لبيان الدخل والمبيعات والتكلفة (بالتجزئة لمنع سقف 1000 سجل)
       let periodData = await fetchCompleteDataset<any>(async (from, to) => {

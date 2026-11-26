@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { supabase } from '../../supabaseClient';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { 
   Lock, 
   Unlock, 
@@ -58,8 +59,8 @@ const FiscalYearClosing: React.FC = () => {
   const runDiagnostics = async () => {
     setDiagLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || session?.user?.user_metadata?.org_id || (organization as any)?.id;
+      const explicitOrgId = currentSelectedOrgId || (organization as any)?.id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // 1. فحص القيود المسودة غير المرحلة
       let qDraft = supabase
@@ -174,8 +175,8 @@ const FiscalYearClosing: React.FC = () => {
 
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = currentSelectedOrgId || session?.user?.user_metadata?.org_id || (organization as any)?.id;
+      const explicitOrgId = currentSelectedOrgId || (organization as any)?.id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       // العثور على حساب مصروف الإهلاك (533) ومجمع الإهلاك (1119)
       const depExpAccount = accounts.find(a => String(a.code).startsWith('533') || a.name.includes('مصروف إهلاك'));

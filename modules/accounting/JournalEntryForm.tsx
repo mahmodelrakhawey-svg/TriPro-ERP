@@ -11,6 +11,7 @@ import { useToastNotification } from '../../utils/toastUtils';
 import { JournalEntryLine, Account } from '../../types';
 import { createJournalEntrySchema } from '../../utils/validationSchemas';
 import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 const JournalEntryForm = () => {
   const { accounts, costCenters, addEntry, can, currentUser } = useAccounting();
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -87,8 +88,7 @@ const JournalEntryForm = () => {
   const fetchRecentEntries = async (queryText: string = '') => {
     setLoadingRecent(true);
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const orgId = sessionData?.session?.user?.user_metadata?.org_id;
+      const orgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
 
       let q = supabase
         .from('journal_entries')
