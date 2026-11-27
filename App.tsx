@@ -200,6 +200,7 @@ const DetailedStockMovementReport = lazy(() => import('./modules/inventory/Detai
 // 🏭 مديول التصنيع المتقدم (Advanced Manufacturing - Lazy Loaded)
 const ManufacturingDashboard = lazy(() => import('./modules/manufacturing/components/ManufacturingDashboard'));
 const BatchOrderManager = lazy(() => import('./modules/manufacturing/components/BatchOrderManager'));
+const DailyBatchProduction = lazy(() => import('./modules/manufacturing/components/DailyBatchProduction'));
 const ShopFloorManager = lazy(() => import('./modules/manufacturing/components/ShopFloorManager'));
 const QualityControlManager = lazy(() => import('./modules/manufacturing/components/QualityControlManager'));
 const BOMVarianceReport = lazy(() => import('./modules/manufacturing/reports/BOMVarianceReport'));
@@ -656,6 +657,7 @@ const MainLayout = () => {
                       <Route path="dashboard" element={<ManufacturingDashboard />} />
                       <Route path="orders" element={<WorkOrderManager />} />
                       <Route path="batch-orders" element={<BatchOrderManager />} />
+                      <Route path="daily-batch" element={<DailyBatchProduction />} />
                       <Route path="shop-floor" element={<ShopFloorManager />} />
                       <Route path="quality-control" element={<QualityControlManager />} />
                       <Route path="profitability" element={<ProductionProfitabilityReport />} />

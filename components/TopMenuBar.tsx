@@ -176,6 +176,7 @@ export const TopMenuBar: React.FC = () => {
         { label: 'لوحة قيادة المصنع والإنتاج', to: '/mfg/dashboard', icon: Building2 },
         { label: 'معادلات وتراكيب الإنتاج (BOM)', to: '/mfg/routing-bom', icon: Scissors },
         { label: 'أوامر الإنتاج والتشغيل (Work Orders)', to: '/mfg/orders', icon: HardHat },
+        { label: 'أمر الإنتاج اليومي المجمّع (Daily Batch)', to: '/mfg/daily-batch', icon: Layers },
         { label: 'إقفال وتكاليف أوامر التصنيع', to: '/mfg/closing', icon: Scale }
       ]
     },

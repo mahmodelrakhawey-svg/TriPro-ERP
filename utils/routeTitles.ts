@@ -207,6 +207,7 @@ export const ROUTE_TITLES: Record<string, string> = {
   '/mfg/orders': 'أوامر الشغل وأوامر الإنتاج (Work Orders)',
   '/manufacturing/batch-orders': 'أوامر التشغيل وتتبع الدفعات (Batches)',
   '/mfg/batch-orders': 'أوامر التشغيل وتتبع الدفعات (Batches)',
+  '/mfg/daily-batch': 'أمر الإنتاج اليومي المجمّع (Multi-Product Batch)',
   '/manufacturing/shop-floor': 'صالة التصنيع وتتبع خطوط الإنتاج (Shop Floor)',
   '/mfg/shop-floor': 'صالة التصنيع وتتبع خطوط الإنتاج (Shop Floor)',
   '/manufacturing/qc': 'مراقبة الجودة وفحص العينات (QC)',

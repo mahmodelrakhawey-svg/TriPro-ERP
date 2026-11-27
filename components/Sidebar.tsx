@@ -256,6 +256,7 @@ const Sidebar: React.FC<SidebarProps> = ({
     { type: 'section', label: 'التصنيع والإنتاج' },
     { to: '/mfg/dashboard', label: 'لوحة التحكم الصناعية', icon: LayoutDashboard, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/orders', label: 'إدارة أوامر الإنتاج', icon: Factory, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.orders' },
+    { to: '/mfg/daily-batch', label: 'أمر الإنتاج اليومي المجمّع', icon: Layers, color: 'text-amber-400', module: 'manufacturing', permission: 'manufacturing.orders' },
     { to: '/mfg/gantt-schedule', label: 'مخطط جانت لجدولة الإنتاج', icon: Calendar, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },
     { to: '/mfg/batch-orders', label: 'جدولة ودمج الطلبات', icon: ClipboardList, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.orders' },
     { to: '/mfg/shop-floor', label: 'أرضية المصنع (تتبع لحظي)', icon: Activity, color: 'text-indigo-400', module: 'manufacturing', permission: 'manufacturing.view' },

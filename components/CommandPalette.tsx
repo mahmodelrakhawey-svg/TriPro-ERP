@@ -80,6 +80,7 @@ const COMMAND_LIST: PaletteCommand[] = [
   { id: 'manufacturing', title: 'لوحة التحكم في الإنتاج والتصنيع', path: '/manufacturing', category: 'التصنيع والإنتاج', keywords: ['تصنيع', 'إنتاج', 'مصنع'], icon: Factory },
   { id: 'manufacturing-bom', title: 'شجرة المنتج والمكونات (BOM)', path: '/manufacturing/bom', category: 'التصنيع والإنتاج', keywords: ['شجرة منتج', 'bom', 'خامات'], icon: Layers },
   { id: 'manufacturing-orders', title: 'أوامر الإنتاج والتشغيل', path: '/manufacturing/orders', category: 'التصنيع والإنتاج', keywords: ['أمر إنتاج', 'أمر شغل'], icon: FileText },
+  { id: 'manufacturing-daily-batch', title: 'أمر الإنتاج اليومي المجمّع (تورتات / جاتوهات / شرقي)', path: '/mfg/daily-batch', category: 'التصنيع والإنتاج', keywords: ['إنتاج يومي', 'دفعة', 'مجمع', 'تورتة', 'جاتوه', 'حلواني', 'batch'], icon: Factory },
 
   // ⚽ الأندية والملاعب
   { id: 'stadium', title: 'لوحة إدارة الأندية والملاعب', path: '/stadium', category: 'الأندية والملاعب', keywords: ['نادي', 'ملاعب', 'رياضة'], icon: Trophy },
