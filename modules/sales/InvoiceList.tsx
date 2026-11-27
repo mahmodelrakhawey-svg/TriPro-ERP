@@ -688,7 +688,7 @@ export const InvoiceList = () => {
             className="w-full p-2 bg-slate-50 border rounded-xl text-xs font-bold outline-none focus:border-blue-500"
           >
             <option value="">جميع العملاء</option>
-            {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+            {customers.map((c: { id: string; name: string }) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
 
@@ -699,7 +699,7 @@ export const InvoiceList = () => {
             className="w-full p-2 bg-slate-50 border rounded-xl text-xs font-bold outline-none focus:border-blue-500"
           >
             <option value="">جميع المستودعات</option>
-            {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+            {warehouses.map((w: { id: string; name: string }) => <option key={w.id} value={w.id}>{w.name}</option>)}
           </select>
         </div>
 

@@ -27,8 +27,8 @@
     "noUnusedParameters": false,
     "noFallthroughCasesInSwitch": true,
     "alwaysStrict": true,
-    "noImplicitAny": false,
-    "noImplicitThis": false,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
     "useUnknownInCatchVariables": false
   },
   "include": [

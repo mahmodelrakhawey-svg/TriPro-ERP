@@ -165,7 +165,7 @@ export const LabDashboard: React.FC = () => {
     }
 
     // Try parsing range like "3.5 - 5.0"
-    const rangeParts = normalRange.split('-').map(p => parseFloat(p.trim()));
+    const rangeParts = normalRange.split('-').map((p: string) => parseFloat(p.trim()));
     if (rangeParts.length === 2 && !isNaN(rangeParts[0]) && !isNaN(rangeParts[1])) {
       const [min, max] = rangeParts;
       const isDecimal = min % 1 !== 0 || max % 1 !== 0;

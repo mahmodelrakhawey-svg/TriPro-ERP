@@ -264,8 +264,8 @@ const ProductManager = () => {
   }, [isModalOpen, currentUser]);
 
   // في وضع الديمو، نستخدم المنتجات من السياق (الوهمية)
-  const items = currentUser?.role === 'demo' 
-    ? contextProducts.filter(i => {
+  const items: Item[] = currentUser?.role === 'demo' 
+    ? (contextProducts as unknown as Item[]).filter((i: Item) => {
         const matchesSearch = i.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
           (i.sku && i.sku.toLowerCase().includes(searchTerm.toLowerCase())) ||
           ((i as any).description && (i as any).description.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -2205,7 +2205,7 @@ const ProductManager = () => {
                 <td className="p-4 text-emerald-600 font-bold">
                     {isOfferActive(item) ? (
                         <div className="flex flex-col items-center">
-                            <span className="text-red-500 font-black">{item.offer_price.toLocaleString()}</span>
+                            <span className="text-red-500 font-black">{item.offer_price?.toLocaleString()}</span>
                             <span className="text-xs text-slate-400 line-through">{item.sales_price?.toLocaleString()}</span>
                             <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1 rounded mt-0.5">عرض ساري</span>
                         </div>

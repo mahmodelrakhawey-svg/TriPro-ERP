@@ -407,8 +407,8 @@ export const SupplierBalanceReconciliation: React.FC = () => {
             if (!s.name) return false;
             const sNorm = s.name.trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
             if (sNorm === pName || (sNorm.length >= 4 && pName.includes(sNorm)) || (pName.length >= 4 && sNorm.includes(pName))) return true;
-            const sDistinct = sNorm.split(' ').filter(w => w.length > 2 && !ACCOUNTING_STOP_WORDS.has(w));
-            return sDistinct.length > 0 && sDistinct.every(w => pName.includes(w));
+            const sDistinct = sNorm.split(' ').filter((w: string) => w.length > 2 && !ACCOUNTING_STOP_WORDS.has(w));
+            return sDistinct.length > 0 && sDistinct.every((w: string) => pName.includes(w));
           })?.sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0))[0]?.id;
         }
         registerDoc(c.id, c.related_journal_entry_id, suppId, String(c.cheque_number));
@@ -423,8 +423,8 @@ export const SupplierBalanceReconciliation: React.FC = () => {
             if (!s.name) return false;
             const sNorm = s.name.trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
             if (sNorm === pName || (sNorm.length >= 4 && pName.includes(sNorm)) || (pName.length >= 4 && sNorm.includes(pName))) return true;
-            const sDistinct = sNorm.split(' ').filter(w => w.length > 2 && !ACCOUNTING_STOP_WORDS.has(w));
-            return sDistinct.length > 0 && sDistinct.every(w => pName.includes(w));
+            const sDistinct = sNorm.split(' ').filter((w: string) => w.length > 2 && !ACCOUNTING_STOP_WORDS.has(w));
+            return sDistinct.length > 0 && sDistinct.every((w: string) => pName.includes(w));
           })?.sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0))[0]?.id;
         }
         registerDoc(doc.docId, doc.journalEntryId, suppId, doc.ref || undefined);
@@ -570,8 +570,8 @@ export const SupplierBalanceReconciliation: React.FC = () => {
               // 1. مطابقة الاسم الكامل داخل البيان (الأولوية الأولى)
               if (sNorm.length >= 3 && normDesc.includes(sNorm)) return true;
               // 2. الكلمات المميزة للمورد بعد استبعاد الكلمات المحاسبية وكلمات الوقف
-              const distinctWords = sNorm.split(' ').filter(w => w.length > 2 && !ACCOUNTING_STOP_WORDS.has(w));
-              return distinctWords.length > 0 && distinctWords.every(w => normDesc.includes(w));
+              const distinctWords = sNorm.split(' ').filter((w: string) => w.length > 2 && !ACCOUNTING_STOP_WORDS.has(w));
+              return distinctWords.length > 0 && distinctWords.every((w: string) => normDesc.includes(w));
             })
             ?.sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0))[0];
           if (matchedSupp) suppId = matchedSupp.id;

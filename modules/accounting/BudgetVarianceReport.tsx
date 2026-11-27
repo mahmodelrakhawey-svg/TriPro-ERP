@@ -52,7 +52,7 @@ const BudgetVarianceReport = () => {
           actual = periodInvoices.filter(inv => (inv.customerId || inv.customer_id) === targetId).reduce((s, inv) => s + inv.totalAmount, 0);
         } else if (item.type === 'product') {
           actual = periodInvoices.reduce((s, inv) => {
-            const line = inv.items.find(i => i.productId === targetId);
+            const line = inv.items.find((i: { productId?: string; quantity?: number }) => i.productId === targetId);
             return s + (line ? line.quantity : 0);
           }, 0);
         }

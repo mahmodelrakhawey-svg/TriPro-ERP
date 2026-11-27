@@ -37,7 +37,7 @@ const PerformanceComparisonReport = () => {
     periodEntries.forEach(entry => {
       const entryLines = entry.journal_lines || entry.lines || [];
       entryLines.forEach(line => {
-        const lineAccountId = line.account_id || line.accountId;
+        const lineAccountId = line.account_id || (line as { accountId?: string }).accountId;
         const account = accounts.find(a => a.id === lineAccountId);
         if (!account) return;
 

@@ -248,7 +248,7 @@ const Dashboard = () => {
             const monthPurchases = (demoPurchaseInvoices || []).filter(pInv => new Date(pInv.date).getMonth() === currentMonth && new Date(pInv.date).getFullYear() === currentYear && pInv.status !== 'draft').reduce((sum, pInv) => sum + (pInv.subtotal || 0), 0);
             const lowStockCount = (demoProducts || []).filter(p => (p.stock || 0) <= (p.min_stock_level || 0)).length;
 
-            const monthCogs = (demoInvoices || []).filter(inv => new Date(inv.date).getMonth() === currentMonth && inv.status !== 'draft').reduce((sum, inv) => sum + (inv.items || []).reduce((s, item) => s + ((demoProducts.find(p => p.id === item.productId)?.cost || 0) * item.quantity), 0), 0);
+            const monthCogs = (demoInvoices || []).filter(inv => new Date(inv.date).getMonth() === currentMonth && inv.status !== 'draft').reduce((sum, inv) => sum + (inv.items || []).reduce((s: number, item: { productId?: string; quantity: number }) => s + ((demoProducts.find(p => p.id === item.productId)?.cost || 0) * item.quantity), 0), 0);
 
             // محاكاة مصروفات تشغيلية للديمو
             const monthExpenses = 2500;

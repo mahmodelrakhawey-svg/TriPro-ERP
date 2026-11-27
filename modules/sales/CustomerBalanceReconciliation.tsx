@@ -299,8 +299,8 @@ export const CustomerBalanceReconciliation: React.FC = () => {
             if (!cust.name) return false;
             const cNorm = cust.name.trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
             if (cNorm === pName || (cNorm.length >= 4 && pName.includes(cNorm)) || (pName.length >= 4 && cNorm.includes(pName))) return true;
-            const cDistinct = cNorm.split(' ').filter(w => w.length > 2 && !CUSTOMER_STOP_WORDS.has(w));
-            return cDistinct.length > 0 && cDistinct.every(w => pName.includes(w));
+            const cDistinct = cNorm.split(' ').filter((w: string) => w.length > 2 && !CUSTOMER_STOP_WORDS.has(w));
+            return cDistinct.length > 0 && cDistinct.every((w: string) => pName.includes(w));
           })?.sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0))[0]?.id;
         }
         registerDoc(c.id, c.related_journal_entry_id, custId, String(c.cheque_number));
@@ -317,8 +317,8 @@ export const CustomerBalanceReconciliation: React.FC = () => {
             if (!cust.name) return false;
             const cNorm = cust.name.trim().toLowerCase().replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ة/g, 'ه').replace(/[ىي]/g, 'ي');
             if (cNorm === pName || (cNorm.length >= 4 && pName.includes(cNorm)) || (pName.length >= 4 && cNorm.includes(pName))) return true;
-            const cDistinct = cNorm.split(' ').filter(w => w.length > 2 && !CUSTOMER_STOP_WORDS.has(w));
-            return cDistinct.length > 0 && cDistinct.every(w => pName.includes(w));
+            const cDistinct = cNorm.split(' ').filter((w: string) => w.length > 2 && !CUSTOMER_STOP_WORDS.has(w));
+            return cDistinct.length > 0 && cDistinct.every((w: string) => pName.includes(w));
           })?.sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0))[0]?.id;
         }
         if (!custId && doc.customerPhone) {
@@ -438,8 +438,8 @@ export const CustomerBalanceReconciliation: React.FC = () => {
               // 1. مطابقة الاسم الكامل داخل البيان
               if (cNorm.length >= 3 && normDesc.includes(cNorm)) return true;
               // 2. الكلمات المميزة للعميل بعد استبعاد الكلمات المحاسبية
-              const distinctWords = cNorm.split(' ').filter(w => w.length > 2 && !CUSTOMER_STOP_WORDS.has(w));
-              return distinctWords.length > 0 && distinctWords.every(w => normDesc.includes(w));
+              const distinctWords = cNorm.split(' ').filter((w: string) => w.length > 2 && !CUSTOMER_STOP_WORDS.has(w));
+              return distinctWords.length > 0 && distinctWords.every((w: string) => normDesc.includes(w));
             })
             ?.sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0))[0];
           if (matchedCust) custId = matchedCust.id;

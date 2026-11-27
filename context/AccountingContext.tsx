@@ -718,7 +718,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const currentRawMappings = { ...((sett as any)?.account_mappings || (sett as any)?.accountMappings || {}) };
       const { mappings: autoDerivedMappings, hasNewMappings } = deriveAccountMappings(loadedAccounts as any, currentRawMappings);
       if (hasNewMappings) {
-        setSettings(prev => ({
+        setSettings((prev: Record<string, any>) => ({
           ...prev,
           account_mappings: autoDerivedMappings,
           accountMappings: autoDerivedMappings

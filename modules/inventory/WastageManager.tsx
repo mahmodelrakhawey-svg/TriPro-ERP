@@ -90,8 +90,8 @@ const WastageManager = () => {
 
         // 4. إنشاء القيد المحاسبي لإثبات الخسارة (من ح/ الهالك إلى ح/ المخزون)
         if (totalLostCost > 0) {
-            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY') || accounts.find(a => a.code === '10302' || a.code === '122' || a.code === '1201');
-            const wastageAcc = getSystemAccount('WASTAGE_EXPENSE') || getSystemAccount('INVENTORY_ADJUSTMENTS') || accounts.find(a => (a.code === '5121' || a.code === '512' || a.name?.includes('هالك') || a.name?.includes('تالف') || a.name?.includes('تسويات الجرد')) && !a.name?.includes('ضريب') && !a.code?.startsWith('223'));
+            const inventoryAcc = getSystemAccount('INVENTORY_FINISHED_GOODS') || getSystemAccount('INVENTORY') || accounts.find((a: { id?: string; code?: string; name?: string }) => a.code === '10302' || a.code === '122' || a.code === '1201');
+            const wastageAcc = getSystemAccount('WASTAGE_EXPENSE') || getSystemAccount('INVENTORY_ADJUSTMENTS') || accounts.find((a: { id?: string; code?: string; name?: string }) => (a.code === '5121' || a.code === '512' || a.name?.includes('هالك') || a.name?.includes('تالف') || a.name?.includes('تسويات الجرد')) && !a.name?.includes('ضريب') && !a.code?.startsWith('223'));
 
             if (inventoryAcc && wastageAcc) {
                 await addEntry({
@@ -138,7 +138,7 @@ const WastageManager = () => {
             <label className="block text-sm font-bold text-slate-700 mb-1">المستودع</label>
             <select required value={warehouseId} onChange={e => setWarehouseId(e.target.value)} className="w-full border rounded-lg p-2.5 bg-slate-50">
               <option value="">-- اختر المستودع --</option>
-              {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              {warehouses.map((w: { id: string; name: string }) => <option key={w.id} value={w.id}>{w.name}</option>)}
             </select>
           </div>
           <div>

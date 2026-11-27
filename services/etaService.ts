@@ -55,10 +55,11 @@ export const etaService = {
     }
 
     // Sort object keys alphabetically
-    const keys = Object.keys(obj).sort();
+    const record = obj as Record<string, unknown>;
+    const keys = Object.keys(record).sort();
     let canonical = '';
     for (const key of keys) {
-      const value = obj[key];
+      const value = record[key];
       if (value !== undefined && value !== null) {
         canonical += `"${key.toUpperCase()}"`;
         canonical += this.generateCanonicalString(value);

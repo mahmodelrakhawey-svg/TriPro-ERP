@@ -8,7 +8,14 @@ interface CheckResult {
   message: string;
 }
 
-export const IntegrityCheckScreen = ({ backupData, orgId, onConfirm, onCancel }) => {
+interface IntegrityCheckScreenProps {
+  backupData: unknown;
+  orgId: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+export const IntegrityCheckScreen = ({ backupData, orgId, onConfirm, onCancel }: IntegrityCheckScreenProps) => {
   const [results, setResults] = useState<CheckResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [canRestore, setCanRestore] = useState(false);
@@ -23,14 +30,14 @@ export const IntegrityCheckScreen = ({ backupData, orgId, onConfirm, onCancel })
 
       if (!error && data) {
         setResults(data);
-        setCanRestore(!data.some(r => r.status === 'fail'));
+        setCanRestore(!data.some((r: CheckResult) => r.status === 'fail'));
       }
       setLoading(false);
     };
     runChecks();
   }, [backupData, orgId]);
 
-  const getIcon = (status) => {
+  const getIcon = (status: CheckResult['status']) => {
     if (status === 'pass') return <CheckCircle className="text-green-500" />;
     if (status === 'warning') return <AlertTriangle className="text-yellow-500" />;
     return <XCircle className="text-red-500" />;

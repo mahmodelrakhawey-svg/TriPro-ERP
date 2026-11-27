@@ -106,7 +106,7 @@ const StockTransferList = () => {
           .eq('stock_transfer_id', transfer.id);
 
         if (!error && fullItems && fullItems.length > 0) {
-          setSelectedTransfer(prev => prev ? ({
+          setSelectedTransfer((prev: Record<string, any> | null) => prev ? ({
             ...prev,
             stock_transfer_items: fullItems
           }) : prev);

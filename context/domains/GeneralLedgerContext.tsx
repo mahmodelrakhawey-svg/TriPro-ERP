@@ -380,7 +380,8 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
   }, [targetOrgId, logActivity, showToast, refreshAccountsOnly]);
 
   const getSystemAccount = useCallback((key: string): Account | undefined => {
-    const mappingId = settings?.account_mappings?.[key];
+    const mappings = (settings as Record<string, any> | null | undefined)?.account_mappings;
+    const mappingId = mappings?.[key];
     if (mappingId) {
       const mapped = accounts.find(a => a.id === mappingId);
       if (mapped) return mapped;

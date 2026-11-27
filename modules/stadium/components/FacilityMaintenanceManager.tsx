@@ -333,7 +333,7 @@ export const FacilityMaintenanceManager: React.FC = () => {
       .update({ status: newStatus })
       .eq('id', ticket.id);
     if (!error) {
-      toast.success(`تم تغيير الحالة إلى ${MAINTENANCE_STATUS_LABELS[newStatus as any]}`);
+      toast.success(`تم تغيير الحالة إلى ${MAINTENANCE_STATUS_LABELS[newStatus as keyof typeof MAINTENANCE_STATUS_LABELS] || newStatus}`);
       fetchTickets();
     }
   };

@@ -624,7 +624,7 @@ export const MemberManager: React.FC = () => {
         'رقم الهاتف': m.phone || '—',
         'البريد الإلكتروني': m.email || '—',
         'النوع': m.gender === 'female' ? 'أنثى' : 'ذكر',
-        'نوع العضوية': MEMBERSHIP_CATEGORY_LABELS[m.membership_type] || m.membership_type,
+        'نوع العضوية': MEMBERSHIP_CATEGORY_LABELS[m.membership_type as keyof typeof MEMBERSHIP_CATEGORY_LABELS] || m.membership_type,
         'تاريخ الانتهاء': m.end_date || '—',
         'الحالة': m.status === 'active' ? 'نشط' : m.status === 'expired' ? 'منتهي' : 'موقوف',
         'ملاحظات': m.notes || '—',

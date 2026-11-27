@@ -8,10 +8,33 @@ import dayjs from 'dayjs';
 
 const { Text, Title } = Typography;
 
+interface PrescriptionMedication {
+  product_id: string;
+  qty: number;
+  dosage?: string;
+  frequency?: string;
+  product_name?: string;
+  current_stock?: number;
+  expiry_date?: string | null;
+  isValid?: boolean;
+  error?: string | null;
+}
+
+interface ClinicalPrescription {
+  id: string;
+  visit_id: string;
+  created_at?: string;
+  diagnosis?: string;
+  medications: PrescriptionMedication[];
+  checkedMeds?: PrescriptionMedication[];
+  patient?: { hims_patients?: { full_name?: string } };
+  doctor?: { profile_id?: { full_name?: string } };
+}
+
 export default function ClinicalPharmacy() {
-  const [prescriptions, setPrescriptions] = useState<any[]>([]);
+  const [prescriptions, setPrescriptions] = useState<ClinicalPrescription[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPresc, setSelectedPresc] = useState<any>(null);
+  const [selectedPresc, setSelectedPresc] = useState<ClinicalPrescription | null>(null);
   const [detailsModalVisible, setDetailsModal] = useState(false);
   const [barcodeSearch, setBarcodeSearch] = useState('');
   const { currentUser } = useAccounting();
@@ -65,15 +88,15 @@ export default function ClinicalPharmacy() {
     }
   };
 
-  const checkMedicationStatus = async (medications) => {
+  const checkMedicationStatus = async (medications: PrescriptionMedication[]): Promise<PrescriptionMedication[]> => {
     // جلب بيانات المخزون والصلاحية الحالية للأدوية المطلوبة
-    const productIds = medications.map(m => m.product_id);
+    const productIds = medications.map((m: PrescriptionMedication) => m.product_id);
     const { data: products } = await supabase
       .from('products')
       .select('id, name, stock, expiry_date')
       .in('id', productIds);
 
-    return medications.map(med => {
+    return medications.map((med: PrescriptionMedication) => {
       const product = products?.find(p => p.id === med.product_id);
       const isExpired = product?.expiry_date && new Date(product.expiry_date) < new Date();
       const hasShortage = (product?.stock || 0) < med.qty;
@@ -89,16 +112,17 @@ export default function ClinicalPharmacy() {
     });
   };
 
-  const handleViewDetails = async (presc) => {
-    const checkedMeds = await checkMedicationStatus(presc.medications);
+  const handleViewDetails = async (presc: ClinicalPrescription) => {
+    const checkedMeds = await checkMedicationStatus(presc.medications || []);
     setSelectedPresc({ ...presc, checkedMeds });
     setDetailsModal(true);
   };
 
   const dispenseMedication = async () => {
+    if (!selectedPresc) return;
     try {
       // التحقق النهائي من الصلاحية قبل الاستدعاء
-      const invalidItems = selectedPresc.checkedMeds.filter(m => !m.isValid);
+      const invalidItems = (selectedPresc.checkedMeds || []).filter((m: PrescriptionMedication) => !m.isValid);
       if (invalidItems.length > 0) {
         return toast.warning('لا يمكن الصرف: توجد أصناف غير صالحة طبياً أو مخزنياً');
       }
@@ -118,9 +142,9 @@ export default function ClinicalPharmacy() {
   };
 
   const columns = [
-    { title: 'التاريخ', dataIndex: 'created_at', render: (date) => dayjs(date).format('YYYY-MM-DD HH:mm') },
-    { title: 'المريض', render: (_, r) => r.patient?.hims_patients?.full_name },
-    { title: 'الطبيب المعالج', render: (_, r) => r.doctor?.profile_id?.full_name },
+    { title: 'التاريخ', dataIndex: 'created_at', render: (date: string) => dayjs(date).format('YYYY-MM-DD HH:mm') },
+    { title: 'المريض', render: (_: unknown, r: ClinicalPrescription) => r.patient?.hims_patients?.full_name },
+    { title: 'الطبيب المعالج', render: (_: unknown, r: ClinicalPrescription) => r.doctor?.profile_id?.full_name },
     { title: 'التشخيص', dataIndex: 'diagnosis', ellipsis: true },
     { 
       title: 'الحالة', 
@@ -129,7 +153,7 @@ export default function ClinicalPharmacy() {
     },
     {
       title: 'الإجراء',
-      render: (_, r) => (
+      render: (_: unknown, r: ClinicalPrescription) => (
         <Button type="primary" icon={<MedicineBoxOutlined />} onClick={() => handleViewDetails(r)}>
           مراجعة وصرف
         </Button>
@@ -176,7 +200,7 @@ export default function ClinicalPharmacy() {
             danger 
             icon={<CheckCircleOutlined />} 
             onClick={dispenseMedication}
-            disabled={selectedPresc?.checkedMeds?.some(m => !m.isValid)}
+            disabled={selectedPresc?.checkedMeds?.some((m: PrescriptionMedication) => !m.isValid)}
           >
             تأكيد الصرف النهائي
           </Button>
@@ -222,7 +246,7 @@ export default function ClinicalPharmacy() {
               )}
             />
 
-            {selectedPresc.checkedMeds.some(m => !m.isValid) && (
+            {(selectedPresc.checkedMeds || []).some((m: PrescriptionMedication) => !m.isValid) && (
               <Alert description="تنبيه: لا يمكن صرف هذه الوصفة لوجود أخطاء في الصلاحية أو الكمية." type="error" showIcon />
             )}
           </div>
