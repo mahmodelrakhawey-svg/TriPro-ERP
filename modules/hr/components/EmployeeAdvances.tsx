@@ -121,7 +121,7 @@ const EmployeeAdvances = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [currentSelectedOrgId]);
 
   // 💡 إثراء بيانات الموظفين بإحصائيات السلف الذكية الفورية
   const enrichedEmployees: EmployeeOption[] = useMemo(() => {
@@ -451,6 +451,73 @@ const EmployeeAdvances = () => {
         (await resolveActiveOrgId(currentSelectedOrgId));
       if (!orgId && currentUser?.role !== 'super_admin') throw new Error('تعذر تحديد المنظمة.');
 
+      const resolveAdvancesAccount = async (targetOrg?: string | null) => {
+        const localAcc =
+          getSystemAccount('EMPLOYEE_ADVANCES') ||
+          accounts.find(a => !a.isGroup && (a.code === '1223' || a.name?.includes('سلف') || a.name?.includes('قروض')));
+        if (localAcc?.id) return localAcc;
+
+        if (!targetOrg) return null;
+        const { data: dbAcc } = await supabase
+          .from('accounts')
+          .select('id, name, code')
+          .eq('organization_id', targetOrg)
+          .eq('is_group', false)
+          .or('code.eq.1223,name.ilike.%سلف%,name.ilike.%قروض%')
+          .limit(1)
+          .maybeSingle();
+        return dbAcc || null;
+      };
+
+      const ensureAdvanceJournalCreated = async (
+        advanceId: string | undefined,
+        reference: string,
+        targetOrg: string | null | undefined,
+        rpcJournalId?: string | null
+      ): Promise<boolean> => {
+        if (rpcJournalId) {
+          const { data: jeRow } = await supabase
+            .from('journal_entries')
+            .select('id, organization_id')
+            .eq('id', rpcJournalId)
+            .maybeSingle();
+
+          if (jeRow) {
+            if (targetOrg && jeRow.organization_id !== targetOrg) {
+              await supabase.from('journal_entries').update({ organization_id: targetOrg }).eq('id', jeRow.id);
+              await supabase.from('journal_lines').update({ organization_id: targetOrg }).eq('journal_entry_id', jeRow.id);
+            }
+            return true;
+          }
+        }
+
+        if (advanceId && targetOrg) {
+          const { data: existingJe } = await supabase
+            .from('journal_entries')
+            .select('id')
+            .eq('organization_id', targetOrg)
+            .eq('related_document_id', advanceId)
+            .maybeSingle();
+          if (existingJe?.id) return true;
+        }
+
+        const advancesAcc = await resolveAdvancesAccount(targetOrg);
+        if (!advancesAcc?.id || !addEntry) return false;
+
+        await addEntry({
+          date: formData.date,
+          description: `صرف سلفة للموظف ${empName}`,
+          reference,
+          status: 'posted',
+          p_org_id: targetOrg || undefined,
+          lines: [
+            { account_id: advancesAcc.id, accountId: advancesAcc.id, debit: formData.amount, credit: 0, description: `سلفة موظف - ${empName}` },
+            { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: `صرف نقدية لسلفة` }
+          ]
+        });
+        return true;
+      };
+
       if (editingId) {
         // --- 1. وضع التعديل (Edit Mode) عبر الإجراء المحاسبي المحمي بالكامل ---
         const { error: rpcError } = await supabase.rpc('update_employee_advance', {
@@ -470,7 +537,9 @@ const EmployeeAdvances = () => {
         showToast('تم تعديل بيانات السلفة وتحديث القيد المحاسبي بنجاح ✅', 'success');
       } else {
         // --- 2. وضع الإضافة الجديد (Create Mode) عبر الإجراء الذري الموحد المحصن ضد انقطاع النت والتكرار ---
+        type RpcAdvanceResult = { advance_id?: string; reference?: string; journal_id?: string | null };
         let createSuccess = false;
+        let rpcAdvanceResult = null as RpcAdvanceResult | null;
 
         try {
           const { data: rpcResult, error: rpcError } = await supabase.rpc('create_employee_advance', {
@@ -489,7 +558,7 @@ const EmployeeAdvances = () => {
                 `⚠️ رصدت قاعدة البيانات سلفة مطابقة لنفس الموظف والمبلغ مسجلة مؤخراً!\n\nإذا كان الصرف متعمداً ومقصوداً، اضغط [موافق] لتأكيد صرف السلفة الإضافية، أو [إلغاء] لمنع الازدواجية.`
               );
               if (reconfirm) {
-                const { error: retryError } = await supabase.rpc('create_employee_advance', {
+                const { data: retryData, error: retryError } = await supabase.rpc('create_employee_advance', {
                   p_employee_id: formData.employeeId,
                   p_amount: formData.amount,
                   p_date: formData.date,
@@ -498,6 +567,7 @@ const EmployeeAdvances = () => {
                   p_allow_duplicate: true
                 });
                 if (retryError) throw retryError;
+                rpcAdvanceResult = (retryData as typeof rpcAdvanceResult) || null;
                 createSuccess = true;
               } else {
                 return;
@@ -510,6 +580,7 @@ const EmployeeAdvances = () => {
               throw rpcError;
             }
           } else {
+            rpcAdvanceResult = (rpcResult as typeof rpcAdvanceResult) || null;
             createSuccess = true;
           }
         } catch (callErr: unknown) {
@@ -525,42 +596,47 @@ const EmployeeAdvances = () => {
           }
         }
 
-        // مسار احتياطي آمن (Fallback) في حال عدم توفر دالة RPC
-        if (!createSuccess) {
+        let journalPosted = false;
+        if (createSuccess) {
+          const fallbackRef = rpcAdvanceResult?.reference || `ADV-${Date.now().toString().slice(-6)}`;
+          journalPosted = await ensureAdvanceJournalCreated(
+            rpcAdvanceResult?.advance_id,
+            fallbackRef,
+            orgId,
+            rpcAdvanceResult?.journal_id
+          );
+        } else {
+          // مسار احتياطي آمن (Fallback) في حال عدم توفر دالة RPC
           const reference = `ADV-${Date.now().toString().slice(-6)}`;
 
           // 1. حفظ السلفة
-          const { error: advError } = await supabase.from('employee_advances').insert({
-            organization_id: orgId,
-            employee_id: formData.employeeId,
-            amount: formData.amount,
-            request_date: formData.date,
-            advance_date: formData.date,
-            status: 'paid',
-            notes: formData.notes,
-            treasury_account_id: formData.treasuryId,
-            reference: reference
-          });
+          const { data: insertedAdv, error: advError } = await supabase
+            .from('employee_advances')
+            .insert({
+              organization_id: orgId,
+              employee_id: formData.employeeId,
+              amount: formData.amount,
+              request_date: formData.date,
+              advance_date: formData.date,
+              status: 'paid',
+              notes: formData.notes,
+              treasury_account_id: formData.treasuryId,
+              reference: reference
+            })
+            .select('id')
+            .maybeSingle();
 
           if (advError) throw advError;
 
           // 2. إنشاء القيد المحاسبي
-          const advancesAcc = getSystemAccount('EMPLOYEE_ADVANCES') || accounts.find(a => a.code === '1223');
-          if (advancesAcc) {
-            await addEntry({
-              date: formData.date,
-              description: `صرف سلفة للموظف ${empName}`,
-              reference: reference,
-              status: 'posted',
-              lines: [
-                { account_id: advancesAcc.id, accountId: advancesAcc.id, debit: formData.amount, credit: 0, description: `سلفة موظف - ${empName}` },
-                { account_id: formData.treasuryId, accountId: formData.treasuryId, debit: 0, credit: formData.amount, description: `صرف نقدية لسلفة` }
-              ]
-            });
-          }
+          journalPosted = await ensureAdvanceJournalCreated(insertedAdv?.id, reference, orgId, null);
         }
 
-        showToast('تم حفظ السلفة وترحيل القيد بنجاح ✅', 'success');
+        if (journalPosted) {
+          showToast('تم حفظ السلفة وترحيل القيد بنجاح ✅', 'success');
+        } else {
+          showToast('تم حفظ السلفة، لكن تعذر إنشاء القيد المحاسبي لعدم توفر حساب "سلف العاملين" (1223) في شجرة الحسابات ⚠️', 'warning');
+        }
       }
 
       setIsModalOpen(false);
