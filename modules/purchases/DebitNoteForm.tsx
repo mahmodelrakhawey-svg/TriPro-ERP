@@ -10,10 +10,10 @@ import {
 } from 'lucide-react';
 import { createDebitNoteSchema } from '../../utils/validationSchemas';
 import { DebitNotePrint } from './DebitNotePrint';
-import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
+import { getActiveOrgIdSync, resolveActiveOrgId, ensureDocumentJournalOrgSync } from '../../services/tenantContext';
 
 const DebitNoteForm = () => {
-  const { settings, suppliers, currentUser } = useAccounting();
+  const { settings, suppliers, currentUser, currentSelectedOrgId, refreshData } = useAccounting();
   const navigate = useNavigate();
   const location = useLocation();
   const { showToast } = useToast();
@@ -49,7 +49,8 @@ const DebitNoteForm = () => {
   // جلب كافة معرفات الإشعارات المدينة للتنقل
   const fetchNoteIds = async () => {
     try {
-      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+    const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       if (!userOrgId) return;
 
       const { data, error } = await supabase
@@ -188,7 +189,8 @@ const DebitNoteForm = () => {
     
     setSaving(true);
 
-    const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
+    const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+    const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
     if (!userOrgId) throw new Error("تعذر تحديد المنظمة.");
 
@@ -237,6 +239,8 @@ const DebitNoteForm = () => {
         // 2. استدعاء الدالة الآمنة للترحيل
         const { error: rpcError } = await supabase.rpc('approve_debit_note', { p_note_id: note.id });
         if (rpcError) throw rpcError;
+        await ensureDocumentJournalOrgSync('debit_notes', note.id, userOrgId);
+        await refreshData?.();
 
         showToast('تم حفظ الإشعار المدين وترحيل القيد بنجاح ✅', 'success');
       }
@@ -263,7 +267,8 @@ const DebitNoteForm = () => {
 
     setDeleting(true);
     try {
-      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+    const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       await supabase.from('journal_entries').delete().eq('organization_id', userOrgId).eq('reference', formData.noteNumber);
       const { error: delErr } = await supabase.from('debit_notes').delete().eq('id', editingId).eq('organization_id', userOrgId);

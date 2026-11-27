@@ -11,10 +11,10 @@ import { useToast } from '../../context/ToastContext';
 import { z } from 'zod';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { SalesReturnPrint } from './SalesReturnPrint';
-import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
+import { getActiveOrgIdSync, resolveActiveOrgId, isValidUUID, ensureDocumentJournalOrgSync } from '../../services/tenantContext';
 
 const SalesReturnForm = () => {
-  const { customers, products, currentUser, warehouses, settings } = useAccounting();
+  const { customers, products, currentUser, currentSelectedOrgId, warehouses, settings, accounts, getSystemAccount, addEntry, refreshData } = useAccounting();
   const navigate = useNavigate();
   const location = useLocation();
   const { showToast } = useToast();
@@ -56,7 +56,8 @@ const SalesReturnForm = () => {
   // 1. جلب كافة معرفات المرتجعات للتنقل بينها
   const fetchReturnIds = async () => {
     try {
-      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       if (!userOrgId) return;
 
       const { data, error } = await supabase
@@ -76,12 +77,14 @@ const SalesReturnForm = () => {
 
   useEffect(() => {
     fetchReturnIds();
-  }, []);
+  }, [currentSelectedOrgId]);
 
   // تحميل البيانات الأساسية (المستودع والوحدات)
   useEffect(() => {
     const fetchUoms = async () => {
-      const orgId = (currentUser as any)?.organization_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const orgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
+      if (!orgId) return;
       const { data } = await supabase.from('uoms').select('*').eq('organization_id', orgId);
       if (data) setUoms(data);
     };
@@ -350,10 +353,28 @@ const SalesReturnForm = () => {
     }
 
     try {
-      const { data: profile } = await supabase.from('profiles').select('organization_id, role').eq('id', currentUser?.id).single();
-      const targetOrgId = originalInvoiceOrgId || profile?.organization_id;
+      const explicitOrgId = originalInvoiceOrgId || currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const resolvedOrgId =
+        getActiveOrgIdSync(explicitOrgId) ||
+        (await resolveActiveOrgId(explicitOrgId));
+      const targetOrgId = isValidUUID(originalInvoiceOrgId) ? originalInvoiceOrgId : resolvedOrgId;
 
-      if (!targetOrgId && profile?.role !== 'super_admin') throw new Error("تعذر تحديد المنظمة.");
+      if (!targetOrgId) throw new Error("تعذر تحديد المنظمة.");
+
+      let finalWarehouseId = formData.warehouseId;
+      if (!isValidUUID(finalWarehouseId)) {
+        if (warehouses[0]?.id && isValidUUID(warehouses[0].id)) {
+          finalWarehouseId = warehouses[0].id;
+        } else {
+          const { data: realWh } = await supabase
+            .from('warehouses')
+            .select('id')
+            .eq('organization_id', targetOrgId)
+            .limit(1)
+            .maybeSingle();
+          if (realWh?.id) finalWarehouseId = realWh.id;
+        }
+      }
 
       const subtotal = calculateTotal();
       const taxRate = settings.enableTax ? ((settings.vatRate || 14) / 100) : 0;
@@ -374,8 +395,9 @@ const SalesReturnForm = () => {
         }
 
         const { error: updateError } = await supabase.from('sales_returns').update({
+          organization_id: targetOrgId,
           customer_id: formData.customerId,
-          warehouse_id: formData.warehouseId,
+          warehouse_id: isValidUUID(finalWarehouseId) ? finalWarehouseId : null,
           original_invoice_id: originalInvoiceId,
           return_number: returnNumber,
           return_date: formData.date,
@@ -407,7 +429,7 @@ const SalesReturnForm = () => {
         const { data: returnDoc, error: retError } = await supabase.from('sales_returns').insert({
           organization_id: targetOrgId,
           customer_id: formData.customerId,
-          warehouse_id: formData.warehouseId,
+          warehouse_id: isValidUUID(finalWarehouseId) ? finalWarehouseId : null,
           original_invoice_id: originalInvoiceId,
           return_number: returnNumber,
           return_date: formData.date,
@@ -440,8 +462,45 @@ const SalesReturnForm = () => {
       if (returnIdToApprove) {
         const { error: rpcError } = await supabase.rpc('approve_sales_return', { p_return_id: returnIdToApprove });
         if (rpcError) throw rpcError;
+
+        const syncRes = await ensureDocumentJournalOrgSync('sales_returns', returnIdToApprove, targetOrgId);
+        if (!syncRes.synced || !syncRes.hasLines) {
+          const salesRetAcc =
+            getSystemAccount?.('SALES_RETURNS') ||
+            getSystemAccount?.('SALES_REVENUE') ||
+            accounts.find(a => ['412', '413', '4102', '411', '4101'].includes(a.code || ''));
+          const customerAcc =
+            getSystemAccount?.('CUSTOMERS') ||
+            accounts.find(a => ['1221', '1102'].includes(a.code || ''));
+          const vatAcc =
+            getSystemAccount?.('VAT') ||
+            accounts.find(a => ['2231', '2103'].includes(a.code || ''));
+
+          if (salesRetAcc && customerAcc && totalAmount > 0 && addEntry) {
+            const lines: Array<Record<string, any>> = [
+              { accountId: salesRetAcc.id, debit: subtotal, credit: 0, description: 'مردودات مبيعات' },
+              { accountId: customerAcc.id, debit: 0, credit: totalAmount, description: 'تخفيض مديونية عميل' },
+            ];
+            if (taxAmount > 0 && vatAcc) {
+              lines.splice(1, 0, { accountId: vatAcc.id, debit: taxAmount, credit: 0, description: 'عكس ضريبة مخرجات' });
+            } else if (taxAmount > 0) {
+              lines[0].debit = totalAmount;
+            }
+            await addEntry({
+              date: formData.date,
+              reference: returnNumber,
+              description: `مرتجع مبيعات رقم ${returnNumber}`,
+              status: 'posted',
+              p_org_id: targetOrgId,
+              lines,
+            });
+          } else {
+            showToast('تم حفظ المرتجع، لكن تعذر إنشاء القيد التلقائي لعدم توفر حسابات المردودات أو العملاء في شجرة الحسابات.', 'warning');
+          }
+        }
       }
 
+      await refreshData?.();
       showToast(editingId ? 'تم تحديث واعتماد مرتجع المبيعات وتحديث الحسابات بنجاح ✅' : 'تم حفظ واعتماد مرتجع المبيعات وتحديث المخزون بنجاح ✅', 'success');
       
       await fetchReturnIds();

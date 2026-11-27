@@ -8,9 +8,10 @@ import { supabase } from '../../../supabaseClient';
 import { ExpenseVoucherPrint } from '../reports/ExpenseVoucherPrint';
 import { z } from 'zod';
 import { useLocation } from 'react-router-dom';
+import { getActiveOrgIdSync, resolveActiveOrgId, ensureDocumentJournalOrgSync } from '../../../services/tenantContext';
 
 const ExpenseVoucherForm = () => {
-  const { accounts, costCenters, updateVoucher, addEntry, currentUser, addDemoEntry } = useAccounting();
+  const { accounts, costCenters, updateVoucher, addEntry, currentUser, addDemoEntry, currentSelectedOrgId, refreshData } = useAccounting();
   const location = useLocation();
   const isSubmittingRef = useRef(false);
   const [loading, setLoading] = useState(false);
@@ -271,9 +272,12 @@ const ExpenseVoucherForm = () => {
         const expenseAccountName = accounts.find(a => a.id === formData.expenseAccountId)?.name;
         const voucherNumber = formData.voucherNumber || `EXP-${Date.now().toString().slice(-6)}`;
 
-        // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
-        const orgId = (currentUser as any)?.organization_id || 
-                     (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+        // جلب معرف المنظمة مع صمام أمان موحد
+        const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+        const orgId =
+          getActiveOrgIdSync(explicitOrgId) ||
+          (await resolveActiveOrgId(explicitOrgId)) ||
+          (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
 
         if (isEditing && currentVoucherId) {
             // 1. تحديث السند في قاعدة البيانات وجلب معرف القيد المرتبط
@@ -349,6 +353,7 @@ const ExpenseVoucherForm = () => {
                     p_debit_account_id: formData.expenseAccountId 
                 });
                 if (rpcError) throw rpcError;
+                await ensureDocumentJournalOrgSync('payment_vouchers', voucherData.id, orgId);
             } catch (err) {
                 // Fallback manual entry
                 await addEntry({
@@ -383,6 +388,7 @@ const ExpenseVoucherForm = () => {
                 }
             }
 
+            await refreshData?.();
             setSuccess(true);
             setTimeout(() => setSuccess(false), 3000);
             

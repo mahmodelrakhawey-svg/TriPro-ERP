@@ -33,19 +33,19 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'الإشعار المدين غير موجود'; END IF;
     IF v_note.status = 'posted' THEN RAISE EXCEPTION 'الإشعار مرحل بالفعل'; END IF;
 
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    v_org_id := COALESCE(v_note.organization_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1));
 
     -- ب. جلب الحسابات
-    -- 5101: المشتريات (نجعله دائن لتخفيض التكلفة) أو حساب خصم مكتسب
-    SELECT id INTO v_purchase_discount_acc_id FROM public.accounts WHERE code = '5101' LIMIT 1;
-    
-    -- ضريبة المدخلات (1205) أو الضريبة العامة (2103)
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '1205' LIMIT 1;
+    -- 5101 / 511 / 513: المشتريات أو خصم مكتسب
+    SELECT id INTO v_purchase_discount_acc_id FROM public.accounts WHERE organization_id = v_org_id AND code IN ('513', '5102', '511', '5101') LIMIT 1;
+
+    -- ضريبة المدخلات (1241 / 1205) أو الضريبة العامة (2231 / 2103)
+    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE organization_id = v_org_id AND code IN ('1241', '1205') LIMIT 1;
     IF v_vat_acc_id IS NULL THEN
-        SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2103' LIMIT 1;
+        SELECT id INTO v_vat_acc_id FROM public.accounts WHERE organization_id = v_org_id AND code IN ('2231', '2103') LIMIT 1;
     END IF;
 
-    SELECT id INTO v_supplier_acc_id FROM public.accounts WHERE code = '2201' LIMIT 1; -- الموردين
+    SELECT id INTO v_supplier_acc_id FROM public.accounts WHERE organization_id = v_org_id AND code IN ('201', '2201', '2101') LIMIT 1;
 
     IF v_purchase_discount_acc_id IS NULL OR v_supplier_acc_id IS NULL THEN
         RAISE EXCEPTION 'حسابات المشتريات أو الموردين غير معرّفة';

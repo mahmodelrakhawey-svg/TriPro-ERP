@@ -14,7 +14,7 @@ import { logDocumentAction } from '../../../services/auditService';
 import SupplierSearchSelect from '../../../components/SupplierSearchSelect';
 import { ApprovalWorkflowService } from '../../../services/approvalWorkflowService';
 import { fetchAllSupplierBalances } from '../../../services/balanceService';
-import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
+import { getActiveOrgIdSync, resolveActiveOrgId, ensureDocumentJournalOrgSync } from '../../../services/tenantContext';
 
 const PaymentVoucherForm = () => {
   const navigate = useNavigate();
@@ -657,33 +657,7 @@ const PaymentVoucherForm = () => {
         try {
             const { error: rpcError } = await supabase.rpc('approve_payment_voucher', { p_voucher_id: voucherData.id, p_debit_account_id: supplierAcc.id });
             if (rpcError) throw rpcError;
-
-            // التحقق من تطابق المنظمة على القيد المرتبط في حال كانت الدالة المخزنة على الخادم قديمة (multi-tenant self-heal)
-            if (orgId) {
-              try {
-                const { data: linkedVoucher } = await supabase
-                  .from('payment_vouchers')
-                  .select('related_journal_entry_id')
-                  .eq('id', voucherData.id)
-                  .maybeSingle();
-
-                const jeId = linkedVoucher?.related_journal_entry_id;
-                if (jeId) {
-                  const { data: jeRow } = await supabase
-                    .from('journal_entries')
-                    .select('id, organization_id')
-                    .eq('id', jeId)
-                    .maybeSingle();
-
-                  if (jeRow && jeRow.organization_id !== orgId) {
-                    await supabase.from('journal_entries').update({ organization_id: orgId }).eq('id', jeId);
-                    await supabase.from('journal_lines').update({ organization_id: orgId }).eq('journal_entry_id', jeId);
-                  }
-                }
-              } catch (healErr) {
-                logger.warn('Non-blocking voucher journal org self-heal notice:', healErr);
-              }
-            }
+            await ensureDocumentJournalOrgSync('payment_vouchers', voucherData.id, orgId);
         } catch (err) {
             logger.warn("RPC failed, falling back to manual entry:", err);
             // في حال فشل الدالة (مثلاً غير موجودة)، نقوم بإنشاء القيد يدوياً لضمان سلامة البيانات

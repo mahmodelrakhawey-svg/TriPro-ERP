@@ -10,13 +10,14 @@ import { useToast } from '../../../context/ToastContext';
 import { VoucherSchema } from '../../../utils/schemas';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ApprovalWorkflowService } from '../../../services/approvalWorkflowService';
+import { getActiveOrgIdSync, resolveActiveOrgId, ensureDocumentJournalOrgSync } from '../../../services/tenantContext';
 
 const ReceiptVoucherForm = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const DEMO_EMAIL = 'demo@tripro.com';
   const DEMO_USER_ID = 'demo-user-id';
-  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, customers, accounts, can, addDemoReceiptVoucher, isDemo, organization } = useAccounting();
+  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, customers, accounts, can, addDemoReceiptVoucher, isDemo, organization, currentSelectedOrgId, refreshData } = useAccounting();
   const { currentUser } = useAuth();
   const isSubmittingRef = useRef(false);
   
@@ -444,9 +445,12 @@ const ReceiptVoucherForm = () => {
             return;
         }
 
-        // جلب معرف المنظمة مع صمام أمان في حال فقدانه من بيانات المستخدم
-        const orgId = (currentUser as any)?.organization_id || 
-                     (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+        // جلب معرف المنظمة مع صمام أمان موحد
+        const explicitOrgId = currentSelectedOrgId || organization?.id || (currentUser as any)?.organization_id;
+        const orgId =
+          getActiveOrgIdSync(explicitOrgId) ||
+          (await resolveActiveOrgId(explicitOrgId)) ||
+          (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
 
         // 1. حفظ سند القبض
         const { data: voucherData, error: voucherError } = await supabase.from('receipt_vouchers').insert({
@@ -515,6 +519,7 @@ const ReceiptVoucherForm = () => {
         try {
             const { error: rpcError } = await supabase.rpc('approve_receipt_voucher', { p_voucher_id: voucherData.id, p_credit_account_id: customerAcc.id });
             if (rpcError) throw rpcError;
+            await ensureDocumentJournalOrgSync('receipt_vouchers', voucherData.id, orgId);
         } catch (err) {
             logger.warn("RPC failed, falling back to manual entry:", err);
             const customerName = customer?.name ? `${customer.name} - ` : '';
@@ -551,6 +556,7 @@ const ReceiptVoucherForm = () => {
             }
         }
 
+        await refreshData?.();
         showToast('تم حفظ سند القبض وترحيل القيد بنجاح ✅', 'success');
         handleNew();
         setAttachments([]);

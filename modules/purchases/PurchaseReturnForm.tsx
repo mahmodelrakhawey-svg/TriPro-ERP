@@ -14,7 +14,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { PurchaseReturnPrint } from './PurchaseReturnPrint';
 import ProductSearchSelect from '../../components/ProductSearchSelect';
 import SupplierSearchSelect from '../../components/SupplierSearchSelect';
-import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
+import { getActiveOrgIdSync, resolveActiveOrgId, isValidUUID, ensureDocumentJournalOrgSync } from '../../services/tenantContext';
 
 const PurchaseReturnForm = () => {
   const { 
@@ -24,9 +24,11 @@ const PurchaseReturnForm = () => {
     settings, 
     purchaseInvoices, 
     currentUser,
+    currentSelectedOrgId,
     can,
     unpostPurchaseReturn,
-    deletePurchaseReturn
+    deletePurchaseReturn,
+    refreshData
   } = useAccounting();
   const currentUserRole = (currentUser as any)?.role || '';
   const canUnpost = can?.('accounting', 'unpost') || can?.('purchases', 'unpost') || can?.('purchases', 'delete') || ['admin', 'super_admin', 'owner', 'manager'].includes(currentUserRole);
@@ -66,7 +68,7 @@ const PurchaseReturnForm = () => {
   // جلب كافة معرفات مرتجعات المشتريات للتنقل
   const fetchReturnIds = async () => {
     try {
-      const explicitOrgId = (currentUser as any)?.organization_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
       const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       if (!userOrgId) return;
 
@@ -87,16 +89,18 @@ const PurchaseReturnForm = () => {
 
   useEffect(() => {
     fetchReturnIds();
-  }, []);
+  }, [currentSelectedOrgId]);
 
   useEffect(() => {
     const fetchUoms = async () => {
-      const orgId = (currentUser as any)?.organization_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const orgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
+      if (!orgId) return;
       const { data } = await supabase.from('uoms').select('*').eq('organization_id', orgId);
       if (data) setUoms(data);
     };
     if (currentUser) fetchUoms();
-  }, [currentUser]);
+  }, [currentUser, currentSelectedOrgId]);
 
   // تصفية فواتير المشتريات بناءً على المورد المختار
   const supplierInvoices = useMemo(() => {
@@ -396,13 +400,17 @@ const PurchaseReturnForm = () => {
 
     setSaving(true);
     try {
-      const explicitOrgId = (currentUser as any)?.organization_id;
-      const metadataOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
-      const profileOrgId = (currentUser as any)?.organization_id;
-      const targetOrgId = formData.originalInvoiceOrgId || metadataOrgId || profileOrgId;
+      const explicitOrgId = formData.originalInvoiceOrgId || currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const resolvedOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
+      const targetOrgId = isValidUUID(formData.originalInvoiceOrgId) ? formData.originalInvoiceOrgId : resolvedOrgId;
 
-      if (!targetOrgId && currentUser?.role !== 'super_admin') {
+      if (!targetOrgId) {
           throw new Error("تعذر تحديد هوية الشركة.");
+      }
+
+      let finalWarehouseId = formData.warehouseId;
+      if (!isValidUUID(finalWarehouseId) && warehouses[0]?.id && isValidUUID(warehouses[0].id)) {
+        finalWarehouseId = warehouses[0].id;
       }
 
       const returnNumber = formData.returnNumber || `PRET-${Date.now().toString().slice(-6)}`;
@@ -411,9 +419,10 @@ const PurchaseReturnForm = () => {
       if (editingId) {
         // تحديث الرأس (المرتجع في حالة مسودة فقط بعد فك الترحيل)
         const { error: updateError } = await supabase.from('purchase_returns').update({
+          organization_id: targetOrgId,
           supplier_id: formData.supplierId,
           original_invoice_id: formData.originalInvoiceId || null,
-          warehouse_id: formData.warehouseId,
+          warehouse_id: isValidUUID(finalWarehouseId) ? finalWarehouseId : null,
           return_date: formData.date,
           return_number: returnNumber,
           total_amount: totalAmount,
@@ -448,7 +457,7 @@ const PurchaseReturnForm = () => {
           return_number: returnNumber,
           supplier_id: formData.supplierId,
           original_invoice_id: formData.originalInvoiceId || null,
-          warehouse_id: formData.warehouseId,
+          warehouse_id: isValidUUID(finalWarehouseId) ? finalWarehouseId : null,
           return_date: formData.date,
           total_amount: totalAmount,
           tax_amount: taxAmount,
@@ -481,8 +490,10 @@ const PurchaseReturnForm = () => {
           p_return_id: returnIdToApprove 
         });
         if (rpcError) throw rpcError;
+        await ensureDocumentJournalOrgSync('purchase_returns', returnIdToApprove, targetOrgId);
       }
 
+      await refreshData?.();
       showToast(editingId ? 'تم تحديث واعتماد مرتجع المشتريات وتحديث الحسابات بنجاح ✅' : 'تم حفظ مرتجع المشتريات وتحديث المخزون بنجاح ✅', 'success');
       
       await fetchReturnIds();

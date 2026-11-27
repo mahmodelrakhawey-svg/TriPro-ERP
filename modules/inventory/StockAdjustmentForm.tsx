@@ -10,6 +10,7 @@ import { createStockAdjustmentSchema } from '../../utils/validationSchemas';
 import ProductSearchSelect from '../../components/ProductSearchSelect';
 import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
 import { escapeHtml } from '../../utils/htmlSanitizer';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 interface AdjustmentItem {
   productId: string;
@@ -20,7 +21,7 @@ interface AdjustmentItem {
 
 const StockAdjustmentForm = () => {
   const location = useLocation();
-  const { warehouses, products, recalculateStock, addEntry, accounts, getSystemAccount, currentUser } = useAccounting();
+  const { warehouses, products, recalculateStock, addEntry, accounts, getSystemAccount, currentUser, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const [warehouseId, setWarehouseId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -263,7 +264,8 @@ const StockAdjustmentForm = () => {
     isSubmittingRef.current = true;
     setLoading(true);
     try {
-        const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+        const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+        const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
         const adjustmentNumber = `ADJ-${Date.now().toString().slice(-6)}`;
 
         // 1. Create Header

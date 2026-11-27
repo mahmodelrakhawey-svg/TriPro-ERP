@@ -8,9 +8,10 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../../supabaseClient';
 import { CustomerDepositPrint } from '../reports/CustomerDepositPrint';
 import { z } from 'zod';
+import { getActiveOrgIdSync, resolveActiveOrgId, ensureDocumentJournalOrgSync } from '../../../services/tenantContext';
 
 const CustomerDepositForm = () => {
-  const { customers, accounts, getSystemAccount, currentUser, addEntry, updateVoucher } = useAccounting();
+  const { customers, accounts, getSystemAccount, currentUser, currentSelectedOrgId, addEntry, updateVoucher, refreshData } = useAccounting();
   const navigate = useNavigate();
   const { showToast } = useToast();
   
@@ -184,6 +185,11 @@ const CustomerDepositForm = () => {
     setLoading(true);
     try {
         let voucherId = currentVoucherId;
+        const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+        const resolvedOrgId =
+          getActiveOrgIdSync(explicitOrgId) ||
+          (await resolveActiveOrgId(explicitOrgId)) ||
+          (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
 
         if (isEditing && voucherId) {
              // تحديث سند موجود
@@ -203,8 +209,6 @@ const CustomerDepositForm = () => {
         } else {
             // إنشاء سند جديد وحفظه في قاعدة البيانات مباشرة
             const voucherNumber = formData.voucherNumber || `DEP-${Date.now().toString().slice(-6)}`;
-            const orgId = (currentUser as any)?.organization_id || 
-                         (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
 
             const { data: voucherData, error: voucherError } = await supabase.from('receipt_vouchers').insert({
                 voucher_number: voucherNumber,
@@ -214,7 +218,7 @@ const CustomerDepositForm = () => {
                 treasury_account_id: formData.treasuryAccountId,
                 notes: formData.description || 'قبض تأمين من عميل',
                 payment_method: formData.paymentMethod,
-                organization_id: orgId
+                organization_id: resolvedOrgId
             }).select().single();
 
             if (voucherError) throw voucherError;
@@ -232,6 +236,10 @@ const CustomerDepositForm = () => {
         });
 
         if (rpcError) throw rpcError;
+        if (voucherId) {
+          await ensureDocumentJournalOrgSync('receipt_vouchers', voucherId, resolvedOrgId);
+        }
+        await refreshData?.();
 
         showToast(isEditing ? 'تم تعديل السند وتحديث القيد بنجاح ✅' : 'تم حفظ سند تأمين العميل بنجاح ✅', 'success');
             

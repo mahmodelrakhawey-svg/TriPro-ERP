@@ -156,10 +156,64 @@ export function useActiveOrgId(explicitOrgId?: string | null) {
   return { orgId, isLoading, refreshOrgId };
 }
 
+export type JournalBackedTable =
+  | 'payment_vouchers'
+  | 'receipt_vouchers'
+  | 'sales_returns'
+  | 'purchase_returns'
+  | 'credit_notes'
+  | 'debit_notes';
+
+/**
+ * التحقق بعد استدعاء دوال الترحيل في الخادم من وجود القيد المحاسبي المرتبط
+ * وتصحيح organization_id على القيد وأسطره في حال أنشأته دالة قديمة لشركة أخرى.
+ */
+export async function ensureDocumentJournalOrgSync(
+  tableName: JournalBackedTable,
+  docId: string,
+  expectedOrgId?: string | null
+): Promise<{ entryId: string | null; synced: boolean; hasLines: boolean }> {
+  if (!docId) return { entryId: null, synced: false, hasLines: false };
+  try {
+    const { data: docRow } = await supabase
+      .from(tableName)
+      .select('related_journal_entry_id')
+      .eq('id', docId)
+      .maybeSingle();
+
+    const jeId = (docRow as { related_journal_entry_id?: string | null } | null)?.related_journal_entry_id;
+    if (!jeId) return { entryId: null, synced: false, hasLines: false };
+
+    const { data: jeRow } = await supabase
+      .from('journal_entries')
+      .select('id, organization_id, journal_lines(id)')
+      .eq('id', jeId)
+      .maybeSingle();
+
+    if (!jeRow) return { entryId: null, synced: false, hasLines: false };
+
+    const jeTyped = jeRow as { id: string; organization_id?: string | null; journal_lines?: Array<{ id: string }> };
+    if (isValidUUID(expectedOrgId) && jeTyped.organization_id !== expectedOrgId) {
+      await supabase.from('journal_entries').update({ organization_id: expectedOrgId }).eq('id', jeTyped.id);
+      await supabase.from('journal_lines').update({ organization_id: expectedOrgId }).eq('journal_entry_id', jeTyped.id);
+    }
+
+    return {
+      entryId: jeTyped.id,
+      synced: true,
+      hasLines: Array.isArray(jeTyped.journal_lines) && jeTyped.journal_lines.length > 0,
+    };
+  } catch (err) {
+    logger.warn(`[tenantContext] Non-blocking journal sync check failed for ${tableName}:`, err);
+    return { entryId: null, synced: false, hasLines: false };
+  }
+}
+
 export default {
   isValidUUID,
   getActiveOrgIdSync,
   resolveActiveOrgId,
   setActiveOrgId,
-  useActiveOrgId
+  useActiveOrgId,
+  ensureDocumentJournalOrgSync
 };

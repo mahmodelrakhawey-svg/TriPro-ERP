@@ -33,18 +33,17 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'الإشعار الدائن غير موجود'; END IF;
     IF v_note.status = 'posted' THEN RAISE EXCEPTION 'الإشعار مرحل بالفعل'; END IF;
 
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    v_org_id := COALESCE(v_note.organization_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1));
 
     -- ب. جلب الحسابات
-    -- 4102: خصم مسموح به / مسموحات مبيعات
-    SELECT id INTO v_sales_allowance_acc_id FROM public.accounts WHERE code = '4102' LIMIT 1;
-    -- إذا لم يوجد، نستخدم حساب المبيعات (4101) كبديل (تخفيض للإيراد)
+    -- 4102 / 412 / 413: خصم / مسموحات مبيعات، أو 411 / 4101 المبيعات
+    SELECT id INTO v_sales_allowance_acc_id FROM public.accounts WHERE organization_id = v_org_id AND code IN ('412', '413', '4102') LIMIT 1;
     IF v_sales_allowance_acc_id IS NULL THEN
-        SELECT id INTO v_sales_allowance_acc_id FROM public.accounts WHERE code = '4101' LIMIT 1;
+        SELECT id INTO v_sales_allowance_acc_id FROM public.accounts WHERE organization_id = v_org_id AND code IN ('411', '4101') LIMIT 1;
     END IF;
 
-    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE code = '2103' LIMIT 1; -- ضريبة القيمة المضافة
-    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE code = '1102' LIMIT 1; -- العملاء
+    SELECT id INTO v_vat_acc_id FROM public.accounts WHERE organization_id = v_org_id AND code IN ('2231', '2103') LIMIT 1;
+    SELECT id INTO v_customer_acc_id FROM public.accounts WHERE organization_id = v_org_id AND code IN ('1221', '1102') LIMIT 1;
 
     IF v_sales_allowance_acc_id IS NULL OR v_customer_acc_id IS NULL THEN
         RAISE EXCEPTION 'حسابات المبيعات أو العملاء غير معرّفة';
