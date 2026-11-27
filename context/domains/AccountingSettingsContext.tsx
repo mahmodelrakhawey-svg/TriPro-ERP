@@ -9,12 +9,14 @@
  * ==============================================================================
  */
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Organization, SystemSettings, Account } from '../../types';
 import type { UserProfile } from '../AccountingContext';
 import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
+import { deriveAccountMappings } from '../../utils/financialSafety';
+import { normalizeCompanySettings, syncLenzaNegativeStockIfNeeded } from './domainUtils';
 
 export interface SettingsDomainState {
   organization: Organization | null;
@@ -64,6 +66,11 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
   const targetOrgId = orgId || currentUser?.organization_id;
+  const lenzaSyncedRef = useRef<Set<string>>(new Set());
+  const organizationRef = useRef<Organization | null>(organization);
+  organizationRef.current = organization;
+  const accountsRef = useRef<Account[]>(accounts);
+  accountsRef.current = accounts;
 
   // مزامنة الإعدادات الأولية عند تحديث المكون الأب
   useEffect(() => {
@@ -72,65 +79,21 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({
 
   useEffect(() => {
     if (initialSettings && Object.keys(initialSettings).length > 0) {
-      setSettings(initialSettings);
+      setSettings(normalizeCompanySettings(initialSettings as Record<string, any>, initialOrganization || organizationRef.current));
     }
-  }, [initialSettings]);
+  }, [initialSettings, initialOrganization]);
 
-  const normalizeSettings = useCallback((raw: Record<string, any>) => {
-    if (!raw || typeof raw !== 'object') return {};
-
-    let vatRateNum = 14;
-    if (raw.vatRate !== undefined && raw.vatRate !== null) {
-      vatRateNum = Number(raw.vatRate);
-    } else if (raw.vat_rate !== undefined && raw.vat_rate !== null) {
-      vatRateNum = Number(raw.vat_rate);
+  useEffect(() => {
+    if (initialAccounts && initialAccounts.length > 0) {
+      setAccounts(initialAccounts);
     }
+  }, [initialAccounts]);
 
-    const vatRatePercentage = vatRateNum <= 1 ? vatRateNum * 100 : vatRateNum;
-    const vatRateDecimal = vatRatePercentage / 100;
-
-    const isTaxEnabled = raw.enableTax !== undefined
-      ? Boolean(raw.enableTax)
-      : (raw.enable_tax !== undefined ? Boolean(raw.enable_tax) : true);
-
-    const isServiceChargeEnabled = raw.enableServiceCharge !== undefined
-      ? Boolean(raw.enableServiceCharge)
-      : (raw.enable_service_charge !== undefined
-          ? Boolean(raw.enable_service_charge)
-          : (raw.account_mappings?.enable_service_charge !== undefined
-              ? Boolean(raw.account_mappings.enable_service_charge)
-              : false));
-
-    let serviceRateNum = 12;
-    if (raw.serviceChargeRate !== undefined && raw.serviceChargeRate !== null) {
-      serviceRateNum = Number(raw.serviceChargeRate);
-    } else if (raw.service_charge_rate !== undefined && raw.service_charge_rate !== null) {
-      serviceRateNum = Number(raw.service_charge_rate);
-    } else if (raw.account_mappings?.service_charge_rate !== undefined && raw.account_mappings?.service_charge_rate !== null) {
-      serviceRateNum = Number(raw.account_mappings.service_charge_rate);
-    }
-
-    const serviceRatePercentage = serviceRateNum <= 1 ? serviceRateNum * 100 : serviceRateNum;
-    const serviceRateDecimal = serviceRatePercentage / 100;
-
-    return {
-      ...raw,
-      vatRate: vatRateDecimal,
-      vat_rate: vatRatePercentage,
-      vatRatePercentage,
-      vatRateDecimal,
-      enableTax: isTaxEnabled,
-      enable_tax: isTaxEnabled,
-      enableServiceCharge: isServiceChargeEnabled,
-      enable_service_charge: isServiceChargeEnabled,
-      serviceChargeRate: serviceRateDecimal,
-      service_charge_rate: serviceRatePercentage,
-      serviceRatePercentage,
-      serviceRateDecimal,
-      allowNegativeStock: raw.allow_negative_stock ?? raw.allowNegativeStock ?? false,
-      allow_negative_stock: raw.allow_negative_stock ?? raw.allowNegativeStock ?? false,
-    };
-  }, []);
+  const normalizeSettings = useCallback(
+    (raw: Record<string, any>, orgObj?: Organization | null) =>
+      normalizeCompanySettings(raw, (orgObj || organizationRef.current) as Record<string, any> | null),
+    []
+  );
 
   const fetchSettingsData = useCallback(async () => {
     const effectiveOrg = targetOrgId;
@@ -142,23 +105,50 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({
         supabase.rpc('get_current_company_settings', { p_org_id: effectiveOrg }).maybeSingle()
       ]);
 
+      let activeOrg = organizationRef.current;
       if (orgRes.error) {
         logger.error('Error fetching organization in SettingsProvider:', orgRes.error);
       } else if (orgRes.data) {
-        setOrganization(orgRes.data as Organization);
+        activeOrg = orgRes.data as Organization;
+        organizationRef.current = activeOrg;
+        setOrganization(activeOrg);
       }
 
       if (settRes.error) {
         logger.error('Error fetching settings in SettingsProvider:', settRes.error);
       } else if (settRes.data) {
-        setSettings(normalizeSettings(settRes.data as Record<string, any>));
+        const rawSettings = settRes.data as Record<string, any>;
+        let normalized = normalizeCompanySettings(rawSettings, activeOrg as Record<string, any> | null);
+
+        const currentAccounts = accountsRef.current;
+        if (currentAccounts.length > 0) {
+          const currentRawMappings = { ...(rawSettings.account_mappings || rawSettings.accountMappings || {}) };
+          const { mappings: autoDerivedMappings, hasNewMappings } = deriveAccountMappings(currentAccounts as any, currentRawMappings);
+          if (hasNewMappings) {
+            normalized = {
+              ...normalized,
+              account_mappings: autoDerivedMappings,
+              accountMappings: autoDerivedMappings,
+            };
+          }
+        }
+
+        setSettings(normalized);
+        syncLenzaNegativeStockIfNeeded({
+          supabaseClient: supabase,
+          orgId: effectiveOrg,
+          orgObj: activeOrg as Record<string, any> | null,
+          rawSettings,
+          userRole: currentUser?.role,
+          syncedOrgIds: lenzaSyncedRef.current,
+        });
       }
     } catch (err) {
       logger.error('Unexpected error fetching settings data:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [targetOrgId, normalizeSettings]);
+  }, [targetOrgId, currentUser?.role]);
 
   useEffect(() => {
     if (targetOrgId && targetOrgId !== 'org-default-offline') {
@@ -166,10 +156,24 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({
     }
   }, [targetOrgId, fetchSettingsData]);
 
+  const mergeNormalizedSettings = useCallback(
+    (prev: SystemSettings | Record<string, unknown>, newSettings: Record<string, unknown>) => {
+      const merged: Record<string, any> = { ...(prev as Record<string, any>), ...newSettings };
+      if (newSettings.vat_rate !== undefined && newSettings.vatRate === undefined) delete merged.vatRate;
+      if (newSettings.vatRate !== undefined && newSettings.vat_rate === undefined) delete merged.vat_rate;
+      if (newSettings.service_charge_rate !== undefined && newSettings.serviceChargeRate === undefined) delete merged.serviceChargeRate;
+      if (newSettings.serviceChargeRate !== undefined && newSettings.service_charge_rate === undefined) delete merged.service_charge_rate;
+      if (newSettings.allow_negative_stock !== undefined && newSettings.allowNegativeStock === undefined) delete merged.allowNegativeStock;
+      if (newSettings.allowNegativeStock !== undefined && newSettings.allow_negative_stock === undefined) delete merged.allow_negative_stock;
+      return normalizeSettings(merged);
+    },
+    [normalizeSettings]
+  );
+
   const updateSettings = useCallback(async (newSettings: Record<string, unknown>): Promise<void> => {
     const effectiveOrg = targetOrgId;
     if (!effectiveOrg || effectiveOrg === 'org-default-offline') {
-      setSettings(prev => ({ ...prev, ...newSettings }));
+      setSettings(prev => mergeNormalizedSettings(prev, newSettings));
       showToast?.('تم حفظ الإعدادات محلياً ✅', 'success');
       return;
     }
@@ -196,11 +200,11 @@ export const SettingsProvider: React.FC<SettingsProviderProps> = ({
       throw error;
     }
 
-    setSettings(prev => ({ ...prev, ...newSettings }));
+    setSettings(prev => mergeNormalizedSettings(prev, newSettings));
     showToast?.('تم تحديث إعدادات النظام بنجاح ✅', 'success');
     logActivity?.('تحديث إعدادات النظام', 'تم حفظ تعديل إعدادات الشركة');
     await fetchSettingsData();
-  }, [targetOrgId, logActivity, showToast, fetchSettingsData]);
+  }, [targetOrgId, logActivity, showToast, fetchSettingsData, mergeNormalizedSettings]);
 
   const can = useCallback((module: string, action: string): boolean => {
     if (propCan) return propCan(module, action);

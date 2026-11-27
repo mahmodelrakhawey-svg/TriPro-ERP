@@ -34,6 +34,7 @@ import { closeFinancialYearEngine, reopenFinancialYearEngine } from '../services
 import { deleteOrganizationSafe } from '../services/organizationService';
 import { fetchCompleteDataset } from '../services/balanceService';
 import { executeDirectProduction } from '../modules/manufacturing/utils/productionExecution';
+import { normalizeCompanySettings, syncLenzaNegativeStockIfNeeded } from './domains/domainUtils';
 import {
   SYSTEM_ACCOUNTS,
   DEFAULT_OFFLINE_ORG,
@@ -549,137 +550,19 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         allowed_treasury_ids: authUser.allowed_treasury_ids
       });
 
-      // جلب الإعدادات وتوحيد الحقول
+      // جلب الإعدادات وتوحيد الحقول عبر الدالة المشتركة الآمنة
       const { data: sett } = await supabase.rpc('get_current_company_settings', { p_org_id: fetchOrgId }).maybeSingle();
-      
-      const normalizeSettings = (raw: Record<string, any>) => {
-        if (!raw || typeof raw !== 'object') return {};
-        
-        let vatRateNum = 14;
-        if (raw.vatRate !== undefined && raw.vatRate !== null) {
-          vatRateNum = Number(raw.vatRate);
-        } else if (raw.vat_rate !== undefined && raw.vat_rate !== null) {
-          vatRateNum = Number(raw.vat_rate);
-        }
-        
-        const vatRatePercentage = vatRateNum <= 1 ? vatRateNum * 100 : vatRateNum;
-        const vatRateDecimal = vatRatePercentage / 100;
 
-        const isTaxEnabled = raw.enableTax !== undefined 
-          ? Boolean(raw.enableTax) 
-          : (raw.enable_tax !== undefined ? Boolean(raw.enable_tax) : true);
+      setSettings(normalizeCompanySettings((sett || {}) as Record<string, any>, activeOrgObj as Record<string, any> | null));
 
-        const isServiceChargeEnabled = raw.enableServiceCharge !== undefined 
-          ? Boolean(raw.enableServiceCharge) 
-          : (raw.enable_service_charge !== undefined 
-              ? Boolean(raw.enable_service_charge) 
-              : (raw.account_mappings?.enable_service_charge !== undefined 
-                  ? Boolean(raw.account_mappings.enable_service_charge) 
-                  : false));
-
-        let serviceRateNum = 12;
-        if (raw.serviceChargeRate !== undefined && raw.serviceChargeRate !== null) {
-          serviceRateNum = Number(raw.serviceChargeRate);
-        } else if (raw.service_charge_rate !== undefined && raw.service_charge_rate !== null) {
-          serviceRateNum = Number(raw.service_charge_rate);
-        } else if (raw.account_mappings?.service_charge_rate !== undefined && raw.account_mappings?.service_charge_rate !== null) {
-          serviceRateNum = Number(raw.account_mappings.service_charge_rate);
-        }
-        const serviceChargeRatePercentage = serviceRateNum <= 1 && serviceRateNum > 0 ? serviceRateNum * 100 : serviceRateNum;
-        const serviceChargeRateDecimal = serviceChargeRatePercentage / 100;
-
-        // الحفاظ على خيار البيع بالسالب للمنظمات المصرح لها (بما فيها شركة لينزا كحالة افتراضية موثقة)
-        const isLenzaOrg = Boolean(
-          (activeOrgObj?.name && /لينزا|lenza/i.test(activeOrgObj.name)) ||
-          (activeOrgObj?.commercial_name && /لينزا|lenza/i.test(activeOrgObj.commercial_name)) ||
-          (raw?.companyName && /لينزا|lenza/i.test(raw.companyName)) ||
-          (raw?.company_name && /لينزا|lenza/i.test(raw.company_name))
-        );
-
-        const allowNegativeStock = raw.allowNegativeStock !== undefined 
-          ? Boolean(raw.allowNegativeStock) 
-          : (raw.allow_negative_stock !== undefined ? Boolean(raw.allow_negative_stock) : isLenzaOrg);
-
-        const lockManualPrices = raw.lockManualPrices !== undefined
-          ? Boolean(raw.lockManualPrices)
-          : (raw.lock_manual_prices !== undefined ? Boolean(raw.lock_manual_prices) : false);
-
-        const maxCashDeficitLimit = raw.maxCashDeficitLimit !== undefined && raw.maxCashDeficitLimit !== null
-          ? Number(raw.maxCashDeficitLimit)
-          : (raw.max_cash_deficit_limit !== undefined && raw.max_cash_deficit_limit !== null ? Number(raw.max_cash_deficit_limit) : 50);
-
-        const decimalPlaces = raw.decimalPlaces !== undefined && raw.decimalPlaces !== null
-          ? Number(raw.decimalPlaces)
-          : (raw.decimal_places !== undefined && raw.decimal_places !== null ? Number(raw.decimal_places) : 2);
-
-        const currency = raw.currency || 'EGP';
-
-        return {
-          ...raw,
-          currency,
-          enableTax: isTaxEnabled,
-          enable_tax: isTaxEnabled,
-          vatRate: vatRatePercentage,
-          vat_rate: vatRateDecimal,
-          enableServiceCharge: isServiceChargeEnabled,
-          enable_service_charge: isServiceChargeEnabled,
-          serviceChargeRate: serviceChargeRatePercentage,
-          service_charge_rate: serviceChargeRateDecimal,
-          allowNegativeStock,
-          allow_negative_stock: allowNegativeStock,
-          lockManualPrices,
-          lock_manual_prices: lockManualPrices,
-          maxCashDeficitLimit,
-          max_cash_deficit_limit: maxCashDeficitLimit,
-          decimalPlaces,
-          decimal_places: decimalPlaces,
-          defaultWarehouseId: raw.defaultWarehouseId || raw.default_warehouse_id || '',
-          default_warehouse_id: raw.default_warehouse_id || raw.defaultWarehouseId || '',
-          defaultTreasuryId: raw.defaultTreasuryId || raw.default_treasury_id || '',
-          default_treasury_id: raw.default_treasury_id || raw.defaultTreasuryId || '',
-          productionWarehouseId: raw.productionWarehouseId || raw.production_warehouse_id || '',
-          production_warehouse_id: raw.production_warehouse_id || raw.productionWarehouseId || '',
-          rawMaterialsWarehouseId: raw.rawMaterialsWarehouseId || raw.raw_material_warehouse_id || '',
-          raw_material_warehouse_id: raw.raw_material_warehouse_id || raw.rawMaterialsWarehouseId || '',
-          accountMappings: raw.accountMappings || raw.account_mappings || {},
-          lastClosedYear: raw.lastClosedYear !== undefined && raw.lastClosedYear !== null ? Number(raw.lastClosedYear) : (raw.last_closed_year !== undefined && raw.last_closed_year !== null ? Number(raw.last_closed_year) : null),
-          last_closed_year: raw.last_closed_year !== undefined && raw.last_closed_year !== null ? Number(raw.last_closed_year) : (raw.lastClosedYear !== undefined && raw.lastClosedYear !== null ? Number(raw.lastClosedYear) : null),
-          lastClosedDate: raw.lastClosedDate || raw.last_closed_date || null,
-          last_closed_date: raw.last_closed_date || raw.lastClosedDate || null
-        };
-      };
-
-      setSettings(normalizeSettings(sett || {}));
-
-      // 🛡️ مزامنة قاعدة البيانات لشركة لينزا: ضمان تفعيل allow_negative_stock لمرة واحدة فقط إذا لم تكن مفعلة مسبقاً
-      const isLenzaActive = Boolean(
-        (activeOrgObj?.name && /لينزا|lenza/i.test(activeOrgObj.name)) ||
-        (activeOrgObj?.commercial_name && /لينزا|lenza/i.test(activeOrgObj.commercial_name))
-      );
-      const canSyncCompanySettings = ['admin', 'super_admin', 'owner'].includes(
-        String(authUser?.role || '').toLowerCase()
-      );
-      const hasNegStockDisabled =
-        sett &&
-        !(sett as any)?.allow_negative_stock &&
-        !(sett as any)?.allowNegativeStock;
-      if (
-        isLenzaActive &&
-        canSyncCompanySettings &&
-        hasNegStockDisabled &&
-        fetchOrgId &&
-        fetchOrgId !== 'org-default-offline' &&
-        !lenzaNegativeStockSyncedRef.current.has(fetchOrgId)
-      ) {
-        lenzaNegativeStockSyncedRef.current.add(fetchOrgId);
-        supabase
-          .from('company_settings')
-          .update({ allow_negative_stock: true })
-          .eq('organization_id', fetchOrgId)
-          .then(({ error }) => {
-            if (error) logger.warn('[AccountingContext] Auto-sync allow_negative_stock for Lenza error:', error);
-          });
-      }
+      syncLenzaNegativeStockIfNeeded({
+        supabaseClient: supabase,
+        orgId: fetchOrgId,
+        orgObj: activeOrgObj as Record<string, any> | null,
+        rawSettings: (sett || null) as Record<string, any> | null,
+        userRole: authUser?.role,
+        syncedOrgIds: lenzaNegativeStockSyncedRef.current,
+      });
 
       // جلب الحسابات والمستودعات مع ترشيد الاستعلامات المالية بالسنة المالية النشطة
       const [accs, ents, ccs, emps, prods, trns, pinvs, invs, cats, usrs, whs, rTables, custs, sups, chqs, shift, assetData, budgetData] = await Promise.all([
@@ -3566,6 +3449,7 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       isDemo={isDemo}
       initialOrganization={organization}
       initialSettings={settings}
+      initialAccounts={accounts}
     >
       <CustomerProvider
         orgId={effectiveOrgId}
