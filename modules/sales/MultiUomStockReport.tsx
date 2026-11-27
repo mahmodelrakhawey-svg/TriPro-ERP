@@ -4,6 +4,7 @@ import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { fetchUoms } from '../../services/uomService';
 import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { Layers, Search, Warehouse, Package, Download, Loader2, Filter, FileSpreadsheet } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -26,80 +27,127 @@ const MultiUomStockReport = () => {
         return;
       }
 
-      // Try fetching from database view first
-      try {
-        let query = supabase.from('v_inventory_multi_uom').select('*').eq('organization_id', userOrgId);
-        
-        if (selectedWarehouse !== 'all') {
-          query = query.eq('warehouse_id', selectedWarehouse);
-        }
+      // Try fetching from database view first (only supports all warehouses)
+      if (selectedWarehouse === 'all') {
+        try {
+          let query = supabase.from('v_inventory_multi_uom').select('*').eq('organization_id', userOrgId);
 
-        if (searchTerm) {
-          query = query.ilike('product_name', `%${searchTerm}%`);
-        }
+          if (searchTerm) {
+            query = query.ilike('product_name', `%${searchTerm}%`);
+          }
 
-        const res = await fetchCompleteDataset<any>(async (from, to) => query.range(from, to));
-        if (res && res.length > 0) {
-          setData(res);
-          return;
+          const res = await fetchCompleteDataset<any>(async (from, to) => query.range(from, to));
+          if (res && res.length > 0) {
+            setData(
+              res.map((row: Record<string, any>) => {
+                const baseQty = Number(row.base_stock || 0);
+                const altQty = Number(row.alternative_stock || 0);
+                const ratio = altQty > 0 ? Number((baseQty / altQty).toFixed(4)) : 1;
+                return {
+                  warehouse_name: 'المخزن العام',
+                  product_name: row.product_name,
+                  sku: row.sku || '-',
+                  base_quantity: baseQty,
+                  base_uom_name: row.base_uom_name || 'وحدة أساسية',
+                  converted_quantity: altQty,
+                  uom_name: row.alternative_uom_name || row.base_uom_name || 'وحدة بديلة',
+                  ratio,
+                };
+              })
+            );
+            return;
+          }
+        } catch (viewErr) {
+          logger.warn('View v_inventory_multi_uom query error, using dynamic calculation:', viewErr);
         }
-      } catch (viewErr) {
-        logger.warn('View v_inventory_multi_uom query error, using dynamic calculation:', viewErr);
       }
 
-      // Fallback calculation directly from products and conversions
-      const prods = await fetchCompleteDataset<any>(async (from, to) =>
-        supabase
-          .from('products')
-          .select(`
-            id, name, sku, stock, unit, base_uom_id,
-            uoms:base_uom_id(id, name, symbol),
-            product_uom_conversions(
-              ratio,
-              uoms:to_uom_id(id, name, symbol)
-            )
-          `)
-          .eq('organization_id', userOrgId)
-          .eq('is_active', true)
-          .range(from, to)
-      );
+      // Fallback calculation directly from products & uoms schema
+      const [prods, uomsList] = await Promise.all([
+        fetchCompleteDataset<any>(async (from, to) => {
+          let q = supabase
+            .from('products')
+            .select('id, name, sku, stock, unit, base_uom_id, purchase_uom_id, sale_uom_id, warehouse_stock')
+            .eq('organization_id', userOrgId)
+            .eq('is_active', true);
+          if (searchTerm) {
+            q = q.ilike('name', `%${searchTerm}%`);
+          }
+          return q.range(from, to);
+        }),
+        fetchUoms(userOrgId),
+      ]);
+
+      const uomById = new Map(uomsList.map(u => [u.id, u]));
+      const uomsByCategory = new Map<string, typeof uomsList>();
+      uomsList.forEach(u => {
+        if (!u.category_id) return;
+        const list = uomsByCategory.get(u.category_id) || [];
+        list.push(u);
+        uomsByCategory.set(u.category_id, list);
+      });
 
       const computed: any[] = [];
       prods?.forEach((p: Record<string, any>) => {
-        const baseQty = Number(p.stock || 0);
-        const baseUomName = p.uoms?.name || p.unit || 'قطعة';
+        let baseQty = Number(p.stock || 0);
+        let warehouseName = 'المخزن العام';
+        if (selectedWarehouse !== 'all') {
+          const wh = warehouses.find(w => w.id === selectedWarehouse);
+          warehouseName = wh?.name || 'مستودع محدد';
+          const wStock = p.warehouse_stock || {};
+          baseQty = Number(wStock[selectedWarehouse] || 0);
+        }
 
-        if (p.product_uom_conversions && p.product_uom_conversions.length > 0) {
-          p.product_uom_conversions.forEach((conv: Record<string, any>) => {
-            const ratio = Number(conv.ratio) || 1;
+        const baseUom = p.base_uom_id ? uomById.get(p.base_uom_id) : undefined;
+        const baseUomName = baseUom?.name || p.unit || 'قطعة';
+        const baseRatio = Number(baseUom?.ratio || 1) || 1;
+
+        const altUomsMap = new Map<string, (typeof uomsList)[number]>();
+        if (baseUom?.category_id) {
+          (uomsByCategory.get(baseUom.category_id) || []).forEach(u => {
+            if (u.id !== baseUom.id) altUomsMap.set(u.id, u);
+          });
+        }
+        [p.purchase_uom_id, p.sale_uom_id].forEach((uid: string | null | undefined) => {
+          if (uid && uid !== p.base_uom_id) {
+            const u = uomById.get(uid);
+            if (u) altUomsMap.set(u.id, u);
+          }
+        });
+
+        if (altUomsMap.size > 0) {
+          altUomsMap.forEach(altUom => {
+            const altRatio = Number(altUom.ratio || 1) || 1;
+            const effectiveRatio = Number((altRatio / baseRatio).toFixed(4)) || 1;
             computed.push({
-              warehouse_name: 'المخزن العام',
+              warehouse_name: warehouseName,
               product_name: p.name,
               sku: p.sku || '-',
               base_quantity: baseQty,
               base_uom_name: baseUomName,
-              converted_quantity: ratio > 0 ? (baseQty / ratio).toFixed(2) : baseQty,
-              uom_name: conv.uoms?.name || 'وحدة بديلة',
-              ratio: ratio
+              converted_quantity: effectiveRatio > 0 ? Number((baseQty / effectiveRatio).toFixed(2)) : baseQty,
+              uom_name: altUom.name,
+              ratio: effectiveRatio,
             });
           });
         } else {
           computed.push({
-            warehouse_name: 'المخزن العام',
+            warehouse_name: warehouseName,
             product_name: p.name,
             sku: p.sku || '-',
             base_quantity: baseQty,
             base_uom_name: baseUomName,
             converted_quantity: baseQty,
             uom_name: baseUomName,
-            ratio: 1
+            ratio: 1,
           });
         }
       });
 
       setData(computed);
-    } catch (err) {
-      showToast('فشل جلب تقرير الوحدات المتعددة: ' + err.message, 'error');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('فشل جلب تقرير الوحدات المتعددة: ' + msg, 'error');
     } finally {
       setLoading(false);
     }
