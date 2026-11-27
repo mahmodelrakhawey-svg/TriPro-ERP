@@ -33,6 +33,7 @@ import { ApprovalWorkflowService } from '../services/approvalWorkflowService';
 import { closeFinancialYearEngine, reopenFinancialYearEngine } from '../services/financialYearService';
 import { deleteOrganizationSafe } from '../services/organizationService';
 import { fetchCompleteDataset } from '../services/balanceService';
+import { executeDirectProduction } from '../modules/manufacturing/utils/productionExecution';
 import {
   SYSTEM_ACCOUNTS,
   DEFAULT_OFFLINE_ORG,
@@ -1431,7 +1432,21 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
     return !error; 
   };
-  const produceItem = async (id: string, qty: number, whId: string, date: string, cost: number, ref: string) => { return await supabase.rpc('mfg_create_order_direct', { p_product_id: id, p_qty: qty, p_warehouse_id: whId, p_date: date, p_additional_cost: cost, p_reference: ref }); };
+  const produceItem = async (id: string, qty: number, whId: string, date: string, _cost: number, ref: string) => {
+    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || '';
+    const result = await executeDirectProduction({
+      productId: id,
+      quantity: qty,
+      warehouseId: whId,
+      date,
+      orgId: targetOrgId,
+      orderNumber: ref,
+    });
+    if (result.success) {
+      await refreshProductsAndInventory();
+    }
+    return { ...result, data: result, error: result.success ? null : { message: result.message } };
+  };
 
   // Sales & Purchases
   const addCustomer = async (data: Partial<Customer>) => { 

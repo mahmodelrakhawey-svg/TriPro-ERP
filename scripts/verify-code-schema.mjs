@@ -20,9 +20,6 @@ const SCAN_DIRS = ['modules', 'services', 'context', 'components', 'utils'];
 
 // Pre-existing legacy queries predating the schema guard (do not add new entries here)
 const LEGACY_ALLOWLIST = new Set([
-  'hims_prescriptions:status',
-  'security_logs:module',
-  'project_progress_billings:customer_id',
   'invoice_items:line_no',
   'invoice_items:description',
   'invoice_items:discount',
@@ -36,7 +33,6 @@ const LEGACY_ALLOWLIST = new Set([
 const LEGACY_OPTIONAL_TABLES = new Set([
   'recipe_items',
   'combo_items',
-  'mfg_order_steps',
   'transfers',
   'audit_logs',
 ]);
@@ -53,7 +49,6 @@ const LEGACY_OPTIONAL_RPCS = new Set([
   'get_account_balance_in_period',
   'clear_all_transactions',
   'empty_recycle_bin',
-  'mfg_create_order_direct',
   'delete_sales_invoice',
   'delete_purchase_invoice',
   'check_subscription_status',

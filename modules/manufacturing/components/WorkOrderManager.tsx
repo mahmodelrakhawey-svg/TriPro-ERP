@@ -139,7 +139,6 @@ const WorkOrderManager = () => {
     try {
       // حذف التكاليف والمراحل التابعة للأمر إن وجدت
       await supabase.from('work_order_costs').delete().eq('work_order_id', id);
-      await supabase.from('mfg_order_steps').delete().eq('production_order_id', id);
       await supabase.from('mfg_order_progress').delete().eq('production_order_id', id);
 
       const { error } = await supabase.from('mfg_production_orders').delete().eq('id', id);

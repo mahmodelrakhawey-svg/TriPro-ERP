@@ -12,6 +12,7 @@ const SUBMODULE_ROUTES = [
   { name: 'المخازن - رادار الصلاحية', path: '/expiry-radar' },
   { name: 'المخازن - تقرير حركة الصنف', path: '/item-movement-report' },
   { name: 'التصنيع - أوامر التشغيل', path: '/work-orders' },
+  { name: 'التصنيع - أمر الإنتاج اليومي المجمّع', path: '/mfg/daily-batch' },
   { name: 'البنوك - الشيكات', path: '/cheques' },
   { name: 'البنوك - الاعتمادات المستندية', path: '/letters-of-credit' },
   { name: 'البنوك - خطابات الضمان', path: '/letters-of-guarantee' },

@@ -19,6 +19,7 @@ import { logger } from '../../utils/logger';
 import { fetchAllTableRecords } from './domainUtils';
 import { queryClient, QUERY_KEYS, invalidateProducts, STALE_TIMES } from '../../services/queryClient';
 import { offlineService } from '../../services/offlineService';
+import { executeDirectProduction } from '../../modules/manufacturing/utils/productionExecution';
 
 export interface ProductDomainState {
   products: Product[];
@@ -501,16 +502,22 @@ export const ProductProvider: React.FC<ProductProviderProps> = ({
     return !error;
   }, [showToast, fetchProducts]);
 
-  const produceItem = useCallback(async (id: string, qty: number, whId: string, date: string, cost: number, ref: string): Promise<unknown> => {
-    return await supabase.rpc('mfg_create_order_direct', {
-      p_product_id: id,
-      p_qty: qty,
-      p_warehouse_id: whId,
-      p_date: date,
-      p_additional_cost: cost,
-      p_reference: ref
+  const produceItem = useCallback(async (id: string, qty: number, whId: string, date: string, _cost: number, ref: string): Promise<unknown> => {
+    const resolvedOrgId = targetOrgId || '';
+    const result = await executeDirectProduction({
+      productId: id,
+      quantity: qty,
+      warehouseId: whId,
+      date,
+      orgId: resolvedOrgId,
+      orderNumber: ref,
     });
-  }, []);
+    if (result.success) {
+      invalidateProducts(targetOrgId);
+      await fetchProducts(true);
+    }
+    return { ...result, data: result, error: result.success ? null : { message: result.message } };
+  }, [targetOrgId, fetchProducts]);
 
   const value = useMemo<ProductDomainState>(() => ({
     products,

@@ -214,3 +214,68 @@ export async function completeOrderLifecycle(params: CompleteOrderLifecycleParam
   });
   if (finErr) throw finErr;
 }
+
+export interface DirectProductionParams {
+  productId: string;
+  quantity: number;
+  warehouseId: string;
+  date: string;
+  orgId: string;
+  orderNumber?: string;
+  notes?: string;
+}
+
+/**
+ * Executes a single direct production order through the verified mfg_production_orders
+ * + completeOrderLifecycle pipeline (replacing the legacy mfg_create_order_direct RPC).
+ */
+export async function executeDirectProduction(
+  params: DirectProductionParams
+): Promise<{ success: boolean; message: string; orderId?: string }> {
+  const { productId, quantity, warehouseId, date, orgId, orderNumber, notes } = params;
+  if (!orgId) {
+    return { success: false, message: 'تعذر تحديد المنشأة النشطة.' };
+  }
+
+  const orderId = crypto.randomUUID();
+  const finalOrderNumber = orderNumber || `MFG-${Date.now().toString().slice(-6)}`;
+
+  const { error: insertErr } = await supabase.from('mfg_production_orders').insert({
+    id: orderId,
+    order_number: finalOrderNumber,
+    product_id: productId,
+    warehouse_id: warehouseId,
+    quantity_to_produce: quantity,
+    start_date: date,
+    end_date: date,
+    status: 'draft',
+    notes: notes || 'تصنيع مباشر',
+    organization_id: orgId,
+  });
+
+  if (insertErr) {
+    return { success: false, message: insertErr.message };
+  }
+
+  try {
+    await completeOrderLifecycle({
+      orderId,
+      orderNumber: finalOrderNumber,
+      productId,
+      quantity,
+      orgId,
+      productionDate: date,
+      qcNotes: notes || 'تصنيع مباشر',
+      skipRecalc: false,
+    });
+    return {
+      success: true,
+      message: `تم تنفيذ أمر التصنيع المباشر (${finalOrderNumber}) وتحديث المخزون بنجاح ✅`,
+      orderId,
+    };
+  } catch (err: unknown) {
+    await cleanupFailedProductionOrder(orderId);
+    const errMsg = err instanceof Error ? err.message : 'فشل تنفيذ عملية التصنيع';
+    return { success: false, message: errMsg };
+  }
+}

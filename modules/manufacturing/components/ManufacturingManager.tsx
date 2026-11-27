@@ -1,15 +1,15 @@
-﻿﻿import { logger } from '../../../utils/logger';
+﻿import { logger } from '../../../utils/logger';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 import { useAccounting } from '../../../context/AccountingContext';
-import { supabase } from '../../../supabaseClient';
 import { Hammer, Save, Loader2, Package, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useToast } from '../../../context/ToastContext';
 import { z } from 'zod';
 import ProductSearchSelect from '../../../components/ProductSearchSelect';
+import { executeDirectProduction } from '../utils/productionExecution';
 
 const ManufacturingManager = () => {
-  const { products, warehouses, produceItem, currentUser, currentSelectedOrgId } = useAccounting() as any;
+  const { products, warehouses, refreshData, currentUser, currentSelectedOrgId } = useAccounting();
   const isSubmittingRef = useRef(false);
   const { showToast } = useToast();
   const [formData, setFormData] = useState({
@@ -69,48 +69,34 @@ const ManufacturingManager = () => {
     setSuccessMsg('');
 
     try {
-        const { data: { session } } = await supabase.auth.getSession();
         const userOrgId = getActiveOrgIdSync(currentSelectedOrgId || currentUser?.organization_id) || await resolveActiveOrgId(currentSelectedOrgId || currentUser?.organization_id);
         if (!userOrgId) throw new Error('تعذر تحديد المنشأة النشطة. يرجى إعادة تسجيل الدخول.');
 
-        // 1. إنشاء أمر تشغيل "مكتمل" في الخلفية لتوثيق العملية
-        // هذا ضروري لضمان دقة "إعادة احتساب المخزون" مستقبلاً
         const orderNumber = `MFG-${Date.now().toString().slice(-6)}`;
-        const { data: wo, error: woError } = await supabase.from('work_orders').insert({
-            organization_id: userOrgId,
-            order_number: orderNumber,
-            product_id: formData.productId,
-            warehouse_id: formData.warehouseId,
+        const result = await executeDirectProduction({
+            productId: formData.productId,
             quantity: formData.quantity,
-            end_date: formData.date,
-            status: 'completed', // مكتمل مباشرة
+            warehouseId: formData.warehouseId,
+            date: formData.date,
+            orgId: userOrgId,
+            orderNumber,
             notes: formData.notes || 'تصنيع مباشر'
-        }).select().single();
-
-        if (woError) throw woError;
-
-        // 2. تنفيذ عملية التصنيع (خصم المواد + إضافة المنتج + القيد)
-        const result = await produceItem(
-            formData.productId, 
-            formData.quantity, 
-            formData.warehouseId, 
-            formData.date, 
-            0, // تكاليف إضافية (0 للتصنيع المباشر السريع)
-            orderNumber // ربط القيد برقم أمر التشغيل
-        );
+        });
 
         if (result.success) {
             setSuccessMsg(result.message);
             setFormData(prev => ({ ...prev, quantity: 1, notes: '' }));
+            if (typeof refreshData === 'function') {
+                await refreshData();
+            }
         } else {
-            // في حال الفشل، نحذف أمر التشغيل الذي أنشأناه لتجنب التضارب
-            await supabase.from('work_orders').delete().eq('id', wo.id);
             showToast(result.message, 'error');
         }
 
-    } catch (error) {
+    } catch (error: unknown) {
         logger.error(error);
-        showToast('فشل عملية التصنيع: ' + error.message, 'error');
+        const errMsg = error instanceof Error ? error.message : 'خطأ غير متوقع';
+        showToast('فشل عملية التصنيع: ' + errMsg, 'error');
     } finally {
         isSubmittingRef.current = false;
         setLoading(false);

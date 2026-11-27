@@ -691,7 +691,7 @@ export async function fetchAllCustomerBalances(orgId: string): Promise<Map<strin
     fetchCompleteDataset(async (from, to) => supabase.from('receipt_vouchers').select('customer_id, amount, notes, status, deleted_at').match(filter).not('customer_id', 'is', null).is('deleted_at', null).range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('credit_notes').select('customer_id, total_amount').match(filter).eq('status', 'posted').range(from, to)),
     fetchCompleteDataset(async (from, to) => supabase.from('cheques').select('party_id, amount').match(filter).eq('type', 'incoming').neq('status', 'rejected').range(from, to)),
-    fetchCompleteDataset(async (from, to) => supabase.from('project_progress_billings').select('customer_id, net_amount').match(filter).neq('status', 'draft').range(from, to))
+    fetchCompleteDataset(async (from, to) => supabase.from('project_progress_billings').select('net_amount, projects(customer_id)').match(filter).neq('status', 'draft').range(from, to))
   ]);
 
   if (!customers) return balances;
@@ -716,8 +716,10 @@ export async function fetchAllCustomerBalances(orgId: string): Promise<Map<strin
 
   const projectBillingsByCust = new Map<string, number>();
   projectBillings?.forEach((p: Record<string, any>) => {
-    if (p.customer_id) {
-      projectBillingsByCust.set(p.customer_id, (projectBillingsByCust.get(p.customer_id) || 0) + Number(p.net_amount || 0));
+    const proj = Array.isArray(p.projects) ? p.projects[0] : p.projects;
+    const custId = proj?.customer_id || p.customer_id;
+    if (custId) {
+      projectBillingsByCust.set(custId, (projectBillingsByCust.get(custId) || 0) + Number(p.net_amount || 0));
     }
   });
 
