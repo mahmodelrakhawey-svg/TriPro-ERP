@@ -13,9 +13,10 @@ import StageLedger from './StageLedger';
 import StageVarianceReport from '../reports/StageVarianceReport';
 import AdvancedCostingReports from '../reports/AdvancedCostingReports';
 import ProductSearchSelect from '../../../components/ProductSearchSelect';
+import { completeOrderLifecycle } from '../utils/productionExecution';
 
 const WorkOrderManager = () => {
-  const { products, warehouses, produceItem, settings, organization, currentSelectedOrgId } = useAccounting();
+  const { products, warehouses, settings, organization, currentSelectedOrgId } = useAccounting();
   const { currentUser } = useAuth();
   const { showToast } = useToast();
   const activeOrgId = currentSelectedOrgId || organization?.id;
@@ -239,32 +240,37 @@ const WorkOrderManager = () => {
 
   const handleStatusChange = async (id: string, status: string) => {
       if (status === 'completed') {
-          // عند الإكمال، نقوم بتنفيذ عملية التصنيع الفعلية
           if (!window.confirm('هل أنت متأكد من إكمال أمر التشغيل؟ سيتم خصم المواد الخام وإضافة المنتج التام للمخزون.')) return;
           
-          const order = orders.find(o => o.id === id);
+          const order = orders.find(o => o.id === id) || (selectedOrder?.id === id ? selectedOrder : null);
           if (!order) return;
 
-          // حساب التكاليف الإضافية
-          const { data: costsData } = await supabase.from('work_order_costs').select('amount').eq('work_order_id', id);
-          const totalAdditionalCost = costsData?.reduce((sum, c) => sum + Number(c.amount), 0) || 0;
-
-          const result = await produceItem(
-              order.product_id, 
-              order.quantity_to_produce, 
-              order.warehouse_id, 
-              new Date().toISOString().split('T')[0],
-              totalAdditionalCost,
-              order.order_number // تمرير رقم الأمر كمرجع للقيد
-          );
-
-          if (result.success) {
-              await supabase.from('mfg_production_orders').update({ status: 'completed', end_date: new Date().toISOString().split('T')[0] }).eq('id', id);
-              showToast(result.message, 'success');
-              fetchOrders();
-          } else {
-              showToast(result.message, 'error');
+          const resolvedOrgId = activeOrgId || order.organization_id;
+          if (!resolvedOrgId) {
+              showToast('تعذر تحديد المنشأة النشطة لهذا الأمر', 'error');
               return;
+          }
+
+          try {
+              await completeOrderLifecycle({
+                  orderId: id,
+                  orderNumber: order.order_number,
+                  productId: order.product_id,
+                  quantity: Number(order.quantity_to_produce || 0),
+                  orgId: resolvedOrgId,
+                  productionDate: new Date().toISOString().split('T')[0],
+                  qcNotes: 'اعتماد وإكمال من إدارة أوامر التشغيل',
+                  skipRecalc: false,
+              });
+              showToast('تم إكمال أمر التشغيل وخصم الخامات وإضافة المنتج التام للمخزون بنجاح ✅', 'success');
+              fetchOrders();
+              if (selectedOrder?.id === id) {
+                  fetchOrderSteps(id);
+              }
+          } catch (err: unknown) {
+              logger.error('Failed to complete work order:', err);
+              const errMsg = err instanceof Error ? err.message : 'فشل إكمال أمر التشغيل';
+              showToast(errMsg, 'error');
           }
       } else if (status === 'in_progress') {
           // 🛡️ فحص مسار وسلسلة الاعتمادات لأوامر التشغيل والإنتاج قبل البدء

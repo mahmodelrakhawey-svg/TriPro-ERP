@@ -48,6 +48,7 @@ import {
   loadShiftTemplates,
   saveShiftTemplate,
 } from '../utils/dailyBatchUtils';
+import { cleanupFailedProductionOrder, completeOrderLifecycle } from '../utils/productionExecution';
 
 interface BatchHistoryGroup {
   batchNumber: string;
@@ -577,17 +578,6 @@ const DailyBatchProduction: React.FC = () => {
     showToast('تم حذف القالب', 'info');
   };
 
-  // Safe cleanup if an order fails before finalization
-  const cleanupFailedDraftOrder = async (orderId: string) => {
-    try {
-      await supabase.from('mfg_order_progress').delete().eq('production_order_id', orderId);
-      await supabase.from('mfg_material_requests').delete().eq('production_order_id', orderId);
-      await supabase.from('mfg_production_orders').delete().eq('id', orderId);
-    } catch (cleanErr) {
-      logger.warn('Cleanup of failed draft production order skipped:', cleanErr);
-    }
-  };
-
   // Execute a single production row safely using TriPro's verified RPC pipeline
   const executeSingleBatchRow = async (
     row: DailyBatchRow,
@@ -599,7 +589,6 @@ const DailyBatchProduction: React.FC = () => {
     const orderNumber = `${currentBatchRef}-${String(index + 1).padStart(2, '0')}`;
     const targetWarehouseId = row.warehouseId || defaultWarehouseId;
     const qty = Number(row.quantity);
-    const recipe = batchCalc.recipeByProductId.get(row.productId);
     const combinedNotes = [
       `أمر إنتاج يومي مجمّع (${currentBatchRef})`,
       batchNotes.trim(),
@@ -625,108 +614,23 @@ const DailyBatchProduction: React.FC = () => {
     if (insertErr) throw insertErr;
 
     try {
-      // 2. Start order & generate routing steps via RPC
-      const { error: startOrderErr } = await supabase.rpc('mfg_start_production_order', {
-        p_order_id: orderId,
+      await completeOrderLifecycle({
+        orderId,
+        orderNumber,
+        productId: row.productId,
+        quantity: qty,
+        orgId: resolvedOrgId,
+        productionDate,
+        qcNotes: `اعتماد إنتاج يومي مجمّع (${currentBatchRef})`,
+        skipRecalc: true,
+        routings,
+        routingSteps,
+        bomLines,
       });
-      if (startOrderErr) throw startOrderErr;
-
-      // 3. Fetch generated progress steps
-      const { data: progressData, error: progFetchErr } = await supabase
-        .from('mfg_order_progress')
-        .select('id, step_id, status')
-        .eq('production_order_id', orderId)
-        .eq('organization_id', resolvedOrgId);
-      if (progFetchErr) throw progFetchErr;
-
-      let progressRows = (progressData || []) as Array<{ id: string; step_id: string; status: string }>;
-
-      // If product had a non-default routing, ensure progress steps are generated
-      if (progressRows.length === 0 && recipe?.routingId && recipe.stepsCount > 0) {
-        const stepsForRouting = routingSteps
-          .filter((s) => s.routing_id === recipe.routingId)
-          .sort((a, b) => Number(a.step_order) - Number(b.step_order));
-
-        if (stepsForRouting.length > 0) {
-          const { data: insertedProgress, error: insProgErr } = await supabase
-            .from('mfg_order_progress')
-            .insert(
-              stepsForRouting.map((s) => ({
-                production_order_id: orderId,
-                step_id: s.id,
-                status: 'pending',
-                organization_id: resolvedOrgId,
-              }))
-            )
-            .select('id, step_id, status');
-          if (insProgErr) throw insProgErr;
-          progressRows = (insertedProgress || []) as Array<{ id: string; step_id: string; status: string }>;
-        }
-      }
-
-      if (progressRows.length > 0) {
-        // Standard path: start and complete each routing step in order
-        const stepOrderMap = new Map(routingSteps.map((s) => [s.id, Number(s.step_order || 0)]));
-        progressRows.sort((a, b) => (stepOrderMap.get(a.step_id) || 0) - (stepOrderMap.get(b.step_id) || 0));
-
-        for (const prog of progressRows) {
-          const { error: startStepErr } = await supabase.rpc('mfg_start_step', {
-            p_progress_id: prog.id,
-            p_employee_id: null,
-          });
-          if (startStepErr) throw startStepErr;
-
-          const { error: compStepErr } = await supabase.rpc('mfg_complete_step', {
-            p_progress_id: prog.id,
-            p_qty: qty,
-          });
-          if (compStepErr) throw compStepErr;
-        }
-      } else if (recipe?.source === 'bom' && recipe.materials.length > 0) {
-        // Fallback path for BOM-only products (no routing steps defined): issue material request
-        const mrId = crypto.randomUUID();
-        const mrNumber = `MR-DAILY-${Date.now().toString().slice(-6)}-${index + 1}`;
-        const { error: mrErr } = await supabase.from('mfg_material_requests').insert({
-          id: mrId,
-          production_order_id: orderId,
-          request_number: mrNumber,
-          request_date: productionDate,
-          status: 'pending',
-          organization_id: resolvedOrgId,
-        });
-        if (mrErr) throw mrErr;
-
-        const { error: mriErr } = await supabase.from('mfg_material_request_items').insert(
-          recipe.materials.map((m) => ({
-            material_request_id: mrId,
-            raw_material_id: m.rawMaterialId,
-            quantity_requested: Number((m.quantityRequired * (1 + m.shrinkagePct / 100) * qty).toFixed(4)),
-            uom_id: m.uomId,
-            organization_id: resolvedOrgId,
-          }))
-        );
-        if (mriErr) throw mriErr;
-
-        const { error: issueErr } = await supabase.rpc('mfg_issue_material_request', {
-          p_request_id: mrId,
-        });
-        if (issueErr) throw issueErr;
-      } else {
-        throw new Error('لم يتم تعريف مسار إنتاج أو وصفة مكونات (BOM) لهذا الصنف');
-      }
-
-      // 4. Finalize order (skip stock recalc inside loop; we recalculate once at batch end)
-      const { error: finErr } = await supabase.rpc('mfg_finalize_order', {
-        p_order_id: orderId,
-        p_final_status: 'completed',
-        p_qc_notes: `اعتماد إنتاج يومي مجمّع (${currentBatchRef})`,
-        p_skip_recalc: true,
-      });
-      if (finErr) throw finErr;
 
       return { orderNumber };
     } catch (err) {
-      await cleanupFailedDraftOrder(orderId);
+      await cleanupFailedProductionOrder(orderId);
       throw err;
     }
   };

@@ -6,7 +6,8 @@
   "main": "desktop/main.cjs",
   "scripts": {
     "dev": "vite",
-    "build": "npm run security-audit && npm run schema-guard && tsc && vite build",
+    "build": "npm run security-audit && npm run schema-guard && node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc && vite build",
+    "typecheck": "node --max-old-space-size=4096 ./node_modules/typescript/bin/tsc --noEmit",
     "schema-guard": "node scripts/verify-code-schema.mjs",
     "schema-snapshot": "node scripts/generate-schema-snapshot.mjs",
     "test": "vitest run",

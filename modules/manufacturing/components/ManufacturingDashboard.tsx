@@ -1,5 +1,5 @@
 import { logger } from '../../../utils/logger';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useAccounting } from '../../../context/AccountingContext';
 import { useToast } from '../../../context/ToastContext';
@@ -9,14 +9,14 @@ import {
 } from 'recharts';
 import { 
   Factory, Activity, AlertOctagon, ClipboardCheck, CheckCircle2, RefreshCcw, Trash2,
-  TrendingUp, Package, Users, Clock, Loader2, ArrowRight, List, CheckCircle
+  TrendingUp, Package, Users, Clock, Loader2, ArrowRight, List, CheckCircle, type LucideIcon
 } from 'lucide-react';
 
 const ManufacturingDashboard = () => {
   const { organization, finalizeProductionOrder } = useAccounting();
   const { showToast } = useToast();
   const orgId = organization?.id;
-  const [orders, setOrders] = useState<any[]>([]);
+  const [orders, setOrders] = useState<Array<Record<string, any>>>([]);
   const [finishingId, setFinishingId] = useState<string | null>(null);
   const [stats, setStats] = useState({
     activeOrders: 0,
@@ -24,68 +24,87 @@ const ManufacturingDashboard = () => {
     highVarianceCount: 0,
     pendingQC: 0
   });
-  const [efficiencyData, setEfficiencyData] = useState<any[]>([]);
+  const [efficiencyData, setEfficiencyData] = useState<Array<{ work_center_name: string; efficiency_percentage: number }>>([]);
+  const [qcSummary, setQcSummary] = useState<{ pass: number; fail: number; rework: number }>({
+    pass: 0,
+    fail: 0,
+    rework: 0,
+  });
   const [loading, setLoading] = useState(true);
+  const isFinalizingRef = useRef(false);
 
-  const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444'];
+  const COLORS = ['#10b981', '#ef4444', '#f59e0b', '#3b82f6'];
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       if (!orgId) return;
-      
-      // 1. جلب ملخص الطلبات النشطة
-      const { count: activeCount } = await supabase
-        .from('mfg_production_orders')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'in_progress')
-        .eq('organization_id', orgId);
 
-      // 2. جلب كفاءة مراكز العمل
-      const { data: effData } = await supabase
-        .from('v_mfg_work_center_efficiency')
-        .select('*')
-        .eq('organization_id', orgId);
+      const [
+        activeCountRes,
+        effDataRes,
+        ordersRes,
+        varianceCountRes,
+        pendingQcCountRes,
+        qcInspectionsRes,
+      ] = await Promise.all([
+        supabase
+          .from('mfg_production_orders')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'in_progress')
+          .eq('organization_id', orgId),
+        supabase
+          .from('v_mfg_work_center_efficiency')
+          .select('*')
+          .eq('organization_id', orgId),
+        supabase
+          .from('v_mfg_dashboard')
+          .select('*')
+          .eq('organization_id', orgId)
+          .neq('status', 'completed')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('v_mfg_bom_variance')
+          .select('*', { count: 'exact', head: true })
+          .gt('variance_percentage', 10)
+          .eq('organization_id', orgId),
+        supabase
+          .from('mfg_order_progress')
+          .select('*', { count: 'exact', head: true })
+          .eq('status', 'completed')
+          .is('qc_verified', null)
+          .eq('organization_id', orgId),
+        supabase
+          .from('mfg_qc_inspections')
+          .select('status')
+          .eq('organization_id', orgId),
+      ]);
 
-      // جلب أوامر الإنتاج الجارية
-      const { data: ordersData, error: ordersError } = await supabase
-        .from('v_mfg_dashboard')
-        .select('*')
-        .eq('organization_id', orgId)
-        .neq('status', 'completed') 
-        .order('created_at', { ascending: false });
-
-      if (ordersError) {
-        logger.error("خطأ في جلب بيانات الأوامر:", ordersError.message, ordersError.details);
-        showToast('فشل تحميل قائمة أوامر الإنتاج: ' + ordersError.message, 'error');
+      if (ordersRes.error) {
+        logger.error("خطأ في جلب بيانات الأوامر:", ordersRes.error.message, ordersRes.error.details);
+        showToast('فشل تحميل قائمة أوامر الإنتاج: ' + ordersRes.error.message, 'error');
       }
 
-      // 3. جلب عدد الانحرافات العالية (>10%)
-      const { count: varianceCount } = await supabase
-        .from('v_mfg_bom_variance')
-        .select('*', { count: 'exact', head: true })
-        .gt('variance_percentage', 10)
-        .eq('organization_id', orgId);
-
-      // 4. جلب مهام الجودة المعلقة
-      const { count: qcCount } = await supabase
-        .from('mfg_order_progress')
-        .select('*', { count: 'exact', head: true })
-        .eq('status', 'completed')
-        .is('qc_verified', null)
-        .eq('organization_id', orgId);
-
-      const avgEff = effData?.length 
-        ? Math.round(effData.reduce((acc, curr) => acc + curr.efficiency_percentage, 0) / effData.length) 
+      const effData = (effDataRes.data || []) as Array<{ work_center_name: string; efficiency_percentage: number }>;
+      const avgEff = effData.length
+        ? Math.round(effData.reduce((acc, curr) => acc + Number(curr.efficiency_percentage || 0), 0) / effData.length)
         : 0;
 
+      const qcCounts = { pass: 0, fail: 0, rework: 0 };
+      for (const row of (qcInspectionsRes.data || []) as Array<{ status?: string | null }>) {
+        if (row.status === 'pass') qcCounts.pass += 1;
+        else if (row.status === 'fail') qcCounts.fail += 1;
+        else if (row.status === 'rework') qcCounts.rework += 1;
+      }
+
       setStats({
-        activeOrders: activeCount || 0,
+        activeOrders: activeCountRes.count || 0,
         avgEfficiency: avgEff,
-        highVarianceCount: varianceCount || 0,
-        pendingQC: qcCount || 0
+        highVarianceCount: varianceCountRes.count || 0,
+        pendingQC: pendingQcCountRes.count || 0,
       });
-      setEfficiencyData(effData || []);
-      setOrders(ordersData || []);
+      setEfficiencyData(effData);
+      setQcSummary(qcCounts);
+      setOrders(ordersRes.data || []);
       setLoading(false);
     };
 
@@ -94,11 +113,13 @@ const ManufacturingDashboard = () => {
 
   // دالة الإغلاق الذكية الجديدة
   const handleFinalizeOrder = async (id: string, status: 'completed' | 'rework' | 'rejected') => {
+    if (isFinalizingRef.current) return;
     const statusText = status === 'completed' ? 'اعتماد ونجاح' : status === 'rework' ? 'إعادة تشغيل' : 'رفض (هالك)';
     const notes = status !== 'completed' ? window.prompt(`سبب الـ ${statusText}:`) : 'مطابق للمواصفات';
-    
+
     if (status !== 'completed' && notes === null) return;
 
+    isFinalizingRef.current = true;
     setFinishingId(id);
     try {
       const { error } = await supabase.rpc('mfg_finalize_order', {
@@ -118,14 +139,16 @@ const ManufacturingDashboard = () => {
 
       // تحديث القائمة بحذف الأمر المغلق
       setOrders(prev => prev.filter(o => o.order_id !== id));
-    } catch (error) {
-      showToast(error.message, 'error');
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : 'حدث خطأ أثناء إغلاق الأمر';
+      showToast(errMsg, 'error');
     } finally {
+      isFinalizingRef.current = false;
       setFinishingId(null);
     }
   };
 
-  const StatCard = ({ title, value, icon: Icon, color, suffix = "" }) => (
+  const StatCard = ({ title, value, icon: Icon, color, suffix = "" }: { title: string; value: number; icon: LucideIcon; color: string; suffix?: string }) => (
     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center justify-between">
       <div>
         <p className="text-sm font-medium text-gray-500 mb-1">{title}</p>
@@ -138,6 +161,13 @@ const ManufacturingDashboard = () => {
   );
 
   if (loading) return <div className="p-10 text-center animate-pulse">جاري بناء لوحة القيادة...</div>;
+
+  const totalQc = qcSummary.pass + qcSummary.fail + qcSummary.rework;
+  const qcChartData = [
+    { name: 'مقبول', value: qcSummary.pass, color: COLORS[0] },
+    { name: 'مرفوض', value: qcSummary.fail, color: COLORS[1] },
+    { name: 'تحتاج معالجة', value: qcSummary.rework, color: COLORS[2] },
+  ].filter(item => item.value > 0);
 
   return (
     <div className="p-6 space-y-6 bg-gray-50 min-h-screen" dir="rtl">
@@ -189,36 +219,39 @@ const ManufacturingDashboard = () => {
           </div>
         </div>
 
-        {/* Chart: QC Performance (Mockup for visualization) */}
+        {/* Chart: QC Performance */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
           <h2 className="text-lg font-bold mb-6 text-gray-800">معدلات نجاح الجودة</h2>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={[
-                    { name: 'مقبول', value: 85 },
-                    { name: 'مرفوض', value: 10 },
-                    { name: 'تحتاج معالجة', value: 5 }
-                  ]}
-                  innerRadius={60}
-                  outerRadius={100}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {efficiencyData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex justify-center gap-4 text-xs font-medium">
-               <div className="flex items-center gap-1"><div className="w-3 h-3 bg-blue-500 rounded" /> مقبول</div>
-               <div className="flex items-center gap-1"><div className="w-3 h-3 bg-emerald-500 rounded" /> مرفوض</div>
-               <div className="flex items-center gap-1"><div className="w-3 h-3 bg-amber-500 rounded" /> معالجة</div>
+          {totalQc === 0 ? (
+            <div className="h-80 flex flex-col items-center justify-center text-gray-400 text-sm">
+              <ClipboardCheck size={40} className="mb-2 text-gray-300" />
+              لا توجد فحوصات جودة مسجلة بعد
             </div>
-          </div>
+          ) : (
+            <div className="h-80">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={qcChartData}
+                    innerRadius={60}
+                    outerRadius={100}
+                    paddingAngle={5}
+                    dataKey="value"
+                  >
+                    {qcChartData.map((entry) => (
+                      <Cell key={entry.name} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="flex justify-center gap-4 text-xs font-medium">
+                <div className="flex items-center gap-1"><div className="w-3 h-3 bg-emerald-500 rounded" /> مقبول ({qcSummary.pass})</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 bg-red-500 rounded" /> مرفوض ({qcSummary.fail})</div>
+                <div className="flex items-center gap-1"><div className="w-3 h-3 bg-amber-500 rounded" /> معالجة ({qcSummary.rework})</div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
