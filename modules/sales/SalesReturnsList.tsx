@@ -15,7 +15,7 @@ import * as XLSX from 'xlsx';
 import { SalesReturnPrint } from './SalesReturnPrint';
 
 export const SalesReturnsList: React.FC = () => {
-  const { warehouses, customers, currentUser, settings, selectedFiscalYear, fiscalYearRange, unpostSalesReturn, deleteSalesReturn } = useAccounting();
+  const { warehouses, customers, currentUser, currentSelectedOrgId, settings, selectedFiscalYear, fiscalYearRange, unpostSalesReturn, deleteSalesReturn } = useAccounting();
   const navigate = useNavigate();
   const { showToast } = useToast();
 
@@ -54,7 +54,8 @@ export const SalesReturnsList: React.FC = () => {
   const fetchReturns = async () => {
     setLoading(true);
     try {
-      const userOrgId = getActiveOrgIdSync((currentUser as any)?.organization_id) || await resolveActiveOrgId((currentUser as any)?.organization_id);
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       if (!userOrgId) {
         setLoading(false);
@@ -127,7 +128,7 @@ export const SalesReturnsList: React.FC = () => {
 
     setDeletingId(ret.id);
     try {
-      await deleteSalesReturn(ret.id);
+      await deleteSalesReturn(ret.id, ret.organization_id || currentSelectedOrgId || undefined);
       showToast('تم حذف مسودة مرتجع المبيعات بنجاح ✅', 'success');
       fetchReturns();
     } catch (err: unknown) {
@@ -146,7 +147,7 @@ export const SalesReturnsList: React.FC = () => {
 
     setUnpostingId(ret.id);
     try {
-      await unpostSalesReturn(ret.id);
+      await unpostSalesReturn(ret.id, ret.organization_id || currentSelectedOrgId || undefined);
       showToast('تم إلغاء ترحيل مرتجع المبيعات وعكس القيد والمخزون بنجاح ✅', 'success');
       fetchReturns();
     } catch (err: unknown) {

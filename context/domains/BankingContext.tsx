@@ -17,6 +17,8 @@ import type { UserProfile } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
+import { invalidateGeneralLedger } from '../../services/queryClient';
+import { normalizeOptionalId } from './domainUtils';
 
 export interface BankingDomainState {
   cheques: Cheque[];
@@ -558,12 +560,14 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
 
     showToast?.('تم إضافة سند الصرف بنجاح ✅', 'success');
     logActivity?.('إضافة سند صرف', `سند بقيمة: ${amount}`);
+    invalidateGeneralLedger(effectiveOrg);
     await fetchVouchers();
     if (refreshAllData) await refreshAllData();
   }, [targetOrgId, currentUser, suppliers, accounts, getSystemAccount, addEntry, refreshAllData, logActivity, showToast, fetchVouchers]);
 
   const updateVoucher = useCallback(async (id: string, updates: Partial<PaymentVoucher> & Record<string, any>): Promise<boolean> => {
-    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const explicitOrgId = normalizeOptionalId(targetOrgId) || normalizeOptionalId(currentUser?.organization_id);
+    const effectiveOrg = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
     const sanitizedUpdates: Record<string, any> = {};
     if (updates.amount !== undefined) sanitizedUpdates.amount = updates.amount;
     if (updates.notes !== undefined) sanitizedUpdates.notes = updates.notes;
@@ -592,12 +596,14 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
       return false;
     }
     showToast?.('تم تعديل السند بنجاح ✅', 'success');
+    invalidateGeneralLedger(effectiveOrg);
     await fetchVouchers();
     return true;
   }, [targetOrgId, currentUser, showToast, fetchVouchers]);
 
   const addTransfer = useCallback(async (transfer: Record<string, any>): Promise<void> => {
-    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const explicitOrgId = normalizeOptionalId(targetOrgId) || normalizeOptionalId(currentUser?.organization_id);
+    const effectiveOrg = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
     const targetUserId = currentUser?.id;
 
     const fromId = transfer.sourceAccountId || transfer.source_account_id || transfer.from_account_id;
@@ -631,6 +637,7 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
       }
       showToast?.('تم تسجيل التحويل المالي بنجاح ✅', 'success');
       logActivity?.('تحويل مالي', `تحويل بقيمة: ${transfer.amount || 0}`);
+      invalidateGeneralLedger(effectiveOrg);
       if (refreshAllData) await refreshAllData();
     } catch (e: unknown) {
       lastTransferSubmissionRef.current = null;
@@ -641,7 +648,8 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
   }, [targetOrgId, currentUser, refreshAllData, logActivity, showToast]);
 
   const updateTransfer = useCallback(async (id: string, transfer: Record<string, any>): Promise<void> => {
-    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const explicitOrgId = normalizeOptionalId(targetOrgId) || normalizeOptionalId(currentUser?.organization_id);
+    const effectiveOrg = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
     try {
       const fromId = transfer.sourceAccountId || transfer.source_account_id;
       const toId = transfer.destinationAccountId || transfer.destination_account_id;
@@ -696,6 +704,7 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
         }
       }
       showToast?.('تم تعديل التحويل المالي بنجاح ✅', 'success');
+      invalidateGeneralLedger(effectiveOrg);
       if (refreshAllData) await refreshAllData();
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
@@ -705,7 +714,8 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
   }, [targetOrgId, currentUser, refreshAllData, showToast]);
 
   const deleteTransfer = useCallback(async (id: string): Promise<void> => {
-    const effectiveOrg = targetOrgId || currentUser?.organization_id;
+    const explicitOrgId = normalizeOptionalId(targetOrgId) || normalizeOptionalId(currentUser?.organization_id);
+    const effectiveOrg = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
     try {
       const { error } = await supabase.rpc('delete_treasury_transfer', {
         p_journal_entry_id: id
@@ -728,6 +738,7 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
         }
       }
       showToast?.('تم حذف التحويل المالي بنجاح', 'info');
+      invalidateGeneralLedger(effectiveOrg);
       if (refreshAllData) await refreshAllData();
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);

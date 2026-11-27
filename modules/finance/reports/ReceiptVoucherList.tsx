@@ -384,7 +384,8 @@ const ReceiptVoucherList = () => {
       setStats(prev => ({ ...prev, loading: true }));
       try {
         const { data: { session } } = await supabase.auth.getSession();
-        const userOrgId = organization?.id || session?.user?.user_metadata?.org_id;
+        const explicitOrgId = organization?.id || session?.user?.user_metadata?.org_id;
+        const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
         let q = supabase
           .from('receipt_vouchers')
@@ -479,7 +480,8 @@ const ReceiptVoucherList = () => {
     }
 
     const { data: { session } } = await supabase.auth.getSession();
-    let userOrgId = organization?.id || session?.user?.user_metadata?.org_id;
+    const explicitOrgId = organization?.id || session?.user?.user_metadata?.org_id;
+    let userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
     if (!userOrgId && session?.user?.id) {
       const { data: profileData } = await supabase

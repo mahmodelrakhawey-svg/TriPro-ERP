@@ -314,6 +314,7 @@ const PurchaseReturnForm = () => {
       if (success) {
         showToast('تم إلغاء ترحيل مرتجع المشتريات وتحويله لمسودة بنجاح ✅', 'success');
         setFormData(prev => ({ ...prev, status: 'draft' }));
+        await refreshData?.();
         await loadReturnById(editingId);
       } else {
         throw new Error('فشلت عملية إلغاء الترحيل');

@@ -10,9 +10,10 @@ import {
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const StockTransferList = () => {
-  const { warehouses, products, currentUser, transfers: contextTransfers, approveStockTransfer, cancelStockTransfer, can, selectedFiscalYear } = useAccounting();
+  const { warehouses, products, currentUser, currentSelectedOrgId, transfers: contextTransfers, approveStockTransfer, cancelStockTransfer, can, selectedFiscalYear } = useAccounting();
   const navigate = useNavigate();
   const [transfers, setTransfers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,7 +25,7 @@ const StockTransferList = () => {
 
   useEffect(() => {
     fetchTransfers();
-  }, [selectedFiscalYear]);
+  }, [selectedFiscalYear, currentSelectedOrgId]);
 
   const fetchTransfers = async () => {
     if (currentUser?.role === 'demo') {
@@ -35,6 +36,14 @@ const StockTransferList = () => {
     }
 
     try {
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
+      if (!userOrgId) {
+        setTransfers([]);
+        setLoading(false);
+        return;
+      }
+
       const data = await fetchCompleteDataset<any>(async (from, to) => {
         let query = supabase
           .from('stock_transfers')
@@ -48,6 +57,7 @@ const StockTransferList = () => {
               products (id, name, unit, sku)
             )
           `)
+          .eq('organization_id', userOrgId)
           .order('transfer_date', { ascending: false });
 
         if (selectedFiscalYear) {

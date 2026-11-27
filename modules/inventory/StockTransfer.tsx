@@ -14,6 +14,7 @@ import {
 import { createStockTransferSchema } from '../../utils/validationSchemas';
 import ProductSearchSelect, { getProductWarehouseStock } from '../../components/ProductSearchSelect';
 import { secureStorage } from '../../utils/securityMiddleware';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 export interface PackagingRule {
   unitName: string;
@@ -95,7 +96,7 @@ export const clearStockTransferDraft = () => {
 const StockTransfer = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { warehouses, products, recalculateStock, currentUser } = useAccounting();
+  const { warehouses, products, recalculateStock, currentUser, currentSelectedOrgId } = useAccounting();
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
   const [systemUoms, setSystemUoms] = useState<any[]>([]);
@@ -178,7 +179,8 @@ const StockTransfer = () => {
   useEffect(() => {
     const fetchUoms = async () => {
       try {
-        const orgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+        const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+        const orgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
         let query = supabase.from('uoms').select('id, name, ratio, uom_type, category_id, organization_id');
         if (orgId) {
           query = query.eq('organization_id', orgId);
@@ -190,7 +192,7 @@ const StockTransfer = () => {
       }
     };
     fetchUoms();
-  }, [currentUser]);
+  }, [currentUser, currentSelectedOrgId]);
 
   // إشعار المستخدم باستعادة المسودة تلقائياً عند فتح الشاشة
   useEffect(() => {
@@ -947,7 +949,12 @@ const StockTransfer = () => {
       return;
     }
 
-    const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+    const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
+    if (!userOrgId) {
+      showToast('تعذر تحديد المنظمة الحالية. يرجى إعادة المحاولة أو تحديث الصفحة.', 'error');
+      return;
+    }
 
     // تجهيز البنود بالشكل الذي يتطابق مع المخطط (الكميات بالوحدة الأساسية)
     const cleanItems = items.map(item => ({

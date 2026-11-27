@@ -17,7 +17,7 @@ import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { fetchCompleteDataset } from '../../services/balanceService';
-import { queryClient, QUERY_KEYS, invalidateSalesInvoices, STALE_TIMES } from '../../services/queryClient';
+import { queryClient, QUERY_KEYS, invalidateSalesInvoices, invalidateGeneralLedger, STALE_TIMES } from '../../services/queryClient';
 import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
 import { getActiveOrgIdSync } from '../../services/tenantContext';
 import { normalizeOptionalId } from './domainUtils';
@@ -225,6 +225,7 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     showToast?.('تم اعتماد فاتورة المبيعات بنجاح ✅', 'success');
     logActivity?.('اعتماد فاتورة مبيعات', `تم اعتماد الفاتورة رقم: ${id}`);
     invalidateSalesInvoices(effectiveOrg);
+    invalidateGeneralLedger(effectiveOrg);
     await fetchSalesData(true);
     return true;
   }, [targetOrgId, currentUser, logActivity, showToast, fetchSalesData]);
@@ -250,6 +251,7 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     showToast?.('تم إلغاء ترحيل فاتورة المبيعات بنجاح', 'info');
     logActivity?.('إلغاء ترحيل فاتورة مبيعات', `فاتورة رقم: ${id}`);
     invalidateSalesInvoices(effectiveOrg);
+    invalidateGeneralLedger(effectiveOrg);
     await fetchSalesData(true);
     return true;
   }, [targetOrgId, currentUser, logActivity, showToast, fetchSalesData]);
@@ -275,12 +277,18 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     showToast?.('تم حذف فاتورة المبيعات', 'info');
     logActivity?.('حذف فاتورة مبيعات', `فاتورة رقم: ${id}`);
     invalidateSalesInvoices(effectiveOrg);
+    invalidateGeneralLedger(effectiveOrg);
     await fetchSalesData(true);
     return true;
   }, [targetOrgId, currentUser, logActivity, showToast, fetchSalesData]);
 
   const unpostSalesReturn = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
-    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id || null;
+    const effectiveOrg =
+      normalizeOptionalId(customOrgId) ||
+      normalizeOptionalId(targetOrgId) ||
+      normalizeOptionalId(currentUser?.organization_id) ||
+      getActiveOrgIdSync() ||
+      null;
     const { error } = await supabase.rpc('unpost_sales_return', {
       p_return_id: id,
       p_org_id: effectiveOrg
@@ -292,12 +300,18 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     }
 
     invalidateSalesInvoices(effectiveOrg);
+    invalidateGeneralLedger(effectiveOrg);
     await fetchSalesData(true);
     return true;
   }, [targetOrgId, currentUser, fetchSalesData]);
 
   const deleteSalesReturn = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
-    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id || null;
+    const effectiveOrg =
+      normalizeOptionalId(customOrgId) ||
+      normalizeOptionalId(targetOrgId) ||
+      normalizeOptionalId(currentUser?.organization_id) ||
+      getActiveOrgIdSync() ||
+      null;
     const { error } = await supabase.rpc('delete_sales_return', {
       p_return_id: id,
       p_org_id: effectiveOrg
@@ -309,6 +323,7 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     }
 
     invalidateSalesInvoices(effectiveOrg);
+    invalidateGeneralLedger(effectiveOrg);
     await fetchSalesData(true);
     return true;
   }, [targetOrgId, currentUser, fetchSalesData]);

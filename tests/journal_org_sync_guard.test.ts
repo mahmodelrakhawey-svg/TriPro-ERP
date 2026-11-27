@@ -113,4 +113,37 @@ describe('Journal Org Sync & Multi-Tenant Document Entry Guard', () => {
       expect(content).toContain('currentSelectedOrgId');
     }
   });
+
+  it('ensures daily operations lists, stock transfers, and domain contexts isolate orgs and invalidate general ledger', () => {
+    const orgIsolatedComponents = [
+      'modules/inventory/StockTransfer.tsx',
+      'modules/inventory/StockTransferList.tsx',
+      'modules/sales/SalesReturnsList.tsx',
+      'modules/finance/reports/PaymentVoucherList.tsx',
+      'modules/finance/reports/ReceiptVoucherList.tsx',
+    ];
+
+    for (const rel of orgIsolatedComponents) {
+      const content = fs.readFileSync(path.resolve(process.cwd(), rel), 'utf8');
+      expect(content).toContain('getActiveOrgIdSync');
+    }
+
+    for (const rel of [
+      'context/domains/SalesContext.tsx',
+      'context/domains/SupplierContext.tsx',
+      'context/domains/BankingContext.tsx',
+    ]) {
+      const content = fs.readFileSync(path.resolve(process.cwd(), rel), 'utf8');
+      expect(content).toContain('invalidateGeneralLedger');
+    }
+
+    const migration = fs.readFileSync(
+      path.resolve(process.cwd(), 'services/migrations/2026-11-27_fix_daily_ops_rpcs.sql'),
+      'utf8'
+    );
+    expect(migration).toContain('WHERE purchase_return_id = p_return_id');
+    expect(migration).not.toContain('WHERE return_id = p_return_id');
+    expect(migration).toContain('CREATE OR REPLACE FUNCTION public.approve_purchase_return');
+    expect(migration).toContain('CREATE OR REPLACE FUNCTION public.update_employee_advance');
+  });
 });

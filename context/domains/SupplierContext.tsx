@@ -423,12 +423,19 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
       throw error;
     }
 
+    invalidatePurchaseInvoices(effectiveOrg);
+    invalidateGeneralLedger(effectiveOrg);
     await fetchInvoices();
     return true;
   }, [targetOrgId, currentUser, fetchInvoices]);
 
   const unpostPurchaseReturn = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
-    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
+    const effectiveOrg =
+      normalizeOptionalId(customOrgId) ||
+      normalizeOptionalId(targetOrgId) ||
+      normalizeOptionalId(currentUser?.organization_id) ||
+      getActiveOrgIdSync() ||
+      null;
     const { error } = await supabase.rpc('unpost_purchase_return', {
       p_return_id: id,
       p_org_id: effectiveOrg
@@ -440,12 +447,18 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
     }
 
     invalidatePurchaseInvoices(effectiveOrg);
+    invalidateGeneralLedger(effectiveOrg);
     await fetchInvoices(true);
     return true;
   }, [targetOrgId, currentUser, fetchInvoices]);
 
   const deletePurchaseReturn = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
-    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
+    const effectiveOrg =
+      normalizeOptionalId(customOrgId) ||
+      normalizeOptionalId(targetOrgId) ||
+      normalizeOptionalId(currentUser?.organization_id) ||
+      getActiveOrgIdSync() ||
+      null;
     const { error } = await supabase.rpc('delete_purchase_return', {
       p_return_id: id,
       p_org_id: effectiveOrg
@@ -457,6 +470,7 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
     }
 
     invalidatePurchaseInvoices(effectiveOrg);
+    invalidateGeneralLedger(effectiveOrg);
     await fetchInvoices(true);
     return true;
   }, [targetOrgId, currentUser, fetchInvoices]);

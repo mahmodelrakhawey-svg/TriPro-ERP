@@ -14,7 +14,7 @@ import { SalesReturnPrint } from './SalesReturnPrint';
 import { getActiveOrgIdSync, resolveActiveOrgId, isValidUUID, ensureDocumentJournalOrgSync } from '../../services/tenantContext';
 
 const SalesReturnForm = () => {
-  const { customers, products, currentUser, currentSelectedOrgId, warehouses, settings, accounts, getSystemAccount, addEntry, refreshData } = useAccounting();
+  const { customers, products, currentUser, currentSelectedOrgId, warehouses, settings, accounts, getSystemAccount, addEntry, refreshData, unpostSalesReturn, deleteSalesReturn } = useAccounting();
   const navigate = useNavigate();
   const location = useLocation();
   const { showToast } = useToast();
@@ -526,10 +526,12 @@ const SalesReturnForm = () => {
 
     setUnposting(true);
     try {
-      const { error: rpcError } = await supabase.rpc('unpost_sales_return', { p_return_id: editingId });
-      if (rpcError) throw rpcError;
+      const explicitOrgId = originalInvoiceOrgId || currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const targetOrgId = getActiveOrgIdSync(explicitOrgId) || (await resolveActiveOrgId(explicitOrgId));
+      await unpostSalesReturn(editingId, targetOrgId || undefined);
 
       showToast('تم إلغاء ترحيل مرتجع المبيعات وعكس القيد والمخزون بنجاح ✅', 'success');
+      await refreshData?.();
       loadReturnById(editingId);
     } catch (err: unknown) {
       logger.error('Error unposting sales return:', err);
@@ -555,10 +557,12 @@ const SalesReturnForm = () => {
 
     setDeleting(true);
     try {
-      const { error: delErr } = await supabase.rpc('delete_sales_return', { p_return_id: editingId });
-      if (delErr) throw delErr;
+      const explicitOrgId = originalInvoiceOrgId || currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const targetOrgId = getActiveOrgIdSync(explicitOrgId) || (await resolveActiveOrgId(explicitOrgId));
+      await deleteSalesReturn(editingId, targetOrgId || undefined);
 
       showToast('تم حذف مسودة مرتجع المبيعات بنجاح ✅', 'success');
+      await refreshData?.();
 
       const newIds = returnIds.filter(id => id !== editingId);
       setReturnIds(newIds);
