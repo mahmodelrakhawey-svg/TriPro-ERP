@@ -20,12 +20,7 @@ import { fetchCompleteDataset } from '../../services/balanceService';
 import { queryClient, QUERY_KEYS, invalidateSalesInvoices, STALE_TIMES } from '../../services/queryClient';
 import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
 import { getActiveOrgIdSync } from '../../services/tenantContext';
-
-const normalizeOptionalId = (val?: string | null): string | null => {
-  if (typeof val !== 'string') return null;
-  const trimmed = val.trim();
-  return trimmed.length > 0 ? trimmed : null;
-};
+import { normalizeOptionalId } from './domainUtils';
 
 export type SalesInvoice = Invoice & { total?: number; [key: string]: unknown };
 

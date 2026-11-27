@@ -14,13 +14,14 @@ import { logDocumentAction } from '../../../services/auditService';
 import SupplierSearchSelect from '../../../components/SupplierSearchSelect';
 import { ApprovalWorkflowService } from '../../../services/approvalWorkflowService';
 import { fetchAllSupplierBalances } from '../../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenantContext';
 
 const PaymentVoucherForm = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const DEMO_EMAIL = 'demo@tripro.com';
   const DEMO_USER_ID = 'demo-user-id';
-  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers, can, addDemoPaymentVoucher, isDemo, organization } = useAccounting();
+  const { addEntry, vouchers, updateVoucher, costCenters, getSystemAccount, accounts, suppliers, can, addDemoPaymentVoucher, isDemo, organization, currentSelectedOrgId, refreshData } = useAccounting();
   const { currentUser } = useAuth();
   const { showToast } = useToast();
   const isSubmittingRef = useRef(false);
@@ -62,7 +63,7 @@ const PaymentVoucherForm = () => {
         setSelectedInvoiceId(null);
         return;
       }
-      const userOrgId = organization?.id;
+      const userOrgId = getActiveOrgIdSync(currentSelectedOrgId || organization?.id || (currentUser as any)?.organization_id) || organization?.id;
       if (!userOrgId) return;
 
       setLoadingInvoices(true);
@@ -556,9 +557,12 @@ const PaymentVoucherForm = () => {
             return;
         }
 
-        // جلب معرف المنظمة النشطة مع صمام أمان
-        const orgId = organization?.id || (currentUser as any)?.organization_id || 
-                     (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
+        // جلب معرف المنظمة النشطة مع صمام أمان موحد
+        const explicitOrgId = currentSelectedOrgId || organization?.id || (currentUser as any)?.organization_id;
+        const orgId =
+          getActiveOrgIdSync(explicitOrgId) ||
+          (await resolveActiveOrgId(explicitOrgId)) ||
+          (await supabase.from('organizations').select('id').limit(1).single()).data?.id;
 
         // 1. حفظ سند الصرف في قاعدة البيانات
         const { data: voucherData, error: voucherError } = await supabase.from('payment_vouchers').insert({
@@ -653,6 +657,33 @@ const PaymentVoucherForm = () => {
         try {
             const { error: rpcError } = await supabase.rpc('approve_payment_voucher', { p_voucher_id: voucherData.id, p_debit_account_id: supplierAcc.id });
             if (rpcError) throw rpcError;
+
+            // التحقق من تطابق المنظمة على القيد المرتبط في حال كانت الدالة المخزنة على الخادم قديمة (multi-tenant self-heal)
+            if (orgId) {
+              try {
+                const { data: linkedVoucher } = await supabase
+                  .from('payment_vouchers')
+                  .select('related_journal_entry_id')
+                  .eq('id', voucherData.id)
+                  .maybeSingle();
+
+                const jeId = linkedVoucher?.related_journal_entry_id;
+                if (jeId) {
+                  const { data: jeRow } = await supabase
+                    .from('journal_entries')
+                    .select('id, organization_id')
+                    .eq('id', jeId)
+                    .maybeSingle();
+
+                  if (jeRow && jeRow.organization_id !== orgId) {
+                    await supabase.from('journal_entries').update({ organization_id: orgId }).eq('id', jeId);
+                    await supabase.from('journal_lines').update({ organization_id: orgId }).eq('journal_entry_id', jeId);
+                  }
+                }
+              } catch (healErr) {
+                logger.warn('Non-blocking voucher journal org self-heal notice:', healErr);
+              }
+            }
         } catch (err) {
             logger.warn("RPC failed, falling back to manual entry:", err);
             // في حال فشل الدالة (مثلاً غير موجودة)، نقوم بإنشاء القيد يدوياً لضمان سلامة البيانات
@@ -688,6 +719,7 @@ const PaymentVoucherForm = () => {
             }
         }
 
+        await refreshData?.();
         showToast('تم حفظ سند الصرف وترحيل القيد بنجاح', 'success');
         handleNew();
         setAttachments([]);

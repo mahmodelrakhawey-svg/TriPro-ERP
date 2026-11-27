@@ -1229,7 +1229,8 @@ const PurchaseInvoiceForm = () => {
     }
 
     try {
-      const userOrgId = (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id || (currentUser as any)?.user_metadata?.org_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       if (!userOrgId) throw new Error("تعذر تحديد هوية الشركة.");
       const invoiceNumber = formData.invoiceNumber || await getNextDocumentNumber(userOrgId, 'purchase_invoice');
 
@@ -2392,7 +2393,7 @@ const PurchaseInvoiceForm = () => {
           <div className="border-t border-slate-200 pt-4">
             <PurchaseInvoiceAttachments
               invoiceId={editingId}
-              organizationId={(currentUser as any)?.organization_id}
+              organizationId={getActiveOrgIdSync(currentSelectedOrgId || (currentUser as any)?.organization_id) || currentSelectedOrgId || (currentUser as any)?.organization_id}
               attachments={attachments}
               onChange={setAttachments}
               readOnly={formData.status === 'posted'}

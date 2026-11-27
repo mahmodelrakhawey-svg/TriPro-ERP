@@ -9,6 +9,7 @@ import { useToastNotification } from '../../utils/toastUtils';
 import { usePagination } from '../../components/usePagination';
 import { journalAuditService } from '../../services/journalAuditService';
 import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
+import { getActiveOrgIdSync } from '../../services/tenantContext';
 
 // المكونات الفرعية المفككة
 import { getEntrySource } from './components/GeneralJournal/journalSourceClassifier';
@@ -425,6 +426,7 @@ const GeneralJournal: React.FC = () => {
   const { 
     data: serverEntries, 
     loading: serverLoading, 
+    error: paginationError,
     page, 
     setPage, 
     totalPages, 
@@ -435,7 +437,7 @@ const GeneralJournal: React.FC = () => {
     pageSize,
     orderBy: 'transaction_date',
     ascending: false,
-    organizationId: currentSelectedOrgId || (currentUser as any)?.organization_id
+    organizationId: getActiveOrgIdSync(currentSelectedOrgId || (currentUser as any)?.organization_id) || currentSelectedOrgId || (currentUser as any)?.organization_id
   }, queryModifier);
 
   useEffect(() => {
@@ -1205,6 +1207,14 @@ const GeneralJournal: React.FC = () => {
 
       {/* قائمة القيود المحاسبية */}
       <div className="space-y-4">
+        {paginationError && (
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-800 flex items-center justify-between gap-3" dir="rtl">
+            <span>تعذر تحميل قيود اليومية: {paginationError}</span>
+            <button onClick={handleRefresh} className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-700">
+              إعادة المحاولة
+            </button>
+          </div>
+        )}
         {loading || isSearching ? (
           <div className="flex justify-center p-12">
             <Loader2 className="animate-spin text-blue-600" size={32} />
@@ -1226,7 +1236,21 @@ const GeneralJournal: React.FC = () => {
                 </button>
               </div>
             ) : (
-              'لا توجد قيود مطابقة للبحث.'
+              <div className="space-y-3">
+                <p>
+                  {startDate || endDate
+                    ? `لا توجد قيود يومية في الفترة (${startDate || 'البداية'} إلى ${endDate || 'النهاية'}).`
+                    : 'لا توجد قيود مطابقة للبحث.'}
+                </p>
+                {(startDate || endDate) && (
+                  <button
+                    onClick={() => { setStartDate(''); setEndDate(''); setIgnoreDateFilter(true); }}
+                    className="bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 px-4 py-1.5 rounded-lg text-xs font-bold transition-colors"
+                  >
+                    عرض قيود كل السنوات
+                  </button>
+                )}
+              </div>
             )}
           </div>
         ) : (

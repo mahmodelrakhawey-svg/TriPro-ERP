@@ -16,10 +16,11 @@ import type { UserProfile } from '../AccountingContext';
 import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
-import { fetchAllTableRecords } from './domainUtils';
-import { queryClient, QUERY_KEYS, invalidateSuppliers, invalidatePurchaseInvoices, STALE_TIMES } from '../../services/queryClient';
+import { fetchAllTableRecords, normalizeOptionalId } from './domainUtils';
+import { queryClient, QUERY_KEYS, invalidateSuppliers, invalidatePurchaseInvoices, invalidateGeneralLedger, STALE_TIMES } from '../../services/queryClient';
 import { fetchCompleteDataset } from '../../services/balanceService';
 import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
+import { getActiveOrgIdSync } from '../../services/tenantContext';
 
 export interface SupplierDomainState {
   suppliers: Supplier[];
@@ -329,7 +330,13 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
   }, [targetOrgId, currentUser, logActivity, fetchSuppliers]);
 
   const approvePurchaseInvoice = useCallback(async (id: string, customOrgId?: string, warehouseId?: string): Promise<void> => {
-    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
+    const effectiveOrg =
+      normalizeOptionalId(customOrgId) ||
+      normalizeOptionalId(targetOrgId) ||
+      normalizeOptionalId(currentUser?.organization_id) ||
+      getActiveOrgIdSync() ||
+      null;
+    const safeWarehouseId = normalizeOptionalId(warehouseId);
 
     // 🛡️ فحص مسار وسلسلة الاعتمادات لفواتير الشراء قبل الترحيل
     try {
@@ -339,9 +346,9 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
         .eq('id', id)
         .maybeSingle();
 
-      if (inv) {
+      if (inv && effectiveOrg) {
         const approvalCheck = await ApprovalWorkflowService.checkAndSubmit({
-          orgId: effectiveOrg || '',
+          orgId: effectiveOrg,
           docType: 'PURCHASE_INVOICE',
           amount: Number(inv.total_amount || 0),
           docId: id,
@@ -361,7 +368,7 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
     const { error } = await supabase.rpc('post_purchase_invoice', {
       p_invoice_id: id,
       p_org_id: effectiveOrg,
-      p_warehouse_id: warehouseId
+      p_warehouse_id: safeWarehouseId
     });
 
     if (error) {
@@ -371,11 +378,18 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
     }
 
     showToast?.('تم اعتماد فاتورة المشتريات وتحديث المخزون بنجاح ✅', 'success');
+    invalidatePurchaseInvoices(effectiveOrg);
+    invalidateGeneralLedger(effectiveOrg);
     await fetchInvoices();
   }, [targetOrgId, currentUser, showToast, fetchInvoices]);
 
   const unpostPurchaseInvoice = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
-    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
+    const effectiveOrg =
+      normalizeOptionalId(customOrgId) ||
+      normalizeOptionalId(targetOrgId) ||
+      normalizeOptionalId(currentUser?.organization_id) ||
+      getActiveOrgIdSync() ||
+      null;
     const { error } = await supabase.rpc('unpost_purchase_invoice', {
       p_invoice_id: id,
       p_org_id: effectiveOrg
@@ -386,12 +400,19 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
       throw error;
     }
 
+    invalidatePurchaseInvoices(effectiveOrg);
+    invalidateGeneralLedger(effectiveOrg);
     await fetchInvoices();
     return true;
   }, [targetOrgId, currentUser, fetchInvoices]);
 
   const deletePurchaseInvoice = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
-    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
+    const effectiveOrg =
+      normalizeOptionalId(customOrgId) ||
+      normalizeOptionalId(targetOrgId) ||
+      normalizeOptionalId(currentUser?.organization_id) ||
+      getActiveOrgIdSync() ||
+      null;
     const { error } = await supabase.rpc('delete_purchase_invoice', {
       p_invoice_id: id,
       p_org_id: effectiveOrg

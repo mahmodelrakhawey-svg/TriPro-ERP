@@ -27,7 +27,7 @@ BEGIN
     SELECT * INTO v_voucher FROM public.payment_vouchers WHERE id = p_voucher_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'سند الصرف غير موجود'; END IF;
 
-    SELECT id INTO v_org_id FROM public.organizations LIMIT 1;
+    v_org_id := COALESCE(v_voucher.organization_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1));
 
     -- تحديد سعر الصرف (الافتراضي 1)
     v_exchange_rate := COALESCE(v_voucher.exchange_rate, 1);

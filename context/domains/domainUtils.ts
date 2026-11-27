@@ -315,3 +315,10 @@ export async function fetchAllTableRecords<T = any>(
 
   return { data: allData, error: null };
 }
+
+/** تحويل النصوص الفارغة أو غير المعرفة إلى null قبل تمريرها لمعاملات RPC من نوع UUID */
+export const normalizeOptionalId = (val?: string | null): string | null => {
+  if (typeof val !== 'string') return null;
+  const trimmed = val.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
