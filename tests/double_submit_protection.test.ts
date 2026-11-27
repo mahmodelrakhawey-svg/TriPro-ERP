@@ -94,10 +94,10 @@ describe('🛡️ Enterprise Rapid Click & Double-Submit Protection (صماما�
     expect(content).toContain('isExceedingBalance');
     expect(content).toContain('تنبيه سيولة');
 
-    // تحقق من وجود صمام الأمان على مستوى السياق AccountingContext & BankingContext
+    // تحقق من تفويض AccountingContext لتحويلات النقدية إلى BankingContext ووجود صمام الأمان داخله
     const accountingContextPath = path.resolve(process.cwd(), 'context/AccountingContext.tsx');
     const accContent = fs.readFileSync(accountingContextPath, 'utf-8');
-    expect(accContent).toContain('lastTransferSubmissionRef');
+    expect(accContent).toContain('addTransfer: bankingDomain.addTransfer');
 
     const bankingContextPath = path.resolve(process.cwd(), 'context/domains/BankingContext.tsx');
     const bnkContent = fs.readFileSync(bankingContextPath, 'utf-8');

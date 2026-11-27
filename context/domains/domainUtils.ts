@@ -11,6 +11,8 @@
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Account } from '../../types';
+import { SYSTEM_ACCOUNTS } from '../accountingConstants';
 
 export type DynamicQuery = any;
 export type DynamicParam = any;
@@ -177,6 +179,97 @@ export function syncLenzaNegativeStockIfNeeded(params: {
       logger.warn('[Settings] Auto-sync allow_negative_stock for Lenza rejected:', err);
     });
   }
+}
+
+/**
+ * دالة موحدة لتحديد حسابات النظام الافتراضية من خريطة الإعدادات أو شجرة الحسابات
+ */
+export function resolveSystemAccount(
+  accounts: Account[],
+  settings: Record<string, any> | null | undefined,
+  key: string
+): Account | undefined {
+  const mappingId = settings?.account_mappings?.[key];
+  if (mappingId) {
+    const mapped = accounts.find(a => a.id === mappingId);
+    if (mapped) return mapped;
+  }
+
+  const defaultCode = SYSTEM_ACCOUNTS[key as keyof typeof SYSTEM_ACCOUNTS];
+  if (defaultCode) {
+    const matchByExactCode = accounts.find(a => a.code === defaultCode);
+    if (matchByExactCode) return matchByExactCode;
+    const matchByPrefix = accounts.find(a => a.code?.startsWith(defaultCode));
+    if (matchByPrefix) return matchByPrefix;
+  }
+
+  if (key === 'CUSTOMERS' || key === 'AR' || key === 'CUSTOMER') {
+    return accounts.find(a => a.name?.includes('العملاء') || a.name?.includes('عملاء') || a.name?.toLowerCase().includes('customer') || a.name?.toLowerCase().includes('receivable') || a.code === '1221' || a.code === '1103' || a.code === '121' || a.code?.startsWith('122') || a.code?.startsWith('1103'));
+  }
+  if (key === 'SUPPLIERS' || key === 'AP' || key === 'SUPPLIER') {
+    return accounts.find(a => a.name?.includes('الموردين') || a.name?.includes('موردين') || a.name?.toLowerCase().includes('supplier') || a.name?.toLowerCase().includes('payable') || a.code === '201' || a.code === '2101' || a.code === '221' || a.code?.startsWith('201') || a.code?.startsWith('2101'));
+  }
+  if (key === 'CASH' || key === 'TREASURY') {
+    return accounts.find(a => a.name?.includes('الخزينة') || a.name?.includes('النقدية') || a.name?.includes('الصندوق') || a.name?.toLowerCase().includes('cash') || a.code === '1231' || a.code === '10101' || a.code === '123' || a.code?.startsWith('1231') || a.code?.startsWith('10101'));
+  }
+  if (key === 'VAT' || key === 'VAT_OUTPUT') {
+    return accounts.find(a => (a.name?.includes('القيمة المضافة') || a.name?.includes('ضريبة المبيعات') || a.code === '2231' || a.code === '2105' || a.code?.startsWith('2231')) && !a.name?.includes('مدخلات') && !a.name?.includes('مشتريات'));
+  }
+  if (key === 'VAT_INPUT') {
+    return accounts.find(a => a.name?.includes('مدخلات') || a.name?.includes('مشتريات') || a.code === '1241' || a.code === '1105');
+  }
+  if (key === 'OPENING_BALANCES') {
+    return accounts.find(a => a.name?.includes('أرصدة افتتاحية') || a.name?.includes('افتتاحي') || a.name?.includes('افتتاحية') || a.name?.toLowerCase().includes('opening') || a.code === '3999' || a.code === '313' || a.code?.startsWith('39') || a.code?.startsWith('300'));
+  }
+  if (key === 'INVENTORY_FINISHED_GOODS' || key === 'INVENTORY') {
+    return accounts.find(a => a.code === '10302' || a.code === '1213' || a.code === '103' || a.code === '122' || a.code === '121' || a.name?.includes('بضائع بغرض البيع') || a.name?.includes('منتج تام') || a.name?.includes('تام الصنع') || a.name?.includes('المخزون') || a.name?.includes('مخزون'));
+  }
+  if (key === 'INVENTORY_RAW_MATERIALS') {
+    return accounts.find(a => a.code === '10301' || a.code === '1211' || a.code === '103' || a.name?.includes('خامات') || a.name?.includes('مواد خام') || a.name?.includes('المخزون') || a.name?.includes('مخزون'));
+  }
+  if (key === 'COGS') {
+    return accounts.find(a => a.code === '511' || a.code === '311' || a.code?.startsWith('51') || a.name?.includes('تكلفة المبيعات') || a.name?.includes('تكلفة البضاعة'));
+  }
+  if (key === 'SALES_REVENUE') {
+    return accounts.find(a => a.code === '411' || a.code === '41' || a.code?.startsWith('41') || a.name?.includes('المبيعات') || a.name?.includes('إيراد المبيعات'));
+  }
+  if (key === 'NOTES_RECEIVABLE') {
+    return accounts.find(a => a.name?.includes('أوراق القبض') || a.name?.includes('أوراق قبض') || a.name?.includes('شيكات واردة') || a.name?.includes('تحت التحصيل') || a.code === '1222' || a.code?.startsWith('10103') || a.code?.startsWith('1231'));
+  }
+  if (key === 'NOTES_PAYABLE') {
+    return accounts.find(a => a.name?.includes('أوراق الدفع') || a.name?.includes('أوراق دفع') || a.name?.includes('شيكات صادرة') || a.code === '222' || a.code?.startsWith('20102') || a.code?.startsWith('2202'));
+  }
+  if (key === 'BANK_ACCOUNTS' || key === 'BANK_MAIN') {
+    return accounts.find(a => a.name?.includes('بنك') || a.name?.toLowerCase().includes('bank') || a.code?.startsWith('1232') || a.code?.startsWith('10102'));
+  }
+  if (key === 'INVENTORY_ADJUSTMENTS' || key === 'WASTAGE_EXPENSE' || key === 'INVENTORY_REVALUATION') {
+    return accounts.find(a => (a.code === '512' || a.code === '5121' || a.name?.includes('تسويات الجرد') || a.name?.includes('عجز المخزون') || a.name?.includes('الهالك والفاقد') || a.name?.includes('تكلفة الهالك')) && !a.name?.includes('ضريب') && !a.code?.startsWith('223') && !a.code?.startsWith('124'));
+  }
+  if (key === 'CASH_SHORTAGE') {
+    return accounts.find(a => (a.code === '541' || a.name?.includes('عجز الصندوق') || a.name?.includes('عجز الخزينة')) && !a.name?.includes('ضريب') && !a.code?.startsWith('223'));
+  }
+  if (key === 'REVENUE_OTHER' || key === 'OTHER_REVENUE') {
+    return accounts.find(a => (a.code === '421' || a.code === '441' || a.name?.includes('إيرادات متنوعة') || a.name?.includes('إيرادات أخرى')) && !a.name?.includes('ضريب'));
+  }
+  if (key === 'LETTER_OF_GUARANTEE_MARGIN') {
+    return accounts.find(a =>
+      a.code === '1248' ||
+      a.code?.startsWith('1248') ||
+      a.name?.includes('غطاء خطابات ضمان') ||
+      a.name?.includes('غطاء خطابات الضمان') ||
+      a.name?.includes('غطاء الضمان')
+    );
+  }
+  if (key === 'LETTER_OF_CREDIT_GOODS') {
+    return accounts.find(a =>
+      a.code === '1246' ||
+      a.code?.startsWith('1246') ||
+      a.name?.includes('اعتمادات مستندية') ||
+      a.name?.includes('اعتماد مستندي') ||
+      a.name?.includes('خطابات اعتماد')
+    );
+  }
+  return undefined;
 }
 
 /**

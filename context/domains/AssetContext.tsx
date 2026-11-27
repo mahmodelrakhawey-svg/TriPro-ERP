@@ -10,7 +10,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
-import { Asset } from '../../types';
+import { Asset, Account } from '../../types';
 import type { UserProfile } from '../AccountingContext';
 import { useAccounting } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
@@ -38,7 +38,7 @@ export interface AssetProviderProps {
   isDemo?: boolean;
   initialAssets?: Asset[];
   addEntry?: (entry: Record<string, unknown>) => Promise<unknown>;
-  getSystemAccount?: (key: string) => Record<string, unknown> | undefined;
+  getSystemAccount?: (key: string) => Account | Record<string, unknown> | undefined;
 }
 
 const EMPTY_ASSETS: Asset[] = [];
