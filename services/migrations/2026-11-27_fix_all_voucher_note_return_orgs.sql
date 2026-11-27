@@ -1,126 +1,11 @@
--- 🌟 توحيد وإصلاح عزل المنظمات وحلول الحسابات في دوال ترحيل السندات والمرتجعات والإشعارات
--- يعالج الحالات التي كانت تستخدم organizations LIMIT 1 أو تفقد organization_id أو تستخدم أكواد حسابات بدون تصفية بالشركة:
---   1. approve_payment_voucher
---   2. approve_receipt_voucher
---   3. approve_credit_note
---   4. approve_debit_note
---   5. approve_sales_return
+-- 🌟 إصلاح عزل المنظمات وتوحيد أكواد الحسابات في دوال الترحيل (متوافق مع حراس التوازن وعدم قابلية التعديل 2026-11-20)
+-- يعالج الحالات التي كانت تستخدم organizations LIMIT 1 في الإشعارات أو تفتقد fallback المنظمة/الحسابات في مرتجع المبيعات:
+--   1. approve_credit_note
+--   2. approve_debit_note
+--   3. approve_sales_return
+-- ملاحظة: دالتا approve_payment_voucher و approve_receipt_voucher محصنتان بالفعل في هجرة 2026-11-20 ولا يتم استبدالهما هنا حفاظاً على منطق القيد المسودة وإعادة احتساب الأرصدة.
 
--- 1. approve_payment_voucher
-CREATE OR REPLACE FUNCTION public.approve_payment_voucher(
-    p_voucher_id uuid,
-    p_debit_account_id uuid
-)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-    v_voucher public.payment_vouchers%ROWTYPE;
-    v_org_id uuid;
-    v_journal_id uuid;
-    v_exchange_rate numeric;
-    v_amount_base numeric;
-BEGIN
-    SELECT * INTO v_voucher FROM public.payment_vouchers WHERE id = p_voucher_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'سند الصرف غير موجود'; END IF;
-
-    v_org_id := COALESCE(v_voucher.organization_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1));
-    v_exchange_rate := COALESCE(v_voucher.exchange_rate, 1);
-    IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
-
-    IF v_voucher.treasury_account_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد حساب الخزينة/البنك (الدائن)'; END IF;
-    IF p_debit_account_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد الحساب المدين (المورد/المصروف)'; END IF;
-
-    v_amount_base := v_voucher.amount * v_exchange_rate;
-
-    IF v_voucher.related_journal_entry_id IS NOT NULL THEN
-        DELETE FROM public.journal_lines WHERE journal_entry_id = v_voucher.related_journal_entry_id;
-        DELETE FROM public.journal_entries WHERE id = v_voucher.related_journal_entry_id;
-    END IF;
-
-    INSERT INTO public.journal_entries (
-        transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted
-    ) VALUES (
-        v_voucher.payment_date,
-        'سند صرف رقم ' || COALESCE(v_voucher.voucher_number, '-') || (CASE WHEN v_voucher.currency IS NOT NULL AND v_voucher.currency != 'EGP' THEN ' (' || v_voucher.currency || ')' ELSE '' END),
-        v_voucher.voucher_number,
-        'posted',
-        v_org_id,
-        p_voucher_id,
-        'payment_voucher',
-        true
-    ) RETURNING id INTO v_journal_id;
-
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_journal_id, p_debit_account_id, v_amount_base, 0, v_voucher.notes, v_org_id);
-
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_journal_id, v_voucher.treasury_account_id, 0, v_amount_base, v_voucher.notes, v_org_id);
-
-    UPDATE public.payment_vouchers SET related_journal_entry_id = v_journal_id WHERE id = p_voucher_id;
-END;
-$$;
-
--- 2. approve_receipt_voucher
-CREATE OR REPLACE FUNCTION public.approve_receipt_voucher(
-    p_voucher_id uuid,
-    p_credit_account_id uuid
-)
-RETURNS void
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-AS $$
-DECLARE
-    v_voucher public.receipt_vouchers%ROWTYPE;
-    v_org_id uuid;
-    v_journal_id uuid;
-    v_exchange_rate numeric;
-    v_amount_base numeric;
-BEGIN
-    SELECT * INTO v_voucher FROM public.receipt_vouchers WHERE id = p_voucher_id;
-    IF NOT FOUND THEN RAISE EXCEPTION 'سند القبض غير موجود'; END IF;
-
-    v_org_id := COALESCE(v_voucher.organization_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1));
-    v_exchange_rate := COALESCE(v_voucher.exchange_rate, 1);
-    IF v_exchange_rate <= 0 THEN v_exchange_rate := 1; END IF;
-
-    IF v_voucher.treasury_account_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد حساب الخزينة/البنك (المدين)'; END IF;
-    IF p_credit_account_id IS NULL THEN RAISE EXCEPTION 'يجب تحديد الحساب الدائن (العميل/الإيراد)'; END IF;
-
-    v_amount_base := v_voucher.amount * v_exchange_rate;
-
-    IF v_voucher.related_journal_entry_id IS NOT NULL THEN
-        DELETE FROM public.journal_lines WHERE journal_entry_id = v_voucher.related_journal_entry_id;
-        DELETE FROM public.journal_entries WHERE id = v_voucher.related_journal_entry_id;
-    END IF;
-
-    INSERT INTO public.journal_entries (
-        transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted
-    ) VALUES (
-        v_voucher.receipt_date,
-        'سند قبض رقم ' || COALESCE(v_voucher.voucher_number, '-') || (CASE WHEN v_voucher.currency IS NOT NULL AND v_voucher.currency != 'EGP' THEN ' (' || v_voucher.currency || ')' ELSE '' END),
-        v_voucher.voucher_number,
-        'posted',
-        v_org_id,
-        p_voucher_id,
-        'receipt_voucher',
-        true
-    ) RETURNING id INTO v_journal_id;
-
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_journal_id, v_voucher.treasury_account_id, v_amount_base, 0, v_voucher.notes, v_org_id);
-
-    INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
-    VALUES (v_journal_id, p_credit_account_id, 0, v_amount_base, v_voucher.notes, v_org_id);
-
-    UPDATE public.receipt_vouchers SET related_journal_entry_id = v_journal_id WHERE id = p_voucher_id;
-END;
-$$;
-
--- 3. approve_credit_note
+-- 1. approve_credit_note
 CREATE OR REPLACE FUNCTION public.approve_credit_note(p_note_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -139,7 +24,8 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'الإشعار الدائن غير موجود'; END IF;
     IF v_note.status = 'posted' THEN RAISE EXCEPTION 'الإشعار مرحل بالفعل'; END IF;
 
-    v_org_id := COALESCE(v_note.organization_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1));
+    v_org_id := COALESCE(v_note.organization_id, public.get_my_org());
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'تعذر تحديد المنظمة للإشعار الدائن.'; END IF;
 
     SELECT id INTO v_sales_allowance_acc_id FROM public.accounts WHERE organization_id = v_org_id AND code IN ('412', '413', '4102') LIMIT 1;
     IF v_sales_allowance_acc_id IS NULL THEN
@@ -153,16 +39,17 @@ BEGIN
     END IF;
 
     INSERT INTO public.journal_entries (
-        transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted
+        transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id
     ) VALUES (
         v_note.note_date,
         'إشعار دائن رقم ' || COALESCE(v_note.credit_note_number, '-'),
         v_note.credit_note_number,
-        'posted',
+        'draft',
         v_org_id,
         p_note_id,
         'credit_note',
-        true
+        false,
+        auth.uid()
     ) RETURNING id INTO v_journal_id;
 
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
@@ -176,11 +63,12 @@ BEGIN
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
     VALUES (v_journal_id, v_customer_acc_id, 0, v_note.total_amount, 'إشعار دائن للعميل - ' || v_note.credit_note_number, v_org_id);
 
-    UPDATE public.credit_notes SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_note_id;
+    UPDATE public.journal_entries SET status = 'posted', is_posted = true WHERE id = v_journal_id;
+    UPDATE public.credit_notes SET status = 'posted', organization_id = v_org_id, related_journal_entry_id = v_journal_id WHERE id = p_note_id;
 END;
 $$;
 
--- 4. approve_debit_note
+-- 2. approve_debit_note
 CREATE OR REPLACE FUNCTION public.approve_debit_note(p_note_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -199,7 +87,8 @@ BEGIN
     IF NOT FOUND THEN RAISE EXCEPTION 'الإشعار المدين غير موجود'; END IF;
     IF v_note.status = 'posted' THEN RAISE EXCEPTION 'الإشعار مرحل بالفعل'; END IF;
 
-    v_org_id := COALESCE(v_note.organization_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1));
+    v_org_id := COALESCE(v_note.organization_id, public.get_my_org());
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'تعذر تحديد المنظمة للإشعار المدين.'; END IF;
 
     SELECT id INTO v_purchase_discount_acc_id FROM public.accounts WHERE organization_id = v_org_id AND code IN ('513', '5102', '511', '5101') LIMIT 1;
     SELECT id INTO v_vat_acc_id FROM public.accounts WHERE organization_id = v_org_id AND code IN ('1241', '1205') LIMIT 1;
@@ -213,16 +102,17 @@ BEGIN
     END IF;
 
     INSERT INTO public.journal_entries (
-        transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted
+        transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id
     ) VALUES (
         v_note.note_date,
         'إشعار مدين رقم ' || COALESCE(v_note.debit_note_number, '-'),
         v_note.debit_note_number,
-        'posted',
+        'draft',
         v_org_id,
         p_note_id,
         'debit_note',
-        true
+        false,
+        auth.uid()
     ) RETURNING id INTO v_journal_id;
 
     INSERT INTO public.journal_lines (journal_entry_id, account_id, debit, credit, description, organization_id)
@@ -236,11 +126,12 @@ BEGIN
         VALUES (v_journal_id, v_vat_acc_id, 0, v_note.tax_amount, 'ضريبة (إشعار مدين) - ' || v_note.debit_note_number, v_org_id);
     END IF;
 
-    UPDATE public.debit_notes SET status = 'posted', related_journal_entry_id = v_journal_id WHERE id = p_note_id;
+    UPDATE public.journal_entries SET status = 'posted', is_posted = true WHERE id = v_journal_id;
+    UPDATE public.debit_notes SET status = 'posted', organization_id = v_org_id, related_journal_entry_id = v_journal_id WHERE id = p_note_id;
 END;
 $$;
 
--- 5. approve_sales_return
+-- 3. approve_sales_return
 CREATE OR REPLACE FUNCTION public.approve_sales_return(p_return_id uuid)
 RETURNS void
 LANGUAGE plpgsql
@@ -264,7 +155,9 @@ BEGIN
     SELECT * INTO v_return FROM public.sales_returns WHERE id = p_return_id;
     IF NOT FOUND THEN RAISE EXCEPTION 'مرتجع المبيعات غير موجود'; END IF;
 
-    v_org_id := COALESCE(v_return.organization_id, public.get_my_org(), (SELECT id FROM public.organizations LIMIT 1));
+    v_org_id := COALESCE(v_return.organization_id, public.get_my_org());
+    IF v_org_id IS NULL THEN RAISE EXCEPTION 'تعذر تحديد المنظمة لمرتجع المبيعات.'; END IF;
+
     PERFORM set_config('app.allow_financial_ledger_mutation', 'true', true);
 
     SELECT account_mappings INTO v_mappings FROM public.company_settings WHERE organization_id = v_org_id;
@@ -304,15 +197,17 @@ BEGIN
     END LOOP;
 
     IF v_return.related_journal_entry_id IS NOT NULL THEN
+        UPDATE public.journal_entries SET status = 'draft', is_posted = false WHERE id = v_return.related_journal_entry_id;
         DELETE FROM public.journal_lines WHERE journal_entry_id = v_return.related_journal_entry_id;
         DELETE FROM public.journal_entries WHERE id = v_return.related_journal_entry_id;
     END IF;
 
+    UPDATE public.journal_entries SET status = 'draft', is_posted = false WHERE organization_id = v_org_id AND reference = v_return.return_number;
     DELETE FROM public.journal_lines WHERE journal_entry_id IN (SELECT id FROM public.journal_entries WHERE organization_id = v_org_id AND reference = v_return.return_number);
     DELETE FROM public.journal_entries WHERE organization_id = v_org_id AND reference = v_return.return_number;
 
-    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted)
-    VALUES (v_return.return_date, 'مرتجع مبيعات رقم ' || v_return.return_number, v_return.return_number, 'posted', v_org_id, p_return_id, 'sales_return', true)
+    INSERT INTO public.journal_entries (transaction_date, description, reference, status, organization_id, related_document_id, related_document_type, is_posted, user_id)
+    VALUES (v_return.return_date, 'مرتجع مبيعات رقم ' || v_return.return_number, v_return.return_number, 'draft', v_org_id, p_return_id, 'sales_return', false, auth.uid())
     RETURNING id INTO v_journal_id;
 
     IF v_sales_return_acc_id IS NOT NULL THEN
@@ -351,6 +246,7 @@ BEGIN
         END LOOP;
     END IF;
 
+    UPDATE public.journal_entries SET status = 'posted', is_posted = true WHERE id = v_journal_id;
     UPDATE public.sales_returns SET status = 'posted', organization_id = v_org_id, related_journal_entry_id = v_journal_id WHERE id = p_return_id;
     PERFORM set_config('app.allow_financial_ledger_mutation', 'false', true);
 EXCEPTION
