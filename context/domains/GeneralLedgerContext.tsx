@@ -49,6 +49,8 @@ export interface GeneralLedgerDomainState {
   closeFinancialYear: (year: number, date: string) => Promise<boolean>;
   reopenFinancialYear: (year: number) => Promise<boolean>;
   recalculateAllBalances: () => Promise<void>;
+  addOpeningBalanceTransaction: (id: string, type: string, amount: number, date: string, name: string) => Promise<void>;
+  createMissingSystemAccounts: () => Promise<any>;
   refreshLedger: () => Promise<void>;
   refreshAccounts?: () => Promise<void>;
   refreshEntries?: () => Promise<void>;
@@ -590,6 +592,28 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
     }
   }, [targetOrgId, selectedFiscalYear]);
 
+  const addOpeningBalanceTransaction = useCallback(async (id: string, type: string, amount: number, date: string, name: string) => {
+    const effectiveOrg = targetOrgId;
+    const { error } = await supabase.rpc('add_opening_balance', {
+      p_id: id,
+      p_type: type,
+      p_amount: amount,
+      p_date: date,
+      p_name: name
+    });
+    if (error) {
+      showToast?.('فشل تسجيل القيد الافتتاحي: ' + error.message, 'error');
+      return;
+    }
+    showToast?.('تم تسجيل الرصيد الافتتاحي وتحديث الحسابات بنجاح ✅', 'success');
+    invalidateGeneralLedger(effectiveOrg);
+    await fetchLedgerData(true);
+  }, [targetOrgId, showToast, fetchLedgerData]);
+
+  const createMissingSystemAccounts = useCallback(async () => {
+    return await supabase.rpc('create_missing_system_accounts');
+  }, []);
+
   const value = useMemo<GeneralLedgerDomainState>(() => ({
     entries,
     accounts,
@@ -610,6 +634,8 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
     closeFinancialYear,
     reopenFinancialYear,
     recalculateAllBalances,
+    addOpeningBalanceTransaction,
+    createMissingSystemAccounts,
     refreshLedger: () => fetchLedgerData(true),
     refreshAccounts: () => fetchLedgerData(true),
     refreshEntries: () => fetchLedgerData(true),
@@ -633,6 +659,8 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
     closeFinancialYear,
     reopenFinancialYear,
     recalculateAllBalances,
+    addOpeningBalanceTransaction,
+    createMissingSystemAccounts,
     fetchLedgerData,
   ]);
 
@@ -677,6 +705,8 @@ export const useGeneralLedgerDomain = (): GeneralLedgerDomainState => {
     closeFinancialYear: acc.closeFinancialYear as (year: number, date: string) => Promise<boolean>,
     reopenFinancialYear: acc.reopenFinancialYear as (year: number) => Promise<boolean>,
     recalculateAllBalances: acc.recalculateAllBalances as () => Promise<void>,
+    addOpeningBalanceTransaction: acc.addOpeningBalanceTransaction as (id: string, type: string, amount: number, date: string, name: string) => Promise<void>,
+    createMissingSystemAccounts: acc.createMissingSystemAccounts as () => Promise<any>,
     refreshLedger: acc.refreshData as () => Promise<void>,
   };
 };

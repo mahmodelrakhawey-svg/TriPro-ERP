@@ -36,6 +36,15 @@ import { fetchCompleteDataset } from '../services/balanceService';
 import { executeDirectProduction } from '../modules/manufacturing/utils/productionExecution';
 import { normalizeCompanySettings, syncLenzaNegativeStockIfNeeded } from './domains/domainUtils';
 import {
+  restoreRecycleItem,
+  permanentDeleteRecycleItem,
+  clearAllOrgTransactions,
+  emptyOrgRecycleBin,
+  purgeOrgDeletedRecords,
+  refreshOrgSaasSchema,
+  exportOrganizationDataset,
+} from '../services/systemMaintenanceService';
+import {
   SYSTEM_ACCOUNTS,
   DEFAULT_OFFLINE_ORG,
   DEFAULT_OFFLINE_TABLES,
@@ -1118,8 +1127,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     await refreshAccountsAndLedger();
     return { success: !error, message: error?.message };
   };
-  const clearTransactions = async () => { await supabase.rpc('clear_all_transactions'); await refreshAccountsAndLedger(); };
-  const emptyRecycleBin = async (table: string) => { await supabase.rpc('empty_recycle_bin', { p_table_name: table }); await refreshData(); };
+  const clearTransactions = async () =>
+    clearAllOrgTransactions({ supabaseClient: supabase, refreshAccountsAndLedger });
+  const emptyRecycleBin = async (table: string) =>
+    emptyOrgRecycleBin({ supabaseClient: supabase, table, refreshData });
   const saveBudget = async (budget: Record<string, any>) => { 
     const { error } = await supabase.from('budgets').upsert(budget); 
     if (error) {
@@ -2504,82 +2515,23 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     }
   };
 
-  const ALLOWED_RECYCLE_TABLES = ['products', 'customers', 'suppliers', 'assets', 'warehouses', 'employees', 'restaurant_tables'];
+  const restoreItem = async (table: string, id: string) =>
+    restoreRecycleItem({
+      supabaseClient: supabase,
+      table,
+      id,
+      orgId: currentSelectedOrgId || currentUser?.organization_id,
+      refreshData,
+    });
 
-  const restoreItem = async (table: string, id: string) => { 
-    if (!ALLOWED_RECYCLE_TABLES.includes(table)) {
-      return { success: false, message: 'الجدول غير مصرح به لعمليات الاسترجاع' };
-    }
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    let query = supabase.from(table).update({ deleted_at: null }).eq('id', id);
-    if (targetOrgId) query = query.eq('organization_id', targetOrgId);
-    const { error } = await query;
-    if (!error && table === 'assets') {
-      try {
-        const prefix = id.split('-')[0].toUpperCase();
-        const shortId = id.slice(0, 6);
-        await supabase
-          .from('journal_entries')
-          .update({ status: 'posted', is_posted: true })
-          .eq('organization_id', targetOrgId)
-          .or(`related_document_id.eq.${id},reference.ilike.ASSET-${prefix}%,reference.ilike.DEP-${shortId}%`);
-
-        if (targetOrgId) {
-          await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
-        }
-      } catch (e) {
-        logger.warn('restoreItem asset repost fallback:', e);
-      }
-    }
-    await refreshData(); 
-    return { success: !error, message: error?.message }; 
-  };
-
-  const permanentDeleteItem = async (table: string, id: string) => { 
-    if (!ALLOWED_RECYCLE_TABLES.includes(table)) {
-      return { success: false, message: 'الجدول غير مصرح به لعمليات الحذف النهائي' };
-    }
-    const targetOrgId = currentSelectedOrgId || currentUser?.organization_id;
-    if (table === 'assets') {
-      try {
-        const prefix = id.split('-')[0].toUpperCase();
-        const shortId = id.slice(0, 6);
-
-        // 1. العثور على قيود اليومية المرتبطة بالأصل (شراء وإهلاك)
-        const { data: entries } = await supabase
-          .from('journal_entries')
-          .select('id')
-          .eq('organization_id', targetOrgId)
-          .or(`related_document_id.eq.${id},reference.ilike.ASSET-${prefix}%,reference.ilike.DEP-${shortId}%`);
-
-        if (entries && entries.length > 0) {
-          const entryIds = entries.map(e => e.id);
-          // أ. إلغاء الترحيل أولاً لتخطي مشغل حماية القيود المرحلة
-          await supabase.from('journal_entries').update({ status: 'draft', is_posted: false }).in('id', entryIds);
-          // ب. حذف أسطر القيود
-          await supabase.from('journal_lines').delete().in('journal_entry_id', entryIds);
-          // ج. حذف رؤوس القيود
-          await supabase.from('journal_entries').delete().in('id', entryIds);
-        }
-
-        // حذف السجلات التابعة
-        await supabase.from('asset_audits').delete().eq('asset_id', id);
-        await supabase.from('asset_transfers').delete().eq('asset_id', id);
-
-        if (targetOrgId) {
-          await supabase.rpc('recalculate_all_system_balances', { p_org_id: targetOrgId });
-        }
-      } catch (e) {
-        logger.warn('Error purging asset journal entries during permanent delete:', e);
-      }
-    }
-
-    let delQuery = supabase.from(table).delete().eq('id', id);
-    if (targetOrgId) delQuery = delQuery.eq('organization_id', targetOrgId);
-    const { error } = await delQuery;
-    await refreshData(); 
-    return { success: !error, message: error?.message }; 
-  };
+  const permanentDeleteItem = async (table: string, id: string) =>
+    permanentDeleteRecycleItem({
+      supabaseClient: supabase,
+      table,
+      id,
+      orgId: currentSelectedOrgId || currentUser?.organization_id,
+      refreshData,
+    });
   const exportJournalToCSV = async () => {
     try {
       const orgId = currentSelectedOrgId || currentUser?.organization_id;
@@ -3301,13 +3253,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const createMissingSystemAccounts = async () => await supabase.rpc('create_missing_system_accounts');
   const recalculateAllBalances = async () => { await supabase.rpc('recalculate_all_balances'); showToast('تم تحديث الأرصدة', 'success'); };
-    const purgeDeletedRecords = async () => { 
-    const { error } = await supabase.rpc('purge_deleted_records'); 
-    if (error) { showToast('فشل تنظيف السجلات: ' + error.message, 'error'); return; }
-    showToast('تم تنظيف السجلات المحذوفة بنجاح ✅', 'success');
-    refreshData(); 
-  };
-  const refreshSaasSchema = async () => { await supabase.rpc('refresh_saas_schema'); showToast('جاري تحديث هيكل النظام...', 'info'); setTimeout(() => window.location.reload(), 1500); };
+  const purgeDeletedRecords = async () =>
+    purgeOrgDeletedRecords({ supabaseClient: supabase, showToast, refreshData });
+  const refreshSaasSchema = async () =>
+    refreshOrgSaasSchema({ supabaseClient: supabase, showToast });
   const closeFinancialYear = async (year: number, date: string) => {
     const targetOrgId = currentSelectedOrgId || currentUser?.organization_id || '';
     const res = await closeFinancialYearEngine({ supabase, year, closingDate: date, targetOrgId });
@@ -3333,38 +3282,18 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return false;
     }
   };
-  const exportData = async () => {
-    try {
-      const exportPayload = {
-        exported_at: new Date().toISOString(),
-        organization_id: effectiveOrgId,
-        organization_name: organization?.name || 'TriPro Organization',
-        settings,
-        accounts: accounts.map(a => ({ code: a.code, name: a.name, type: a.type, balance: a.balance })),
-        customers: customers.map((c: { id: string; name: string; phone?: string; balance?: number }) => ({ id: c.id, name: c.name, phone: c.phone, balance: c.balance })),
-        suppliers: suppliers.map((s: { id: string; name: string; phone?: string; balance?: number }) => ({ id: s.id, name: s.name, phone: s.phone, balance: s.balance })),
-        products: products.map((p: { id: string; name: string; sku?: string; price?: number; stock?: number }) => ({ id: p.id, name: p.name, sku: p.sku, price: p.price, stock: p.stock })),
-      };
-      if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-        const jsonStr = JSON.stringify(exportPayload, null, 2);
-        const blob = new Blob([jsonStr], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = `tripro_backup_${effectiveOrgId || 'org'}_${new Date().toISOString().split('T')[0]}.json`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-      }
-      logActivity('تصدير بيانات', 'تم تصدير نسخة احتياطية من بيانات المنظمة بصيغة JSON');
-      showToast('تم تصدير نسخة احتياطية من البيانات بنجاح ✅', 'success');
-    } catch (err: unknown) {
-      logger.error('Failed to export data:', err);
-      const errMsg = err instanceof Error ? err.message : String(err);
-      showToast('فشل تصدير البيانات: ' + errMsg, 'error');
-    }
-  };
+  const exportData = async () =>
+    exportOrganizationDataset({
+      effectiveOrgId,
+      organizationName: organization?.name,
+      settings,
+      accounts,
+      customers,
+      suppliers,
+      products,
+      logActivity,
+      showToast,
+    });
 
   const deleteOrganization = useCallback(async (orgId: string) => {
     const res = await deleteOrganizationSafe({ supabase, orgId, currentUser });
@@ -3497,6 +3426,11 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
                 isDemo={isDemo}
                 initialCheques={cheques}
                 initialVouchers={vouchers}
+                suppliers={suppliers}
+                accounts={accounts}
+                getSystemAccount={getSystemAccount}
+                addEntry={addEntry}
+                refreshAllData={refreshData}
               >
                 <GeneralLedgerProvider
                   orgId={effectiveOrgId}
@@ -3663,6 +3597,8 @@ const AccountingFacadeBridge: React.FC<{
     approvePurchaseInvoice: supplierDomain.approvePurchaseInvoice,
     unpostPurchaseInvoice: supplierDomain.unpostPurchaseInvoice,
     deletePurchaseInvoice: supplierDomain.deletePurchaseInvoice,
+    unpostPurchaseReturn: supplierDomain.unpostPurchaseReturn,
+    deletePurchaseReturn: supplierDomain.deletePurchaseReturn,
     convertPoToInvoice: supplierDomain.convertPoToInvoice,
     refreshSuppliers: supplierDomain.refreshSuppliers,
     // Product & Inventory Domain Delegation
@@ -3689,6 +3625,8 @@ const AccountingFacadeBridge: React.FC<{
     approveInvoice: salesDomain.approveInvoice,
     unpostSalesInvoice: salesDomain.unpostSalesInvoice,
     deleteSalesInvoice: salesDomain.deleteSalesInvoice,
+    unpostSalesReturn: salesDomain.unpostSalesReturn,
+    deleteSalesReturn: salesDomain.deleteSalesReturn,
     refreshSalesAndPurchases: handleRefreshSalesAndPurchases,
     // Banking & Treasury Domain Delegation
     cheques: bankingDomain.cheques,
@@ -3697,6 +3635,11 @@ const AccountingFacadeBridge: React.FC<{
     updateCheque: bankingDomain.updateCheque,
     deleteCheque: bankingDomain.deleteCheque,
     updateChequeStatus: bankingDomain.updateChequeStatus,
+    addPaymentVoucher: bankingDomain.addPaymentVoucher,
+    updateVoucher: bankingDomain.updateVoucher,
+    addTransfer: bankingDomain.addTransfer,
+    updateTransfer: bankingDomain.updateTransfer,
+    deleteTransfer: bankingDomain.deleteTransfer,
     refreshBanking: bankingDomain.refreshBanking,
     refreshBankingAndShift: handleRefreshBankingAndShift,
     // General Ledger Domain Delegation
@@ -3719,6 +3662,8 @@ const AccountingFacadeBridge: React.FC<{
     closeFinancialYear: glDomain.closeFinancialYear,
     reopenFinancialYear: glDomain.reopenFinancialYear,
     recalculateAllBalances: glDomain.recalculateAllBalances,
+    addOpeningBalanceTransaction: glDomain.addOpeningBalanceTransaction,
+    createMissingSystemAccounts: glDomain.createMissingSystemAccounts,
     refreshAccountsAndLedger: glDomain.refreshLedger,
     refreshLedger: glDomain.refreshLedger,
     // HR Domain Delegation

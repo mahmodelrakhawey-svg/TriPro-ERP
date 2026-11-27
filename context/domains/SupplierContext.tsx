@@ -418,8 +418,10 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
       throw error;
     }
 
+    invalidatePurchaseInvoices(effectiveOrg);
+    await fetchInvoices(true);
     return true;
-  }, [targetOrgId, currentUser]);
+  }, [targetOrgId, currentUser, fetchInvoices]);
 
   const deletePurchaseReturn = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
     const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;
@@ -433,8 +435,10 @@ export const SupplierProvider: React.FC<SupplierProviderProps> = ({
       throw error;
     }
 
+    invalidatePurchaseInvoices(effectiveOrg);
+    await fetchInvoices(true);
     return true;
-  }, [targetOrgId, currentUser]);
+  }, [targetOrgId, currentUser, fetchInvoices]);
 
   const convertPoToInvoice = useCallback(async (id: string, warehouseId?: string, customOrgId?: string): Promise<void> => {
     const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id;

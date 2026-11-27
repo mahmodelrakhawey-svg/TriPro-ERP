@@ -12,10 +12,11 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAccounting } from '../AccountingContext';
-import { Cheque, PaymentVoucher } from '../../types';
+import { Account, Cheque, PaymentVoucher, Supplier } from '../../types';
 import type { UserProfile } from '../AccountingContext';
 import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 export interface BankingDomainState {
   cheques: Cheque[];
@@ -24,8 +25,8 @@ export interface BankingDomainState {
   updateCheque: (id: string, cheque: Partial<Cheque>) => Promise<void>;
   deleteCheque: (id: string) => Promise<void>;
   updateChequeStatus: (id: string, status: string, date: string, bankId?: string) => Promise<void>;
-  addPaymentVoucher: (voucher: Partial<PaymentVoucher>) => Promise<void>;
-  updateVoucher: (id: string, updates: Partial<PaymentVoucher>) => Promise<boolean>;
+  addPaymentVoucher: (voucher: Partial<PaymentVoucher> & Record<string, any>) => Promise<void>;
+  updateVoucher: (id: string, updates: Partial<PaymentVoucher> & Record<string, any>) => Promise<boolean>;
   addTransfer: (transfer: Record<string, unknown>) => Promise<void>;
   updateTransfer: (id: string, transfer: Record<string, unknown>) => Promise<void>;
   deleteTransfer: (id: string) => Promise<void>;
@@ -42,6 +43,11 @@ export interface BankingProviderProps {
   currentUser?: UserProfile | null;
   initialCheques?: Cheque[];
   initialVouchers?: PaymentVoucher[];
+  suppliers?: Supplier[];
+  accounts?: Account[];
+  getSystemAccount?: (key: string) => Account | undefined;
+  addEntry?: (entry: Record<string, any>) => Promise<void>;
+  refreshAllData?: () => Promise<void>;
   logActivity?: (action: string, details: string) => void;
   showToast?: (message: string, type?: 'success' | 'error' | 'info' | 'warning') => void;
   isDemo?: boolean;
@@ -49,6 +55,8 @@ export interface BankingProviderProps {
 
 const EMPTY_CHEQUES: Cheque[] = [];
 const EMPTY_VOUCHERS: PaymentVoucher[] = [];
+const EMPTY_SUPPLIERS: Supplier[] = [];
+const EMPTY_ACCOUNTS: Account[] = [];
 
 export const BankingProvider: React.FC<BankingProviderProps> = ({
   children,
@@ -56,6 +64,11 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
   currentUser,
   initialCheques = EMPTY_CHEQUES,
   initialVouchers = EMPTY_VOUCHERS,
+  suppliers = EMPTY_SUPPLIERS,
+  accounts = EMPTY_ACCOUNTS,
+  getSystemAccount,
+  addEntry,
+  refreshAllData,
   logActivity,
   showToast,
   isDemo = false
@@ -339,53 +352,234 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
     await fetchCheques();
   }, [targetOrgId, currentUser, logActivity, showToast, fetchCheques]);
 
-  const addPaymentVoucher = useCallback(async (voucher: Partial<PaymentVoucher>): Promise<void> => {
-    const effectiveOrg = targetOrgId || currentUser?.organization_id;
-    const userId = currentUser?.id;
+  const addPaymentVoucher = useCallback(async (data: Partial<PaymentVoucher> & Record<string, any>): Promise<void> => {
+    const explicitOrgId = targetOrgId || currentUser?.organization_id;
+    const effectiveOrg = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
+    const supplierId = data.partyId || data.party_id || data.supplierId || data.supplier_id;
+    const treasuryId = data.treasuryAccountId || data.treasury_account_id || data.treasuryId;
+    const amount = Number(data.amount) || 0;
+    const paymentDate = data.date || data.payment_date || new Date().toISOString().split('T')[0];
+    const notes = data.notes || data.description || '';
+    const voucherNumber =
+      data.voucher_number ||
+      data.voucherNumber ||
+      `PV-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
 
-    const payload: Record<string, any> = {
-      organization_id: effectiveOrg,
-      created_by: userId,
-      amount: voucher.amount || 0,
-      payment_method: voucher.payment_method || 'cash',
-      notes: voucher.description || (voucher as any).notes || '',
-      treasury_account_id: voucher.treasury_account_id || null,
-      cost_center_id: voucher.cost_center_id || null,
-      payment_date: voucher.date || (voucher as any).payment_date || new Date().toISOString().split('T')[0],
-      date: voucher.date || (voucher as any).payment_date || new Date().toISOString().split('T')[0],
-      supplier_id: voucher.party_id || (voucher as any).supplier_id || null,
-    };
-    if (voucher.voucher_number || (voucher as any).voucherNumber) {
-      payload.voucher_number = voucher.voucher_number || (voucher as any).voucherNumber;
+    const supplier = suppliers.find(s => s.id === supplierId);
+    const supplierName = data.partyName || data.supplierName || supplier?.name || '';
+    const fullDesc = notes
+      ? (supplierName && !notes.includes(supplierName) ? `${notes} (${supplierName})` : notes)
+      : `سند صرف للمورد ${supplierName}`.trim();
+
+    let supplierAccId =
+      (supplier as any)?.account_id ||
+      (supplier as any)?.accountId ||
+      getSystemAccount?.('SUPPLIERS')?.id ||
+      accounts.find(a => a.code === '201' || a.code === '20101' || a.code === '2201' || a.code?.startsWith('201') || a.name?.includes('مورد'))?.id;
+
+    if (!supplierAccId && effectiveOrg) {
+      const { data: dbAcc } = await supabase
+        .from('accounts')
+        .select('id')
+        .eq('organization_id', effectiveOrg)
+        .or('code.eq.201,code.eq.20101,code.eq.2201,name.ilike.%مورد%')
+        .limit(1)
+        .maybeSingle();
+      if (dbAcc) supplierAccId = dbAcc.id;
     }
 
-    const { error } = await supabase.from('payment_vouchers').insert(payload);
+    if (amount > 0 && !supplierAccId) {
+      showToast?.('لا يمكن إنشاء سند الصرف: لم يتم تحديد حساب المورد أو حساب الموردين الافتراضي', 'error');
+      throw new Error('لم يتم تحديد حساب المورد أو حساب الموردين الافتراضي');
+    }
+    if (amount > 0 && !treasuryId) {
+      showToast?.('لا يمكن إنشاء سند الصرف: يجب اختيار حساب الخزينة أو البنك', 'error');
+      throw new Error('يجب اختيار حساب الخزينة أو البنك');
+    }
 
-    if (error) {
-      showToast?.('فشل إضافة سند الصرف: ' + error.message, 'error');
-      throw error;
+    const { data: pvData, error: pvError } = await supabase
+      .from('payment_vouchers')
+      .insert({
+        voucher_number: voucherNumber,
+        payment_date: paymentDate,
+        supplier_id: supplierId || null,
+        amount,
+        treasury_account_id: treasuryId || null,
+        notes: fullDesc,
+        payment_method: data.paymentMethod || data.payment_method || 'cash',
+        organization_id: effectiveOrg
+      })
+      .select('id')
+      .maybeSingle();
+
+    if (pvError) {
+      logger.error('payment_vouchers insert error in BankingProvider:', pvError);
+      showToast?.('فشل إنشاء سند الصرف: ' + pvError.message, 'error');
+      throw pvError;
+    }
+
+    const voucherId = pvData?.id;
+
+    if (amount > 0 && supplierAccId && treasuryId) {
+      let entryCreated = false;
+
+      if (voucherId) {
+        try {
+          const { error: rpcErr } = await supabase.rpc('approve_payment_voucher', {
+            p_voucher_id: voucherId,
+            p_debit_account_id: supplierAccId
+          });
+          if (!rpcErr) entryCreated = true;
+        } catch (rpcEx) {
+          logger.warn('approve_payment_voucher RPC failed, falling back to addEntry:', rpcEx);
+        }
+      }
+
+      if (!entryCreated && addEntry) {
+        try {
+          await addEntry({
+            date: paymentDate,
+            description: fullDesc,
+            reference: voucherNumber,
+            status: 'posted',
+            p_org_id: effectiveOrg,
+            lines: [
+              { account_id: supplierAccId, accountId: supplierAccId, debit: amount, credit: 0, description: fullDesc },
+              { account_id: treasuryId, accountId: treasuryId, debit: 0, credit: amount, description: `سداد سند صرف ${voucherNumber}` }
+            ]
+          });
+          entryCreated = true;
+        } catch (addErr) {
+          logger.warn('addEntry failed for payment voucher, falling back to direct insert:', addErr);
+        }
+      }
+
+      if (!entryCreated && effectiveOrg) {
+        try {
+          const { data: newJe, error: jeErr } = await supabase
+            .from('journal_entries')
+            .insert({
+              transaction_date: paymentDate,
+              description: fullDesc,
+              reference: voucherNumber,
+              status: 'posted',
+              is_posted: true,
+              organization_id: effectiveOrg,
+              related_document_id: voucherId || data.invoiceId || null,
+              related_document_type: 'payment_voucher'
+            })
+            .select('id')
+            .single();
+
+          if (!jeErr && newJe) {
+            const { error: linesErr } = await supabase.from('journal_lines').insert([
+              {
+                journal_entry_id: newJe.id,
+                account_id: supplierAccId,
+                debit: amount,
+                credit: 0,
+                description: fullDesc,
+                organization_id: effectiveOrg
+              },
+              {
+                journal_entry_id: newJe.id,
+                account_id: treasuryId,
+                debit: 0,
+                credit: amount,
+                description: `سداد سند صرف ${voucherNumber}`,
+                organization_id: effectiveOrg
+              }
+            ]);
+
+            if (linesErr) {
+              await supabase.from('journal_entries').delete().eq('id', newJe.id);
+              throw linesErr;
+            }
+
+            if (voucherId) {
+              await supabase
+                .from('payment_vouchers')
+                .update({ related_journal_entry_id: newJe.id })
+                .eq('id', voucherId);
+            }
+            entryCreated = true;
+          }
+        } catch (directErr: unknown) {
+          logger.error('Direct journal entry insert error in BankingProvider:', directErr);
+          const errMsg = directErr instanceof Error ? directErr.message : '';
+          showToast?.('تعذر إنشاء القيد المحاسبي المباشر للسند: ' + errMsg, 'warning');
+        }
+      }
+
+      if (!entryCreated) {
+        if (voucherId) {
+          try {
+            await supabase.from('payment_vouchers').delete().eq('id', voucherId);
+            logger.warn(`Compensating rollback executed: deleted orphan payment voucher ${voucherId}`);
+          } catch (rbErr) {
+            logger.error('Failed to compensate voucher delete:', rbErr);
+          }
+        }
+        showToast?.('فشل إنشاء القيد المحاسبي لسند الصرف، تم التراجع عن إنشاء السند تلقائياً لضمان توازن الدفاتر ❌', 'error');
+        throw new Error('فشل إنشاء القيد المحاسبي لسند الصرف، تم التراجع عن العملية.');
+      }
+    }
+
+    if (data.invoiceId) {
+      try {
+        const { data: currentInv, error: fetchInvErr } = await supabase
+          .from('purchase_invoices')
+          .select('paid_amount, total_amount, status')
+          .eq('id', data.invoiceId)
+          .maybeSingle();
+
+        if (!fetchInvErr && currentInv) {
+          const newPaid = (Number(currentInv.paid_amount) || 0) + amount;
+          const newStatus = newPaid >= Number(currentInv.total_amount) ? 'paid' : (currentInv.status === 'draft' ? 'draft' : 'posted');
+          await supabase
+            .from('purchase_invoices')
+            .update({ paid_amount: newPaid, status: newStatus })
+            .eq('id', data.invoiceId);
+        }
+      } catch (invErr: unknown) {
+        logger.error('Failed to update purchase invoice paid_amount:', invErr);
+        const errMsg = invErr instanceof Error ? invErr.message : '';
+        showToast?.('تعذر تحديث المبلغ المسدد في فاتورة المشتريات: ' + errMsg, 'warning');
+      }
+    }
+
+    if (effectiveOrg) {
+      try {
+        await supabase.rpc('recalculate_all_system_balances', { p_org_id: effectiveOrg });
+      } catch (recErr) {
+        logger.warn('recalculate balances error:', recErr);
+      }
     }
 
     showToast?.('تم إضافة سند الصرف بنجاح ✅', 'success');
-    logActivity?.('إضافة سند صرف', `سند بقيمة: ${voucher.amount || 0}`);
+    logActivity?.('إضافة سند صرف', `سند بقيمة: ${amount}`);
     await fetchVouchers();
-  }, [targetOrgId, currentUser, logActivity, showToast, fetchVouchers]);
+    if (refreshAllData) await refreshAllData();
+  }, [targetOrgId, currentUser, suppliers, accounts, getSystemAccount, addEntry, refreshAllData, logActivity, showToast, fetchVouchers]);
 
-  const updateVoucher = useCallback(async (id: string, updates: Partial<PaymentVoucher>): Promise<boolean> => {
+  const updateVoucher = useCallback(async (id: string, updates: Partial<PaymentVoucher> & Record<string, any>): Promise<boolean> => {
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const sanitizedUpdates: Record<string, any> = {};
     if (updates.amount !== undefined) sanitizedUpdates.amount = updates.amount;
-    if ((updates as any).notes !== undefined) sanitizedUpdates.notes = (updates as any).notes;
+    if (updates.notes !== undefined) sanitizedUpdates.notes = updates.notes;
     else if (updates.description !== undefined) sanitizedUpdates.notes = updates.description;
-    if ((updates as any).payment_date !== undefined) sanitizedUpdates.payment_date = (updates as any).payment_date;
+    if (updates.payment_date !== undefined) sanitizedUpdates.payment_date = updates.payment_date;
     else if (updates.date !== undefined) sanitizedUpdates.payment_date = updates.date;
     if (sanitizedUpdates.payment_date) sanitizedUpdates.date = sanitizedUpdates.payment_date;
     if (updates.treasury_account_id !== undefined) sanitizedUpdates.treasury_account_id = updates.treasury_account_id;
     if (updates.cost_center_id !== undefined) sanitizedUpdates.cost_center_id = updates.cost_center_id;
     if (updates.payment_method !== undefined) sanitizedUpdates.payment_method = updates.payment_method;
-    if (updates.party_id !== undefined) sanitizedUpdates.supplier_id = updates.party_id;
-    else if ((updates as any).supplier_id !== undefined) sanitizedUpdates.supplier_id = (updates as any).supplier_id;
+    if (updates.supplier_id !== undefined) sanitizedUpdates.supplier_id = updates.supplier_id;
+    else if (updates.party_id !== undefined) sanitizedUpdates.supplier_id = updates.party_id;
     if (updates.voucher_number !== undefined) sanitizedUpdates.voucher_number = updates.voucher_number;
+    if (updates.recipient_name !== undefined) sanitizedUpdates.recipient_name = updates.recipient_name;
+    if (updates.currency !== undefined) sanitizedUpdates.currency = updates.currency;
+    if (updates.exchange_rate !== undefined) sanitizedUpdates.exchange_rate = updates.exchange_rate;
 
     let query = supabase.from('payment_vouchers').update(sanitizedUpdates).eq('id', id);
     if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
@@ -393,8 +587,9 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
     }
     const { error } = await query;
     if (error) {
+      logger.error('updateVoucher error in BankingProvider:', error);
       showToast?.('فشل تعديل السند: ' + error.message, 'error');
-      throw error;
+      return false;
     }
     showToast?.('تم تعديل السند بنجاح ✅', 'success');
     await fetchVouchers();
@@ -412,8 +607,8 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
     const fingerprint = `${effectiveOrg}-${fromId}-${toId}-${amount}-${date}`;
     const now = Date.now();
 
-    if (lastTransferSubmissionRef.current && 
-        lastTransferSubmissionRef.current.fingerprint === fingerprint && 
+    if (lastTransferSubmissionRef.current &&
+        lastTransferSubmissionRef.current.fingerprint === fingerprint &&
         now - lastTransferSubmissionRef.current.timestamp < 3500) {
       logger.warn('[BankingContext.addTransfer] تم منع تكرار التحويل المالي خلال 3.5 ثوانٍ:', fingerprint);
       return;
@@ -432,55 +627,82 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
       });
       if (error) {
         lastTransferSubmissionRef.current = null;
-        const isFuncMissing = error.code === 'P0001' || error.message?.includes('function') || error.message?.includes('does not exist');
-        if (isFuncMissing) {
-          const { error: insErr } = await supabase.from('transfers').insert({ ...transfer, organization_id: effectiveOrg });
-          if (insErr) throw insErr;
-        } else {
-          throw error;
-        }
+        throw error;
       }
       showToast?.('تم تسجيل التحويل المالي بنجاح ✅', 'success');
       logActivity?.('تحويل مالي', `تحويل بقيمة: ${transfer.amount || 0}`);
+      if (refreshAllData) await refreshAllData();
     } catch (e: unknown) {
       lastTransferSubmissionRef.current = null;
       const errMsg = e instanceof Error ? e.message : String(e);
       showToast?.('فشل تسجيل التحويل المالي: ' + errMsg, 'error');
       throw e;
     }
-  }, [targetOrgId, currentUser, logActivity, showToast]);
+  }, [targetOrgId, currentUser, refreshAllData, logActivity, showToast]);
 
   const updateTransfer = useCallback(async (id: string, transfer: Record<string, any>): Promise<void> => {
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     try {
+      const fromId = transfer.sourceAccountId || transfer.source_account_id;
+      const toId = transfer.destinationAccountId || transfer.destination_account_id;
+      const date = transfer.date || transfer.transfer_date;
+      const notes = transfer.description || transfer.notes || '';
       const { error } = await supabase.rpc('update_treasury_transfer', {
         p_journal_entry_id: id,
-        p_from_account_id: transfer.sourceAccountId || transfer.source_account_id,
-        p_to_account_id: transfer.destinationAccountId || transfer.destination_account_id,
+        p_from_account_id: fromId,
+        p_to_account_id: toId,
         p_amount: transfer.amount,
-        p_transfer_date: transfer.date || transfer.transfer_date,
-        p_notes: transfer.description || transfer.notes || ''
+        p_transfer_date: date,
+        p_notes: notes
       });
       if (error) {
         const isFuncMissing = error.code === 'P0001' || error.message?.includes('function') || error.message?.includes('does not exist');
         if (isFuncMissing) {
-          let query = supabase.from('transfers').update(transfer).eq('id', id);
-          if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
-            query = query.eq('organization_id', effectiveOrg);
+          logger.warn('RPC update_treasury_transfer not found, falling back to direct journal updates');
+          const { error: entryError } = await supabase.from('journal_entries').update({
+            transaction_date: date,
+            description: notes
+          }).eq('id', id);
+          if (entryError) throw entryError;
+
+          const { error: linesDeleteError } = await supabase.from('journal_lines').delete().eq('journal_entry_id', id);
+          if (linesDeleteError) throw linesDeleteError;
+
+          const { error: linesInsertError } = await supabase.from('journal_lines').insert([
+            {
+              journal_entry_id: id,
+              account_id: toId,
+              debit: transfer.amount,
+              credit: 0,
+              description: 'تحويل وارد: ' + notes,
+              organization_id: effectiveOrg
+            },
+            {
+              journal_entry_id: id,
+              account_id: fromId,
+              debit: 0,
+              credit: transfer.amount,
+              description: 'تحويل صادر: ' + notes,
+              organization_id: effectiveOrg
+            }
+          ]);
+          if (linesInsertError) throw linesInsertError;
+
+          if (effectiveOrg) {
+            await supabase.rpc('recalculate_all_system_balances', { p_org_id: effectiveOrg });
           }
-          const { error: updErr } = await query;
-          if (updErr) throw updErr;
         } else {
           throw error;
         }
       }
       showToast?.('تم تعديل التحويل المالي بنجاح ✅', 'success');
+      if (refreshAllData) await refreshAllData();
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
       showToast?.('فشل تعديل التحويل المالي: ' + errMsg, 'error');
       throw e;
     }
-  }, [targetOrgId, currentUser, showToast]);
+  }, [targetOrgId, currentUser, refreshAllData, showToast]);
 
   const deleteTransfer = useCallback(async (id: string): Promise<void> => {
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
@@ -491,23 +713,28 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
       if (error) {
         const isFuncMissing = error.code === 'P0001' || error.message?.includes('function') || error.message?.includes('does not exist');
         if (isFuncMissing) {
-          let query = supabase.from('transfers').delete().eq('id', id);
-          if (effectiveOrg && effectiveOrg !== 'org-default-offline') {
-            query = query.eq('organization_id', effectiveOrg);
+          logger.warn('RPC delete_treasury_transfer not found, falling back to direct journal deletion');
+          const { error: linesError } = await supabase.from('journal_lines').delete().eq('journal_entry_id', id);
+          if (linesError) throw linesError;
+
+          const { error: entryError } = await supabase.from('journal_entries').delete().eq('id', id);
+          if (entryError) throw entryError;
+
+          if (effectiveOrg) {
+            await supabase.rpc('recalculate_all_system_balances', { p_org_id: effectiveOrg });
           }
-          const { error: delErr } = await query;
-          if (delErr) throw delErr;
         } else {
           throw error;
         }
       }
       showToast?.('تم حذف التحويل المالي بنجاح', 'info');
+      if (refreshAllData) await refreshAllData();
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
       showToast?.('فشل حذف التحويل المالي: ' + errMsg, 'error');
       throw e;
     }
-  }, [targetOrgId, currentUser, showToast]);
+  }, [targetOrgId, currentUser, refreshAllData, showToast]);
 
   const refreshAllBanking = useCallback(async () => {
     await Promise.all([fetchCheques(), fetchVouchers()]);

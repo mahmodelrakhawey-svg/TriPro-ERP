@@ -29,6 +29,8 @@ export interface SalesDomainState {
   approveInvoice: (id: string, orgId?: string, warehouseId?: string) => Promise<boolean>;
   unpostSalesInvoice: (id: string, orgId?: string) => Promise<boolean>;
   deleteSalesInvoice: (id: string, orgId?: string) => Promise<boolean>;
+  unpostSalesReturn: (id: string, orgId?: string) => Promise<boolean>;
+  deleteSalesReturn: (id: string, orgId?: string) => Promise<boolean>;
   addCustomer: (customer: Partial<Customer>) => Promise<Customer | null | Record<string, unknown>>;
   refreshSales: () => Promise<void>;
   refreshInvoices?: () => Promise<void>;
@@ -259,6 +261,40 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     return true;
   }, [targetOrgId, currentUser, logActivity, showToast, fetchSalesData]);
 
+  const unpostSalesReturn = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
+    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id || null;
+    const { error } = await supabase.rpc('unpost_sales_return', {
+      p_return_id: id,
+      p_org_id: effectiveOrg
+    });
+
+    if (error) {
+      logger.warn('RPC unpost_sales_return error in SalesProvider:', error);
+      throw error;
+    }
+
+    invalidateSalesInvoices(effectiveOrg);
+    await fetchSalesData(true);
+    return true;
+  }, [targetOrgId, currentUser, fetchSalesData]);
+
+  const deleteSalesReturn = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
+    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id || null;
+    const { error } = await supabase.rpc('delete_sales_return', {
+      p_return_id: id,
+      p_org_id: effectiveOrg
+    });
+
+    if (error) {
+      logger.warn('RPC delete_sales_return error in SalesProvider:', error);
+      throw error;
+    }
+
+    invalidateSalesInvoices(effectiveOrg);
+    await fetchSalesData(true);
+    return true;
+  }, [targetOrgId, currentUser, fetchSalesData]);
+
   const addCustomer = useCallback(async (customer: Partial<Customer>): Promise<Customer | null> => {
     const effectiveOrg = targetOrgId || currentUser?.organization_id;
     const userId = currentUser?.id;
@@ -309,6 +345,8 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     approveInvoice,
     unpostSalesInvoice,
     deleteSalesInvoice,
+    unpostSalesReturn,
+    deleteSalesReturn,
     addCustomer,
     refreshSales: () => fetchSalesData(true),
     refreshInvoices: () => fetchSalesData(true),
@@ -319,6 +357,8 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     approveInvoice,
     unpostSalesInvoice,
     deleteSalesInvoice,
+    unpostSalesReturn,
+    deleteSalesReturn,
     addCustomer,
     fetchSalesData,
   ]);
@@ -348,6 +388,8 @@ export const useSalesDomain = (): SalesDomainState => {
     approveInvoice: acc.approveInvoice as (id: string, orgId?: string, warehouseId?: string) => Promise<boolean>,
     unpostSalesInvoice: acc.unpostSalesInvoice as (id: string, orgId?: string) => Promise<boolean>,
     deleteSalesInvoice: acc.deleteSalesInvoice as (id: string, orgId?: string) => Promise<boolean>,
+    unpostSalesReturn: acc.unpostSalesReturn as (id: string, orgId?: string) => Promise<boolean>,
+    deleteSalesReturn: acc.deleteSalesReturn as (id: string, orgId?: string) => Promise<boolean>,
     addCustomer: acc.addCustomer as (customer: Partial<Customer>) => Promise<Customer | null | Record<string, unknown>>,
     refreshSales: (acc.refreshSalesAndPurchases as () => Promise<void>) || (acc.refreshData as () => Promise<void>),
   };
