@@ -9,9 +9,10 @@ import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const FreeReturnsReport = () => {
-  const { warehouses, selectedFiscalYear, fiscalYearRange } = useAccounting();
+  const { warehouses, selectedFiscalYear, fiscalYearRange, currentUser, currentSelectedOrgId } = useAccounting();
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
   const [endDate, setEndDate] = useState(`${selectedFiscalYear}-12-31`);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState('');
@@ -32,8 +33,8 @@ const FreeReturnsReport = () => {
   const fetchReport = async () => {
     setLoading(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       if (!userOrgId) return;
 

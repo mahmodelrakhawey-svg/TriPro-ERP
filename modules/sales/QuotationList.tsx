@@ -56,8 +56,8 @@ export const QuotationList = () => {
   const fetchQuotations = async () => {
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const explicitOrgId = (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
       if (!userOrgId) {
         setLoading(false);
         return;

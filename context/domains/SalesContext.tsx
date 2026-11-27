@@ -19,6 +19,13 @@ import { logger } from '../../utils/logger';
 import { fetchCompleteDataset } from '../../services/balanceService';
 import { queryClient, QUERY_KEYS, invalidateSalesInvoices, STALE_TIMES } from '../../services/queryClient';
 import { ApprovalWorkflowService } from '../../services/approvalWorkflowService';
+import { getActiveOrgIdSync } from '../../services/tenantContext';
+
+const normalizeOptionalId = (val?: string | null): string | null => {
+  if (typeof val !== 'string') return null;
+  const trimmed = val.trim();
+  return trimmed.length > 0 ? trimmed : null;
+};
 
 export type SalesInvoice = Invoice & { total?: number; [key: string]: unknown };
 
@@ -173,7 +180,13 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
   }, [initialSalespeople]);
 
   const approveInvoice = useCallback(async (id: string, customOrgId?: string, warehouseId?: string): Promise<boolean> => {
-    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id || null;
+    const effectiveOrg =
+      normalizeOptionalId(customOrgId) ||
+      normalizeOptionalId(targetOrgId) ||
+      normalizeOptionalId(currentUser?.organization_id) ||
+      getActiveOrgIdSync() ||
+      null;
+    const safeWarehouseId = normalizeOptionalId(warehouseId);
 
     // 🛡️ فحص مسار وسلسلة الاعتمادات لفواتير المبيعات قبل الترحيل
     try {
@@ -183,9 +196,9 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
         .eq('id', id)
         .maybeSingle();
 
-      if (inv) {
+      if (inv && effectiveOrg) {
         const approvalCheck = await ApprovalWorkflowService.checkAndSubmit({
-          orgId: effectiveOrg || '',
+          orgId: effectiveOrg,
           docType: 'SALES_INVOICE',
           amount: Number(inv.total_amount || 0),
           docId: id,
@@ -205,7 +218,7 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
     const { error } = await supabase.rpc('post_sales_invoice', {
       p_invoice_id: id,
       p_org_id: effectiveOrg,
-      p_warehouse_id: warehouseId
+      p_warehouse_id: safeWarehouseId
     });
 
     if (error) {
@@ -222,7 +235,12 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
   }, [targetOrgId, currentUser, logActivity, showToast, fetchSalesData]);
 
   const unpostSalesInvoice = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
-    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id || null;
+    const effectiveOrg =
+      normalizeOptionalId(customOrgId) ||
+      normalizeOptionalId(targetOrgId) ||
+      normalizeOptionalId(currentUser?.organization_id) ||
+      getActiveOrgIdSync() ||
+      null;
     const { error } = await supabase.rpc('unpost_sales_invoice', {
       p_invoice_id: id,
       p_org_id: effectiveOrg
@@ -242,7 +260,12 @@ export const SalesProvider: React.FC<SalesProviderProps> = ({
   }, [targetOrgId, currentUser, logActivity, showToast, fetchSalesData]);
 
   const deleteSalesInvoice = useCallback(async (id: string, customOrgId?: string): Promise<boolean> => {
-    const effectiveOrg = customOrgId || targetOrgId || currentUser?.organization_id || null;
+    const effectiveOrg =
+      normalizeOptionalId(customOrgId) ||
+      normalizeOptionalId(targetOrgId) ||
+      normalizeOptionalId(currentUser?.organization_id) ||
+      getActiveOrgIdSync() ||
+      null;
     const { error } = await supabase.rpc('delete_sales_invoice', {
       p_invoice_id: id,
       p_org_id: effectiveOrg

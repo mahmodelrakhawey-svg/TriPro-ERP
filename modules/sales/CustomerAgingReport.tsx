@@ -5,9 +5,10 @@ import { supabase } from '../../supabaseClient';
 import { History, Printer, Download, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { fetchAllCustomerBalances, fetchCompleteDataset } from '../../services/balanceService';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 
 const CustomerAgingReport = () => {
-  const { currentUser } = useAccounting();
+  const { currentUser, currentSelectedOrgId } = useAccounting();
   const [loading, setLoading] = useState(true);
   const [reportData, setReportData] = useState<any[]>([]);
 
@@ -28,8 +29,8 @@ const CustomerAgingReport = () => {
     }
 
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const userOrgId = user?.user_metadata?.org_id;
+      const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+      const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
       if (!userOrgId) {
         setLoading(false);

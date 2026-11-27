@@ -7,6 +7,7 @@ import { Printer, FileText, Loader2, Search, Download, MessageCircle, AlertTrian
 import * as XLSX from 'xlsx';
 import { useToast } from '../../context/ToastContext';
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
+import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
 import { SalesInvoicePrint } from './SalesInvoicePrint';
 import { SalesReturnPrint } from './SalesReturnPrint';
 import { ReceiptVoucherPrint } from '../finance/reports/ReceiptVoucherPrint';
@@ -54,7 +55,17 @@ interface CustomerStatementProps {
 }
 
 const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId }) => {
-  const { customers, settings, currentUser, approveInvoice, addEntry, accounts, selectedFiscalYear, fiscalYearRange, getSystemAccount } = useAccounting();
+  const { customers, settings, currentUser, currentSelectedOrgId, approveInvoice, addEntry, accounts, selectedFiscalYear, fiscalYearRange, getSystemAccount } = useAccounting();
+
+  const resolveStatementOrgId = async (): Promise<string | null> => {
+    const explicitOrgId = currentSelectedOrgId || (currentUser as any)?.organization_id;
+    const syncOrg = getActiveOrgIdSync(explicitOrgId);
+    if (syncOrg) return syncOrg;
+    const { data: { session } } = await supabase.auth.getSession();
+    const metaOrg = session?.user?.user_metadata?.org_id;
+    if (metaOrg) return metaOrg;
+    return await resolveActiveOrgId(explicitOrgId);
+  };
   const [searchParams] = useSearchParams();
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>(initialCustomerId || '');
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
@@ -120,8 +131,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
     setLoading(true);
     let successCount = 0;
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id || (currentUser as any)?.organization_id;
+      const userOrgId = await resolveStatementOrgId();
 
       // 1. ترحيل طلبات نقاط البيع / المطاعم
       for (const ord of unpostedOrders) {
@@ -143,7 +153,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
       for (const inv of unpostedInvoices) {
         if (inv.docId) {
           try {
-            await approveInvoice(inv.docId);
+            await approveInvoice(inv.docId, userOrgId || undefined);
             successCount++;
           } catch (invErr) {
             logger.error(`Failed to approve invoice ${inv.reference}:`, invErr);
@@ -349,8 +359,7 @@ const CustomerStatement: React.FC<CustomerStatementProps> = ({ initialCustomerId
     }
 
     try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const userOrgId = session?.user?.user_metadata?.org_id;
+        const userOrgId = await resolveStatementOrgId();
 
         if (!userOrgId) {
             showToast('تعذر تحديد المنظمة. يرجى تسجيل الدخول مرة أخرى.', 'error');

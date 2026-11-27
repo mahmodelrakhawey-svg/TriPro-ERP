@@ -18,7 +18,7 @@ import { useToast } from '../../context/ToastContext';
 import { handleError, AppError } from '../../utils/errorHandler';
 const CustomerStatement = lazy(() => import('./CustomerStatement'));
 import { SubledgerRegistry } from '../../services/subledgerRegistry';
-import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
+import { getActiveOrgIdSync, resolveActiveOrgId, isValidUUID } from '../../services/tenantContext';
 import { createInvoiceSchema, createCustomerSchema } from '../../utils/validationSchemas';
 import { etaService } from '../../services/etaService';
 import { secureStorage } from '../../utils/securityMiddleware';
@@ -1420,6 +1420,69 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     }
   }, [organizations, currentSelectedOrgId, currentUser?.organization_id, organization, settings]);
 
+  const resolveFormOrgId = async (): Promise<string | null> => {
+    const explicitOrg = currentSelectedOrgId || (currentUser as any)?.organization_id;
+    const syncOrg = getActiveOrgIdSync(explicitOrg);
+    if (isValidUUID(syncOrg)) return syncOrg;
+
+    if (currentUser?.id) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('organization_id')
+        .eq('id', currentUser.id)
+        .maybeSingle();
+      if (isValidUUID(profile?.organization_id)) return profile.organization_id;
+    }
+
+    return await resolveActiveOrgId(explicitOrg);
+  };
+
+  const resolveInvoicePartiesAndWarehouse = async (userOrgId: string) => {
+    let finalWarehouseId = formData.warehouseId;
+    if (!isValidUUID(finalWarehouseId)) {
+      const { data: realWh } = await supabase
+        .from('warehouses')
+        .select('id')
+        .eq('organization_id', userOrgId)
+        .limit(1)
+        .maybeSingle();
+
+      if (realWh?.id) {
+        finalWarehouseId = realWh.id;
+      } else {
+        const { data: newWh } = await supabase
+          .from('warehouses')
+          .insert({ name: 'المستودع الرئيسي', organization_id: userOrgId, is_active: true })
+          .select('id')
+          .single();
+        if (newWh?.id) finalWarehouseId = newWh.id;
+      }
+    }
+
+    let finalCustomerId = formData.customerId;
+    if (!isValidUUID(finalCustomerId)) {
+      const { data: realCust } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('organization_id', userOrgId)
+        .limit(1)
+        .maybeSingle();
+
+      if (realCust?.id) {
+        finalCustomerId = realCust.id;
+      } else {
+        const { data: newCust } = await supabase
+          .from('customers')
+          .insert({ name: 'عميل نقدي عام', organization_id: userOrgId })
+          .select('id')
+          .single();
+        if (newCust?.id) finalCustomerId = newCust.id;
+      }
+    }
+
+    return { finalWarehouseId, finalCustomerId };
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     if (isSubmittingRef.current || saving) return;
     e.preventDefault();
@@ -1501,8 +1564,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     // ... (تم حذف الفحص المكرر والتنبيهات المزعجة لتبسيط الواجهة)
 
     try {
-        const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).single();
-        const userOrgId = profile?.organization_id;
+        const userOrgId = await resolveFormOrgId();
 
         if (!userOrgId) {
             throw new AppError('فشل تحديد هوية الشركة، يرجى إعادة تسجيل الدخول', 'ORG_ID_MISSING', 'critical');
@@ -1551,48 +1613,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     const finalNotes = (formData.notes || '') + (formData.notes?.includes('[عروض مطبقة:') ? '' : promoNotes);
 
         // 🛡️ صمام أمان محكم: التحقق من صحة معرف المستودع والعميل كـ UUID لمنع أخطاء قاعدة البيانات
-        const isValidUUID = (id?: string | null) => Boolean(id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
-        let finalWarehouseId = formData.warehouseId;
-        if (!isValidUUID(finalWarehouseId)) {
-            const { data: realWh } = await supabase
-                .from('warehouses')
-                .select('id')
-                .eq('organization_id', userOrgId)
-                .limit(1)
-                .maybeSingle();
-
-            if (realWh?.id) {
-                finalWarehouseId = realWh.id;
-            } else {
-                const { data: newWh } = await supabase
-                    .from('warehouses')
-                    .insert({ name: 'المستودع الرئيسي', organization_id: userOrgId, is_active: true })
-                    .select('id')
-                    .single();
-                if (newWh?.id) finalWarehouseId = newWh.id;
-            }
-        }
-
-        let finalCustomerId = formData.customerId;
-        if (!isValidUUID(finalCustomerId)) {
-            const { data: realCust } = await supabase
-                .from('customers')
-                .select('id')
-                .eq('organization_id', userOrgId)
-                .limit(1)
-                .maybeSingle();
-
-            if (realCust?.id) {
-                finalCustomerId = realCust.id;
-            } else {
-                const { data: newCust } = await supabase
-                    .from('customers')
-                    .insert({ name: 'عميل نقدي عام', organization_id: userOrgId })
-                    .select('id')
-                    .single();
-                if (newCust?.id) finalCustomerId = newCust.id;
-            }
-        }
+        const { finalWarehouseId, finalCustomerId } = await resolveInvoicePartiesAndWarehouse(userOrgId);
 
         // Prepare invoice data
         const invoiceData = {
@@ -1832,14 +1853,13 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     isSubmittingRef.current = true;
     setSaving(true);
 
-    const { data: profile } = await supabase.from('profiles').select('organization_id').eq('id', currentUser?.id).single();
-    const userOrgId = profile?.organization_id;
+    try {
+        const userOrgId = await resolveFormOrgId();
 
-    if (!userOrgId) { // Use handleError for consistency
-        showToast('فشل تحديد هوية الشركة، يرجى إعادة تسجيل الدخول', 'error');
-        setSaving(false);
-        return;
-    }
+        if (!userOrgId) {
+            showToast('فشل تحديد هوية الشركة، يرجى إعادة تسجيل الدخول', 'error');
+            return;
+        }
 
     if (currentUserRole === 'demo') {
         await new Promise(resolve => setTimeout(resolve, 600));
@@ -1865,18 +1885,18 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
         setItems([]);
         setFormData(prev => ({ ...prev, notes: '', paidAmount: 0, discountValue: 0, invoiceNumber: '' }));
         setTimeout(() => setSuccessMessage(null), 4000);
-        setSaving(false);
         return;
     }
-    
-    try {
+
+        const { finalWarehouseId, finalCustomerId } = await resolveInvoicePartiesAndWarehouse(userOrgId);
+
         // --- 1. Save Invoice Data (similar to handleSubmit) ---
         const invoiceNumber = formData.invoiceNumber || await getNextDocumentNumber(userOrgId, 'invoice');
         const invoiceData = {
             organization_id: userOrgId,
             invoice_number: invoiceNumber,
-            customer_id: formData.customerId,
-            warehouse_id: formData.warehouseId,
+            customer_id: finalCustomerId,
+            warehouse_id: finalWarehouseId,
             salesperson_id: (formData.salespersonId && formData.salespersonId !== '00000000-0000-0000-0000-000000000000') ? formData.salespersonId : null,
             invoice_date: formData.date ? formData.date : new Date().toISOString().split('T')[0],
             total_amount: Number(totalAmount),
@@ -1922,7 +1942,7 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
         // --- 2. Approve the newly created invoice ---
         // تحديث: تمرير المعاملات الجديدة p_org_id و p_warehouse_id لتجنب أخطاء التواقيع المفقودة
-        await approveInvoice(invoiceId, userOrgId, formData.warehouseId);
+        await approveInvoice(invoiceId, userOrgId, finalWarehouseId);
 
         if (convertedQuotationId) {
             try {
