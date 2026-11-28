@@ -31,6 +31,7 @@ import { offlineService, isValidUUID } from '../services/offlineService';
 import { setActiveOrgId, getActiveOrgIdSync } from '../services/tenantContext';
 import { deleteOrganizationSafe } from '../services/organizationService';
 import { fetchCompleteDataset } from '../services/balanceService';
+import { fetchJournalEntriesWithLines } from '../utils/journalPagination';
 import { normalizeCompanySettings, syncLenzaNegativeStockIfNeeded, resolveSystemAccount } from './domains/domainUtils';
 import {
   restoreRecycleItem,
@@ -726,14 +727,10 @@ export const AccountingProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         supabase.from('accounts').select('*').eq('organization_id', targetOrg).order('code'),
         isOperational
           ? Promise.resolve({ data: [] as JournalEntry[], error: null })
-          : fetchCompleteDataset<JournalEntry>(async (from, to) =>
-              supabase.from('journal_entries')
-                .select('id, reference, transaction_date, description, status, organization_id, related_document_id, related_document_type, journal_lines(id, account_id, debit, credit, description, cost_center_id)')
-                .eq('organization_id', targetOrg)
-                .gte('transaction_date', fiscalYearRange.startDate)
-                .lte('transaction_date', fiscalYearRange.endDate)
-                .order('transaction_date', { ascending: false })
-                .range(from, to)
+          : fetchJournalEntriesWithLines<JournalEntry>(
+              targetOrg,
+              fiscalYearRange.startDate,
+              fiscalYearRange.endDate
             ).then(data => ({ data, error: null })),
         supabase.from('cost_centers').select('*').eq('organization_id', targetOrg).order('name'),
         supabase.from('budgets').select('*').eq('organization_id', targetOrg)

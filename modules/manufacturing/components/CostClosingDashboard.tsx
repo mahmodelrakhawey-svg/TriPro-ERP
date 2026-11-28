@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '../../../supabaseClient';
 import { useToast } from '../../../context/ToastContext';
 import { useAccounting } from '../../../context/AccountingContext';
+import { logger } from '../../../utils/logger';
 import { 
   Calendar, 
   Calculator, 
@@ -65,9 +66,10 @@ export const CostClosingDashboard: React.FC = () => {
       // حساب تواريخ البداية والنهاية للفترة
       const startDate = `${period.year}-${period.month.toString().padStart(2, '0')}-01`;
       const endDate = new Date(period.year, period.month, 0).toISOString().split('T')[0];
+      const targetPeriods = periodName === prevPeriodName ? [periodName] : [periodName, prevPeriodName];
 
-      // تشغيل كافة استعلامات لوحة إقفال التكاليف بالتوازي لتسريع التحميل
-      const [wipRes, ovhRes, trendRes, currentVarRes, prevVarRes, lastSnapRes] = await Promise.all([
+      // تشغيل استعلامات لوحة إقفال التكاليف بالتوازي مع دمج استعلامات اتجاهات التكلفة في طلب واحد
+      const [wipRes, ovhRes, trendsRes, lastSnapRes] = await Promise.all([
         supabase
           .from('v_mfg_cost_reconciliation_report')
           .select('cost_assigned_to_wip')
@@ -81,21 +83,9 @@ export const CostClosingDashboard: React.FC = () => {
           .lte('transaction_date', endDate),
         supabase
           .from('v_mfg_cost_trends')
-          .select('*')
+          .select('month_period, avg_actual_unit_cost, avg_standard_unit_cost, total_actual_cost, variance_pct')
           .eq('organization_id', organization.id)
-          .eq('month_period', periodName)
-          .order('avg_actual_unit_cost', { ascending: false })
-          .limit(5),
-        supabase
-          .from('v_mfg_cost_trends')
-          .select('variance_pct')
-          .eq('organization_id', organization.id)
-          .eq('month_period', periodName),
-        supabase
-          .from('v_mfg_cost_trends')
-          .select('variance_pct')
-          .eq('organization_id', organization.id)
-          .eq('month_period', prevPeriodName),
+          .in('month_period', targetPeriods),
         supabase
           .from('mfg_period_cost_snapshots')
           .select('period_name')
@@ -105,17 +95,39 @@ export const CostClosingDashboard: React.FC = () => {
           .maybeSingle()
       ]);
 
+      const queryErrors = [wipRes.error, ovhRes.error, trendsRes.error, lastSnapRes.error].filter(Boolean);
+      if (queryErrors.length > 0) {
+        logger.warn('[CostClosingDashboard] Partial query errors:', queryErrors);
+      }
+
       const wipData = wipRes.data;
       const ovhData = ovhRes.data;
-      const trendData = trendRes.data;
-      const currentVar = currentVarRes.data;
-      const prevVar = prevVarRes.data;
+      interface CostTrendRow {
+        month_period?: string;
+        product_name?: string;
+        avg_actual_unit_cost?: number | string | null;
+        avg_standard_unit_cost?: number | string | null;
+        standard_unit_cost?: number | string | null;
+        total_actual_cost?: number | string | null;
+        variance_pct?: number | string | null;
+      }
+      const allTrends: CostTrendRow[] = trendsRes.data || [];
+      const currentTrends = allTrends.filter((row) => row.month_period === periodName);
+      const prevTrends = allTrends.filter((row) => row.month_period === prevPeriodName);
+      const trendData = [...currentTrends]
+        .sort((a, b) => (Number(b.avg_actual_unit_cost) || 0) - (Number(a.avg_actual_unit_cost) || 0))
+        .slice(0, 5)
+        .map((row) => ({
+          ...row,
+          product_name: row.product_name || row.month_period,
+          standard_unit_cost: Number(row.standard_unit_cost ?? row.avg_standard_unit_cost ?? 0)
+        }));
       const lastSnap = lastSnapRes.data;
 
       const totalWip = (wipData || []).reduce((sum, item) => sum + (item.cost_assigned_to_wip || 0), 0);
       const totalOvh = (ovhData || []).reduce((sum, item) => sum + (item.balance || 0), 0);
-      const avgCurrent = currentVar?.length ? currentVar.reduce((s, i) => s + i.variance_pct, 0) / currentVar.length : 0;
-      const avgPrev = prevVar?.length ? prevVar.reduce((s, i) => s + i.variance_pct, 0) / prevVar.length : 0;
+      const avgCurrent = currentTrends.length ? currentTrends.reduce((s, i) => s + (Number(i.variance_pct) || 0), 0) / currentTrends.length : 0;
+      const avgPrev = prevTrends.length ? prevTrends.reduce((s, i) => s + (Number(i.variance_pct) || 0), 0) / prevTrends.length : 0;
 
       setStats({
         totalWipValue: totalWip,
@@ -130,7 +142,11 @@ export const CostClosingDashboard: React.FC = () => {
         diff: avgCurrent - avgPrev
       });
 
-      setChartData(trendData || []);
+      setChartData(trendData);
+
+      if (queryErrors.length > 0 && wipRes.error && trendsRes.error) {
+        showToast('تعذر تحميل بعض بيانات التكاليف من الخادم، يرجى المحاولة مجدداً', 'error');
+      }
     } catch (err) {
       showToast(err.message, 'error');
     } finally {

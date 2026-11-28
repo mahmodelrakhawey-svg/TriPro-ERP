@@ -17,11 +17,12 @@ import { useToast } from '../../context/ToastContext';
 import { fetchCompleteDataset } from '../../services/balanceService';
 
 const FinancialRatios = () => {
-  const { accounts, entries, currentUser, selectedFiscalYear, fiscalYearRange } = useAccounting();
+  const { accounts, entries, currentUser, organization, selectedFiscalYear, fiscalYearRange } = useAccounting();
   const { showToast } = useToast();
   const [startDate, setStartDate] = useState(fiscalYearRange.startDate);
   const [endDate, setEndDate] = useState(fiscalYearRange.endDate);
   const [loadingData, setLoadingData] = useState(false);
+  const [rpcSummary, setRpcSummary] = useState<Array<Record<string, unknown>> | null>(null);
   const [ledgerLines, setLedgerLines] = useState<any[]>([]);
   const [activeTab, setActiveTab] = useState<'overview' | 'ratios' | 'dupont' | 'simulator' | 'charts'>('overview');
 
@@ -42,6 +43,7 @@ const FinancialRatios = () => {
   const fetchLedgerData = async () => {
     setLoadingData(true);
     if (currentUser?.role === 'demo') {
+      setRpcSummary(null);
       const filteredEntries = entries.filter(
         e => e.status === 'posted' && 
         (e.transaction_date || e.date) >= startDate && 
@@ -62,28 +64,58 @@ const FinancialRatios = () => {
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const userOrgId = session?.user?.user_metadata?.org_id;
+      const userOrgId = organization?.id || session?.user?.user_metadata?.org_id;
       const userRole = session?.user?.user_metadata?.role;
 
       if (!userOrgId && userRole !== 'super_admin') {
         throw new Error('تعذر تحديد المنظمة التابع لها. يرجى تسجيل الدخول مرة أخرى.');
       }
 
-      const data = await fetchCompleteDataset<any>(async (from, to) => {
-        let query = supabase
-          .from('journal_lines')
-          .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
-          .eq('journal_entries.status', 'posted')
-          .lte('journal_entries.transaction_date', endDate);
+      // 🚀 الخطوة 1 (Fast Path): تجميع أرصدة الحسابات على الخادم لتفادي سحب آلاف الأسطر وانتهاء المهلة (57014)
+      let rpcSuccess = false;
+      const isUuid = (val: unknown): boolean => typeof val === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val);
+      const validOrgId = isUuid(userOrgId) ? userOrgId : null;
 
-        if (userOrgId) {
-          query = query.eq('journal_entries.organization_id', userOrgId);
+      if (validOrgId) {
+        try {
+          const { data: summaryData, error: summaryErr } = await supabase.rpc('get_trial_balance_summary_rpc', {
+            p_org_id: validOrgId,
+            p_start_date: startDate || '1970-01-01',
+            p_end_date: endDate || new Date().toISOString().split('T')[0]
+          });
+
+          if (!summaryErr && Array.isArray(summaryData)) {
+            setRpcSummary(summaryData);
+            setLedgerLines([]);
+            rpcSuccess = true;
+          } else if (summaryErr) {
+            logger.warn('[FinancialRatios] Server RPC warning, falling back to chunked query:', summaryErr.message || summaryErr);
+          }
+        } catch (rpcEx) {
+          logger.warn('[FinancialRatios] Server-side RPC unavailable, falling back to chunked query:', rpcEx);
         }
+      }
 
-        return query.range(from, to);
-      });
+      // 🛡️ الخطوة 2 (Fallback): استعلام أسطر اليومية المقسم في حال تعذر مسار التجميع السريع
+      if (!rpcSuccess) {
+        setRpcSummary(null);
+        const data = await fetchCompleteDataset<any>(async (from, to) => {
+          let query = supabase
+            .from('journal_lines')
+            .select('account_id, debit, credit, journal_entries!inner(transaction_date, status, organization_id)')
+            .eq('journal_entries.status', 'posted')
+            .lte('journal_entries.transaction_date', endDate)
+            .order('id', { ascending: true });
 
-      setLedgerLines(data || []);
+          if (userOrgId) {
+            query = query.eq('journal_entries.organization_id', userOrgId);
+          }
+
+          return query.range(from, to);
+        });
+
+        setLedgerLines(data || []);
+      }
     } catch (err) {
       logger.error('Error fetching ledger data for financial ratios:', err);
       showToast('فشل جلب البيانات: ' + err.message, 'error');
@@ -94,7 +126,7 @@ const FinancialRatios = () => {
 
   useEffect(() => {
     fetchLedgerData();
-  }, [startDate, endDate, accounts, currentUser]);
+  }, [startDate, endDate, accounts.length, currentUser?.id, currentUser?.role, organization?.id]);
 
   // الحسابات المالية الدقيقة والشاملة
   const financialData = useMemo(() => {
@@ -103,16 +135,25 @@ const FinancialRatios = () => {
     const periodAccountBalances: Record<string, number> = {};
     const cumulativeAccountBalances: Record<string, number> = {};
 
-    (ledgerLines || []).filter(Boolean).forEach(line => {
-      const accId = line.account_id || line.accountId;
-      const amount = (Number(line.debit) || 0) - (Number(line.credit) || 0);
-      const transDate = line.journal_entries?.transaction_date;
+    if (rpcSummary !== null) {
+      rpcSummary.forEach((row) => {
+        const accId = String(row.account_id || '');
+        if (!accId) return;
+        cumulativeAccountBalances[accId] = (cumulativeAccountBalances[accId] || 0) + (Number(row.closing_balance) || 0);
+        periodAccountBalances[accId] = (periodAccountBalances[accId] || 0) + ((Number(row.period_debit) || 0) - (Number(row.period_credit) || 0));
+      });
+    } else {
+      (ledgerLines || []).filter(Boolean).forEach(line => {
+        const accId = line.account_id || line.accountId;
+        const amount = (Number(line.debit) || 0) - (Number(line.credit) || 0);
+        const transDate = line.journal_entries?.transaction_date;
 
-      cumulativeAccountBalances[accId] = (cumulativeAccountBalances[accId] || 0) + amount;
-      if (transDate >= startDate) {
-        periodAccountBalances[accId] = (periodAccountBalances[accId] || 0) + amount;
-      }
-    });
+        cumulativeAccountBalances[accId] = (cumulativeAccountBalances[accId] || 0) + amount;
+        if (transDate >= startDate) {
+          periodAccountBalances[accId] = (periodAccountBalances[accId] || 0) + amount;
+        }
+      });
+    }
 
     let currentAssets = 0;
     let cashAndEquivalents = 0;

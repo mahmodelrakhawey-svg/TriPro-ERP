@@ -18,7 +18,7 @@ import { supabase } from '../../supabaseClient';
 import { logger } from '../../utils/logger';
 import { closeFinancialYearEngine, reopenFinancialYearEngine } from '../../services/financialYearService';
 import { validateEntryBalance } from '../../utils/financialSafety';
-import { fetchCompleteDataset } from '../../services/balanceService';
+import { fetchJournalEntriesWithLines } from '../../utils/journalPagination';
 import { queryClient, QUERY_KEYS, invalidateGeneralLedger, STALE_TIMES } from '../../services/queryClient';
 import { resolveSystemAccount } from './domainUtils';
 
@@ -174,15 +174,11 @@ export const GeneralLedgerProvider: React.FC<GeneralLedgerProviderProps> = ({
               .eq('organization_id', effectiveOrg)
               .order('code'),
             isAccountingAuditor
-              ? fetchCompleteDataset<JournalEntryItem>(async (from, to) =>
-                  supabase
-                    .from('journal_entries')
-                    .select('id, reference, transaction_date, description, status, organization_id, related_document_id, related_document_type, journal_lines(id, account_id, debit, credit, description, cost_center_id)')
-                    .eq('organization_id', effectiveOrg)
-                    .gte('transaction_date', fiscalYearRange.startDate)
-                    .lte('transaction_date', fiscalYearRange.endDate)
-                    .order('transaction_date', { ascending: false })
-                    .range(from, to)
+              ? fetchJournalEntriesWithLines<JournalEntryItem>(
+                  effectiveOrg,
+                  fiscalYearRange.startDate,
+                  fiscalYearRange.endDate,
+                  'id, reference, transaction_date, description, status, organization_id, related_document_id, related_document_type, journal_lines(id, account_id, debit, credit, description, cost_center_id)'
                 ).then(data => ({ data, error: null }))
               : Promise.resolve({ data: [] as JournalEntryItem[], error: null }),
             supabase
