@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { logger } from '../../utils/logger';
-import { Package, Search, Plus, Edit, Trash2, Save, X, Barcode, Scale, Image as ImageIcon, Upload, AlertTriangle, Lock, Percent, RefreshCw, CheckSquare, Square, Tag, Download, Loader2, ChevronLeft, ChevronRight, FileSpreadsheet, UtensilsCrossed, Zap, PlusCircle, Layers, PackageOpen, Sparkles } from 'lucide-react';
 import { supabase } from '../../supabaseClient';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
@@ -8,11 +7,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { usePagination } from '../../components/usePagination';
 import { useNavigate } from 'react-router-dom';
 import RecipeManagement from '../restaurant/components/Management/RecipeManagement';
-import SearchableSelect from '../../components/SearchableSelect'; // Import the new component
 import { ModifierManagement } from '../restaurant/components/Management/ModifierManagement';
-import { z } from 'zod';
-import { createProductSchema, bulkOfferSchema, bulkPriceUpdateSchema } from '../../utils/validationSchemas';
-import { getCurrencySymbol } from '../../utils/constants';
+import { createProductSchema } from '../../utils/validationSchemas';
 import { BulkPriceUpdateModal } from './components/BulkPriceUpdateModal';
 import { BulkOfferModal } from './components/BulkOfferModal';
 import { CategoryModal } from './components/CategoryModal';
@@ -22,6 +18,16 @@ import { ProductFormModal, ProductFormData } from './components/ProductFormModal
 export type { ProductFormData };
 import { fetchUoms } from '../../services/uomService';
 import { ExcelPriceUpdateModal } from './components/ExcelPriceUpdateModal';
+import { ProductToolbarAndFilters } from './components/ProductToolbarAndFilters';
+import { ProductsTable } from './components/ProductsTable';
+import {
+  autoAssignMissingSkusService,
+  countFinishedGoodsItemsNeedingSync,
+  countRawItemsNeedingSync,
+  syncFinishedGoodsAccountsService,
+  syncMissingOpeningEntriesService,
+  syncRawMaterialAccountsService,
+} from './utils/productAccountSyncUtils';
 import { printOfferBarcode, printBarcode, printBulkBarcodes } from './utils/productBarcodeUtils';
 import { 
   downloadProductsTemplate, 
@@ -487,48 +493,12 @@ const ProductManager = () => {
 
   // ⚡ تعيين وتوليد أكواد SKU تلقائية لجميع الأصناف التي تفتقر لكود
   const handleAutoAssignMissingSkus = async () => {
-    const missing = (items || []).filter(p => !p.sku || !p.sku.trim());
-    if (missing.length === 0) {
-      showToast('جميع الأصناف المعروضة تحتوي بالفعل على كود (SKU)', 'info');
-      return;
-    }
-
-    if (!window.confirm(`هل تريد توليد وتعيين أكواد SKU تلقائية لـ (${missing.length}) صنف لا يمتلك كود حالياً؟`)) {
-      return;
-    }
-
     setIsAssigningSkus(true);
     try {
-      const existingSkus = new Set(
-        (items || []).map(p => (p.sku || '').trim().toUpperCase()).filter(Boolean)
-      );
-      let seq = (items || []).length + 1;
-      let updatedCount = 0;
-
-      for (const prod of missing) {
-        let candidate = `SKU-${String(seq).padStart(5, '0')}`;
-        while (existingSkus.has(candidate.toUpperCase())) {
-          seq++;
-          candidate = `SKU-${String(seq).padStart(5, '0')}`;
-        }
-        existingSkus.add(candidate.toUpperCase());
-        seq++;
-
-        const { error } = await supabase
-          .from('products')
-          .update({ sku: candidate })
-          .eq('id', prod.id);
-
-        if (!error) {
-          updatedCount++;
-        }
-      }
-
-      await refresh();
-      await refreshData();
-      showToast(`تم تعيين وتوليد أكواد SKU بنجاح لـ ${updatedCount} صنف ✅`, 'success');
-    } catch (err) {
-      showToast('خطأ أثناء تعيين الأكواد: ' + err.message, 'error');
+      await autoAssignMissingSkusService({ items, refresh, refreshData, showToast: toastFn });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('خطأ أثناء تعيين الأكواد: ' + msg, 'error');
     } finally {
       setIsAssigningSkus(false);
     }
@@ -537,113 +507,33 @@ const ProductManager = () => {
   const [isSyncingRawAccounts, setIsSyncingRawAccounts] = useState(false);
   const [isSyncingFinishedGoodsAccounts, setIsSyncingFinishedGoodsAccounts] = useState(false);
 
-  // 📦 حساب عدد أصناف المواد الخام التي ما زالت تتبع حساب المخزون العام وتحتاج توجيه
-  const rawItemsNeedingSyncCount = useMemo(() => {
-    const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || settings?.account_mappings?.INVENTORY_RAW_MATERIALS || '00bc8443-0ace-40ba-82c1-ce97f6a02e15';
-    const generalInvAcc = getSystemAccount('INVENTORY')?.id || settings?.account_mappings?.INVENTORY || '5434d458-20fe-4641-bc0f-22b8ccba0de7';
-    return (contextProducts || []).filter(p => 
-      (p.product_type === 'RAW_MATERIAL' || (p as any).mfg_type === 'raw') &&
-      p.inventory_account_id !== rawMaterialAcc &&
-      (!p.inventory_account_id || p.inventory_account_id === generalInvAcc)
-    ).length;
-  }, [contextProducts, getSystemAccount, settings]);
+  const rawItemsNeedingSyncCount = useMemo(
+    () => countRawItemsNeedingSync(contextProducts || [], getSystemAccount, settings),
+    [contextProducts, getSystemAccount, settings]
+  );
 
-  // 🍰 حساب عدد أصناف التورت والجاتوهات والحلويات الشرقية التي ما زالت تتبع حساب المخزون العام وتحتاج توجيه للإنتاج التام
-  const finishedGoodsItemsNeedingSyncCount = useMemo(() => {
-    const finishedGoodsAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || settings?.account_mappings?.INVENTORY_FINISHED_GOODS || '90685bba-b765-4fe4-96a5-b3963a4ec085';
-    const generalInvAcc = getSystemAccount('INVENTORY')?.id || settings?.account_mappings?.INVENTORY || '5434d458-20fe-4641-bc0f-22b8ccba0de7';
-    const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || settings?.account_mappings?.INVENTORY_RAW_MATERIALS || '00bc8443-0ace-40ba-82c1-ce97f6a02e15';
-    const finishedCatNames = ['التورتات الغربية الفاخرة', 'الجاتوهات والقطع', 'الحلويات الشرقية', 'الشيكولاتة الفاخرة والهدايا', 'الآيس كريم والمثلجات'];
-    const finishedCatIds = new Set(categories.filter(c => finishedCatNames.includes(c.name)).map(c => c.id));
-
-    return (contextProducts || []).filter(p => {
-      const isTargetCategory = p.category_id && finishedCatIds.has(p.category_id);
-      const isManufactured = p.product_type === 'MANUFACTURED' && isTargetCategory;
-      const isWrongAccount = !p.inventory_account_id || p.inventory_account_id === generalInvAcc || p.inventory_account_id === rawMaterialAcc;
-      return (isTargetCategory || isManufactured) && p.inventory_account_id !== finishedGoodsAcc && isWrongAccount;
-    }).length;
-  }, [contextProducts, categories, getSystemAccount, settings]);
-
-  const batchUpdateProductsInventoryAccount = async (candidateIds: string[], accountId: string): Promise<number> => {
-    const chunkSize = 50;
-    const chunks: string[][] = [];
-    for (let i = 0; i < candidateIds.length; i += chunkSize) {
-      chunks.push(candidateIds.slice(i, i + chunkSize));
-    }
-    const CONCURRENCY = 4;
-    const now = new Date().toISOString();
-    let updatedTotal = 0;
-    for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-      const batch = chunks.slice(i, i + CONCURRENCY);
-      const results = await Promise.all(
-        batch.map((chunk) =>
-          supabase
-            .from('products')
-            .update({ inventory_account_id: accountId, updated_at: now })
-            .in('id', chunk)
-        )
-      );
-      for (let j = 0; j < results.length; j++) {
-        if (results[j].error) throw results[j].error;
-        updatedTotal += batch[j].length;
-      }
-    }
-    return updatedTotal;
-  };
+  const finishedGoodsItemsNeedingSyncCount = useMemo(
+    () => countFinishedGoodsItemsNeedingSync(contextProducts || [], categories, getSystemAccount, settings),
+    [contextProducts, categories, getSystemAccount, settings]
+  );
 
   // 🔄 توجيه حسابات أصناف المواد الخام آلياً لحساب مخزون المواد الخام مع الحفاظ التام على التعديلات اليدوية
   const handleSyncRawMaterialAccounts = async () => {
-    const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || settings?.account_mappings?.INVENTORY_RAW_MATERIALS || '00bc8443-0ace-40ba-82c1-ce97f6a02e15';
-    const generalInvAcc = getSystemAccount('INVENTORY')?.id || settings?.account_mappings?.INVENTORY || '5434d458-20fe-4641-bc0f-22b8ccba0de7';
-
-    if (!rawMaterialAcc) {
-      showToast('لم يتم العثور على حساب مخزون المواد الخام في شجرة الحسابات أو الإعدادات', 'error');
-      return;
-    }
-
-    const allProds = contextProducts || [];
-    const candidates = allProds.filter(p => 
-      (p.product_type === 'RAW_MATERIAL' || (p as any).mfg_type === 'raw') &&
-      p.inventory_account_id !== rawMaterialAcc &&
-      (!p.inventory_account_id || p.inventory_account_id === generalInvAcc)
-    );
-
-    const preserved = allProds.filter(p => 
-      (p.product_type === 'RAW_MATERIAL' || (p as any).mfg_type === 'raw') &&
-      p.inventory_account_id === rawMaterialAcc
-    );
-
-    if (candidates.length === 0) {
-      showToast('جميع أصناف المواد الخام موجهة بالفعل لحساب مخزون المواد الخام بنجاح ✅', 'info');
-      return;
-    }
-
-    const confirmMsg = `هل تريد توجيه (${candidates.length}) صنف مواد خام تتبع حساب المخزون العام حالياً إلى "حساب مخزون المواد الخام"؟\n\n🛡️ صمام الأمان: سيتم الحفاظ التام على الأصناف التي تم تعديلها وتخصيصها يدوياً (${preserved.length} صنف) دون أي مساس بها.`;
-
-    if (!window.confirm(confirmMsg)) {
-      return;
-    }
-
     setIsSyncingRawAccounts(true);
     try {
-      const candidateIds = candidates.map(p => p.id);
-      const updatedTotal = await batchUpdateProductsInventoryAccount(candidateIds, rawMaterialAcc);
-
-      // تحديث التصنيفات الافتراضية للخامات لترتبط مستقبلاً بمخزون المواد الخام
-      const orgId = targetOrgId || (currentUser as any)?.organization_id;
-      if (orgId) {
-        await supabase
-          .from('item_categories')
-          .update({ default_inventory_account_id: rawMaterialAcc })
-          .eq('organization_id', orgId)
-          .in('name', ['خامات الحلويات الأولية', 'خامات التعبئة والتغليف']);
-      }
-
-      await refresh();
-      await refreshData();
-      showToast(`تم بنجاح توجيه ${updatedTotal} صنف خام إلى حساب مخزون المواد الخام، والحفاظ الكامل على ${preserved.length} صنف معدلة يدوياً ✅`, 'success');
-    } catch (err) {
-      showToast('حدث خطأ أثناء تحديث الحسابات: ' + (err.message || err), 'error');
+      await syncRawMaterialAccountsService({
+        contextProducts: contextProducts || [],
+        targetOrgId,
+        currentUser,
+        getSystemAccount,
+        settings,
+        refresh,
+        refreshData,
+        showToast: toastFn,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('حدث خطأ أثناء تحديث الحسابات: ' + msg, 'error');
     } finally {
       setIsSyncingRawAccounts(false);
     }
@@ -651,64 +541,22 @@ const ProductManager = () => {
 
   // 🎂🔄 توجيه حسابات أصناف التورت والجاتوهات والشرقي آلياً لحساب مخزون الإنتاج التام (10302)
   const handleSyncFinishedGoodsAccounts = async () => {
-    const finishedGoodsAcc = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || settings?.account_mappings?.INVENTORY_FINISHED_GOODS || '90685bba-b765-4fe4-96a5-b3963a4ec085';
-    const generalInvAcc = getSystemAccount('INVENTORY')?.id || settings?.account_mappings?.INVENTORY || '5434d458-20fe-4641-bc0f-22b8ccba0de7';
-    const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || settings?.account_mappings?.INVENTORY_RAW_MATERIALS || '00bc8443-0ace-40ba-82c1-ce97f6a02e15';
-
-    if (!finishedGoodsAcc) {
-      showToast('لم يتم العثور على حساب مخزون الإنتاج التام في شجرة الحسابات أو الإعدادات', 'error');
-      return;
-    }
-
-    const finishedCatNames = ['التورتات الغربية الفاخرة', 'الجاتوهات والقطع', 'الحلويات الشرقية', 'الشيكولاتة الفاخرة والهدايا', 'الآيس كريم والمثلجات'];
-    const finishedCatIds = new Set(categories.filter(c => finishedCatNames.includes(c.name)).map(c => c.id));
-
-    const allProds = contextProducts || [];
-    const candidates = allProds.filter(p => {
-      const isTargetCategory = p.category_id && finishedCatIds.has(p.category_id);
-      const isManufactured = p.product_type === 'MANUFACTURED' && isTargetCategory;
-      const isWrongAccount = !p.inventory_account_id || p.inventory_account_id === generalInvAcc || p.inventory_account_id === rawMaterialAcc;
-      return (isTargetCategory || isManufactured) && p.inventory_account_id !== finishedGoodsAcc && isWrongAccount;
-    });
-
-    const preserved = allProds.filter(p => {
-      const isTargetCategory = p.category_id && finishedCatIds.has(p.category_id);
-      return isTargetCategory && p.inventory_account_id === finishedGoodsAcc;
-    });
-
-    if (candidates.length === 0) {
-      showToast('جميع أصناف التورت والجاتوهات والحلويات الشرقية موجهة بالفعل لحساب مخزون الإنتاج التام بنجاح ✅', 'info');
-      return;
-    }
-
-    const confirmMsg = `هل تريد توجيه (${candidates.length}) صنف من أصناف (التورت، الجاتوهات، والحلويات الشرقية) إلى "حساب مخزون الإنتاج التام (10302)"؟\n\n🛡️ صمام الأمان: سيتم الحفاظ التام على الأصناف المضبوطة مسبقاً (${preserved.length} صنف) دون أي مساس بها.`;
-
-    if (!window.confirm(confirmMsg)) {
-      return;
-    }
-
     setIsSyncingFinishedGoodsAccounts(true);
     try {
-      const candidateIds = candidates.map(p => p.id);
-      const updatedTotal = await batchUpdateProductsInventoryAccount(candidateIds, finishedGoodsAcc);
-
-      // تحديث التصنيفات الافتراضية للإنتاج التام لترتبط مستقبلاً بمخزون الإنتاج التام 10302
-      const orgId = targetOrgId || (currentUser as any)?.organization_id;
-      if (orgId) {
-        await supabase
-          .from('item_categories')
-          .update({ 
-            default_inventory_account_id: finishedGoodsAcc
-          })
-          .eq('organization_id', orgId)
-          .in('name', finishedCatNames);
-      }
-
-      await refresh();
-      await refreshData();
-      showToast(`تم بنجاح توجيه ${updatedTotal} صنف (تورت وجاتوهات وشرقي) إلى حساب مخزون الإنتاج التام (10302) وتثبيت حساب التصنيفات ✅`, 'success');
-    } catch (err) {
-      showToast('حدث خطأ أثناء تحديث الحسابات: ' + (err.message || err), 'error');
+      await syncFinishedGoodsAccountsService({
+        contextProducts: contextProducts || [],
+        categories,
+        targetOrgId,
+        currentUser,
+        getSystemAccount,
+        settings,
+        refresh,
+        refreshData,
+        showToast: toastFn,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('حدث خطأ أثناء تحديث الحسابات: ' + msg, 'error');
     } finally {
       setIsSyncingFinishedGoodsAccounts(false);
     }
@@ -970,126 +818,20 @@ const ProductManager = () => {
 
     setIsSyncingOpenings(true);
     try {
-      // 1. جلب جميع الأصناف المخزنية
-      const { data: allProds, error: prodsErr } = await supabase
-        .from('products')
-        .select('*')
-        .eq('organization_id', orgId)
-        .in('item_type', ['STOCK', 'RAW_MATERIAL']);
-
-      if (prodsErr) throw prodsErr;
-
-      if (!allProds || allProds.length === 0) {
-        showToast('لا توجد أصناف مخزنية في هذه المنظمة.', 'info');
-        setIsSyncingOpenings(false);
-        return;
-      }
-
-      // 2. جلب جميع قيود اليومية الخاصة بالأرصدة الافتتاحية للمنظمة
-      const { data: existingEntries, error: entErr } = await supabase
-        .from('journal_entries')
-        .select('id, description, reference, related_document_id, related_document_type')
-        .eq('organization_id', orgId);
-
-      if (entErr) throw entErr;
-
-      // 3. جلب حسابات النظام
-      const defaultInventory = getSystemAccount('INVENTORY_FINISHED_GOODS')?.id || getSystemAccount('INVENTORY')?.id || contextAccounts.find(a => a.code === '10302' || a.code === '1213' || a.code === '103' || a.name?.includes('مخزون'))?.id;
-      const rawMaterialAcc = getSystemAccount('INVENTORY_RAW_MATERIALS')?.id || contextAccounts.find(a => a.code === '10301' || a.code === '1211' || a.name?.includes('خامات'))?.id;
-      const equityAcc = getSystemAccount('OPENING_BALANCES')?.id || 
-                        getSystemAccount('RETAINED_EARNINGS')?.id || 
-                        contextAccounts.find(a => a.code === '3999' || a.code === '313' || a.code?.startsWith('39') || a.code?.startsWith('300') || a.name?.includes('أرصدة افتتاحية') || a.name?.includes('افتتاحي'))?.id;
-
-      if (!equityAcc) {
-        throw new Error('لم يتم العثور على حساب الأرصدة الافتتاحية في الدليل المحاسبي (كود 3999 أو 313).');
-      }
-
-      const defaultWhId = warehouses.length > 0 ? warehouses[0].id : null;
-      let createdCount = 0;
-      const createdNames: string[] = [];
-
-      for (const prod of allProds) {
-        // فحص إذا كان للصنف قيد افتتاحي مسجل مسبقاً
-        const hasEntry = existingEntries?.some(e => 
-          e.related_document_id === prod.id ||
-          (e.reference && e.reference.includes(prod.id.slice(-8))) ||
-          (e.description && (e.description.includes('رصيد افتتاحي') || e.description.includes('افتتاحي')) && e.description.includes(prod.name))
-        );
-
-        if (!hasEntry) {
-          const qty = Number(prod.stock) || Number(prod.opening_balance) || 0;
-          const cost = Number(prod.purchase_price) || Number(prod.cost) || Number(prod.weighted_average_cost) || 0;
-          const totalValue = qty * cost;
-
-          if (qty > 0 && cost > 0 && totalValue > 0) {
-            const itemInvAcc = prod.inventory_account_id || (prod.item_type === 'RAW_MATERIAL' ? (rawMaterialAcc || defaultInventory) : defaultInventory);
-            
-            if (itemInvAcc) {
-              // أ. تسجيل في opening_inventories إذا لم يكن مسجلاً
-              let targetWh = defaultWhId;
-              if (!targetWh && orgId) {
-                const { data: whList } = await supabase.from('warehouses').select('id').eq('organization_id', orgId).limit(1);
-                targetWh = whList?.[0]?.id || null;
-              }
-              if (targetWh) {
-                const { data: existingOp } = await supabase
-                  .from('opening_inventories')
-                  .select('id')
-                  .eq('product_id', prod.id)
-                  .maybeSingle();
-
-                if (!existingOp) {
-                  await supabase.from('opening_inventories').insert({
-                    product_id: prod.id,
-                    warehouse_id: targetWh,
-                    quantity: qty,
-                    cost: cost,
-                    organization_id: orgId
-                  });
-                }
-              }
-
-              // ب. إنشاء القيد المحاسبي عبر addEntry
-              const ref = `OP-PROD-${Date.now().toString().slice(-8)}-${Math.floor(Math.random() * 1000)}`;
-              const lineDesc = prod.item_type === 'RAW_MATERIAL' 
-                ? `مخزون مواد خام افتتاحي - ${prod.name}` 
-                : `مخزون افتتاحي - ${prod.name}`;
-
-              await addEntry({
-                date: new Date().toISOString().split('T')[0],
-                description: `رصيد افتتاحي - ${prod.name}`.substring(0, 255),
-                reference: ref,
-                status: 'posted',
-                p_org_id: orgId,
-                lines: [
-                  { accountId: itemInvAcc, debit: totalValue, credit: 0, description: lineDesc },
-                  { accountId: equityAcc, debit: 0, credit: totalValue, description: `أرصدة افتتاحية - ${prod.name}` }
-                ]
-              });
-              createdCount++;
-              createdNames.push(prod.name);
-            }
-          }
-        }
-      }
-
-      if (createdCount > 0) {
-        if (orgId) {
-          try {
-            await supabase.rpc('recalculate_all_system_balances', { p_org_id: orgId });
-          } catch (e) {
-            logger.error('Failed to recalculate balances', e);
-          }
-        }
-        await refreshData();
-        refresh();
-        showToast(`تم بنجاح توليد ${createdCount} قيد افتتاحي للأصناف: (${createdNames.join('، ')}) ✅`, 'success');
-      } else {
-        showToast('جميع الأصناف المسجلة لديها قيود افتتاحية بالفعل، أو أن التكلفة أو الرصيد صفر.', 'info');
-      }
-    } catch (err) {
+      await syncMissingOpeningEntriesService({
+        orgId,
+        contextAccounts,
+        warehouses,
+        getSystemAccount,
+        addEntry,
+        refreshData,
+        refresh,
+        showToast: toastFn,
+      });
+    } catch (err: unknown) {
       logger.error(err);
-      showToast('حدث خطأ أثناء توليد القيود الافتتاحية: ' + err.message, 'error');
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('حدث خطأ أثناء توليد القيود الافتتاحية: ' + msg, 'error');
     } finally {
       setIsSyncingOpenings(false);
     }
@@ -1574,19 +1316,6 @@ const ProductManager = () => {
     }
   };
 
-  const isOfferActive = (item: Item) => {
-      const today = new Date().toISOString().split('T')[0];
-      return !!(item.offer_price && item.offer_price > 0 && 
-             item.offer_start_date && item.offer_end_date && 
-             today >= item.offer_start_date && today <= item.offer_end_date);
-  };
-
-  const isOfferExpired = (item: Item) => {
-      const today = new Date().toISOString().split('T')[0];
-      return !!(item.offer_price && item.offer_price > 0 && 
-             item.offer_end_date && today > item.offer_end_date);
-  };
-
   const handleRenewOffer = (item: Item) => {
       const today = new Date();
       let duration = 7 * 24 * 60 * 60 * 1000; // الافتراضي 7 أيام
@@ -1710,564 +1439,80 @@ const ProductManager = () => {
 
   return (
     <div className="space-y-6 animate-in fade-in">
-      <div className="flex justify-between items-center flex-wrap gap-4">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-800 flex items-center gap-2">
-            <Package className="text-emerald-600" /> إدارة الأصناف (المنضبطة)
-          </h2>
-          <button 
-            onClick={() => setIsConsumptionModalOpen(true)}
-            className="mt-1 text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded-full font-bold flex items-center gap-1 hover:bg-indigo-100 transition-all"
-          >
-            <Zap size={12} /> عرض الاستهلاك المتوقع من المسودات
-          </button>
-          <p className="text-slate-500">تعريف المنتجات وربطها بالحسابات المحاسبية</p>
-        </div>
-        <div className="flex gap-2 flex-wrap items-center">
-            <button 
-                onClick={handleSyncMissingOpeningEntries} 
-                disabled={isSyncingOpenings}
-                className="bg-amber-50 border border-amber-300 text-amber-800 px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-amber-100 text-sm font-bold shadow-sm transition-all disabled:opacity-50" 
-                title="توليد قيود الأرصدة الافتتاحية في دفتر اليومية لجميع الأصناف الحالية التي ليس لها قيد"
-            >
-                {isSyncingOpenings ? <Loader2 size={16} className="animate-spin text-amber-600" /> : <RefreshCw size={16} className="text-amber-600" />}
-                <span>توليد القيود الافتتاحية</span>
-            </button>
-            <button 
-                onClick={handleRecalculateStockAll} 
-                disabled={isRecalculatingAll}
-                className="bg-teal-50 border border-teal-300 text-teal-800 px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-teal-100 text-sm font-bold shadow-sm transition-all disabled:opacity-50" 
-                title="إعادة احتساب ومزامنة أرصدة المخزون وتكاليف جميع الأصناف من الحركات الفعلية"
-            >
-                {isRecalculatingAll ? <Loader2 size={16} className="animate-spin text-teal-600" /> : <RefreshCw size={16} className="text-teal-600" />}
-                <span>إعادة احتساب الأرصدة</span>
-            </button>
-            <button 
-                onClick={handleExportExcel} 
-                disabled={isExporting}
-                className="bg-blue-50 border border-blue-200 text-blue-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-100 text-sm font-bold shadow-sm transition-all disabled:opacity-50" 
-                title="تصدير القائمة الحالية بالكامل إلى Excel"
-            >
-                {isExporting ? <Loader2 size={16} className="animate-spin text-blue-600" /> : <FileSpreadsheet size={16} />}
-                <span>{isExporting ? 'جاري التصدير...' : 'تصدير'}</span>
-            </button>
-            <button onClick={handleExportScalePLU} className="bg-purple-50 border border-purple-200 text-purple-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-100 text-sm font-bold shadow-sm transition-all" title="تصدير ملف أكواد وأسعار الموازين الإلكترونية (PLU) لبرامج موازين الباركود">
-                <Scale size={16} /> ملف الموازين (PLU)
-            </button>
-            <button onClick={handleDownloadTemplate} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold" title="تحميل نموذج Excel">
-                <Download size={16} /> نموذج
-            </button>
-            <select
-                value={importWarehouseId}
-                onChange={(e) => setImportWarehouseId(e.target.value)}
-                className="bg-white border border-slate-300 text-slate-600 px-2 py-2 rounded-lg text-sm font-bold outline-none focus:border-emerald-500"
-                title="اختر المستودع الذي سيتم استيراد الأرصدة الافتتاحية إليه"
-            >
-                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
-            <div className="relative">
-                <input
-                    type="file"
-                    accept=".xlsx, .xls, .csv, .json"
-                    onChange={handleFileUpload}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    disabled={isImporting}
-                />
-                <button className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-emerald-100 text-sm font-bold">
-                    {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
-                    استيراد Excel
-                </button>
-            </div>
-            <button
-              onClick={() => setIsExcelPriceUpdateModalOpen(true)}
-              className="bg-amber-50 border border-amber-300 text-amber-800 px-3.5 py-2 rounded-lg flex items-center gap-2 hover:bg-amber-100 text-sm font-bold shadow-sm transition-all"
-              title="تحديث أسعار البيع من ملف Excel دون تكرار الأصناف ودون المساس بالمخزون"
-            >
-              <Tag size={16} className="text-amber-600" />
-              <span>تحديث الأسعار Excel</span>
-            </button>
-            <div className="relative">
-                <input
-                    type="file"
-                    accept=".xlsx, .xls, .csv"
-                    onChange={handleRecipeFileUpload}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    disabled={isRecipeImporting}
-                />
-                <button className="bg-purple-50 border border-purple-200 text-purple-700 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-purple-100 text-sm font-bold">
-                    {isRecipeImporting ? <Loader2 size={16} className="animate-spin" /> : <UtensilsCrossed size={16} />}
-                    استيراد وصفات
-                </button>
-            </div>
-            <button onClick={handleDownloadRecipeTemplate} className="bg-white border border-slate-300 text-slate-600 px-3 py-2 rounded-lg flex items-center gap-2 hover:bg-slate-50 text-sm font-bold" title="تحميل نموذج الوصفات">
-                <Download size={16} /> نموذج الوصفات
-            </button>
-            {(items || []).some(p => !p.sku || !p.sku.trim()) && (
-                <button 
-                  onClick={handleAutoAssignMissingSkus}
-                  disabled={isAssigningSkus}
-                  className="bg-indigo-50 border border-indigo-200 text-indigo-700 px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-indigo-100 text-sm font-bold animate-in fade-in"
-                  title="توليد وتعيين أكواد SKU تلقائية لجميع الأصناف التي تفتقر لكود"
-                >
-                  {isAssigningSkus ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} className="text-indigo-600" />}
-                  <span>توليد أكواد للأصناف الشاغرة ({(items || []).filter(p => !p.sku || !p.sku.trim()).length})</span>
-                </button>
-            )}
-            <button 
-              onClick={handleSyncRawMaterialAccounts}
-              disabled={isSyncingRawAccounts}
-              className="bg-amber-50 border border-amber-300 text-amber-800 px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-amber-100 text-sm font-bold shadow-sm transition-all disabled:opacity-50 animate-in fade-in"
-              title="توجيه أصناف المواد الخام إلى حساب مخزون المواد الخام (10301) مع الحفاظ على الأصناف المعدلة يدوياً"
-            >
-              {isSyncingRawAccounts ? (
-                <Loader2 size={16} className="animate-spin text-amber-600" />
-              ) : (
-                <Layers size={16} className="text-amber-600" />
-              )}
-              <span>توجيه خامات المخزون (10301)</span>
-              {rawItemsNeedingSyncCount > 0 && (
-                <span className="bg-amber-200 text-amber-900 px-1.5 py-0.5 rounded-full text-xs font-black">
-                  {rawItemsNeedingSyncCount}
-                </span>
-              )}
-            </button>
-            <button 
-              onClick={handleSyncFinishedGoodsAccounts}
-              disabled={isSyncingFinishedGoodsAccounts}
-              className="bg-emerald-50 border border-emerald-300 text-emerald-800 px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-emerald-100 text-sm font-bold shadow-sm transition-all disabled:opacity-50 animate-in fade-in"
-              title="توجيه أصناف التورت والجاتوهات والشرقي إلى حساب مخزون الإنتاج التام (10302)"
-            >
-              {isSyncingFinishedGoodsAccounts ? (
-                <Loader2 size={16} className="animate-spin text-emerald-600" />
-              ) : (
-                <UtensilsCrossed size={16} className="text-emerald-600" />
-              )}
-              <span>توجيه الإنتاج التام (10302)</span>
-              {finishedGoodsItemsNeedingSyncCount > 0 && (
-                <span className="bg-emerald-200 text-emerald-900 px-1.5 py-0.5 rounded-full text-xs font-black">
-                  {finishedGoodsItemsNeedingSyncCount}
-                </span>
-              )}
-            </button>
-            <button onClick={() => handleOpenModal()} className="bg-emerald-600 text-white px-6 py-2.5 rounded-lg hover:bg-emerald-700 flex items-center gap-2 font-bold shadow-lg">
-              <Plus size={20} /> صنف جديد
-            </button>
-        </div>
-      </div>
+      <ProductToolbarAndFilters
+        items={items}
+        warehouses={warehouses}
+        categories={categories}
+        searchTerm={searchTerm}
+        onSearchTermChange={setSearchTerm}
+        showOffersOnly={showOffersOnly}
+        onToggleOffersOnly={() => setShowOffersOnly(!showOffersOnly)}
+        selectedCount={selectedIds.size}
+        typeFilter={typeFilter}
+        onTypeFilterChange={setTypeFilter}
+        categoryFilter={categoryFilter}
+        onCategoryFilterChange={setCategoryFilter}
+        warehouseFilter={warehouseFilter}
+        onWarehouseFilterChange={setWarehouseFilter}
+        routingFilter={routingFilter}
+        onRoutingFilterChange={setRoutingFilter}
+        importWarehouseId={importWarehouseId}
+        onImportWarehouseIdChange={setImportWarehouseId}
+        isSyncingOpenings={isSyncingOpenings}
+        isRecalculatingAll={isRecalculatingAll}
+        isExporting={isExporting}
+        isImporting={isImporting}
+        isRecipeImporting={isRecipeImporting}
+        isAssigningSkus={isAssigningSkus}
+        isSyncingRawAccounts={isSyncingRawAccounts}
+        isSyncingFinishedGoodsAccounts={isSyncingFinishedGoodsAccounts}
+        rawItemsNeedingSyncCount={rawItemsNeedingSyncCount}
+        finishedGoodsItemsNeedingSyncCount={finishedGoodsItemsNeedingSyncCount}
+        onOpenConsumptionModal={() => setIsConsumptionModalOpen(true)}
+        onSyncMissingOpeningEntries={handleSyncMissingOpeningEntries}
+        onRecalculateStockAll={handleRecalculateStockAll}
+        onExportExcel={handleExportExcel}
+        onExportScalePLU={handleExportScalePLU}
+        onDownloadTemplate={handleDownloadTemplate}
+        onFileUpload={handleFileUpload}
+        onOpenExcelPriceUpdateModal={() => setIsExcelPriceUpdateModalOpen(true)}
+        onRecipeFileUpload={handleRecipeFileUpload}
+        onDownloadRecipeTemplate={handleDownloadRecipeTemplate}
+        onAutoAssignMissingSkus={handleAutoAssignMissingSkus}
+        onSyncRawMaterialAccounts={handleSyncRawMaterialAccounts}
+        onSyncFinishedGoodsAccounts={handleSyncFinishedGoodsAccounts}
+        onOpenNewProductModal={() => handleOpenModal()}
+        onBulkCategoryChange={handleBulkCategoryChange}
+        onOpenBulkOfferModal={() => setIsBulkOfferModalOpen(true)}
+        onOpenBulkPriceUpdateModal={() => setIsBulkPriceUpdateModalOpen(true)}
+        onBulkPrintBarcodes={handleBulkPrintBarcodes}
+      />
 
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200">
-        <div className="flex gap-2">
-            <div className="relative flex-1">
-                <Search className="absolute right-3 top-3 text-slate-400" size={20} />
-                <input 
-                    type="text" 
-                    placeholder="بحث باسم الصنف أو الكود (SKU)..." 
-                    value={searchTerm}
-                    onChange={e => setSearchTerm(e.target.value)}
-                    className="w-full pr-10 pl-4 py-2.5 border rounded-lg focus:outline-none focus:border-emerald-500"
-                />
-            </div>
-            <button 
-                onClick={() => setShowOffersOnly(!showOffersOnly)}
-                className={`px-4 py-2.5 rounded-lg border flex items-center gap-2 transition-colors font-bold ${showOffersOnly ? 'bg-yellow-50 border-yellow-200 text-yellow-700' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
-            >
-                <Percent size={18} />
-                <span className="hidden md:inline">العروض</span>
-            </button>
-            {selectedIds.size > 0 && (
-                <>
-                    <select
-                        onChange={(e) => handleBulkCategoryChange(e.target.value)}
-                        className="bg-white border border-slate-300 text-slate-600 px-2 py-2.5 rounded-lg text-sm font-bold outline-none focus:border-purple-500"
-                        title="تغيير تصنيف الأصناف المحددة"
-                    >
-                        <option value="">تغيير التصنيف...</option>
-                        {categories.map(cat => (
-                            <option key={cat.id} value={cat.id}>{cat.name} {(cat as any).description ? ` (${(cat as any).description})` : ''}</option>
-                        ))}
-                    </select>
-                    <button onClick={() => setIsBulkOfferModalOpen(true)} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-bold hover:bg-purple-700 animate-in zoom-in">
-                        <Tag size={18} />
-                        تطبيق عرض ({selectedIds.size})
-                    </button>
-                    <button onClick={() => setIsBulkPriceUpdateModalOpen(true)} className="bg-orange-600 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-bold hover:bg-orange-700 animate-in zoom-in">
-                        <RefreshCw size={18} />
-                        تعديل الأسعار ({selectedIds.size})
-                    </button>
-                    <button onClick={handleBulkPrintBarcodes} className="bg-slate-800 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 font-bold hover:bg-slate-900 animate-in zoom-in">
-                        <Barcode size={18} />
-                        طباعة باركود ({selectedIds.size})
-                    </button>
-                </>
-            )}
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-3 pt-3 border-t">
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">فلترة حسب نوع الصنف</label>
-            <select 
-                value={typeFilter}
-                onChange={e => setTypeFilter(e.target.value)}
-                className="w-full border rounded-lg p-2.5 bg-white text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-                <option value="all">-- كل أنواع الأصناف --</option>
-                <option value="RAW_MATERIAL">🥩 مواد خام وأولية (RAW_MATERIAL)</option>
-                <option value="MANUFACTURED">🍲 منتجات مصنعة / وجبات (MANUFACTURED)</option>
-                <option value="INTERMEDIATE_PRODUCT">🍰 منتجات وسيطة / نصف مصنعة (INTERMEDIATE)</option>
-                <option value="STOCK">📦 بضاعة مخزنية جاهزة (STOCK)</option>
-                <option value="SERVICE">⚙️ خدمات (SERVICE)</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">فلترة حسب التصنيف</label>
-            <select 
-                value={categoryFilter}
-                onChange={e => setCategoryFilter(e.target.value)}
-                className="w-full border rounded-lg p-2.5 bg-white text-xs font-bold text-slate-700 outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-                <option value="all">-- كل التصنيفات --</option>
-                {categories.map(cat => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">المستودع / المخزن</label>
-            <select 
-                value={warehouseFilter}
-                onChange={e => setWarehouseFilter(e.target.value)}
-                className={`w-full border rounded-lg p-2.5 text-xs font-bold outline-none focus:ring-2 transition-all ${
-                  warehouseFilter !== 'all' 
-                    ? 'bg-blue-50 border-blue-300 text-blue-900 focus:ring-blue-500' 
-                    : 'bg-white text-slate-700 focus:ring-emerald-500'
-                }`}
-            >
-                <option value="all">-- كل المستودعات (الرصيد الإجمالي) --</option>
-                {warehouses.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </select>
-          </div>
-          <div>
-            <div className="flex items-center justify-between mb-1">
-              <label className="block text-xs font-bold text-slate-700">مسار ومراحل التصنيع (BOM/Routing)</label>
-              {routingFilter !== 'all' && (
-                <button 
-                  onClick={() => setRoutingFilter('all')}
-                  className="text-[10px] text-red-600 hover:underline font-bold"
-                >
-                  إلغاء التصفية
-                </button>
-              )}
-            </div>
-            <select 
-                value={routingFilter}
-                onChange={e => setRoutingFilter(e.target.value as any)}
-                className={`w-full border rounded-lg p-2.5 text-xs font-bold outline-none focus:ring-2 transition-all ${
-                  routingFilter !== 'all'
-                    ? 'bg-purple-50 border-purple-300 text-purple-900 focus:ring-purple-500'
-                    : 'bg-white text-slate-700 focus:ring-emerald-500'
-                }`}
-            >
-                <option value="all">-- كل حالات مسار الإنتاج --</option>
-                <option value="has_routing_and_steps">✅ منتج مصنع له مسار ومراحل</option>
-                <option value="no_routing">⚠️ منتج مصنع ليس له مسار تصنيعي</option>
-                <option value="has_routing_no_steps">🔄 منتج مصنع له مسار بدون مراحل</option>
-                <option value="has_any_routing">📋 كل المنتجات التي لها مسار</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {routingFilter === 'no_routing' && (
-        <div className="bg-rose-50 border border-rose-200 text-rose-800 p-3.5 rounded-xl flex items-center justify-between gap-3 text-xs font-bold animate-in fade-in">
-          <div className="flex items-center gap-2">
-            <AlertTriangle size={18} className="text-rose-600 shrink-0" />
-            <span>يتم الآن عرض الأصناف المصنعة والوسيطة التي لم يتم إنشاء مسار إنتاج أو مراحل تشغيل لها بعد. يمكنك النقر على زر "بدون مسار تصنيعي" أمام أي صنف لبناء مساره ومراحله فوراً.</span>
-          </div>
-          <button 
-            onClick={() => setRoutingFilter('all')}
-            className="text-rose-700 hover:text-rose-900 underline shrink-0"
-          >
-            عرض كافة الأصناف
-          </button>
-        </div>
-      )}
-
-      {routingFilter === 'has_routing_and_steps' && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-3.5 rounded-xl flex items-center justify-between gap-3 text-xs font-bold animate-in fade-in">
-          <div className="flex items-center gap-2">
-            <Layers size={18} className="text-emerald-600 shrink-0" />
-            <span>يتم الآن عرض الأصناف المصنعة والوسيطة الجاهزة للإنتاج (التي لها مسار تشغيل ومراحل إنتاج متكاملة).</span>
-          </div>
-          <button 
-            onClick={() => setRoutingFilter('all')}
-            className="text-emerald-700 hover:text-emerald-900 underline shrink-0"
-          >
-            عرض كافة الأصناف
-          </button>
-        </div>
-      )}
-
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <table className="w-full text-right">
-          <thead className="bg-slate-50 text-slate-600 font-bold text-sm border-b">
-            <tr>
-              <th className="p-4 w-10">
-                  <button onClick={handleSelectAll} className="text-slate-400 hover:text-blue-600">
-                      {selectedIds.size === items.length && items.length > 0 ? <CheckSquare size={20} /> : <Square size={20} />}
-                  </button>
-              </th>
-              <th className="p-4 w-16">الصورة</th>
-              <th className="p-4">اسم الصنف</th>
-              <th className="p-4">التصنيف</th>
-              <th className="p-4">النوع</th>
-              <th className={`p-4 text-center ${warehouseFilter !== 'all' ? 'text-blue-700 bg-blue-50/60 font-black' : ''}`}>
-                {warehouseFilter === 'all' 
-                  ? 'الرصيد الحالي' 
-                  : `رصيد (${warehouses.find(w => w.id === warehouseFilter)?.name || 'المستودع'})`
-                }
-              </th>
-              <th className="p-4 text-center">المحجوز</th>
-              <th className="p-4 text-center">الصلاحية</th>
-              <th className="p-4">متوسط التكلفة</th>
-              <th className="p-4">سعر البيع</th>
-              <th className="p-4 text-center">إجراءات</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y">
-            {items.map(item => {
-              const effectiveType = item.product_type || (item as any).item_type || 'STOCK';
-              return (
-              <tr key={item.id} className="hover:bg-slate-50">
-                <td className="p-4">
-                    <button onClick={() => toggleSelection(item.id)} className={selectedIds.has(item.id) ? "text-blue-600" : "text-slate-300"}>
-                        {selectedIds.has(item.id) ? <CheckSquare size={20} /> : <Square size={20} />}
-                    </button>
-                </td>
-                <td className="p-4">
-                  {item.image_url ? (
-                    <img src={item.image_url} alt={item.name} className="w-10 h-10 object-cover rounded-lg border border-slate-200" />
-                  ) : (
-                    <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400"><ImageIcon size={16} /></div>
-                  )}
-                </td>
-                <td className="p-4 font-bold text-slate-800">
-                  <div className="flex items-center gap-2">
-                    <span>{item.name}</span>
-                    {isOfferActive(item) && (
-                        <span className="inline-flex items-center gap-1 bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded-full animate-pulse">
-                            <Percent size={10} /> عرض خاص
-                        </span>
-                    )}
-                  </div>
-                  <div className="flex items-center flex-wrap gap-1.5 mt-1">
-                    {item.sku ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-mono bg-indigo-50 text-indigo-700 font-bold px-2 py-0.5 rounded border border-indigo-100">
-                        <span className="text-indigo-400 font-sans text-[10px]">كود:</span> {item.sku}
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 font-medium">
-                        بدون كود SKU
-                      </span>
-                    )}
-                    {item.barcode && (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-mono text-slate-600 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
-                        <Barcode size={12} className="text-slate-400" /> {item.barcode}
-                      </span>
-                    )}
-                  </div>
-                </td>
-                <td className="p-4 text-sm text-slate-500">
-                  {item.category_id && (
-                      <span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-medium">{categories.find(c => c.id === item.category_id)?.name || '-'}</span>
-                  )}
-                  {(item as any).supplier_id && (
-                      <span className="block mt-1 text-[11px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100 font-medium">
-                        🏢 {suppliers?.find((s: Record<string, any>) => s.id === (item as any).supplier_id)?.name || 'مورد محدد'}
-                      </span>
-                  )}
-                </td>
-                <td className="p-4">
-                  {effectiveType === 'RAW_MATERIAL' ? (
-                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-200">
-                      🥩 مادة خام
-                    </span>
-                  ) : effectiveType === 'MANUFACTURED' ? (
-                    <div>
-                      <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-700 border border-purple-200">
-                        🍲 منتج مصنع
-                      </span>
-                      {(() => {
-                        const routingInfo = routingsMap.get(item.id);
-                        if (routingInfo) {
-                          return (
-                            <button
-                              onClick={() => navigate(`/mfg/routing-bom?productId=${item.id}`)}
-                              title={`المسار: ${routingInfo.routingName} (${routingInfo.stepsCount} مراحل) - انقر لعرض المسار`}
-                              className={`mt-1.5 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border transition-all ${
-                                routingInfo.stepsCount > 0
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
-                              }`}
-                            >
-                              <Layers size={11} className={routingInfo.stepsCount > 0 ? 'text-emerald-600' : 'text-amber-600'} />
-                              <span>{routingInfo.stepsCount > 0 ? `مسار ومراحل (${routingInfo.stepsCount})` : 'مسار بدون مراحل'}</span>
-                            </button>
-                          );
-                        }
-                        return (
-                          <button
-                            onClick={() => navigate(`/mfg/routing-bom?productId=${item.id}`)}
-                            title="هذا الصنف مصنع ولكن لم يتم إنشاء مسار إنتاج أو مراحل له بعد - انقر لإنشاء مسار"
-                            className="mt-1.5 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 transition-all"
-                          >
-                            <AlertTriangle size={11} className="text-rose-600" />
-                            <span>بدون مسار تصنيعي</span>
-                            <PlusCircle size={10} className="text-rose-500" />
-                          </button>
-                        );
-                      })()}
-                    </div>
-                  ) : effectiveType === 'INTERMEDIATE_PRODUCT' ? (
-                    <div>
-                      <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
-                        🍰 منتج وسيط
-                      </span>
-                      {(() => {
-                        const routingInfo = routingsMap.get(item.id);
-                        if (routingInfo) {
-                          return (
-                            <button
-                              onClick={() => navigate(`/mfg/routing-bom?productId=${item.id}`)}
-                              title={`المسار: ${routingInfo.routingName} (${routingInfo.stepsCount} مراحل) - انقر لعرض المسار`}
-                              className={`mt-1.5 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border transition-all ${
-                                routingInfo.stepsCount > 0
-                                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                                  : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
-                              }`}
-                            >
-                              <Layers size={11} className={routingInfo.stepsCount > 0 ? 'text-emerald-600' : 'text-amber-600'} />
-                              <span>{routingInfo.stepsCount > 0 ? `مسار ومراحل (${routingInfo.stepsCount})` : 'مسار بدون مراحل'}</span>
-                            </button>
-                          );
-                        }
-                        return (
-                          <button
-                            onClick={() => navigate(`/mfg/routing-bom?productId=${item.id}`)}
-                            title="هذا الصنف وسيط ولكن لم يتم إنشاء مسار إنتاج أو مراحل له بعد - انقر لإنشاء مسار"
-                            className="mt-1.5 flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded border bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100 transition-all"
-                          >
-                            <AlertTriangle size={11} className="text-rose-600" />
-                            <span>بدون مسار تصنيعي</span>
-                            <PlusCircle size={10} className="text-rose-500" />
-                          </button>
-                        );
-                      })()}
-                    </div>
-                  ) : effectiveType === 'SERVICE' ? (
-                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700 border border-emerald-200">
-                      ⚙️ خدمي
-                    </span>
-                  ) : (
-                    <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-700 border border-blue-200">
-                      📦 مخزوني
-                    </span>
-                  )}
-                </td>
-                <td className="p-4 text-center font-bold text-slate-700">
-                    {warehouseFilter === 'all' ? (
-                      item.stock
-                    ) : (
-                      (() => {
-                        let wStock = (item as any).warehouse_stock || (item as any).warehouseStock || {};
-                        if (typeof wStock === 'string') {
-                          try { wStock = JSON.parse(wStock); } catch {}
-                        }
-                        const qty = Number(wStock?.[warehouseFilter] || 0);
-                        return (
-                          <span className={`inline-block px-2.5 py-1 rounded-lg font-mono font-black ${qty > 0 ? 'bg-blue-50 text-blue-800 border border-blue-200' : 'text-slate-400'}`}>
-                            {qty}
-                          </span>
-                        );
-                      })()
-                    )}
-                </td>
-                <td className="p-4 text-center font-bold text-amber-600">
-                    {reservedStock[item.id] > 0 ? (
-                        <span className="flex items-center justify-center gap-1 bg-amber-50 px-2 py-1 rounded-full text-xs border border-amber-100">
-                            <Lock size={12} /> {reservedStock[item.id]}
-                        </span>
-                    ) : '-'}
-                </td>
-                <td className="p-4 text-center text-slate-600 font-mono text-xs">
-                    {item.expiry_date || '-'}
-                </td>
-                <td className="p-4 text-slate-600 font-mono">
-                    {item.weighted_average_cost ? item.weighted_average_cost.toLocaleString() : item.purchase_price?.toLocaleString()}
-                    <span className="text-[10px] text-slate-400 block">آخر شراء: {item.purchase_price?.toLocaleString()}</span>
-                </td>
-                <td className="p-4 text-emerald-600 font-bold">
-                    {isOfferActive(item) ? (
-                        <div className="flex flex-col items-center">
-                            <span className="text-red-500 font-black">{item.offer_price?.toLocaleString()}</span>
-                            <span className="text-xs text-slate-400 line-through">{item.sales_price?.toLocaleString()}</span>
-                            <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1 rounded mt-0.5">عرض ساري</span>
-                        </div>
-                    ) : (
-                        item.sales_price?.toLocaleString()
-                    )}
-                </td>
-                <td className="p-4 flex justify-center gap-2 items-center">
-                  {isOfferActive(item) && (
-                      <button onClick={() => handlePrintOfferBarcode(item)} className="p-2 text-purple-600 hover:bg-purple-50 rounded" title="طباعة باركود العرض">
-                          <Barcode size={18} />
-                      </button>
-                  )}
-                  {isOfferExpired(item) && (
-                      <button onClick={() => handleRenewOffer(item)} className="p-2 text-amber-600 hover:bg-amber-50 rounded" title="تجديد العرض المنتهي">
-                          <RefreshCw size={18} />
-                      </button>
-                  )}
-                <button 
-                  onClick={() => setRecipeTarget({ id: item.id, name: item.name })} 
-                  className="p-2 text-indigo-600 hover:bg-indigo-50 rounded" 
-                  title="إدارة المكونات (BOM)"
-                >
-                  <UtensilsCrossed size={18} />
-                </button>
-                <button 
-                  onClick={() => setModifierTarget({ id: item.id, name: item.name })} 
-                  className="p-2 text-teal-600 hover:bg-teal-50 rounded" 
-                  title="إدارة الإضافات (Modifiers)"
-                >
-                  <Layers size={18} />
-                </button>
-                  <button onClick={() => handlePrintBarcode(item)} className="p-2 text-slate-500 hover:bg-slate-100 rounded" title="طباعة باركود">
-                      <Barcode size={18} />
-                  </button>
-                  <button onClick={() => handleOpenModal(item)} className="p-2 text-blue-500 hover:bg-blue-50 rounded"><Edit size={18}/></button>
-                  <button onClick={() => handleDelete(item.id)} className="p-2 text-red-500 hover:bg-red-50 rounded"><Trash2 size={18}/></button>
-                </td>
-              </tr>
-            ); })}
-            {items.length === 0 && (
-              <tr><td colSpan={11} className="p-8 text-center text-slate-400">لا توجد أصناف مسجلة</td></tr>
-            )}
-          </tbody>
-        </table>
-
-        {/* Pagination Controls */}
-        <div className="bg-slate-50 p-4 border-t border-slate-200 flex items-center justify-between">
-            <div className="text-sm text-slate-500">
-                عرض {items.length} من أصل {totalCount} صنف
-            </div>
-            <div className="flex items-center gap-2">
-                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1 || loading} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 transition-colors">
-                    <ChevronRight size={20} />
-                </button>
-                <span className="font-bold text-slate-700">صفحة {page} من {totalPages}</span>
-                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || loading} className="p-2 rounded-lg hover:bg-white disabled:opacity-50 transition-colors">
-                    <ChevronLeft size={20} />
-                </button>
-            </div>
-        </div>
-      </div>
+      <ProductsTable
+        items={items}
+        selectedIds={selectedIds}
+        categories={categories}
+        suppliers={suppliers}
+        warehouses={warehouses}
+        warehouseFilter={warehouseFilter}
+        routingsMap={routingsMap}
+        reservedStock={reservedStock}
+        page={page}
+        totalPages={totalPages}
+        totalCount={totalCount}
+        loading={loading}
+        onSelectAll={handleSelectAll}
+        onToggleSelection={toggleSelection}
+        onNavigateToRouting={(productId) => navigate(`/mfg/routing-bom?productId=${productId}`)}
+        onPrintOfferBarcode={handlePrintOfferBarcode}
+        onRenewOffer={handleRenewOffer}
+        onOpenRecipeTarget={setRecipeTarget}
+        onOpenModifierTarget={setModifierTarget}
+        onPrintBarcode={handlePrintBarcode}
+        onEditItem={(item) => handleOpenModal(item)}
+        onDeleteItem={handleDelete}
+        onPageChange={setPage}
+      />
 
       <ProductFormModal
         isOpen={isModalOpen}
