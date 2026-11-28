@@ -641,7 +641,9 @@ export const BankingProvider: React.FC<BankingProviderProps> = ({
       if (refreshAllData) await refreshAllData();
     } catch (e: unknown) {
       lastTransferSubmissionRef.current = null;
-      const errMsg = e instanceof Error ? e.message : String(e);
+      const errMsg = e instanceof Error
+        ? e.message
+        : (typeof e === 'object' && e !== null && 'message' in e ? String((e as { message: unknown }).message) : String(e));
       showToast?.('فشل تسجيل التحويل المالي: ' + errMsg, 'error');
       throw e;
     }

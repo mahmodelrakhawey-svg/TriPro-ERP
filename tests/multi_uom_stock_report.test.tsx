@@ -117,7 +117,7 @@ describe('MultiUomStockReport schema compatibility & UOM calculations', () => {
     });
 
     expect(screen.getByText('كرتونة')).toBeTruthy();
-    expect(screen.getByText('2')).toBeTruthy();
+    expect(screen.getByText((2).toLocaleString())).toBeTruthy();
     expect(mockShowToast).not.toHaveBeenCalled();
 
     const productSelect = mockSelectCalls.find(c => c.table === 'products');
@@ -165,7 +165,7 @@ describe('MultiUomStockReport schema compatibility & UOM calculations', () => {
     });
 
     expect(screen.getByText('شيكارة 25 كجم')).toBeTruthy();
-    expect(screen.getByText('50')).toBeTruthy();
+    expect(screen.getByText((50).toLocaleString())).toBeTruthy();
     expect(mockFetchUoms).not.toHaveBeenCalled();
     expect(mockShowToast).not.toHaveBeenCalled();
   });

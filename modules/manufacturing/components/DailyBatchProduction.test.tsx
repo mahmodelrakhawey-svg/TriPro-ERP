@@ -304,8 +304,9 @@ describe('🎂 DailyBatchProduction Utilities & Screen', () => {
       fireEvent.change(qty2, { target: { value: '10' } });
 
       // Pre-flight shortage should appear (3.5 required vs 3 available => 0.5 shortage)
+      const formattedShortage = (0.5).toLocaleString();
       await waitFor(() => {
-        expect(screen.getByText(/عجز 0\.5 كجم/)).toBeDefined();
+        expect(screen.getByText(new RegExp(`عجز\\s*(0\\.5|${formattedShortage.replace('.', '\\.')})\\s*كجم`))).toBeDefined();
       });
 
       // Execute batch and verify double-click guard

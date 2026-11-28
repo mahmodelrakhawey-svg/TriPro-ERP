@@ -193,7 +193,9 @@ const TransferForm = () => {
           resetForm();
         }
     } catch (error: unknown) {
-        const errMsg = error instanceof Error ? error.message : String(error);
+        const errMsg = error instanceof Error
+          ? error.message
+          : (typeof error === 'object' && error !== null && 'message' in error ? String((error as { message: unknown }).message) : String(error));
         showToast('فشل العملية: ' + errMsg, 'error');
     } finally {
         setLoading(false);

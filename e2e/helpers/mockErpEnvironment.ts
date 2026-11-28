@@ -127,6 +127,7 @@ export async function setupMockErpEnvironment(page: Page) {
       localStorage.setItem('tripro_last_valid_org_id', orgId);
       localStorage.setItem('tripro_last_selected_org_id', orgId);
       localStorage.setItem('tripro_demo_mode', 'true');
+      localStorage.setItem('demo_tour_seen', 'true');
     } catch (e) {
       console.error('Failed to init test localStorage', e);
     }
@@ -482,8 +483,8 @@ export async function loginToErp(page: Page) {
   await page.goto('/#/', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1000);
 
-  // المؤشر الدال على أن المستخدم داخل النظام بالفعل (وجود عناصر الشريط الجانبي)
-  const authenticatedMenu = page.locator('a[href*="invoices"], a[href*="products"], a[href*="dashboard"]').first();
+  // المؤشر الدال على أن المستخدم داخل النظام بالفعل (شريط القوائم العلوي أو الترويسة الرئيسية)
+  const authenticatedMenu = page.locator('main, button:has-text("ملف (File)"), h1:has-text("لوحة القيادة")').first();
 
   if (await authenticatedMenu.isVisible().catch(() => false)) {
     return;
@@ -508,6 +509,12 @@ export async function loginToErp(page: Page) {
 
   // انتظار اكتمال الدخول وتحميل عناصر الواجهة الرئيسية
   await expect(authenticatedMenu).toBeVisible({ timeout: 15000 });
+
+  // إغلاق نافذة الترحيب التجريبية إن ظهرت حتى لا تحجب التفاعل مع الشاشات
+  const skipWelcomeBtn = page.getByRole('button', { name: /^تخطي$/i }).first();
+  if (await skipWelcomeBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+    await skipWelcomeBtn.click();
+  }
 }
 
 /**

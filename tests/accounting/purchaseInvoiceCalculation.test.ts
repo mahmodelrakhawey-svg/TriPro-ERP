@@ -253,6 +253,40 @@ describe('Advanced Purchase Invoice Discounts & Tax Compliance (ETA)', () => {
     expect(result3.itemsDiscountTotal).toBe(50);
     expect(result3.totalAmount).toBe(450);
   });
+
+  it('يختبر المحرك الإنتاجي calculateInvoiceTotals لفاتورة مشتريات مختلطة الضرائب وخصم عام وضريبة استقطاع 1% وشحن', async () => {
+    const { calculateInvoiceTotals } = await import('../../utils/invoiceCalculations');
+    const { createPurchaseInvoiceSchema } = await import('../../utils/validationSchemas');
+
+    const result = calculateInvoiceTotals(
+      [
+        { quantity: 3.333, unitPrice: 15.75, taxRate: 0.14 }, // 52.49 + 7.35 = 59.84
+        { quantity: 2, unitPrice: 100, discountAmount: 20, taxRate: 0 }, // 200 - 20 = 180, tax 0
+      ],
+      10, // خصم عام 10%
+      0.01, // 1% WHT
+      30 // مصاريف شحن
+    );
+
+    expect(result.subtotal).toBe(252.49);
+    expect(result.totalItemsDiscount).toBe(20);
+    expect(result.netAfterItemsDiscount).toBe(232.49);
+    expect(result.overallDiscountAmount).toBe(23.25);
+    expect(result.taxableAmount).toBe(209.24);
+    expect(result.vatAmount).toBe(6.62); // 7.35 * 0.9 = 6.615 -> 6.62
+    expect(result.withholdingTaxAmount).toBe(2.09); // 209.24 * 0.01
+    expect(result.grandTotal).toBe(243.77); // 209.24 + 6.62 - 2.09 + 30
+
+    // التحقق من رفض الكميات الصفرية أو السالبة في مخطط فاتورة المشتريات
+    const invalidPurchase = createPurchaseInvoiceSchema.safeParse({
+      supplierId: '11111111-1111-4111-8111-111111111111',
+      warehouseId: '22222222-2222-4222-8222-222222222222',
+      invoiceNumber: 'PUR-100',
+      invoiceDate: '2026-11-28',
+      items: [{ productId: '33333333-3333-4333-8333-333333333333', quantity: 0, unitPrice: 50 }],
+    });
+    expect(invalidPurchase.success).toBe(false);
+  });
 });
 
 

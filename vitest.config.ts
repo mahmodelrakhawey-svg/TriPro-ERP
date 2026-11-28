@@ -15,5 +15,10 @@ export default defineConfig({
     environment: 'jsdom', // محاكاة بيئة المتصفح
     include: ['*.{test,spec}.{ts,tsx}', 'tests/**/*.{test,spec}.{ts,tsx}', 'modules/**/*.{test,spec}.{ts,tsx}', 'utils/**/*.{test,spec}.{ts,tsx}'],
     exclude: ['node_modules/**', 'dist/**', '.git/**', 'tests/integration/**'],
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'html'],
+      exclude: ['node_modules/**', 'e2e/**', '**/*.spec.ts', 'dist/**'],
+    },
   },
 });

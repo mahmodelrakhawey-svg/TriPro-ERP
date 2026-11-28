@@ -112,4 +112,17 @@ describe('🛡️ Tenant Context & Active Organization Resolver', () => {
     expect(getActiveOrgIdSync()).toBeNull();
     expect(secureStorage.removeItem).toHaveBeenCalledWith('tripro_active_org_id');
   });
+
+  it('يرفض المعرفات غير الصالحة في getActiveOrgIdSync و resolveActiveOrgId دون تخزينها', async () => {
+    (supabase.auth.getSession as any).mockResolvedValue({
+      data: { session: null },
+    });
+
+    const invalidSync = getActiveOrgIdSync('not-a-uuid');
+    expect(invalidSync).toBeNull();
+
+    const invalidAsync = await resolveActiveOrgId('org-default-offline');
+    expect(invalidAsync).toBeNull();
+    expect(secureStorage.setItem).not.toHaveBeenCalled();
+  });
 });
