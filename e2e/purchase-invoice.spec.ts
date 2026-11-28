@@ -43,7 +43,7 @@ test.describe('TriPro ERP - دورة المشتريات الكاملة (End-to-E
     const dateInput = page.locator('input[type="date"]').first();
     await expect(dateInput).toBeVisible();
 
-    const selectOrInput = page.locator('select, input, button').filter({ hasText: /مورد|مخزن/i }).first();
+    const selectOrInput = invoiceContainer.locator('select, input, button').filter({ hasText: /مورد|مخزن/i }).first();
     await expect(selectOrInput).toBeVisible();
 
     // البحث عن صنف وإضافته

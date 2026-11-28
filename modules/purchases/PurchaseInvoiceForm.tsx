@@ -2,12 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { logger } from '../../utils/logger';
 import { useAccounting } from '../../context/AccountingContext';
 import { useToast } from '../../context/ToastContext';
-import { 
-    Plus, Trash2, Save, ShoppingCart, Search, AlertCircle,
-    Loader2, CheckCircle, Package, Ruler, List, 
-    Printer, ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft,
-    DollarSign, Activity, FileText, Sparkles, Percent, Tag, Paperclip, Unlock, Edit, Copy
-} from 'lucide-react';
+import { Save, Loader2, CheckCircle, Unlock } from 'lucide-react';
 import { Product } from '../../types';
 import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -24,6 +19,16 @@ import { calculatePurchaseInvoiceTotals } from './purchaseInvoiceUtils';
 import PurchaseInvoiceAttachments, { PurchaseAttachmentItem } from './components/PurchaseInvoiceAttachments';
 import { ProductFormModal, ProductFormData } from '../inventory/components/ProductFormModal';
 import { fetchUoms } from '../../services/uomService';
+import { PurchaseInvoiceHeader } from './components/PurchaseInvoiceHeader';
+import { PurchaseInvoiceItemsTable } from './components/PurchaseInvoiceItemsTable';
+import { PurchaseInvoiceTotalsSection } from './components/PurchaseInvoiceTotalsSection';
+import {
+  buildEditPurchaseProductFormData,
+  buildInitialPurchaseProductFormData,
+  filterPurchaseProducts,
+  generateUniqueBarcodeForProducts,
+  generateUniqueSkuForProducts,
+} from './utils/purchaseProductHelpers';
 
 const PurchaseInvoiceForm = () => {
   const { 
@@ -80,55 +85,9 @@ const PurchaseInvoiceForm = () => {
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
   const [productFormUploading, setProductFormUploading] = useState(false);
-  const [productFormData, setProductFormData] = useState<ProductFormData>({
-    name: '',
-    sku: '',
-    barcode: '',
-    sales_price: 0,
-    description: '',
-    purchase_price: 0,
-    unit: 'قطعة',
-    base_uom_id: '',
-    purchase_uom_id: '',
-    sale_uom_id: '',
-    product_type: 'STOCK',
-    inventory_account_id: '',
-    cogs_account_id: '',
-    sales_account_id: '',
-    image_url: '',
-    opening_stock: 0,
-    opening_warehouse_id: '',
-    category_id: null,
-    min_stock_level: 0,
-    requires_serial: false,
-    expiry_date: '',
-    offer_price: 0,
-    offer_start_date: '',
-    offer_end_date: '',
-    offer_max_qty: 0,
-    available_modifiers: [],
-    labor_cost: 0,
-    overhead_cost: 0,
-    is_overhead_percentage: false,
-    barcode2: '',
-    is_scale_item: false,
-    plu_number: 0,
-    scale_prefix: '22',
-    shelf_location: '',
-    brand: '',
-    country_of_origin: '',
-    age_restricted: false,
-    tax_rate_override: 0,
-    unit_barcodes: [],
-    min_sales_price: 0,
-    max_stock_level: 0,
-    wholesale_price: 0,
-    half_wholesale_price: 0,
-    supplier_id: null,
-    item_code_type: 'EGS',
-    egs_code: '',
-    eta_unit_code: '',
-  });
+  const [productFormData, setProductFormData] = useState<ProductFormData>(() =>
+    buildInitialPurchaseProductFormData()
+  );
 
   // Navigation & Edit State
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -610,172 +569,56 @@ const PurchaseInvoiceForm = () => {
   const taxAmount = invoiceCalculation.taxAmount;
   const totalAmount = invoiceCalculation.totalAmount;
 
-  const filteredProducts = useMemo(() => {
-      const term = productSearchTerm.trim().toLowerCase();
-      if (!term) return [];
-      
-      return products
-          .filter(p =>
-              p.name.toLowerCase().includes(term) ||
-              (p.sku && p.sku.toLowerCase().includes(term)) ||
-              (p.barcode && p.barcode.toLowerCase().includes(term)) ||
-              ((p as any).barcode2 && (p as any).barcode2.toLowerCase().includes(term)) ||
-              (Array.isArray((p as any).unit_barcodes) && (p as any).unit_barcodes.some((ub: Record<string, any>) => ub.barcode && ub.barcode.toLowerCase().includes(term)))
-          )
-          .sort((a, b) => {
-              const aName = a.name.toLowerCase();
-              const bName = b.name.toLowerCase();
-              const aStarts = aName.startsWith(term);
-              const bStarts = bName.startsWith(term);
-              if (aStarts && !bStarts) return -1;
-              if (!aStarts && bStarts) return 1;
-              return aName.localeCompare(bName);
-          })
-          .slice(0, 10);
-  }, [productSearchTerm, products]);
+  const filteredProducts = useMemo(
+    () => filterPurchaseProducts(products, productSearchTerm),
+    [productSearchTerm, products]
+  );
 
   // 🏷️ توليد كود فريد تلقائياً لصنف (SKU)
-  const generateUniqueSku = (prefix = 'SKU'): string => {
-    const existingSkus = new Set(
-      (products || []).map(p => (p.sku || '').trim().toUpperCase()).filter(Boolean)
-    );
-    let seq = (products || []).length + 1;
-    let candidate = `${prefix}-${String(seq).padStart(5, '0')}`;
-    while (existingSkus.has(candidate.toUpperCase())) {
-      seq++;
-      candidate = `${prefix}-${String(seq).padStart(5, '0')}`;
-    }
-    return candidate;
-  };
+  const generateUniqueSku = (prefix = 'SKU'): string =>
+    generateUniqueSkuForProducts(products, prefix);
 
   // 🏷️ توليد باركود فريد تلقائياً
-  const generateUniqueBarcode = (): string => {
-    const existingBarcodes = new Set(
-      (products || []).map(p => (p.barcode || '').trim()).filter(Boolean)
-    );
-    let candidate = '';
-    do {
-      const rand = Math.floor(100000000 + Math.random() * 900000000);
-      candidate = String(rand);
-    } while (existingBarcodes.has(candidate));
-    return candidate;
-  };
+  const generateUniqueBarcode = (): string =>
+    generateUniqueBarcodeForProducts(products);
 
   // 🟢 فتح كارت الصنف لإضافة صنف جديد
   const handleOpenAddProductModal = () => {
-    const rawMaterialAcc = getSystemAccount?.('INVENTORY_RAW_MATERIALS')?.id || (settings as any)?.account_mappings?.INVENTORY_RAW_MATERIALS || '';
-    const finishedGoodsAcc = getSystemAccount?.('INVENTORY_FINISHED_GOODS')?.id || (settings as any)?.account_mappings?.INVENTORY_FINISHED_GOODS || '';
-    const generalInvAcc = getSystemAccount?.('INVENTORY')?.id || (settings as any)?.account_mappings?.INVENTORY || '';
+    const accMappings = (settings as Record<string, unknown>)?.account_mappings as Record<string, string> | undefined;
+    const rawMaterialAcc = getSystemAccount?.('INVENTORY_RAW_MATERIALS')?.id || accMappings?.INVENTORY_RAW_MATERIALS || '';
+    const finishedGoodsAcc = getSystemAccount?.('INVENTORY_FINISHED_GOODS')?.id || accMappings?.INVENTORY_FINISHED_GOODS || '';
+    const generalInvAcc = getSystemAccount?.('INVENTORY')?.id || accMappings?.INVENTORY || '';
     const defaultInventory = rawMaterialAcc || finishedGoodsAcc || generalInvAcc || '';
     const defaultCogs = getSystemAccount?.('COGS')?.id || '';
     const defaultSales = getSystemAccount?.('SALES_REVENUE')?.id || '';
 
     setEditingProductId(null);
-    setProductFormData({
-      name: productSearchTerm.trim() || '',
-      sku: generateUniqueSku(),
-      barcode: '',
-      sales_price: 0,
-      description: '',
-      purchase_price: 0,
-      unit: 'قطعة',
-      base_uom_id: '',
-      purchase_uom_id: '',
-      sale_uom_id: '',
-      product_type: 'STOCK',
-      inventory_account_id: defaultInventory,
-      cogs_account_id: defaultCogs,
-      sales_account_id: defaultSales,
-      image_url: '',
-      opening_stock: 0,
-      opening_warehouse_id: formData.warehouseId || (warehouses[0]?.id || ''),
-      category_id: null,
-      min_stock_level: 0,
-      requires_serial: false,
-      expiry_date: '',
-      offer_price: 0,
-      offer_start_date: '',
-      offer_end_date: '',
-      offer_max_qty: 0,
-      available_modifiers: [],
-      labor_cost: 0,
-      overhead_cost: 0,
-      is_overhead_percentage: false,
-      barcode2: '',
-      is_scale_item: false,
-      plu_number: 0,
-      scale_prefix: '22',
-      shelf_location: '',
-      brand: '',
-      country_of_origin: '',
-      age_restricted: false,
-      tax_rate_override: 0,
-      unit_barcodes: [],
-      min_sales_price: 0,
-      max_stock_level: 0,
-      wholesale_price: 0,
-      half_wholesale_price: 0,
-      supplier_id: formData.supplierId || null,
-      item_code_type: 'EGS',
-      egs_code: '',
-      eta_unit_code: '',
-    });
+    setProductFormData(
+      buildInitialPurchaseProductFormData({
+        name: productSearchTerm.trim() || '',
+        sku: generateUniqueSku(),
+        inventoryAccountId: defaultInventory,
+        cogsAccountId: defaultCogs,
+        salesAccountId: defaultSales,
+        openingWarehouseId: formData.warehouseId || (warehouses[0]?.id || ''),
+        supplierId: formData.supplierId || null,
+      })
+    );
     setIsProductModalOpen(true);
   };
 
   // ✏️ فتح كارت الصنف لتعديل صنف موجود
-  const handleOpenEditProductModal = (product: Product | any) => {
+  const handleOpenEditProductModal = (product: Product | Record<string, unknown>) => {
     if (!product) return;
-    setEditingProductId(product.id);
-    setProductFormData({
-      name: product.name || '',
-      sku: product.sku || generateUniqueSku(),
-      barcode: product.barcode || '',
-      sales_price: Number(product.sales_price || 0),
-      description: product.description || '',
-      purchase_price: Number(product.purchase_price || product.cost || 0),
-      unit: product.unit || 'قطعة',
-      base_uom_id: product.base_uom_id || '',
-      purchase_uom_id: product.purchase_uom_id || '',
-      sale_uom_id: product.sale_uom_id || '',
-      product_type: (product.product_type || product.item_type || 'STOCK') as any,
-      inventory_account_id: product.inventory_account_id || '',
-      cogs_account_id: product.cogs_account_id || '',
-      sales_account_id: product.sales_account_id || '',
-      image_url: product.image_url || '',
-      opening_stock: Number(product.stock || 0),
-      opening_warehouse_id: warehouses[0]?.id || '',
-      category_id: product.category_id || null,
-      min_stock_level: Number(product.min_stock_level || 0),
-      requires_serial: Boolean(product.requires_serial),
-      expiry_date: product.expiry_date || '',
-      offer_price: Number(product.offer_price || 0),
-      offer_start_date: product.offer_start_date || '',
-      offer_end_date: product.offer_end_date || '',
-      offer_max_qty: Number(product.offer_max_qty || 0),
-      available_modifiers: product.available_modifiers || [],
-      labor_cost: Number(product.labor_cost || 0),
-      overhead_cost: Number(product.overhead_cost || 0),
-      is_overhead_percentage: Boolean(product.is_overhead_percentage),
-      barcode2: product.barcode2 || '',
-      is_scale_item: Boolean(product.is_scale_item),
-      plu_number: Number(product.plu_number || 0),
-      scale_prefix: product.scale_prefix || '22',
-      shelf_location: product.shelf_location || '',
-      brand: product.brand || '',
-      country_of_origin: product.country_of_origin || '',
-      age_restricted: Boolean(product.age_restricted),
-      tax_rate_override: Number(product.tax_rate_override || 0),
-      unit_barcodes: Array.isArray(product.unit_barcodes) ? product.unit_barcodes : [],
-      min_sales_price: Number(product.min_sales_price || 0),
-      max_stock_level: Number(product.max_stock_level || 0),
-      wholesale_price: Number(product.wholesale_price || 0),
-      half_wholesale_price: Number(product.half_wholesale_price || 0),
-      supplier_id: product.supplier_id || null,
-      item_code_type: product.item_code_type || 'EGS',
-      egs_code: product.egs_code || '',
-      eta_unit_code: product.eta_unit_code || '',
-    });
+    const prodRec = product as Record<string, unknown>;
+    setEditingProductId(String(prodRec.id || ''));
+    setProductFormData(
+      buildEditPurchaseProductFormData(
+        prodRec,
+        generateUniqueSku(),
+        warehouses[0]?.id || ''
+      )
+    );
     setIsProductModalOpen(true);
   };
 
@@ -1732,235 +1575,29 @@ const PurchaseInvoiceForm = () => {
 
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-in fade-in">
-      
-      {/* تنبيه للمستودعات */}
-      {warehouses.length === 0 && (
-        <div className="bg-amber-50 border-2 border-amber-200 p-5 rounded-2xl mb-4 flex flex-col md:flex-row items-center justify-between gap-4 animate-in slide-in-from-top-4 shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="bg-amber-100 p-3 rounded-2xl">
-              <AlertCircle className="text-amber-600" size={28} />
-            </div>
-            <div>
-              <h4 className="font-black text-amber-900 text-lg">تنبيه: لم يتم إعداد المخازن بعد</h4>
-              <p className="text-amber-700 font-medium">يرجى إضافة مستودع واحد على الأقل لاستلام المشتريات عليه.</p>
-            </div>
-          </div>
-          <button 
-            onClick={() => navigate('/warehouses')} 
-            className="bg-amber-600 text-white px-6 py-3 rounded-2xl font-black hover:bg-amber-700 transition-all shadow-md flex items-center gap-2 whitespace-nowrap"
-          >
-            <Plus size={20} /> إضافة مستودع الآن
-          </button>
-        </div>
-      )}
-
-      {/* 🚀 Header & Navigation Bar */}
-      <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col md:flex-row justify-between items-center gap-4">
-        
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
-            <ShoppingCart size={24} />
-          </div>
-          <div>
-            <h2 className="text-xl font-black text-slate-800 flex items-center gap-2">
-              {editingId ? `فاتورة مشتريات: ${formData.invoiceNumber}` : 'فاتورة مشتريات جديدة'}
-              {editingId && (
-                <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
-                  formData.status === 'posted' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'
-                }`}>
-                  {formData.status === 'posted' ? 'مرحلة ✅' : 'مسودة 📝'}
-                </span>
-              )}
-            </h2>
-            <p className="text-xs text-slate-400 font-bold">تسجيل استلام بضاعة وفواتير الموردين وتحديث المخزون</p>
-          </div>
-        </div>
-
-        {/* 🧭 أسهم التنقل بين الفواتير */}
-        <div className="flex items-center gap-1 bg-slate-50 p-1.5 rounded-xl border border-slate-200">
-          <button 
-            type="button" 
-            onClick={() => handleNavigate('first')} 
-            disabled={invoiceIds.length === 0 || currentIndex === 0} 
-            title="أول فاتورة"
-            className="p-2 text-slate-600 hover:bg-white hover:text-emerald-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
-          >
-            <ChevronsRight size={18} />
-          </button>
-          
-          <button 
-            type="button" 
-            onClick={() => handleNavigate('prev')} 
-            disabled={invoiceIds.length === 0 || currentIndex <= 0} 
-            title="الفاتورة السابقة"
-            className="p-2 text-slate-600 hover:bg-white hover:text-emerald-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
-          >
-            <ChevronRight size={18} />
-          </button>
-
-          {/* Record Counter */}
-          <div className="px-3 py-1 bg-white border border-slate-200 rounded-lg text-xs font-mono font-black text-slate-700 select-none">
-            {loadingInvoice ? (
-              <Loader2 size={14} className="animate-spin text-emerald-600" />
-            ) : editingId && currentIndex !== -1 ? (
-              <span>{currentIndex + 1} / {invoiceIds.length}</span>
-            ) : (
-              <span className="text-emerald-600 font-bold">جديد ➕</span>
-            )}
-          </div>
-
-          <button 
-            type="button" 
-            onClick={() => handleNavigate('next')} 
-            disabled={invoiceIds.length === 0 || currentIndex >= invoiceIds.length - 1 || currentIndex === -1} 
-            title="الفاتورة التالية"
-            className="p-2 text-slate-600 hover:bg-white hover:text-emerald-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
-          >
-            <ChevronLeft size={18} />
-          </button>
-
-          <button 
-            type="button" 
-            onClick={() => handleNavigate('last')} 
-            disabled={invoiceIds.length === 0 || currentIndex >= invoiceIds.length - 1 || currentIndex === -1} 
-            title="آخر فاتورة"
-            className="p-2 text-slate-600 hover:bg-white hover:text-emerald-600 rounded-lg transition-all disabled:opacity-30 disabled:hover:bg-transparent"
-          >
-            <ChevronsLeft size={18} />
-          </button>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2">
-          <button 
-            type="button" 
-            onClick={() => navigate('/purchase-invoices-list')} 
-            className="bg-slate-100 text-slate-700 hover:bg-slate-200 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
-            title="عرض سجل المشتريات"
-          >
-            <List size={16} /> سجل المشتريات
-          </button>
-
-          <button 
-            type="button" 
-            onClick={handleNewInvoice} 
-            className="bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
-            title="بدء فاتورة مشتريات جديدة"
-          >
-            <Plus size={16} /> جديد
-          </button>
-
-          {Boolean(editingId || items.length > 0) && (
-            <button 
-              type="button" 
-              onClick={handleDuplicateCurrentInvoice} 
-              className="bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs"
-              title="تكرار / استنساخ هذه الفاتورة كمسودة جديدة بجميع بنودها وأسعارها"
-            >
-              <Copy size={16} /> تكرار الفاتورة
-            </button>
-          )}
-
-          {!editingId && (
-            <button 
-              type="button" 
-              onClick={() => setIsOCRModalOpen(true)} 
-              className="bg-purple-50 text-purple-700 border border-purple-200 hover:bg-purple-100 px-3.5 py-2 rounded-xl text-xs font-black flex items-center gap-1.5 transition-colors shadow-xs"
-              title="المسح الذكي لفاتورة المشتريات بالذكاء الاصطناعي"
-            >
-              <Sparkles size={16} className="text-purple-600 animate-pulse" /> مسح ذكي (AI OCR)
-            </button>
-          )}
-
-          {editingId && (
-            <>
-              <button 
-                type="button" 
-                onClick={handlePrintCurrent} 
-                className="bg-slate-800 text-white hover:bg-slate-700 px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors"
-                title="طباعة الفاتورة"
-              >
-                <Printer size={16} /> طباعة
-              </button>
-
-              <button 
-                type="button" 
-                onClick={handleDeleteCurrent} 
-                disabled={deleting} 
-                className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 ${
-                  (formData.status === 'posted' || formData.status === 'paid')
-                    ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-                    : 'bg-red-50 text-red-700 border border-red-200 hover:bg-red-100'
-                }`}
-                title={(formData.status === 'posted' || formData.status === 'paid') ? 'لا يمكن حذف فاتورة المشتريات المرحلة؛ قم بإلغاء الترحيل أولاً' : 'حذف مسودة هذه الفاتورة'}
-              >
-                {deleting ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />} حذف
-              </button>
-            </>
-          )}
-
-          {(formData.status === 'posted' || formData.status === 'paid') ? (
-            canUnpost && (
-              <button 
-                type="button" 
-                onClick={handleUnpostInvoice} 
-                disabled={saving} 
-                className="bg-amber-600 text-white px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-amber-700 transition-colors shadow-sm disabled:opacity-50"
-                title="إلغاء ترحيل الفاتورة وإعادتها لمسودة قابلة للتعديل"
-              >
-                {saving ? <Loader2 className="animate-spin" size={16} /> : <Unlock size={16} />} 
-                إلغاء الترحيل للتعديل 🔓
-              </button>
-            )
-          ) : (
-            <button 
-              type="button" 
-              onClick={() => handleSave(undefined, true)} 
-              disabled={saving} 
-              className="bg-emerald-600 text-white px-5 py-2 rounded-xl font-bold text-xs flex items-center gap-1.5 hover:bg-emerald-700 transition-colors shadow-sm disabled:opacity-50"
-            >
-              {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />} 
-              {editingId ? 'حفظ وتحديث' : 'حفظ وترحيل'}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* 🛡️ صمام حماية المستندات المرحلة (Posted Document Shield Banner) */}
-      {(formData.status === 'posted' || formData.status === 'paid') && (
-        <div className="bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50 border-2 border-amber-300 rounded-3xl p-5 shadow-sm mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 animate-in fade-in">
-          <div className="flex items-start md:items-center gap-3.5">
-            <div className="p-3 bg-amber-500 text-white rounded-2xl shadow-sm">
-              <AlertCircle size={26} />
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h4 className="font-black text-slate-900 text-base">فاتورة مشتريات مرحلة محاسبياً (Posted Document)</h4>
-                <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-200 text-amber-900">
-                  مرحلة ومقفلة
-                </span>
-              </div>
-              <p className="text-xs text-amber-900 mt-1 leading-relaxed font-medium">
-                هذه الفاتورة معتمدة ومرحلة في حسابات الموردين ودفتر الأستاذ والمخزون. للتعديل، يرجى إلغاء الترحيل أولاً لتحويلها إلى مسودة (Draft) إذا كانت لديك الصلاحية، أو إصدار مرتجع مشتريات.
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 self-end md:self-center shrink-0">
-            {canUnpost && (
-              <button
-                type="button"
-                onClick={handleUnpostInvoice}
-                disabled={saving}
-                className="px-4 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-black text-xs rounded-xl shadow-md shadow-amber-600/20 transition-all flex items-center gap-2"
-                title="إلغاء الترحيل وتحويل الفاتورة لمسودة قابلة للتعديل"
-              >
-                {saving ? <Loader2 size={16} className="animate-spin" /> : <Unlock size={16} />}
-                إلغاء الترحيل للتعديل
-              </button>
-            )}
-          </div>
-        </div>
-      )}
+      <PurchaseInvoiceHeader
+        warehousesCount={warehouses.length}
+        editingId={editingId}
+        invoiceNumber={formData.invoiceNumber}
+        status={formData.status}
+        loadingInvoice={loadingInvoice}
+        invoiceIdsLength={invoiceIds.length}
+        currentIndex={currentIndex}
+        itemsLength={items.length}
+        deleting={deleting}
+        saving={saving}
+        canUnpost={canUnpost}
+        onNavigateToWarehouses={() => navigate('/warehouses')}
+        onNavigateRecord={handleNavigate}
+        onOpenList={() => navigate('/purchase-invoices-list')}
+        onNewInvoice={handleNewInvoice}
+        onDuplicateInvoice={handleDuplicateCurrentInvoice}
+        onOpenOCRModal={() => setIsOCRModalOpen(true)}
+        onPrintCurrent={handlePrintCurrent}
+        onDeleteCurrent={handleDeleteCurrent}
+        onUnpostInvoice={handleUnpostInvoice}
+        onSaveAndPost={() => handleSave(undefined, true)}
+      />
 
       <fieldset disabled={formData.status === 'posted' || formData.status === 'paid'} className="space-y-6">
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
@@ -2026,368 +1663,36 @@ const PurchaseInvoiceForm = () => {
 
         {/* Product Search & Items */}
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-          
-          <div className="relative">
-            <div className="flex items-center justify-between gap-2 mb-1">
-              <label className="block text-xs font-bold text-slate-600">إضافة صنف للفاتورة (ابحث بالاسم أو الباركود)</label>
-              <button
-                type="button"
-                onClick={handleOpenAddProductModal}
-                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
-                title="إضافة صنف جديد كلياً إلى قاعدة البيانات والفاتورة"
-              >
-                <Plus size={14} /> إضافة صنف جديد
-              </button>
-            </div>
-            <div className="relative">
-              <input 
-                type="text" 
-                placeholder="ابحث بالاسم، الكود، أو الباركود واضغط Enter..." 
-                value={productSearchTerm}
-                onChange={e => { setProductSearchTerm(e.target.value); setShowProductResults(true); }}
-                onKeyDown={handleSearchKeyDown}
-                className="w-full border rounded-xl p-2.5 pl-10 bg-slate-50 focus:bg-white text-sm outline-none focus:border-emerald-500 transition-colors"
-              />
-              <Search className="absolute left-3 top-3 text-slate-400" size={18} />
-            </div>
+          <PurchaseInvoiceItemsTable
+            productSearchTerm={productSearchTerm}
+            showProductResults={showProductResults}
+            filteredProducts={filteredProducts}
+            items={items}
+            products={products}
+            uoms={uoms}
+            currency={settings.currency || 'ج.م'}
+            onSearchTermChange={(val) => { setProductSearchTerm(val); setShowProductResults(true); }}
+            onSearchKeyDown={handleSearchKeyDown}
+            onOpenAddProductModal={handleOpenAddProductModal}
+            onAddProductToInvoice={(p) => addProductToInvoice(p)}
+            onOpenEditProductModal={handleOpenEditProductModal}
+            onItemChange={handleItemChange}
+            onRemoveItem={removeItem}
+            onMissingProductEdit={() => showToast('تعذر العثور على بيانات الصنف', 'warning')}
+          />
 
-            {showProductResults && filteredProducts.length > 0 && (
-              <div className="absolute top-full left-0 w-full bg-white border border-slate-200 shadow-xl rounded-xl mt-1 z-20 overflow-hidden divide-y divide-slate-100 max-h-72 overflow-y-auto">
-                {filteredProducts.map(p => (
-                  <div 
-                    key={p.id} 
-                    className="p-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center transition-colors group"
-                  >
-                    <div className="flex-1" onClick={() => addProductToInvoice(p)}>
-                      <span className="font-bold text-slate-800 text-sm block">{p.name}</span>
-                      <span className="text-xs text-slate-400 font-mono">الكود: {p.sku || '-'} | الباركود: {p.barcode || '-'}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className="font-bold text-emerald-600 font-mono text-sm" onClick={() => addProductToInvoice(p)}>
-                        {(p.purchase_price || p.cost || 0).toLocaleString()} {settings.currency || 'ج.م'}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleOpenEditProductModal(p);
-                        }}
-                        className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-lg transition"
-                        title="تعديل كارت الصنف"
-                      >
-                        <Edit size={15} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[960px] text-right text-sm">
-              <thead className="bg-slate-50 text-xs font-bold text-slate-600 border-b border-slate-200">
-                <tr>
-                  <th className="p-3 min-w-[200px]">الصنف</th>
-                  <th className="p-3 min-w-[110px] text-center">الوحدة</th>
-                  <th className="p-3 min-w-[105px] text-center">الكمية</th>
-                  <th className="p-3 min-w-[145px] text-center" title="سعر الوحدة مع اتساع مرن للأرقام والكسور">سعر الوحدة</th>
-                  <th className="p-3 min-w-[110px] text-center" title="خصم خاص على مستوى هذا الصنف">خصم الصنف</th>
-                  <th className="p-3 min-w-[95px] text-center">ضريبة %</th>
-                  <th className="p-3 min-w-[135px] text-center" title="إجمالي البند (يمكنك إدخال الإجمالي مباشرة وسيتم حساب سعر الوحدة تلقائياً)">إجمالي البند</th>
-                  <th className="p-3 w-10 text-center"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {items.map((item, index) => (
-                  <tr key={index} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="p-3 font-bold text-slate-800">
-                      <div className="flex items-center flex-wrap gap-1.5">
-                        <span>{item.productName || products.find(p => p.id === item.productId)?.name || 'صنف'}</span>
-                        {Number(item.taxRate) > 0 && (
-                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            ضريبة {item.taxRate}%
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-3">
-                      <select 
-                        value={item.uomId || ''} 
-                        onChange={e => handleItemChange(index, 'uomId', e.target.value)}
-                        className="w-full border rounded-lg p-1.5 text-xs bg-white font-bold"
-                      >
-                        {uoms.filter(u => {
-                            const prod = products.find(p => p.id === item.productId);
-                            const baseUom = uoms.find(ux => ux.id === prod?.base_uom_id);
-                            return !baseUom || u.category_id === baseUom.category_id;
-                        }).map(u => (
-                          <option key={u.id} value={u.id}>{u.name}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="p-3 min-w-[105px]">
-                      <div className="flex items-center justify-center">
-                        <input 
-                          type="number" 
-                          step="any" 
-                          min="0.001"
-                          value={item.quantity === 0 ? '' : item.quantity} 
-                          onChange={e => handleItemChange(index, 'quantity', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)} 
-                          className="w-full min-w-[85px] border border-slate-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 rounded-lg py-1.5 px-2 text-center font-mono font-bold text-emerald-700 bg-white shadow-sm transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none hover:border-slate-300" 
-                          style={{ width: `${Math.max(85, String(item.quantity || '').length * 11 + 25)}px` }}
-                          placeholder="1"
-                          title={`الكمية: ${item.quantity || 0}`}
-                        />
-                      </div>
-                    </td>
-                    <td className="p-3 min-w-[145px]">
-                      <div className="flex items-center justify-center">
-                        <input 
-                          type="number" 
-                          step="any" 
-                          min="0" 
-                          value={item.unitPrice === 0 ? '' : item.unitPrice} 
-                          onChange={e => handleItemChange(index, 'unitPrice', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)} 
-                          className="w-full min-w-[125px] border border-slate-200 focus:border-blue-500 focus:ring-2 focus:ring-blue-100 rounded-lg py-1.5 px-2 text-center font-mono font-bold text-slate-800 bg-white shadow-sm transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none hover:border-slate-300" 
-                          style={{ width: `${Math.max(125, String(item.unitPrice || '').length * 11 + 30)}px` }}
-                          placeholder="0.00"
-                          title={`سعر الوحدة: ${item.unitPrice || 0}`}
-                        />
-                      </div>
-                    </td>
-                    <td className="p-3 min-w-[110px] text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <input 
-                          type="number" 
-                          min="0" 
-                          step="any"
-                          value={item.discount ?? 0} 
-                          onChange={e => handleItemChange(index, 'discount', parseFloat(e.target.value) || 0)} 
-                          className="w-20 border rounded-lg p-1.5 text-center font-mono font-bold text-rose-700 bg-white focus:border-rose-500 outline-none" 
-                          placeholder="0.00"
-                          title="قيمة الخصم المباشر على هذا البند (ج.م)"
-                        />
-                      </div>
-                      {Number(item.discount) > 0 && ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)) > 0 && (
-                        <span className="text-[10px] text-rose-600 font-mono font-bold block mt-0.5" title="نسبة الخصم من إجمالي البند">
-                          -{((Number(item.discount) / ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0))) * 100).toFixed(1)}%
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-3 min-w-[95px] text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <input 
-                          type="number" 
-                          min="0" 
-                          max="100" 
-                          step="any"
-                          value={item.taxRate ?? 0} 
-                          onChange={e => handleItemChange(index, 'taxRate', parseFloat(e.target.value) || 0)} 
-                          className="w-16 border rounded-lg p-1.5 text-center font-mono font-bold text-slate-800 bg-white focus:border-emerald-500 outline-none" 
-                          title="نسبة الضريبة الخاصة بالبند"
-                        />
-                        <span className="text-xs text-slate-400 font-bold">%</span>
-                      </div>
-                      {Number(item.taxRate) > 0 && (
-                        <span className="text-[10px] text-emerald-600 font-mono font-bold block mt-0.5" title="قيمة ضريبة هذا البند">
-                          +{((Math.max(0, ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)) - (Number(item.discount) || 0))) * ((Number(item.taxRate) || 0) / 100)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-3 min-w-[135px]">
-                      <div className="flex items-center justify-center">
-                        <input 
-                          type="number" 
-                          step="any" 
-                          min="0" 
-                          value={item.total === 0 && (item.unitPrice || 0) === 0 ? '' : (item.total !== undefined ? item.total : Math.round((Math.max(0, ((Number(item.quantity) || 0) * (Number(item.unitPrice) || 0)) - (Number(item.discount) || 0))) * 100) / 100)} 
-                          onChange={e => handleItemChange(index, 'total', e.target.value === '' ? 0 : parseFloat(e.target.value) || 0)} 
-                          className="w-full min-w-[115px] border border-slate-200 focus:border-amber-500 focus:ring-2 focus:ring-amber-100 rounded-lg py-1.5 px-2 text-center font-mono font-black text-slate-900 bg-white shadow-sm transition-all [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none hover:border-slate-300" 
-                          placeholder="0.00"
-                          title="إجمالي البند (يمكنك إدخال الإجمالي مباشرة لحساب سعر الوحدة تلقائياً)"
-                        />
-                      </div>
-                    </td>
-                    <td className="p-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button 
-                          type="button" 
-                          onClick={() => {
-                            const prod = products.find(p => p.id === item.productId);
-                            if (prod) handleOpenEditProductModal(prod);
-                            else showToast('تعذر العثور على بيانات الصنف', 'warning');
-                          }}
-                          className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
-                          title="تعديل كارت الصنف"
-                        >
-                          <Edit size={16} />
-                        </button>
-                        <button 
-                          type="button" 
-                          onClick={() => removeItem(index)} 
-                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                          title="حذف الصنف من الفاتورة"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                {items.length === 0 && (
-                  <tr>
-                    <td colSpan={8} className="p-8 text-center text-slate-400 font-bold">
-                      لم تتم إضافة أي أصناف بعد. ابحث عن صنف بالأعلى لإضافته.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* 🏷️ خانة الخصم الإجمالي على الفاتورة (لمطابقة فواتير الموردين والضرائب) */}
-          <div className="bg-gradient-to-r from-rose-50/70 to-amber-50/50 p-4 rounded-2xl border border-rose-200/80 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xs">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <span className="p-1.5 bg-rose-100 text-rose-700 rounded-lg">
-                  <Percent size={18} />
-                </span>
-                <h4 className="text-sm font-black text-rose-950">
-                  الخصم الإجمالي على الفاتورة (Overall Invoice Discount)
-                </h4>
-              </div>
-              <p className="text-xs text-rose-800 font-medium">
-                الخصم التجاري الممنوح من المورد على كامل الفاتورة — يُخفض الوعاء الضريبي لمطابقة فواتير الموردين ومصلحة الضرائب (ETA)
-              </p>
-            </div>
-
-            <div className="flex items-center gap-3 w-full md:w-auto">
-              <div className="flex bg-white rounded-xl p-1 border border-rose-200 shadow-xs">
-                <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, discountType: 'fixed' })}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                    formData.discountType === 'fixed'
-                      ? 'bg-rose-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  مبلغ ثابت ({settings.currency || 'ج.م'})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, discountType: 'percentage' })}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                    formData.discountType === 'percentage'
-                      ? 'bg-rose-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  نسبة مئوية (%)
-                </button>
-              </div>
-
-              <div className="relative w-36">
-                <input
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={formData.discountValue || ''}
-                  onChange={e => setFormData({ ...formData, discountValue: Math.max(0, parseFloat(e.target.value) || 0) })}
-                  placeholder="0.00"
-                  className="w-full border-2 border-rose-200 rounded-xl p-2 text-center font-mono font-black text-rose-700 bg-white focus:border-rose-500 outline-none text-sm"
-                />
-                <span className="absolute left-2.5 top-2.5 text-xs font-bold text-rose-400">
-                  {formData.discountType === 'percentage' ? '%' : (settings.currency || 'ج.م')}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Totals Section */}
-          <div className="border-t border-slate-200 pt-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-            <div className="text-xs text-slate-500 font-bold space-y-1">
-              <div>عدد البنود: <span className="font-mono text-slate-800">{items.length}</span> صنف</div>
-              {invoiceCalculation.totalDiscount > 0 && (
-                <div className="text-rose-600 font-bold">
-                  إجمالي الخصم المكتسب: <span className="font-mono font-black">{invoiceCalculation.totalDiscount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="w-full md:w-96 space-y-2 bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <div className="flex justify-between text-xs font-bold text-slate-600">
-                <span>إجمالي الأصناف قبل الخصم:</span>
-                <span className="font-mono">{invoiceCalculation.grossTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
-              </div>
-
-              {invoiceCalculation.itemsDiscountTotal > 0 && (
-                <div className="flex justify-between text-xs font-bold text-rose-600">
-                  <span>إجمالي خصومات الأصناف:</span>
-                  <span className="font-mono">-{invoiceCalculation.itemsDiscountTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
-                </div>
-              )}
-
-              <div className="flex justify-between text-xs font-bold text-slate-700 border-t border-slate-200/60 pt-1">
-                <span>الصافي قبل الخصم الإجمالي:</span>
-                <span className="font-mono">{invoiceCalculation.subtotalBeforeInvoiceDiscount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
-              </div>
-
-              {invoiceCalculation.invoiceDiscountAmount > 0 && (
-                <div className="flex justify-between text-xs font-bold text-rose-700">
-                  <span>
-                    خصم الفاتورة الإجمالي
-                    {formData.discountType === 'percentage' ? ` (${formData.discountValue}%):` : ':'}
-                  </span>
-                  <span className="font-mono font-black">-{invoiceCalculation.invoiceDiscountAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
-                </div>
-              )}
-
-              {invoiceCalculation.totalDiscount > 0 && (
-                <div className="flex justify-between text-[11px] font-bold text-slate-500 bg-rose-50/60 px-2 py-1 rounded-lg">
-                  <span>إجمالي الخصومات (أصناف + فاتورة):</span>
-                  <span className="font-mono text-rose-700 font-bold">-{invoiceCalculation.totalDiscount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
-                </div>
-              )}
-
-              <div className="flex justify-between text-xs font-bold text-slate-800 bg-emerald-50/60 px-2 py-1 rounded-lg border border-emerald-100">
-                <span title="وعاء احتساب ضريبة القيمة المضافة طبقاً لتعليمات مصلحة الضرائب">
-                  الوعاء الخاضع للضريبة (الصافي):
-                </span>
-                <span className="font-mono font-black text-emerald-800">{invoiceCalculation.taxableBase.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
-              </div>
-
-              {(invoiceCalculation.taxAmount > 0 || settings.enableTax) && (
-                <div className="flex justify-between text-xs font-bold text-slate-600">
-                  <span>
-                    ضريبة القيمة المضافة
-                    {settings.enableTax && !items.some(it => it.taxRate !== undefined && it.taxRate !== settings.vatRate) ? ` (${settings.vatRate || 14}%):` : ':'}
-                  </span>
-                  <span className="font-mono text-emerald-700 font-bold">+{invoiceCalculation.taxAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
-                </div>
-              )}
-
-              <div className="flex justify-between text-sm font-black text-emerald-800 border-t-2 border-slate-300 pt-2">
-                <span>إجمالي الفاتورة النهائي المستحق:</span>
-                <span className="font-mono text-lg" dir="ltr">{invoiceCalculation.totalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
-              </div>
-
-              {formData.paidAmount > 0 && (
-                <>
-                  <div className="flex justify-between text-xs font-bold text-emerald-600 pt-1">
-                    <span>المبلغ المدفوع (سداد فوري):</span>
-                    <span className="font-mono">-{Number(formData.paidAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
-                  </div>
-                  <div className="flex justify-between text-xs font-bold text-red-600 border-t border-slate-200 pt-1">
-                    <span>المتبقي للمورد على الحساب:</span>
-                    <span className="font-mono">{Math.max(0, invoiceCalculation.totalAmount - formData.paidAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {settings.currency || 'ج.م'}</span>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+          <PurchaseInvoiceTotalsSection
+            items={items}
+            discountType={formData.discountType}
+            discountValue={formData.discountValue}
+            paidAmount={formData.paidAmount}
+            currency={settings.currency || 'ج.م'}
+            enableTax={Boolean(settings.enableTax)}
+            vatRate={Number(settings.vatRate) || 14}
+            invoiceCalculation={invoiceCalculation}
+            onDiscountTypeChange={(discountType) => setFormData({ ...formData, discountType })}
+            onDiscountValueChange={(discountValue) => setFormData({ ...formData, discountValue })}
+          />
 
           {/* 📎 قسم مرفقات الفاتورة (أصل فاتورة المورد، إيصالات الاستلام، فواتير إلكترونية ETA) */}
           <div className="border-t border-slate-200 pt-4">

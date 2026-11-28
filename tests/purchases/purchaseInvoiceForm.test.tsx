@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import PurchaseInvoiceForm from '../../modules/purchases/PurchaseInvoiceForm';
 import {
@@ -94,5 +94,48 @@ describe('📦 PurchaseInvoiceForm — Validation & Guard Rails', () => {
     expect(lastMsg).toMatch(/المستودع|بند واحد/);
     expect(mockApprovePurchaseInvoice).not.toHaveBeenCalled();
     expect(container.firstChild).toBeTruthy();
+  });
+
+  it('يضيف صنفاً بالبحث ويعيد احتساب الضريبة والخصم الإجمالي والإجمالي النهائي ويتيح فتح نافذة صنف جديد', async () => {
+    const { getByPlaceholderText, getByText, getAllByText } = render(
+      <MemoryRouter>
+        <PurchaseInvoiceForm />
+      </MemoryRouter>
+    );
+
+    const searchInput = getByPlaceholderText('ابحث بالاسم، الكود، أو الباركود واضغط Enter...');
+    fireEvent.change(searchInput, { target: { value: 'دقيق' } });
+
+    await waitFor(() => {
+      expect(getByText('دقيق فاخر')).toBeTruthy();
+    });
+
+    fireEvent.click(getByText('دقيق فاخر'));
+
+    // بعد إضافة الصنف (سعر 80 وكمية 1 وضريبة 14% => 80 + 11.20 = 91.20)
+    const fmt = (n: number) =>
+      n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    await waitFor(() => {
+      expect(getByText(/إجمالي الفاتورة النهائي المستحق:/)).toBeTruthy();
+    });
+    expect(getAllByText(new RegExp(fmt(91.2))).length).toBeGreaterThan(0);
+
+    // تبديل نوع الخصم الإجمالي إلى نسبة مئوية 10%
+    fireEvent.click(getByText('نسبة مئوية (%)'));
+    const discountInputs = document.querySelectorAll('input[placeholder="0.00"]');
+    const overallDiscountInput = discountInputs[discountInputs.length - 1] as HTMLInputElement;
+    fireEvent.change(overallDiscountInput, { target: { value: '10' } });
+
+    // 80 - 8 = 72، ضريبة 14% على 72 = 10.08، الإجمالي = 82.08
+    await waitFor(() => {
+      expect(getAllByText(new RegExp(fmt(82.08))).length).toBeGreaterThan(0);
+    });
+
+    // فتح نافذة إضافة صنف جديد داخل شاشة المشتريات
+    fireEvent.click(getByText('إضافة صنف جديد'));
+    await waitFor(() => {
+      expect(getByText('حفظ واعتماد الصنف')).toBeTruthy();
+    });
   });
 });
