@@ -10,29 +10,25 @@ import { getActiveOrgIdSync, resolveActiveOrgId } from '../../../services/tenant
 import { PayslipModal, PayslipData } from './PayslipModal';
 import { BulkPayslipsModal } from './BulkPayslipsModal';
 import {
+  PayrollItem,
+  calcPayrollNetSalary as calcNetSalary,
+  sumPayrollTotals,
+  exportPayrollToExcel,
+  applyImportedPayrollRows
+} from '../utils/payrollExcelUtils';
+import { PayrollSummaryAndFilters } from './PayrollSummaryAndFilters';
+import { PayrollTableSection } from './PayrollTableSection';
+import { PayrollActionFooter } from './PayrollActionFooter';
+import {
   Banknote,
   Play,
   Loader2,
-  Save,
-  User,
   Wallet,
   Calendar,
-  AlertCircle,
   Clock,
   CheckCircle2,
-  Info,
   Printer,
-  ShieldAlert,
-  Award,
   FileSpreadsheet,
-  Building2,
-  Filter,
-  Columns,
-  LayoutGrid,
-  Trash2,
-  RotateCcw,
-  Search,
-  X,
   FileUp
 } from 'lucide-react';
 import {
@@ -42,33 +38,7 @@ import {
   payrollDisbursementSchema
 } from '../../../utils/validationSchemas';
 
-type PayrollItem = {
-  employee_id: string;
-  full_name: string;
-  department?: string;
-  gross_salary: number;
-  // الأيام الفعلية والراتب المحسوب بناءً على تاريخ التعيين/الإيقاف/انتهاء الخدمة
-  effective_days: number;
-  effective_salary: number;
-  overtime_hours: number;
-  overtime_pay: number;
-  reward_amount: number;
-  additions: number;
-  unpaid_leave_days: number;
-  unpaid_leave_deduction: number;
-  absence_days: number;
-  absence_deduction: number;
-  late_minutes: number;
-  late_deduction: number;
-  penalty_amount: number;
-  other_deductions: number;
-  advances_deducted: number;
-  payroll_tax: number;
-  social_insurance?: number;
-  phone?: string;
-  net_salary: number;
-  advances_ids: string[];
-};
+export type { PayrollItem };
 
 const PayrollRun = () => {
   const {
@@ -530,18 +500,6 @@ const PayrollRun = () => {
     }
   };
 
-  // دالة مساعدة مركزية لاحتساب الصافي بدقة تامة لجميع بنود الاستحقاقات والاستقطاعات
-  const calcNetSalary = (
-    baseSal: number,
-    additions: number,
-    advances: number,
-    deductions: number,
-    tax: number,
-    insurance: number = 0
-  ): number => {
-    const net = baseSal + additions - advances - deductions - tax - insurance;
-    return Math.max(0, Math.round(net * 100) / 100);
-  };
 
   const handleGrossChange = (employeeId: string, value: number) => {
     setPayrollData(prev => prev.map(emp => {
@@ -1088,65 +1046,9 @@ const PayrollRun = () => {
     });
   }, [payrollData, selectedDepartment, searchTerm]);
 
-  const totals = useMemo(() => {
-    return payrollData.reduce(
-      (acc, item) => ({
-        gross: acc.gross + Number(item.gross_salary || 0),
-        overtime_hours: acc.overtime_hours + Number(item.overtime_hours || 0),
-        overtime_pay: acc.overtime_pay + Number(item.overtime_pay || 0),
-        reward_amount: acc.reward_amount + Number(item.reward_amount || 0),
-        additions: acc.additions + Number(item.additions || 0),
-        absence_days: acc.absence_days + Number(item.absence_days || 0),
-        absence_deduction: acc.absence_deduction + Number(item.absence_deduction || 0),
-        late_minutes: acc.late_minutes + Number(item.late_minutes || 0),
-        late_deduction: acc.late_deduction + Number(item.late_deduction || 0),
-        penalty_amount: acc.penalty_amount + Number(item.penalty_amount || 0),
-        unpaid_leave_days: acc.unpaid_leave_days + Number(item.unpaid_leave_days || 0),
-        unpaid_leave_deduction: acc.unpaid_leave_deduction + Number(item.unpaid_leave_deduction || 0),
-        advances: acc.advances + Number(item.advances_deducted || 0),
-        taxes: acc.taxes + Number(item.payroll_tax || 0),
-        insurance: acc.insurance + Number(item.social_insurance || 0),
-        deductions: acc.deductions + Number(item.other_deductions || 0),
-        net: acc.net + Number(item.net_salary || 0)
-      }),
-      {
-        gross: 0, overtime_hours: 0, overtime_pay: 0, reward_amount: 0, additions: 0,
-        absence_days: 0, absence_deduction: 0, late_minutes: 0, late_deduction: 0,
-        penalty_amount: 0, unpaid_leave_days: 0, unpaid_leave_deduction: 0,
-        advances: 0, taxes: 0, insurance: 0, deductions: 0, net: 0
-      }
-    );
-  }, [payrollData]);
+  const totals = useMemo(() => sumPayrollTotals(payrollData), [payrollData]);
 
-  const displayedTotals = useMemo(() => {
-    return filteredPayrollData.reduce(
-      (acc, item) => ({
-        gross: acc.gross + Number(item.gross_salary || 0),
-        overtime_hours: acc.overtime_hours + Number(item.overtime_hours || 0),
-        overtime_pay: acc.overtime_pay + Number(item.overtime_pay || 0),
-        reward_amount: acc.reward_amount + Number(item.reward_amount || 0),
-        additions: acc.additions + Number(item.additions || 0),
-        absence_days: acc.absence_days + Number(item.absence_days || 0),
-        absence_deduction: acc.absence_deduction + Number(item.absence_deduction || 0),
-        late_minutes: acc.late_minutes + Number(item.late_minutes || 0),
-        late_deduction: acc.late_deduction + Number(item.late_deduction || 0),
-        penalty_amount: acc.penalty_amount + Number(item.penalty_amount || 0),
-        unpaid_leave_days: acc.unpaid_leave_days + Number(item.unpaid_leave_days || 0),
-        unpaid_leave_deduction: acc.unpaid_leave_deduction + Number(item.unpaid_leave_deduction || 0),
-        advances: acc.advances + Number(item.advances_deducted || 0),
-        taxes: acc.taxes + Number(item.payroll_tax || 0),
-        insurance: acc.insurance + Number(item.social_insurance || 0),
-        deductions: acc.deductions + Number(item.other_deductions || 0),
-        net: acc.net + Number(item.net_salary || 0)
-      }),
-      {
-        gross: 0, overtime_hours: 0, overtime_pay: 0, reward_amount: 0, additions: 0,
-        absence_days: 0, absence_deduction: 0, late_minutes: 0, late_deduction: 0,
-        penalty_amount: 0, unpaid_leave_days: 0, unpaid_leave_deduction: 0,
-        advances: 0, taxes: 0, insurance: 0, deductions: 0, net: 0
-      }
-    );
-  }, [filteredPayrollData]);
+  const displayedTotals = useMemo(() => sumPayrollTotals(filteredPayrollData), [filteredPayrollData]);
 
   // تصدير كشف مسير الرواتب إلى Excel بدقة متناهية وتنسيق تفصيلي شامل
   const handleExportExcel = () => {
@@ -1155,124 +1057,16 @@ const PayrollRun = () => {
       return;
     }
 
-    const rows = filteredPayrollData.map((item, idx) => ({
-      'م': idx + 1,
-      'كود الموظف': item.employee_id,
-      'اسم الموظف': item.full_name,
-      'الفرع / القسم': item.department && item.department !== '-' ? item.department : 'بدون فرع',
-      'الراتب الأساسي (ج.م)': Number(item.gross_salary) || 0,
-      'أيام العمل الفعلية': Number(item.effective_days ?? 30),
-      'الراتب المستحق فعلياً (ج.م)': Number(item.effective_salary ?? item.gross_salary) || 0,
-      'ساعات العمل الإضافي': Number(item.overtime_hours) || 0,
-      'أجر العمل الإضافي (ج.م)': Number(item.overtime_pay) || 0,
-      'حوافز ومكافآت (ج.م)': Number(item.reward_amount) || 0,
-      'إجمالي الإضافي والمكافآت (ج.م)': Number(item.additions) || 0,
-      'أيام الغياب': Number(item.absence_days) || 0,
-      'خصم الغياب (ج.م)': Number(item.absence_deduction) || 0,
-      'دقائق التأخير': Number(item.late_minutes) || 0,
-      'خصم التأخير (ج.م)': Number(item.late_deduction) || 0,
-      'جزاءات إدارية (ج.م)': Number(item.penalty_amount) || 0,
-      'أيام إجازة بدون راتب': Number(item.unpaid_leave_days) || 0,
-      'خصم إجازات بدون راتب (ج.م)': Number(item.unpaid_leave_deduction) || 0,
-      'إجمالي الخصومات والجزاءات (ج.م)': Number(item.other_deductions) || 0,
-      'السلف المستقطعة (ج.م)': Number(item.advances_deducted) || 0,
-      'تأمينات اجتماعية (ج.م)': Number(item.social_insurance) || 0,
-      'ضريبة كسب العمل (ج.م)': Number(item.payroll_tax) || 0,
-      'صافي الراتب المستحق (ج.م)': Number(item.net_salary) || 0
-    }));
-
-    // إضافة صف الإجمالي
-    const filterDesc = [
-      selectedDepartment !== 'all' ? selectedDepartment : 'كل الفروع والأقسام',
-      searchTerm ? `بحث: ${searchTerm}` : ''
-    ].filter(Boolean).join(' - ');
-
-    rows.push({
-      'م': '' as any,
-      'كود الموظف': '',
-      'اسم الموظف': `الإجمالي (${filteredPayrollData.length} موظف)${searchTerm ? ` [بحث: ${searchTerm}]` : ''}`,
-      'الفرع / القسم': filterDesc,
-      'الراتب الأساسي (ج.م)': displayedTotals.gross,
-      'أيام العمل الفعلية': '' as any,
-      'الراتب المستحق فعلياً (ج.م)': '' as any,
-      'ساعات العمل الإضافي': displayedTotals.overtime_hours,
-      'أجر العمل الإضافي (ج.م)': displayedTotals.overtime_pay,
-      'حوافز ومكافآت (ج.م)': displayedTotals.reward_amount,
-      'إجمالي الإضافي والمكافآت (ج.م)': displayedTotals.additions,
-      'أيام الغياب': displayedTotals.absence_days,
-      'خصم الغياب (ج.م)': displayedTotals.absence_deduction,
-      'دقائق التأخير': displayedTotals.late_minutes,
-      'خصم التأخير (ج.م)': displayedTotals.late_deduction,
-      'جزاءات إدارية (ج.م)': displayedTotals.penalty_amount,
-      'أيام إجازة بدون راتب': displayedTotals.unpaid_leave_days,
-      'خصم إجازات بدون راتب (ج.م)': displayedTotals.unpaid_leave_deduction,
-      'إجمالي الخصومات والجزاءات (ج.م)': displayedTotals.deductions,
-      'السلف المستقطعة (ج.م)': displayedTotals.advances,
-      'تأمينات اجتماعية (ج.م)': displayedTotals.insurance,
-      'ضريبة كسب العمل (ج.م)': displayedTotals.taxes,
-      'صافي الراتب المستحق (ج.م)': displayedTotals.net
+    exportPayrollToExcel({
+      items: filteredPayrollData,
+      totals: displayedTotals,
+      selectedMonth,
+      selectedYear,
+      selectedDepartment,
+      searchTerm
     });
 
-    const ws = XLSX.utils.json_to_sheet(rows);
-
-    ws['!cols'] = [
-      { wch: 6 },  // م
-      { wch: 22 }, // كود الموظف
-      { wch: 26 }, // اسم الموظف
-      { wch: 20 }, // الفرع / القسم
-      { wch: 18 }, // الراتب الأساسي
-      { wch: 16 }, // أيام العمل الفعلية
-      { wch: 22 }, // الراتب المستحق فعلياً
-      { wch: 18 }, // ساعات العمل الإضافي
-      { wch: 20 }, // أجر العمل الإضافي
-      { wch: 18 }, // حوافز ومكافآت
-      { wch: 24 }, // إجمالي الإضافي والمكافآت
-      { wch: 12 }, // أيام الغياب
-      { wch: 16 }, // خصم الغياب
-      { wch: 14 }, // دقائق التأخير
-      { wch: 16 }, // خصم التأخير
-      { wch: 18 }, // جزاءات إدارية
-      { wch: 18 }, // أيام إجازة بدون راتب
-      { wch: 22 }, // خصم إجازات بدون راتب
-      { wch: 25 }, // إجمالي الخصومات والجزاءات
-      { wch: 18 }, // السلف المستقطعة
-      { wch: 18 }, // تأمينات اجتماعية
-      { wch: 18 }, // ضريبة كسب العمل
-      { wch: 22 }  // صافي الراتب المستحق
-    ];
-
-    const wb = XLSX.utils.book_new();
-    const deptSuffix = selectedDepartment !== 'all' ? `_${selectedDepartment}` : '';
-    const searchSuffix = searchTerm ? `_بحث_${searchTerm}` : '';
-    XLSX.utils.book_append_sheet(wb, ws, `مسير_${selectedMonth}_${selectedYear}`);
-    XLSX.writeFile(wb, `مسير_رواتب_شهر_${selectedMonth}_سنة_${selectedYear}${deptSuffix}${searchSuffix}.xlsx`);
     showToast(`تم تصدير مسير رواتب شهر ${selectedMonth}/${selectedYear} لعدد ${filteredPayrollData.length} موظف إلى Excel بجميع الأعمدة المفصلة بنجاح ✅`, 'success');
-  };
-
-  // دالة تسوية النصوص العربية لمطابقة أسماء الموظفين بدقة
-  const normalizeArabic = (str: string): string => {
-    if (!str) return '';
-    return String(str)
-      .trim()
-      .toLowerCase()
-      .replace(/[\u064B-\u065F\u0670]/g, '') // إزالة التشكيل
-      .replace(/[أإآ]/g, 'ا') // توحيد الهمزات
-      .replace(/ة/g, 'ه') // التاء المربوطة
-      .replace(/ى/g, 'ي') // الألف المقصورة
-      .replace(/\s+/g, ' '); // إزالة المسافات المتكررة
-  };
-
-  // دالة مساعدة لاستخراج وتحويل الأرقام من خلايا الإكسيل
-  const parseNumCell = (val: unknown): number | null => {
-    if (val === undefined || val === null) return null;
-    if (typeof val === 'number') return isNaN(val) ? null : val;
-    const str = String(val)
-      .trim()
-      .replace(/ج\.م|egp|\$|le/gi, '')
-      .replace(/[,،\s]/g, '');
-    if (str === '') return null;
-    const num = Number(str);
-    return isNaN(num) ? null : num;
   };
 
   // معالجة استيراد وتطبيق تعديلات مسير الرواتب من ملف Excel
@@ -1301,7 +1095,7 @@ const PayrollRun = () => {
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsName = wb.SheetNames[0];
         const ws = wb.Sheets[wsName];
-        const rows: any[] = XLSX.utils.sheet_to_json(ws);
+        const rows: Record<string, unknown>[] = XLSX.utils.sheet_to_json(ws);
 
         if (!rows || rows.length === 0) {
           showToast('الملف المستورد فارغ ولا يحتوي على أي بيانات', 'warning');
@@ -1310,210 +1104,10 @@ const PayrollRun = () => {
           return;
         }
 
-        let updatedCount = 0;
-        const unmatchedList: string[] = [];
-        const currentData = [...payrollData];
-
-        for (const r of rows) {
-          const nameVal = String(
-            r['اسم الموظف'] ||
-            r['الموظف'] ||
-            r['الاسم'] ||
-            r['Employee Name'] ||
-            r['Employee'] ||
-            r['full_name'] ||
-            ''
-          ).trim();
-
-          // تجاهل صفوف الإجماليات والمجاميع الفارغة
-          if (!nameVal || nameVal.includes('الإجمالي') || nameVal.includes('Total') || nameVal.startsWith('المجموع')) {
-            continue;
-          }
-
-          const codeVal = String(
-            r['كود الموظف'] ||
-            r['معرف الموظف'] ||
-            r['Employee ID'] ||
-            r['employee_id'] ||
-            r['ID'] ||
-            r['كود'] ||
-            ''
-          ).trim();
-
-          // 1. المطابقة عبر كود الموظف ID
-          let matchedIdx = -1;
-          if (codeVal) {
-            matchedIdx = currentData.findIndex(item => item.employee_id.toLowerCase() === codeVal.toLowerCase());
-          }
-
-          // 2. المطابقة البديلة عبر الاسم العربي بعد التسوية
-          if (matchedIdx === -1 && nameVal) {
-            const normTarget = normalizeArabic(nameVal);
-            matchedIdx = currentData.findIndex(item => normalizeArabic(item.full_name) === normTarget);
-            if (matchedIdx === -1) {
-              matchedIdx = currentData.findIndex(item => {
-                const normItem = normalizeArabic(item.full_name);
-                return normItem.includes(normTarget) || normTarget.includes(normItem);
-              });
-            }
-          }
-
-          if (matchedIdx === -1) {
-            unmatchedList.push(nameVal || codeVal);
-            continue;
-          }
-
-          // تحديث بيانات الموظف المطابق
-          const emp = { ...currentData[matchedIdx] };
-          let isEmpModified = false;
-
-          // الراتب الأساسي
-          const grossIn = parseNumCell(r['الراتب الأساسي (ج.م)'] ?? r['الراتب الأساسي'] ?? r['الراتب'] ?? r['gross_salary']);
-          if (grossIn !== null && grossIn >= 0) {
-            emp.gross_salary = grossIn;
-            isEmpModified = true;
-          }
-
-          // أيام العمل الفعلية
-          const daysIn = parseNumCell(r['أيام العمل الفعلية'] ?? r['أيام العمل'] ?? r['effective_days']);
-          if (daysIn !== null && daysIn >= 0 && daysIn <= 31) {
-            emp.effective_days = daysIn;
-            isEmpModified = true;
-          }
-
-          // الراتب المستحق فعلياً
-          const effSalIn = parseNumCell(r['الراتب المستحق فعلياً (ج.م)'] ?? r['الراتب المستحق فعلياً'] ?? r['effective_salary']);
-          if (effSalIn !== null && effSalIn >= 0) {
-            emp.effective_salary = effSalIn;
-            isEmpModified = true;
-          } else if (isEmpModified) {
-            const days = emp.effective_days ?? 30;
-            const dailyRate = emp.gross_salary > 0 ? emp.gross_salary / 30 : 0;
-            emp.effective_salary = Math.round(days * dailyRate * 100) / 100;
-          }
-
-          // الإضافي والمكافآت
-          const otHoursIn = parseNumCell(r['ساعات العمل الإضافي'] ?? r['ساعات الإضافي'] ?? r['overtime_hours']);
-          if (otHoursIn !== null && otHoursIn >= 0) {
-            emp.overtime_hours = otHoursIn;
-            isEmpModified = true;
-          }
-
-          const otPayIn = parseNumCell(r['أجر العمل الإضافي (ج.م)'] ?? r['أجر الإضافي'] ?? r['overtime_pay']);
-          if (otPayIn !== null && otPayIn >= 0) {
-            emp.overtime_pay = otPayIn;
-            isEmpModified = true;
-          }
-
-          const rewIn = parseNumCell(r['حوافز ومكافآت (ج.م)'] ?? r['حوافز'] ?? r['مكافآت'] ?? r['reward_amount']);
-          if (rewIn !== null && rewIn >= 0) {
-            emp.reward_amount = rewIn;
-            isEmpModified = true;
-          }
-
-          const addIn = parseNumCell(r['إجمالي الإضافي والمكافآت (ج.م)'] ?? r['إجمالي الإضافي'] ?? r['additions']);
-          if (addIn !== null && addIn >= 0) {
-            emp.additions = addIn;
-            isEmpModified = true;
-          } else if (otPayIn !== null || rewIn !== null) {
-            emp.additions = Math.round(((emp.overtime_pay || 0) + (emp.reward_amount || 0)) * 100) / 100;
-            isEmpModified = true;
-          }
-
-          // الغياب والتأخيرات والجزاءات
-          const absDaysIn = parseNumCell(r['أيام الغياب'] ?? r['غياب'] ?? r['absence_days']);
-          if (absDaysIn !== null && absDaysIn >= 0) {
-            emp.absence_days = absDaysIn;
-            isEmpModified = true;
-          }
-
-          const absDedIn = parseNumCell(r['خصم الغياب (ج.م)'] ?? r['خصم الغياب'] ?? r['absence_deduction']);
-          if (absDedIn !== null && absDedIn >= 0) {
-            emp.absence_deduction = absDedIn;
-            isEmpModified = true;
-          }
-
-          const lateMinIn = parseNumCell(r['دقائق التأخير'] ?? r['تأخير'] ?? r['late_minutes']);
-          if (lateMinIn !== null && lateMinIn >= 0) {
-            emp.late_minutes = lateMinIn;
-            isEmpModified = true;
-          }
-
-          const lateDedIn = parseNumCell(r['خصم التأخير (ج.م)'] ?? r['خصم التأخير'] ?? r['late_deduction']);
-          if (lateDedIn !== null && lateDedIn >= 0) {
-            emp.late_deduction = lateDedIn;
-            isEmpModified = true;
-          }
-
-          const penIn = parseNumCell(r['جزاءات إدارية (ج.م)'] ?? r['جزاءات'] ?? r['خصم جزاءات'] ?? r['penalty_amount']);
-          if (penIn !== null && penIn >= 0) {
-            emp.penalty_amount = penIn;
-            isEmpModified = true;
-          }
-
-          const unpaidDaysIn = parseNumCell(r['أيام إجازة بدون راتب'] ?? r['إجازة بدون راتب'] ?? r['unpaid_leave_days']);
-          if (unpaidDaysIn !== null && unpaidDaysIn >= 0) {
-            emp.unpaid_leave_days = unpaidDaysIn;
-            isEmpModified = true;
-          }
-
-          const unpaidDedIn = parseNumCell(r['خصم إجازات بدون راتب (ج.م)'] ?? r['خصم إجازة بدون راتب'] ?? r['unpaid_leave_deduction']);
-          if (unpaidDedIn !== null && unpaidDedIn >= 0) {
-            emp.unpaid_leave_deduction = unpaidDedIn;
-            isEmpModified = true;
-          }
-
-          const othDedIn = parseNumCell(r['إجمالي الخصومات والجزاءات (ج.م)'] ?? r['إجمالي الخصومات'] ?? r['other_deductions']);
-          if (othDedIn !== null && othDedIn >= 0) {
-            emp.other_deductions = othDedIn;
-            isEmpModified = true;
-          } else if (absDedIn !== null || lateDedIn !== null || penIn !== null || unpaidDedIn !== null) {
-            emp.other_deductions = Math.round(
-              ((emp.absence_deduction || 0) + (emp.late_deduction || 0) + (emp.penalty_amount || 0) + (emp.unpaid_leave_deduction || 0)) * 100
-            ) / 100;
-            isEmpModified = true;
-          }
-
-          // السلف المستقطعة
-          const advIn = parseNumCell(r['السلف المستقطعة (ج.م)'] ?? r['سلف'] ?? r['advances_deducted']);
-          if (advIn !== null && advIn >= 0) {
-            emp.advances_deducted = advIn;
-            isEmpModified = true;
-          }
-
-          // التأمينات الاجتماعية
-          const insIn = parseNumCell(r['تأمينات اجتماعية (ج.م)'] ?? r['تأمينات'] ?? r['social_insurance']);
-          if (insIn !== null && insIn >= 0) {
-            emp.social_insurance = insIn;
-            isEmpModified = true;
-          }
-
-          // ضريبة كسب العمل
-          const taxIn = parseNumCell(r['ضريبة كسب العمل (ج.م)'] ?? r['ضريبة'] ?? r['payroll_tax']);
-          if (taxIn !== null && taxIn >= 0) {
-            emp.payroll_tax = taxIn;
-            isEmpModified = true;
-          }
-
-          // إعادة احتساب صافي الراتب المستحق بدقة
-          const baseSalary = emp.effective_salary ?? emp.gross_salary;
-          emp.net_salary = calcNetSalary(
-            baseSalary,
-            emp.additions,
-            emp.advances_deducted,
-            emp.other_deductions,
-            emp.payroll_tax,
-            emp.social_insurance || 0
-          );
-
-          if (isEmpModified) {
-            currentData[matchedIdx] = emp;
-            updatedCount++;
-          }
-        }
+        const { nextData, updatedCount, unmatchedList } = applyImportedPayrollRows(rows, payrollData);
 
         if (updatedCount > 0) {
-          setPayrollData(currentData);
+          setPayrollData(nextData);
           if (unmatchedList.length > 0) {
             showToast(`تم استيراد وتحديث ${updatedCount} موظف بنجاح ✅ (تم تجاهل ${unmatchedList.length} سجل غير مطابق)`, 'info');
           } else {
@@ -1786,749 +1380,86 @@ const PayrollRun = () => {
         </div>
       )}
 
-      {/* Search & Department Filters Bar */}
-      {payrollData.length > 0 && (
-        <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            {/* حقل البحث باسم الموظف أو الفرع */}
-            <div className="relative flex-1 min-w-[280px] max-w-md">
-              <Search className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 pointer-events-none" />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={e => setSearchTerm(e.target.value)}
-                placeholder="بحث باسم الموظف..."
-                className="w-full pr-10 pl-9 py-2.5 rounded-xl border border-slate-300 text-xs font-bold text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition shadow-sm bg-slate-50/50"
-              />
-              {searchTerm && (
-                <button
-                  type="button"
-                  onClick={() => setSearchTerm('')}
-                  className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded-full hover:bg-slate-200 transition"
-                  title="مسح نص البحث"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-
-            {/* عداد الموظفين وحالة الفلترة */}
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold px-3 py-1.5 rounded-xl bg-slate-100 text-slate-700 border border-slate-200 flex items-center gap-1.5">
-                <span>المعروض:</span>
-                <strong className="text-blue-600 font-mono text-sm">{filteredPayrollData.length}</strong>
-                <span>من إجمالي</span>
-                <strong className="text-slate-800 font-mono">{payrollData.length}</strong>
-                <span>موظف</span>
-              </span>
-              {(searchTerm || selectedDepartment !== 'all') && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSearchTerm('');
-                    setSelectedDepartment('all');
-                  }}
-                  className="text-xs font-bold text-rose-600 hover:text-rose-800 hover:bg-rose-50 px-2.5 py-1.5 rounded-lg transition"
-                >
-                  إعادة ضبط الفلاتر
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* فلاتر الأقسام والفروع */}
-          {departments.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 pt-2.5 border-t border-slate-100">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-slate-700 ml-2">
-                <Building2 className="w-4 h-4 text-indigo-600" />
-                <span>الفرع / القسم:</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSelectedDepartment('all')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-                  selectedDepartment === 'all'
-                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                }`}
-              >
-                <span>كل الفروع والأقسام</span>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${selectedDepartment === 'all' ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                  {payrollData.length}
-                </span>
-              </button>
-              {departments.map((dept) => {
-                const count = payrollData.filter(p => (p.department || 'بدون فرع').trim() === dept).length;
-                const isSelected = selectedDepartment === dept;
-                return (
-                  <button
-                    key={dept}
-                    type="button"
-                    onClick={() => setSelectedDepartment(dept)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 ${
-                      isSelected
-                        ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
-                    <span>{dept}</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${isSelected ? 'bg-blue-700 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                      {count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Summary Cards */}
-      {filteredPayrollData.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-7 gap-3">
-          <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm">
-            <span className="text-[11px] text-slate-500 font-bold block">إجمالي الأساسي</span>
-            <span className="text-sm font-black text-slate-800 font-mono mt-1 block">
-              {displayedTotals.gross.toLocaleString()} ج.م
-            </span>
-          </div>
-
-          <div className="bg-white p-3.5 rounded-2xl border border-emerald-100 shadow-sm">
-            <span className="text-[11px] text-emerald-700 font-bold block">إجمالي الإضافي (+)</span>
-            <span className="text-sm font-black text-emerald-600 font-mono mt-1 block">
-              +{displayedTotals.additions.toLocaleString()} ج.م
-            </span>
-          </div>
-
-          <div className="bg-white p-3.5 rounded-2xl border border-rose-100 shadow-sm">
-            <span className="text-[11px] text-rose-700 font-bold block">السلف المستقطعة (-)</span>
-            <span className="text-sm font-black text-rose-600 font-mono mt-1 block">
-              -{displayedTotals.advances.toLocaleString()} ج.م
-            </span>
-          </div>
-
-          <div className="bg-white p-3.5 rounded-2xl border border-rose-100 shadow-sm">
-            <span className="text-[11px] text-rose-700 font-bold block">الخصومات والجزاءات (-)</span>
-            <span className="text-sm font-black text-rose-600 font-mono mt-1 block">
-              -{displayedTotals.deductions.toLocaleString()} ج.م
-            </span>
-          </div>
-
-          <div className="bg-white p-3.5 rounded-2xl border border-rose-100 shadow-sm">
-            <span className="text-[11px] text-rose-700 font-bold block">تأمينات اجتماعية (-)</span>
-            <span className="text-sm font-black text-rose-600 font-mono mt-1 block">
-              -{displayedTotals.insurance.toLocaleString()} ج.م
-            </span>
-          </div>
-
-          <div className="bg-white p-3.5 rounded-2xl border border-rose-100 shadow-sm">
-            <span className="text-[11px] text-rose-700 font-bold block">ضريبة كسب العمل (-)</span>
-            <span className="text-sm font-black text-rose-600 font-mono mt-1 block">
-              -{displayedTotals.taxes.toLocaleString()} ج.م
-            </span>
-          </div>
-
-          <div className="bg-emerald-50 p-3.5 rounded-2xl border border-emerald-200 shadow-sm">
-            <span className="text-[11px] text-emerald-800 font-bold block">صافي الرواتب المستحق</span>
-            <span className="text-base font-black text-emerald-700 font-mono mt-1 block">
-              {displayedTotals.net.toLocaleString()} ج.م
-            </span>
-          </div>
-        </div>
-      )}
+      {/* Search, Department Filters & Summary Cards */}
+      <PayrollSummaryAndFilters
+        payrollData={payrollData}
+        filteredPayrollData={filteredPayrollData}
+        departments={departments}
+        selectedDepartment={selectedDepartment}
+        onSelectDepartment={setSelectedDepartment}
+        searchTerm={searchTerm}
+        onSearchTermChange={setSearchTerm}
+        displayedTotals={displayedTotals}
+      />
 
       {/* Table Section */}
-      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-        {/* Table Controls Bar */}
-        <div className="p-3.5 bg-slate-50/90 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-black text-slate-700">طريقة عرض كشف المسير:</span>
-            <div className="flex items-center bg-slate-200/80 p-0.5 rounded-xl border border-slate-300/60">
-              <button
-                type="button"
-                onClick={() => setTableMode('detailed')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                  tableMode === 'detailed'
-                    ? 'bg-white text-blue-600 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <Columns className="w-3.5 h-3.5" />
-                <span>عرض تفصيلي (أعمدة مخصصة لكل نوع)</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setTableMode('summary')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${
-                  tableMode === 'summary'
-                    ? 'bg-white text-blue-600 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
-              >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span>عرض مدمج (ملخص)</span>
-              </button>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-500 font-medium">
-              {tableMode === 'detailed' 
-                ? '💡 يمكنك تعديل كل بند من بنود الإضافي والغياب والتأخير والجزاءات مباشرة في عموده الخاص'
-                : '💡 يعرض هذا الوضع الإضافي والخصومات مجمعة مع إمكانية التعديل الكلي'}
-            </span>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-right border-collapse text-xs">
-            <thead>
-              {tableMode === 'detailed' ? (
-                <tr className="bg-slate-50/75 border-b border-slate-200 text-slate-600 font-bold text-[11px]">
-                  <th className="p-3 text-right">الموظف</th>
-                  <th className="p-3 text-center">الفرع / القسم</th>
-                  <th className="p-3 text-center">الأساسي</th>
-                  <th className="p-3 text-center text-blue-700 bg-blue-50/40" title="الأيام الفعلية للعمل في الشهر مع مراعاة تاريخ التعيين/الإيقاف/انتهاء الخدمة">أيام فعلية</th>
-                  <th className="p-3 text-center text-emerald-700 bg-emerald-50/40">أجر الإضافي (+)</th>
-                  <th className="p-3 text-center text-emerald-700 bg-emerald-50/40">مكافآت (+)</th>
-                  <th className="p-3 text-center text-rose-700 bg-rose-50/30">خصم غياب (-)</th>
-                  <th className="p-3 text-center text-amber-700 bg-amber-50/30">خصم تأخير (-)</th>
-                  <th className="p-3 text-center text-rose-700 bg-rose-50/30">جزاءات (-)</th>
-                  <th className="p-3 text-center text-purple-700 bg-purple-50/30">إجازات (-)</th>
-                  <th className="p-3 text-center text-rose-700">السلف (-)</th>
-                  <th className="p-3 text-center text-rose-700 bg-rose-50/20" title="حصة الموظف المستقطعة من التأمينات الاجتماعية">تأمينات (-)</th>
-                  <th className="p-3 text-center text-rose-700">الضريبة (-)</th>
-                  <th className="p-3 text-center text-slate-700 bg-slate-100/60">إجمالي الخصم</th>
-                  <th className="p-3 text-center bg-emerald-100/60 text-emerald-900 font-black">صافي المستحق</th>
-                  <th className="p-3 text-center">إجراءات</th>
-                </tr>
-              ) : (
-                <tr className="bg-slate-50/75 border-b border-slate-200 text-slate-600 font-bold">
-                  <th className="p-3.5">الموظف</th>
-                  <th className="p-3.5 text-center">الفرع / القسم</th>
-                  <th className="p-3.5 text-center">الراتب الأساسي</th>
-                  <th className="p-3.5 text-center">إضافي ومكافآت (+)</th>
-                  <th className="p-3.5 text-center">السلف (-)</th>
-                  <th className="p-3.5 text-center">تأمينات (-)</th>
-                  <th className="p-3.5 text-center">ضريبة كسب عمل (-)</th>
-                  <th className="p-3.5 text-center">خصومات وجزاءات (-)</th>
-                  <th className="p-3.5 text-center bg-emerald-50/50 text-emerald-800">صافي المستحق</th>
-                  <th className="p-3.5 text-center">إجراءات</th>
-                </tr>
-              )}
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {filteredPayrollData.map((emp) => (
-                tableMode === 'detailed' ? (
-                  <tr key={emp.employee_id} className="hover:bg-slate-50/60 transition text-xs">
-                    {/* الموظف */}
-                    <td className="p-2.5 font-bold text-slate-800">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs flex-shrink-0">
-                          <User className="w-3.5 h-3.5" />
-                        </div>
-                        <div>
-                          <span className="block whitespace-nowrap">{emp.full_name}</span>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* الفرع */}
-                    <td className="p-2.5 text-center">
-                      <span className="px-2 py-0.5 bg-slate-100 text-slate-700 rounded-lg text-[11px] font-bold border border-slate-200 inline-flex items-center gap-1 whitespace-nowrap">
-                        <Building2 className="w-3 h-3 text-slate-400" />
-                        {emp.department && emp.department !== '-' ? emp.department : 'بدون فرع'}
-                      </span>
-                    </td>
-
-                    {/* الأساسي */}
-                    <td className="p-2.5 text-center">
-                      <input
-                        type="number"
-                        value={emp.gross_salary}
-                        onChange={e => handleGrossChange(emp.employee_id, Number(e.target.value))}
-                        className="w-20 text-center border rounded-lg p-1 font-mono font-bold text-slate-700 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                      />
-                    </td>
-
-                    {/* ✅ الأيام الفعلية قابلة للتعديل عند الاستثناءات */}
-                    <td className="p-2.5 text-center bg-blue-50/20">
-                      <div className="flex items-center justify-center gap-1">
-                        <input
-                          type="number"
-                          min="0"
-                          max="31"
-                          value={emp.effective_days ?? 30}
-                          onChange={e => handleEffectiveDaysChange(emp.employee_id, Number(e.target.value))}
-                          className={`w-12 text-center border rounded-lg p-1 font-mono font-bold text-xs ${
-                            (emp.effective_days ?? 30) < 30
-                              ? 'bg-amber-50 text-amber-800 border-amber-300'
-                              : 'bg-white text-slate-700 border-slate-200'
-                          }`}
-                          disabled={existingPayroll?.status === 'paid'}
-                          title={`الراتب المستحق فعلاً: ${(emp.effective_salary ?? emp.gross_salary).toLocaleString()} ج.م (تعديل الأيام يعيد احتساب الراتب تلقائياً)`}
-                        />
-                        <span className="text-[10px] text-slate-400 font-bold">ي</span>
-                      </div>
-                    </td>
-
-                    {/* أجر الإضافي */}
-                    <td className="p-2.5 text-center bg-emerald-50/20">
-                      <input
-                        type="number"
-                        value={emp.overtime_pay}
-                        onChange={e => handleOvertimePayChange(emp.employee_id, Number(e.target.value))}
-                        className="w-20 text-center border rounded-lg p-1 font-mono font-bold text-emerald-600 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                      />
-                      {emp.overtime_hours > 0 && (
-                        <span className="block text-[10px] text-emerald-600 font-semibold mt-0.5">
-                          ({emp.overtime_hours} س)
-                        </span>
-                      )}
-                    </td>
-
-                    {/* المكافآت */}
-                    <td className="p-2.5 text-center bg-emerald-50/20">
-                      <input
-                        type="number"
-                        value={emp.reward_amount}
-                        onChange={e => handleRewardChange(emp.employee_id, Number(e.target.value))}
-                        className="w-18 text-center border rounded-lg p-1 font-mono font-bold text-emerald-600 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                      />
-                    </td>
-
-                    {/* خصم غياب */}
-                    <td className="p-2.5 text-center bg-rose-50/20">
-                      <div className="flex flex-col items-center gap-1">
-                        <input
-                          type="number"
-                          value={emp.absence_deduction}
-                          onChange={e => handleAbsenceDeductionChange(emp.employee_id, Number(e.target.value))}
-                          className="w-20 text-center border rounded-lg p-1 font-mono font-bold text-rose-600 bg-white"
-                          disabled={existingPayroll?.status === 'paid'}
-                          title="قيمة خصم الغياب بالجنيه (تعديل المبلغ)"
-                        />
-                        <div className="flex items-center gap-0.5 text-[11px] text-rose-600 font-semibold">
-                          <span>(</span>
-                          <input
-                            type="number"
-                            step="0.5"
-                            min="0"
-                            value={emp.absence_days}
-                            onChange={e => handleAbsenceDaysChange(emp.employee_id, Number(e.target.value))}
-                            className="w-11 text-center border border-rose-300 rounded px-1 py-0.5 font-mono text-[11px] bg-rose-50 hover:bg-white focus:bg-white text-rose-700 font-bold"
-                            title="تعديل عدد أيام الغياب يدوياً (يُعاد احتساب المبلغ تلقائياً)"
-                            disabled={existingPayroll?.status === 'paid'}
-                          />
-                          <span>يوم)</span>
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* خصم تأخير */}
-                    <td className="p-2.5 text-center bg-amber-50/20">
-                      <input
-                        type="number"
-                        value={emp.late_deduction}
-                        onChange={e => handleLateDeductionChange(emp.employee_id, Number(e.target.value))}
-                        className="w-18 text-center border rounded-lg p-1 font-mono font-bold text-amber-600 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                      />
-                      {(emp.late_minutes || 0) > 0 && (
-                        <span className="block text-[10px] text-amber-600 font-semibold mt-0.5">
-                          ({emp.late_minutes} د)
-                        </span>
-                      )}
-                    </td>
-
-                    {/* جزاءات إدارية */}
-                    <td className="p-2.5 text-center bg-rose-50/20">
-                      <input
-                        type="number"
-                        value={emp.penalty_amount}
-                        onChange={e => handlePenaltyChange(emp.employee_id, Number(e.target.value))}
-                        className="w-18 text-center border rounded-lg p-1 font-mono font-bold text-rose-700 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                      />
-                    </td>
-
-                    {/* إجازات بدون راتب */}
-                    <td className="p-2.5 text-center bg-purple-50/20">
-                      <input
-                        type="number"
-                        value={emp.unpaid_leave_deduction}
-                        onChange={e => handleUnpaidLeaveDeductionChange(emp.employee_id, Number(e.target.value))}
-                        className="w-18 text-center border rounded-lg p-1 font-mono font-bold text-purple-600 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                      />
-                      {emp.unpaid_leave_days > 0 && (
-                        <span className="block text-[10px] text-purple-600 font-semibold mt-0.5">
-                          ({emp.unpaid_leave_days} يوم)
-                        </span>
-                      )}
-                    </td>
-
-                    {/* السلف */}
-                    <td className="p-2.5 text-center font-mono font-bold text-rose-600">
-                      {emp.advances_deducted > 0 ? `-${emp.advances_deducted.toLocaleString()}` : '-'}
-                    </td>
-
-                    {/* التأمينات الاجتماعية */}
-                    <td className="p-2.5 text-center bg-rose-50/20">
-                      <input
-                        type="number"
-                        value={emp.social_insurance || 0}
-                        onChange={e => handleSocialInsuranceChange(emp.employee_id, Number(e.target.value))}
-                        className="w-16 text-center border rounded-lg p-1 font-mono font-bold text-rose-700 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                        title="حصة التأمينات الاجتماعية المستقطعة من الموظف"
-                      />
-                    </td>
-
-                    {/* الضريبة */}
-                    <td className="p-2.5 text-center">
-                      <input
-                        type="number"
-                        value={emp.payroll_tax}
-                        onChange={e => handleTaxChange(emp.employee_id, Number(e.target.value))}
-                        className="w-16 text-center border rounded-lg p-1 font-mono font-bold text-rose-600 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                      />
-                    </td>
-
-                    {/* إجمالي الخصم */}
-                    <td className="p-2.5 text-center font-mono font-bold text-rose-600 bg-slate-50/50">
-                      {emp.other_deductions > 0 ? `-${emp.other_deductions.toLocaleString()}` : '0'}
-                    </td>
-
-                    {/* صافي المستحق */}
-                    <td className="p-2.5 text-center font-mono font-black text-sm text-emerald-700 bg-emerald-50/40">
-                      {emp.net_salary.toLocaleString()} ج.م
-                    </td>
-
-                    {/* إجراءات */}
-                    <td className="p-2.5 text-center">
-                      <button
-                        onClick={() => setSelectedPayslip({
-                          employee_name: emp.full_name,
-                          department: emp.department && emp.department !== '-' ? emp.department : undefined,
-                          month: selectedMonth,
-                          year: selectedYear,
-                          gross_salary: emp.gross_salary,
-                          effective_days: emp.effective_days,
-                          effective_salary: emp.effective_salary,
-                          additions: emp.additions,
-                          advances_deducted: emp.advances_deducted,
-                          payroll_tax: emp.payroll_tax,
-                          social_insurance: emp.social_insurance,
-                          other_deductions: emp.other_deductions,
-                          net_salary: emp.net_salary,
-                          unpaid_leave_days: emp.unpaid_leave_days,
-                          unpaid_leave_deduction: emp.unpaid_leave_deduction,
-                          absence_days: emp.absence_days,
-                          absence_deduction: emp.absence_deduction,
-                          late_minutes: emp.late_minutes,
-                          late_deduction: emp.late_deduction,
-                          penalty_amount: emp.penalty_amount,
-                          overtime_hours: emp.overtime_hours,
-                          phone: emp.phone,
-                          company_name: organization?.name
-                        })}
-                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border rounded-lg text-[10px] font-bold inline-flex items-center gap-1 transition"
-                        title="طباعة قسيمة الراتب"
-                      >
-                        <Printer className="w-3 h-3 text-blue-600" /> مفردات
-                      </button>
-                    </td>
-                  </tr>
-                ) : (
-                  <tr key={emp.employee_id} className="hover:bg-slate-50/60 transition">
-                    <td className="p-3.5 font-bold text-slate-800">
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center font-bold text-xs">
-                          <User className="w-3.5 h-3.5" />
-                        </div>
-                        <div>
-                          <span>{emp.full_name}</span>
-                          {(emp.overtime_hours > 0 || (emp.reward_amount || 0) > 0) && (
-                            <div className="flex items-center gap-1 mt-0.5 text-[10px] text-emerald-600">
-                              {emp.overtime_hours > 0 && <span>إضافي {emp.overtime_hours} س</span>}
-                              {(emp.reward_amount || 0) > 0 && <span>• مكافأة {emp.reward_amount} ج</span>}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-
-                    <td className="p-3.5 text-center">
-                      <span className="px-2.5 py-1 bg-slate-100 text-slate-700 rounded-lg text-xs font-bold border border-slate-200 inline-flex items-center gap-1">
-                        <Building2 className="w-3 h-3 text-slate-400" />
-                        {emp.department && emp.department !== '-' ? emp.department : 'بدون فرع'}
-                      </span>
-                    </td>
-
-                    <td className="p-3.5 text-center">
-                      <input
-                        type="number"
-                        value={emp.gross_salary}
-                        onChange={e => handleGrossChange(emp.employee_id, Number(e.target.value))}
-                        className="w-24 text-center border rounded-lg p-1 font-mono font-bold text-slate-700 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                      />
-                    </td>
-
-                    <td className="p-3.5 text-center">
-                      <input
-                        type="number"
-                        value={emp.additions}
-                        onChange={e => handleAdditionsChange(emp.employee_id, Number(e.target.value))}
-                        className="w-20 text-center border rounded-lg p-1 font-mono font-bold text-emerald-600 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                      />
-                    </td>
-
-                    <td className="p-3.5 text-center font-mono font-bold text-rose-600">
-                      {emp.advances_deducted > 0 ? `-${emp.advances_deducted.toLocaleString()}` : '-'}
-                    </td>
-
-                    <td className="p-3.5 text-center">
-                      <input
-                        type="number"
-                        value={emp.social_insurance || 0}
-                        onChange={e => handleSocialInsuranceChange(emp.employee_id, Number(e.target.value))}
-                        className="w-20 text-center border rounded-lg p-1 font-mono font-bold text-rose-700 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                        title="تعديل التأمينات الاجتماعية المستقطعة"
-                      />
-                    </td>
-
-                    <td className="p-3.5 text-center">
-                      <input
-                        type="number"
-                        value={emp.payroll_tax}
-                        onChange={e => handleTaxChange(emp.employee_id, Number(e.target.value))}
-                        className="w-20 text-center border rounded-lg p-1 font-mono font-bold text-rose-600 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                      />
-                    </td>
-
-                    <td className="p-3.5 text-center">
-                      <input
-                        type="number"
-                        value={emp.other_deductions}
-                        onChange={e => handleDeductionChange(emp.employee_id, Number(e.target.value))}
-                        className="w-20 text-center border rounded-lg p-1 font-mono font-bold text-rose-600 bg-white"
-                        disabled={existingPayroll?.status === 'paid'}
-                      />
-                      <div className="space-y-0.5 mt-1 text-[10px]">
-                        {emp.absence_days > 0 && (
-                          <span className="text-rose-600 block font-semibold">
-                            غياب: {emp.absence_days} يوم (-{emp.absence_deduction} ج)
-                          </span>
-                        )}
-                        {(emp.late_minutes || 0) > 0 && (
-                          <span className="text-amber-600 block font-semibold">
-                            تأخير: {emp.late_minutes} د (-{emp.late_deduction} ج)
-                          </span>
-                        )}
-                        {(emp.penalty_amount || 0) > 0 && (
-                          <span className="text-rose-700 block font-semibold">
-                            جزاءات: (-{emp.penalty_amount} ج)
-                          </span>
-                        )}
-                        {emp.unpaid_leave_days > 0 && (
-                          <span className="text-purple-600 block font-semibold">
-                            إجازة: {emp.unpaid_leave_days} يوم (-{emp.unpaid_leave_deduction} ج)
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    <td className="p-3.5 text-center font-mono font-black text-sm text-emerald-700 bg-emerald-50/30">
-                      {emp.net_salary.toLocaleString()} ج.م
-                    </td>
-
-                    <td className="p-3.5 text-center">
-                      <button
-                        onClick={() => setSelectedPayslip({
-                          employee_name: emp.full_name,
-                          department: emp.department && emp.department !== '-' ? emp.department : undefined,
-                          month: selectedMonth,
-                          year: selectedYear,
-                          gross_salary: emp.gross_salary,
-                          effective_days: emp.effective_days,
-                          effective_salary: emp.effective_salary,
-                          additions: emp.additions,
-                          advances_deducted: emp.advances_deducted,
-                          payroll_tax: emp.payroll_tax,
-                          social_insurance: emp.social_insurance,
-                          other_deductions: emp.other_deductions,
-                          net_salary: emp.net_salary,
-                          unpaid_leave_days: emp.unpaid_leave_days,
-                          unpaid_leave_deduction: emp.unpaid_leave_deduction,
-                          absence_days: emp.absence_days,
-                          absence_deduction: emp.absence_deduction,
-                          late_minutes: emp.late_minutes,
-                          late_deduction: emp.late_deduction,
-                          penalty_amount: emp.penalty_amount,
-                          overtime_hours: emp.overtime_hours,
-                          phone: emp.phone,
-                          company_name: organization?.name
-                        })}
-                        className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 border rounded-lg text-[10px] font-bold inline-flex items-center gap-1 transition"
-                        title="طباعة قسيمة الراتب"
-                      >
-                        <Printer className="w-3 h-3 text-blue-600" /> مفردات
-                      </button>
-                    </td>
-                  </tr>
-                )
-              ))}
-
-              {filteredPayrollData.length === 0 && !loading && (
-                <tr>
-                  <td colSpan={tableMode === 'detailed' ? 16 : 10} className="p-10 text-center text-slate-400 space-y-2">
-                    <Info className="w-8 h-8 text-slate-300 mx-auto" />
-                    <p className="font-bold text-slate-600">
-                      {payrollData.length === 0 
-                        ? 'لم يتم تجهيز المسير بعد' 
-                        : searchTerm
-                          ? `لا توجد نتائج مطابقة لبحث: "${searchTerm}"`
-                          : 'لا يوجد موظفون في هذا الفرع / القسم'}
-                    </p>
-                    <p className="text-[11px] text-slate-400">
-                      {payrollData.length === 0 
-                        ? 'حدد الشهر والسنة ثم اضغط على "تجهيز واحتساب المسير" لجلب بيانات الموظفين والبدلات والسلف والغياب آلياً.'
-                        : searchTerm
-                          ? 'تأكد من كتابة اسم الموظف بشكل صحيح، أو اضغط أدناه لمسح نص البحث.'
-                          : 'يمكنك اختيار "كل الفروع والأقسام" لعرض كافة موظفي المسير.'}
-                    </p>
-                    {searchTerm && (
-                      <button
-                        type="button"
-                        onClick={() => setSearchTerm('')}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl text-xs font-bold transition mt-2"
-                      >
-                        <RotateCcw className="w-3.5 h-3.5" /> مسح نص البحث
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <PayrollTableSection
+        tableMode={tableMode}
+        onTableModeChange={setTableMode}
+        payrollData={payrollData}
+        filteredPayrollData={filteredPayrollData}
+        isPaid={existingPayroll?.status === 'paid'}
+        loading={loading}
+        searchTerm={searchTerm}
+        onClearSearchTerm={() => setSearchTerm('')}
+        onGrossChange={handleGrossChange}
+        onEffectiveDaysChange={handleEffectiveDaysChange}
+        onOvertimePayChange={handleOvertimePayChange}
+        onRewardChange={handleRewardChange}
+        onAdditionsChange={handleAdditionsChange}
+        onAbsenceDaysChange={handleAbsenceDaysChange}
+        onAbsenceDeductionChange={handleAbsenceDeductionChange}
+        onLateDeductionChange={handleLateDeductionChange}
+        onPenaltyChange={handlePenaltyChange}
+        onUnpaidLeaveDeductionChange={handleUnpaidLeaveDeductionChange}
+        onDeductionChange={handleDeductionChange}
+        onTaxChange={handleTaxChange}
+        onSocialInsuranceChange={handleSocialInsuranceChange}
+        onSelectPayslip={(emp) => setSelectedPayslip({
+          employee_name: emp.full_name,
+          department: emp.department && emp.department !== '-' ? emp.department : undefined,
+          month: selectedMonth,
+          year: selectedYear,
+          gross_salary: emp.gross_salary,
+          effective_days: emp.effective_days,
+          effective_salary: emp.effective_salary,
+          additions: emp.additions,
+          advances_deducted: emp.advances_deducted,
+          payroll_tax: emp.payroll_tax,
+          social_insurance: emp.social_insurance,
+          other_deductions: emp.other_deductions,
+          net_salary: emp.net_salary,
+          unpaid_leave_days: emp.unpaid_leave_days,
+          unpaid_leave_deduction: emp.unpaid_leave_deduction,
+          absence_days: emp.absence_days,
+          absence_deduction: emp.absence_deduction,
+          late_minutes: emp.late_minutes,
+          late_deduction: emp.late_deduction,
+          penalty_amount: emp.penalty_amount,
+          overtime_hours: emp.overtime_hours,
+          phone: emp.phone,
+          company_name: organization?.name
+        })}
+      />
 
       {/* Action Footer */}
-      {payrollData.length > 0 && (
-        <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap justify-between items-center gap-4">
-          <div className="text-xs text-slate-600 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-            <span>
-              إجمالي الموظفين: <strong>{payrollData.length}</strong> | إجمالي صافي الرواتب:{' '}
-              <strong className="text-emerald-700 font-mono text-sm">{totals.net.toLocaleString()} ج.م</strong>
-            </span>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-3">
-            {payrollData.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setShowBulkPayslips(true)}
-                className="bg-slate-800 hover:bg-slate-900 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-slate-800/20 transition active:scale-95"
-                title="طباعة قسائم الرواتب لجميع موظفي المسير دفعة واحدة (كل موظف في صفحة A4 مستقلة)"
-              >
-                <Printer className="w-4 h-4 text-sky-400" />
-                <span>طباعة كافة القسائم ({filteredPayrollData.length})</span>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleExportExcel}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-emerald-600/20 transition active:scale-95"
-              title="تصدير مسير الرواتب إلى Excel"
-            >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>تصدير Excel</span>
-            </button>
-            {existingPayroll?.status !== 'paid' && (
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={importingExcel}
-                className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 shadow-md shadow-indigo-600/20 transition active:scale-95"
-                title="استيراد التعديلات من ملف Excel وتطبيقها على المسير"
-              >
-                {importingExcel ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileUp className="w-4 h-4" />}
-                <span>استيراد من Excel</span>
-              </button>
-            )}
-            {existingPayroll?.status === 'paid' ? (
-              <div className="flex items-center gap-2 bg-emerald-50 text-emerald-800 border border-emerald-200 px-5 py-2.5 rounded-xl text-xs font-bold">
-                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                تم صرف هذا المسير وترحيل قيد النقدية بالكامل ✅
-              </div>
-            ) : existingPayroll?.status === 'accrued' ? (
-              <>
-                <button
-                  onClick={handleRunAccrual}
-                  disabled={savingAccrual || savingPayment || cancellingAccrual}
-                  className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border border-slate-300 transition"
-                  title="إعادة احتساب وتحديث قيد الاستحقاق بقيم المسير المعروضة"
-                >
-                  {savingAccrual ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-                  تحديث قيد الاستحقاق
-                </button>
-
-                <button
-                  onClick={handleCancelAccrual}
-                  disabled={cancellingAccrual || savingAccrual || savingPayment}
-                  className="bg-rose-50 hover:bg-rose-100 text-rose-700 px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-1.5 border border-rose-200 transition"
-                  title="إلغاء قيد الاستحقاق وحذف القيد وإعادة جميع السلف كـ قائمة"
-                >
-                  {cancellingAccrual ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                  إلغاء الاستحقاق وإعادة ضبط السلف
-                </button>
-
-                <button
-                  onClick={handlePayAccrued}
-                  disabled={savingPayment || savingAccrual || cancellingAccrual}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/25 transition"
-                >
-                  {savingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wallet className="w-4 h-4" />}
-                  {savingPayment ? 'جاري تنفيذ قيد الصرف...' : 'صرف الرواتب وترحيل قيد النقدية (حـ/ 2251 ← الخزينة/البنك)'}
-                </button>
-              </>
-            ) : (
-              <>
-                {/* زر إثبات قيد الاستحقاق المنفصل */}
-                <button
-                  onClick={handleRunAccrual}
-                  disabled={savingAccrual || savingPayment}
-                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-lg shadow-indigo-600/25 transition"
-                >
-                  {savingAccrual ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                  {savingAccrual ? 'جاري ترحيل الاستحقاق...' : 'إثبات قيد الاستحقاق (حـ/ 2251 رواتب مستحقة)'}
-                </button>
-
-                {/* زر الصرف المباشر الفوري */}
-                <button
-                  onClick={handleRunPayrollDirect}
-                  disabled={savingPayment || savingAccrual}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-6 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-lg shadow-emerald-600/25 transition"
-                >
-                  {savingPayment ? <Loader2 className="w-4 h-4 animate-spin" /> : <Banknote className="w-4 h-4" />}
-                  {savingPayment ? 'جاري الصرف المباشر...' : 'صرف نقدي مباشر (بديل بدون قيد استحقاق)'}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <PayrollActionFooter
+        totalEmployees={payrollData.length}
+        filteredCount={filteredPayrollData.length}
+        totalNet={totals.net}
+        payrollStatus={existingPayroll?.status}
+        importingExcel={importingExcel}
+        savingAccrual={savingAccrual}
+        savingPayment={savingPayment}
+        cancellingAccrual={cancellingAccrual}
+        onShowBulkPayslips={() => setShowBulkPayslips(true)}
+        onExportExcel={handleExportExcel}
+        onTriggerImportExcel={() => fileInputRef.current?.click()}
+        onRunAccrual={handleRunAccrual}
+        onCancelAccrual={handleCancelAccrual}
+        onPayAccrued={handlePayAccrued}
+        onRunPayrollDirect={handleRunPayrollDirect}
+      />
 
       {/* Payslip Modal */}
       {selectedPayslip && (
