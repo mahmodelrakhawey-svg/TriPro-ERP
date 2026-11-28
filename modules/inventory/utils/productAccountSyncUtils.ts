@@ -51,7 +51,7 @@ export function isOfferExpired(item: Item): boolean {
 export function countRawItemsNeedingSync(
   products: any[],
   getSystemAccount: GetSystemAccountFn,
-  settings: any
+  settings?: { account_mappings?: Record<string, string> }
 ): number {
   const rawMaterialAcc =
     getSystemAccount('INVENTORY_RAW_MATERIALS')?.id ||
@@ -77,7 +77,7 @@ export function countFinishedGoodsItemsNeedingSync(
   products: any[],
   categories: any[],
   getSystemAccount: GetSystemAccountFn,
-  settings: any
+  settings?: { account_mappings?: Record<string, string> }
 ): number {
   const finishedGoodsAcc =
     getSystemAccount('INVENTORY_FINISHED_GOODS')?.id ||
