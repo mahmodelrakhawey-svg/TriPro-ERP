@@ -7,6 +7,12 @@ import SalesInvoiceForm, {
   clearSalesInvoiceDraft,
 } from '../../modules/sales/SalesInvoiceForm';
 import {
+  findProductByBarcodeOrUnit,
+  getSalesProductPrice,
+  isSalesOfferActive,
+  repriceSalesItemsForTier,
+} from '../../modules/sales/utils/salesPricingAndBarcodeUtils';
+import {
   TEST_ORG_ID,
   TEST_USER_ID,
   TEST_CUSTOMER_ID,
@@ -34,8 +40,19 @@ vi.mock('../../supabaseClient', () => ({
   },
 }));
 
-const mockAccountingState = {
-  products: [{ id: '77777777-7777-4777-8777-777777777771', name: 'تورتة شوكولاتة', sales_price: 300, warehouse_stock: { [TEST_WAREHOUSE_ID]: 10 } }],
+const mockAccountingState: any = {
+  products: [
+    {
+      id: '77777777-7777-4777-8777-777777777771',
+      name: 'تورتة شوكولاتة',
+      sku: 'CAKE-01',
+      barcode: '6221000001001',
+      sales_price: 300,
+      wholesale_price: 250,
+      half_wholesale_price: 275,
+      warehouse_stock: { [TEST_WAREHOUSE_ID]: 10 },
+    },
+  ],
   warehouses: [{ id: TEST_WAREHOUSE_ID, name: 'المستودع الرئيسي', is_primary: true }],
   salespeople: [],
   accounts: [
@@ -176,5 +193,78 @@ describe('🛒 SalesInvoiceForm — Rendering, Validation & Drafts', () => {
       'يرجى اختيار الخزينة أو البنك لاستلام المبلغ المدفوع',
       'warning'
     );
+  });
+
+  it('يضيف الصنف بالباركود أو البحث ويحتسب الصافي والضريبة والخصم الإجمالي بدقة', async () => {
+    const { container } = render(
+      <React.Suspense fallback={<div>loading</div>}>
+        <MemoryRouter>
+          <SalesInvoiceForm />
+        </MemoryRouter>
+      </React.Suspense>
+    );
+
+    const searchInput = await vi.waitFor(() => {
+      const el = container.querySelector('input[placeholder*="باركود"]') as HTMLInputElement | null;
+      if (!el) throw new Error('barcode search input not rendered yet');
+      return el;
+    });
+
+    fireEvent.change(searchInput, { target: { value: 'CAKE-01' } });
+    fireEvent.keyDown(searchInput, { key: 'Enter', code: 'Enter' });
+
+    await vi.waitFor(() => {
+      expect(screen.getAllByText(/تورتة شوكولاتة/).length).toBeGreaterThan(0);
+    });
+
+    // 300 + 14% (42) = 342
+    const fmt = (n: number) => n.toLocaleString();
+    expect(screen.getAllByText(new RegExp(fmt(342))).length).toBeGreaterThan(0);
+  });
+
+  it('يتحقق من مطابقة باركود الوحدة والعروض وفئات التسعير وإعادة التسعير', () => {
+    const today = new Date().toISOString().split('T')[0];
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+
+    const productsList: any[] = [
+      {
+        id: 'p-tier',
+        name: 'صنف جملة',
+        sku: 'SKU-T1',
+        barcode: '111222333',
+        sales_price: 100,
+        wholesale_price: 80,
+        half_wholesale_price: 90,
+        unit_barcodes: [{ uom_id: 'uom-box', uom_name: 'كرتونة', barcode: 'BOX-99', price: 950 }],
+      },
+      {
+        id: 'p-offer',
+        name: 'صنف عرض',
+        sales_price: 200,
+        offer_price: 150,
+        offer_start_date: yesterday,
+        offer_end_date: today,
+      },
+    ];
+
+    expect(getSalesProductPrice(productsList[0], 'retail', today)).toBe(100);
+    expect(getSalesProductPrice(productsList[0], 'wholesale', today)).toBe(80);
+    expect(getSalesProductPrice(productsList[0], 'half', today)).toBe(90);
+    expect(isSalesOfferActive(productsList[1], today)).toBe(true);
+    expect(getSalesProductPrice(productsList[1], 'wholesale', today)).toBe(150);
+
+    const matched = findProductByBarcodeOrUnit(productsList, 'box-99');
+    expect(matched.product?.id).toBe('p-tier');
+    expect(matched.matchedUomInfo?.customPrice).toBe(950);
+
+    const repriced = repriceSalesItemsForTier(
+      [{ productId: 'p-tier', uomId: 'uom-box', quantity: 2, unitPrice: 200, total: 400 }],
+      productsList,
+      [{ id: 'uom-box', ratio: 10 }],
+      'wholesale',
+      today
+    );
+    expect(repriced[0].unitPrice).toBe(800);
+    expect(repriced[0].total).toBe(1600);
   });
 });

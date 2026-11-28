@@ -1,23 +1,13 @@
-import React, { useState, useEffect, useMemo, useRef, lazy, Suspense } from 'react';
+import React, { useState, useEffect, useMemo, useRef, lazy } from 'react';
 import { logger } from '../../utils/logger';
 import { useAccounting } from '../../context/AccountingContext';
-import { 
-    Plus, Trash2, Save, User, Calendar, ShoppingCart, Warehouse,
-    Wallet, Search, X, ChevronDown, Check, AlertCircle, Percent,
-    CircleDollarSign, Package, Box, Info,
-    ArrowDown, Calculator, UserCheck, Printer, Loader2, CheckCircle,
-    Edit, RefreshCw, FileText, Landmark, Unlock, Undo2,
-    ChevronRight, ChevronLeft, ChevronsRight, ChevronsLeft, List,
-    Sparkles, Gift, Tag, Zap
-} from 'lucide-react';
-import { InvoiceItem, Product } from '../../types';
+import { Info } from 'lucide-react';
+import { Product } from '../../types';
 import { supabase } from '../../supabaseClient';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { SalesInvoicePrint } from './SalesInvoicePrint';
 import { useToast } from '../../context/ToastContext';
 import { handleError, AppError } from '../../utils/errorHandler';
-const CustomerStatement = lazy(() => import('./CustomerStatement'));
-import { SubledgerRegistry } from '../../services/subledgerRegistry';
 import { getActiveOrgIdSync, resolveActiveOrgId, isValidUUID } from '../../services/tenantContext';
 import { createInvoiceSchema, createCustomerSchema } from '../../utils/validationSchemas';
 import { etaService } from '../../services/etaService';
@@ -34,6 +24,20 @@ import { InvoiceSummary } from './components/InvoiceSummary';
 const SalesInvoiceExcelImporter = lazy(() => import('./components/SalesInvoiceExcelImporter').then(m => ({ default: m.SalesInvoiceExcelImporter })));
 import { SalesInvoiceActionBar } from './components/SalesInvoiceActionBar';
 import { fetchUoms } from '../../services/uomService';
+import { fetchCustomerBalanceAndOverdueCount } from './services/customerBalanceHelper';
+import {
+  SalesCustomerStatementModal,
+  SalesMissingSetupBanners,
+} from './components/SalesModalsAndWarnings';
+import {
+  buildSalesPrintData,
+  filterSalesProducts,
+  findMatchingPromoRule,
+  findProductByBarcodeOrUnit,
+  getSalesProductPrice,
+  isSalesOfferActive,
+  repriceSalesItemsForTier,
+} from './utils/salesPricingAndBarcodeUtils';
 
 const SALES_DRAFT_KEY = 'tripro_sales_invoice_draft_v2';
 const LEGACY_SALES_DRAFT_KEY = 'tripro_sales_invoice_draft';
@@ -370,9 +374,10 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
           setCustomerBalance(bal);
           return;
       }
-      
+
       try {
-          const explicitOrgId = (currentUser as any)?.organization_id || (settings as any)?.organization_id;
+          const explicitOrgId = (currentUser as unknown as Record<string, unknown>)?.organization_id as string | undefined
+            || (settings as unknown as Record<string, unknown>)?.organization_id as string | undefined;
           const userOrgId = getActiveOrgIdSync(explicitOrgId) || await resolveActiveOrgId(explicitOrgId);
 
           if (!userOrgId) {
@@ -380,159 +385,19 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
               return;
           }
 
-          const customer: Record<string, any> | undefined = customers.find(c => c.id === formData.customerId);
-          if (!customer) {
-              setCustomerBalance(0);
-              return;
-          }
+          const { balance, overdueCount } = await fetchCustomerBalanceAndOverdueCount({
+              customerId: formData.customerId,
+              userOrgId,
+              customers: customers as unknown as Array<Record<string, unknown>>,
+              getSystemAccount,
+          });
 
-          // 1. تحديد حساب العملاء (1221) أو حساب التأمين (122101)
-          let targetAccountId = getSystemAccount('CUSTOMERS')?.id;
-          if (!targetAccountId) {
-            const { data: customerAccounts } = await supabase
-              .from('accounts')
-              .select('id')
-              .eq('organization_id', userOrgId)
-              .eq('code', '1221')
-              .limit(1);
-            targetAccountId = customerAccounts?.[0]?.id;
-          }
+          setCustomerBalance(balance);
+          customerBalanceCacheRef.current.set(formData.customerId, { balance, timestamp: Date.now() });
 
-          if (customer?.customer_type === 'insurance_provider') {
-            const { data: insAcc } = await supabase
-              .from('accounts')
-              .select('id')
-              .eq('organization_id', userOrgId)
-              .eq('code', '122101')
-              .limit(1);
-            if (insAcc && insAcc.length > 0) {
-              targetAccountId = insAcc[0].id;
-            }
-          }
-
-          if (!targetAccountId) {
-              logger.error("Customer A/R account not found for balance calculation.");
-              setCustomerBalance(0);
-              return;
-          }
-
-          // جلب المديولات المسموحة للمنظمة
-          const { data: orgData } = await supabase
-            .from('organizations')
-            .select('allowed_modules')
-            .eq('id', userOrgId)
-            .maybeSingle();
-          const allowedModules: string[] | undefined = orgData?.allowed_modules || undefined;
-
-          // 2. جمع معرفات القيود المرتبطة بالعميل + القيود اليدوية + مستخلصات المشاريع + مجمع الأستاذ المساعد
-          const custName = customer?.name?.trim();
-          const [
-              invRes, recRes, retRes, cnRes, chqRes, ordRes,
-              clientProjectsRes,
-              manualEntriesRes,
-              modularEntryIds
-          ] = await Promise.all([
-              supabase.from('invoices').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-              supabase.from('receipt_vouchers').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-              supabase.from('sales_returns').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-              supabase.from('credit_notes').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-              custName
-                ? supabase.from('cheques').select('related_journal_entry_id').eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null).or(`party_id.eq.${customer.id},party_name.ilike.%${custName}%`)
-                : supabase.from('cheques').select('related_journal_entry_id').eq('party_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-              supabase.from('orders').select('related_journal_entry_id').eq('customer_id', customer.id).eq('organization_id', userOrgId).not('related_journal_entry_id', 'is', null),
-              supabase.from('projects').select('id, name').eq('customer_id', customer.id).eq('organization_id', userOrgId),
-              custName
-                ? supabase.from('journal_entries').select('id, reference, description, related_document_type').eq('organization_id', userOrgId).eq('status', 'posted').or(`description.ilike.%${custName}%,reference.ilike.%${custName}%,reference.ilike.%OP-CUST-${customer.id}%,reference.ilike.%OB-${customer.id}%`)
-                : Promise.resolve({ data: [] as any[] }),
-              SubledgerRegistry.fetchStatementCustomerEntryIds(userOrgId, customer.id, custName, allowedModules)
-          ]);
-
-          const allEntryIds = new Set<string>();
-          invRes.data?.forEach(i => i.related_journal_entry_id && allEntryIds.add(i.related_journal_entry_id));
-          recRes.data?.forEach(r => r.related_journal_entry_id && allEntryIds.add(r.related_journal_entry_id));
-          retRes.data?.forEach(r => r.related_journal_entry_id && allEntryIds.add(r.related_journal_entry_id));
-          cnRes.data?.forEach(c => c.related_journal_entry_id && allEntryIds.add(c.related_journal_entry_id));
-          chqRes.data?.forEach(c => c.related_journal_entry_id && allEntryIds.add(c.related_journal_entry_id));
-          ordRes.data?.forEach(o => o.related_journal_entry_id && allEntryIds.add(o.related_journal_entry_id));
-          manualEntriesRes.data?.forEach(je => allEntryIds.add(je.id));
-          modularEntryIds?.forEach(id => { if (id) allEntryIds.add(id); });
-
-          // جلب مستخلصات مشاريع هذا العميل
-          const projectIds = clientProjectsRes.data?.map(p => p.id) || [];
-          if (projectIds.length > 0) {
-            const { data: billings } = await supabase.from('project_progress_billings')
-              .select('related_journal_entry_id')
-              .in('project_id', projectIds)
-              .eq('organization_id', userOrgId)
-              .not('related_journal_entry_id', 'is', null);
-            billings?.forEach(b => b.related_journal_entry_id && allEntryIds.add(b.related_journal_entry_id));
-          }
-
-          let movement = 0;
-          let hasOpeningEntryInTrans = false;
-
-          if (allEntryIds.size > 0) {
-              const { data: ledgerLines } = await supabase.from('journal_lines')
-                .select('journal_entry_id, debit, credit')
-                .in('journal_entry_id', Array.from(allEntryIds))
-                .eq('account_id', targetAccountId);
-
-              movement = ledgerLines?.reduce((sum, l) => sum + (Number(l.debit) - Number(l.credit)), 0) || 0;
-
-              const journalEntryIds = Array.from(new Set(ledgerLines?.map(l => l.journal_entry_id).filter(Boolean) || []));
-              if (journalEntryIds.length > 0) {
-                  const { data: entries } = await supabase
-                    .from('journal_entries')
-                    .select('id, reference, description, related_document_type')
-                    .in('id', journalEntryIds)
-                    .eq('organization_id', userOrgId);
-
-                  hasOpeningEntryInTrans = entries?.some(je => 
-                    je.related_document_type === 'opening_balance' ||
-                    je.reference?.startsWith('OP-CUST-') ||
-                    je.reference?.startsWith('OB-') ||
-                    je.reference?.startsWith('OP-') ||
-                    je.reference?.startsWith('OPENING-') ||
-                    je.description?.includes('رصيد افتتاحي')
-                  ) || false;
-              }
-          }
-          
-          // 3. إضافة مبيعات المطاعم غير المرحّلة (إن وجدت)
-          const { data: openOrders } = await supabase.from('orders')
-            .select('grand_total')
-            .eq('customer_id', customer.id)
-            .eq('organization_id', userOrgId)
-            .is('related_journal_entry_id', null)
-            .neq('status', 'CANCELLED');
-
-          const unpostedRestaurantSales = openOrders?.reduce((sum, o) => sum + Number(o.grand_total), 0) || 0;
-
-          const initialBal = hasOpeningEntryInTrans ? 0 : Number(customer.opening_balance || 0);
-
-          const finalCustomerBal = initialBal + movement + unpostedRestaurantSales;
-          setCustomerBalance(finalCustomerBal);
-          customerBalanceCacheRef.current.set(formData.customerId, { balance: finalCustomerBal, timestamp: Date.now() });
-
-          // 🔍 التحقق من الفواتير المتأخرة
-          const { data: overdueData } = await supabase
-              .from('invoices')
-              .select('total_amount, paid_amount, due_date, status')
-              .eq('customer_id', formData.customerId)
-              .eq('organization_id', userOrgId)
-              .neq('status', 'draft');
-
-          const today = new Date().toISOString().split('T')[0];
-          const overdueInvoices = overdueData?.filter((inv: Record<string, any>) => 
-              inv.status !== 'paid' && 
-              inv.due_date && 
-              inv.due_date < today && 
-              (inv.total_amount - (inv.paid_amount || 0)) > 0
-          ) || [];
-          
-          if (overdueInvoices.length > 0) {
+          if (overdueCount > 0) {
               setTimeout(() => {
-                  showToast(`العميل لديه ${overdueInvoices.length} فواتير متأخرة السداد`, 'warning');
+                  showToast(`العميل لديه ${overdueCount} فواتير متأخرة السداد`, 'warning');
               }, 500);
           }
       } catch (error) {
@@ -991,18 +856,8 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const remainingBalance = Math.max(0, totalAmount - formData.paidAmount);
 
   // 🎁 التحقق مما إذا كان هناك عرض هايبر ماركت سارٍ على صنف معين
-  const getProductHypermarketOffer = (product: Record<string, any>): PromotionRule | undefined => {
-    if (!retailPromotions || retailPromotions.length === 0) return undefined;
-    const now = formData.date || new Date().toISOString().split('T')[0];
-    return retailPromotions.find(p => {
-      if (!p.is_active) return false;
-      if (p.start_date && p.start_date > now) return false;
-      if (p.end_date && p.end_date < now) return false;
-      if (p.product_id && p.product_id === product.id) return true;
-      if (p.category_id && product.category_id && p.category_id === product.category_id) return true;
-      return false;
-    });
-  };
+  const getProductHypermarketOffer = (product: Product | Record<string, unknown>): PromotionRule | undefined =>
+    findMatchingPromoRule(retailPromotions, product, formData.date);
 
   // التحقق من حد الائتمان
   const selectedCustomer = customers.find(c => c.id === formData.customerId);
@@ -1010,73 +865,22 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const totalProjectedDebt = customerBalance + currentInvoiceDebt;
   const isOverLimit = Boolean(selectedCustomer?.credit_limit && selectedCustomer.credit_limit > 0 && totalProjectedDebt > selectedCustomer.credit_limit);
 
-  const filteredProducts = useMemo(() => {
-      if (!productSearchTerm.trim()) return [];
-      const term = productSearchTerm.trim().toLowerCase();
-      return products.filter(p =>
-          p.name.toLowerCase().includes(term) ||
-          (p.sku && p.sku.toLowerCase().includes(term)) ||
-          (p.barcode && p.barcode.toLowerCase().includes(term)) ||
-          ((p as any).barcode2 && (p as any).barcode2.toLowerCase().includes(term)) ||
-          (Array.isArray((p as any).unit_barcodes) && (p as any).unit_barcodes.some((ub: Record<string, any>) => ub.barcode && ub.barcode.toLowerCase().includes(term)))
-      ).slice(0, 8);
-  }, [productSearchTerm, products]);
+  const filteredProducts = useMemo(
+    () => filterSalesProducts(products, productSearchTerm),
+    [productSearchTerm, products]
+  );
 
   // 🏷️ دالة التحقق من سريان العرض على الصنف
-  const isOfferActive = (product: Record<string, any>, invDate?: string) => {
-      const targetDate = invDate || formData.date || new Date().toISOString().split('T')[0];
-      const offerPrice = Number(product.offer_price || product.offerPrice || 0);
-      if (offerPrice > 0) {
-          const start = product.offer_start_date || product.offerStartDate;
-          const end = product.offer_end_date || product.offerEndDate;
-          if (start && end) {
-              return targetDate >= start && targetDate <= end;
-          }
-          if (end) {
-              return targetDate <= end;
-          }
-          return true;
-      }
-      return false;
-  };
+  const isOfferActive = (product: Product | Record<string, unknown>, invDate?: string) =>
+    isSalesOfferActive(product, invDate || formData.date);
 
-  const getProductPrice = (product: Record<string, any>, invDate?: string, tierOverride?: 'retail' | 'wholesale' | 'half') => {
-      // 🏷️ إذا كان هناك عرض ساري على الصنف، يتم تطبيق سعر العرض تلقائياً
-      if (isOfferActive(product, invDate)) {
-          return Number(product.offer_price || product.offerPrice);
-      }
-      const price = Number(product.sales_price || product.price || 0);
-      const activeTier = tierOverride || pricingTier;
-      if (activeTier === 'wholesale') {
-          const wsPrice = Number(product.wholesale_price ?? product.wholesalePrice);
-          return wsPrice > 0 ? wsPrice : price;
-      }
-      if (activeTier === 'half') {
-          const halfWsPrice = Number(product.half_wholesale_price ?? product.halfWholesalePrice);
-          return halfWsPrice > 0 ? halfWsPrice : price;
-      }
-      return price;
-  };
+  const getProductPrice = (product: Product | Record<string, unknown>, invDate?: string, tierOverride?: 'retail' | 'wholesale' | 'half') =>
+    getSalesProductPrice(product, tierOverride || pricingTier, invDate || formData.date);
 
   const handlePricingTierChange = (newTier: 'retail' | 'wholesale' | 'half') => {
       setPricingTier(newTier);
       if (items.length > 0) {
-          setItems(prevItems => prevItems.map(item => {
-              const prod = products.find(p => p.id === item.productId);
-              if (!prod) return item;
-              const basePrice = getProductPrice(prod, formData.date, newTier);
-              const selectedUom = uoms.find(u => u.id === item.uomId);
-              const unitPrice = selectedUom ? Number((basePrice * (selectedUom.ratio || 1)).toFixed(4)) : basePrice;
-              const discount = item.discount || 0;
-              const qty = item.quantity || 0;
-              const total = Number(((qty * unitPrice) - discount).toFixed(2));
-              return {
-                  ...item,
-                  unitPrice,
-                  unit_price: unitPrice,
-                  total
-              };
-          }));
+          setItems(prevItems => repriceSalesItemsForTier(prevItems, products, uoms, newTier, formData.date));
       }
   };
 
@@ -1137,49 +941,14 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
   const handleBarcodeSearch = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault();
-      const code = e.currentTarget.value.trim().toLowerCase();
-      if (!code) return;
+      const rawCode = e.currentTarget.value.trim();
+      if (!rawCode) return;
 
-      let matchedUomInfo: { uom_name?: string; customPrice?: number; uom_id?: string } | undefined;
-
-      // 1. Direct match on barcode, sku, barcode2
-      let product = products.find(p => 
-        (p.barcode && p.barcode.trim().toLowerCase() === code) ||
-        (p.sku && p.sku.trim().toLowerCase() === code) ||
-        ((p as any).barcode2 && (p as any).barcode2.trim().toLowerCase() === code)
-      );
-
-      // 2. Unit barcodes match (e.g. bottle vs box vs carton)
-      if (!product) {
-        for (const p of products) {
-          if (Array.isArray((p as any).unit_barcodes)) {
-            const foundUom = (p as any).unit_barcodes.find((ub: Record<string, any>) => ub.barcode && ub.barcode.trim().toLowerCase() === code);
-            if (foundUom) {
-              product = p;
-              matchedUomInfo = {
-                uom_name: foundUom.uom_name,
-                customPrice: foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : undefined,
-                uom_id: foundUom.uom_id
-              };
-              break;
-            }
-          }
-        }
-      } else if (Array.isArray((product as any).unit_barcodes)) {
-        // If product matched directly, check if it was specifically a unit barcode
-        const foundUom = (product as any).unit_barcodes.find((ub: Record<string, any>) => ub.barcode && ub.barcode.trim().toLowerCase() === code);
-        if (foundUom) {
-          matchedUomInfo = {
-            uom_name: foundUom.uom_name,
-            customPrice: foundUom.price && Number(foundUom.price) > 0 ? Number(foundUom.price) : undefined,
-            uom_id: foundUom.uom_id
-          };
-        }
-      }
+      const { product, matchedUomInfo } = findProductByBarcodeOrUnit(products, rawCode);
 
       if (product) {
-        addProductToInvoice(product, matchedUomInfo); 
-        e.currentTarget.value = ''; 
+        addProductToInvoice(product, matchedUomInfo);
+        e.currentTarget.value = '';
         setProductSearchTerm('');
       } else {
         showToast('المنتج غير موجود أو الباركود غير صحيح', 'error');
@@ -2011,51 +1780,27 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     }
   };
 
-  const handlePrint = () => {
-      const printData = {
-          invoiceNumber: formData.invoiceNumber || 'مسودة',
+  const triggerPrint = (isThermal: boolean) => {
+      setInvoiceToPrint(buildSalesPrintData({
+          invoiceNumber: formData.invoiceNumber,
           date: formData.date,
-          customerName: customers.find(c => c.id === formData.customerId)?.name || 'عميل نقدي',
+          customerId: formData.customerId,
+          customers,
           status: formData.status,
-          subtotal: subtotal,
-          discountAmount: discountAmount,
-          taxAmount: taxAmount,
-          totalAmount: totalAmount,
+          subtotal,
+          discountAmount,
+          taxAmount,
+          totalAmount,
           currency: formData.currency || 'EGP',
-          isThermal: false,
-          items: items.map(item => ({
-              productName: item.productName || item.product_name || products.find(p => p.id === (item.productId || item.product_id))?.name || 'صنف',
-              uomName: uoms.find(u => u.id === (item.uomId || item.uom_id))?.name || '',
-              quantity: Number(item.quantity || 0),
-              unitPrice: Number(item.unitPrice ?? item.unit_price ?? 0),
-              total: Number(item.total ?? (Number(item.quantity || 0) * Number(item.unitPrice ?? item.unit_price ?? 0)))
-          }))
-      };
-      setInvoiceToPrint(printData);
+          isThermal,
+          items,
+          products,
+          uoms,
+      }));
   };
 
-  const handleThermalPrint = () => {
-      const printData = {
-          invoiceNumber: formData.invoiceNumber || 'مسودة',
-          date: formData.date,
-          customerName: customers.find(c => c.id === formData.customerId)?.name || 'عميل نقدي',
-          status: formData.status,
-          subtotal: subtotal,
-          discountAmount: discountAmount,
-          taxAmount: taxAmount,
-          totalAmount: totalAmount,
-          currency: formData.currency || 'EGP',
-          isThermal: true,
-          items: items.map(item => ({
-              productName: item.productName || item.product_name || products.find(p => p.id === (item.productId || item.product_id))?.name || 'صنف',
-              uomName: uoms.find(u => u.id === (item.uomId || item.uom_id))?.name || '',
-              quantity: Number(item.quantity || 0),
-              unitPrice: Number(item.unitPrice ?? item.unit_price ?? 0),
-              total: Number(item.total ?? (Number(item.quantity || 0) * Number(item.unitPrice ?? item.unit_price ?? 0)))
-          }))
-      };
-      setInvoiceToPrint(printData);
-  };
+  const handlePrint = () => triggerPrint(false);
+  const handleThermalPrint = () => triggerPrint(true);
 
   const handleCreateCreditNote = () => {
       navigate('/credit-note', { state: { 
@@ -2069,47 +1814,13 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
     <div className="max-w-7xl mx-auto space-y-6 pb-20 animate-in fade-in duration-500">
       <div className={invoiceToPrint ? 'print:hidden' : ''}>
       
-      {/* تنبيه للعملاء الجدد في حال عدم وجود مستودعات */}
-      {warehouses.length === 0 && (
-        <div className="bg-amber-50 border-2 border-amber-200 p-5 rounded-[2rem] mb-6 flex flex-col md:flex-row items-center justify-between gap-4 animate-in slide-in-from-top-4 shadow-sm">
-          <div className="flex items-center gap-4">
-          <div className="bg-amber-100 p-3 rounded-2xl">
-            <AlertCircle className="text-amber-600" size={28} />
-          </div>
-          <div>
-            <h4 className="font-black text-amber-900 text-lg">تنبيه: لم يتم إعداد المخازن بعد</h4>
-            <p className="text-amber-700 font-medium">يرجى إضافة مستودع واحد على الأقل لتتمكن من إصدار الفواتير بنجاح.</p>
-          </div>
-        </div>
-          <button 
-            onClick={() => navigate('/warehouses')} 
-            className="bg-amber-600 text-white px-6 py-3 rounded-2xl font-black hover:bg-amber-700 transition-all shadow-md flex items-center gap-2 whitespace-nowrap"
-          >
-            <Plus size={20} /> إضافة مستودع الآن
-          </button>
-        </div>
-      )}
-
-      {/* تنبيه للعملاء الجدد في حال عدم وجود خزينة */}
-      {treasuryAccounts.length === 0 && (
-        <div className="bg-blue-50 border-2 border-blue-200 p-5 rounded-[2rem] mb-6 flex flex-col md:flex-row items-center justify-between gap-4 animate-in slide-in-from-top-4 shadow-sm">
-          <div className="flex items-center gap-4">
-            <div className="bg-blue-100 p-3 rounded-2xl">
-              <Wallet className="text-blue-600" size={28} />
-            </div>
-            <div>
-              <h4 className="font-black text-blue-900 text-lg">تنبيه: لم يتم إعداد الخزينة</h4>
-              <p className="text-blue-700 font-medium">يرجى إضافة "خزينة" أو "بنك" واحد على الأقل لتتمكن من تحصيل المبالغ النقدية بنجاح.</p>
-            </div>
-          </div>
-          <button 
-            onClick={() => navigate('/accounts')} 
-            className="bg-blue-600 text-white px-6 py-3 rounded-2xl font-black hover:bg-blue-700 transition-all shadow-md flex items-center gap-2 whitespace-nowrap"
-          >
-            <Plus size={20} /> تهيئة الحسابات
-          </button>
-        </div>
-      )}
+      {/* تنبيهات التهيئة (عدم وجود مستودعات أو خزينة) */}
+      <SalesMissingSetupBanners
+        warehousesCount={warehouses.length}
+        treasuryAccountsCount={treasuryAccounts.length}
+        onNavigateToWarehouses={() => navigate('/warehouses')}
+        onNavigateToAccounts={() => navigate('/accounts')}
+      />
 
       {/* Top Banner, Navigation & Actions Header */}
       <SalesInvoiceActionBar
@@ -2269,23 +1980,11 @@ const SalesInvoiceForm = () => { // Removed unused useParams import
 
 
       {/* Customer Statement Modal */}
-      {isStatementModalOpen && (
-          <div className="fixed inset-0 bg-black/70 z-[70] flex items-center justify-center p-4 backdrop-blur-md">
-              <div className="bg-white rounded-3xl shadow-2xl w-full max-w-5xl h-[90vh] overflow-hidden flex flex-col animate-in zoom-in duration-300">
-                  <div className="bg-slate-50 px-6 py-4 border-b border-slate-100 flex justify-between items-center shrink-0">
-                      <h3 className="font-black text-xl text-slate-800">كشف حساب العميل</h3>
-                      <button onClick={() => setIsStatementModalOpen(false)} className="p-2 hover:bg-red-50 hover:text-red-500 rounded-full transition-colors">
-                        <X size={24} />
-                      </button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
-                      <Suspense fallback={<div className="flex items-center justify-center h-48"><Loader2 className="animate-spin text-blue-600" size={32} /></div>}>
-                          <CustomerStatement initialCustomerId={formData.customerId} />
-                      </Suspense>
-                  </div>
-              </div>
-          </div>
-      )}
+      <SalesCustomerStatementModal
+        isOpen={isStatementModalOpen}
+        customerId={formData.customerId}
+        onClose={() => setIsStatementModalOpen(false)}
+      />
 
       {/* Sales Invoice Excel Importer Modal */}
       <SalesInvoiceExcelImporter
