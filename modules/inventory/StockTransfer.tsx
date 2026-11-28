@@ -15,83 +15,26 @@ import { createStockTransferSchema } from '../../utils/validationSchemas';
 import ProductSearchSelect, { getProductWarehouseStock } from '../../components/ProductSearchSelect';
 import { secureStorage } from '../../utils/securityMiddleware';
 import { getActiveOrgIdSync, resolveActiveOrgId } from '../../services/tenantContext';
+import {
+  PackagingRule,
+  SavedPackagingHierarchy,
+  TransferItem,
+  StockTransferDraftData,
+  DRAFT_STORAGE_KEY,
+  getStockTransferDraft,
+  clearStockTransferDraft,
+  buildAvailablePackagingRules,
+} from './utils/stockTransferPackaging';
+import { StockTransferItemsTable } from './components/StockTransferItemsTable';
+import { StockTransferPackagingModal } from './components/StockTransferPackagingModal';
 
-export interface PackagingRule {
-  unitName: string;
-  ratio: number; // كم وحدة أساسية في هذه العبوة (مثلاً 0.25 كجم للكيس، أو 3 كجم للعلبة، أو 12 كجم للكرتونة)
-  packagingNote?: string;
-  isCustom?: boolean;
-  uomId?: string;
-  tierLevel?: 'base' | 'small' | 'medium' | 'bulk';
-}
-
-export interface SavedPackagingHierarchy {
-  bulkUnitName: string;         // مسمى الطرد الأكبر (مثلاً: كرتونة، شيكارة، صندوق، بالتة...)
-  mediumUnitsPerBulk: number;   // كم عبوة وسيطة بداخل الطرد الأكبر (مثلاً: 3 أو 4 علب)
-  mediumUnitName: string;       // مسمى العبوة الوسيطة (مثلاً: علبة، باكت، جردل، لفة...)
-  smallUnitsPerMedium: number;  // كم وحدة تجزئة بداخل كل عبوة وسيطة (مثلاً: 12 كيس)
-  smallUnitName: string;        // مسمى وحدة التجزئة والسحب الصغرى (مثلاً: كيس، باكو، زجاجة، قطعة...)
-  baseQtyPerSmallUnit: number;  // وزن أو سعة وحدة التجزئة الصغرى بالوحدة المعيارية (مثلاً: 0.25 كجم أو 1 قطعة)
-}
-
-export interface TransferItem {
-  productId: string;
-  productName: string;
-  sku?: string;
-  baseUnit: string;        // الوحدة الأساسية للصنف في المخزن (مثل: كجم أو لتر أو قطعة)
-  baseQuantity: number;    // الكمية الفعلية بالوحدة الأساسية (المخصومة والمرحلة للمخزن)
-  selectedUnit: string;    // وحدة الصرف/السحب (مثل: كيس، باكو، علبة، كرتونة، شيكارة، زجاجة...)
-  enteredQty: number;      // الكمية بتلك الوحدة (مثل: 8 أكياس، 1 علبة، 2 كرتونة)
-  conversionRatio: number; // معامل التحويل: 1 وحدة مسحوبة = X وحدة أساسية
-  packagingNote?: string;  // ملاحظة التعبئة والتجزئة التوضيحية
-  uomId?: string;
-  unit?: string;           // للتوافق مع العرض القديم
-  quantity: number;        // للتوافق مع المخططات والحفظ (= baseQuantity)
-}
-
-const DRAFT_STORAGE_KEY = 'tripro_stock_transfer_draft_v2';
-const LEGACY_DRAFT_STORAGE_KEY = 'tripro_stock_transfer_draft';
-
-export interface StockTransferDraftData {
-  formData?: {
-    date?: string;
-    fromWarehouseId?: string;
-    toWarehouseId?: string;
-    notes?: string;
-  };
-  items?: TransferItem[];
-}
-
-export const getStockTransferDraft = (): StockTransferDraftData | null => {
-  try {
-    let raw = secureStorage.getItem<any>(DRAFT_STORAGE_KEY);
-    if (!raw) {
-      raw = secureStorage.getItem<any>(LEGACY_DRAFT_STORAGE_KEY);
-    }
-    if (!raw) return null;
-    while (typeof raw === 'string') {
-      try {
-        raw = JSON.parse(raw);
-      } catch {
-        break;
-      }
-    }
-    if (raw && typeof raw === 'object') {
-      return raw as StockTransferDraftData;
-    }
-    return null;
-  } catch (err) {
-    logger.warn('Failed to parse stock transfer draft', err);
-    return null;
-  }
+export type {
+  PackagingRule,
+  SavedPackagingHierarchy,
+  TransferItem,
+  StockTransferDraftData,
 };
-
-export const clearStockTransferDraft = () => {
-  try {
-    secureStorage.removeItem(DRAFT_STORAGE_KEY);
-    secureStorage.removeItem(LEGACY_DRAFT_STORAGE_KEY);
-  } catch {}
-};
+export { getStockTransferDraft, clearStockTransferDraft };
 
 const StockTransfer = () => {
   const location = useLocation();
@@ -368,115 +311,10 @@ const StockTransfer = () => {
   }, [selectedProductObj, systemUoms]);
 
   // استخراج قائمة وحدات وعبوات الصنف المختار (شجرة التعبئة المحفوظة + العبوات الفردية + النظام + الأساسية)
-  const availablePackagingRules = useMemo<PackagingRule[]>(() => {
-    const base = baseUnitOfSelectedProduct;
-    const rules: PackagingRule[] = [
-      {
-        unitName: base,
-        ratio: 1,
-        packagingNote: 'الوحدة الأساسية للمخزن',
-        tierLevel: 'base'
-      }
-    ];
-
-    if (!selectedProductObj) return rules;
-
-    // 1. استرجاع شجرة العبوات الهرمية المحفوظة للصنف (إن وجدت)
-    try {
-      const savedHierarchy = secureStorage.getItem<SavedPackagingHierarchy>(`tripro_pkg_hierarchy_${selectedProductObj.id}`);
-      if (savedHierarchy) {
-        const smallRatio = Number(savedHierarchy.baseQtyPerSmallUnit) || 1;
-        const mediumRatio = (Number(savedHierarchy.smallUnitsPerMedium) || 1) * smallRatio;
-        const bulkRatio = (Number(savedHierarchy.mediumUnitsPerBulk) || 1) * mediumRatio;
-        const totalSmallInBulk = (Number(savedHierarchy.mediumUnitsPerBulk) || 1) * (Number(savedHierarchy.smallUnitsPerMedium) || 1);
-
-        if (savedHierarchy.smallUnitName && smallRatio > 0) {
-          rules.push({
-            unitName: savedHierarchy.smallUnitName,
-            ratio: smallRatio,
-            packagingNote: `1 ${savedHierarchy.smallUnitName} = ${smallRatio} ${base}`,
-            tierLevel: 'small'
-          });
-        }
-
-        if (savedHierarchy.mediumUnitName && mediumRatio > 0 && savedHierarchy.mediumUnitName !== savedHierarchy.smallUnitName) {
-          rules.push({
-            unitName: savedHierarchy.mediumUnitName,
-            ratio: mediumRatio,
-            packagingNote: `1 ${savedHierarchy.mediumUnitName} = ${savedHierarchy.smallUnitsPerMedium} ${savedHierarchy.smallUnitName} (${mediumRatio} ${base})`,
-            tierLevel: 'medium'
-          });
-        }
-
-        if (savedHierarchy.bulkUnitName && bulkRatio > 0 && savedHierarchy.bulkUnitName !== savedHierarchy.mediumUnitName) {
-          rules.push({
-            unitName: savedHierarchy.bulkUnitName,
-            ratio: bulkRatio,
-            packagingNote: `1 ${savedHierarchy.bulkUnitName} = ${savedHierarchy.mediumUnitsPerBulk} ${savedHierarchy.mediumUnitName} / ${totalSmallInBulk} ${savedHierarchy.smallUnitName} (${bulkRatio} ${base})`,
-            tierLevel: 'bulk'
-          });
-        }
-      }
-
-      // 2. استرجاع العبوات المباشرة الفردية المحفوظة للصنف
-      const savedRules = secureStorage.getItem<PackagingRule[]>(`tripro_pkg_rules_${selectedProductObj.id}`);
-      if (savedRules && Array.isArray(savedRules)) {
-        savedRules.forEach(r => {
-          if (!rules.some(x => x.unitName === r.unitName)) {
-            rules.push(r);
-          }
-        });
-      }
-    } catch (e) {
-      logger.error(e);
-    }
-
-    // 3. فحص باركودات الوحدات unit_barcodes
-    if (selectedProductObj.unit_barcodes && Array.isArray(selectedProductObj.unit_barcodes)) {
-      selectedProductObj.unit_barcodes.forEach((ub: Record<string, any>) => {
-        const uName = ub.uom_name?.trim();
-        if (uName && !rules.some(r => r.unitName === uName)) {
-          let ratio = 1;
-          if (ub.uom_id && systemUoms.length > 0) {
-            const sys = systemUoms.find(s => s.id === ub.uom_id);
-            if (sys) {
-              ratio = Number(sys.ratio) || 1;
-              if (sys.uom_type === 'smaller' && ratio > 0) ratio = 1 / ratio;
-            }
-          }
-          rules.push({
-            unitName: uName,
-            ratio,
-            uomId: ub.uom_id,
-            packagingNote: `باركود خاص (${ub.barcode})`
-          });
-        }
-      });
-    }
-
-    // 4. إدراج وحدات النظام العامة المتوافقة
-    const isWeight = /كجم|كيلو|kg|جرام|جم|gram/i.test(base);
-    const isCount = /قطعة|عدد|حبة|piece|unit/i.test(base);
-    const isVolume = /لتر|مل|liter|ml/i.test(base);
-
-    systemUoms.forEach(u => {
-      let ratio = Number(u.ratio) || 1;
-      if (u.uom_type === 'smaller' && ratio > 0) {
-        ratio = 1 / ratio;
-      }
-      if (!rules.some(r => r.unitName === u.name)) {
-        if (isWeight && /كجم|كيلو|جرام|شيكارة|صفيحة|كيس|علبه|علبة|قالب|لفه|باكو/i.test(u.name)) {
-          rules.push({ unitName: u.name, ratio, uomId: u.id, packagingNote: `${u.name} (${ratio} ${base})` });
-        } else if (isCount && /قطعة|دستة|كرتون|صندوق|علبة|باكت/i.test(u.name)) {
-          rules.push({ unitName: u.name, ratio, uomId: u.id, packagingNote: `${u.name} (${ratio} ${base})` });
-        } else if (isVolume && /لتر|مل|جالون|برميل|زجاجة/i.test(u.name)) {
-          rules.push({ unitName: u.name, ratio, uomId: u.id, packagingNote: `${u.name} (${ratio} ${base})` });
-        }
-      }
-    });
-
-    return rules;
-  }, [selectedProductObj, baseUnitOfSelectedProduct, systemUoms]);
+  const availablePackagingRules = useMemo<PackagingRule[]>(
+    () => buildAvailablePackagingRules(selectedProductObj, baseUnitOfSelectedProduct, systemUoms),
+    [selectedProductObj, baseUnitOfSelectedProduct, systemUoms]
+  );
 
   // تحديث الوحدة الافتراضية عند تغيير الصنف المختار
   useEffect(() => {
@@ -1469,188 +1307,16 @@ const StockTransfer = () => {
           )}
 
           {/* جدول بنود التحويل */}
-          {items.length === 0 ? (
-            <div className="text-center py-10 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/50">
-              <Package size={40} className="mx-auto text-slate-300 mb-2" />
-              <p className="text-sm font-bold text-slate-600">لم يتم إضافة أي أصناف للتحويل حتى الآن</p>
-              <p className="text-xs text-slate-400 mt-1">اختر المستودع المصدر ثم استخدم البحث السريع أو مسدس الباركود لسحب الأصناف بأي وحدة مطلوبة</p>
-            </div>
-          ) : (
-            <div className="border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full text-right text-xs">
-                  <thead className="bg-slate-100 text-slate-700 font-black border-b">
-                    <tr>
-                      <th className="p-3 w-10 text-center">#</th>
-                      <th className="p-3">الصنف والكود</th>
-                      <th className="p-3 w-44 text-center">الكمية المسحوبة والوحدة</th>
-                      <th className="p-3 w-40 text-center">معامل التعبئة والتجزئة</th>
-                      <th className="p-3 w-32 text-center">المعادل بالمخزن</th>
-                      <th className="p-3 w-36 text-center">رصيد المصدر</th>
-                      <th className="p-3 w-28 text-center">حالة الرصيد</th>
-                      <th className="p-3 w-12 text-center">حذف</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {items.map((item, idx) => {
-                      const prod = products.find(p => p.id === item.productId);
-                      const sourceStock = getProductWarehouseStock(prod, formData.fromWarehouseId);
-                      const isOverStock = item.baseQuantity > sourceStock;
-                      const hasConversion = item.conversionRatio !== 1;
-                      const stockInSelectedUnit = item.conversionRatio > 0 ? (sourceStock / item.conversionRatio).toFixed(1) : '-';
-
-                      return (
-                        <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="p-3 text-center font-bold text-slate-400">
-                            {idx + 1}
-                          </td>
-
-                          <td className="p-3">
-                            <div className="font-bold text-slate-800 text-sm">{item.productName}</div>
-                            {item.sku && (
-                              <div className="font-mono text-[10px] text-slate-400 mt-0.5">
-                                كود: {item.sku}
-                              </div>
-                            )}
-                          </td>
-
-                          {/* الكمية بالوحدة المسحوبة مع أزرار التحكم السريع */}
-                          <td className="p-3 text-center">
-                            <div className="inline-flex items-center gap-1 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-                              <button
-                                type="button"
-                                onClick={() => handleStepQuantity(idx, -1)}
-                                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 transition-colors"
-                                title="إنقاص وحدة"
-                              >
-                                <Minus size={13} />
-                              </button>
-
-                              <input
-                                type="number"
-                                min="0.001"
-                                step="any"
-                                value={item.enteredQty}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') e.preventDefault();
-                                }}
-                                onChange={e => handleUpdateEnteredQty(idx, parseFloat(e.target.value) || 0)}
-                                className="w-16 text-center text-sm font-black text-slate-800 focus:outline-none"
-                              />
-
-                              <span className="text-[11px] font-bold text-slate-600 pl-1 pr-0.5">
-                                {item.selectedUnit}
-                              </span>
-
-                              <button
-                                type="button"
-                                onClick={() => handleStepQuantity(idx, 1)}
-                                className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-600 transition-colors"
-                                title="زيادة وحدة"
-                              >
-                                <Plus size={13} />
-                              </button>
-                            </div>
-                          </td>
-
-                          {/* بيان العبوة ومعامل التحويل */}
-                          <td className="p-3 text-center">
-                            {hasConversion ? (
-                              <div className="inline-flex flex-col items-center">
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-indigo-50 text-indigo-700 border border-indigo-100">
-                                  <Box size={12} />
-                                  <span>1 {item.selectedUnit} = {item.conversionRatio} {item.baseUnit}</span>
-                                </span>
-                                {item.packagingNote && (
-                                  <span className="text-[10px] text-slate-400 mt-0.5 line-clamp-1 max-w-[140px]" title={item.packagingNote}>
-                                    {item.packagingNote}
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-slate-400 text-[11px]">
-                                وحدة أساسية (1:1)
-                              </span>
-                            )}
-                          </td>
-
-                          {/* المعادل بالمخزن بالوحدة الأساسية */}
-                          <td className="p-3 text-center">
-                            <span className="inline-block px-2.5 py-1 rounded-lg font-black text-blue-700 bg-blue-50 border border-blue-100 text-xs">
-                              {item.baseQuantity.toFixed(2)} {item.baseUnit}
-                            </span>
-                          </td>
-
-                          {/* رصيد المصدر بالوحدتين */}
-                          <td className="p-3 text-center">
-                            <div>
-                              <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold ${
-                                sourceStock > 0 
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
-                                  : 'bg-rose-50 text-rose-700 border border-rose-100'
-                              }`}>
-                                {sourceStock} {item.baseUnit}
-                              </span>
-                              {hasConversion && sourceStock > 0 && (
-                                <div className="text-[10px] text-slate-400 mt-0.5">
-                                  (~ {stockInSelectedUnit} {item.selectedUnit})
-                                </div>
-                              )}
-                            </div>
-                          </td>
-
-                          {/* حالة الرصيد */}
-                          <td className="p-3 text-center">
-                            {isOverStock ? (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-rose-600 bg-rose-50 px-2 py-1 rounded-lg border border-rose-200">
-                                <AlertTriangle size={12} /> عجز: {(item.baseQuantity - sourceStock).toFixed(2)}
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-600 bg-emerald-50 px-2 py-1 rounded-lg border border-emerald-200">
-                                <CheckCircle2 size={12} /> رصيد كافٍ
-                              </span>
-                            )}
-                          </td>
-
-                          {/* حذف البند */}
-                          <td className="p-3 text-center">
-                            <button 
-                              type="button" 
-                              onClick={() => handleRemoveItem(idx)} 
-                              className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-2 rounded-xl transition-all"
-                              title="حذف البند"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* شريط إحصائيات الجدول */}
-              <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-3 text-xs">
-                <div className="flex items-center gap-6">
-                  <div>
-                    <span className="text-slate-500">عدد الأصناف: </span>
-                    <span className="font-black text-slate-800 text-sm">{items.length} صنف</span>
-                  </div>
-                  <div>
-                    <span className="text-slate-500">إجمالي الكميات (بالمخزن): </span>
-                    <span className="font-black text-blue-700 text-sm">{totalBaseQuantity.toFixed(2)}</span>
-                  </div>
-                </div>
-
-                {overStockCount > 0 && (
-                  <div className="flex items-center gap-1.5 text-amber-700 bg-amber-50 px-3 py-1.5 rounded-xl border border-amber-200 font-bold text-[11px]">
-                    <AlertTriangle size={14} /> يوجد ({overStockCount}) صنف كميتها تتجاوز الرصيد الحالي بالمستودع المصدر
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
+          <StockTransferItemsTable
+            items={items}
+            products={products}
+            fromWarehouseId={formData.fromWarehouseId}
+            totalBaseQuantity={totalBaseQuantity}
+            overStockCount={overStockCount}
+            onStepQuantity={handleStepQuantity}
+            onUpdateEnteredQty={handleUpdateEnteredQty}
+            onRemoveItem={handleRemoveItem}
+          />
         </div>
 
         {/* حقل الملاحظات وزر الترحيل */}
@@ -1716,343 +1382,37 @@ const StockTransfer = () => {
       </form>
 
       {/* 🧮 نافذة منبثقة: إعداد وتخصيص شجرة عبوات وتجزئة الصنف (Universal Packaging Hierarchy Modal) */}
-      {isPackagingModalOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-xl w-full overflow-hidden space-y-0">
-            {/* رأس النافذة */}
-            <div className="p-5 bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-700 text-white flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-white/10 rounded-xl">
-                  <Layers size={22} />
-                </div>
-                <div>
-                  <h3 className="font-black text-base">إعداد شجرة العبوات والتجزئة والسحب</h3>
-                  <p className="text-xs text-blue-100">
-                    الصنف: <strong className="text-white">{selectedProductObj?.name || 'صنف'}</strong> | الوحدة المعيارية للمخزن: ({baseUnitOfSelectedProduct})
-                  </p>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsPackagingModalOpen(false)}
-                className="p-1.5 rounded-full hover:bg-white/20 text-white transition-colors"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* محتوى النافذة */}
-            <div className="p-6 space-y-5 max-h-[80vh] overflow-y-auto custom-scrollbar">
-              {/* التبديل بين النمط الهرمي متعدد المستويات والنمط الفردي المباشر */}
-              <div className="grid grid-cols-2 p-1 bg-slate-100 rounded-xl text-xs font-bold">
-                <button
-                  type="button"
-                  onClick={() => setCalcMode('hierarchy')}
-                  className={`py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-                    calcMode === 'hierarchy' ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Layers size={14} /> طرد مركب (كرتونة ← علب ← أكياس...)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCalcMode('single')}
-                  className={`py-2 px-3 rounded-lg flex items-center justify-center gap-1.5 transition-all ${
-                    calcMode === 'single' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Box size={14} /> عبوة مباشرة (شيكارة / صفيحة / زجاجة...)
-                </button>
-              </div>
-
-              {/* ------------------------------------------------------------- */}
-              {/* النمط 1: شجرة تعبئة وتجزئة هرمية متعددة المستويات */}
-              {/* ------------------------------------------------------------- */}
-              {calcMode === 'hierarchy' ? (
-                <div className="space-y-4">
-                  <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-3">
-                    <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                      <Box size={14} className="text-indigo-600" />
-                      المستوى 1: الطرد الأكبر (وحدة الشراء الكبرى)
-                    </span>
-                    <div>
-                      <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                        اسم الطرد الكبير (مثال: كرتونة، شيكارة، صندوق، بالتة...)
-                      </label>
-                      <input
-                        type="text"
-                        value={bulkUnitName}
-                        onChange={e => setBulkUnitName(e.target.value)}
-                        placeholder="اكتب اسم الطرد (مثلاً: كرتونة)"
-                        className="w-full border border-slate-200 focus:border-indigo-500 rounded-xl p-2.5 text-xs bg-white outline-none font-bold"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-3">
-                    <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                      <Layers size={14} className="text-indigo-600" />
-                      المستوى 2: العبوة الوسيطة (العبوات الداخلية بالطرد)
-                    </span>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                          اسم العبوة الوسيطة (مثال: علبة، باكت، جردل، لفة...)
-                        </label>
-                        <input
-                          type="text"
-                          value={mediumUnitName}
-                          onChange={e => setMediumUnitName(e.target.value)}
-                          placeholder="اكتب اسم العبوة (مثلاً: علبة)"
-                          className="w-full border border-slate-200 focus:border-indigo-500 rounded-xl p-2.5 text-xs bg-white outline-none font-bold"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                          كم {mediumUnitName || 'عبوة'} بداخل كل {bulkUnitName || 'طرد'}؟
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={mediumUnitsPerBulk}
-                          onChange={e => setMediumUnitsPerBulk(parseInt(e.target.value) || 1)}
-                          placeholder="مثلاً: 4"
-                          className="w-full border border-slate-200 focus:border-indigo-500 rounded-xl p-2.5 text-center text-xs bg-white outline-none font-black"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 space-y-3">
-                    <span className="text-xs font-black text-slate-800 flex items-center gap-1.5">
-                      <CornerDownLeft size={14} className="text-indigo-600" />
-                      المستوى 3: وحدة التجزئة الصغرى (وحدة السحب الدقيق للشيف)
-                    </span>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div className="col-span-1">
-                        <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                          اسم الوحدة الصغرى
-                        </label>
-                        <input
-                          type="text"
-                          value={smallUnitName}
-                          onChange={e => setSmallUnitName(e.target.value)}
-                          placeholder="مثلاً: كيس أو باكو"
-                          className="w-full border border-slate-200 focus:border-indigo-500 rounded-xl p-2.5 text-xs bg-white outline-none font-bold"
-                        />
-                      </div>
-                      <div className="col-span-1">
-                        <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                          كم {smallUnitName || 'وحدة'} بالـ {mediumUnitName || 'عبوة'}؟
-                        </label>
-                        <input
-                          type="number"
-                          min="1"
-                          value={smallUnitsPerMedium}
-                          onChange={e => setSmallUnitsPerMedium(parseInt(e.target.value) || 1)}
-                          placeholder="مثلاً: 12"
-                          className="w-full border border-slate-200 focus:border-indigo-500 rounded-xl p-2.5 text-center text-xs bg-white outline-none font-black"
-                        />
-                      </div>
-                      <div className="col-span-1">
-                        <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                          سعة الـ {smallUnitName || 'وحدة'} ({baseUnitOfSelectedProduct})
-                        </label>
-                        <input
-                          type="number"
-                          min="0.0001"
-                          step="any"
-                          value={baseQtyPerSmallUnit}
-                          onChange={e => setBaseQtyPerSmallUnit(parseFloat(e.target.value) || 0)}
-                          placeholder="مثلاً: 0.25"
-                          className="w-full border border-slate-200 focus:border-indigo-500 rounded-xl p-2.5 text-center text-xs bg-white outline-none font-black"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* المعاينة الحية لشجرة التعبئة */}
-                  {smallUnitName && (
-                    <div className="p-4 bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-200 rounded-2xl space-y-2 text-xs">
-                      <span className="font-black text-indigo-900 block flex items-center gap-1.5">
-                        <Sparkles size={14} className="text-indigo-600" />
-                        المعاينة الحية لهيكل تعبئة الصنف:
-                      </span>
-                      <div className="space-y-1 text-slate-700 font-bold pr-2">
-                        {bulkUnitName && (
-                          <div className="flex items-center gap-1 text-indigo-950 font-black">
-                            <span>📦 1 {bulkUnitName}</span>
-                            <span>= {mediumUnitsPerBulk} {mediumUnitName || 'عبوة'}</span>
-                            <span>= {mediumUnitsPerBulk * smallUnitsPerMedium} {smallUnitName}</span>
-                            <span className="text-purple-700">(= {(mediumUnitsPerBulk * smallUnitsPerMedium * baseQtyPerSmallUnit).toFixed(2)} {baseUnitOfSelectedProduct})</span>
-                          </div>
-                        )}
-                        {mediumUnitName && (
-                          <div className="flex items-center gap-1 text-slate-800">
-                            <span>🔹 1 {mediumUnitName}</span>
-                            <span>= {smallUnitsPerMedium} {smallUnitName}</span>
-                            <span className="text-purple-700">(= {(smallUnitsPerMedium * baseQtyPerSmallUnit).toFixed(2)} {baseUnitOfSelectedProduct})</span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-1 text-slate-800">
-                          <span>🔸 1 {smallUnitName}</span>
-                          <span className="text-purple-700">= {baseQtyPerSmallUnit} {baseUnitOfSelectedProduct}</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* اختيار وحدة وكمية السحب الآن في هذا التحويل */}
-                  <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl space-y-3">
-                    <span className="text-xs font-black text-slate-800 block">
-                      ما الذي يريد الشيف / المطبخ سحبه الآن في هذا التحويل؟
-                    </span>
-                    <div className="grid grid-cols-3 gap-2 text-xs font-bold">
-                      <button
-                        type="button"
-                        onClick={() => setTargetWithdrawalTier('small')}
-                        className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all ${
-                          targetWithdrawalTier === 'small' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                        }`}
-                      >
-                        <span className="text-[10px] opacity-80">سحب بالتجزئة</span>
-                        <span>{smallUnitName || 'وحدة صغرى'}</span>
-                      </button>
-
-                      {mediumUnitName && (
-                        <button
-                          type="button"
-                          onClick={() => setTargetWithdrawalTier('medium')}
-                          className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all ${
-                            targetWithdrawalTier === 'medium' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span className="text-[10px] opacity-80">سحب بالعبوة</span>
-                          <span>{mediumUnitName}</span>
-                        </button>
-                      )}
-
-                      {bulkUnitName && (
-                        <button
-                          type="button"
-                          onClick={() => setTargetWithdrawalTier('bulk')}
-                          className={`p-2.5 rounded-xl border flex flex-col items-center justify-center gap-1 transition-all ${
-                            targetWithdrawalTier === 'bulk' ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span className="text-[10px] opacity-80">سحب بالطرد الأكبر</span>
-                          <span>{bulkUnitName}</span>
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-3 pt-2">
-                      <label className="text-xs font-bold text-slate-700 shrink-0">
-                        الكمية المسحوبة:
-                      </label>
-                      <input
-                        type="number"
-                        min="0.1"
-                        step="any"
-                        value={withdrawalQty}
-                        onChange={e => setWithdrawalQty(parseFloat(e.target.value) || 0)}
-                        placeholder="مثلاً: 8"
-                        className="w-28 border border-slate-200 focus:border-indigo-500 rounded-xl p-2 text-center text-sm bg-white outline-none font-black"
-                      />
-                      <span className="text-xs font-bold text-slate-600">
-                        {targetWithdrawalTier === 'small' ? smallUnitName : targetWithdrawalTier === 'medium' ? mediumUnitName : bulkUnitName}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                /* ------------------------------------------------------------- */
-                /* النمط 2: عبوة مباشرة بسيطة (شيكارة / صفيحة / زجاجة / برطمان...) */
-                /* ------------------------------------------------------------- */
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                      اسم العبوة (مثال: شيكارة، صفيحة، كيس، زجاجة، برطمان، قالب، برميل...)
-                    </label>
-                    <input
-                      type="text"
-                      value={singleUnitName}
-                      onChange={e => setSingleUnitName(e.target.value)}
-                      placeholder="اكتب اسم العبوة بحرية..."
-                      className="w-full border border-slate-200 focus:border-blue-500 rounded-xl p-2.5 text-xs bg-slate-50 focus:bg-white outline-none font-bold"
-                    />
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        سعة/وزن العبوة الواحدة ({baseUnitOfSelectedProduct})
-                      </label>
-                      <input
-                        type="number"
-                        min="0.001"
-                        step="any"
-                        value={singleUnitCapacity}
-                        onChange={e => setSingleUnitCapacity(parseFloat(e.target.value) || 0)}
-                        placeholder="مثلاً: 25 أو 50 أو 1"
-                        className="w-full border border-slate-200 focus:border-blue-500 rounded-xl p-2.5 text-center text-sm font-black bg-white outline-none"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1">
-                        عدد العبوات المطلوب سحبها
-                      </label>
-                      <input
-                        type="number"
-                        min="0.1"
-                        step="any"
-                        value={singleWithdrawalQty}
-                        onChange={e => setSingleWithdrawalQty(parseFloat(e.target.value) || 0)}
-                        placeholder="مثلاً: 1"
-                        className="w-full border border-slate-200 focus:border-blue-500 rounded-xl p-2.5 text-center text-sm font-black bg-white outline-none"
-                      />
-                    </div>
-                  </div>
-
-                  {/* بطاقة النتيجة الحية للمباشر */}
-                  {singleUnitName && (
-                    <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl text-center space-y-1">
-                      <span className="text-xs text-emerald-700 font-bold block">إجمالي المعادل بالمخزن:</span>
-                      <div className="text-2xl font-black text-emerald-900">
-                        {((Number(singleWithdrawalQty) || 0) * (Number(singleUnitCapacity) || 0)).toFixed(2)} {baseUnitOfSelectedProduct}
-                      </div>
-                      <div className="text-xs text-emerald-800 font-medium">
-                        ({singleWithdrawalQty} {singleUnitName} × {singleUnitCapacity} {baseUnitOfSelectedProduct})
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* أزرار الإجراء */}
-              <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => handleSaveAndApplyPackaging(false)}
-                  className="py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-indigo-500/20 transition-all"
-                >
-                  <Check size={16} /> حفظ الهيكل وتطبيق السحب
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleSaveAndApplyPackaging(true)}
-                  className="py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 shadow-md shadow-emerald-500/20 transition-all"
-                >
-                  <Plus size={16} /> حفظ وإضافة للجدول مباشرة
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <StockTransferPackagingModal
+        isOpen={isPackagingModalOpen}
+        onClose={() => setIsPackagingModalOpen(false)}
+        selectedProductName={selectedProductObj?.name || 'صنف'}
+        baseUnitOfSelectedProduct={baseUnitOfSelectedProduct}
+        calcMode={calcMode}
+        setCalcMode={setCalcMode}
+        bulkUnitName={bulkUnitName}
+        setBulkUnitName={setBulkUnitName}
+        mediumUnitsPerBulk={mediumUnitsPerBulk}
+        setMediumUnitsPerBulk={setMediumUnitsPerBulk}
+        mediumUnitName={mediumUnitName}
+        setMediumUnitName={setMediumUnitName}
+        smallUnitsPerMedium={smallUnitsPerMedium}
+        setSmallUnitsPerMedium={setSmallUnitsPerMedium}
+        smallUnitName={smallUnitName}
+        setSmallUnitName={setSmallUnitName}
+        baseQtyPerSmallUnit={baseQtyPerSmallUnit}
+        setBaseQtyPerSmallUnit={setBaseQtyPerSmallUnit}
+        targetWithdrawalTier={targetWithdrawalTier}
+        setTargetWithdrawalTier={setTargetWithdrawalTier}
+        withdrawalQty={withdrawalQty}
+        setWithdrawalQty={setWithdrawalQty}
+        singleUnitName={singleUnitName}
+        setSingleUnitName={setSingleUnitName}
+        singleUnitCapacity={singleUnitCapacity}
+        setSingleUnitCapacity={setSingleUnitCapacity}
+        singleWithdrawalQty={singleWithdrawalQty}
+        setSingleWithdrawalQty={setSingleWithdrawalQty}
+        onSaveAndApply={handleSaveAndApplyPackaging}
+      />
     </div>
   );
 };

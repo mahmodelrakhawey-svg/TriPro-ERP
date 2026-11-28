@@ -110,4 +110,41 @@ describe('🚚 StockTransfer — Warehouse Guards & Drafts', () => {
     clearStockTransferDraft();
     expect(getStockTransferDraft()).toBeNull();
   });
+
+  it('يعرض جدول الأصناف المسترجعة ويحسب العجز وإجمالي الكمية الأساسية ويفتح حاسبة التعبئة', () => {
+    storageMap.set('tripro_stock_transfer_draft_v2', {
+      formData: {
+        fromWarehouseId: TEST_WAREHOUSE_ID,
+        toWarehouseId: TEST_WAREHOUSE_2_ID,
+        date: '2026-11-28',
+        notes: 'تحويل مختلط',
+      },
+      items: [
+        {
+          productId: 'p-1',
+          productName: 'سكر أبيض',
+          sku: 'SUG-1',
+          baseUnit: 'كجم',
+          baseQuantity: 60, // يتجاوز الرصيد المتاح (50) -> عجز 10
+          selectedUnit: 'شيكارة',
+          enteredQty: 2,
+          conversionRatio: 30,
+          packagingNote: '1 شيكارة = 30 كجم',
+          quantity: 60,
+        },
+      ],
+    });
+
+    const { getByText, getAllByText, queryByText } = render(
+      <MemoryRouter>
+        <StockTransfer />
+      </MemoryRouter>
+    );
+
+    expect(getByText('سكر أبيض')).toBeTruthy();
+    expect(getAllByText(/1 شيكارة = 30 كجم/).length).toBeGreaterThan(0);
+    expect(getByText(/عجز: 10\.00/)).toBeTruthy();
+    expect(getByText(/60\.00 كجم/)).toBeTruthy();
+    expect(queryByText('إعداد شجرة العبوات والتجزئة والسحب')).toBeNull();
+  });
 });
